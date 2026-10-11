@@ -626,7 +626,7 @@ fn draw_node(
 const CATEGORY_COLOURS: [(&str, [u8; 3]); 7] = [
     // The pastel palette at 80%, one colour per category.
     ("Create",     [0xAE, 0xC0, 0x96]),   // light green   (#DAF0BB)
-    ("Modify",     [0x48, 0x5A, 0x2E]),   // olive         (#5A703A)
+    ("Modify",     [0x96, 0xA2, 0xC0]),   // light blue    (#BCCAF0)
     ("UV",         [0xC0, 0xB2, 0x88]),   // sand          (#F0DEAA)
     ("File",       [0xC0, 0x9E, 0x96]),   // salmon        (#F0C5BB)
     ("Primitives", [0x55, 0x5F, 0x7C]),   // slate blue    (#6A779B)
@@ -634,10 +634,19 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 7] = [
     ("Mocap",      [0xAB, 0x98, 0xBA]),   // mauve         (#D6BEE8)
 ];
 
+/// The ICE node's own colour, whatever its category: the teal of
+/// Softimage's ICETree, at the same 80% as the palette.
+const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B];   // teal          (#70BA9A)
+
 /// A node's body colour, and the text colours that read on it: black on
-/// the light colours, white on the dark ones. Nodes in no category (Output)
-/// keep the theme's node grey.
+/// the light colours, white on the dark ones. The ICE node has its own
+/// colour; nodes in no category (Output) keep the theme's node grey.
 fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
+    // The ICE node stands apart from its category.
+    if matches!(t, NodeType::Subnet { .. }) {
+        let [r, g, b] = ICE_NODE_COLOUR;
+        return colours_on(r, g, b);
+    }
     use std::sync::OnceLock;
     type Table = Vec<(std::mem::Discriminant<NodeType>, [u8; 3])>;
     static TABLE: OnceLock<Table> = OnceLock::new();
@@ -650,6 +659,11 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     let Some(&(_, [r, g, b])) = table.iter().find(|(d, _)| *d == std::mem::discriminant(t)) else {
         return (xsi::NODE_BODY(), xsi::TEXT(), xsi::TEXT_DIM());
     };
+    colours_on(r, g, b)
+}
+
+/// A body colour and the text colours that read on it.
+fn colours_on(r: u8, g: u8, b: u8) -> (egui::Color32, egui::Color32, egui::Color32) {
     let light = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32 > 125.0;
     let (ink, dim) = if light {
         (egui::Color32::from_rgb(15, 15, 15), egui::Color32::from_rgb(70, 70, 70))
