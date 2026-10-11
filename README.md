@@ -10,9 +10,6 @@ Created by [Martino Madeddu](https://github.com/MartinoMadeddu). Additional deve
 
 [![The website](docs/xms_site.png)](https://martinomadeddu.github.io/xms-imago/)
 
-## About
-
-A work in progress, started as a way of learning Rust. Big chunks of the project, sometimes entire modules, were written with AI and will be replaced moving forward.
 
 ## Everything stays live
 
@@ -50,7 +47,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Composed stages:** sublayers, references, payloads, inherits, specializes and variants, in text and binary files, resolved as usdview would
 - **Packed primitives:** one piece per mesh, curves or points prim, in its own space with every primvar, placed by its transform and passed along without copying
 - **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the viewport draws thousands of copies in one call
-- **Light by default:** the Scene Explorer drives the viewport, as in Gaffer. Closed prims are boxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
+- **Light by default:** the Scene Explorer drives the viewport with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
 - **Pick, then edit:** Pick Primitives chooses pieces by path pattern. Transform, Edit Poly, the UV nodes and ICE then work on those, each piece staying itself, and pass the rest through
 - **Write it back:** Write USD saves what the network changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
 - **Materials and textures in the viewport**, straight from the `.usdz`
@@ -187,8 +184,6 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 
 ## Credit
 
-XMS was created by [Martino Madeddu](https://github.com/MartinoMadeddu): the node graph, the viewport, the ICE subnets, the USD loader and composed stages, GPU instancing and the look of the interface.
+XMS|Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu): the node graph, the viewport, the ICE subnets, the USD loader and composed stages, GPU instancing and the look of the interface.
 
 Additional development by [Simon Legrand](https://github.com/srlegrand): polygon modelling, UV, USD at production size, motion capture, Body Collide, the dockable interface and the website.
-
-![The first XMS interface](https://github.com/user-attachments/assets/33300420-038c-4770-bd21-e664a7c00303)
