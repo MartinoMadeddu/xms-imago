@@ -68,7 +68,7 @@ Native instances and point instancers keep their instancing. The geometry of a p
 
 The Scene Explorer lists a stage as its hierarchy: groups, meshes, curves, points, materials, cameras, lights and skeletons, each with its icon. Pruned primitives leave the list, and so do groups left empty.
 
-What is drawn follows the explorer, as in Gaffer:
+What is drawn follows the explorer:
 
 - A closed prim is drawn as the box around everything below it. The island first shows as one box per root prim.
 - An open prim hands the decision to its children.
