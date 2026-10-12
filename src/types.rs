@@ -140,6 +140,11 @@ pub enum NodeType {
     /// The Body Collide node's human pass on its own: the first input put
     /// back within human limits against the second (the clip before it was moved).
     HumanLimits  { limits: crate::core::human_ik::Limits },
+    /// A node that does not exist yet: named inputs and outputs, each input
+    /// handed to the output of the same number unchanged, and a description
+    /// of what it should do. Saved with the graph, to show how a new node
+    /// should work.
+    Placeholder  { inputs: Vec<String>, outputs: Vec<String>, #[serde(default)] description: String },
     /// Skin weights by proximity: each point of the geometry weighted to the
     /// nearest bones of the skeleton, in the skeleton's first frame.
     Capture      { falloff: f32 },
@@ -231,7 +236,7 @@ impl NodeType {
     }
 
     /// Nodes a clip goes through: the clip nodes, and Transform.
-    pub fn passes_clips(&self) -> bool { self.is_anim() || matches!(self, NodeType::Transform { .. }) }
+    pub fn passes_clips(&self) -> bool { self.is_anim() || matches!(self, NodeType::Transform { .. } | NodeType::Placeholder { .. }) }
 
     /// Nodes whose output is a clip.
     pub fn is_anim(&self) -> bool {
@@ -262,6 +267,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::CopyToPoints         => "❇",
         NodeType::Subnet { .. }        => "▣",
         NodeType::Output               => "▶",
+        NodeType::Placeholder { .. }   => "📝",
         NodeType::LoadFbx { .. }       => "🎬",
         NodeType::TestClip { .. }      => "🚶",
         NodeType::RenameJoints { .. }  => "✏",
@@ -315,6 +321,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::CopyToPoints         => "Copy to Points",
         NodeType::Subnet { .. }        => "ICE",
         NodeType::Output               => "Output",
+        NodeType::Placeholder { .. }   => "Placeholder",
         NodeType::LoadFbx { .. }       => "Load FBX",
         NodeType::TestClip { .. }      => "Test Clip",
         NodeType::RenameJoints { .. }  => "Rename Joints",

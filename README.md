@@ -17,7 +17,7 @@ Nothing is baked. A mesh is a cube node followed by the operations that shaped i
 
 ![Twelve of the built-in templates](docs/xms_templates.png)
 
-Thirty-four templates ship with the program, one for each area of it, in two parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes; ICE) and Simon's (modelling, UV, USD models, animation and mocap, FBX and characters). Each loads a working graph and tells you what to try.
+Thirty-five templates ship with the program, one for each area of it, in two parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes; ICE) and Simon's (modelling, UV, USD models, animation and mocap, FBX and characters). Each loads a working graph and tells you what to try.
 
 ## Polygon modelling in a single node
 
@@ -71,6 +71,7 @@ Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and
 - **Everything in an FBX:** Load FBX gives the clip, every mesh as a packed primitive with its normals, UVs, material and skin weights, and the rest skeleton in its bind pose; cameras, lights, materials, blend shapes and takes are listed
 - **Skin weights by name, after KineFX:** weights live on the geometry by joint name. Capture makes them by proximity to the bones; Skin puts them on any animation whose joints have those names
 - **Retarget with the human solver:** Retarget takes each skeleton in the pose its skin was bound in; Reach then puts hands and feet where the source has them, scaled, and the Body Collide node's human pass keeps elbows and knees right. Human Limits does that pass on any clip something moved
+- **A folder in, retargeted and skinned out:** a template takes a folder of raw takes through retarget, Reach and Body Collide onto a skinned character; Write FBX solves Body Collide for every file as it writes
 - **Batch nodes:** split characters, auto T-pose, fix pose, proxy skin, write FBX
 - **Write FBX, the skeleton it came in with:** after any process, a clip goes back out with the source file's joint names, hierarchy, Root and LimbNode kinds, axes and unit, so an engine sees an animation of the skeleton it already has. Motion only, or with the mesh, skin and bind pose. One file or the whole folder, in the background
 
@@ -122,6 +123,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Layouts as files:** save a layout, load it back, pass it to someone else
 - **One add menu:** seven categories, each a submenu; every node has one name, the same in the menu, on the node and in its properties
 - **Properties that line up:** every node laid out the same way, labels in one column, values filling the other, explanations in tooltips
+- **Placeholder node:** sketch a node that does not exist yet: name it, give it named inputs and outputs, describe what it should do. Data goes through unchanged, and the description travels in the saved graph for whoever builds it
 - **A tidy graph:** templates load laid out and framed, "Tidy" does the same to your own graph, and a right-click on an output adds the next node under it, already wired
 - **Compact lists:** the operator stack stays in one column however long the chain is
 

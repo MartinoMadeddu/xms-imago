@@ -112,7 +112,7 @@ Earlier builds wrote every file Y up, put the source's axis turn and a 0.01 scal
 
 ## Batch export
 
-Write FBX writes the current file or every file of the folder, in the background. The Templates menu has "Mocap split", which builds the whole graph for splitting a two-character take into animation files and skinned T-pose files.
+Write FBX writes the current file or every file of the folder, in the background. Body Collide nodes upstream are solved first, for each file, when they have no result for it. The Templates menu has "Mocap split", which builds the whole graph for splitting a two-character take into animation files and skinned T-pose files.
 
 Every path field has a folder button that opens the file browser. It reopens in the last folder visited.
 
@@ -160,6 +160,10 @@ The human pass of Body Collide, on its own and after a retarget. Body Collide it
 |---|---|---|
 | Reach | Mocap | First input a clip (a retarget), second the goal (the motion before it). The hands and feet go where the goal has them against its hips, scaled by the ratio of hip heights; each arm and leg is solved with two bones and the hand and foot keep their turn. Then the human pass. Feet on, hands off by default. The panel says how far the ends were from their goals before and after |
 | Human Limits | Mocap | First input a clip that something moved (Fix Pose, a blend, a retarget), second the same clip before. Elbows and knees bend about their hinge, the way the reference bends them, never past what a human joint does; wrists and ankles stay within their range; twist joints take their share. A limit never makes a frame worse than the reference |
+
+### A folder of raw takes, retargeted, skinned and collided
+
+The "Mocap folder: retarget, skin, collide, write" template is the whole pipeline. Load FBX Folder reads the takes; Split Characters gives each actor; per actor, Retarget onto the character's Rest output (its bind pose and skin), Reach for the feet, Body Collide against the set, and Write FBX with Mesh ticked to `{dir}/retargeted/{file}_{char}.fbx`. **All files** on a Write FBX node solves and writes every take of the folder. The set is a stand-in (`examples/fbx/studio.fbx`): point it at your own.
 
 On the "Retarget onto a character" template, the example take's first actor (69 joints, `Skeleton 001_…`) on the 342-joint character of `examples/ragdoll/split/into_the_car_.fbx`: Reach takes the feet from at most 2.2 cm off their goals to 0.3 cm, and no knee bends the wrong way.
 

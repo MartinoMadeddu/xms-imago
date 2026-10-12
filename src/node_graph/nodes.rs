@@ -128,6 +128,8 @@ pub fn evaluate_node_type(
         }
 
         NodeType::Output => inputs.first().cloned(),
+        // Socket by socket, in `NodeGraphState::eval_node_out`.
+        NodeType::Placeholder { .. } => inputs.get(output).cloned(),
 
         // ── Animation ────────────────────────────────────────────────────────
         // Clip, Geometry, Rest.

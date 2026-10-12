@@ -602,6 +602,38 @@ pub fn draw_properties(
             });
             clip_summary(ui, anim, true);
         }
+        NodeType::Placeholder { inputs, outputs, description } => {
+            group(ui, "Placeholder", Some("A node that does not exist yet. Each input goes to the output of the same number unchanged. Save the graph to show how a new node should work: its name, its inputs and outputs and the description travel in the file"), |f| {
+                f.status(Status::Info, "Input 1 goes to output 1 unchanged, input 2 to output 2, and so on");
+            });
+            for (title, list, base) in [("Inputs", inputs, "In"), ("Outputs", outputs, "Out")] {
+                group(ui, title, None, |f| {
+                    let mut remove = None;
+                    for (k, name) in list.iter_mut().enumerate() {
+                        f.row(&format!("{}", k + 1), None, |ui| {
+                            ui.horizontal(|ui| {
+                                if ui.add(egui::TextEdit::singleline(name).desired_width(ui.available_width() - 30.0)).changed() { resync = true; }
+                                if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
+                            });
+                        });
+                    }
+                    if let Some(k) = remove { list.remove(k); resync = true; }
+                    f.row("", None, |ui| {
+                        if ui.button(format!("+ {}", if base == "In" { "Input" } else { "Output" })).clicked() {
+                            list.push(format!("{base}{}", list.len() + 1));
+                            resync = true;
+                        }
+                    });
+                });
+            }
+            group(ui, "Description of node functionality for LLM", Some("What the node should do, for whoever builds it: what comes in on each input, what goes out on each output, the parameters it needs"), |f| {
+                f.wide(|ui| {
+                    let w = ui.available_width();
+                    ui.add(egui::TextEdit::multiline(description).desired_rows(10).desired_width(w)
+                        .hint_text("What this node should do with its inputs, what each output gives, the parameters it needs"));
+                });
+            });
+        }
         NodeType::Reach { settings } => {
             group(ui, "Reach", Some("Hands and feet of the first input go where the second input (the motion before the retarget) has them against its hips, scaled by the ratio of the hip heights. Each arm and leg is solved with two bones; the hand and the foot keep their turn. Then the Body Collide node's human pass"), |f| {
                 f.toggle("Feet", None, &mut settings.feet);

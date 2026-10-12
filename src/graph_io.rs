@@ -566,6 +566,60 @@ mod tests {
     /// A graph saved before Body Collide had its display and Transform took
     /// clips: Calamari folds into Body Collide, Transform Clip becomes
     /// Transform with the same rotation.
+    /// A placeholder hands each input to the output of the same number,
+    /// keeps its wires as its sockets are renamed or added, and goes into
+    /// the file with its description.
+    #[test]
+    fn a_placeholder_passes_its_inputs_through_and_is_saved() {
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(0.0, 0.0));
+        let walk = g.add_node("Walk".into(), NodeType::TestClip { seconds: 1.0, fps_num: 30, fps_den: 1 }, egui::pos2(200.0, 0.0));
+        let ph = g.add_node("FootLocker".into(), NodeType::Placeholder {
+            inputs: vec!["Mesh".into(), "Clip".into()], outputs: vec!["Mesh".into(), "Locked clip".into()],
+            description: "Locks feet that should not slide.".into(),
+        }, egui::pos2(100.0, 100.0));
+        g.add_connection(cube, 0, ph, 0);
+        g.add_connection(walk, 0, ph, 1);
+        let pass = |_: SubnetId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let mesh = g.eval_node_out(ph, 0, &mut Default::default(), &pass).unwrap().into_mesh();
+        assert_eq!(mesh.vertices.len(), 8);
+        let clip = g.eval_anim_out(ph, 1).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&clip, &g.eval_anim(walk).unwrap()), "the very clip, unchanged");
+        // Only the first input wired: the second output gives nothing.
+        let c = g.connections.iter().find(|c| c.to_node == ph && c.to_input == 1).unwrap().id;
+        g.remove_connection(c);
+        assert!(g.eval_anim_out(ph, 1).is_none());
+        g.add_connection(walk, 0, ph, 1);
+
+        // Renamed and given a third input: the wires stay.
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == ph) {
+            if let NodeType::Placeholder { inputs, .. } = &mut n.node_type { inputs[0] = "Body".into(); inputs.push("Ground".into()); }
+        }
+        g.sync_sockets(ph);
+        let node = g.nodes.iter().find(|n| n.id == ph).unwrap();
+        assert_eq!(node.inputs.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Body", "Clip", "Ground"]);
+        assert_eq!(node.inputs[0].connected_output, Some((cube, 0)));
+        assert_eq!(node.inputs[1].connected_output, Some((walk, 0)));
+        // One output removed: wires from it go.
+        let down = g.add_node("Trim".into(), NodeType::TrimClip { head: 0, tail: 0 }, egui::pos2(100.0, 200.0));
+        g.add_connection(ph, 1, down, 0);
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == ph) {
+            if let NodeType::Placeholder { outputs, .. } = &mut n.node_type { outputs.pop(); }
+        }
+        g.sync_sockets(ph);
+        assert!(!g.connections.iter().any(|c| c.from_node == ph && c.from_output == 1));
+
+        let json = to_json(&g);
+        assert!(json.contains("Locks feet that should not slide."));
+        let mut h = NodeGraphState::default();
+        from_json(&mut h, &json).unwrap();
+        let back = h.nodes.iter().find(|n| n.name == "FootLocker").unwrap();
+        assert!(matches!(&back.node_type, NodeType::Placeholder { inputs, outputs, description }
+            if inputs.len() == 3 && outputs == &vec!["Mesh".to_string()] && description.starts_with("Locks")));
+        assert_eq!(back.inputs.len(), 3);
+        assert_eq!(back.inputs[1].connected_output, Some((walk, 0)));
+    }
+
     #[test]
     fn a_load_fbx_mesh_node_becomes_load_fbx() {
         let json = r#"{"version":1,"nodes":[

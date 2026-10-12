@@ -672,6 +672,27 @@ pub fn start(clip: Arc<AnimData>, collider: Option<Arc<MeshData>>, settings: Set
     key
 }
 
+/// Solve on this thread, unless there is a result already: for a batch
+/// writing a folder. Returns whether it solved now.
+pub fn solve_now(clip: Arc<AnimData>, collider: Option<Arc<MeshData>>, settings: Settings) -> Result<bool, String> {
+    let key = key(&clip, collider.as_ref(), &settings);
+    if solved(key).is_some() { return Ok(false); }
+    let job = Arc::new(Job {
+        done: AtomicUsize::new(0), total: clip.frames.max(1), cancel: AtomicBool::new(false),
+        state: Mutex::new(State::Running), started: std::time::Instant::now(), notes: Mutex::new(String::new()),
+    });
+    jobs().lock().unwrap().insert(key, job.clone());
+    let result = solve(&clip, collider.as_ref(), &settings, key, &job);
+    let out = match &result { Ok(Some(_)) => Ok(true), Ok(None) => Err("cancelled".to_string()), Err(e) => Err(e.clone()) };
+    *job.state.lock().unwrap() = match result {
+        Ok(Some(s)) => State::Done(Arc::new(s)),
+        Ok(None) => State::Cancelled,
+        Err(e) => State::Failed(e),
+    };
+    CHANGED.store(true, Ordering::Relaxed);
+    out
+}
+
 /// The whole solve: rig, tree, chunks to a file, and the file read back.
 fn solve(clip: &Arc<AnimData>, collider: Option<&Arc<MeshData>>, settings: &Settings, key: u64, job: &Job) -> Result<Option<Solved>, String> {
     let rig = build_rig(clip, settings)?;

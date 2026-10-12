@@ -441,7 +441,8 @@ impl AnimData {
             tracks:      Arc::new(tracks),
             source:      self.source.clone(),
             source_dir:  self.source_dir.clone(),
-            subject:     target.subject.clone(),
+            // The actor's name, for {char} in written paths; the target's when the motion has none.
+            subject:     if self.subject.is_empty() { target.subject.clone() } else { self.subject.clone() },
             skin:        target.skin.clone(),
             space:       target.space.clone(),
             human:       target.human.clone(),

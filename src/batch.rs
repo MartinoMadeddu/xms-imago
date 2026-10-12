@@ -55,8 +55,41 @@ pub fn file_count(graph: &NodeGraphState, loaders: &[NodeId]) -> usize {
     }).max().unwrap_or(0)
 }
 
-/// Run the given Write nodes once against the graph as it stands.
+/// Body Collide nodes the given nodes take their clip from, those nearest
+/// the source first.
+fn upstream_collides(graph: &NodeGraphState, targets: &[NodeId]) -> Vec<NodeId> {
+    fn visit(graph: &NodeGraphState, id: NodeId, seen: &mut HashSet<NodeId>, out: &mut Vec<NodeId>) {
+        if !seen.insert(id) { return; }
+        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
+        for src in node.inputs.iter().filter_map(|i| i.connected_output.map(|(s, _)| s)) { visit(graph, src, seen, out); }
+        if matches!(node.node_type, NodeType::Ragdoll { .. }) && !node.bypassed { out.push(id); }
+    }
+    let (mut seen, mut out) = (HashSet::new(), vec![]);
+    for id in targets { visit(graph, *id, &mut seen, &mut out); }
+    out
+}
+
+/// Solve the Body Collide nodes upstream that have no result for what
+/// reaches them now. A batch over a folder solves each file as it goes.
+fn solve_upstream(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progress>) {
+    for id in upstream_collides(graph, targets) {
+        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { continue };
+        let NodeType::Ragdoll { settings, .. } = &node.node_type else { continue };
+        let (Some(clip), collider) = graph.ragdoll_inputs(id) else { continue };
+        let t0 = std::time::Instant::now();
+        let line = match crate::ragdoll::solve_now(clip.clone(), collider, settings.clone()) {
+            Ok(true) => format!("{}: solved {} frames in {:.0} s", node.name, clip.frames, t0.elapsed().as_secs_f32()),
+            Ok(false) => format!("{}: already solved", node.name),
+            Err(e) => format!("FAILED  {}: {e}", node.name),
+        };
+        progress.lock().unwrap().log.push(line);
+    }
+}
+
+/// Run the given Write nodes once against the graph as it stands, after
+/// solving the Body Collide nodes they take their clip from.
 fn write_once(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progress>) {
+    solve_upstream(graph, targets, progress);
     for id in targets {
         let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else { continue };
         let NodeType::WriteFbx { path, mesh } = &node.node_type else { continue };
@@ -215,6 +248,36 @@ mod tests {
         run(&g, &targets, false, &progress);
         let p = progress.lock().unwrap();
         assert_eq!((p.written, p.failed), (2, 2), "{:#?}", p.log);
+    }
+
+    /// Writing solves the Body Collide nodes the writer takes its clip from,
+    /// once: the next run finds the result.
+    #[test]
+    fn writing_solves_body_collide_first() {
+        let dir = std::env::temp_dir().join("xms_batch_collide_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut g = NodeGraphState::default();
+        let p = |x: f32, y: f32| bevy_egui::egui::pos2(x, y);
+        // A clip no other test makes: its own rate and length.
+        let walk = g.add_node("Walk".into(), NodeType::TestClip { seconds: 0.4, fps_num: 25, fps_den: 1 }, p(0.0, 0.0));
+        let body = g.add_node("Body".into(), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(0.0, 100.0));
+        let write = g.add_node("Write".into(), NodeType::WriteFbx { path: dir.join("walk.fbx").to_string_lossy().to_string(), mesh: false }, p(0.0, 200.0));
+        g.add_connection(walk, 0, body, 0);
+        g.add_connection(body, 0, write, 0);
+        let (clip, collider) = g.ragdoll_inputs(body);
+        let NodeType::Ragdoll { settings, .. } = g.nodes.iter().find(|n| n.id == body).unwrap().node_type else { panic!() };
+        crate::ragdoll::clear(crate::ragdoll::key(clip.as_ref().unwrap(), collider.as_ref(), &settings));
+
+        let progress = Mutex::new(Progress::default());
+        run(&g, &[write], false, &progress);
+        let p1 = progress.lock().unwrap();
+        assert_eq!((p1.written, p1.failed), (1, 0), "{:#?}", p1.log);
+        assert!(p1.log.iter().any(|l| l.starts_with("Body: solved 10 frames")), "{:#?}", p1.log);
+        drop(p1);
+        let progress = Mutex::new(Progress::default());
+        run(&g, &[write], false, &progress);
+        assert!(progress.lock().unwrap().log.iter().any(|l| l == "Body: already solved"));
+        assert!(dir.join("walk.fbx").is_file());
     }
 
     /// Real capture. Set XMS_SAMPLE_DIR to a folder holding the take, and

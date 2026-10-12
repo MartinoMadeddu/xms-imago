@@ -29,6 +29,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Copied nodes are text, kept after the program closes: they paste in another window, in a later session, or from a message.
 - Every area of the program has templates: working graphs that load laid out and framed, with a line saying what to look at. Templates are grouped by whose work they show.
 - A feature comes with its template and the demo files it needs, packaged in `examples/`. A model too big for the repository (the Moana Island scene, say) is not packaged: its template asks whether to download it from where it is published, and says where from.
+- A node that does not exist yet is sketched in the graph: a Placeholder with named inputs and outputs and a description of what it should do, data going through unchanged. The saved graph is how a new node is asked for.
 - An ICE node runs its tree on each packed primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
 - Where a known tool already has a convention, follow it: ICE trees drawn and navigated after Softimage ICE, the viewport drawing what the Scene Explorer opens as in Gaffer, edits between two nodes as stacked layers as in Solaris.
 
@@ -108,3 +109,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 10/10/2026: the + buttons removed: opening a file or template asks whether to add or open as new; opening as new still asks to save first (Simon).
 - 11/10/2026: read from Martino's commits: `ARCHITECTURE.md` added (pointed to under "Martino's project"); nodes coloured by add-menu category, the ICE node teal.
 - 12/10/2026: Load FBX reads everything a file holds; skin weights by joint name, after KineFX; characters taken in their bind pose; one human solver shared by Body Collide, Reach and Human Limits (Simon).
+- 12/10/2026: the Placeholder node, for asking for a node in the graph itself; Write FBX solves Body Collide upstream for each file it writes (Simon).

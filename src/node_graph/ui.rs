@@ -689,6 +689,9 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::CreateGrid { rows: 10, cols: 10, size: 2.0 }, "A flat grid of quads"),
             (NodeType::TestClip { seconds: 4.0, fps_num: 30, fps_den: 1 }, "A walk on the spot, to try the animation nodes"),
         ]),
+        ("📝", "Placeholder", vec![
+            (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new() }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
+        ]),
         ("📂", "File", vec![
             (NodeType::LoadUsd { path: String::new() }, "A USD file, as packed primitives"),
             (NodeType::WriteUsd { path: String::new() }, "What the network changed in its USD stages, as an override layer"),

@@ -84,12 +84,17 @@ Copied nodes go to the system clipboard as text, and to `clipboard.json` in the 
 
 A new node is never left out of sight: the view moves just enough to show it. Templates are laid out with Tidy and framed when they load.
 
+### Placeholder: a node that does not exist yet
+
+When a graph needs a node the program does not have, put a **Placeholder** in its place: give it a name, as many inputs and outputs as the node would have, each named, and describe what it should do in **Description of node functionality for LLM**. Input 1 goes to output 1 unchanged, input 2 to output 2, and so on, so the rest of the graph keeps working. Save the graph and hand the file over: the name, the sockets and the description are in it, and an AI assistant reading it builds the node from them (see `LLM_instructions.md`).
+
 ### The add menu
 
 Seven categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its properties. Hover an item for a line on what it does.
 
 | Category | Nodes |
 |---|---|
+| Placeholder | Placeholder |
 | Create | Cube, Sphere, Grid, Test Clip |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, Scatter Points, Copy to Points, ICE |

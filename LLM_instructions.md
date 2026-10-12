@@ -59,6 +59,14 @@ What this needs:
 - On the person's computer: a clone of the repository, `git` signed in to GitHub with push rights to it (as owner or collaborator), and Rust with the libraries in the README, for `cargo run`.
 - For the assistant: a workspace that runs commands and reaches GitHub (check 2 and 4 above). Pushing from the workspace is not needed; the person pushes.
 
+### Placeholder nodes: how a new node is asked for
+
+A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that does not exist yet: its name, its named `inputs` and `outputs`, and a `description` of what it should do, written by the person for you. When given such a file:
+
+- Read every placeholder: what is wired into each input, what each output feeds, and the description.
+- Build the node it describes, with its inputs and outputs in that order and named as given (or say why another shape is better, and ask), tests and docs as for any node.
+- Turn the graph into a template with the placeholder replaced by the new node, where that shows how it works.
+
 ### Conventions
 
 - **Tests with every feature.** New behaviour comes with tests; `cargo test` passes before a change is handed over.

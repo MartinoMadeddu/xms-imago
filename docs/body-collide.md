@@ -24,6 +24,7 @@ Any mesh can be the collider: a model from Load FBX's Geometry output or Load US
 2. Wire the take to the first input of a **Body Collide** node and the set to the second. The Inputs group says which convention the skeleton was read as and how many of its 20 parts were found. If the hips or the limbs are missing, put a **Characterize** node between the take and Body Collide and pick them. Put the view flag on the node. The set is drawn see-through, with the character inside.
 3. Press **Solve** in the properties of the node. A bar shows frames done, frames a second and time left. **Stop** stops it.
 4. When it is done the node puts out the solved clip. Scrub it. Wire it on to Write FBX like any clip.
+5. Or let Write FBX solve it: writing (the current file or All files of a folder) first solves every Body Collide node upstream that has no result for what reaches it, one file after another, and says so in its log. The "Mocap folder: retarget, skin, collide, write" template runs a whole folder of raw takes this way.
 
 The node solves nothing by itself. Until Solve has run for exactly the clip, collider and settings it has, the clip passes through as it came, and the panel says so. Change a setting and the panel says "not solved" again.
 

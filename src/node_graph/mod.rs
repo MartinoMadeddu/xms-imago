@@ -165,6 +165,10 @@ impl NodeGraphState {
             NodeType::ScatterPoints { .. }  => (vec![i("Surface")], vec![o("Points")]),
             NodeType::CopyToPoints          => (vec![i("Template"), i("Points")], vec![o("Geo")]),
             NodeType::Output                => (vec![i("Scene")], vec![]),
+            NodeType::Placeholder { inputs, outputs, .. } => (
+                inputs.iter().map(|n| InputSocket { name: n.clone(), connected_output: None }).collect(),
+                outputs.iter().map(|n| OutputSocket { name: n.clone() }).collect(),
+            ),
             NodeType::Subnet { .. }         => (vec![i("Geometry"), i("Template")], vec![o("Out")]),
             NodeType::TestClip { .. }       => (vec![], vec![o("Clip")]),
             NodeType::RenameJoints { .. }
@@ -501,6 +505,10 @@ impl NodeGraphState {
                 self.eval_anim_node(src, out, cache, eval_subnet)
             }
             t if t.is_anim() => self.eval_node_out(id, output, cache, eval_subnet),
+            NodeType::Placeholder { .. } => {
+                let (src, out) = node.inputs.get(output)?.connected_output?;
+                self.eval_anim_node(src, out, cache, eval_subnet)
+            }
             // Transform passes a clip on when it is given one.
             NodeType::Transform { .. } => match self.eval_node_out(id, output, cache, eval_subnet) {
                 Some(r @ EvalResult::Anim(_)) => Some(r),
@@ -536,6 +544,14 @@ impl NodeGraphState {
         if let Some(cached) = cache.get(&(id, output)) { return cached.clone(); }
 
         let node = self.nodes.iter().find(|n| n.id == id)?;
+
+        // A placeholder hands each input to the output of the same number.
+        if matches!(node.node_type, NodeType::Placeholder { .. }) {
+            let result = node.inputs.get(output).and_then(|s| s.connected_output)
+                .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet));
+            cache.insert((id, output), result.clone());
+            return result;
+        }
 
         let inputs: Vec<EvalResult> = node.inputs.iter()
             .filter_map(|s| s.connected_output
@@ -699,12 +715,21 @@ impl NodeGraphState {
     /// changed the socket count, and drop wires to sockets that are gone.
     pub fn sync_sockets(&mut self, id: NodeId) {
         let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
-        let (_, outputs) = Self::create_sockets(&node.node_type);
-        if outputs.len() == node.outputs.len() { return; }
-        let count = outputs.len();
+        let (inputs, outputs) = Self::create_sockets(&node.node_type);
+        let same = |a: &[String], b: &[String]| a == b;
+        let names_in: Vec<String> = inputs.iter().map(|s| s.name.clone()).collect();
+        let had_in: Vec<String> = node.inputs.iter().map(|s| s.name.clone()).collect();
+        let names_out: Vec<String> = outputs.iter().map(|s| s.name.clone()).collect();
+        let had_out: Vec<String> = node.outputs.iter().map(|s| s.name.clone()).collect();
+        if same(&names_in, &had_in) && same(&names_out, &had_out) { return; }
+        // Names follow; wires stay on the sockets that are still there.
+        let (count_in, count_out) = (inputs.len(), outputs.len());
+        let kept: Vec<Option<(NodeId, usize)>> = node.inputs.iter().map(|s| s.connected_output).collect();
+        node.inputs = inputs;
+        for (k, s) in node.inputs.iter_mut().enumerate() { s.connected_output = kept.get(k).copied().flatten(); }
         node.outputs = outputs;
         let dead: Vec<ConnectionId> = self.connections.iter()
-            .filter(|c| c.from_node == id && c.from_output >= count)
+            .filter(|c| (c.from_node == id && c.from_output >= count_out) || (c.to_node == id && c.to_input >= count_in))
             .map(|c| c.id).collect();
         for cid in dead { self.remove_connection(cid); }
         self.mark_dirty();
