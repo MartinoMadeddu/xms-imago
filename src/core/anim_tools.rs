@@ -76,6 +76,27 @@ impl AnimData {
         out
     }
 
+    /// World matrices of the pose the skin was bound in, else the rest pose.
+    /// A character read from a take rests where its first frame has it; the
+    /// bind pose is where it stands to be skinned (a T or A pose).
+    pub fn neutral_world(&self) -> Vec<Mat4> {
+        match &self.skin {
+            Some(s) if s.bind.len() == self.joints.len() => s.bind.clone(),
+            _ => self.rest_world(),
+        }
+    }
+
+    /// One frame: every joint where the skin was bound (else at rest), the
+    /// skin with it. The pose a character was weighted in.
+    pub fn bind_clip(&self) -> AnimData {
+        let world = self.neutral_world();
+        let tracks: Vec<Track> = (0..self.joints.len()).map(|j| {
+            let parent = self.joints[j].parent.filter(|p| *p < j).map(|p| world[p]).unwrap_or(Mat4::IDENTITY);
+            vec![Transform::from_matrix(parent.inverse() * world[j])]
+        }).collect();
+        AnimData { name: format!("{} (rest)", self.name), frames: 1, tracks: Arc::new(tracks), ..self.clone() }
+    }
+
     /// Prefix shared by the names of all bones, such as "Skeleton 001_".
     pub fn name_prefix(&self) -> String {
         let names: Vec<&str> = self.joints.iter().filter(|j| j.is_bone).map(|j| j.name.as_str()).collect();
@@ -322,7 +343,8 @@ impl AnimData {
     /// joint takes the source joint's change against its rest pose, applied
     /// to its own rest pose. Where the rest poses differ (arms out against
     /// arms down), each bone is first lined up with the source bone at rest.
-    /// Hips travel is scaled by the ratio of hip heights.
+    /// Hips travel is scaled by the ratio of hip heights. Each skeleton is
+    /// taken in the pose its skin was bound in, where it has one.
     /// Returns the clip and the number of joints matched.
     pub fn retargeted(&self, target: &AnimData) -> (AnimData, usize) {
         let (sp, tp) = (self.name_prefix(), target.name_prefix());
@@ -340,10 +362,16 @@ impl AnimData {
         }).collect();
         let matched = map.iter().filter(|m| m.is_some()).count();
 
-        let src_rest = self.rest_world();
-        let tgt_rest = target.rest_world();
+        let src_rest = self.neutral_world();
+        let tgt_rest = target.neutral_world();
         let rot = |m: &Mat4| m.to_scale_rotation_translation().1;
-        let (src_hip, tgt_hip) = (self.hip_joint(), target.hip_joint());
+        // Each target joint's turn under its parent in that pose.
+        let tgt_local_rot: Vec<Quat> = (0..target.joints.len()).map(|j| match target.joints[j].parent {
+            Some(p) if p < j => (rot(&tgt_rest[p]).inverse() * rot(&tgt_rest[j])).normalize(),
+            _ => rot(&tgt_rest[j]),
+        }).collect();
+        // The hips the parts were read as, else the first bone.
+        let (src_hip, tgt_hip) = (hs.get(super::human::Slot::Hips).or(self.hip_joint()), ht.get(super::human::Slot::Hips).or(target.hip_joint()));
         let ratio = match (src_hip, tgt_hip) {
             (Some(s), Some(t)) if src_rest[s].w_axis.y.abs() > 1e-4 => tgt_rest[t].w_axis.y / src_rest[s].w_axis.y,
             _ => 1.0,
@@ -382,7 +410,7 @@ impl AnimData {
                 world_rot[j] = match map[j] {
                     Some(s) => (rot(&world[s]) * rot(&src_rest[s]).inverse() * align[j] * rot(&tgt_rest[j])).normalize(),
                     // Unmatched: stay at rest under the parent.
-                    None => (parent.map(|p| world_rot[p]).unwrap_or(Quat::IDENTITY) * target.joints[j].rest.rotation).normalize(),
+                    None => (parent.map(|p| world_rot[p]).unwrap_or(Quat::IDENTITY) * tgt_local_rot[j]).normalize(),
                 };
             }
             if let (Some(s), Some(t)) = (src_hip, tgt_hip) {

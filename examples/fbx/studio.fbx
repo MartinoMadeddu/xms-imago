@@ -1,0 +1,231 @@
+; FBX 7.4.0 project file
+; A small studio for the Load FBX template: a floor, a crate, two
+; materials, a camera that dollies in over two seconds and a point light.
+; Written by hand for XMS | Imago.
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7400
+	Creator: "XMS | Imago"
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "",1
+		P: "UpAxisSign", "int", "Integer", "",1
+		P: "FrontAxis", "int", "Integer", "",2
+		P: "FrontAxisSign", "int", "Integer", "",1
+		P: "CoordAxis", "int", "Integer", "",0
+		P: "CoordAxisSign", "int", "Integer", "",1
+		P: "UnitScaleFactor", "double", "Number", "",100
+		P: "TimeMode", "enum", "", "",6
+	}
+}
+Objects:  {
+	Geometry: 10, "Geometry::Floor", "Mesh" {
+		Vertices: *12 {
+			a: -3,0,-3,3,0,-3,3,0,3,-3,0,3
+		}
+		PolygonVertexIndex: *4 {
+			a: 0,3,2,-2
+		}
+		GeometryVersion: 124
+		LayerElementNormal: 0 {
+			Version: 101
+			Name: ""
+			MappingInformationType: "ByPolygonVertex"
+			ReferenceInformationType: "Direct"
+			Normals: *12 {
+				a: 0,1,0,0,1,0,0,1,0,0,1,0
+			}
+		}
+		LayerElementUV: 0 {
+			Version: 101
+			Name: "map1"
+			MappingInformationType: "ByPolygonVertex"
+			ReferenceInformationType: "IndexToDirect"
+			UV: *8 {
+				a: 0,0,4,0,4,4,0,4
+			}
+			UVIndex: *4 {
+				a: 0,3,2,1
+			}
+		}
+		LayerElementMaterial: 0 {
+			Version: 101
+			Name: ""
+			MappingInformationType: "AllSame"
+			ReferenceInformationType: "IndexToDirect"
+			Materials: *1 {
+				a: 0
+			}
+		}
+		Layer: 0 {
+			Version: 100
+			LayerElement:  {
+				Type: "LayerElementNormal"
+				TypedIndex: 0
+			}
+			LayerElement:  {
+				Type: "LayerElementUV"
+				TypedIndex: 0
+			}
+			LayerElement:  {
+				Type: "LayerElementMaterial"
+				TypedIndex: 0
+			}
+		}
+	}
+	Geometry: 11, "Geometry::Crate", "Mesh" {
+		Vertices: *24 {
+			a: -0.5,0,-0.5,0.5,0,-0.5,0.5,0,0.5,-0.5,0,0.5,-0.5,1,-0.5,0.5,1,-0.5,0.5,1,0.5,-0.5,1,0.5
+		}
+		PolygonVertexIndex: *24 {
+			a: 0,1,2,-4,4,7,6,-6,0,4,5,-2,1,5,6,-3,2,6,7,-4,3,7,4,-1
+		}
+		GeometryVersion: 124
+		LayerElementUV: 0 {
+			Version: 101
+			Name: "map1"
+			MappingInformationType: "ByPolygonVertex"
+			ReferenceInformationType: "IndexToDirect"
+			UV: *8 {
+				a: 0,0,1,0,1,1,0,1
+			}
+			UVIndex: *24 {
+				a: 0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3
+			}
+		}
+		LayerElementMaterial: 0 {
+			Version: 101
+			Name: ""
+			MappingInformationType: "AllSame"
+			ReferenceInformationType: "IndexToDirect"
+			Materials: *1 {
+				a: 0
+			}
+		}
+		Layer: 0 {
+			Version: 100
+			LayerElement:  {
+				Type: "LayerElementUV"
+				TypedIndex: 0
+			}
+			LayerElement:  {
+				Type: "LayerElementMaterial"
+				TypedIndex: 0
+			}
+		}
+	}
+	Model: 1, "Model::Floor", "Mesh" {
+		Version: 232
+		Properties70:  {
+		}
+	}
+	Model: 2, "Model::Crate", "Mesh" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",0.8,0,-0.4
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,25,0
+		}
+	}
+	Material: 20, "Material::Concrete", "" {
+		Version: 102
+		ShadingModel: "lambert"
+		MultiLayer: 0
+		Properties70:  {
+			P: "DiffuseColor", "Color", "", "A",0.55,0.55,0.52
+		}
+	}
+	Material: 21, "Material::Wood", "" {
+		Version: 102
+		ShadingModel: "lambert"
+		MultiLayer: 0
+		Properties70:  {
+			P: "DiffuseColor", "Color", "", "A",0.62,0.42,0.22
+		}
+	}
+	NodeAttribute: 30, "NodeAttribute::ShotCam", "Camera" {
+		Properties70:  {
+			P: "FocalLength", "Number", "", "A",35
+			P: "FilmWidth", "Number", "", "",1.4173
+			P: "FilmHeight", "Number", "", "",0.9449
+			P: "NearPlane", "Number", "", "",0.1
+			P: "FarPlane", "Number", "", "",200
+		}
+		TypeFlags: "Camera"
+		GeometryVersion: 124
+	}
+	Model: 3, "Model::ShotCam", "Camera" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",0,1.6,6
+		}
+	}
+	NodeAttribute: 40, "NodeAttribute::KeyLight", "Light" {
+		Properties70:  {
+			P: "LightType", "enum", "", "",0
+			P: "Color", "Color", "", "A",1,0.9,0.8
+			P: "Intensity", "Number", "", "A",150
+		}
+		TypeFlags: "Light"
+		GeometryVersion: 124
+	}
+	Model: 4, "Model::KeyLight", "Light" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",2,3,2
+		}
+	}
+	AnimationStack: 100, "AnimStack::Dolly", "" {
+		Properties70:  {
+			P: "LocalStart", "KTime", "Time", "",0
+			P: "LocalStop", "KTime", "Time", "",92372316000
+			P: "ReferenceStart", "KTime", "Time", "",0
+			P: "ReferenceStop", "KTime", "Time", "",92372316000
+		}
+	}
+	AnimationLayer: 101, "AnimLayer::BaseLayer", "" {
+	}
+	AnimationCurveNode: 200, "AnimCurveNode::T", "" {
+		Properties70:  {
+			P: "d|X", "Number", "", "A",0
+			P: "d|Y", "Number", "", "A",1.6
+			P: "d|Z", "Number", "", "A",6
+		}
+	}
+	AnimationCurve: 300, "AnimCurve::", "" {
+		Default: 6
+		KeyVer: 4008
+		KeyTime: *2 {
+			a: 0,92372316000
+		}
+		KeyValueFloat: *2 {
+			a: 6,3
+		}
+		KeyAttrFlags: *1 {
+			a: 4
+		}
+		KeyAttrDataFloat: *4 {
+			a: 0,0,0,0
+		}
+		KeyAttrRefCount: *1 {
+			a: 2
+		}
+	}
+}
+Connections:  {
+	C: "OO",1,0
+	C: "OO",2,0
+	C: "OO",3,0
+	C: "OO",4,0
+	C: "OO",10,1
+	C: "OO",11,2
+	C: "OO",20,1
+	C: "OO",21,2
+	C: "OO",30,3
+	C: "OO",40,4
+	C: "OO",101,100
+	C: "OO",200,101
+	C: "OP",200,3, "Lcl Translation"
+	C: "OP",300,200, "d|Z"
+}

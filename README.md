@@ -17,7 +17,7 @@ Nothing is baked. A mesh is a cube node followed by the operations that shaped i
 
 ![Twelve of the built-in templates](docs/xms_templates.png)
 
-Thirty templates ship with the program, one for each area of it, in two parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes; ICE) and Simon's (modelling, UV, USD models, animation and mocap). Each loads a working graph and tells you what to try.
+Thirty-four templates ship with the program, one for each area of it, in two parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes; ICE) and Simon's (modelling, UV, USD models, animation and mocap, FBX and characters). Each loads a working graph and tells you what to try.
 
 ## Polygon modelling in a single node
 
@@ -68,6 +68,9 @@ Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and
 - **Any human skeleton:** Unreal, MetaHuman, Mixamo, HumanIK, Biped, Rigify, Unity, VRM, VRoid, Character Creator, Daz, SMPL, Xsens, OptiTrack, Rokoko, ARKit, Kinect, CMU and more are read from their joint names, with their twist joints in line or beside the limb. A Characterize node shows what was read and sets the rest by hand. Retarget matches joints by the part of the body they are, so a Mixamo take drives an Unreal skeleton
 - **One Transform for everything:** the node that moves a mesh or a USD asset moves a clip too, by its top joints, so a skinned mesh moves once, with its skeleton
 - **Name patterns, not typing:** nodes that work on joints by name take comma-separated regular expressions, with a picker listing the joints coming in and a live match count
+- **Everything in an FBX:** Load FBX gives the clip, every mesh as a packed primitive with its normals, UVs, material and skin weights, and the rest skeleton in its bind pose; cameras, lights, materials, blend shapes and takes are listed
+- **Skin weights by name, after KineFX:** weights live on the geometry by joint name. Capture makes them by proximity to the bones; Skin puts them on any animation whose joints have those names
+- **Retarget with the human solver:** Retarget takes each skeleton in the pose its skin was bound in; Reach then puts hands and feet where the source has them, scaled, and the Body Collide node's human pass keeps elbows and knees right. Human Limits does that pass on any clip something moved
 - **Batch nodes:** split characters, auto T-pose, fix pose, proxy skin, write FBX
 - **Write FBX, the skeleton it came in with:** after any process, a clip goes back out with the source file's joint names, hierarchy, Root and LimbNode kinds, axes and unit, so an engine sees an animation of the skeleton it already has. Motion only, or with the mesh, skin and bind pose. One file or the whole folder, in the background
 
@@ -167,8 +170,8 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 - Undo inside ICE subnets, and history saved with the graph
 - Edit Poly: interactive cut and quickslice, extrude along spline, target weld, attach, smoothing groups, material IDs, paint deformation, constraints
 - USD: normal and roughness maps in the viewport, cameras, animation and skinning, per-face material subsets, writing time samples and edits inside instances
-- UV: editing single UV vertices and edges, a checker in the viewport, UVs kept through Edit Poly and Copy To Points, UVs in FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
-- Mocap: IK in Retarget, foot planting
+- UV: editing single UV vertices and edges, a checker in the viewport, UVs kept through Edit Poly and Copy To Points, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
+- Mocap: contact detection and foot locking (Reach follows the source's feet); FBX blend shapes applied, cameras and lights drawn
 - Timeline zoom and pan
 - Curve cleanup
 - ICE subnet contents in saved graphs (copied nodes carry them)

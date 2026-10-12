@@ -113,12 +113,7 @@ fn perp(v: Vec3, axis: Vec3) -> Vec3 { v - axis * axis.dot(v) }
 fn smooth(a: f32, b: f32, x: f32) -> f32 { let t = ((x - a) / (b - a)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
 
 /// Where the skin was bound, else the rest pose.
-fn neutral_world(clip: &AnimData) -> Vec<Mat4> {
-    match &clip.skin {
-        Some(s) if s.bind.len() == clip.joints.len() => s.bind.clone(),
-        _ => clip.rest_world(),
-    }
-}
+fn neutral_world(clip: &AnimData) -> Vec<Mat4> { clip.neutral_world() }
 
 /// Fingers, by name: the bases of the index and little fingers, and of all
 /// of them.

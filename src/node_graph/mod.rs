@@ -157,6 +157,7 @@ impl NodeGraphState {
             | NodeType::CreateGrid { .. }
             | NodeType::LoadFbxMesh { .. }
             | NodeType::LoadUsd { .. }      => (vec![], vec![o("Mesh")]),
+            NodeType::LoadFbx { .. }        => (vec![], vec![o("Clip"), o("Geometry"), o("Rest")]),
             NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::WriteUsd { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
@@ -165,8 +166,7 @@ impl NodeGraphState {
             NodeType::CopyToPoints          => (vec![i("Template"), i("Points")], vec![o("Geo")]),
             NodeType::Output                => (vec![i("Scene")], vec![]),
             NodeType::Subnet { .. }         => (vec![i("Geometry"), i("Template")], vec![o("Out")]),
-            NodeType::LoadFbx { .. }
-            | NodeType::TestClip { .. }     => (vec![], vec![o("Clip")]),
+            NodeType::TestClip { .. }       => (vec![], vec![o("Clip")]),
             NodeType::RenameJoints { .. }
             | NodeType::TrimClip { .. }
             | NodeType::Retime { .. }
@@ -188,6 +188,10 @@ impl NodeGraphState {
             NodeType::BlendClips { .. }     => (vec![i("First"), i("Next")], vec![o("Clip")]),
             NodeType::Retarget              => (vec![i("Motion"), i("Skeleton")], vec![o("Clip")]),
             NodeType::Characterize { .. }   => (vec![i("Clip")], vec![o("Clip")]),
+            NodeType::Reach { .. }          => (vec![i("Clip"), i("Goal")], vec![o("Clip")]),
+            NodeType::HumanLimits { .. }    => (vec![i("Clip"), i("Reference")], vec![o("Clip")]),
+            NodeType::Capture { .. }        => (vec![i("Geometry"), i("Skeleton")], vec![o("Geometry")]),
+            NodeType::Skin                  => (vec![i("Geometry"), i("Rest"), i("Clip")], vec![o("Clip")]),
             NodeType::UvUnwrap { .. }
             | NodeType::UvTransform { .. }
             | NodeType::UvEdit { .. }       => (vec![i("Mesh")], vec![o("Mesh")]),
@@ -606,12 +610,16 @@ impl NodeGraphState {
             }
         }
 
-        // Only mesh generator nodes appear in the scene explorer
-        if matches!(node.node_type,
+        // Only mesh generator nodes appear in the scene explorer. Load FBX
+        // shows its meshes (its second output) when it has any.
+        let socket = match node.node_type {
             NodeType::CreateCube { .. } | NodeType::CreateSphere { .. }
-            | NodeType::CreateGrid { .. } | NodeType::LoadUsd { .. } | NodeType::LoadFbxMesh { .. })
-        {
-            if let Some(r) = self.eval_node_out(id, 0, cache, eval_subnet) {
+            | NodeType::CreateGrid { .. } | NodeType::LoadUsd { .. } | NodeType::LoadFbxMesh { .. } => Some(0),
+            NodeType::LoadFbx { .. } => Some(1),
+            _ => None,
+        };
+        if let Some(socket) = socket {
+            if let Some(r) = self.eval_node_out(id, socket, cache, eval_subnet) {
                 out.push((node.id, node.name.clone(), r));
             }
         }

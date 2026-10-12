@@ -692,9 +692,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("📂", "File", vec![
             (NodeType::LoadUsd { path: String::new() }, "A USD file, as packed primitives"),
             (NodeType::WriteUsd { path: String::new() }, "What the network changed in its USD stages, as an override layer"),
-            (NodeType::LoadFbx { path: String::new(), take: 0 }, "A skeleton and one take from an FBX file, with its skinned mesh"),
+            (NodeType::LoadFbx { path: String::new(), take: 0 }, "Everything in an FBX file: the clip, every mesh with its weights and materials, the rest skeleton"),
             (NodeType::LoadFbxDir { dir: String::new(), index: 0, take: 0 }, "One FBX of a folder at a time; Write FBX can run over all of them"),
-            (NodeType::LoadFbxMesh { path: String::new() }, "Every mesh of an FBX file, as packed primitives: a set to collide with"),
             (NodeType::WriteFbx { path: crate::types::DEFAULT_WRITE_PATH.into(), mesh: false }, "Write the clip as FBX, with the skeleton it came in with"),
         ]),
         ("🔨", "Modify", vec![
@@ -733,6 +732,10 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::SplitSkeleton { picks: vec![SplitPick::Character(0), SplitPick::Character(1)] }, "One output per character in the take"),
             (NodeType::Characterize { picks: vec![] }, "Say which joint is which part of a human, for Body Collide and Retarget"),
             (NodeType::Retarget, "The motion of one skeleton on another"),
+            (NodeType::Reach { settings: Default::default() }, "Hands and feet where the motion before the retarget has them, within human limits"),
+            (NodeType::HumanLimits { limits: Default::default() }, "A clip something moved, put back within what a human body can do"),
+            (NodeType::Capture { falloff: 6.0 }, "Skin weights for a mesh, by proximity to the bones"),
+            (NodeType::Skin, "Put a mesh's skin weights on any animation, by joint name"),
             (NodeType::AutoTPose { set_hip_height: false, hip_height: 90.0 }, "A neutral pose, one frame"),
             (NodeType::FixPose { edits: vec![] }, "Correct joints by hand, on every frame"),
             (NodeType::ProxySkin { thickness: 1.0 }, "A body of spheres and cylinders, bound to the skeleton"),

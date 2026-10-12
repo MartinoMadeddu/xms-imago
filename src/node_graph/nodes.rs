@@ -130,9 +130,18 @@ pub fn evaluate_node_type(
         NodeType::Output => inputs.first().cloned(),
 
         // ── Animation ────────────────────────────────────────────────────────
-        NodeType::LoadFbx { path, take } =>
-            crate::fbx_loader::load_fbx_cached(path, *take).ok()
-                .map(|l| EvalResult::Anim(l.anim)),
+        // Clip, Geometry, Rest.
+        NodeType::LoadFbx { path, take } => match output {
+            1 => crate::fbx_loader::load_scene_cached(path).ok()
+                .filter(|s| !s.prims.is_empty())
+                .map(|s| EvalResult::Named((*s.prims).clone())),
+            2 => {
+                let _ = take;
+                let clip = crate::fbx_loader::load_fbx_cached(path, crate::fbx_loader::NO_TAKE).ok()?.anim;
+                anim::memo(&format!("{node_type:?}:rest"), Some(&clip), || Some(clip.bind_clip())).map(EvalResult::Anim)
+            }
+            _ => crate::fbx_loader::load_fbx_cached(path, *take).ok().map(|l| EvalResult::Anim(l.anim)),
+        },
 
         NodeType::TestClip { seconds, fps_num, fps_den } =>
             anim::memo(&format!("{node_type:?}"), None, || {
@@ -206,6 +215,44 @@ pub fn evaluate_node_type(
             anim_op2(node_type, inputs, |a, b| a.blended(b, *blend, *align)),
         NodeType::Retarget => anim_op2(node_type, inputs, |a, b| a.retargeted(b).0),
         NodeType::Characterize { picks } => anim_op(node_type, inputs, |a| crate::core::human::with_picks(a, picks)),
+        // With one input wired, the clip goes through as it is.
+        NodeType::Reach { settings } => match inputs.len() {
+            1 => inputs.first().cloned(),
+            _ => {
+                let mut report = None;
+                let out = anim_op2(node_type, inputs, |a, b| { let (c, r) = crate::core::reach::reach(a, b, settings); report = Some(r); c });
+                if let (Some(EvalResult::Anim(o)), Some(r)) = (&out, report) { crate::core::reach::remember_report(o, r); }
+                out
+            }
+        },
+        NodeType::HumanLimits { limits } => match inputs.len() {
+            1 => inputs.first().cloned(),
+            _ => {
+                let mut report = None;
+                let out = anim_op2(node_type, inputs, |moved, reference| {
+                    let (c, r) = crate::core::reach::human_limits(reference, moved, limits);
+                    report = Some(crate::core::reach::ReachReport { human: r, ..Default::default() });
+                    c
+                });
+                if let (Some(EvalResult::Anim(o)), Some(r)) = (&out, report) { crate::core::reach::remember_report(o, r); }
+                out
+            }
+        },
+        NodeType::Capture { falloff } => {
+            let EvalResult::Named(prims) = prims_of(inputs.first()?) else { return None };
+            let skeleton = inputs.get(1)?.as_anim()?;
+            Some(EvalResult::Named(crate::core::skin::capture(&prims, skeleton, *falloff)))
+        }
+        NodeType::Skin => {
+            let EvalResult::Named(prims) = prims_of(inputs.first()?) else { return None };
+            let (rest, clip) = (inputs.get(1)?.as_anim()?, inputs.get(2)?.as_anim()?);
+            // Keyed by the clip, the rest skeleton and the geometry.
+            let key = format!("{node_type:?}:{:p}:{:p}", Arc::as_ptr(rest), prims.first().map(|p| Arc::as_ptr(&p.mesh)).unwrap_or(std::ptr::null()));
+            let mut report = None;
+            let out = anim::memo(&key, Some(clip), || { let (c, r) = crate::core::skin::skin(&prims, rest, clip); report = Some(r); Some(c) });
+            if let (Some(o), Some(r)) = (&out, report) { crate::core::skin::remember_report(o, r); }
+            out.map(EvalResult::Anim)
+        }
 
         // ── Ragdoll ──────────────────────────────────────────────────────────
         NodeType::LoadFbxMesh { path } => {
@@ -266,6 +313,15 @@ fn anim_op(
     let input: &Arc<AnimData> = inputs.first()?.as_anim()?;
     anim::memo(&format!("{node_type:?}"), Some(input), || Some(op(input)))
         .map(EvalResult::Anim)
+}
+
+/// Packed primitives from whatever comes in: a mesh is one primitive.
+fn prims_of(r: &EvalResult) -> EvalResult {
+    match r {
+        EvalResult::Named(p) => EvalResult::Named(p.clone()),
+        EvalResult::Single(m) => EvalResult::Named(vec![NamedMesh::new("/mesh".into(), m.clone())]),
+        EvalResult::Anim(_) => EvalResult::Named(vec![]),
+    }
 }
 
 /// A clip operator with two clip inputs. Needs both wired.

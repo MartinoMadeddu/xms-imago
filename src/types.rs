@@ -134,6 +134,18 @@ pub enum NodeType {
     /// Slots not picked are read from the names. Body Collide and Retarget
     /// go by what the clip carries.
     Characterize { picks: crate::core::human::Picks },
+    /// Hands and feet of the first input sent where the second input (the
+    /// motion before a retarget) has them, scaled; then the human pass.
+    Reach        { settings: crate::core::reach::ReachSettings },
+    /// The Body Collide node's human pass on its own: the first input put
+    /// back within human limits against the second (the clip before it was moved).
+    HumanLimits  { limits: crate::core::human_ik::Limits },
+    /// Skin weights by proximity: each point of the geometry weighted to the
+    /// nearest bones of the skeleton, in the skeleton's first frame.
+    Capture      { falloff: f32 },
+    /// Geometry with skin weights, the skeleton it was weighted in, and an
+    /// animation: the animation with that skin, joints matched by name.
+    Skin,
     TimeWarp     { speed: f32, reverse: bool },
     /// Remove joints whose name contains one of the comma-separated words.
     PruneJoints  { words: String },
@@ -229,7 +241,7 @@ impl NodeType {
             | NodeType::FixPose { .. } | NodeType::ProxySkin { .. } | NodeType::WriteFbx { .. }
             | NodeType::MirrorClip | NodeType::SmoothClip { .. } | NodeType::InPlace { .. }
             | NodeType::TransformClip { .. } | NodeType::BlendClips { .. } | NodeType::LoopClip { .. }
-            | NodeType::Retarget | NodeType::Characterize { .. } | NodeType::TimeWarp { .. } | NodeType::PruneJoints { .. }
+            | NodeType::Retarget | NodeType::Characterize { .. } | NodeType::Reach { .. } | NodeType::HumanLimits { .. } | NodeType::Skin | NodeType::TimeWarp { .. } | NodeType::PruneJoints { .. }
             | NodeType::FloorClip { .. } | NodeType::Calamari { .. } | NodeType::Ragdoll { .. })
     }
 }
@@ -271,6 +283,10 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::LoopClip { .. }      => "🔁",
         NodeType::Retarget             => "👥",
         NodeType::Characterize { .. }  => "👤",
+        NodeType::Reach { .. }         => "👣",
+        NodeType::HumanLimits { .. }   => "💪",
+        NodeType::Capture { .. }       => "🔗",
+        NodeType::Skin                 => "👕",
         NodeType::TimeWarp { .. }      => "⏩",
         NodeType::PruneJoints { .. }   => "🌿",
         NodeType::FloorClip { .. }     => "⬇",
@@ -320,6 +336,10 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::LoopClip { .. }      => "Loop",
         NodeType::Retarget             => "Retarget",
         NodeType::Characterize { .. }  => "Characterize",
+        NodeType::Reach { .. }         => "Reach",
+        NodeType::HumanLimits { .. }   => "Human Limits",
+        NodeType::Capture { .. }       => "Capture",
+        NodeType::Skin                 => "Skin",
         NodeType::TimeWarp { .. }      => "Time Warp",
         NodeType::PruneJoints { .. }   => "Prune Joints",
         NodeType::FloorClip { .. }     => "Floor",

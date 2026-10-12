@@ -10,7 +10,7 @@ The timeline has no range of its own. It takes range, rate and timecode from the
 
 | Node | What it does |
 |---|---|
-| Load FBX | Reads the hierarchy and one take from an FBX file, baked per frame, converted to Y-up metres. A mesh bound to the skeleton comes with it, with its weights |
+| Load FBX | Everything in an FBX file, converted to Y-up metres, on three outputs. **Clip**: the hierarchy and one take, baked per frame, with the mesh bound to the skeleton and its weights. **Geometry**: every mesh as a packed primitive, with normals, UVs, colours, material and skin weights. **Rest**: the skeleton in the pose its skin was bound in, one frame. Cameras, lights, materials, blend shapes and takes are listed in its properties. See [Characters](#characters-fbx-skin-weights-and-retargeting) |
 | Load FBX Folder | One file out of a folder, picked by index or from a dropdown of file names |
 | Test Clip | A generated clip for trying things out |
 | Rename Joints | Renames joints. Find is a regular expression, picked from the joint list or typed. Replace may use `$1`, `$2` for its groups |
@@ -34,7 +34,7 @@ In the "Mocap tools" section of the same sub-menu.
 | In Place | Removes horizontal travel of the root. Optionally keeps the height, or moves the travel to a root joint |
 | Blend | Plays the first clip, then the second, with a blend in frames. Can align the second clip to where the first ends |
 | Loop | Blends the end of a clip into its start |
-| Retarget | Puts the motion of the first input on the skeleton of the second. Joints are matched by the part of the body they are, so a Mixamo take drives an Unreal skeleton; joints with no part (fingers, helpers) by name, ignoring prefixes and namespaces. Bones are aligned in the rest pose, so the two skeletons may rest differently |
+| Retarget | Puts the motion of the first input on the skeleton of the second. Joints are matched by the part of the body they are, so a Mixamo take drives an Unreal skeleton; joints with no part (fingers, helpers) by name, ignoring prefixes and namespaces. Each skeleton is taken in the pose its skin was bound in (its rest pose when it has no skin), so the two may rest differently. Hips travel scaled by the ratio of hip heights |
 | Characterize | Says which joint is which part of a human. See below |
 | Time Warp | Changes speed, or reverses |
 | Prune Joints | Removes joints whose names match a pattern, with everything below them |
@@ -44,7 +44,7 @@ In the "Mocap tools" section of the same sub-menu.
 
 ![Retarget onto the test skeleton](xms_retarget.png)
 
-Retarget copies rotations and root motion. It has no IK of its own, so feet can slide when proportions differ.
+Retarget copies rotations and hips travel. Where the proportions differ the feet can slide or sink: put a **Reach** node after it (below).
 
 ## Skeletons and Characterize
 
@@ -52,7 +52,7 @@ Body Collide and Retarget need to know which joint is the hips, the chest, the n
 
 ![Characterize on the Body Collide template: an Unreal 5 / MetaHuman skeleton, 20 of 20 parts, twist joints beside the limbs](xms_characterize.png)
 
-A name is cut into words (`mixamorig:LeftForeArm` is left, fore, arm; `Bip001 L UpperArm` is l, upper, arm; `lShldrBend` is l, shldr, bend), the side and the part are read from the words, and the hierarchy decides the rest:
+A prefix every bone shares is left out first: in a take written as `Skeleton 001_Hips`, `Skeleton 001_LeftArm` and so on, only `Hips` and `LeftArm` are read. A name is cut into words (`mixamorig:LeftForeArm` is left, fore, arm; `Bip001 L UpperArm` is l, upper, arm; `lShldrBend` is l, shldr, bend), the side and the part are read from the words, and the hierarchy decides the rest:
 
 - The main joint of a limb is the highest one of its part above the next part: `upperarm01.L` over `upperarm02.L`, `lShldrBend` over `lShldrTwist`, `lwrist` over `lhand`.
 - The hips are where the legs and the chest hang from, named as hips if one such joint is. Daz `hip` rather than `pelvis`, which only carries the legs; MakeHuman `root`.
@@ -122,7 +122,48 @@ Open, Recent, Save and Save as in the node graph header read and write the graph
 
 ## Not done yet
 
-Timeline zoom and pan, curve cleanup, foot planting, IK in Retarget. The human IK pass is part of Body Collide only. Written files are checked against their source, not yet by importing them into Unreal.
+- Timeline zoom and pan, curve cleanup.
+- Reach follows the source's hands and feet; it does not find contacts or lock a foot that slides in the source.
+- Load FBX lists blend shapes, cameras and lights; it does not apply, draw or look through them. Several UV sets: the first is read. A mesh with several materials is shown with the first.
+- Written files are checked against their source, not yet by importing them into Unreal.
+
+## Characters: FBX, skin weights and retargeting
+
+**Load FBX** reads everything an FBX file holds, on three outputs:
+
+| Output | What |
+|---|---|
+| Clip | The skeleton and one take, baked per frame, with the mesh skinned to it. What it always gave |
+| Geometry | Every mesh node as a packed primitive, in its own space, placed where the file has it: polygons as written, normals, UVs, vertex colours, its material (colour, roughness, metalness, opacity, colour texture) and its skin weights by joint name |
+| Rest | The skeleton in the pose its skin was bound in (the file's bind pose), one frame, with the skin. Read without the take, so it is quick for a long one |
+
+Its properties list the meshes (points, polygons, skinned, UVs, blend shapes), the materials and their textures, the cameras (lens, film back, clipping, position, whether animated), the lights (kind, colour, intensity, position), the takes, and what is not read in full. Load FBX Mesh is gone: Load FBX's Geometry output does what it did, and graphs that used it open with a Load FBX node wired from that output. Load FBX also reads `.xmsclip` and `.xmsmesh` files.
+
+![Load FBX on the studio example: the floor and the crate with their materials, the camera and the light listed](xms_fbx_studio.png)
+
+### Skin weights by name
+
+After Houdini's KineFX, the weights live on the geometry and go by joint name, not by joint number. The rest skeleton is a pose of its own and the animation a third thing: the same weights deform the same mesh on any animation whose joints have those names. Each point carries `skel:joint0` to `skel:joint3` (a joint name, indexed so each name is held once) and `skel:jointWeights` (four weights summing to one).
+
+| Node | Menu | What it does |
+|---|---|---|
+| Capture | Mocap | Weights for every point of a mesh, by proximity to the bones of a skeleton in its first frame: the four nearest, the nearest weighing most (Falloff sets how fast). Bones above the hips weigh nothing. Inputs: geometry, skeleton |
+| Skin | Mocap | Inputs: geometry with weights, the rest skeleton it was weighted in, an animation. Puts out the animation with that skin, joints matched by name (then by name without namespace), each bound where the rest skeleton has it. The panel lists names the animation does not have |
+
+![Capture and Skin: the character's mesh weighted again by proximity, its skin put on the retargeted take](xms_capture_skin.png)
+
+### Reach and Human Limits
+
+The human pass of Body Collide, on its own and after a retarget. Body Collide itself is unchanged.
+
+| Node | Menu | What it does |
+|---|---|---|
+| Reach | Mocap | First input a clip (a retarget), second the goal (the motion before it). The hands and feet go where the goal has them against its hips, scaled by the ratio of hip heights; each arm and leg is solved with two bones and the hand and foot keep their turn. Then the human pass. Feet on, hands off by default. The panel says how far the ends were from their goals before and after |
+| Human Limits | Mocap | First input a clip that something moved (Fix Pose, a blend, a retarget), second the same clip before. Elbows and knees bend about their hinge, the way the reference bends them, never past what a human joint does; wrists and ankles stay within their range; twist joints take their share. A limit never makes a frame worse than the reference |
+
+On the "Retarget onto a character" template, the example take's first actor (69 joints, `Skeleton 001_…`) on the 342-joint character of `examples/ragdoll/split/into_the_car_.fbx`: Reach takes the feet from at most 2.2 cm off their goals to 0.3 cm, and no knee bends the wrong way.
+
+![Retarget onto a character, then Reach](xms_retarget_character.png)
 
 ## Moving a clip
 

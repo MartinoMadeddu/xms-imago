@@ -8,7 +8,7 @@ A captured performance does not know about the set. The actor sat on a box, the 
 
 | Node | Menu | Does |
 |---|---|---|
-| Load FBX Mesh | File | Reads every mesh of an FBX file, where it stands, as packed primitives. For the set. |
+| Load FBX | File | Its Geometry output (the second) gives every mesh of a file, where it stands, as packed primitives. For the set. |
 | Characterize | Mocap | Says which joint is which part of a human. Read from the names for the common conventions, set by hand for the rest. Optional before Body Collide. See [Skeletons](mocap.md#skeletons-and-characterize). |
 | Body Collide | Mocap | First input a clip, second input a collider mesh. Puts out the clip, kept out of the collider, within what a human body can do. |
 
@@ -16,11 +16,11 @@ A captured performance does not know about the set. The actor sat on a box, the 
 
 Load FBX now reads a mesh bound to the skeleton, with its weights, and the viewport draws it bending with the joints. Write FBX writes the weights back.
 
-Any mesh can be the collider: a model from Load FBX Mesh or Load USD, a cube, anything the mesh nodes make. It does not have to be closed, one-sided or tidy.
+Any mesh can be the collider: a model from Load FBX's Geometry output or Load USD, a cube, anything the mesh nodes make. It does not have to be closed, one-sided or tidy.
 
 ## Using it
 
-1. Load the take with **Load FBX** and the set with **Load FBX Mesh**. They must already be lined up: the node moves the character, not the set.
+1. Load the take with **Load FBX** and the set with another **Load FBX**, wired from its Geometry output. They must already be lined up: the node moves the character, not the set.
 2. Wire the take to the first input of a **Body Collide** node and the set to the second. The Inputs group says which convention the skeleton was read as and how many of its 20 parts were found. If the hips or the limbs are missing, put a **Characterize** node between the take and Body Collide and pick them. Put the view flag on the node. The set is drawn see-through, with the character inside.
 3. Press **Solve** in the properties of the node. A bar shows frames done, frames a second and time left. **Stop** stops it.
 4. When it is done the node puts out the solved clip. Scrub it. Wire it on to Write FBX like any clip.
@@ -38,7 +38,7 @@ As FBX the take is 205 MB and the car 99 MB, more than GitHub takes in one file.
 | `.xmsclip` | Skeleton, every frame, and the skin with its weights. What never moves is written once, rotations in 16 bits a component | 4 MB for the take |
 | `.xmsmesh` | Positions and triangles | 15 MB for the car |
 
-Load FBX reads `.xmsclip` and Load FBX Mesh reads `.xmsmesh`, by the extension. The take loads in a sixth of a second this way, against five seconds as FBX. Joint positions differ from the FBX by less than a tenth of a millimetre.
+Load FBX reads `.xmsclip` (on its Clip output) and `.xmsmesh` (on its Geometry output), by the extension. The take loads in a sixth of a second this way, against five seconds as FBX. Joint positions differ from the FBX by less than a tenth of a millimetre.
 
 ## What it does
 

@@ -83,7 +83,15 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
 ///   is the same rotation, written in Transform's convention.
 /// - Calamari goes. Its display moves onto the Body Collide node it came
 ///   after, and the wires through it are joined up.
+/// - Load FBX Mesh becomes Load FBX, which reads every mesh too: its wires
+///   leave from Load FBX's Geometry output.
 fn upgrade(saved: &mut SavedGraph) {
+    for n in saved.nodes.iter_mut() {
+        if let NodeType::LoadFbxMesh { path } = &n.node_type {
+            n.node_type = NodeType::LoadFbx { path: path.clone(), take: 0 };
+            for c in saved.connections.iter_mut().filter(|c| c[0] == n.id && c[1] == 0) { c[1] = 1; }
+        }
+    }
     use bevy::math::{EulerRot, Quat, Vec3};
     for n in saved.nodes.iter_mut() {
         if let NodeType::TransformClip { translate, rotate, scale } = n.node_type.clone() {
@@ -558,6 +566,23 @@ mod tests {
     /// A graph saved before Body Collide had its display and Transform took
     /// clips: Calamari folds into Body Collide, Transform Clip becomes
     /// Transform with the same rotation.
+    #[test]
+    fn a_load_fbx_mesh_node_becomes_load_fbx() {
+        let json = r#"{"version":1,"nodes":[
+            {"id":0,"name":"Output","position":[0,500],"node_type":"Output"},
+            {"id":2,"name":"Car","position":[0,0],"node_type":{"LoadFbxMesh":{"path":"car.xmsmesh"}}},
+            {"id":3,"name":"Move","position":[0,100],"node_type":{"Transform":{"translation":[0.0,0.0,0.0],"rotation":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0]}}}
+        ],"connections":[[2,0,3,0],[3,0,0,0]],"view_flag":null}"#;
+        let mut g = NodeGraphState::default();
+        from_json(&mut g, json).unwrap();
+        let car = g.nodes.iter().find(|n| n.id == NodeId(2)).unwrap();
+        assert!(matches!(&car.node_type, NodeType::LoadFbx { path, take: 0 } if path == "car.xmsmesh"));
+        assert_eq!(car.outputs.len(), 3);
+        // Its wire leaves from the Geometry output now.
+        let mv = g.nodes.iter().find(|n| n.id == NodeId(3)).unwrap();
+        assert_eq!(mv.inputs[0].connected_output, Some((NodeId(2), 1)));
+    }
+
     #[test]
     fn older_graphs_are_brought_up_to_date() {
         let json = r#"{"version":1,"nodes":[

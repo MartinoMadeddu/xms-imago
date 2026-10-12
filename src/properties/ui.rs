@@ -74,7 +74,76 @@ pub fn draw_properties_panel(
         });
 }
 
-const FBX_EXTS: &[&str] = &["fbx", crate::packed::CLIP_EXT];
+const FBX_EXTS: &[&str] = &["fbx", crate::packed::CLIP_EXT, crate::packed::MESH_EXT];
+
+/// What an FBX file holds, as Load FBX reads it.
+fn fbx_contents(ui: &mut egui::Ui, info: &crate::fbx_loader::FbxInfo) {
+    let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    if !info.meshes.is_empty() {
+        group(ui, "Geometry", Some("Second output: one packed primitive per mesh node"), |f| {
+            for m in info.meshes.iter().take(12) {
+                let mut what = format!("{}, {}", plural(m.points, "point", "points"), plural(m.polygons, "polygon", "polygons"));
+                if m.skinned { what.push_str(", skinned"); }
+                if m.uv_sets > 0 { what.push_str(", UVs"); }
+                if !m.shapes.is_empty() { what.push_str(&format!(", {}", plural(m.shapes.len(), "blend shape", "blend shapes"))); }
+                f.value(m.path.rsplit('/').next().unwrap_or(&m.path), what);
+            }
+            if info.meshes.len() > 12 { f.value("", format!("and {} more", info.meshes.len() - 12)); }
+            if info.bones > 0 { f.value("Bind pose", if info.bind_pose { "in the file: Rest stands in it" } else { "not in the file: Rest is the first frame" }); }
+        });
+    }
+    if !info.materials.is_empty() {
+        group(ui, "Materials", None, |f| {
+            for m in info.materials.iter().take(12) {
+                let tex = if m.textures.is_empty() { String::new() } else { format!(", {}", m.textures.iter().map(|(what, file)| format!("{what}: {}", file.rsplit(['/', '\\']).next().unwrap_or(file))).collect::<Vec<_>>().join(", ")) };
+                f.value(&m.name, format!("colour {:.2} {:.2} {:.2}{tex}", m.color[0], m.color[1], m.color[2]));
+            }
+        });
+    }
+    if !info.cameras.is_empty() {
+        group(ui, "Cameras", None, |f| {
+            for c in &info.cameras {
+                let lens = if c.perspective { format!("{:.0} mm on {:.1} × {:.1} mm", c.focal_mm, c.film_mm[0], c.film_mm[1]) } else { "orthographic".into() };
+                f.value(&c.name, format!("{lens}, clip {:.2} to {:.0} m, at {:.2} {:.2} {:.2}{}", c.near, c.far, c.position.x, c.position.y, c.position.z, if c.animated { ", animated" } else { "" }));
+            }
+        });
+    }
+    if !info.lights.is_empty() {
+        group(ui, "Lights", None, |f| {
+            for l in &info.lights {
+                f.value(&l.name, format!("{}, colour {:.2} {:.2} {:.2}, intensity {:.2}, at {:.2} {:.2} {:.2}", l.kind, l.color[0], l.color[1], l.color[2], l.intensity, l.position.x, l.position.y, l.position.z));
+            }
+        });
+    }
+    if !info.not_read.is_empty() {
+        group(ui, "Not read in full", None, |f| { for n in &info.not_read { f.status(Status::Info, n.clone()); } });
+    }
+}
+
+/// The human pass's settings, as Body Collide shows them.
+fn limits_group(ui: &mut egui::Ui, limits: &mut crate::core::human_ik::Limits, hint: &str) {
+    group(ui, "Human limits", Some(hint), |f| {
+        f.toggle("On", None, &mut limits.on);
+        f.enabled(limits.on, |f| {
+            f.slider("Swivel", Some("Furthest an elbow or a knee may point away from where it points in the reference"), &mut limits.swivel, 0.0..=90.0, "°");
+            f.slider("Wrist and ankle", Some("Furthest a hand or a foot may turn away from the reference"), &mut limits.give, 0.0..=90.0, "°");
+        });
+    });
+}
+
+/// What a Reach or Human Limits node did.
+fn reach_report(ui: &mut egui::Ui, anim: &AnimContext, reach: bool) {
+    let Some(r) = anim.output.as_ref().and_then(crate::core::reach::report_for) else { return };
+    group(ui, "Result", None, |f| {
+        if reach {
+            f.value("Limbs", format!("{}", r.limbs));
+            f.value("Furthest from the goal", format!("{:.1} cm before, {:.1} cm after", r.miss_before * 100.0, r.miss_after * 100.0));
+        }
+        let h = r.human;
+        f.value("Bent the wrong way", format!("{} frames before, {} after", h.flips_before, h.flips_after));
+        f.value("Wrist or ankle past its range", format!("{} frames before, {} after", h.ends_before, h.ends_after));
+    });
+}
 
 pub fn draw_properties(
     ui:     &mut egui::Ui,
@@ -166,10 +235,11 @@ pub fn draw_properties(
             });
         }
         NodeType::LoadFbx { path, take } => {
-            group(ui, "File", Some("A skeleton and one take, baked per frame, with the mesh skinned to it. Read Y up, in metres; written back in the file's own axes and unit"), |f| {
+            group(ui, "File", Some("Everything the file holds. Clip: the skeleton and one take, baked per frame, with the mesh skinned to it. Geometry: every mesh as a packed primitive, placed where the file has it, with normals, texture coordinates, colours, material and skin weights by joint name. Rest: the skeleton in the pose its skin was bound in, one frame. Read Y up, in metres; written back in the file's own axes and unit"), |f| {
                 path_row(f, path, "/path/to/take.fbx", io, sel_id, BrowseMode::File, "Open FBX", FBX_EXTS);
-                take_rows(f, crate::fbx_loader::load_fbx_cached(path, *take), take);
+                if !crate::packed::is_mesh(path) { take_rows(f, crate::fbx_loader::load_fbx_cached(path, *take), take); }
             });
+            if let Ok(scene) = crate::fbx_loader::load_scene_cached(path) { fbx_contents(ui, &scene.info); }
             clip_summary(ui, anim, false);
         }
         NodeType::LoadFbxDir { dir, index, take } => {
@@ -531,6 +601,47 @@ pub fn draw_properties(
                 }
             });
             clip_summary(ui, anim, true);
+        }
+        NodeType::Reach { settings } => {
+            group(ui, "Reach", Some("Hands and feet of the first input go where the second input (the motion before the retarget) has them against its hips, scaled by the ratio of the hip heights. Each arm and leg is solved with two bones; the hand and the foot keep their turn. Then the Body Collide node's human pass"), |f| {
+                f.toggle("Feet", None, &mut settings.feet);
+                f.toggle("Hands", None, &mut settings.hands);
+                f.slider("Weight", Some("How much of the way to the goal"), &mut settings.weight, 0.0..=1.0, "");
+            });
+            limits_group(ui, &mut settings.limits, "Elbows and knees bend about their hinge, the way the input bends them, never past what a human joint does. Wrists and ankles stay within their range. Twist joints take their share");
+            reach_report(ui, anim, true);
+            clip_summary(ui, anim, true);
+        }
+        NodeType::HumanLimits { limits } => {
+            group(ui, "Inputs", Some("The first input put back within human limits, against the second: the same clip before something moved it (a retarget, Fix Pose, a blend). Both need the same skeleton"), |f| {
+                if anim.input.is_none() { f.status(Status::Info, "Connect the moved clip to the first input, the clip before it to the second"); }
+            });
+            limits_group(ui, limits, "The Body Collide node's human pass on its own. Elbows and knees bend about their hinge, the way the reference bends them, never past what a human joint does. Wrists and ankles stay within their range. Twist joints take their share. A limit never makes a frame worse than the reference");
+            reach_report(ui, anim, false);
+            clip_summary(ui, anim, true);
+        }
+        NodeType::Capture { falloff } => {
+            group(ui, "Capture", Some("Skin weights for every point of the geometry, by how near it is to each bone of the skeleton in its first frame: the four nearest, the nearest weighing most. Bones above the hips weigh nothing. The weights are point attributes, by joint name: skel:joint0 to skel:joint3 and skel:jointWeights"), |f| {
+                f.slider("Falloff", Some("How fast a further bone's weight drops: higher gives a harder skin"), falloff, 1.0..=12.0, "");
+                f.status(Status::Info, "Wire the geometry first, then the skeleton in the pose the mesh is in (Load FBX's Rest)");
+            });
+        }
+        NodeType::Skin => {
+            group(ui, "Skin", Some("The animation (third input) with the skin of the geometry (first input). The geometry's weights go by joint name, and bind where the rest skeleton (second input) has those joints. The same weights fit any animation whose joints have those names"), |f| {
+                match anim.output.as_ref().and_then(crate::core::skin::report_for) {
+                    Some(r) => {
+                        f.value("Points", format!("{}", r.points));
+                        f.value("Primitives", format!("{} weighted{}", r.weighted, if r.unweighted > 0 { format!(", {} without weights left out", r.unweighted) } else { String::new() }));
+                        f.value("Joints", format!("{} found in the animation", r.matched));
+                        if !r.missing.is_empty() {
+                            f.status(Status::Bad, format!("{} joints not in the animation: {}{}", r.missing.len(), r.missing.iter().take(6).cloned().collect::<Vec<_>>().join(", "), if r.missing.len() > 6 { ", …" } else { "" }));
+                        }
+                        if r.not_in_rest > 0 { f.status(Status::Info, format!("{} joints of the animation are not in the rest skeleton: they bind where the animation rests", r.not_in_rest)); }
+                    }
+                    None => f.status(Status::Info, "Connect geometry with weights, the rest skeleton and an animation"),
+                }
+            });
+            clip_summary(ui, anim, false);
         }
         NodeType::AutoTPose { set_hip_height, hip_height } => {
             group(ui, "Pose", Some("Rotations zeroed, the root at the origin, the hips centred. One frame, no animation"), |f| {

@@ -154,7 +154,9 @@ impl Human {
     /// Read a skeleton from its names and hierarchy, then put the picks on it.
     pub fn detect(joints: &[Joint], picks: &Picks) -> Human {
         let n = joints.len();
-        let parsed: Vec<Option<Parsed>> = joints.iter().map(|j| if j.is_bone { parse(&j.name) } else { None }).collect();
+        // A prefix every bone shares ("Skeleton 001_", "Actor1_") says nothing about the part.
+        let prefix = shared_prefix(joints);
+        let parsed: Vec<Option<Parsed>> = joints.iter().map(|j| if j.is_bone { parse(j.name.strip_prefix(prefix.as_str()).unwrap_or(&j.name)) } else { None }).collect();
         // Names of joint places (SMPL, Kinect, some BVH): the shoulder joint
         // turns the upper arm, the hip joint the thigh, the foot joint the toes.
         let positional = parsed.iter().flatten().any(|p| p.word == "elbow")
@@ -404,10 +406,23 @@ pub fn words(name: &str) -> Vec<String> {
     out.into_iter().map(|w| w.to_ascii_lowercase()).collect()
 }
 
+/// The start every bone name shares, cut back to a separator so that
+/// "LeftArm" and "LeftLeg" keep their "Left". Empty for fewer than three bones.
+fn shared_prefix(joints: &[Joint]) -> String {
+    let names: Vec<&str> = joints.iter().filter(|j| j.is_bone).map(|j| j.name.as_str()).collect();
+    if names.len() < 3 { return String::new(); }
+    let first = names[0];
+    let mut len = first.len();
+    for n in &names { len = len.min(first.bytes().zip(n.bytes()).take_while(|(a, b)| a == b).count()); }
+    while !first.is_char_boundary(len) { len -= 1; }
+    let cut = first[..len].rfind(|c| c == ':' || c == '_' || c == ' ' || c == '|').map(|i| i + 1).unwrap_or(0);
+    first[..cut].to_string()
+}
+
 /// Words that say nothing about the part: prefixes of conventions, kinds of node.
 const NOISE: &[&str] = &[
     "mixamorig", "mixamo", "valve", "biped", "bip", "cc", "base", "j", "def", "character", "jnt", "joint",
-    "bind", "bn", "b", "skel", "sk", "rig", "c", "jt", "deform", "bone", "bend", "m", "x",
+    "bind", "bn", "b", "skel", "skeleton", "sk", "rig", "c", "jt", "deform", "bone", "bend", "m", "x",
 ];
 
 fn parse(name: &str) -> Option<Parsed> {
@@ -672,6 +687,24 @@ mod tests {
             joints.push(Joint::new(n.to_string(), Some(pi), Transform::IDENTITY));
         }
         joints
+    }
+
+    /// HumanIK names under a prefix every bone shares, as Shogun and Motive
+    /// write takes: "Skeleton 001_Hips". The prefix says nothing about the part.
+    #[test]
+    fn a_prefix_every_bone_shares_is_left_out() {
+        let names = ["Hips", "Spine4", "Neck", "Head", "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
+            "RightShoulder", "RightArm", "RightForeArm", "RightHand", "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase",
+            "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase"];
+        for prefix in ["Skeleton 001_", "Actor1_", "Take 7|"] {
+            let full: Vec<String> = names.iter().map(|n| format!("{prefix}{n}")).collect();
+            let r: Vec<&str> = full.iter().map(|s| s.as_str()).collect();
+            let spine: Vec<String> = ["Spine", "Spine1"].iter().map(|n| format!("{prefix}{n}")).collect();
+            let js = biped(r.clone().try_into().unwrap(), &spine.iter().map(|s| s.as_str()).collect::<Vec<_>>(), &[]);
+            let h = Human::detect(&js, &vec![]);
+            assert_eq!(h.found(), 20, "{prefix}");
+            for (s, w) in Slot::ALL.iter().zip(&r) { assert_eq!(name(&js, h.get(*s)), *w, "{prefix} {s:?}"); }
+        }
     }
 
     #[test]

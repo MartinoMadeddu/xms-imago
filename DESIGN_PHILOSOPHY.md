@@ -19,6 +19,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - When a change would rewrite or remove something of his, say which part and why before making it, and ask.
 - Where his work and another change touch the same lines, his version is kept, and the change is redone on top of it.
 - His decisions are written here as they are read from his code, so everyone works from the same file.
+- `ARCHITECTURE.md` (Martino, 11/10/2026) records the decisions that shape the data and its evaluation: the geometry model, copy on demand, packed primitives, edits and USD out, the viewport, the ICE engine to come, and where it is all going. Read it before changing any of those. It is to be merged with this file once Martino and Simon have talked.
 
 ## The graph is the program
 
@@ -42,13 +43,14 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 ## Nothing typed that can be picked
 
 - Joint names, prim paths and file paths are picked from lists, browsed or matched by pattern, with a live count of what matches. Typing is the fallback, not the way.
-- Ask the program for what it already knows: a skeleton's parts are read from its names, the user only sets what could not be read.
+- Ask the program for what it already knows: a skeleton's parts are read from its names, the user only sets what could not be read. A prefix every bone shares (`Skeleton 001_`) says nothing and is left out.
 
 ## The same words for the same things
 
 - Translate, Rotate, Scale for every transform. Path for every file. In and Out for what passes through.
 - The properties of every node share one layout: titled groups, labels right-aligned in one column, values filling the width. Explanations go in tooltips; the panel shows parameters and the state of the node: what came in, what goes out, what went wrong.
 - The light theme is the default. The viewport's background follows the colour scheme.
+- Nodes are coloured by their add-menu category; the ICE node has its own teal, after Softimage's ICETree.
 - Imago keeps its own way of working. Softimage XSI and other programs are references for conventions, not a look or a layout to copy.
 - How it looks is a theme, chosen by the user. A button style setting has been proposed but not built: from soft, rounded XSI buttons to the square IRIX Motif look. Colour schemes can be worked out with a palette tool such as [Adobe Color](https://color.adobe.com/create/color-wheel).
 
@@ -62,6 +64,9 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 - A clip read from a file is written back with that file's skeleton: names, hierarchy, joint kinds, axes and unit. An engine sees an animation of the skeleton it already has.
 - Write only what was changed; everything else keeps its values.
+- A file is read for everything it holds. What is not used yet is listed, not dropped: Load FBX gives the clip, every mesh and the rest skeleton, and lists cameras, lights, materials and blend shapes, as Load USD lists what it does not draw.
+- A character is taken in the pose its skin was bound in, not in the first frame of a take.
+- Skin weights live on the geometry and go by joint name (after Houdini's KineFX): the same weights fit any skeleton with those names, and the rest pose is a skeleton of its own.
 - A USD file is read composed, as usdview shows it. Nothing is baked into the points: up axis and unit become a correction on the placement.
 - Changes go back to USD as opinions: an override layer over the file the stage came from, holding only what changed. A stage nothing touched gives a layer with its header alone.
 - What changed is what no longer shares with what was loaded, compared by pointer, not by value.
@@ -71,6 +76,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 - A process that cleans data may not make any frame worse than the data it was given. Where the capture itself goes past a limit, the limit for that frame is the capture.
 - Bones do not change length. Collision cleanup changes rotations and the hips, nothing else.
+- One human solver: Body Collide, Reach and Human Limits share one human pass. What it learns, they all learn.
 - A frame nothing touched comes out as it went in, to the last digit.
 
 ## Heavy data stays light
@@ -100,3 +106,5 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 10/10/2026: from a talk between Martino and Simon: each feature brings its template and demo files, with a download offered for models too big to package; Imago keeps its own paradigm, XSI is a reference; a button style setting proposed.
 - 10/10/2026: loading a template or opening a file asks to save unsaved changes first, as closing does (Simon).
 - 10/10/2026: the + buttons removed: opening a file or template asks whether to add or open as new; opening as new still asks to save first (Simon).
+- 11/10/2026: read from Martino's commits: `ARCHITECTURE.md` added (pointed to under "Martino's project"); nodes coloured by add-menu category, the ICE node teal.
+- 12/10/2026: Load FBX reads everything a file holds; skin weights by joint name, after KineFX; characters taken in their bind pose; one human solver shared by Body Collide, Reach and Human Limits (Simon).

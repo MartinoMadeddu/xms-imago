@@ -26,7 +26,7 @@ pub const SIMON:   &str = "Simon";
 /// The Templates menu: whose work, then the groups of each.
 pub const MENU: [(&str, &[&str]); 2] = [
     (MARTINO, &["USD stages", "ICE"]),
-    (SIMON,   &["Basics", "Modelling", "UV", "USD", "Animation & Mocap"]),
+    (SIMON,   &["Basics", "Modelling", "UV", "USD", "Animation & Mocap", "FBX and characters"]),
 ];
 
 pub const TEMPLATES: &[Template] = &[
@@ -90,6 +90,14 @@ pub const TEMPLATES: &[Template] = &[
         hint: "The mocap split graph, pointed at the example folder with a two-character take" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Mocap split", build: mocap_blank,
         hint: "Folder of takes, split per character, animation and skinned T-pose written per character" },
+    Template { by: SIMON, group: "FBX and characters", name: "Load FBX: what a file holds", build: fbx_studio,
+        hint: "A small studio: two meshes with their materials and UVs, a camera that dollies in, a light. Select Load FBX to see them listed" },
+    Template { by: SIMON, group: "FBX and characters", name: "Retarget onto a character", build: retarget_character,
+        hint: "The example take on a 342-joint character in the pose its skin was bound in, then Reach: feet where the actor's are, within human limits" },
+    Template { by: SIMON, group: "FBX and characters", name: "Capture and Skin", build: capture_skin,
+        hint: "The character's mesh weighted again by proximity to its bones, and its skin put on the retargeted take by joint name" },
+    Template { by: SIMON, group: "FBX and characters", name: "Human Limits", build: human_limits,
+        hint: "An elbow turned the wrong way by Fix Pose, put back by the Body Collide node's human pass" },
 ];
 
 impl Template {
@@ -573,15 +581,90 @@ fn body_collide(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     let take  = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::RAGDOLL_TAKE), take: 0 }, p(40.0, 20.0));
     // Characterize before Car: side by side above Body Collide, in the order of its inputs.
     let who   = g.add_node("Characterize".into(), NodeType::Characterize { picks: vec![] }, p(40.0, 85.0));
-    let car   = g.add_node("Car".into(), NodeType::LoadFbxMesh { path: examples::path(examples::RAGDOLL_SET) }, p(300.0, 20.0));
+    let car   = g.add_node("Car".into(), NodeType::LoadFbx { path: examples::path(examples::RAGDOLL_SET), take: 0 }, p(300.0, 20.0));
     let body  = g.add_node("BodyCollide".into(), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(170.0, 150.0));
     g.add_connection(take, 0, who, 0);
     g.add_connection(who, 0, body, 0);
-    g.add_connection(car, 0, body, 1);
+    // The car's geometry: Load FBX's second output.
+    g.add_connection(car, 1, body, 1);
     view(g, body, p(170.0, 260.0));
     g.selected_node  = Some(body);
     g.selected_nodes = vec![body];
     format!("Body Collide: the actor walks through the car at frame 1341 and is seated by 1473. Scrub to frame 3000: hips on the seat, feet in the footwell. Bypass the node to see the capture. Display: Hulls shows the shapes that collide. Characterize shows which joint is which part.{}", missing_examples())
+}
+
+// ── FBX and characters ───────────────────────────────────────────────────────
+
+fn fbx_studio(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+    crate::graph_io::clear(g);
+    let load = g.add_node("Studio".into(), NodeType::LoadFbx { path: examples::path(examples::STUDIO_FBX), take: 0 }, p(180.0, 20.0));
+    let out = output(g);
+    g.add_connection(load, 1, out, 0);
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == out) { n.position = p(180.0, 130.0); }
+    g.selected_node = Some(load);
+    g.selected_nodes = vec![load];
+    format!("Load FBX: its Geometry output (the second) is wired to Output: a floor and a crate, with their materials. The properties list the meshes, materials, camera and light, and what is not read in full.{}", missing_examples())
+}
+
+/// Take, one character of it, the character file and a Retarget of the one
+/// onto the other's rest pose. Returns (split, character, retarget).
+fn take_onto_character(g: &mut NodeGraphState) -> (NodeId, NodeId, NodeId) {
+    let take  = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::TAKE_FBX), take: 0 }, p(40.0, 20.0));
+    let split = g.add_node("OneActor".into(), NodeType::SplitSkeleton { picks: vec![crate::types::SplitPick::Character(0)] }, p(40.0, 110.0));
+    let who   = g.add_node("Character".into(), NodeType::LoadFbx { path: examples::path(examples::CHARACTER_FBX), take: 0 }, p(300.0, 20.0));
+    let ret   = g.add_node("Retarget".into(), NodeType::Retarget, p(170.0, 220.0));
+    g.add_connection(take, 0, split, 0);
+    g.add_connection(split, 0, ret, 0);
+    // The character in the pose its skin was bound in: its Rest output.
+    g.add_connection(who, 2, ret, 1);
+    (split, who, ret)
+}
+
+fn retarget_character(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+    crate::graph_io::clear(g);
+    let (split, _, ret) = take_onto_character(g);
+    let reach = g.add_node("Reach".into(), NodeType::Reach { settings: Default::default() }, p(170.0, 320.0));
+    g.add_connection(ret, 0, reach, 0);
+    g.add_connection(split, 0, reach, 1);
+    view(g, reach, p(170.0, 430.0));
+    g.selected_node = Some(reach);
+    g.selected_nodes = vec![reach];
+    format!("Retarget onto a character: one actor of the example take on a 342-joint character, read with its skin and bind pose from Load FBX's Rest output. Reach then puts the feet where the actor's are, scaled to the character, and the human pass keeps the knees right. Put the view flag on Retarget to compare. Space plays.{}", missing_examples())
+}
+
+fn capture_skin(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+    crate::graph_io::clear(g);
+    let (split, who, ret) = take_onto_character(g);
+    let reach = g.add_node("Reach".into(), NodeType::Reach { settings: Default::default() }, p(170.0, 320.0));
+    let cap   = g.add_node("Capture".into(), NodeType::Capture { falloff: 6.0 }, p(430.0, 220.0));
+    let skin  = g.add_node("Skin".into(), NodeType::Skin, p(300.0, 420.0));
+    g.add_connection(ret, 0, reach, 0);
+    g.add_connection(split, 0, reach, 1);
+    g.add_connection(who, 1, cap, 0);
+    g.add_connection(who, 2, cap, 1);
+    g.add_connection(cap, 0, skin, 0);
+    g.add_connection(who, 2, skin, 1);
+    g.add_connection(reach, 0, skin, 2);
+    view(g, skin, p(300.0, 520.0));
+    g.selected_node = Some(skin);
+    g.selected_nodes = vec![skin];
+    format!("Capture and Skin: the character's mesh weighted again by proximity to its bones (Capture), then that skin put on the retargeted take by joint name (Skin). Bypass Capture to use the weights the file came with. Space plays.{}", missing_examples())
+}
+
+fn human_limits(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+    crate::graph_io::clear(g);
+    let walk  = g.add_node("Walk".into(), NodeType::TestClip { seconds: 2.0, fps_num: 30, fps_den: 1 }, p(40.0, 20.0));
+    let fix   = g.add_node("BendBack".into(), NodeType::FixPose { edits: vec![
+        crate::core::anim::PoseEdit { joint: "Take01:LeftForeArm".into(), rotation: [80.0, 0.0, 0.0], translation: [0.0; 3] },
+    ] }, p(40.0, 110.0));
+    let lim   = g.add_node("HumanLimits".into(), NodeType::HumanLimits { limits: Default::default() }, p(170.0, 220.0));
+    g.add_connection(walk, 0, fix, 0);
+    g.add_connection(fix, 0, lim, 0);
+    g.add_connection(walk, 0, lim, 1);
+    view(g, lim, p(170.0, 330.0));
+    g.selected_node = Some(lim);
+    g.selected_nodes = vec![lim];
+    "Human Limits: Fix Pose bends the left elbow 80 degrees the wrong way; Human Limits, against the walk before it, bends it back the way a human elbow goes and keeps the hand where it was. Put the view flag on BendBack to see the broken arm.".into()
 }
 
 // ── Martino: composed USD stages and ICE ─────────────────────────────────────
@@ -727,8 +810,8 @@ mod tests {
                 if t.name == "Mocap split" { break; }
                 if matches!(n.node_type, NodeType::Output | NodeType::WriteFbx { .. }) { continue; }
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
-                let mesh = g.eval_node(n.id, &mut std::collections::HashMap::new(), &eval)
-                    .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0);
+                let mesh = (0..n.outputs.len().max(1)).map(|o| g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
+                    .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0)).max().unwrap_or(0);
                 assert!(clip || mesh > 0, "{}: node {} gives nothing", t.name, n.name);
             }
             // Mesh templates end in Output; clip templates set the view flag.

@@ -21,6 +21,11 @@ pub const DELOREAN_USD: &str = "DeLorean.usdz";
 /// compact formats: as FBX they are too large for the repository.
 pub const RAGDOLL_TAKE: &str = "ragdoll/into_the_car.xmsclip";
 pub const RAGDOLL_SET:  &str = "ragdoll/car.xmsmesh";
+/// A small studio written by hand: two meshes, two materials, a camera, a light.
+pub const STUDIO_FBX: &str = "fbx/studio.fbx";
+/// A 342-joint character with its skinned mesh and bind pose: frames 1200
+/// to 9199 of the Body Collide take, as FBX.
+pub const CHARACTER_FBX: &str = "ragdoll/split/into_the_car_.fbx";
 /// Solved results that ship with the examples.
 pub const RAGDOLL_SOLVED: &str = "ragdoll/solved";
 
@@ -40,6 +45,12 @@ pub fn dir() -> Option<PathBuf> {
     }
     if let Ok(cwd) = std::env::current_dir() { places.push(cwd.join("examples")); }
     places.into_iter().find(|p| p.join(SHAPES_USD).is_file())
+}
+
+/// Path of an example file when the examples folder is there.
+pub fn existing(name: &str) -> Option<String> {
+    let p = dir()?.join(name);
+    p.is_file().then(|| p.to_string_lossy().to_string())
 }
 
 /// Path of an example file as a node parameter. Falls back to a relative

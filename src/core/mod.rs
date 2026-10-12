@@ -9,6 +9,10 @@ pub mod poly_ops;
 pub mod anim_tools;
 pub mod human;
 pub mod human_ik;
+/// Hands and feet sent where another clip has them; the human pass on its own.
+pub mod reach;
+/// Skin weights kept on the geometry by joint name; Capture and Skin.
+pub mod skin;
 pub mod pattern;
 pub mod uv;
 pub mod manip;
