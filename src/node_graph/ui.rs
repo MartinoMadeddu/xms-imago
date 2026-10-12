@@ -454,9 +454,9 @@ fn draw_node(
     // Tooltip - simpler API
     if eye_response.hovered() {
         let tooltip_text = if has_view_flag {
-            "Viewport showing this node (click to revert to Output)"
+            "The Viewer shows this node (click to go back to Output)"
         } else {
-            "Click to view this node's output in viewport"
+            "Click to show this node's output in the Viewer"
         };
         eye_response.on_hover_text(tooltip_text);
     }
@@ -693,8 +693,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new() }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
         ]),
         ("📂", "File", vec![
-            (NodeType::LoadUsd { path: String::new() }, "A USD file, as packed primitives"),
-            (NodeType::WriteUsd { path: String::new() }, "What the network changed in its USD stages, as an override layer"),
+            (NodeType::LoadUsd { path: String::new() }, "A USD file, as primitives"),
+            (NodeType::WriteUsd { path: String::new() }, "What the scene graph changed in its USD stages, as an override layer"),
             (NodeType::LoadFbx { path: String::new(), take: 0 }, "Everything in an FBX file: the clip, every mesh with its weights and materials, the rest skeleton"),
             (NodeType::LoadFbxDir { dir: String::new(), index: 0, take: 0 }, "One FBX of a folder at a time; Write FBX can run over all of them"),
             (NodeType::WriteFbx { path: crate::types::DEFAULT_WRITE_PATH.into(), mesh: false }, "Write the clip as FBX, with the skeleton it came in with"),
@@ -708,9 +708,9 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Subnet { id: SubnetId(usize::MAX), name: "ICE".into() }, "A graph inside a node"),
         ]),
         ("📦", "Primitives", vec![
-            (NodeType::PickPrims { pattern: String::new() }, "Choose packed primitives for the nodes after this one to work on"),
-            (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove packed primitives, or keep only some"),
-            (NodeType::UnpackPrims, "Merge packed primitives into one mesh"),
+            (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),
+            (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove primitives, or keep only some"),
+            (NodeType::UnpackPrims, "Merge primitives into one mesh"),
         ]),
         ("🗺", "UV", vec![
             (NodeType::UvUnwrap { method: crate::core::uv::UvMethod::Conformal, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, "Make texture coordinates"),

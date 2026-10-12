@@ -41,7 +41,7 @@ Past 256 elements, the smallest ones skip the grouping and join the nearest of t
 
 ## UV Editor pane
 
-A tab behind the Viewport in the default layout. It draws the UVs of the selected node, with seams marked, and reports islands, triangles, tiles and how much of them is used. Every tile in use is drawn with its UDIM number, and the view fits them when the set of tiles changes.
+A tab behind the Viewer in the default layout. It draws the UVs of the selected node, with seams marked, and reports islands, triangles, tiles and how much of them is used. Every tile in use is drawn with its UDIM number, and the view fits them when the set of tiles changes.
 
 | To | Do this |
 |---|---|
@@ -68,7 +68,7 @@ The canvas is built as a stack of layers composed into that image. The wireframe
 ## Not done yet
 
 - Editing single UV vertices and edges, sewing and cutting seams by hand
-- A checker texture in the viewport
+- A checker texture in the Viewer
 - UVs through Edit Poly, Copy To Points and Scatter. Transform and Merge keep them
 - UVs read from FBX, and written to FBX or USD. UVs are read from USD
 - ABF++, SLIM and BFF. Charts with strong curvature stretch under LSCM

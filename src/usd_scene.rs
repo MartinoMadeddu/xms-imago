@@ -923,7 +923,7 @@ def Xform "set" {
         let st = geo.attr(Context::Corner, ST).expect("st per corner");
         assert_eq!((st.indices.as_ref().map(|i| i.len()), st.role), (Some(4), Role::TexCoord));
         assert_eq!(geo.attr(Context::Object, "displayColor").map(|a| a.role), Some(Role::Color));
-        assert_eq!(geo.attr(Context::Primitive, "heat").and_then(|a| a.column.floats()), Some(&[0.5][..]));
+        assert_eq!(geo.attr(Context::Face, "heat").and_then(|a| a.column.floats()), Some(&[0.5][..]));
         assert!(matches!(geo.topology, crate::core::geo::Topology::Mesh { left_handed: true, .. }));
         // The MeshData view still has its UVs per triangle corner.
         assert_eq!(card.mesh.uvs.len(), 6);

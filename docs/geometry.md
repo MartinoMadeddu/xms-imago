@@ -4,13 +4,13 @@ How geometry is held and passed between nodes, for anyone writing a node. Three 
 
 ## `Geo`: attribute columns per context
 
-`core::geo::Geo` is the geometry of packed primitives, of the nodes and of ICE: a topology and, for each context, named attributes.
+`core::geo::Geo` is the geometry of primitives, of the nodes and of ICE: a topology and, for each context, named attributes.
 
 | `Context` | values per | USD interpolation | ICE context |
 |---|---|---|---|
 | `Object` | one for the prim | `constant` | per object |
 | `Point` | point | `vertex` | per point |
-| `Primitive` | polygon or curve | `uniform` | per polygon |
+| `Face` | polygon or curve | `uniform` | per face |
 | `Corner` | polygon corner | `faceVarying` | per sample |
 
 - **Topology:** `Points`, `Mesh` (corner counts, point indices, orientation, subdivision scheme) or `Curves` (counts, basis, wrap).
@@ -20,15 +20,15 @@ How geometry is held and passed between nodes, for anyone writing a node. Three 
 
 Every column and every topology array is an `Arc`. Cloning a `Geo` copies pointers. Writing to a column goes through `Arc::make_mut`, which copies that column only if something else still holds it.
 
-## Packed primitives
+## Primitives
 
-A `NamedMesh` is a packed primitive:
+A `NamedMesh` is a primitive:
 
 | Field | What it holds |
 |---|---|
 | `path` | Its prim path |
 | `geo` | Its geometry, in its own space |
-| `mesh` | A `MeshData` view of `geo` (`Geo::to_mesh`), for the code that still works on `MeshData`: the viewport, Edit Poly, the UV nodes |
+| `mesh` | A `MeshData` view of `geo` (`Geo::to_mesh`), for the code that still works on `MeshData`: the Viewer, Edit Poly, the UV nodes |
 | `place` | Where it is drawn: `InPlace` (the mesh is already there), `One(matrix)`, or `Many(matrices)` for a point instancer's copies. Prims from a stage are always placed: the matrix is their world transform with the stage's up-axis and unit correction |
 | `source` | The primitive as it was loaded: geometry, placement, material, purpose |
 | `stage` | The stage's hierarchy (`StageTree`), shared by every primitive of the stage |

@@ -385,12 +385,12 @@ fn add_primvar(g: &mut Geo, pv: &rs::Primvar, t: f64) {
         _ => return,
     };
     let elements = pv.indices.as_ref().map_or(column.len(), |i| i.len());
-    let by_count = || [Context::Corner, Context::Point, Context::Primitive, Context::Object]
+    let by_count = || [Context::Corner, Context::Point, Context::Face, Context::Object]
         .into_iter()
         .find(|&c| g.count(c) == elements && elements > 0);
     let ctx = match pv.interpolation {
         Some(rs::Interpolation::Constant) => Some(Context::Object),
-        Some(rs::Interpolation::Uniform) => Some(Context::Primitive),
+        Some(rs::Interpolation::Uniform) => Some(Context::Face),
         Some(rs::Interpolation::Vertex) => Some(Context::Point),
         Some(rs::Interpolation::FaceVarying) => Some(Context::Corner),
         // Per point for meshes and points; per segment end for curves.

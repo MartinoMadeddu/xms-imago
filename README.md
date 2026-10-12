@@ -23,10 +23,10 @@ Thirty-five templates ship with the program, one for each area of it, in two par
 
 Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly modifier of 3ds Max.
 
-- **Five selection levels:** vertex, edge, border, polygon, element. Pick in the viewport, or select by rule so the selection adapts when the mesh changes
+- **Five selection levels:** vertex, edge, border, polygon, element. Pick in the Viewer, or select by rule so the selection adapts when the mesh changes
 - **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset, outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach, tessellate, triangulate, turn, relax, subdivide and more
 - **Soft selection:** a falloff distance on Transform
-- **Manipulators:** move, rotate and scale in the viewport on Q, W, E, R. Each drag becomes an operation you can edit afterwards
+- **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each drag becomes an operation you can edit afterwards
 - **Collapse when you are done:** freeze operations one by one or all at once, or let the node collapse them as you go. Collapsed operations still follow the mesh coming in
 
 ![Edit Poly: collapsed and live operations, with the move manipulator on the selection](docs/xms_edit_poly.png)
@@ -45,12 +45,12 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 ## USD, at production size
 
 - **Composed stages:** sublayers, references, payloads, inherits, specializes and variants, in text and binary files, resolved as usdview would
-- **Packed primitives:** one piece per mesh, curves or points prim, in its own space with every primvar, placed by its transform and passed along without copying
-- **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the viewport draws thousands of copies in one call
-- **Light by default:** the Scene Explorer drives the viewport with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
+- **Primitives:** one piece per mesh, curves or points prim, in its own space with every primvar, placed by its transform and passed along without copying
+- **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the Viewer draws thousands of copies in one call
+- **Light by default:** the Scene Explorer drives the Viewer with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
 - **Pick, then edit:** Pick Primitives chooses pieces by path pattern. Transform, Edit Poly, the UV nodes and ICE then work on those, each piece staying itself, and pass the rest through
-- **Write it back:** Write USD saves what the network changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
-- **Materials and textures in the viewport**, straight from the `.usdz`
+- **Write it back:** Write USD saves what the scene graph changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
+- **Materials and textures in the Viewer**, straight from the `.usdz`
 - **What is in the file:** materials, cameras, skeletons and lights are listed on the node, along with what is not read yet
 - **UVs from the file**, shown in a UV editor that draws a million edges
 
@@ -68,7 +68,7 @@ Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and
 - **Any human skeleton:** Unreal, MetaHuman, Mixamo, HumanIK, Biped, Rigify, Unity, VRM, VRoid, Character Creator, Daz, SMPL, Xsens, OptiTrack, Rokoko, ARKit, Kinect, CMU and more are read from their joint names, with their twist joints in line or beside the limb. A Characterize node shows what was read and sets the rest by hand. Retarget matches joints by the part of the body they are, so a Mixamo take drives an Unreal skeleton
 - **One Transform for everything:** the node that moves a mesh or a USD asset moves a clip too, by its top joints, so a skinned mesh moves once, with its skeleton
 - **Name patterns, not typing:** nodes that work on joints by name take comma-separated regular expressions, with a picker listing the joints coming in and a live match count
-- **Everything in an FBX:** Load FBX gives the clip, every mesh as a packed primitive with its normals, UVs, material and skin weights, and the rest skeleton in its bind pose; cameras, lights, materials, blend shapes and takes are listed
+- **Everything in an FBX:** Load FBX gives the clip, every mesh as a primitive with its normals, UVs, material and skin weights, and the rest skeleton in its bind pose; cameras, lights, materials, blend shapes and takes are listed
 - **Skin weights by name, after KineFX:** weights live on the geometry by joint name. Capture makes them by proximity to the bones; Skin puts them on any animation whose joints have those names
 - **Retarget with the human solver:** Retarget takes each skeleton in the pose its skin was bound in; Reach then puts hands and feet where the source has them, scaled, and the Body Collide node's human pass keeps elbows and knees right. Human Limits does that pass on any clip something moved
 - **A folder in, retargeted and skinned out:** a template takes a folder of raw takes through retarget, Reach and Body Collide onto a skinned character; Write FBX solves Body Collide for every file as it writes
@@ -113,16 +113,16 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Dock anything anywhere:** every pane is a tab. Drag it beside another pane, stack it, float it, or drop it on a side of the window to span that whole side
 - **Lock it:** one padlock freezes the layout once you are happy. Dividers still resize
 - **Frame it:** F, G, Z or . frames the selection, down to selected vertices, edges and polygons. A or H frames everything
-- **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal viewport controls, from a menu
+- **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer controls, from a menu
 - **Remembered:** layout, floating windows, theme and navigation style come back at the next start
-- **Copy and paste nodes:** Ctrl+C and Ctrl+V, with their wires and ICE trees, between windows and from one session to the next
+- **Copy and paste nodes:** Ctrl+C and Ctrl+V, with their wires and ICE graphs, between windows and from one session to the next
 - **Add or open:** opening a file or a template asks whether to add it to the graph or open it as new, and asks to save first before anything is replaced
 - **Files:** Open, Recent (the last ten), Save, Save as, Ctrl+S. The top bar shows the file and whether it is saved; closing, opening a file or loading a template over unsaved changes asks first
 - **Fast:** the graph is cooked when its content changes, not on every frame
 - **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange for whatever is selected or active). A colour editor changes any of them
 - **Layouts as files:** save a layout, load it back, pass it to someone else
-- **One add menu:** seven categories, each a submenu; every node has one name, the same in the menu, on the node and in its properties
-- **Properties that line up:** every node laid out the same way, labels in one column, values filling the other, explanations in tooltips
+- **One add menu:** seven categories, each a submenu; every node has one name, the same in the menu, on the node and in its parameters
+- **Parameters that line up:** every node laid out the same way, labels in one column, values filling the other, explanations in tooltips
 - **Placeholder node:** sketch a node that does not exist yet: name it, give it named inputs and outputs, describe what it should do. Data goes through unchanged, and the description travels in the saved graph for whoever builds it
 - **A tidy graph:** templates load laid out and framed, "Tidy" does the same to your own graph, and a right-click on an output adds the next node under it, already wired
 - **Compact lists:** the operator stack stays in one column however long the chain is
@@ -139,10 +139,10 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 
 ## Also in the box
 
-- Cube, sphere and grid primitives, Transform, Merge
+- Cube, sphere and grid shapes, Transform, Merge
 - Scatter Points and Copy To Points
-- ICE trees: graphs inside a node, in an editor modelled on Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). A tree runs on each packed primitive in its own space
-- Primitive Inspector: a spreadsheet of the selected node. Vertex, Edge, Polygon, FaceVarying and Constant tabs for a mesh, Joint and Bone tabs for a clip
+- ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). A tree runs on each primitive in its own space
+- Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for a mesh, Joint and Bone tabs for a clip
 - Graphs saved and loaded as JSON
 
 ## Get it
@@ -159,7 +159,7 @@ On Ubuntu or Debian, first:
 
 ## Documentation
 
-[docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD, geometry, viewport navigation, animation and mocap, Body Collide, builds and releases.
+[docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD, geometry, Viewer navigation, animation and mocap, Body Collide, builds and releases.
 
 ## Contributing
 
@@ -169,17 +169,17 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 
 ## Not done yet
 
-- Undo inside ICE subnets, and history saved with the graph
+- Undo inside ICE graphs, and history saved with the graph
 - Edit Poly: interactive cut and quickslice, extrude along spline, target weld, attach, smoothing groups, material IDs, paint deformation, constraints
-- USD: normal and roughness maps in the viewport, cameras, animation and skinning, per-face material subsets, writing time samples and edits inside instances
-- UV: editing single UV vertices and edges, a checker in the viewport, UVs kept through Edit Poly and Copy To Points, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
+- USD: normal and roughness maps in the Viewer, cameras, animation and skinning, per-face material subsets, writing time samples and edits inside instances
+- UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept through Edit Poly and Copy To Points, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
 - Mocap: contact detection and foot locking (Reach follows the source's feet); FBX blend shapes applied, cameras and lights drawn
 - Timeline zoom and pan
 - Curve cleanup
-- ICE subnet contents in saved graphs (copied nodes carry them)
-- Copy and paste inside an ICE tree: Ctrl+C and Ctrl+V work on the scene network only
+- ICE graph contents in saved graphs (copied nodes carry them)
+- Copy and paste inside an ICE graph: Ctrl+C and Ctrl+V work on the scene graph only
 - The program icon inside the file itself (Windows Explorer, macOS dock). The window and task bar icon is set on X11 and Windows
-- Viewport interaction has been tested with simulated input, not yet thoroughly by hand
+- Viewer interaction has been tested with simulated input, not yet thoroughly by hand
 - Import into Unreal has not been tried here. Written files are compared with their source FBX bone for bone (names, parents, kinds, axes, unit, local values), on a MetaHuman take
 
 ## Example files
@@ -189,6 +189,6 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 
 ## Credit
 
-XMS|Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu): the node graph, the viewport, the ICE subnets, the USD loader and composed stages, GPU instancing and the look of the interface.
+XMS|Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu): the node graph, the Viewer, the ICE graphs, the USD loader and composed stages, GPU instancing and the look of the interface.
 
 Additional development by [Simon Legrand](https://github.com/srlegrand): polygon modelling, UV, USD at production size, motion capture, Body Collide, the dockable interface and the website.

@@ -4,14 +4,14 @@ The decisions that shape Imago's data and evaluation, and why. Read this before 
 
 ## 1. Shape of the program
 
-- **Scene network:** a node graph, flowing top to bottom. Each node cooks its inputs into an `EvalResult` (a mesh, packed primitives, an animation clip). The graph is cooked when its content changes, not every frame.
-- **ICE trees:** a graph inside an ICE node, flowing left to right, run on the geometry coming in. Loosely modelled after Softimage ICE and Houdini VOPs.
+- **Scene graph:** a node graph, flowing top to bottom. Each node cooks its inputs into an `EvalResult` (a mesh, primitives, an animation clip). The graph is cooked when its content changes, not every frame.
+- **ICE graphs:** a graph inside an ICE node, flowing left to right, run on the geometry coming in. Loosely modelled after Softimage ICE and Houdini VOPs.
 - **USD is the scene description.** Stages come in through Load USD and go back out through Write USD as opinions over the original file. Imago never needs to own the whole stage.
 
 ## 2. USD in
 
 ```
-file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) ──usd_stage──> packed primitives + StageTree
+file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) ──usd_stage──> primitives + StageTree
 ```
 
 - **Composition is `openusd`'s** (pure Rust): sublayers, references, payloads, inherits, specializes, variants.
@@ -21,13 +21,13 @@ file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) 
 
 ## 3. Geometry: `Geo`
 
-One model for packed primitives, nodes and ICE (`core::geo`).
+One model for primitives, nodes and ICE (`core::geo`).
 
 | `Context` | values per | USD interpolation | ICE |
 |---|---|---|---|
 | `Object` | prim | `constant` | per object |
 | `Point` | point | `vertex` | per point |
-| `Primitive` | polygon / curve | `uniform` | per polygon |
+| `Face` | polygon / curve | `uniform` | per face |
 | `Corner` | polygon corner | `faceVarying` | per sample |
 
 - **`Column`:** a typed array, `Arc<Vec<T>>` for `T` in `bool, i32, f32, [f32;2], [f32;3], [f32;4], quat, [f64;16], token`. This is the generalised `Array<T>`: every attribute in every context is one.
@@ -45,7 +45,7 @@ One model for packed primitives, nodes and ICE (`core::geo`).
   - Untouched data (normals, primvars, subsets, UV indices) survives every node.
   - **Identity is information:** a column still pointing at the loaded `Arc` is, by that fact, unedited.
 
-## 5. Packed primitives
+## 5. Primitives
 
 `NamedMesh`: one per mesh, curves or points prim, passed between nodes without copying.
 
@@ -76,7 +76,7 @@ One model for packed primitives, nodes and ICE (`core::geo`).
   - **Not written yet, but reported:** edits inside native instances (instance proxies are read-only in USD) and on point-instancer prototypes.
   - Values are written at the current frame.
 
-## 7. Viewport
+## 7. Viewer
 
 - **Draws what the Scene Explorer opens.** A closed prim is the box around its subtree; open prims hand down to their children. There's a per-row geometry toggle and a "Show all geometry" switch. Boxes come from the primitives as they arrive, so they follow upstream nodes.
 - **Purposes:** guide/proxy/render toggles. Render geometry gives way to its asset's proxy when proxies are shown.
@@ -87,11 +87,11 @@ One model for packed primitives, nodes and ICE (`core::geo`).
 
 ## 8. ICE
 
-**Now:** a tree runs on each packed primitive, in the primitive's own space (object space), on its `Geo`. Nodes read and write whole per-point arrays (`P` = points). Writes replace only their column. The output is the primitive with its `geo` updated, so ICE results are edits like any other node's and are written to USD the same way. The node implementations are placeholders.
+**Now:** a graph runs on each primitive, in the primitive's own space (object space), on its `Geo`. Nodes read and write whole per-point arrays (`P` = points). Writes replace only their column. The output is the primitive with its `geo` updated, so ICE results are edits like any other node's and are written to USD the same way. The node implementations are placeholders.
 
 **Planned engine:** loosely modelled after Softimage ICE and Houdini VOPs: ICE's contexts and per-element arrays, with a compile step in the spirit of VOPs. Three layers.
 
-1. **Graph.** Ports carry **type**, **structure** (single value, or array per element) and **context**. These are validated when you connect, and a mismatch shows as a red wire. Constants take the context they're wired into. The root runs over a chosen context and executes its Execute ports in order.
+1. **Graph.** Ports carry **type**, **structure** (single value, or array per element) and **context**. These are validated when you connect, and a mismatch shows as a red wire. Constants take the context they're wired into. The graph runs over a chosen context and executes its Execute ports in order.
 2. **Compiler.** It turns the graph into a plan:
    - context and type resolution
    - **uniform/varying analysis**: object-context values, constants and parameters are computed once and hoisted
@@ -140,7 +140,7 @@ One model for packed primitives, nodes and ICE (`core::geo`).
 | `src/types.rs` | `NamedMesh`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |
 | `src/edits.rs` | edits against the source, edit sets, layers between nodes |
 | `src/usd_write.rs` | override layer writer |
-| `src/node_graph/` | scene network: nodes, evaluation, UI |
-| `src/ice/` | ICE trees: graph, execution, editor |
-| `src/viewport/` | bounds and boxes, GPU instancing, camera |
+| `src/node_graph/` | scene graph: nodes, evaluation, UI |
+| `src/ice/` | ICE graphs: graph, execution, editor |
+| `src/viewport/` | the Viewer's 3D view: bounds and boxes, GPU instancing, camera |
 | `src/strands.rs` | curves and points as lines |

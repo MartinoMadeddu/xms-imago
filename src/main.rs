@@ -1,7 +1,7 @@
 mod core;
 mod types;
 mod node_graph;
-mod scene_graph;
+mod scene_explorer;
 mod properties;
 mod viewport;
 mod ice;
@@ -37,11 +37,11 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
 use types::{MainCamera, GeneratedMesh, GroundGrid, MeshData, SceneHierarchy, SubnetId, ViewportRect, PrimInspectorState};
 use node_graph::NodeGraphState;
-use scene_graph::OperatorStack;
+use scene_explorer::OperatorStack;
 use viewport::camera::{CameraOrbitState, camera_controller, focus_camera, draw_origin_label};
 use ice::{SubnetStore, GraphNavigation, ui::{draw_subnet_graph, draw_breadcrumb}};
 use node_graph::ui::draw_node_graph;
-use scene_graph::ui::{draw_scene_explorer, draw_operator_stack};
+use scene_explorer::ui::{draw_scene_explorer, draw_operator_stack};
 use properties::ui::draw_properties_panel;
 use prim_inspector::ui::draw_prim_inspector;
 use types::NodeType;
@@ -647,11 +647,11 @@ impl egui_dock::TabViewer for Panes<'_> {
     // Panes scroll their own content where they need to.
     fn scroll_bars(&self, _tab: &Pane) -> [bool; 2] { [false, false] }
     // The 3D view is drawn by the camera behind the interface.
-    fn clear_background(&self, tab: &Pane) -> bool { *tab != Pane::Viewport }
+    fn clear_background(&self, tab: &Pane) -> bool { *tab != Pane::Viewer }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Pane) {
         match tab {
-            Pane::Viewport => {
+            Pane::Viewer => {
                 self.vp_rect.0 = Some(ui.max_rect());
             }
 
@@ -659,7 +659,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 draw_timeline(ui, self.playback, self.timeline_state, self.dt, self.keys_free, self.space_plays);
             }
 
-            Pane::Properties => {
+            Pane::Parameters => {
                 // A scroll area that never shrinks keeps the pane at the size
                 // it was given: text wraps, anything still too big scrolls.
                 egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
@@ -728,7 +728,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         if draw_breadcrumb(ui, &subnet_name) {
                             self.nav.current_subnet = None;
                         } else {
-                            ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↑: back to the scene network  |  Esc: cancel wire");
+                            ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↑: back to the scene graph  |  Esc: cancel wire");
                             ui.separator();
                             // Canvas in its own child Ui: see the note below.
                             let rect = ui.available_rect_before_wrap();
@@ -786,7 +786,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                             self.graph.frame_request = true;
                         }
                         ui.small_button("?").on_hover_text(
-                            "Right-click or Tab: add a node\nCtrl+C, Ctrl+V: copy and paste nodes\nShift+drag: pan\nEsc: cancel a wire\nDouble-click a subnet: dive in\nRight-click an output: add a node under it, wired\nF or A: frame every node\nRing at the left of a node: bypass\nEye at the right: show in the viewport");
+                            "Right-click or Tab: add a node\nCtrl+C, Ctrl+V: copy and paste nodes\nShift+drag: pan\nEsc: cancel a wire\nDouble-click an ICE node, or ↓: open its ICE graph\nRight-click an output: add a node under it, wired\nF or A: frame every node\nRing at the left of a node: bypass\nEye at the right: show in the Viewer");
                         // Ready-made graphs. Picking one asks whether to add it to the
                         // graph or open it as new (see `SaveFirst::load`).
                         // By whose work they show, then by area.
@@ -1985,7 +1985,7 @@ fn write_usd(graph: &NodeGraphState, subnets: &SubnetStore, id: types::NodeId) {
         };
         match graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval) {
             Some(types::EvalResult::Named(prims)) => usd_write::write_override(&prims, std::path::Path::new(path.trim())),
-            Some(_) => Err("The input is not packed primitives".to_string()),
+            Some(_) => Err("The input is not primitives".to_string()),
             None => Err("The input did not cook".to_string()),
         }
     })();

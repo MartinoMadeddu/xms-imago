@@ -9,21 +9,30 @@ use egui_dock::{DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Pane { Viewport, NodeGraph, SceneExplorer, OperatorStack, Properties, PrimInspector, Timeline, UvEditor, History }
+pub enum Pane {
+    /// Was "Viewport": layouts saved with that name still load.
+    #[serde(alias = "Viewport")]
+    Viewer,
+    NodeGraph, SceneExplorer, OperatorStack,
+    /// Was "Properties".
+    #[serde(alias = "Properties")]
+    Parameters,
+    PrimInspector, Timeline, UvEditor, History,
+}
 
 impl Pane {
     pub const ALL: [Pane; 9] = [
-        Pane::Viewport, Pane::NodeGraph, Pane::SceneExplorer, Pane::OperatorStack,
-        Pane::Properties, Pane::PrimInspector, Pane::Timeline, Pane::UvEditor, Pane::History,
+        Pane::Viewer, Pane::NodeGraph, Pane::SceneExplorer, Pane::OperatorStack,
+        Pane::Parameters, Pane::PrimInspector, Pane::Timeline, Pane::UvEditor, Pane::History,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
-            Pane::Viewport      => "Viewport",
+            Pane::Viewer        => "Viewer",
             Pane::NodeGraph     => "Node Graph",
             Pane::SceneExplorer => "Scene Explorer",
             Pane::OperatorStack => "Operator Stack",
-            Pane::Properties    => "Properties",
+            Pane::Parameters    => "Parameters",
             Pane::PrimInspector => "Primitive Inspector",
             Pane::Timeline      => "Timeline",
             Pane::UvEditor      => "UV Editor",
@@ -82,14 +91,14 @@ pub struct Layout {
 /// both. Then the node graph, then the properties over the operator stack.
 /// Timeline along the bottom of those, History down the whole right side.
 pub fn default_dock() -> DockState<Pane> {
-    let mut dock = DockState::new(vec![Pane::Viewport, Pane::UvEditor]);
+    let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor]);
     let s = dock.main_surface_mut();
     let [work, _history]  = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
     let [top, _timeline]  = s.split_below(work, 0.862, vec![Pane::Timeline]);
     let [left, right]     = s.split_right(top, 0.476, vec![Pane::NodeGraph]);
     let [view, _prim]     = s.split_below(left, 0.72, vec![Pane::PrimInspector]);
     s.split_left(view, 0.163, vec![Pane::SceneExplorer]);
-    let [_graph, side]    = s.split_right(right, 0.648, vec![Pane::Properties]);
+    let [_graph, side]    = s.split_right(right, 0.648, vec![Pane::Parameters]);
     s.split_below(side, 0.718, vec![Pane::OperatorStack]);
     dock
 }
@@ -327,7 +336,7 @@ mod tests {
     fn layout_and_lock_survive_the_file() {
         let mut l = layout();
         // Stack the properties with the node graph, close the timeline, float the inspector.
-        let (surface, node, _) = l.dock.find_tab(&Pane::Properties).unwrap();
+        let (surface, node, _) = l.dock.find_tab(&Pane::Parameters).unwrap();
         let tab = l.dock[surface][node].remove_tab(egui_dock::TabIndex(0)).unwrap();
         let (surface, node, _) = l.dock.find_tab(&Pane::NodeGraph).unwrap();
         l.dock[surface][node].append_tab(tab);
@@ -342,7 +351,7 @@ mod tests {
         assert!(locked);
         assert_eq!(to_json(&back, true).unwrap(), json);
         let back = Layout { dock: back, locked, saved: json, sized: vec![], tab_drag: None };
-        let (_, a, _) = back.dock.find_tab(&Pane::Properties).unwrap();
+        let (_, a, _) = back.dock.find_tab(&Pane::Parameters).unwrap();
         let (_, b, _) = back.dock.find_tab(&Pane::NodeGraph).unwrap();
         assert_eq!(a, b);
         assert!(back.is_floating(Pane::PrimInspector));
@@ -353,21 +362,21 @@ mod tests {
     #[test]
     fn panes_close_reopen_and_dock_back() {
         let mut l = layout();
-        l.hide(Pane::Viewport);
-        l.hide(Pane::Viewport);
+        l.hide(Pane::Viewer);
+        l.hide(Pane::Viewer);
         assert_eq!(open(&l), ALL - 1);
-        l.show(Pane::Viewport);
-        l.show(Pane::Viewport);
+        l.show(Pane::Viewer);
+        l.show(Pane::Viewer);
         assert_eq!(open(&l), ALL);
         assert!(is_valid(&l.dock));
 
-        l.hide(Pane::Properties);
-        l.dock.add_window(vec![Pane::Properties]);
+        l.hide(Pane::Parameters);
+        l.dock.add_window(vec![Pane::Parameters]);
         l.hide(Pane::NodeGraph);
         l.dock.add_window(vec![Pane::NodeGraph]);
-        assert!(l.is_floating(Pane::Properties) && l.any_floating());
-        l.dock_pane(Pane::Properties);
-        assert!(!l.is_floating(Pane::Properties) && l.is_floating(Pane::NodeGraph));
+        assert!(l.is_floating(Pane::Parameters) && l.any_floating());
+        l.dock_pane(Pane::Parameters);
+        assert!(!l.is_floating(Pane::Parameters) && l.is_floating(Pane::NodeGraph));
         l.dock_all();
         assert!(!l.any_floating());
         l.toggle_float(Pane::Timeline);
@@ -413,8 +422,8 @@ mod tests {
         // Onto an empty main area.
         let mut l = layout();
         for p in Pane::ALL { l.hide(p); }
-        l.dock_to_edge(Pane::Viewport, Edge::Left);
-        assert!(l.is_open(Pane::Viewport) && !l.is_floating(Pane::Viewport));
+        l.dock_to_edge(Pane::Viewer, Edge::Left);
+        assert!(l.is_open(Pane::Viewer) && !l.is_floating(Pane::Viewer));
     }
 
     #[test]

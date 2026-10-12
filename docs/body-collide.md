@@ -8,13 +8,13 @@ A captured performance does not know about the set. The actor sat on a box, the 
 
 | Node | Menu | Does |
 |---|---|---|
-| Load FBX | File | Its Geometry output (the second) gives every mesh of a file, where it stands, as packed primitives. For the set. |
+| Load FBX | File | Its Geometry output (the second) gives every mesh of a file, where it stands, as primitives. For the set. |
 | Characterize | Mocap | Says which joint is which part of a human. Read from the names for the common conventions, set by hand for the rest. Optional before Body Collide. See [Skeletons](mocap.md#skeletons-and-characterize). |
 | Body Collide | Mocap | First input a clip, second input a collider mesh. Puts out the clip, kept out of the collider, within what a human body can do. |
 
-**Display** in the node's properties chooses what the viewport draws of the character: its **Skin**, the skin cut into rigid **Pieces**, one per body, or the convex **Hulls** the solver collides. It changes the drawing only: the node puts out the clip with its skin either way. Graphs saved with the old Calamari node open with that node gone and its choice moved here.
+**Display** in the node's parameters chooses what the Viewer draws of the character: its **Skin**, the skin cut into rigid **Pieces**, one per body, or the convex **Hulls** the solver collides. It changes the drawing only: the node puts out the clip with its skin either way. Graphs saved with the old Calamari node open with that node gone and its choice moved here.
 
-Load FBX now reads a mesh bound to the skeleton, with its weights, and the viewport draws it bending with the joints. Write FBX writes the weights back.
+Load FBX now reads a mesh bound to the skeleton, with its weights, and the Viewer draws it bending with the joints. Write FBX writes the weights back.
 
 Any mesh can be the collider: a model from Load FBX's Geometry output or Load USD, a cube, anything the mesh nodes make. It does not have to be closed, one-sided or tidy.
 
@@ -22,7 +22,7 @@ Any mesh can be the collider: a model from Load FBX's Geometry output or Load US
 
 1. Load the take with **Load FBX** and the set with another **Load FBX**, wired from its Geometry output. They must already be lined up: the node moves the character, not the set.
 2. Wire the take to the first input of a **Body Collide** node and the set to the second. The Inputs group says which convention the skeleton was read as and how many of its 20 parts were found. If the hips or the limbs are missing, put a **Characterize** node between the take and Body Collide and pick them. Put the view flag on the node. The set is drawn see-through, with the character inside.
-3. Press **Solve** in the properties of the node. A bar shows frames done, frames a second and time left. **Stop** stops it.
+3. Press **Solve** in the parameters of the node. A bar shows frames done, frames a second and time left. **Stop** stops it.
 4. When it is done the node puts out the solved clip. Scrub it. Wire it on to Write FBX like any clip.
 5. Or let Write FBX solve it: writing (the current file or All files of a folder) first solves every Body Collide node upstream that has no result for what reaches it, one file after another, and says so in its log. The "Mocap folder: retarget, skin, collide, write" template runs a whole folder of raw takes this way.
 
@@ -94,7 +94,7 @@ The program still holds a clip as a whole once it is loaded, and the solved clip
 
 | Group | Setting | Default | Does |
 |---|---|---|---|
-| Display | Show | Skin | What the viewport draws of the character: Skin, Pieces or Hulls |
+| Display | Show | Skin | What the Viewer draws of the character: Skin, Pieces or Hulls |
 | Contact | Margin | 1.2 cm | Distance from a surface at which pushing starts |
 | | Friction | 0.5 | How much a body pressed into a surface resists sliding along it |
 | | Release speed | 60 cm/s | How fast a body is pushed out, and how fast it comes back |

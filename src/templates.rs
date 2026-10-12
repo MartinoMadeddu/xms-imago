@@ -40,14 +40,14 @@ pub const TEMPLATES: &[Template] = &[
         hint: "64 instanceable references to one table: five meshes, shared by every table" },
     Template { by: MARTINO, group: "USD stages", name: "Purposes: street lamps", build: lamps,
         hint: "Lamps with render, proxy and guide geometry. Switch them with the render, proxy and guide toggles of the Scene Explorer" },
-    Template { by: MARTINO, group: "ICE", name: "ICE tree: spherify", build: spherify,
-        hint: "A subdivided cube pushed onto a sphere by an ICE tree. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
-    Template { by: SIMON, group: "Basics", name: "Primitives", build: primitives,
+    Template { by: MARTINO, group: "ICE", name: "ICE graph: spherify", build: spherify,
+        hint: "A subdivided cube pushed onto a sphere by an ICE graph. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
+    Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
         hint: "Cube, sphere and grid, each moved with a Transform and joined with Merge" },
     Template { by: SIMON, group: "Basics", name: "Scatter and copy", build: scatter,
         hint: "Points scattered on a grid, a small cube copied onto each" },
-    Template { by: SIMON, group: "Basics", name: "ICE subnet", build: subnet,
-        hint: "The same scatter and copy, built inside a subnet. Double-click the subnet node to open it" },
+    Template { by: SIMON, group: "Basics", name: "ICE graph", build: subnet,
+        hint: "The same scatter and copy, built inside an ICE graph. Double-click the ICE node, or select it and press ↓, to open it" },
     Template { by: SIMON, group: "Basics", name: "USD import", build: usd,
         hint: "Two example USD files loaded, moved and merged" },
     Template { by: SIMON, group: "Modelling", name: "Edit Poly: tower", build: tower,
@@ -69,7 +69,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: SIMON, group: "UV", name: "UDIM tiles", build: uv_udim,
         hint: "A body and two hands made of separate pieces, unwrapped over three UDIM tiles: each hand keeps its fingers on its own tile" },
     Template { by: SIMON, group: "USD", name: "USD: heavy model", build: usd_heavy,
-        hint: "A 460,000 triangle model as 43 packed primitives. Select the Load USD node for its materials and textures; open the UV Editor for its UVs" },
+        hint: "A 460,000 triangle model as 43 primitives. Select the Load USD node for its materials and textures; open the UV Editor for its UVs" },
     Template { by: SIMON, group: "USD", name: "USD: pick and edit", build: usd_pick,
         hint: "One wheel picked out of the model and moved. Only the picked primitive goes through the Transform and Edit Poly nodes" },
     Template { by: SIMON, group: "USD", name: "USD: prune", build: usd_prune,
@@ -172,7 +172,7 @@ fn primitives(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     g.add_connection(m1, 0, m2, 0);
     g.add_connection(grid, 0, m2, 1);
     finish(g, m2, cube_x, p(300.0, 420.0));
-    "Primitives: select a Transform node and change its values in Properties.".into()
+    "Shapes: select a Transform node and change its values in Parameters.".into()
 }
 
 fn scatter(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
@@ -213,7 +213,7 @@ fn subnet(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
     g.add_connection(node, 0, merge, 0);
     g.add_connection(grid, 0, merge, 1);
     finish(g, merge, node, p(180.0, 360.0));
-    "ICE subnet: double-click the ScatterCopy node to see the graph inside it.".into()
+    "ICE graph: double-click the ScatterCopy node, or select it and press ↓, to see the graph inside it.".into()
 }
 
 fn usd(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
@@ -250,7 +250,7 @@ fn tower(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     let ep   = g.add_node("Tower".into(), edit_poly(ops, top()), p(180.0, 130.0));
     g.add_connection(cube, 0, ep, 0);
     finish(g, ep, ep, p(180.0, 260.0));
-    "Edit Poly tower: seven live operations on the top face. Change their values in Properties.".into()
+    "Edit Poly tower: seven live operations on the top face. Change their values in Parameters.".into()
 }
 
 fn panels(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
@@ -402,7 +402,7 @@ fn load_delorean(g: &mut NodeGraphState) -> NodeId {
 fn usd_heavy(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     let load = load_delorean(g);
     finish(g, load, load, p(180.0, 130.0));
-    format!("USD: 43 packed primitives, 461,595 triangles. The Properties of the Load USD node list its materials and textures. The UV Editor tab shows its UVs.{}", missing_examples())
+    format!("USD: 43 primitives, 461,595 triangles. The Parameters of the Load USD node list its materials and textures. The UV Editor tab shows its UVs.{}", missing_examples())
 }
 
 fn usd_pick(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
@@ -487,7 +487,7 @@ fn uv_edit(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     g.add_connection(size, 0, uv, 0);
     g.add_connection(uv, 0, edit, 0);
     finish(g, edit, edit, p(180.0, 400.0));
-    "UV edit: open the UV Editor pane. Click an island to select it, drag to move it; its values are in Properties.".into()
+    "UV edit: open the UV Editor pane. Click an island to select it, drag to move it; its values are in Parameters.".into()
 }
 
 // ── Animation & mocap ────────────────────────────────────────────────────────
@@ -763,7 +763,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
     g.add_connection(cube, 0, dense, 0);
     g.add_connection(dense, 0, tree, 0);
     finish(g, tree, tree, p(180.0, 350.0));
-    "ICE tree: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change the Multiply value in its properties.".into()
+    "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change the Multiply value in its properties.".into()
 }
 
 fn mocap_example(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
@@ -916,7 +916,7 @@ mod tests {
 
     #[test]
     fn the_ice_template_puts_every_point_on_a_sphere() {
-        let t = TEMPLATES.iter().find(|t| t.name == "ICE tree: spherify").unwrap();
+        let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();
         let (mut g, mut store) = (NodeGraphState::default(), SubnetStore::default());
         (t.build)(&mut g, &mut store);
         let eval = |sid: SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
@@ -934,7 +934,7 @@ mod tests {
     /// tree: its copy of the tree gives the same sphere.
     #[test]
     fn the_ice_template_added_to_a_scene_still_spherifies() {
-        let t = TEMPLATES.iter().find(|t| t.name == "ICE tree: spherify").unwrap();
+        let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();
         let mut store = SubnetStore::default();
         let mut other = NodeGraphState::default();
         t.load(&mut other, &mut store);
