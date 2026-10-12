@@ -9,7 +9,7 @@
 //! |-------------|-------------------|-------------------|
 //! | `Object`    | one for the prim  | `constant`        |
 //! | `Point`     | point             | `vertex`          |
-//! | `Primitive` | polygon or curve  | `uniform`         |
+//! | `Face`      | polygon or curve  | `uniform`         |
 //! | `Corner`    | polygon corner    | `faceVarying`     |
 //!
 //! Columns are shared: cloning a `Geo` copies pointers, and writing to a
@@ -54,15 +54,17 @@ pub const UV_NAMES: [&str; 5] = [ST, "st0", "UVMap", "map1", "uv"];
 pub enum Context {
     Object,
     Point,
-    Primitive,
+    /// A polygon, or a curve: one value per face. (Not a USD primitive:
+    /// one value per primitive is `Object`.)
+    Face,
     Corner,
 }
 
 impl Context {
-    pub const ALL: [Context; 4] = [Context::Object, Context::Point, Context::Primitive, Context::Corner];
+    pub const ALL: [Context; 4] = [Context::Object, Context::Point, Context::Face, Context::Corner];
 
     fn slot(self) -> usize {
-        match self { Context::Object => 0, Context::Point => 1, Context::Primitive => 2, Context::Corner => 3 }
+        match self { Context::Object => 0, Context::Point => 1, Context::Face => 2, Context::Corner => 3 }
     }
 
     /// The USD interpolation token for writing.
@@ -70,7 +72,7 @@ impl Context {
         match self {
             Context::Object => "constant",
             Context::Point => "vertex",
-            Context::Primitive => "uniform",
+            Context::Face => "uniform",
             Context::Corner => "faceVarying",
         }
     }
@@ -81,7 +83,7 @@ impl Context {
         Some(match token {
             "constant" => Context::Object,
             "vertex" | "varying" => Context::Point,
-            "uniform" => Context::Primitive,
+            "uniform" => Context::Face,
             "faceVarying" => Context::Corner,
             _ => return None,
         })
@@ -391,7 +393,7 @@ impl Geo {
         match ctx {
             Context::Object => 1,
             Context::Point => self.point_count(),
-            Context::Primitive => self.topology.primitive_count(),
+            Context::Face => self.topology.primitive_count(),
             Context::Corner => self.topology.corner_count(),
         }
     }
@@ -492,7 +494,7 @@ impl Geo {
                     let element = match ctx {
                         Context::Object => 0,
                         Context::Point => indices[corner] as usize,
-                        Context::Primitive => poly,
+                        Context::Face => poly,
                         Context::Corner => corner,
                     };
                     a.value_index(element).and_then(|i| a.column.vec2s().and_then(|v| v.get(i).copied())).unwrap_or([0.0; 2])
@@ -663,7 +665,7 @@ fn interp_of(ctx: Context) -> PrimVarInterp {
     match ctx {
         Context::Object => PrimVarInterp::Constant,
         Context::Point => PrimVarInterp::Vertex,
-        Context::Primitive => PrimVarInterp::Uniform,
+        Context::Face => PrimVarInterp::Uniform,
         Context::Corner => PrimVarInterp::FaceVarying,
     }
 }
@@ -672,7 +674,7 @@ fn context_of(interp: &PrimVarInterp) -> Context {
     match interp {
         PrimVarInterp::Constant => Context::Object,
         PrimVarInterp::Vertex => Context::Point,
-        PrimVarInterp::Uniform => Context::Primitive,
+        PrimVarInterp::Uniform => Context::Face,
         PrimVarInterp::FaceVarying => Context::Corner,
     }
 }
@@ -741,10 +743,10 @@ mod tests {
     #[test]
     fn counts_follow_the_topology_and_validate_checks_them() {
         let g = quad_and_triangle();
-        assert_eq!((g.count(Context::Object), g.count(Context::Point), g.count(Context::Primitive), g.count(Context::Corner)), (1, 5, 2, 7));
+        assert_eq!((g.count(Context::Object), g.count(Context::Point), g.count(Context::Face), g.count(Context::Corner)), (1, 5, 2, 7));
         assert!(g.validate().is_ok());
         let mut bad = g.clone();
-        bad.set(Context::Primitive, "id", Attr::new(Column::Int(Arc::new(vec![1, 2, 3])), Role::None));
+        bad.set(Context::Face, "id", Attr::new(Column::Int(Arc::new(vec![1, 2, 3])), Role::None));
         assert!(bad.validate().is_err());
     }
 
@@ -857,11 +859,11 @@ mod tests {
     #[test]
     fn other_attributes_travel_as_primvars() {
         let mut g = quad_and_triangle();
-        g.set(Context::Primitive, "heat", Attr::new(Column::Float(Arc::new(vec![0.25, 0.75])), Role::None));
+        g.set(Context::Face, "heat", Attr::new(Column::Float(Arc::new(vec![0.25, 0.75])), Role::None));
         let m = g.to_mesh();
         let pv = m.primvars.iter().find(|p| p.name == "heat").unwrap();
         assert_eq!((pv.interp.clone(), pv.values.clone()), (PrimVarInterp::Uniform, vec![vec![0.25], vec![0.75]]));
         let back = Geo::from_mesh(&m);
-        assert_eq!(back.attr(Context::Primitive, "heat").unwrap().column.floats(), Some(&[0.25, 0.75][..]));
+        assert_eq!(back.attr(Context::Face, "heat").unwrap().column.floats(), Some(&[0.25, 0.75][..]));
     }
 }

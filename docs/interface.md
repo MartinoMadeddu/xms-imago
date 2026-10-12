@@ -8,7 +8,7 @@ A fixed line across the top of the window, for things that belong to the whole p
 
 ## Panes
 
-Nine panes: Viewport, Node Graph, UV Editor, Scene Explorer, Operator Stack, History, Properties, Primitive Inspector, Timeline. Each one is a tab. The default layout has the Scene Explorer in a narrow column at the left, the Viewport beside it with the UV Editor as a tab behind it (see [UV](uv.md)), and the Primitive Inspector under both; then the Node Graph, then Properties over the Operator Stack. The Timeline runs along the bottom of those, and History (see [Undo](undo.md)) down the whole right side. A layout saved before the History pane existed does not have it: tick it in the Panes menu, or "Reset layout" for this default.
+Nine panes: Viewer, Node Graph, UV Editor, Scene Explorer, Operator Stack, History, Parameters, Primitive Inspector, Timeline. Each one is a tab. The default layout has the Scene Explorer in a narrow column at the left, the Viewport beside it with the UV Editor as a tab behind it (see [UV](uv.md)), and the Primitive Inspector under both; then the Node Graph, then Parameters over the Operator Stack. The Timeline runs along the bottom of those, and History (see [Undo](undo.md)) down the whole right side. A layout saved before the History pane existed does not have it: tick it in the Panes menu, or "Reset layout" for this default.
 
 | To | Do this |
 |---|---|
@@ -36,7 +36,7 @@ The padlock at the right of the top bar locks the layout. While it is locked, ta
 
 The layout, the lock and the place of every floating window are saved when they change and restored at the next start. They are kept in `layout.json` in the config folder (`~/.config/xms` on Linux, `%APPDATA%\xms` on Windows). A file that cannot be read is ignored and the default layout is used.
 
-When the Viewport pane is closed or hidden behind another tab, the 3D view is not drawn.
+When the Viewer pane is closed or hidden behind another tab, the 3D view is not drawn.
 
 ## Files
 
@@ -51,7 +51,7 @@ The graph is saved as a JSON file. The top bar shows its name, and "(unsaved)" w
 
 Opening a graph is a step in the [history](undo.md): undo goes back to the graph before it.
 
-Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If its Output is not wired, it takes what the added graph's Output was wired to; if nothing is viewed, the added graph's viewed node is. ICE trees are not saved in graph files yet, so an ICE node added from a file comes with an empty tree (from a template, or copied and pasted, it keeps its tree).
+Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If its Output is not wired, it takes what the added graph's Output was wired to; if nothing is viewed, the added graph's viewed node is. ICE graphs are not saved in graph files yet, so an ICE node added from a file comes with an empty tree (from a template, or copied and pasted, it keeps its tree).
 
 Opening a graph (Open or Recent) or picking a template asks first whether to **Add** it to the graph, beside the nodes already there, or **Open as new** in place of the graph. On a graph with nothing but Output it opens straight away.
 
@@ -90,7 +90,7 @@ When a graph needs a node the program does not have, put a **Placeholder** in it
 
 ### The add menu
 
-Seven categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its properties. Hover an item for a line on what it does.
+Seven categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does.
 
 | Category | Nodes |
 |---|---|
@@ -103,29 +103,29 @@ Seven categories, each a submenu, each item a node. A node has one name, the sam
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |
 | Mocap | Split Characters, Characterize, Retarget, Reach, Human Limits, Capture, Skin, Auto T-Pose, Fix Pose, Proxy Skin, Body Collide |
 
-Transform moves anything: a mesh, packed primitives (the picked ones, or each of them), or a clip. A clip moves by its top joints, so a skinned mesh follows its skeleton once and is not moved a second time.
+Transform moves anything: a mesh, primitives (the picked ones, or each of them), or a clip. A clip moves by its top joints, so a skinned mesh follows its skeleton once and is not moved a second time.
 
 ![The add menu, Animation open](xms_add_menu.png)
 
-### ICE trees
+### ICE graphs
 
-An ICE node holds a tree of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene network. Inside, the tree is drawn after Softimage ICE: nodes coloured by kind, each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.
+An ICE node holds a graph of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene graph. Inside, the graph is drawn after Softimage ICE: nodes coloured by kind, each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.
 
 | | |
 |---|---|
 | Add | Right-click the canvas |
 | Wire | Drag from an output to an input |
-| Delete | Delete or Backspace on the selected node, or right-click its title. The tree's input and output stay |
+| Delete | Delete or Backspace on the selected node, or right-click its title. The graph's input and output stay |
 | Collapse | The box at the right of a node's title |
 | Pan | Shift or middle mouse button, and drag |
 | Zoom | Mouse wheel, towards the pointer |
 | Frame | F or A |
 
-A tree runs on each packed primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
+A graph runs on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
 
-## Properties
+## Parameters
 
-Every node's properties are laid out the same way. The first group is the node's type and its name. Then its parameters, in titled groups. In every group a row is a label, right-aligned in a column of one width, and its value, which fills the rest: sliders, fields and lists line up down the pane. Clip nodes end with a Clip group: what comes In and what goes Out.
+Every node's parameters are laid out the same way. The first group is the node's type and its name. Then its parameters, in titled groups. In every group a row is a label, right-aligned in a column of one width, and its value, which fills the rest: sliders, fields and lists line up down the pane. Clip nodes end with a Clip group: what comes In and what goes Out.
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 
@@ -140,7 +140,7 @@ Each node in the graph has two buttons in its title.
 | Button | Where | Does |
 |---|---|---|
 | Bypass | Left, a ring | Switches the node off. Its first input passes through unchanged. The ring turns orange with a bar through it and the node is greyed. A bypassed node with nothing wired to it gives nothing. Output cannot be bypassed |
-| View | Right | Shows that node in the viewport |
+| View | Right | Shows that node in the Viewer |
 
 Bypass is saved with the graph.
 
@@ -160,7 +160,7 @@ Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
 
 ## Framing
 
-With the cursor over the viewport:
+With the cursor over the Viewer:
 
 | Key | Frames |
 |---|---|
@@ -194,11 +194,11 @@ The Theme menu in the top bar has three schemes. The choice is kept.
 | Accent | Selection, active flags, highlights |
 | Outline | Node borders, window edges |
 
-Changes show at once and are saved as you edit, in `theme.json` in the config folder. "Start from" loads a preset, "Reset" undoes the edits to the current one. Colours that carry meaning (axes, wires, warnings) are the same in every scheme. The 3D viewport background does not follow the scheme.
+Changes show at once and are saved as you edit, in `theme.json` in the config folder. "Start from" loads a preset, "Reset" undoes the edits to the current one. Colours that carry meaning (axes, wires, warnings) are the same in every scheme. The Viewer's background follows the scheme: mid grey in Light, dark grey in Dark and ADHD.
 
 ## Scene Explorer
 
-The scene explorer lists what each node in view gives: a mesh, the joints of a clip, or a USD stage as its hierarchy. For a stage, opening and closing prims also decides what the viewport draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-viewport). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
+The scene explorer lists what each node in view gives: a mesh, the joints of a clip, or a USD stage as its hierarchy. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
 
 ## Operator Stack
 
@@ -214,26 +214,26 @@ The icon is the wireframe cube of the splash. It is the logo in the top bar and 
 
 ## Primitive Inspector
 
-A spreadsheet of the selected node.
+The attributes of the selected node, or of the primitive selected in the Scene Explorer, as a spreadsheet.
 
 | Tab | Rows |
 |---|---|
-| Vertex | Points of the mesh: position and normal |
-| Edge | Edges: the two vertices and the length |
-| Polygon | Polygons |
-| FaceVarying | Polygon corners, with UVs when the mesh has them |
-| Constant | Values for the whole mesh |
+| Point | Points of the mesh: position and normal |
+| Edge | Edges: the two points and the length |
+| Face | Polygons |
+| Corner | Polygon corners, with UVs when the mesh has them |
+| Object | Values for the whole mesh |
 | Joint | Joints of a clip: name, parent, position and rotation at the current frame |
 | Bone | Bones of a clip: from one joint to another, with length |
 
 Mesh nodes show the first five tabs, clip nodes the last two.
 
-The mesh is cooked and the table built only when the graph changes or another node is selected. Moving the camera, or anything else in the viewport that leaves the graph alone, does not refresh it. Each frame draws only the rows in view.
+The mesh is cooked and the table built only when the graph changes or another node is selected. Moving the camera, or anything else in the Viewer that leaves the graph alone, does not refresh it. Each frame draws only the rows in view.
 
 ## When the graph is cooked
 
-The viewport meshes, the scene explorer, the operator stack and the primitive inspector are rebuilt when the content of the graph changes: a node added or removed, a parameter edited, a wire changed, the view flag or the selection moved. Moving nodes about, panning the graph and moving the camera do not cook anything. Animated meshes are also rebuilt when the playhead moves.
+The Viewer meshes, the scene explorer, the operator stack and the primitive inspector are rebuilt when the content of the graph changes: a node added or removed, a parameter edited, a wire changed, the view flag or the selection moved. Moving nodes about, panning the graph and moving the camera do not cook anything. Animated meshes are also rebuilt when the playhead moves.
 
-While an ICE subnet is open, every click and key press counts as a change.
+While an ICE graph is open, every click and key press counts as a change.
 
-The window draws a new frame when something happens (input, a change in the graph, playback, a texture arriving), not all the time, so an idle window costs almost nothing and a heavy viewport does not slow the panes down while nothing moves.
+The window draws a new frame when something happens (input, a change in the graph, playback, a texture arriving), not all the time, so an idle window costs almost nothing and a heavy Viewer does not slow the panes down while nothing moves.

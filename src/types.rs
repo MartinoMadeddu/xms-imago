@@ -385,8 +385,8 @@ pub enum SubnetNodeType {
 
 pub fn subnet_node_label(t: &SubnetNodeType) -> &'static str {
     match t {
-        SubnetNodeType::SubInput            => "Subnet Input",
-        SubnetNodeType::SubOutput           => "Subnet Output",
+        SubnetNodeType::SubInput            => "Graph Input",
+        SubnetNodeType::SubOutput           => "Graph Output",
         SubnetNodeType::AddVec3             => "Add",
         SubnetNodeType::SubtractVec3        => "Subtract",
         SubnetNodeType::MultiplyVec3 { .. } => "Multiply",

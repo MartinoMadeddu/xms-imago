@@ -17,7 +17,7 @@ use crate::core::manip::Tool;
 use crate::core::poly::{collapse_all, collapse_op, eval_cached, push_op, restore_run, ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
 use bevy::math::{EulerRot, Quat};
 use crate::node_graph::NodeGraphState;
-use crate::scene_graph::SceneGraph;
+use crate::scene_explorer::OperatorStack;
 use crate::ice::{SubnetStore, GraphNavigation};
 use crate::ice::ui::draw_subnet_node_properties;
 
@@ -54,7 +54,7 @@ pub struct PanelIo<'a> {
 pub fn draw_properties_panel(
     ui:      &mut egui::Ui,
     graph:   &mut NodeGraphState,
-    scene:   &SceneGraph,
+    scene:   &OperatorStack,
     subnets: &mut SubnetStore,
     nav:     &GraphNavigation,
     anim:    &AnimContext,
@@ -148,7 +148,7 @@ fn reach_report(ui: &mut egui::Ui, anim: &AnimContext, reach: bool) {
 pub fn draw_properties(
     ui:     &mut egui::Ui,
     graph:  &mut NodeGraphState,
-    _scene: &SceneGraph,
+    _scene:   &OperatorStack,
     anim:   &AnimContext,
     io:     &mut PanelIo,
 ) {
@@ -205,7 +205,7 @@ pub fn draw_properties(
 
         // ── Files ────────────────────────────────────────────────────────────
         NodeType::LoadUsd { path } => {
-            group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as packed primitives"), |f| {
+            group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
                 if path.is_empty() { f.status(Status::Info, "No file set"); }
                 else if std::path::Path::new(path).exists() { f.status(Status::Ok, "Found"); }
@@ -214,7 +214,7 @@ pub fn draw_properties(
             if !path.is_empty() { usd_summary(ui, path); }
         }
         NodeType::WriteUsd { path } => {
-            group(ui, "File", Some("A .usda layer with what the network changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
+            group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
                 path_row(f, path, "/path/to/edits.usda", io, sel_id, BrowseMode::Save, "Write USD layer", &["usda"]);
             });
             group(ui, "Write", None, |f| {
@@ -269,7 +269,7 @@ pub fn draw_properties(
             });
             clip_summary(ui, anim, false);
         }
-        NodeType::LoadFbxMesh { path } => group(ui, "File", Some("Every mesh of an FBX file, where it stands, as packed primitives. A set for Body Collide to keep a character out of"), |f| {
+        NodeType::LoadFbxMesh { path } => group(ui, "File", Some("Every mesh of an FBX file, where it stands, as primitives. A set for Body Collide to keep a character out of"), |f| {
             path_row(f, path, "/path/to/set.fbx", io, sel_id, BrowseMode::File, "Open FBX", &["fbx", crate::packed::MESH_EXT]);
             match crate::fbx_loader::load_meshes_cached(path) {
                 Ok(meshes) => {
@@ -320,7 +320,7 @@ pub fn draw_properties(
             let clip = anim.input.is_some();
             let mut reset = false;
             group_with(ui, "Transform",
-                Some("Moves whatever comes in: a mesh, packed primitives (the picked ones, or all of them), or a clip. A clip moves by its top joints, so its skinned mesh moves with it once. Scale, then rotate X, Y, Z, then translate"),
+                Some("Moves whatever comes in: a mesh, primitives (the picked ones, or all of them), or a clip. A clip moves by its top joints, so its skinned mesh moves with it once. Scale, then rotate X, Y, Z, then translate"),
                 |ui| { if ui.small_button("Reset").clicked() { reset = true; } },
                 |f| {
                     let mut t = translation.to_array();
@@ -347,21 +347,21 @@ pub fn draw_properties(
             f.value("Template", "First input: the mesh copied");
             f.value("Points", "Second input: where the copies go");
         }),
-        NodeType::Subnet { .. } => group(ui, "Subnet", None, |f| { f.status(Status::Info, "Double-click the node to go inside"); }),
+        NodeType::Subnet { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
         NodeType::Output => group(ui, "Output", None, |f| { f.status(Status::Info, "What reaches this node is the scene"); }),
 
         // ── Primitives ───────────────────────────────────────────────────────
         NodeType::PickPrims { pattern } => group(ui, "Pick", Some("The nodes after this one work on the picked primitives only and pass the others through: Edit Poly, Transform and the UV nodes all do"), |f| {
             pattern_rows(f, "pick_prims", "Paths", pattern, &prim_paths, false);
-            if prim_paths.is_empty() { f.status(Status::Info, "No packed primitives coming in"); }
+            if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
         NodeType::PrunePrims { pattern, keep } => group(ui, "Prune", None, |f| {
             pattern_rows(f, "prune_prims", "Paths", pattern, &prim_paths, false);
             f.choice("Matches", None, keep, &[(false, "Remove"), (true, "Keep only")]);
-            if prim_paths.is_empty() { f.status(Status::Info, "No packed primitives coming in"); }
+            if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
         NodeType::UnpackPrims => group(ui, "Unpack", Some("Nodes that need one mesh do this on their own. Unpack makes it explicit, or drops a pick"), |f| {
-            f.value("In", format!("{} packed primitives", prim_paths.len()));
+            f.value("In", format!("{} primitives", prim_paths.len()));
             f.value("Out", "One mesh");
         }),
 
@@ -822,7 +822,7 @@ fn body_collide(
             None => f.value("Collider", "None: the character collides with itself only"),
         }
     });
-    group(ui, "Display", Some("What the viewport draws of the character. The node puts out the clip with its skin either way"), |f| {
+    group(ui, "Display", Some("What the Viewer draws of the character. The node puts out the clip with its skin either way"), |f| {
         f.choice("Show", Some("Pieces: the skin cut into one rigid piece per body. Hulls: the shapes the solver collides"),
             view, &[(BodyView::Skin, "Skin"), (BodyView::Pieces, "Pieces"), (BodyView::Hulls, "Hulls")]);
     });
@@ -948,17 +948,17 @@ fn edit_poly(
 
     let sel_title = match *edit { Some(i) => format!("Selection of #{} {}", i + 1, ops[i].kind.label()), None => "Selection".into() };
     let mut done = false;
-    group_with(ui, &sel_title, Some("The selection the next operation uses, built in the viewport or by rule"), |ui| {
+    group_with(ui, &sel_title, Some("The selection the next operation uses, built in the Viewer or by rule"), |ui| {
         if edit.is_some() && ui.small_button("Done").on_hover_text("Back to the selection for the next operation").clicked() { done = true; }
     }, |f| {
-        if edit.is_some() { f.status(Status::Info, "The viewport shows the mesh before this operation"); }
+        if edit.is_some() { f.status(Status::Info, "The Viewer shows the mesh before this operation"); }
         let sel = match *edit { Some(i) if i < ops.len() => &mut ops[i].selection, _ => &mut *pending };
         selection_rows(f, sel, stage.as_deref());
         if input.is_none() { f.status(Status::Info, "No mesh connected"); }
     });
     if done { *edit = None; }
 
-    group(ui, "Viewport tool", Some("Drag a handle in the viewport: each drag is stored as a Transform operation"), |f| {
+    group(ui, "Viewer tool", Some("Drag a handle in the Viewer: each drag is stored as a Transform operation"), |f| {
         let mut t = *io.tool;
         f.choice("Tool", Some("Keys Q, W, E, R"), &mut t, &[(Tool::Select, "Select"), (Tool::Move, "Move"), (Tool::Rotate, "Rotate"), (Tool::Scale, "Scale")]);
         *io.tool = t;
@@ -1161,7 +1161,7 @@ fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>
     #[derive(Clone, Copy, PartialEq)]
     enum Src { Picked, All, Normal, Box }
     let mut src = match sel.source { SelSource::Picked => Src::Picked, SelSource::All => Src::All, SelSource::ByNormal { .. } => Src::Normal, SelSource::InBox { .. } => Src::Box };
-    if f.choice("Source", Some("Picked: click or drag a box in the viewport, Ctrl adds, Shift removes"),
+    if f.choice("Source", Some("Picked: click or drag a box in the Viewer, Ctrl adds, Shift removes"),
         &mut src, &[(Src::Picked, "Picked"), (Src::All, "All"), (Src::Normal, "By normal"), (Src::Box, "In box")]) {
         sel.source = match src {
             Src::Picked => SelSource::Picked,

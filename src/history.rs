@@ -503,8 +503,8 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
         (format!("{} {}", if on { "Bypass" } else { "Turn on" }, count(bypassed.len(), name(b, bypassed[0]), "nodes")), Kind::Bypass)
     } else if a.view_flag != b.view_flag {
         match b.view_flag {
-            Some(id) => (format!("Show {} in the viewport", name(b, id)), Kind::Display),
-            None     => ("Show Output in the viewport".into(), Kind::Display),
+            Some(id) => (format!("Show {} in the Viewer", name(b, id)), Kind::Display),
+            None     => ("Show Output in the Viewer".into(), Kind::Display),
         }
     } else if !moved.is_empty() {
         (format!("Move {}", count(moved.len(), name(b, moved[0]), "nodes")), Kind::Move)

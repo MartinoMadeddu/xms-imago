@@ -1,3 +1,7 @@
+//! The Scene Explorer (the stage's primitives as a hierarchy, in `ui`) and
+//! the Operator Stack (the chain of operators feeding the selected one).
+//! Not to be confused with the scene graph, the network of operators.
+
 pub mod ui;
 
 use std::collections::{HashMap, HashSet};
@@ -78,5 +82,4 @@ impl OperatorStack {
 }
 
 // Keep the old name as an alias so call sites don't break immediately
-pub type SceneGraph = OperatorStack;
 pub type SceneEntry = StackEntry;

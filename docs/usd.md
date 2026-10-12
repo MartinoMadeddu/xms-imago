@@ -6,11 +6,11 @@ Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Pr
 
 | Node | What it does |
 |---|---|
-| Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one packed primitive per mesh, curves or points prim |
-| Pick Primitives | Marks the packed primitives whose path matches a pattern as picked |
-| Prune Primitives | Removes the packed primitives whose path matches a pattern, or keeps only those |
-| Unpack | Merges every packed primitive into one mesh |
-| Write USD | Writes what the network changed in its stages as a USD override layer |
+| Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one primitive per mesh, curves or points prim |
+| Pick Primitives | Marks the primitives whose path matches a pattern as picked |
+| Prune Primitives | Removes the primitives whose path matches a pattern, or keeps only those |
+| Unpack | Merges every primitive into one mesh |
+| Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
 ## Composed stages
 
@@ -18,7 +18,7 @@ A file is read as a stage, with its composition resolved: sublayers, references,
 
 Every prim keeps what the file says about it. Geometry stays in its own space, as authored, and each primitive is placed by its world transform. Nothing is baked into the points, so what is written back matches the file.
 
-|---|---|
+| | |
 |---|---|
 | Formats | Text (`.usda`), binary (`.usdc`) and `.usdz` |
 | Composition | Sublayers, references, payloads, inherits, specializes, variants |
@@ -30,18 +30,18 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 | Primvars | Every numeric primvar, normals and widths included, with its interpolation and indices |
 | Instancing | Native instances and point instancers: each prototype's geometry is held once and shared by every copy |
 | Purpose | `render`, `proxy` and `guide`, inherited down the hierarchy |
-| Materials | Listed in the node's Properties: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface |
+| Materials | Listed in the node's Parameters: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface |
 | Cameras | Listed: projection, focal length, aperture, clipping range, position |
 | Skeletons, lights | Listed by name |
 | Time samples | Read at the stage's start time |
 
-A file is read once and kept until it changes on disk. A `.usdz` is unpacked beside itself so its textures are files the viewport can read.
+A file is read once and kept until it changes on disk. A `.usdz` is unpacked beside itself so its textures are files the Viewer can read.
 
-The Properties of a Load USD node show the stage: primitive and triangle counts (every instanced copy counted), up axis and unit, a count of prims by type, the materials with their textures, the cameras, skeletons and lights, and a "Not read in full" list for whatever the file holds that is not handled yet.
+The Parameters of a Load USD node show the stage: primitive and triangle counts (every instanced copy counted), up axis and unit, a count of prims by type, the materials with their textures, the cameras, skeletons and lights, and a "Not read in full" list for whatever the file holds that is not handled yet.
 
-## Packed primitives
+## Primitives
 
-A stage comes in as packed primitives: each mesh, curves or points prim stays a separate piece, with its path, material binding and purpose, and is passed from node to node without being copied. Nothing is merged until a node needs one mesh.
+A stage comes in as primitives: each mesh, curves or points prim stays a separate piece, with its path, material binding and purpose, and is passed from node to node without being copied. Nothing is merged until a node needs one mesh.
 
 Pick Primitives chooses which pieces the following nodes work on. After a pick:
 
@@ -50,7 +50,7 @@ Pick Primitives chooses which pieces the following nodes work on. After a pick:
 - Several picked primitives go through Edit Poly and the UV nodes merged, as one primitive in the place of the first.
 - Every other primitive passes through untouched.
 
-An ICE node runs its tree on each primitive (or each picked one) in the primitive's own space, as an ICE tree runs on an object in Softimage.
+An ICE node runs its graph on each primitive (or each picked one) in the primitive's own space, as an ICE tree runs on an object in Softimage.
 
 The pattern is a name pattern as described in [Interface](interface.md#name-patterns): comma-separated regular expressions matched against the full prim path, with a "Pick" list of the paths coming in.
 
@@ -62,9 +62,9 @@ Native instances and point instancers keep their instancing. The geometry of a p
 
 - Transform moves the placements, not the points, so moving a forest is moving matrices.
 - A node that changes geometry (Edit Poly, the UV nodes) on one instance makes that instance a mesh of its own. The other copies stay shared.
-- The viewport draws a mesh with many copies in one draw call (GPU instancing), in its material's colour. A mesh with 64 copies or fewer is drawn copy by copy with its full material and textures.
+- The Viewer draws a mesh with many copies in one draw call (GPU instancing), in its material's colour. A mesh with 64 copies or fewer is drawn copy by copy with its full material and textures.
 
-## The Scene Explorer and the viewport
+## The Scene Explorer and the Viewer
 
 The Scene Explorer lists a stage as its hierarchy: groups, meshes, curves, points, materials, cameras, lights and skeletons, each with its icon. Pruned primitives leave the list, and so do groups left empty.
 
@@ -76,26 +76,26 @@ What is drawn follows the explorer:
 - The square at the right of a row draws that prim and everything below it as geometry, however far it is opened.
 - "Show all geometry" in the explorer's header draws everything.
 
-Opening and closing does not cook the graph again. The boxes come from the primitives as they reach the viewport, so they follow a Transform or a Prune upstream. A point instancer's box covers every copy, and an open instancer shows one box per prototype.
+Opening and closing does not cook the graph again. The boxes come from the primitives as they reach the Viewer, so they follow a Transform or a Prune upstream. A point instancer's box covers every copy, and an open instancer shows one box per prototype.
 
 The **guide**, **proxy** and **render** toggles in the explorer's header choose which purposes are drawn. By default guides are hidden, proxies are shown, and render geometry is shown where its asset has no proxy (where it has one, the proxy stands in for it). A prim with no purpose is always drawn.
 
 Curves are drawn as lines through their basis, points as small crosses sized by their width.
 
-## Materials in the viewport
+## Materials in the Viewer
 
-Packed primitives are drawn with their materials: colour, roughness, metallic, opacity, the colour texture and the emissive texture. Textures packed in a `.usdz` are used from where it was unpacked.
+Primitives are drawn with their materials: colour, roughness, metallic, opacity, the colour texture and the emissive texture. Textures packed in a `.usdz` are used from where it was unpacked.
 
 ![The example model with its textures](xms_usd_textured.png)
 
-- Texture files are decoded in the background. A surface shows its plain colour until its texture is ready, and "loading N" shows next to the viewport menu meanwhile.
+- Texture files are decoded in the background. A surface shows its plain colour until its texture is ready, and "loading N" shows next to the Viewer menu meanwhile.
 - Images larger than 2048 pixels on a side are reduced to that. Each gets its chain of smaller copies, so distant surfaces do not shimmer. Textures repeat outside the unit square.
 - A material with opacity below one is blended. A material whose opacity comes from its colour texture is cut out by that texture's alpha.
-- "Textures" in the viewport menu turns all of this off and shows plain grey.
+- "Textures" in the Viewer menu turns all of this off and shows plain grey.
 
 ## Write USD
 
-Write USD writes what the network changed as a `.usda` override layer. The layer sublayers the file each stage was read from and holds only opinions over it, so opened on its own (in usdview, rray, or Imago) it gives what Imago shows. It repeats the file's `upAxis` and `metersPerUnit`, which USD reads from the layer that is opened.
+Write USD writes what the scene graph changed as a `.usda` override layer. The layer sublayers the file each stage was read from and holds only opinions over it, so opened on its own (in usdview, rray, or Imago) it gives what Imago shows. It repeats the file's `upAxis` and `metersPerUnit`, which USD reads from the layer that is opened.
 
 Set a path and press **Write**. The panel then says what was written, and lists what could not be, with the reason.
 
@@ -123,7 +123,7 @@ Values are written at the current frame, as single values.
 ## Not done yet
 
 - Write USD: time samples over a frame range, editing inside instances, a flattened single file
-- Normal, roughness, metallic and occlusion maps in the viewport
+- Normal, roughness, metallic and occlusion maps in the Viewer
 - Looking through a USD camera
 - Animation: time samples beyond the start time, skeletal animation, skinning, blend shapes
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)

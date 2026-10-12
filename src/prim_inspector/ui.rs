@@ -21,7 +21,11 @@ mod xsi {
     pub fn BORDER() -> Color32 { crate::theme::c(50, 50, 50) }
     pub fn TEXT() -> Color32 { crate::theme::c(228, 228, 228) }
     pub fn TEXT_DIM() -> Color32 { crate::theme::c(210, 210, 210) }
-    pub fn TEXT_IDX() -> Color32 { crate::theme::c(120, 130, 145) }
+    /// Row numbers: a muted blue. On the light greys of Light, a dark navy,
+    /// so they read against the rows.
+    pub fn TEXT_IDX() -> Color32 {
+        if crate::theme::is_dark() { crate::theme::c(120, 130, 145) } else { Color32::from_rgb(28, 52, 104) }
+    }
     pub fn TAB_ACTIVE() -> Color32 { crate::theme::c(80, 95, 115) }
     pub fn TAB_BG() -> Color32 { crate::theme::c(58, 58, 58) }
     pub fn BREADCRUMB() -> Color32 { crate::theme::c(160, 165, 170) }
@@ -102,11 +106,11 @@ pub fn draw_prim_inspector(
                         } else if let Some(m) = &mesh {
                             let count = |interp: PrimVarInterp| m.primvars.iter().filter(|p| p.interp == interp).count();
                             let verts = if m.vertices.is_empty() { m.points.len() } else { m.vertices.len() };
-                            tab_btn(ui, state, Tab::Vertex, &format!("Vertex ({verts})"));
+                            tab_btn(ui, state, Tab::Vertex, &format!("Point ({verts})"));
                             tab_btn(ui, state, Tab::Edge, &format!("Edge ({})", state.edge_count));
-                            tab_btn(ui, state, Tab::Uniform, &format!("Polygon ({})", m.num_faces()));
-                            tab_btn(ui, state, Tab::FaceVarying, &format!("FaceVarying ({})", m.num_face_varying()));
-                            tab_btn(ui, state, Tab::Constant, &format!("Constant ({})", count(PrimVarInterp::Constant)));
+                            tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", m.num_faces()));
+                            tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", m.num_face_varying()));
+                            tab_btn(ui, state, Tab::Constant, &format!("Object ({})", count(PrimVarInterp::Constant)));
                         }
                     });
                 });
@@ -130,8 +134,8 @@ pub fn draw_prim_inspector(
             if table.cols.is_empty() {
                 ui.add_space(12.0);
                 let what = match tab {
-                    Tab::FaceVarying => "No FaceVarying data. A UV Unwrap node adds UVs.",
-                    Tab::Constant    => "No Constant primvars.",
+                    Tab::FaceVarying => "No Corner attributes. A UV Unwrap node adds UVs.",
+                    Tab::Constant    => "No Object attributes.",
                     _                => "No data.",
                 };
                 ui.label(egui::RichText::new(what).color(xsi::TEXT_DIM()));

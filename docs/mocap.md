@@ -118,7 +118,7 @@ Every path field has a folder button that opens the file browser. It reopens in 
 
 ## Graphs
 
-Open, Recent, Save and Save as in the node graph header read and write the graph as JSON. See [Interface](interface.md#files). The contents of ICE subnets are not saved.
+Open, Recent, Save and Save as in the node graph header read and write the graph as JSON. See [Interface](interface.md#files). The contents of ICE graphs are not saved.
 
 ## Not done yet
 

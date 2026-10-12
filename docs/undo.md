@@ -4,7 +4,7 @@
 
 ## What is undone
 
-Everything in the scene: nodes, their parameters, Edit Poly operations, names, bypass, wires, where nodes sit in the graph, and which node shows in the viewport. That is what a saved graph holds.
+Everything in the scene: nodes, their parameters, Edit Poly operations, names, bypass, wires, where nodes sit in the graph, and which node shows in the Viewer. That is what a saved graph holds.
 
 The interface is not undone: the camera, the layout, the theme, the playhead, panning and zooming the graph, and which node is selected never make a step. Undoing does select the node the step changed, so the change is in front of you.
 
@@ -41,6 +41,6 @@ The steps may take 256 MB together. Past that, the oldest go first: side branche
 
 ## Not done yet
 
-- Changes inside an ICE subnet are not in the history.
+- Changes inside an ICE graph are not in the history.
 - The history is not saved with the graph. It starts empty each time the program starts.
 - Hovering a step does not preview it.

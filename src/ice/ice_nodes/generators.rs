@@ -101,7 +101,7 @@ impl IceNode for CopyToPoints {
         }
         let template = ctx.get_external_geometry("template").ok_or_else(|| {
             "CopyToPoints: No template geometry available. \
-             Connect a geometry to the ICE subnet node's template input.".to_string()
+             Connect a geometry to the ICE node's template input.".to_string()
         })?;
         let tp = template.points();
         if tp.is_empty() {

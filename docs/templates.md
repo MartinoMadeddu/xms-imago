@@ -4,7 +4,7 @@ The Templates menu in the node graph header holds ready-made graphs. Picking one
 
 The menu is in two parts, by whose work the templates show: **Martino** (composed USD stages, ICE) and **Simon** (everything else).
 
-![The viewport of twelve of the templates](xms_templates.png)
+![The Viewer of twelve of the templates](xms_templates.png)
 
 ## Martino: USD stages
 
@@ -24,15 +24,15 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
-| ICE tree: spherify | A cube subdivided three times, then an ICE tree: Normalize sets every point to unit length, Multiply scales by 1.2. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
+| ICE graph: spherify | A cube subdivided three times, then an ICE graph: Normalize sets every point to unit length, Multiply scales by 1.2. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
 
 ## Simon: Basics
 
 | Template | Shows |
 |---|---|
-| Primitives | Cube, sphere and grid, each moved with a Transform and joined with Merge |
+| Shapes | Cube, sphere and grid, each moved with a Transform and joined with Merge |
 | Scatter and copy | Scatter Points on a grid, a small cube copied onto each point with Copy To Points |
-| ICE subnet | The same scatter and copy built inside a subnet. Double-click the subnet node, or select it and press ↓, to open it |
+| ICE graph | The same scatter and copy built inside an ICE graph. Double-click the ICE node, or select it and press ↓, to open it |
 | USD import | Two USD files loaded with Load USD, one moved onto the other, merged |
 
 ## Simon: Modelling
@@ -58,7 +58,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
-| USD: heavy model | A 461,595 triangle model as 43 packed primitives, with its materials, textures and UVs |
+| USD: heavy model | A 461,595 triangle model as 43 primitives, with its materials, textures and UVs |
 | USD: pick and edit | One wheel picked by a path pattern, moved, and handed to an Edit Poly node. The other primitives pass through |
 | USD: prune | The model cut down to its wheels and callipers |
 
@@ -79,7 +79,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
-| Load FBX: what a file holds | `examples/fbx/studio.fbx`, written by hand: a floor and a crate with their materials and UVs on the Geometry output, a camera that dollies in and a point light listed in the properties |
+| Load FBX: what a file holds | `examples/fbx/studio.fbx`, written by hand: a floor and a crate with their materials and UVs on the Geometry output, a camera that dollies in and a point light listed in the parameters |
 | Retarget onto a character | The example take's first actor on the 342-joint character of `ragdoll/split/into_the_car_.fbx`, taken in the pose its skin was bound in (Load FBX's Rest output), then Reach: feet where the actor's are, within human limits |
 | Capture and Skin | The same, with the character's mesh weighted again by proximity (Capture) and its skin put on the retargeted take by joint name (Skin). Bypass Capture to use the file's own weights |
 | Mocap folder: retarget, skin, collide, write | The example takes folder, each actor retargeted onto the character, feet set by Reach, kept out of a stand-in set by Body Collide, written as skinned FBX to `{dir}/retargeted`. All files on a Write node solves and writes the whole folder |

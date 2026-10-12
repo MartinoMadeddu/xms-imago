@@ -2,7 +2,7 @@
 
 One node that holds an ordered list of polygon operations, modelled on the Edit Poly modifier of 3ds Max. Add it from the add-node menu under Modify, and connect a mesh to its input.
 
-While an Edit Poly node is selected, the viewport shows that node with a wireframe and the current selection, whatever the view flag says.
+While an Edit Poly node is selected, the Viewer shows that node with a wireframe and the current selection, whatever the view flag says.
 
 ## Selection
 
@@ -15,12 +15,12 @@ Sources:
 
 | Source | Selects |
 |---|---|
-| Picked | What you click or box-select in the viewport |
+| Picked | What you click or box-select in the Viewer |
 | All | Everything at the current level |
 | By normal | Polygons facing within an angle of a direction |
 | In box | Components inside an axis-aligned box |
 
-In the viewport: click replaces the selection, Ctrl adds, Shift removes, dragging draws a box. Only the side facing the camera can be picked.
+In the Viewer: click replaces the selection, Ctrl adds, Shift removes, dragging draws a box. Only the side facing the camera can be picked.
 
 Modifiers: Grow, Shrink, Invert, Clear. At Edge level, Loop and Ring extend the selection.
 
@@ -60,7 +60,7 @@ Each operation uses the selection that was active when it was added.
 | Triangulate | Polygon | Splits polygons into triangles |
 | Turn | Edge | Turns the edge shared by two triangles |
 
-In the list, each live operation has: an enable checkbox, a button to edit its selection (the viewport then shows the mesh entering that operation), move up, move down, collapse, remove.
+In the list, each live operation has: an enable checkbox, a button to edit its selection (the Viewer then shows the mesh entering that operation), move up, move down, collapse, remove.
 
 ## Manipulators
 
@@ -75,7 +75,7 @@ The manipulator sits at the centre of the selection, on world axes. Move and Sca
 
 Each drag is stored as a Transform operation. Further drags on the same selection update that operation. A scale after a rotation starts a new one.
 
-The Delete key in the viewport adds a Delete operation.
+The Delete key in the Viewer adds a Delete operation.
 
 ## Collapsing
 

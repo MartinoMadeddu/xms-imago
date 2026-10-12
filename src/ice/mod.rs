@@ -420,12 +420,12 @@ mod tree_tests {
         tree.add_connection(mul, 0, output, 0);
 
         let mut geo = Geo::from_polygons(vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], vec![3], vec![0, 1, 2]);
-        geo.set(Context::Primitive, "heat", Attr::new(Column::Float(Arc::new(vec![0.5])), Role::None));
+        geo.set(Context::Face, "heat", Attr::new(Column::Float(Arc::new(vec![0.5])), Role::None));
         let out = tree.evaluate(&geo, None);
 
         assert_eq!(out.points()[1], [0.0, 2.0, 0.0]);
         assert!(!out.attr(Context::Point, POINTS).unwrap().same(geo.attr(Context::Point, POINTS).unwrap()));
-        assert!(out.attr(Context::Primitive, "heat").unwrap().same(geo.attr(Context::Primitive, "heat").unwrap()));
+        assert!(out.attr(Context::Face, "heat").unwrap().same(geo.attr(Context::Face, "heat").unwrap()));
         assert!(out.topology.same(&geo.topology));
         assert!(out.validate().is_ok());
     }
