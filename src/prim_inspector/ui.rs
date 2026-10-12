@@ -21,7 +21,11 @@ mod xsi {
     pub fn BORDER() -> Color32 { crate::theme::c(50, 50, 50) }
     pub fn TEXT() -> Color32 { crate::theme::c(228, 228, 228) }
     pub fn TEXT_DIM() -> Color32 { crate::theme::c(210, 210, 210) }
-    pub fn TEXT_IDX() -> Color32 { crate::theme::c(120, 130, 145) }
+    /// Row numbers: a muted blue. On the light greys of Light, a dark navy,
+    /// so they read against the rows.
+    pub fn TEXT_IDX() -> Color32 {
+        if crate::theme::is_dark() { crate::theme::c(120, 130, 145) } else { Color32::from_rgb(28, 52, 104) }
+    }
     pub fn TAB_ACTIVE() -> Color32 { crate::theme::c(80, 95, 115) }
     pub fn TAB_BG() -> Color32 { crate::theme::c(58, 58, 58) }
     pub fn BREADCRUMB() -> Color32 { crate::theme::c(160, 165, 170) }
