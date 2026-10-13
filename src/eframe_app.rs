@@ -29,6 +29,11 @@ pub struct ImagoApp {
 impl ImagoApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::init(&cc.egui_ctx);
+        // eframe draws egui into a gamma-space target, as egui intends, where
+        // `bevy_egui` drew into Bevy's sRGB target: edges came out a touch
+        // softer there. A slightly wider feathering brings shapes (wires,
+        // outlines, frames) closer to that look. Text keeps egui's own weight.
+        cc.egui_ctx.tessellation_options_mut(|t| t.feathering_size_in_pixels = 1.4);
         Self {
             app:          AppState::default(),
             poly_tool:    modelling::PolyTool::default(),
@@ -90,6 +95,8 @@ pub fn run() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport,
         renderer: eframe::Renderer::Wgpu,
+        // Smoother wires and outlines, as under Bevy (4 samples there).
+        multisampling: 4,
         ..Default::default()
     };
     eframe::run_native("XMS | Imago", options, Box::new(|cc| Ok(Box::new(ImagoApp::new(cc)))))

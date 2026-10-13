@@ -704,7 +704,9 @@ impl egui_dock::TabViewer for Panes<'_> {
                 self.vp_rect.0 = Some(ui.max_rect());
                 if self.viewer_placeholder {
                     ui.centered_and_justified(|ui| {
-                        ui.label(egui::RichText::new("The Viewer's 3D view moves to wgpu in the next stage of the eframe rework.").weak());
+                        ui.label(egui::RichText::new(format!(
+                            "The Viewer's 3D view moves to wgpu in the next stage of the eframe rework.\nInterface scale: {:.2} (pixels per point on this screen)",
+                            ui.ctx().pixels_per_point())).weak());
                     });
                 }
             }
