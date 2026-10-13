@@ -4,6 +4,8 @@
 struct View {
     view_proj: mat4x4<f32>,
     eye:       vec4<f32>,
+    // The picture's size in pixels (x, y).
+    viewport:  vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> view: View;
 
@@ -113,5 +115,51 @@ fn vs_line_raised(v: LineIn) -> LineOut {
 
 @fragment
 fn fs_line(i: LineOut) -> @location(0) vec4<f32> {
+    return i.colour;
+}
+
+// Edit Poly's vertices: a round dot of a fixed size in pixels, facing the
+// camera, hidden by the surfaces in front of it. Each dot is a quad of two
+// triangles made from its corner number.
+struct PointIn {
+    @builtin(vertex_index) corner: u32,
+    @location(0) pos:    vec3<f32>,
+    @location(1) colour: vec4<f32>,
+    // Radius, in pixels.
+    @location(2) size:   f32,
+};
+
+struct PointOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) colour: vec4<f32>,
+    @location(1) uv:     vec2<f32>,
+};
+
+@vertex
+fn vs_point(v: PointIn) -> PointOut {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
+        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, 1.0), vec2<f32>(-1.0, 1.0));
+    let c = corners[v.corner];
+    var o: PointOut;
+    o.clip = view.view_proj * vec4<f32>(v.pos, 1.0);
+    // On its surface, a little towards the camera.
+    o.clip.z = o.clip.z * 1.004;
+    o.clip = vec4<f32>(o.clip.xy + c * v.size * 2.0 / view.viewport.xy * o.clip.w, o.clip.zw);
+    o.colour = v.colour;
+    o.uv = c;
+    return o;
+}
+
+@fragment
+fn fs_point(i: PointOut) -> @location(0) vec4<f32> {
+    let d = length(i.uv);
+    if d > 1.0 {
+        discard;
+    }
+    // A dark rim, so a dot reads on any surface.
+    if d > 0.7 {
+        return vec4<f32>(0.01, 0.01, 0.012, 0.85);
+    }
     return i.colour;
 }

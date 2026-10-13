@@ -1,5 +1,5 @@
 use glam::{EulerRot, Quat, Vec3};
-use crate::types::{EvalResult, MeshData, NamedMesh, NodeType, Placement, RetimeMode, SubnetId};
+use crate::types::{EvalResult, MeshData, Prim, NodeType, Placement, RetimeMode, IceGraphId};
 use crate::core::anim::{self, AnimData, FrameRate};
 use std::sync::Arc;
 use crate::usd_loader::load_usd_meshes;
@@ -12,7 +12,7 @@ use std::path::Path;
 pub fn evaluate_node_type(
     node_type:   &NodeType,
     inputs:      &[EvalResult],
-    eval_subnet: &impl Fn(SubnetId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
     output:      usize,
 ) -> Option<EvalResult> {
     match node_type {
@@ -27,7 +27,7 @@ pub fn evaluate_node_type(
                 Ok(scene) if scene.meshes.is_empty() => None,
                 Ok(scene) => {
                     let looks = scene.looks();
-                    Some(EvalResult::Named(scene.meshes.iter().map(|m| NamedMesh {
+                    Some(EvalResult::Named(scene.meshes.iter().map(|m| Prim {
                         path: m.path.clone(), mesh: m.mesh.clone(), picked: false, material: m.material.clone(),
                         look: m.material.as_ref().and_then(|p| looks.get(p).cloned()),
                         stage: Some(scene.tree.clone()),
@@ -47,7 +47,7 @@ pub fn evaluate_node_type(
         NodeType::PickPrims { pattern } => inputs.first().map(|r| match r {
             EvalResult::Named(prims) => {
                 let p = crate::core::pattern::NamePattern::new(pattern);
-                EvalResult::Named(prims.iter().map(|m| NamedMesh { picked: p.matches(&m.path), ..m.clone() }).collect())
+                EvalResult::Named(prims.iter().map(|m| Prim { picked: p.matches(&m.path), ..m.clone() }).collect())
             }
             other => other.clone(),
         }),
@@ -71,15 +71,15 @@ pub fn evaluate_node_type(
             // a primitive of its own. Instanced ones move their placements:
             // the shared mesh is not copied.
             EvalResult::Named(prims) if !prims.iter().any(|p| p.picked) => Some(EvalResult::Named(prims.iter().map(|p| match &p.place {
-                Placement::InPlace => NamedMesh { mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)), geo: None, ..p.clone() },
-                placed => NamedMesh { place: placed.moved(transform_matrix(*translation, *rotation, *scale)), ..p.clone() },
+                Placement::InPlace => Prim { mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)), geo: None, ..p.clone() },
+                placed => Prim { place: placed.moved(transform_matrix(*translation, *rotation, *scale)), ..p.clone() },
             }).collect())),
             // Some picked: those move, each on its own. Placed ones move
             // their placement; the others their points.
             EvalResult::Named(prims) => Some(EvalResult::Named(prims.iter().map(|p| match (&p.place, p.picked) {
                 (_, false) => p.clone(),
-                (Placement::InPlace, true) => NamedMesh { mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)), geo: None, ..p.clone() },
-                (placed, true) => NamedMesh { place: placed.moved(transform_matrix(*translation, *rotation, *scale)), ..p.clone() },
+                (Placement::InPlace, true) => Prim { mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)), geo: None, ..p.clone() },
+                (placed, true) => Prim { place: placed.moved(transform_matrix(*translation, *rotation, *scale)), ..p.clone() },
             }).collect())),
             other => Some(other.map_mesh(|m| transform(&m, *translation, *rotation, *scale))),
         }),
@@ -102,7 +102,7 @@ pub fn evaluate_node_type(
                 Some(EvalResult::Single(copy_to_points(&inputs[0].as_mesh(), &inputs[1].as_mesh())))
             } else { None },
 
-        NodeType::Subnet { id, .. } => {
+        NodeType::Ice { id, .. } => {
             // First input is the main geometry, second (if any) the template,
             // as one geometry where it is drawn.
             let template = inputs.get(1).map(|r| crate::core::geo::Geo::from_mesh(&r.as_mesh()));
@@ -117,7 +117,7 @@ pub fn evaluate_node_type(
                         if any_picked && !p.picked { return p.clone(); }
                         let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
                         let out = eval_subnet(*id, &geo, template.as_ref());
-                        NamedMesh { mesh: Arc::new(out.to_mesh()), geo: Some(Arc::new(out)), ..p.clone() }
+                        Prim { mesh: Arc::new(out.to_mesh()), geo: Some(Arc::new(out)), ..p.clone() }
                     }).collect()))
                 }
                 other => {
@@ -259,7 +259,7 @@ pub fn evaluate_node_type(
         // ── Ragdoll ──────────────────────────────────────────────────────────
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
-            Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| NamedMesh {
+            Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
                 path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(),
             }).collect()))
         }
@@ -321,7 +321,7 @@ fn anim_op(
 fn prims_of(r: &EvalResult) -> EvalResult {
     match r {
         EvalResult::Named(p) => EvalResult::Named(p.clone()),
-        EvalResult::Single(m) => EvalResult::Named(vec![NamedMesh::new("/mesh".into(), m.clone())]),
+        EvalResult::Single(m) => EvalResult::Named(vec![Prim::new("/mesh".into(), m.clone())]),
         EvalResult::Anim(_) => EvalResult::Named(vec![]),
     }
 }
@@ -640,9 +640,9 @@ impl LcgRng {
 #[cfg(test)]
 mod packed_tests {
     use super::*;
-    use crate::types::{NodeType, SubnetId};
+    use crate::types::{NodeType, IceGraphId};
 
-    fn pass(_: SubnetId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
     fn run(node: NodeType, input: &EvalResult) -> EvalResult {
         evaluate_node_type(&node, std::slice::from_ref(input), &pass, 0).unwrap()
     }
@@ -650,20 +650,20 @@ mod packed_tests {
     fn packed() -> EvalResult {
         EvalResult::Named((0..3).map(|i| {
             let mesh = transform(&create_cube(1.0), glam::Vec3::new(i as f32 * 5.0, 0.0, 0.0), glam::Vec3::ZERO, glam::Vec3::ONE);
-            NamedMesh::new(format!("/car/{}", ["body", "wheel_L", "wheel_R"][i]), mesh)
+            Prim::new(format!("/car/{}", ["body", "wheel_L", "wheel_R"][i]), mesh)
         }).collect())
     }
-    fn prims(r: &EvalResult) -> &[NamedMesh] { match r { EvalResult::Named(p) => p, _ => panic!("not packed") } }
+    fn prims(r: &EvalResult) -> &[Prim] { match r { EvalResult::Named(p) => p, _ => panic!("not packed") } }
     fn max_y(m: &MeshData) -> f32 { m.vertices.iter().map(|v| v[1]).fold(f32::MIN, f32::max) }
 
     #[test]
     fn transform_moves_instances_without_copying_their_mesh() {
         use glam::Mat4;
         let shared = Arc::new(create_cube(1.0));
-        let copy = |x: f32| NamedMesh {
+        let copy = |x: f32| Prim {
             mesh: shared.clone(),
             place: Placement::One(Mat4::from_translation(Vec3::new(x, 0.0, 0.0))),
-            ..NamedMesh::new(format!("/inst_{x}"), MeshData::default())
+            ..Prim::new(format!("/inst_{x}"), MeshData::default())
         };
         let input = EvalResult::Named(vec![copy(0.0), copy(10.0)]);
         let out = run(NodeType::Transform { translation: Vec3::Y * 2.0, rotation: Vec3::ZERO, scale: Vec3::ONE }, &input);
@@ -730,9 +730,9 @@ mod packed_tests {
             crate::core::geo::Column::Vec2(Arc::new(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])), crate::core::geo::Role::TexCoord));
         let geo = Arc::new(geo);
         let at = Mat4::from_translation(Vec3::new(0.0, 10.0, 0.0));
-        let prim = NamedMesh {
+        let prim = Prim {
             mesh: Arc::new(geo.to_mesh()), geo: Some(geo.clone()), place: Placement::One(at), picked: true,
-            ..NamedMesh::new("/set/card".into(), MeshData::default())
+            ..Prim::new("/set/card".into(), MeshData::default())
         };
         let input = EvalResult::Named(vec![prim]);
 

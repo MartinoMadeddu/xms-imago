@@ -1,7 +1,7 @@
 use glam::Vec3;
 use std::collections::HashSet;
-use crate::types::{ConnectionId, NodeId, SubnetNodeType};
-use super::{SubnetGraph, SubnetNode};
+use crate::types::{ConnectionId, NodeId, IceGraphNodeType};
+use super::{IceGraph, IceGraphNode};
 
 // ── ICE look, named ───────────────────────────────────────────────────────────
 // Modelled on Softimage ICE: nodes in solid colours by kind (green for data
@@ -69,7 +69,7 @@ struct Layout {
 
 /// The title: the node type's full name in PascalCase (`ScatterPoints`,
 /// `CrossProduct`, `SubnetInput`).
-fn title_text(node: &SubnetNode) -> String {
+fn title_text(node: &IceGraphNode) -> String {
     crate::types::subnet_node_label(&node.node_type)
         .split_whitespace()
         .map(|w| {
@@ -80,11 +80,11 @@ fn title_text(node: &SubnetNode) -> String {
 }
 
 /// A constant's value, shown in a row of its own under the title.
-fn value_text(node: &SubnetNode) -> Option<String> {
+fn value_text(node: &IceGraphNode) -> Option<String> {
     match &node.node_type {
-        SubnetNodeType::ConstVec3  { value } => Some(format!("<{}, {}, {}>", short(value.x), short(value.y), short(value.z))),
-        SubnetNodeType::ConstFloat { value } => Some(short(*value)),
-        SubnetNodeType::ConstInt   { value } => Some(value.to_string()),
+        IceGraphNodeType::ConstVec3  { value } => Some(format!("<{}, {}, {}>", short(value.x), short(value.y), short(value.z))),
+        IceGraphNodeType::ConstFloat { value } => Some(short(*value)),
+        IceGraphNodeType::ConstInt   { value } => Some(value.to_string()),
         _ => None,
     }
 }
@@ -98,7 +98,7 @@ fn short(v: f32) -> String {
 
 /// Rows: the outputs, then the inputs. Collapsed, a node is its title row
 /// alone, every port on its edge at mid-height.
-fn layout(node: &SubnetNode, collapsed: bool) -> Layout {
+fn layout(node: &IceGraphNode, collapsed: bool) -> Layout {
     let title = (node.name.chars().count() as f32 * TITLE_CH).max(title_text(node).chars().count() as f32 * LABEL_CH) + ICONS_W + 18.0;
     let label = |n: &str| n.chars().count() as f32 * LABEL_CH + 22.0;
     let value = value_text(node);
@@ -126,19 +126,19 @@ fn layout(node: &SubnetNode, collapsed: bool) -> Layout {
     }
 }
 
-fn input_socket_pos(node: &SubnetNode, idx: usize, collapsed: &HashSet<NodeId>) -> egui::Pos2 {
+fn input_socket_pos(node: &IceGraphNode, idx: usize, collapsed: &HashSet<NodeId>) -> egui::Pos2 {
     node.position + layout(node, collapsed.contains(&node.id)).inputs.get(idx).copied().unwrap_or_default()
 }
 
-fn output_socket_pos(node: &SubnetNode, idx: usize, collapsed: &HashSet<NodeId>) -> egui::Pos2 {
+fn output_socket_pos(node: &IceGraphNode, idx: usize, collapsed: &HashSet<NodeId>) -> egui::Pos2 {
     node.position + layout(node, collapsed.contains(&node.id)).outputs.get(idx).copied().unwrap_or_default()
 }
 
 /// A node's colour, by kind.
-fn tint(t: &SubnetNodeType) -> egui::Color32 {
+fn tint(t: &IceGraphNodeType) -> egui::Color32 {
     match t {
-        SubnetNodeType::SubInput | SubnetNodeType::SubOutput => pal::TEAL(),
-        SubnetNodeType::GetTemplate | SubnetNodeType::CopyToPoints => pal::BLUE(),
+        IceGraphNodeType::SubInput | IceGraphNodeType::SubOutput => pal::TEAL(),
+        IceGraphNodeType::GetTemplate | IceGraphNodeType::CopyToPoints => pal::BLUE(),
         _ => pal::GREEN(),
     }
 }
@@ -169,7 +169,7 @@ pub fn draw_breadcrumb(ui: &mut egui::Ui, subnet_name: &str) -> bool {
 
 /// The parameters of a node inside an ICE subnet, laid out like every
 /// other node's (see `properties::form`).
-pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut SubnetGraph) {
+pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
     use crate::properties::form::{group, Status};
     let Some(node) = graph.selected_node.and_then(|s| graph.nodes.iter_mut().find(|n| n.id == s)) else {
         ui.label("Select a node to see its parameters.");
@@ -178,17 +178,17 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut SubnetGraph) {
     let title = format!("{}  {}", crate::types::subnet_node_icon(&node.node_type), crate::types::subnet_node_label(&node.node_type));
     group(ui, &title, None, |f| { f.text("Name", None, &mut node.name, ""); });
     match &mut node.node_type {
-        SubnetNodeType::ConstVec3 { value } => group(ui, "Value", None, |f| {
+        IceGraphNodeType::ConstVec3 { value } => group(ui, "Value", None, |f| {
             let mut v = value.to_array();
             if f.xyz("Value", None, &mut v, 0.01, "") { *value = glam::Vec3::from_array(v); }
         }),
-        SubnetNodeType::ConstFloat { value } => group(ui, "Value", None, |f| { f.drag("Value", None, value, 0.01, ""); }),
-        SubnetNodeType::ConstInt { value } => group(ui, "Value", None, |f| {
+        IceGraphNodeType::ConstFloat { value } => group(ui, "Value", None, |f| { f.drag("Value", None, value, 0.01, ""); }),
+        IceGraphNodeType::ConstInt { value } => group(ui, "Value", None, |f| {
             f.row("Value", None, |ui| ui.add(egui::DragValue::new(value).speed(1)));
         }),
-        SubnetNodeType::MultiplyVec3 { scalar } => group(ui, "Multiply", None, |f| { f.drag("Scalar", None, scalar, 0.01, ""); }),
-        SubnetNodeType::LerpVec3 { t } => group(ui, "Blend", None, |f| { f.slider("Amount", None, t, 0.0..=1.0, ""); }),
-        SubnetNodeType::ScatterPoints { count, seed } => group(ui, "Points", None, |f| {
+        IceGraphNodeType::MultiplyVec3 { scalar } => group(ui, "Multiply", None, |f| { f.drag("Scalar", None, scalar, 0.01, ""); }),
+        IceGraphNodeType::LerpVec3 { t } => group(ui, "Blend", None, |f| { f.slider("Amount", None, t, 0.0..=1.0, ""); }),
+        IceGraphNodeType::ScatterPoints { count, seed } => group(ui, "Points", None, |f| {
             f.slider_u32("Count", None, count, 1..=10_000, "");
             f.row("Seed", None, |ui| ui.add(egui::DragValue::new(seed).speed(1)));
         }),
@@ -202,7 +202,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut SubnetGraph) {
 /// network does: Shift+drag or middle-drag pans, the wheel zooms toward the
 /// pointer, F or A frames every node. Returns true when the Up arrow asks to
 /// go back up to the scene network.
-pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut SubnetGraph) -> bool {
+pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     let (response, painter) = ui.allocate_painter(
         egui::Vec2::new(ui.available_width(), ui.available_height()),
         egui::Sense::click_and_drag(),
@@ -333,65 +333,65 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut SubnetGraph) -> bool {
 
         ui.label(egui::RichText::new("Constants").strong());
         if ui.button("→v  Const Vec3").clicked() {
-            graph.add_node("Vec3".into(), SubnetNodeType::ConstVec3 { value: Vec3::ZERO }, cp);
+            graph.add_node("Vec3".into(), IceGraphNodeType::ConstVec3 { value: Vec3::ZERO }, cp);
             ui.close_menu();
         }
         if ui.button("→f  Const Float").clicked() {
-            graph.add_node("Float".into(), SubnetNodeType::ConstFloat { value: 0.0 }, cp);
+            graph.add_node("Float".into(), IceGraphNodeType::ConstFloat { value: 0.0 }, cp);
             ui.close_menu();
         }
         if ui.button("→i  Const Int").clicked() {
-            graph.add_node("Int".into(), SubnetNodeType::ConstInt { value: 0 }, cp);
+            graph.add_node("Int".into(), IceGraphNodeType::ConstInt { value: 0 }, cp);
             ui.close_menu();
         }
         ui.separator();
         ui.label(egui::RichText::new("Vec3 Math").strong());
         if ui.button("+  Add").clicked() {
-            graph.add_node("Add".into(), SubnetNodeType::AddVec3, cp);
+            graph.add_node("Add".into(), IceGraphNodeType::AddVec3, cp);
             ui.close_menu();
         }
         if ui.button("-  Subtract").clicked() {
-            graph.add_node("Subtract".into(), SubnetNodeType::SubtractVec3, cp);
+            graph.add_node("Subtract".into(), IceGraphNodeType::SubtractVec3, cp);
             ui.close_menu();
         }
         if ui.button("×  Multiply").clicked() {
-            graph.add_node("Multiply".into(), SubnetNodeType::MultiplyVec3 { scalar: 1.0 }, cp);
+            graph.add_node("Multiply".into(), IceGraphNodeType::MultiplyVec3 { scalar: 1.0 }, cp);
             ui.close_menu();
         }
         if ui.button("×  Cross Product").clicked() {
-            graph.add_node("Cross".into(), SubnetNodeType::CrossProduct, cp);
+            graph.add_node("Cross".into(), IceGraphNodeType::CrossProduct, cp);
             ui.close_menu();
         }
         if ui.button("|v|  Normalize").clicked() {
-            graph.add_node("Normalize".into(), SubnetNodeType::Normalize, cp);
+            graph.add_node("Normalize".into(), IceGraphNodeType::Normalize, cp);
             ui.close_menu();
         }
         ui.separator();
         ui.label(egui::RichText::new("Scalar").strong());
         if ui.button("·  Dot Product").clicked() {
-            graph.add_node("Dot".into(), SubnetNodeType::DotProduct, cp);
+            graph.add_node("Dot".into(), IceGraphNodeType::DotProduct, cp);
             ui.close_menu();
         }
         ui.separator();
         ui.label(egui::RichText::new("Interpolate").strong());
         if ui.button("≈  Lerp").clicked() {
-            graph.add_node("Lerp".into(), SubnetNodeType::LerpVec3 { t: 0.5 }, cp);
+            graph.add_node("Lerp".into(), IceGraphNodeType::LerpVec3 { t: 0.5 }, cp);
             ui.close_menu();
         }
         ui.separator();
         ui.label(egui::RichText::new("Points").strong());
         if ui.button("→  Scatter Points").clicked() {
-            graph.add_node("Scatter".into(), SubnetNodeType::ScatterPoints { count: 100, seed: 0 }, cp);
+            graph.add_node("Scatter".into(), IceGraphNodeType::ScatterPoints { count: 100, seed: 0 }, cp);
             ui.close_menu();
         }
         ui.separator();
         ui.label(egui::RichText::new("Geometry").strong());
         if ui.button("📦  Get Template").clicked() {
-            graph.add_node("GetTemplate".into(), SubnetNodeType::GetTemplate, cp);
+            graph.add_node("GetTemplate".into(), IceGraphNodeType::GetTemplate, cp);
             ui.close_menu();
         }
         if ui.button("❇  Copy to Points").clicked() {
-            graph.add_node("CopyToPoints".into(), SubnetNodeType::CopyToPoints, cp);
+            graph.add_node("CopyToPoints".into(), IceGraphNodeType::CopyToPoints, cp);
             ui.close_menu();
         }
     });
@@ -404,8 +404,8 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut SubnetGraph) -> bool {
 fn draw_subnet_node(
     ui:          &mut egui::Ui,
     painter:     &egui::Painter,
-    graph:       &mut SubnetGraph,
-    node:        &SubnetNode,
+    graph:       &mut IceGraph,
+    node:        &IceGraphNode,
     to_screen:   &impl Fn(egui::Pos2) -> egui::Pos2,
     to_canvas:   &impl Fn(egui::Pos2) -> egui::Pos2,
     z:           f32,
@@ -505,7 +505,7 @@ fn draw_subnet_node(
 
     // ── Title bar interactions (lowest priority — allocated first) ────────────
     if dr.clicked() { graph.selected_node = Some(id); }
-    let terminal = matches!(node.node_type, SubnetNodeType::SubInput | SubnetNodeType::SubOutput);
+    let terminal = matches!(node.node_type, IceGraphNodeType::SubInput | IceGraphNodeType::SubOutput);
     if !terminal {
         dr.context_menu(|ui| {
             if ui.button("Delete").clicked() {

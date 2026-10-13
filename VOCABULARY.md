@@ -58,5 +58,5 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | `Pane::Properties` | `Pane::Parameters` | With the vocabulary patch; saved layouts with the old name still load |
 | `Pane::PrimInspector` | unchanged | The pane keeps its name |
 | `Pane::Viewport` | `Pane::Viewer` | With the vocabulary patch; saved layouts with the old name still load. The `src/viewport/` module (the 3D view inside the Viewer) is renamed during the eframe rework, when the Viewer gains its modes |
-| `NamedMesh` | `Prim` | During the eframe rework |
-| `Subnet*` (`SubnetGraph`, `SubnetNode`, `SubnetStore`…) | `IceGraph*` | During the eframe rework; saved graphs with the old node type names still load |
+| `NamedMesh` | `Prim` | Done (eframe rework) |
+| `Subnet*` (`SubnetGraph`, `SubnetNode`, `SubnetNodeType`, `SubnetStore`, `SubnetId`…), `NodeType::Subnet` | `IceGraph`, `IceGraphNode`, `IceGraphNodeType`, `IceGraphStore`, `IceGraphId`…, `NodeType::Ice` | Done (eframe rework); graphs saved with `Subnet` still load |

@@ -97,9 +97,9 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Only the rows in view are laid out. The window draws a frame when something happens, not all the time.
 - Long work runs in the background, in chunks, written to disk as it goes, and is found again by the content it was made from.
 
-## One shell, being replaced
+## One shell
 
-- Bevy is the program's shell until the eframe + wgpu rework is done (Martino, branch `core/uiframework`). Outside `main.rs`, `modelling.rs`, `viewport/` and `shell.rs`, code uses `glam` and `egui` directly, never Bevy: new code keeps to that, so the shell can be swapped without touching it. The program's state is one struct, `AppState` (`app.rs`), that the shell owns: new state goes there, not into a shell-specific resource.
+- The program runs in an eframe window: the interface in egui, the Viewer's 3D view in wgpu (`src/viewer/`). Bevy is gone (Martino, branch `core/uiframework`). The program's state is one struct, `AppState` (`app.rs`), owned by the app: new state goes there. Code outside `eframe_app.rs` and `viewer/` does not depend on the window or the GPU.
 
 ## Say what is true
 
@@ -132,3 +132,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 13/10/2026: Viewer on wgpu: reversed, infinite depth as Bevy had, so the grid stays behind models; polygon edges drawn as instanced lines at every copy, so Wireframe and Hidden Line work on instancers too.
 - 13/10/2026: eframe rework, stage 2b: Textured mode on wgpu (colour and emissive textures with their mip chains, opacity, cut-out), on instanced copies too; F/G/Z/. and A/H framing and the origin label in the eframe Viewer.
 - 13/10/2026: eframe rework, stage 3: Edit Poly's picking, box selection, Q/W/E/R manipulators and Delete in the wgpu Viewer, with its wireframe and selection overlay; clip skeletons drawn over everything. The eframe shell now does everything the Bevy one does.
+- 13/10/2026: eframe rework done: Bevy removed (its systems, `shell.rs`, the old viewport drawing, the dependencies); eframe is the only shell. `NamedMesh` renamed `Prim`, the `Subnet*` types `IceGraph*`, the ICE node `NodeType::Ice` (graphs saved with `Subnet` still load).

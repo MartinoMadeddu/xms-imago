@@ -25,7 +25,7 @@ use crate::viewport::nav::{Held, NavAction, NavSettings, NavStyle};
 pub struct ViewerInput<'a> {
     /// Mutable: Edit Poly's picking and manipulators write to its node.
     pub graph:     &'a mut crate::node_graph::NodeGraphState,
-    pub subnets:   &'a crate::ice::SubnetStore,
+    pub subnets:   &'a crate::ice::IceGraphStore,
     pub hierarchy: &'a crate::types::SceneHierarchy,
     pub playback:  &'a mut crate::timeline::Playback,
     pub revision:  u64,
@@ -148,7 +148,7 @@ impl Viewer {
         if !(selection || all) || held || !pointer.is_some_and(|p| rect.contains(p)) { return; }
 
         let subnets = input.subnets;
-        let eval = |sid: crate::types::SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mut target: Option<(Vec3, f32)> = None;

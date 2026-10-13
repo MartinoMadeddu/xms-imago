@@ -1,9 +1,5 @@
-//! The eframe shell: a window run by eframe, with the whole interface drawn
-//! by the same code as under Bevy, and the Viewer's 3D view on wgpu
-//! (`crate::viewer`).
-//!
-//! Run it with `XMS_SHELL=eframe cargo run`. Without it, Bevy runs the
-//! program as before.
+//! The program's shell: a window run by eframe, the interface drawn with
+//! egui, and the Viewer's 3D view on wgpu (`crate::viewer`).
 
 use std::time::{Duration, Instant};
 
@@ -37,10 +33,8 @@ impl ImagoApp {
         if let Some(render_state) = cc.wgpu_render_state.as_ref() {
             crate::viewer::install(render_state, EGUI_SAMPLES as u32);
         }
-        // eframe draws egui into a gamma-space target, as egui intends, where
-        // `bevy_egui` drew into Bevy's sRGB target: edges came out a touch
-        // softer there. A slightly wider feathering brings shapes (wires,
-        // outlines, frames) closer to that look. Text keeps egui's own weight.
+        // A slightly wider feathering than egui's own: softer edges on
+        // wires, outlines and frames. Text keeps egui's own weight.
         cc.egui_ctx.tessellation_options_mut(|t| t.feathering_size_in_pixels = 1.4);
         Self {
             app:          AppState::default(),
@@ -63,8 +57,8 @@ impl eframe::App for ImagoApp {
         self.last_frame = now;
         let mut ctx = ctx.clone();
 
-        // The same order as the Bevy systems: the interface, undo, what
-        // changed, questions before closing, then what the panes show.
+        // The interface, undo, what changed, questions before closing, then
+        // what the panes show.
         crate::draw_ui(&mut ctx, &mut self.app, &mut self.poly_tool, &mut self.nav_settings, dt, Some(&mut self.viewer));
         crate::history_frame(&mut ctx, &mut self.app);
         crate::track_revision_frame(&ctx, &mut self.app, &mut self.last_hash);

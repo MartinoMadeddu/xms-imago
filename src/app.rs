@@ -1,13 +1,13 @@
 //! The program's state: everything the interface, the graph and the Viewer
 //! work on, in one place, owned by whatever shell runs the program.
 //!
-//! Bevy holds it as one resource while it is the shell (`shell.rs`); the
-//! eframe app will own it as a field. Nothing in it depends on the shell.
+//! The eframe app owns it (`eframe_app.rs`). Nothing in it depends on the
+//! shell.
 
 use crate::batch::BatchState;
 use crate::file_browser::FileBrowser;
 use crate::history::History;
-use crate::ice::{GraphNavigation, SubnetStore};
+use crate::ice::{GraphNavigation, IceGraphStore};
 use crate::layout::Layout;
 use crate::node_graph::{GraphRevision, NodeGraphState};
 use crate::recent::Recent;
@@ -27,7 +27,7 @@ pub struct AppState {
     pub graph:      NodeGraphState,
     pub revision:   GraphRevision,
     /// ICE graphs, and which one is open.
-    pub subnets:    SubnetStore,
+    pub subnets:    IceGraphStore,
     pub nav:        GraphNavigation,
     /// What the panes show.
     pub stack:      OperatorStack,

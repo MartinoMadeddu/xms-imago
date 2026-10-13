@@ -5,9 +5,9 @@ use glam::Vec3;
 
 use crate::core::poly::{ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
 use crate::examples;
-use crate::ice::SubnetStore;
+use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
-use crate::types::{NodeId, NodeType, RetimeMode, SubnetNodeType, DEFAULT_WRITE_PATH};
+use crate::types::{NodeId, NodeType, RetimeMode, IceGraphNodeType, DEFAULT_WRITE_PATH};
 
 pub struct Template {
     /// Whose work the template shows: the first level of the Templates menu.
@@ -16,7 +16,7 @@ pub struct Template {
     pub name:  &'static str,
     pub hint:  &'static str,
     /// Builds the graph and returns a line telling the user what to look at.
-    pub build: fn(&mut NodeGraphState, &mut SubnetStore) -> String,
+    pub build: fn(&mut NodeGraphState, &mut IceGraphStore) -> String,
 }
 
 pub const MARTINO: &str = "Martino";
@@ -103,7 +103,7 @@ pub const TEMPLATES: &[Template] = &[
 
 impl Template {
     /// Build the template, lay its graph out and bring it into view.
-    pub fn load(&self, graph: &mut NodeGraphState, subnets: &mut SubnetStore) -> String {
+    pub fn load(&self, graph: &mut NodeGraphState, subnets: &mut IceGraphStore) -> String {
         let message = (self.build)(graph, subnets);
         let (selected, many) = (graph.selected_node, graph.selected_nodes.clone());
         graph.auto_layout();
@@ -155,7 +155,7 @@ fn missing_examples() -> &'static str {
 
 // ── Basics ───────────────────────────────────────────────────────────────────
 
-fn primitives(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn primitives(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let cube   = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(40.0, 20.0));
     let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 0.6, segments: 24 }, p(250.0, 20.0));
@@ -174,7 +174,7 @@ fn primitives(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Shapes: select a Transform node and change its values in Parameters.".into()
 }
 
-fn scatter(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn scatter(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let grid  = g.add_node("Ground".into(), NodeType::CreateGrid { rows: 10, cols: 10, size: 6.0 }, p(60.0, 20.0));
     let pts   = g.add_node("Scatter".into(), NodeType::ScatterPoints { count: 150, seed: 7 }, p(60.0, 120.0));
@@ -190,14 +190,14 @@ fn scatter(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Scatter and copy: change Count or Seed on the Scatter node.".into()
 }
 
-fn subnet(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
+fn subnet(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let id = store.create_subnet("ScatterCopy".into());
     if let Some(sub) = store.get_mut(id) {
         // SubInput and SubOutput are made with the subnet.
         let (input, out) = (sub.nodes[0].id, sub.nodes[1].id);
-        let pts  = sub.add_node("Scatter".into(), SubnetNodeType::ScatterPoints { count: 80, seed: 3 }, p(220.0, 140.0));
-        let copy = sub.add_node("Copy".into(), SubnetNodeType::CopyToPoints, p(360.0, 220.0));
+        let pts  = sub.add_node("Scatter".into(), IceGraphNodeType::ScatterPoints { count: 80, seed: 3 }, p(220.0, 140.0));
+        let copy = sub.add_node("Copy".into(), IceGraphNodeType::CopyToPoints, p(360.0, 220.0));
         sub.add_connection(input, 0, pts, 0);      // Mesh -> Geometry
         sub.add_connection(pts, 0, copy, 0);       // Points
         sub.add_connection(input, 2, copy, 1);     // Template
@@ -205,7 +205,7 @@ fn subnet(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
     }
     let grid   = g.add_node("Ground".into(), NodeType::CreateGrid { rows: 6, cols: 6, size: 5.0 }, p(60.0, 20.0));
     let sphere = g.add_node("Ball".into(), NodeType::CreateSphere { radius: 0.12, segments: 10 }, p(300.0, 20.0));
-    let node   = g.add_node("ScatterCopy".into(), NodeType::Subnet { id, name: "ScatterCopy".into() }, p(180.0, 140.0));
+    let node   = g.add_node("ScatterCopy".into(), NodeType::Ice { id, name: "ScatterCopy".into() }, p(180.0, 140.0));
     let merge  = g.add_node("Merge".into(), NodeType::Merge, p(180.0, 260.0));
     g.add_connection(grid, 0, node, 0);
     g.add_connection(sphere, 0, node, 1);
@@ -215,7 +215,7 @@ fn subnet(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
     "ICE graph: double-click the ScatterCopy node, or select it and press ↓, to see the graph inside it.".into()
 }
 
-fn usd(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn usd(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let shapes = g.add_node("Shapes".into(), NodeType::LoadUsd { path: examples::path(examples::SHAPES_USD) }, p(40.0, 20.0));
     let table  = g.add_node("Table".into(), NodeType::LoadUsd { path: examples::path(examples::TABLE_USD) }, p(300.0, 20.0));
@@ -230,7 +230,7 @@ fn usd(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
 
 // ── Modelling ────────────────────────────────────────────────────────────────
 
-fn tower(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn tower(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     // Polygon 3 is the top face of the cube; it keeps its index through
     // inset, extrude and bevel.
@@ -252,7 +252,7 @@ fn tower(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Edit Poly tower: seven live operations on the top face. Change their values in Parameters.".into()
 }
 
-fn panels(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn panels(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     // The 36 cells keep their indices; new polygons are added after them.
     let cells = || picked((0..36).collect());
@@ -269,7 +269,7 @@ fn panels(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Edit Poly panels: by-polygon inset and extrude on every cell, a bevel on every other one.".into()
 }
 
-fn goblet(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn goblet(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let cube = PolyMesh::from_mesh(&crate::node_graph::nodes::create_cube(1.0));
     // The four upright edges: one of them, grown into its ring.
@@ -306,7 +306,7 @@ fn goblet(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Edit Poly goblet: three collapsed operations for the foot and stem, five live ones for the cup. Restore brings the collapsed ones back.".into()
 }
 
-fn bridge(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn bridge(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     // The two faces that look at each other: their centres lie in this box.
     let facing = PolySelection {
@@ -331,7 +331,7 @@ fn bridge(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Edit Poly bridge: the selection is a box rule, so it still works when the Lift node turns the upper cube.".into()
 }
 
-fn sea_mine(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn sea_mine(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let all = || PolySelection { source: SelSource::All, ..Default::default() };
     // One round of subdivision turns the cube into 24 quads. They keep the
@@ -363,7 +363,7 @@ fn sea_mine(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Edit Poly sea mine: about ten thousand polygons. Change the height of the horns in operation 7, or lower the last Subdivide to see the cage.".into()
 }
 
-fn bolt(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn bolt(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let top = || picked(vec![3]);
     let all_edges = PolySelection { level: SubLevel::Edge, source: SelSource::All, ..Default::default() };
@@ -398,13 +398,13 @@ fn load_delorean(g: &mut NodeGraphState) -> NodeId {
     g.add_node("DeLorean".into(), NodeType::LoadUsd { path: examples::path(examples::DELOREAN_USD) }, p(180.0, 20.0))
 }
 
-fn usd_heavy(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn usd_heavy(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let load = load_delorean(g);
     finish(g, load, load, p(180.0, 130.0));
     format!("USD: 43 primitives, 461,595 triangles. The Parameters of the Load USD node list its materials and textures. The UV Editor tab shows its UVs.{}", missing_examples())
 }
 
-fn usd_pick(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn usd_pick(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let load = load_delorean(g);
     let pick = g.add_node("PickWheel".into(), NodeType::PickPrims { pattern: "Wheel_Front_L".into() }, p(180.0, 110.0));
     let lift = g.add_node("PullOut".into(), transform([0.6, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), p(180.0, 200.0));
@@ -416,7 +416,7 @@ fn usd_pick(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("USD pick: the front left wheel is picked by a path pattern, pulled out by the Transform, and is what the Edit Poly node edits. The other 42 primitives pass through untouched.{}", missing_examples())
 }
 
-fn usd_prune(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn usd_prune(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let load = load_delorean(g);
     let prune = g.add_node("WheelsOnly".into(), NodeType::PrunePrims { pattern: "Wheel, Calliper".into(), keep: true }, p(180.0, 110.0));
     g.add_connection(load, 0, prune, 0);
@@ -426,7 +426,7 @@ fn usd_prune(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
 
 // ── UV ───────────────────────────────────────────────────────────────────────
 
-fn uv_mine(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
+fn uv_mine(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     sea_mine(g, store);
     let ep = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::EditPoly { .. })).map(|n| n.id).expect("sea mine has an Edit Poly node");
     let uv = g.add_node("Unwrap".into(), NodeType::UvUnwrap {
@@ -436,7 +436,7 @@ fn uv_mine(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
     "UV unwrap: open the UV Editor pane from the Panes menu. Lower the chart angle for more charts with less distortion.".into()
 }
 
-fn uv_udim(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn uv_udim(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let cube   = g.add_node("Box".into(), NodeType::CreateCube { size: 1.0 }, p(260.0, 20.0));
     let sphere = g.add_node("Ball".into(), NodeType::CreateSphere { radius: 0.5, segments: 16 }, p(40.0, 20.0));
@@ -472,7 +472,7 @@ fn uv_udim(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "UDIM tiles: nine separate pieces over three tiles. The body has the most surface and takes 1001. Each hand keeps its palm and fingers together. Change the tile count on the Unwrap node.".into()
 }
 
-fn uv_edit(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn uv_edit(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     use crate::core::uv::{IslandEdit, UvMethod};
     crate::graph_io::clear(g);
     let cube = g.add_node("Box".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
@@ -491,7 +491,7 @@ fn uv_edit(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
 
 // ── Animation & mocap ────────────────────────────────────────────────────────
 
-fn clip_basics(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn clip_basics(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let x = 180.0;
     let clip   = g.add_node("TestClip".into(), NodeType::TestClip { seconds: 4.0, fps_num: 30, fps_den: 1 }, p(x, 20.0));
@@ -510,7 +510,7 @@ fn clip_basics(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "Clip basics: select each node in turn. The timeline shows that node's range, rate and timecode. Space plays.".into()
 }
 
-fn fbx_import(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn fbx_import(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let load = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::TAKE_FBX), take: 0 }, p(180.0, 20.0));
     let trim = g.add_node("Trim".into(), NodeType::TrimClip { head: 120, tail: 120 }, p(180.0, 120.0));
@@ -519,7 +519,7 @@ fn fbx_import(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("FBX import: a motion capture take of two people, 120 fps, a second trimmed off each end. Space plays.{}", missing_examples())
 }
 
-fn tpose(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn tpose(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let x = 180.0;
     let clip  = g.add_node("TestClip".into(), NodeType::TestClip { seconds: 2.0, fps_num: 30, fps_den: 1 }, p(x, 20.0));
@@ -539,7 +539,7 @@ fn tpose(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     "T-pose and export: the Fix Pose node lowers both arms. Set a path on WriteTPose and press Write to export.".into()
 }
 
-fn mocap_tools(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn mocap_tools(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let x = 180.0;
     let load   = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::TAKE_FBX), take: 0 }, p(x, 20.0));
@@ -560,7 +560,7 @@ fn mocap_tools(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("Mocap tools: one node per step. Put the view flag on any of them to see the clip at that point.{}", missing_examples())
 }
 
-fn retarget(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn retarget(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let load  = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::TAKE_FBX), take: 0 }, p(40.0, 20.0));
     let split = g.add_node("OneCharacter".into(), NodeType::SplitSkeleton { picks: vec![crate::types::SplitPick::Character(0)] }, p(40.0, 110.0));
@@ -577,7 +577,7 @@ fn retarget(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("Retarget: a captured performance on the 19-joint test skeleton, which rests with its arms down. Space plays.{}", missing_examples())
 }
 
-fn body_collide(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn body_collide(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let take  = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::RAGDOLL_TAKE), take: 0 }, p(40.0, 20.0));
     // Characterize before Car: side by side above Body Collide, in the order of its inputs.
@@ -596,7 +596,7 @@ fn body_collide(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
 
 // ── FBX and characters ───────────────────────────────────────────────────────
 
-fn fbx_studio(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn fbx_studio(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let load = g.add_node("Studio".into(), NodeType::LoadFbx { path: examples::path(examples::STUDIO_FBX), take: 0 }, p(180.0, 20.0));
     let out = output(g);
@@ -621,7 +621,7 @@ fn take_onto_character(g: &mut NodeGraphState) -> (NodeId, NodeId, NodeId) {
     (split, who, ret)
 }
 
-fn retarget_character(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn retarget_character(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let (split, _, ret) = take_onto_character(g);
     let reach = g.add_node("Reach".into(), NodeType::Reach { settings: Default::default() }, p(170.0, 320.0));
@@ -633,7 +633,7 @@ fn retarget_character(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("Retarget onto a character: one actor of the example take on a 342-joint character, read with its skin and bind pose from Load FBX's Rest output. Reach then puts the feet where the actor's are, scaled to the character, and the human pass keeps the knees right. Put the view flag on Retarget to compare. Space plays.{}", missing_examples())
 }
 
-fn capture_skin(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn capture_skin(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let (split, who, ret) = take_onto_character(g);
     let reach = g.add_node("Reach".into(), NodeType::Reach { settings: Default::default() }, p(170.0, 320.0));
@@ -657,7 +657,7 @@ fn capture_skin(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
 /// character in its bind pose, feet put where the
 /// actor's are, kept out of the set and out of itself, and written as FBX
 /// with the character's mesh and skin.
-fn mocap_pipeline(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn mocap_pipeline(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let takes = g.add_node("Takes".into(), NodeType::LoadFbxDir { dir: examples::path(examples::TAKES_DIR), index: 0, take: 0 }, p(300.0, 20.0));
     let split = g.add_node("Actors".into(), NodeType::SplitSkeleton { picks: vec![crate::types::SplitPick::Character(0), crate::types::SplitPick::Character(1)] }, p(300.0, 120.0));
@@ -693,7 +693,7 @@ fn mocap_pipeline(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("Mocap folder: each take in the Takes folder is split into its actors; each actor is placed in the set (Place1, Place2: Transform, at zero), retargeted onto Character (its Rest output: bind pose and skin), its feet put where the actor's are (Reach), kept out of Set and out of itself (Body Collide), and written with the character's mesh and skin to {{dir}}/retargeted. Set is a stand-in: point it at your own set, and move it with PlaceSet. Press Solve on a Body Collide node to see one take; Write FBX with All files solves and writes every take in the folder.{}", missing_examples())
 }
 
-fn human_limits(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn human_limits(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let walk  = g.add_node("Walk".into(), NodeType::TestClip { seconds: 2.0, fps_num: 30, fps_den: 1 }, p(40.0, 20.0));
     let fix   = g.add_node("BendBack".into(), NodeType::FixPose { edits: vec![
@@ -721,17 +721,17 @@ fn stage(g: &mut NodeGraphState, name: &str, file: &str) -> NodeId {
 
 const BOXES: &str = "The Scene Explorer lists the stage: each closed prim is drawn as its bounding box until it is opened, or tick Show all geometry.";
 
-fn street(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn street(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     stage(g, "Street", crate::examples_stage::STREET);
     format!("A street from four files: the road and pavements from a sublayer, three tables referenced from table.usda, the shapes on them in the variant \"cafe\", and an override in the root layer that moves the south pavement. {BOXES}{}", missing_examples())
 }
 
-fn strands(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn strands(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     stage(g, "Strands", crate::examples_stage::STRANDS);
     format!("Curves as USD has them: linear, Bezier, Catmull-Rom and a closed B-spline, 600 strands of grass, and points whose width grows along a spiral. {BOXES}{}", missing_examples())
 }
 
-fn forest(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn forest(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let load = g.add_node("Forest".into(), NodeType::LoadUsd { path: examples::path(crate::examples_stage::FOREST) }, p(180.0, 20.0));
     let turn = g.add_node("Turn".into(), transform([0.0; 3], [0.0, 0.35, 0.0], [1.0; 3]), p(180.0, 130.0));
@@ -740,23 +740,23 @@ fn forest(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("4,900 trees and stones from one PointInstancer: three meshes, each drawn once per copy by GPU instancing. The Transform turns the whole forest by moving the placements; the shared meshes are not copied. {BOXES}{}", missing_examples())
 }
 
-fn hall(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn hall(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     stage(g, "Hall", crate::examples_stage::TABLES);
     format!("64 tables, each an instanceable reference to table.usda: the five meshes of the table are read once and placed 64 times. {BOXES}{}", missing_examples())
 }
 
-fn lamps(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn lamps(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     stage(g, "Lamps", crate::examples_stage::LAMPS);
     format!("Each lamp has render geometry, a proxy of blocks and a guide showing its cone of light. With proxy on, the proxy is drawn in place of the render geometry; switch render, proxy and guide in the Scene Explorer. {BOXES}{}", missing_examples())
 }
 
-fn spherify(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
+fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let id = store.create_subnet("Spherify".into());
     if let Some(sub) = store.get_mut(id) {
         let (input, out) = (sub.nodes[0].id, sub.nodes[1].id);
-        let norm = sub.add_node("Normalize".into(), SubnetNodeType::Normalize, p(220.0, 200.0));
-        let grow = sub.add_node("Scale".into(), SubnetNodeType::MultiplyVec3 { scalar: 1.2 }, p(360.0, 200.0));
+        let norm = sub.add_node("Normalize".into(), IceGraphNodeType::Normalize, p(220.0, 200.0));
+        let grow = sub.add_node("Scale".into(), IceGraphNodeType::MultiplyVec3 { scalar: 1.2 }, p(360.0, 200.0));
         sub.add_connection(input, 0, norm, 0);
         sub.add_connection(norm, 0, grow, 0);
         sub.add_connection(grow, 0, out, 0);
@@ -764,14 +764,14 @@ fn spherify(g: &mut NodeGraphState, store: &mut SubnetStore) -> String {
     let all = || PolySelection { source: SelSource::All, ..Default::default() };
     let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
     let dense = g.add_node("Subdivide".into(), edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()), p(180.0, 130.0));
-    let tree = g.add_node("Spherify".into(), NodeType::Subnet { id, name: "Spherify".into() }, p(180.0, 240.0));
+    let tree = g.add_node("Spherify".into(), NodeType::Ice { id, name: "Spherify".into() }, p(180.0, 240.0));
     g.add_connection(cube, 0, dense, 0);
     g.add_connection(dense, 0, tree, 0);
     finish(g, tree, tree, p(180.0, 350.0));
     "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change the Multiply value in its properties.".into()
 }
 
-fn mocap_example(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn mocap_example(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::mocap_split_template(g);
     let dir = examples::path(examples::TAKES_DIR);
     for n in &mut g.nodes {
@@ -780,7 +780,7 @@ fn mocap_example(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("Mocap split on the example take: two characters, split into one clip each.{}", missing_examples())
 }
 
-fn mocap_blank(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
+fn mocap_blank(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::mocap_split_template(g);
     "Template loaded. Select the Takes node and choose a folder.".into()
 }
@@ -788,7 +788,7 @@ fn mocap_blank(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::SubnetId;
+    use crate::types::IceGraphId;
 
     /// The mocap folder template, run as a batch on a copy of the example
     /// take: every actor solved and written with the character's skin.
@@ -802,7 +802,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::copy(&take, dir.join("take.fbx")).unwrap();
         let t = TEMPLATES.iter().find(|t| t.name.starts_with("Mocap folder")).unwrap();
-        let (mut g, mut store) = (NodeGraphState::default(), SubnetStore::default());
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
         (t.build)(&mut g, &mut store);
         for n in &mut g.nodes {
             if let NodeType::LoadFbxDir { dir: d, .. } = &mut n.node_type { *d = dir.to_string_lossy().to_string(); }
@@ -828,7 +828,7 @@ mod tests {
         use crate::node_graph::ui::{NODE_HEIGHT, NODE_WIDTH};
         for t in TEMPLATES {
             let mut g = NodeGraphState::default();
-            t.load(&mut g, &mut SubnetStore::default());
+            t.load(&mut g, &mut IceGraphStore::default());
             assert!(g.frame_request, "{}", t.name);
             // No node on top of another.
             for (i, a) in g.nodes.iter().enumerate() {
@@ -869,14 +869,14 @@ mod tests {
         for t in TEMPLATES {
             assert!(MENU.iter().any(|(by, groups)| *by == t.by && groups.contains(&t.group)), "{}", t.name);
             let mut g = NodeGraphState::default();
-            let mut store = SubnetStore::default();
+            let mut store = IceGraphStore::default();
             // Twice: a template has to replace whatever was there.
             (t.build)(&mut g, &mut store);
             let message = (t.build)(&mut g, &mut store);
             assert!(!message.is_empty() && !message.contains("not found"), "{}: {message}", t.name);
             assert_eq!(g.nodes.iter().filter(|n| matches!(n.node_type, NodeType::Output)).count(), 1);
 
-            let eval = |sid: SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
                 store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
             };
             // Every node cooks: a clip or a mesh with vertices.
@@ -902,9 +902,9 @@ mod tests {
         for name in ["Unwrap the sea mine", "Edit UV islands"] {
             let t = TEMPLATES.iter().find(|t| t.name == name).unwrap();
             let mut g = NodeGraphState::default();
-            (t.build)(&mut g, &mut SubnetStore::default());
+            (t.build)(&mut g, &mut IceGraphStore::default());
             let node = g.selected_node.unwrap();
-            let eval = |_: SubnetId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+            let eval = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
             let mesh = g.eval_node(node, &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
             assert_eq!(mesh.uvs.len(), mesh.indices.len(), "{name}");
             assert!(mesh.uvs.iter().all(|uv| uv[0].is_finite() && uv[1].is_finite()), "{name}");
@@ -922,9 +922,9 @@ mod tests {
     #[test]
     fn the_ice_template_puts_every_point_on_a_sphere() {
         let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();
-        let (mut g, mut store) = (NodeGraphState::default(), SubnetStore::default());
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
         (t.build)(&mut g, &mut store);
-        let eval = |sid: SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
             store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mesh = g.eval_node(g.selected_node.unwrap(), &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
@@ -940,7 +940,7 @@ mod tests {
     #[test]
     fn the_ice_template_added_to_a_scene_still_spherifies() {
         let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();
-        let mut store = SubnetStore::default();
+        let mut store = IceGraphStore::default();
         let mut other = NodeGraphState::default();
         t.load(&mut other, &mut store);
         let mut g = NodeGraphState::default();
@@ -948,10 +948,10 @@ mod tests {
         let added = crate::graph_io::add_graph(&mut g, &mut store, &other);
         assert_eq!(added, other.nodes.len() - 1);
         for n in &other.nodes {
-            if let NodeType::Subnet { id, .. } = n.node_type { store.subnets.remove(&id); }
+            if let NodeType::Ice { id, .. } = n.node_type { store.subnets.remove(&id); }
         }
-        let ice = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Subnet { .. })).unwrap().id;
-        let eval = |sid: SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+        let ice = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Ice { .. })).unwrap().id;
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
             store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mesh = g.eval_node(ice, &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
@@ -966,9 +966,9 @@ mod tests {
         for (name, verts_at_least) in [("Edit Poly: tower", 30), ("Edit Poly: panels", 300), ("Edit Poly: goblet", 300), ("Edit Poly: bridge", 20), ("Edit Poly: sea mine", 8000), ("Edit Poly: bolt", 60)] {
             let t = TEMPLATES.iter().find(|t| t.name == name).unwrap();
             let mut g = NodeGraphState::default();
-            (t.build)(&mut g, &mut SubnetStore::default());
+            (t.build)(&mut g, &mut IceGraphStore::default());
             let ep = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::EditPoly { .. })).unwrap().id;
-            let eval = |_: SubnetId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+            let eval = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
             let mesh = g.eval_node(ep, &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
             let poly = PolyMesh::from_mesh(&mesh);
             assert!(poly.verts.len() >= verts_at_least, "{name}: {} vertices", poly.verts.len());

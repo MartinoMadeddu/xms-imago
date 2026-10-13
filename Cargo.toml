@@ -16,14 +16,9 @@ edition = "2021"
 xms-scene = { path = "crates/xms-scene" }
 xms-usd   = { path = "crates/xms-usd" }
 
-bevy = "0.14"
-bevy_egui = "0.28"
-# Used directly everywhere outside the shell, at the versions Bevy and
-# bevy_egui bring, so the types are the same ones.
 glam = { version = "0.27", features = ["serde"] }
 egui = "0.28"
-# The shell replacing Bevy (the eframe rework): same egui, and wgpu 0.20 as
-# Bevy uses, so both build together while the move is under way.
+# The shell: a window, egui, and wgpu for the Viewer.
 eframe = { version = "0.28", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
 # Vertex data to the GPU, for the Viewer.
 bytemuck = "1"
@@ -35,7 +30,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-winit = { version = "0.30", default-features = false }
 egui_dock = { version = "0.13", features = ["serde"] }
 # The collision solver, in the repository. Its own crate, so that it is
 # compiled fully optimised in a development build too.

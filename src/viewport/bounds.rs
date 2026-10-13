@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use glam::{Mat4, Vec3};
 
-use crate::types::{MeshData, NamedMesh, SceneHierarchy};
+use crate::types::{MeshData, Prim, SceneHierarchy};
 use crate::usd_scene::StageTree;
 
 /// An axis-aligned box: low and high corners.
@@ -58,7 +58,7 @@ fn moved(b: Bounds, m: &Mat4) -> Bounds {
 }
 
 /// Where a packed primitive is drawn, every copy included.
-pub fn world_bounds(p: &NamedMesh) -> Option<Bounds> {
+pub fn world_bounds(p: &Prim) -> Option<Bounds> {
     let local = mesh_bounds(&p.mesh)?;
     if !p.place.is_placed() { return Some(local); }
     p.place.matrices().iter().fold(None, |acc, m| union(acc, moved(local, m)))
@@ -66,7 +66,7 @@ pub fn world_bounds(p: &NamedMesh) -> Option<Bounds> {
 
 /// Split packed primitives into those drawn as geometry and the boxes drawn
 /// in place of the others.
-pub fn split(prims: Vec<NamedMesh>, hierarchy: &SceneHierarchy) -> (Vec<NamedMesh>, Vec<Bounds>) {
+pub fn split(prims: Vec<Prim>, hierarchy: &SceneHierarchy) -> (Vec<Prim>, Vec<Bounds>) {
     if hierarchy.show_all_geometry { return (prims, vec![]); }
     let mut trees: Vec<Arc<StageTree>> = vec![];
     for p in &prims {
@@ -90,7 +90,7 @@ pub fn split(prims: Vec<NamedMesh>, hierarchy: &SceneHierarchy) -> (Vec<NamedMes
 /// One stage: walk its hierarchy from the top, as the explorer shows it.
 fn decide(
     tree:      &StageTree,
-    prims:     &[NamedMesh],
+    prims:     &[Prim],
     mine:      &[usize],
     hierarchy: &SceneHierarchy,
     boxes:     &mut Vec<Bounds>,
@@ -179,9 +179,9 @@ mod tests {
     fn node(path: &str, depth: usize, ty: &str) -> StageNode {
         StageNode { path: path.into(), name: path.rsplit('/').next().unwrap().into(), type_name: ty.into(), depth, ..Default::default() }
     }
-    fn cube_at(path: &str, x: f32, tree: &Arc<StageTree>) -> NamedMesh {
+    fn cube_at(path: &str, x: f32, tree: &Arc<StageTree>) -> Prim {
         let mesh = crate::node_graph::nodes::transform(&crate::node_graph::nodes::create_cube(1.0), Vec3::new(x, 0.0, 0.0), Vec3::ZERO, Vec3::ONE);
-        NamedMesh { stage: Some(tree.clone()), ..NamedMesh::new(path.into(), mesh) }
+        Prim { stage: Some(tree.clone()), ..Prim::new(path.into(), mesh) }
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
     fn a_point_instancer_box_covers_every_copy() {
         let mesh = Arc::new(crate::node_graph::nodes::create_cube(1.0));
         let place = Placement::Many((0..3).map(|i| Mat4::from_translation(Vec3::new(0.0, i as f32 * 5.0, 0.0))).collect());
-        let p = NamedMesh { mesh, place, ..NamedMesh::new("/trees/proto".into(), MeshData::default()) };
+        let p = Prim { mesh, place, ..Prim::new("/trees/proto".into(), MeshData::default()) };
         let b = world_bounds(&p).unwrap();
         assert!((b.0.y + 0.5).abs() < 1e-5 && (b.1.y - 10.5).abs() < 1e-5);
     }

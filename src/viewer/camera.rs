@@ -94,6 +94,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn framing_backs_off_far_enough_to_see_the_whole_sphere() {
+        let fov = std::f32::consts::FRAC_PI_4;
+        let centre = Vec3::new(1.0, 2.0, 3.0);
+        for (radius, aspect) in [(1.0, 1.6), (0.01, 1.0), (50.0, 0.5)] {
+            let p = frame_position(centre, radius, Vec3::new(1.0, 1.0, 1.0), fov, aspect);
+            let d = p.distance(centre);
+            // The sphere fits inside the narrower view angle, with some room.
+            let half = (fov * 0.5).min(((fov * 0.5).tan() * aspect).atan());
+            assert!((radius / d).asin() < half, "radius {radius}");
+            assert!(d < radius / half.sin() * 1.3);
+            // The view direction is kept.
+            assert!(((p - centre).normalize() - Vec3::splat(1.0).normalize()).length() < 1e-5);
+        }
+        // No direction to keep: a default one is used.
+        assert!(frame_position(centre, 1.0, Vec3::ZERO, fov, 1.0).is_finite());
+    }
+
+    #[test]
+    fn bounds_cover_the_points() {
+        let (c, r) = bounds_of([Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0), Vec3::new(1.0, 4.0, 0.0)].into_iter()).unwrap();
+        assert_eq!(c, Vec3::new(1.0, 2.0, 0.0));
+        assert!((r - (1.0f32 + 4.0).sqrt()).abs() < 1e-6);
+        assert!(bounds_of(std::iter::empty()).is_none());
+        // A single point: a sphere of no size at that point.
+        assert_eq!(bounds_of([Vec3::ONE].into_iter()), Some((Vec3::ONE, 0.0)));
+    }
+
+    #[test]
     fn the_target_is_in_the_middle_of_the_view() {
         let c = Camera::default();
         let p = c.view_proj(1.5) * c.target.extend(1.0);

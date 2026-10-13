@@ -9,9 +9,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ice::SubnetStore;
+use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
-use crate::types::{NodeId, NodeType, SplitPick, SubnetId, DEFAULT_WRITE_PATH};
+use crate::types::{NodeId, NodeType, SplitPick, IceGraphId, DEFAULT_WRITE_PATH};
 
 #[derive(Serialize, Deserialize)]
 struct SavedNode {
@@ -62,7 +62,7 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
     graph.nodes.clear();
     for n in saved.nodes {
         let mut node_type = n.node_type;
-        if let NodeType::Subnet { id, .. } = &mut node_type { *id = SubnetId(usize::MAX); }
+        if let NodeType::Ice { id, .. } = &mut node_type { *id = IceGraphId(usize::MAX); }
         let id = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]));
         // Keep the saved ids so connections can be restored as written.
         if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; }
@@ -171,7 +171,7 @@ struct SavedTreeNode {
     id:        usize,
     name:      String,
     position:  [f32; 2],
-    node_type: crate::types::SubnetNodeType,
+    node_type: crate::types::IceGraphNodeType,
 }
 
 /// What pasting placed: the new id of each node, by the id it was copied with.
@@ -190,13 +190,13 @@ impl Fragment {
 }
 
 /// Copy nodes, with the wires between them. Output is left out.
-pub fn copy(graph: &NodeGraphState, subnets: &SubnetStore, ids: &[NodeId]) -> Option<Fragment> {
+pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> Option<Fragment> {
     let picked: Vec<&crate::node_graph::GraphNode> = graph.nodes.iter()
         .filter(|n| ids.contains(&n.id) && !matches!(n.node_type, NodeType::Output)).collect();
     if picked.is_empty() { return None; }
     let inside = |id: NodeId| picked.iter().any(|n| n.id == id);
     let trees = picked.iter().filter_map(|n| match &n.node_type {
-        NodeType::Subnet { id, .. } => subnets.get(*id).map(|sg| SavedTree {
+        NodeType::Ice { id, .. } => subnets.get(*id).map(|sg| SavedTree {
             node: n.id.0,
             name: sg.name.clone(),
             nodes: sg.nodes.iter().map(|t| SavedTreeNode {
@@ -222,7 +222,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &SubnetStore, ids: &[NodeId]) -> Op
 /// Paste a fragment: new nodes with the same parameters and wires, the
 /// top-left one at `at` (or beside where they were copied from). Each ICE
 /// node gets a tree of its own. The pasted nodes are selected.
-pub fn paste(graph: &mut NodeGraphState, subnets: &mut SubnetStore, fragment: Fragment, at: Option<egui::Pos2>) -> Placed {
+pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: Fragment, at: Option<egui::Pos2>) -> Placed {
     let Fragment { nodes, connections, trees, .. } = fragment;
     // Nodes from an older version are brought up to date as a file is.
     let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None };
@@ -232,10 +232,10 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut SubnetStore, fragment: Fr
     let mut placed = Placed::new();
     for n in saved.nodes {
         let mut node_type = n.node_type;
-        if let NodeType::Subnet { id, name } = &mut node_type {
+        if let NodeType::Ice { id, name } = &mut node_type {
             *id = trees.iter().find(|t| t.node == n.id)
                 .map(|t| restore_tree(t, name, subnets))
-                .unwrap_or(SubnetId(usize::MAX));
+                .unwrap_or(IceGraphId(usize::MAX));
         }
         let new = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]) + shift);
         if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; }
@@ -255,7 +255,7 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut SubnetStore, fragment: Fr
     placed
 }
 
-fn restore_tree(t: &SavedTree, name: &str, subnets: &mut SubnetStore) -> SubnetId {
+fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGraphId {
     let sid = subnets.create_subnet(name.to_string());
     let Some(sg) = subnets.get_mut(sid) else { return sid };
     sg.name = t.name.clone();
@@ -279,7 +279,7 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut SubnetStore) -> SubnetI
 /// When `graph`'s Output is not wired, it takes what `other`'s was wired
 /// to; when nothing is viewed, the viewed node of `other` is. Returns how
 /// many nodes were added.
-pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut SubnetStore, other: &NodeGraphState) -> usize {
+pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other: &NodeGraphState) -> usize {
     let ids: Vec<NodeId> = other.nodes.iter().map(|n| n.id).collect();
     let Some(fragment) = copy(other, subnets, &ids) else { return 0 };
     let count = fragment.len();
@@ -387,7 +387,7 @@ mod tests {
             rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE,
         }, egui::pos2(0.0, 0.0));
         g.add_connection(cube, 0, xf, 0);
-        let pass = |_: crate::types::SubnetId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
         let max_x = |g: &NodeGraphState| g.eval_node(xf, &mut Default::default(), &pass).unwrap().into_mesh()
             .vertices.iter().map(|p| p[0]).fold(f32::MIN, f32::max);
         assert!((max_x(&g) - 6.0).abs() < 1e-5);
@@ -489,19 +489,19 @@ mod tests {
     /// parameters, the wires between them and their ICE tree, as new nodes.
     #[test]
     fn copied_nodes_paste_with_their_wires_and_trees() {
-        use crate::types::SubnetNodeType;
-        let mut subnets = SubnetStore::default();
+        use crate::types::IceGraphNodeType;
+        let mut subnets = IceGraphStore::default();
         let mut g = NodeGraphState::default();
         let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(100.0, 0.0));
         let sid = subnets.create_subnet("Spherify".into());
         {
             let sg = subnets.get_mut(sid).unwrap();
             let (input, output) = (sg.nodes[0].id, sg.nodes[1].id);
-            let norm = sg.add_node("Normalize".into(), SubnetNodeType::Normalize, egui::pos2(200.0, 200.0));
+            let norm = sg.add_node("Normalize".into(), IceGraphNodeType::Normalize, egui::pos2(200.0, 200.0));
             sg.add_connection(input, 1, norm, 0);
             sg.add_connection(norm, 0, output, 0);
         }
-        let ice = g.add_node("ICE".into(), NodeType::Subnet { id: sid, name: "Spherify".into() }, egui::pos2(100.0, 100.0));
+        let ice = g.add_node("ICE".into(), NodeType::Ice { id: sid, name: "Spherify".into() }, egui::pos2(100.0, 100.0));
         g.add_connection(cube, 0, ice, 0);
         g.toggle_bypass(cube);
         let out = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
@@ -523,14 +523,14 @@ mod tests {
         assert_eq!(node(new_ice).inputs[0].connected_output, Some((new_cube, 0)));
         assert_eq!(g.connections.iter().filter(|c| c.to_node == out).count(), 1, "the pasted ICE node is not wired to Output");
         // A tree of its own, with the same nodes and wires.
-        let NodeType::Subnet { id: new_sid, .. } = node(new_ice).node_type else { panic!() };
+        let NodeType::Ice { id: new_sid, .. } = node(new_ice).node_type else { panic!() };
         assert_ne!(new_sid, sid);
         let (a, b) = (subnets.get(sid).unwrap(), subnets.get(new_sid).unwrap());
         assert_eq!(a.nodes.len(), b.nodes.len());
         assert_eq!(a.connections.len(), b.connections.len());
-        let sub_out = b.nodes.iter().find(|n| matches!(n.node_type, SubnetNodeType::SubOutput)).unwrap();
+        let sub_out = b.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::SubOutput)).unwrap();
         assert!(sub_out.inputs[0].connected_output.is_some());
-        subnets.get_mut(sid).unwrap().nodes.retain(|n| !matches!(n.node_type, SubnetNodeType::Normalize));
+        subnets.get_mut(sid).unwrap().nodes.retain(|n| !matches!(n.node_type, IceGraphNodeType::Normalize));
         assert_eq!(subnets.get(new_sid).unwrap().nodes.len(), 3, "editing one tree leaves the other");
     }
 
@@ -540,14 +540,14 @@ mod tests {
         assert!(Fragment::from_text(r#"{"version":1,"nodes":[],"connections":[],"view_flag":null}"#).is_none());
         let g = NodeGraphState::default();
         let out = g.nodes[0].id;
-        assert!(copy(&g, &SubnetStore::default(), &[out]).is_none(), "Output alone copies nothing");
+        assert!(copy(&g, &IceGraphStore::default(), &[out]).is_none(), "Output alone copies nothing");
     }
 
     /// A graph added to another lands to the right of its nodes, and takes
     /// Output only when Output was free.
     #[test]
     fn a_graph_added_sits_beside_and_wires_a_free_output() {
-        let mut subnets = SubnetStore::default();
+        let mut subnets = IceGraphStore::default();
         let mut other = NodeGraphState::default();
         mocap_split_template(&mut other);
         let cube = other.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, egui::pos2(0.0, 0.0));
@@ -603,7 +603,7 @@ mod tests {
         }, egui::pos2(100.0, 100.0));
         g.add_connection(cube, 0, ph, 0);
         g.add_connection(walk, 0, ph, 1);
-        let pass = |_: SubnetId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
         let mesh = g.eval_node_out(ph, 0, &mut Default::default(), &pass).unwrap().into_mesh();
         assert_eq!(mesh.vertices.len(), 8);
         let clip = g.eval_anim_out(ph, 1).unwrap();

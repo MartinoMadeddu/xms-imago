@@ -25,6 +25,9 @@ use super::scene::linear_f;
 pub struct Overlay {
     pub depth: Vec<f32>,
     pub top:   Vec<f32>,
+    /// Vertices drawn as dots at Vertex level, hidden by what is in front:
+    /// position, linear colour and radius in pixels, per dot.
+    pub points: Vec<f32>,
 }
 
 fn line(out: &mut Vec<f32>, a: Vec3, b: Vec3, c: [f32; 4]) {
@@ -67,12 +70,12 @@ pub fn run(
     rect:     egui::Rect,
     view:     &PickView,
     graph:    &mut crate::node_graph::NodeGraphState,
-    subnets:  &crate::ice::SubnetStore,
+    subnets:  &crate::ice::IceGraphStore,
     nav:      &crate::viewport::nav::NavSettings,
     tool:     &mut PolyTool,
     drag:     &mut Drag,
 ) -> Overlay {
-    let eval = |sid: crate::types::SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+    let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
     let Some(stage) = modelling::stage(graph, &eval) else { *drag = Drag::Idle; tool.hot = None; return Overlay::default() };
@@ -202,13 +205,13 @@ pub fn run(
         }
     }
     if matches!(drag, Drag::Handle { .. } | Drag::Marquee(_)) { ctx.request_repaint(); }
-    overlay(&stage, tool, view)
+    overlay(&stage, tool, view, ctx.pixels_per_point())
 }
 
 /// The manipulator, and the wireframe and selection of the mesh being
 /// edited. Only the side facing the camera is drawn, which is also the side
 /// that can be picked.
-fn overlay(stage: &modelling::Stage, tool: &PolyTool, view: &PickView) -> Overlay {
+fn overlay(stage: &modelling::Stage, tool: &PolyTool, view: &PickView, ppp: f32) -> Overlay {
     let mut o = Overlay::default();
     let mesh: &PolyMesh = &stage.mesh;
 
@@ -250,7 +253,6 @@ fn overlay(stage: &modelling::Stage, tool: &PolyTool, view: &PickView) -> Overla
     let sel = stage.selection.resolve(mesh);
     let wire     = colour(0.86, 0.88, 0.92, 0.55);
     let selected = colour(1.0, 0.32, 0.18, 1.0);
-    let point    = colour(0.35, 0.65, 1.0, 1.0);
 
     // Edges of selected polygons are outlined too, so a polygon selection reads clearly.
     let mask = stage.selection.poly_mask(mesh);
@@ -263,12 +265,19 @@ fn overlay(stage: &modelling::Stage, tool: &PolyTool, view: &PickView) -> Overla
         let (a, b) = (mesh.verts[e[0] as usize], mesh.verts[e[1] as usize]);
         line(&mut o.depth, a, b, if outlined.contains(e) { selected } else { wire });
     }
-    if stage.selection.level == SubLevel::Vertex && mesh.verts.len() <= 8_000 {
-        for (v, pos) in mesh.verts.iter().enumerate() {
-            if !vis_verts[v] { continue; }
-            let r = pos.distance(view.eye) * 0.006;
-            let (c, r) = if sel.verts[v] { (selected, r * 1.6) } else { (point, r) };
-            for axis in [Vec3::X, Vec3::Y, Vec3::Z] { line(&mut o.depth, *pos - axis * r, *pos + axis * r, c); }
+    // Vertices facing the camera, as dots of a fixed size on screen; the
+    // depth test hides those behind the surface. Selected ones larger and
+    // orange-red, after the others so they sit on top.
+    if stage.selection.level == SubLevel::Vertex && mesh.verts.len() <= 60_000 {
+        let (plain, picked) = (colour(0.35, 0.65, 1.0, 1.0), colour(1.0, 0.32, 0.18, 1.0));
+        for pass in [false, true] {
+            for (v, p) in mesh.verts.iter().enumerate() {
+                if !vis_verts[v] || sel.verts[v] != pass { continue; }
+                let (c, r) = if pass { (picked, 2.6 * ppp) } else { (plain, 1.9 * ppp) };
+                o.points.extend_from_slice(&p.to_array());
+                o.points.extend_from_slice(&c);
+                o.points.push(r);
+            }
         }
     }
     o

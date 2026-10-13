@@ -17,12 +17,12 @@ use glam::{Mat4, Vec3};
 use super::anim::{AnimData, SkinMesh};
 use super::geo::{Attr, Column, Context, Geo, Role, Topology};
 use crate::fbx_loader::{SKIN_JOINTS, SKIN_WEIGHTS};
-use crate::types::{NamedMesh, Placement};
+use crate::types::{Prim, Placement};
 
 fn pos(m: &Mat4) -> Vec3 { m.w_axis.truncate() }
 
 /// The geometry of a primitive, and the matrix that places it.
-fn geo_and_place(p: &NamedMesh) -> Option<(Arc<Geo>, Mat4)> {
+fn geo_and_place(p: &Prim) -> Option<(Arc<Geo>, Mat4)> {
     let place = match &p.place { Placement::InPlace => Mat4::IDENTITY, Placement::One(m) => *m, Placement::Many(_) => return None };
     let geo = p.geo.clone().unwrap_or_else(|| Arc::new(Geo::from_mesh(&p.mesh)));
     Some((geo, place))
@@ -76,7 +76,7 @@ fn segment_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 /// `skeleton` in its first frame. `falloff`: how fast a bone's weight drops
 /// with distance against the nearest bone's; higher is a harder skin.
 /// Only the weight attributes are new; everything else stays shared.
-pub fn capture(prims: &[NamedMesh], skeleton: &AnimData, falloff: f32) -> Vec<NamedMesh> {
+pub fn capture(prims: &[Prim], skeleton: &AnimData, falloff: f32) -> Vec<Prim> {
     let world = skeleton.world_pose(0);
     let segs = bones(skeleton, &world);
     if segs.is_empty() { return prims.to_vec(); }
@@ -111,7 +111,7 @@ pub fn capture(prims: &[NamedMesh], skeleton: &AnimData, falloff: f32) -> Vec<Na
         }
         g.set(Context::Point, SKIN_WEIGHTS, Attr::new(Column::Vec4(Arc::new(weights)), Role::None));
         let mesh = Arc::new(g.to_mesh());
-        NamedMesh { geo: Some(Arc::new(g)), mesh, ..p.clone() }
+        Prim { geo: Some(Arc::new(g)), mesh, ..p.clone() }
     }).collect()
 }
 
@@ -151,7 +151,7 @@ pub fn remember_report(clip: &Arc<AnimData>, report: SkinReport) {
 
 /// `clip` with the skin the primitives carry: their weights, by joint
 /// name, bound where `rest` has those joints in its first frame.
-pub fn skin(prims: &[NamedMesh], rest: &AnimData, clip: &AnimData) -> (AnimData, SkinReport) {
+pub fn skin(prims: &[Prim], rest: &AnimData, clip: &AnimData) -> (AnimData, SkinReport) {
     let mut report = SkinReport::default();
     let rest_world = rest.world_pose(0);
     let clip_names: Vec<&str> = clip.joints.iter().map(|j| j.name.as_str()).collect();
@@ -234,7 +234,7 @@ mod tests {
     fn joint(c: &AnimData, name: &str) -> usize { c.joints.iter().position(|j| j.name.ends_with(name)).unwrap() }
 
     /// A thin box along the left forearm and hand, at rest.
-    fn sleeve(c: &AnimData) -> NamedMesh {
+    fn sleeve(c: &AnimData) -> Prim {
         let w = c.rest_world();
         let (a, b) = (pos(&w[joint(c, "LeftForeArm")]), pos(&w[joint(c, "LeftHand")]));
         let mut pts = vec![];
@@ -253,7 +253,7 @@ mod tests {
         }
         let geo = Geo::from_polygons(pts, counts, ix);
         let mesh = geo.to_mesh();
-        NamedMesh { geo: Some(Arc::new(geo)), ..NamedMesh::new("/sleeve".into(), mesh) }
+        Prim { geo: Some(Arc::new(geo)), ..Prim::new("/sleeve".into(), mesh) }
     }
 
     #[test]

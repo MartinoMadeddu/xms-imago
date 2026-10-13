@@ -17,7 +17,7 @@ use crate::core::poly::{collapse_all, collapse_op, eval_cached, push_op, restore
 use glam::{EulerRot, Quat};
 use crate::node_graph::NodeGraphState;
 use crate::scene_explorer::OperatorStack;
-use crate::ice::{SubnetStore, GraphNavigation};
+use crate::ice::{IceGraphStore, GraphNavigation};
 use crate::ice::ui::draw_subnet_node_properties;
 
 use super::form::{self, group, group_with, ink, Rows, Status};
@@ -54,7 +54,7 @@ pub fn draw_properties_panel(
     ui:      &mut egui::Ui,
     graph:   &mut NodeGraphState,
     scene:   &OperatorStack,
-    subnets: &mut SubnetStore,
+    subnets: &mut IceGraphStore,
     nav:     &GraphNavigation,
     anim:    &AnimContext,
     io:      &mut PanelIo,
@@ -167,7 +167,7 @@ pub fn draw_properties(
         .filter(|n| matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims))
         .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
-            let pass = |_: crate::types::SubnetId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
             graph.eval_packed(src, out, &pass)
         }).unwrap_or_default();
     let prim_paths: Vec<String> = packed_in.iter().map(|p| p.0.clone()).collect();
@@ -346,7 +346,7 @@ pub fn draw_properties(
             f.value("Template", "First input: the mesh copied");
             f.value("Points", "Second input: where the copies go");
         }),
-        NodeType::Subnet { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
+        NodeType::Ice { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
         NodeType::Output => group(ui, "Output", None, |f| { f.status(Status::Info, "What reaches this node is the scene"); }),
 
         // ── Primitives ───────────────────────────────────────────────────────

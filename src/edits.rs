@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::core::geo::{Context, Geo};
-use crate::types::{NamedMesh, Placement, Purpose};
+use crate::types::{Prim, Placement, Purpose};
 use crate::usd_scene::StageTree;
 
 /// What changed in one primitive.
@@ -74,7 +74,7 @@ impl EditSet {
 }
 
 /// What one primitive changed against its source. `None` without a source.
-pub fn prim_edit(p: &NamedMesh) -> Option<PrimEdit> {
+pub fn prim_edit(p: &Prim) -> Option<PrimEdit> {
     let src = p.source.as_ref()?;
     let mut e = PrimEdit { path: p.path.clone(), ..Default::default() };
     if !p.place.same(&src.place) { e.place = Some(p.place.clone()); }
@@ -105,7 +105,7 @@ fn diff_geo(src: &Geo, cur: &Geo, e: &mut PrimEdit) {
 }
 
 /// The edits of the primitives of one stage.
-pub fn edit_set(prims: &[NamedMesh], tree: &StageTree) -> EditSet {
+pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
     let mut set = EditSet::default();
     let mut present: HashSet<&str> = HashSet::new();
     for p in prims.iter().filter(|p| p.stage.as_deref().is_some_and(|t| std::ptr::eq(t, tree))) {
@@ -129,13 +129,13 @@ pub fn edit_set(prims: &[NamedMesh], tree: &StageTree) -> EditSet {
 /// The edits made between two points of a network: what `after` changed
 /// relative to `before`, primitive by primitive, by path. The layer of the
 /// nodes in between, for stacking edits as Solaris does.
-pub fn edits_between(before: &[NamedMesh], after: &[NamedMesh]) -> EditSet {
+pub fn edits_between(before: &[Prim], after: &[Prim]) -> EditSet {
     let mut set = EditSet::default();
-    let earlier: std::collections::HashMap<&str, &NamedMesh> = before.iter().map(|p| (p.path.as_str(), p)).collect();
+    let earlier: std::collections::HashMap<&str, &Prim> = before.iter().map(|p| (p.path.as_str(), p)).collect();
     for p in after {
         let Some(b) = earlier.get(p.path.as_str()) else { set.added.push(p.path.clone()); continue };
         // Measure against the earlier primitive as if it were the source.
-        let base = NamedMesh {
+        let base = Prim {
             source: b.geo.clone().map(|geo| Arc::new(crate::types::Source {
                 geo, place: b.place.clone(), material: b.material.clone(), purpose: b.purpose,
             })),
@@ -165,16 +165,16 @@ mod tests {
     }
 
     /// A loaded quad: its geometry, placement and source, on a stage.
-    fn loaded(path: &str, tree: &Arc<StageTree>) -> NamedMesh {
+    fn loaded(path: &str, tree: &Arc<StageTree>) -> Prim {
         let mut geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]], vec![4], vec![0, 1, 2, 3]);
         geo.set(Context::Corner, ST, Attr::new(Column::Vec2(Arc::new(vec![[0.0, 0.0]; 4])), Role::TexCoord));
         let geo = Arc::new(geo);
         let place = Placement::One(Mat4::IDENTITY);
-        NamedMesh {
+        Prim {
             mesh: Arc::new(geo.to_mesh()), geo: Some(geo.clone()), place: place.clone(), stage: Some(tree.clone()),
             material: Some("/looks/a".into()),
             source: Some(Arc::new(Source { geo, place, material: Some("/looks/a".into()), purpose: Purpose::Default })),
-            ..NamedMesh::new(path.into(), MeshData::default())
+            ..Prim::new(path.into(), MeshData::default())
         }
     }
 
@@ -204,7 +204,7 @@ mod tests {
         g.remove(Context::Corner, ST);
         b.geo = Some(Arc::new(g));
         // c: pruned. And a primitive made by a node.
-        let made = NamedMesh::new("/made".into(), MeshData::default());
+        let made = Prim::new("/made".into(), MeshData::default());
 
         let set = edit_set(&[a, b, made], &tree);
         let ea = &set.prims[0];

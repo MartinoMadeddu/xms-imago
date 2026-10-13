@@ -7,8 +7,8 @@ pub mod ice_nodes;
 use std::collections::HashMap;
 use glam::Vec3;
 use crate::types::{
-    ConnectionId, MeshData, NodeId, SubnetId,
-    SubnetNodeType,
+    ConnectionId, MeshData, NodeId, IceGraphId,
+    IceGraphNodeType,
 };
 use crate::core::geo::Geo;
 use ops::Attribute;
@@ -17,7 +17,7 @@ use ice_nodes::*;
 
 #[derive(Default)]
 pub struct GraphNavigation {
-    pub current_subnet: Option<SubnetId>,
+    pub current_subnet: Option<IceGraphId>,
 }
 
 // ============================================================================
@@ -25,30 +25,30 @@ pub struct GraphNavigation {
 // ============================================================================
 
 #[derive(Clone)]
-pub struct SubnetInputSocket {
+pub struct IceGraphInputSocket {
     pub name:             String,
     pub value_hint:       &'static str,
     pub connected_output: Option<(NodeId, usize)>,
 }
 
 #[derive(Clone)]
-pub struct SubnetOutputSocket {
+pub struct IceGraphOutputSocket {
     pub name:       String,
     pub value_hint: &'static str,
 }
 
 #[derive(Clone)]
-pub struct SubnetNode {
+pub struct IceGraphNode {
     pub id:        NodeId,
     pub name:      String,
-    pub node_type: SubnetNodeType,
+    pub node_type: IceGraphNodeType,
     pub position:  egui::Pos2,
-    pub inputs:    Vec<SubnetInputSocket>,
-    pub outputs:   Vec<SubnetOutputSocket>,
+    pub inputs:    Vec<IceGraphInputSocket>,
+    pub outputs:   Vec<IceGraphOutputSocket>,
 }
 
 #[derive(Clone)]
-pub struct SubnetConnection {
+pub struct IceGraphConnection {
     pub id:          ConnectionId,
     pub from_node:   NodeId,
     pub from_output: usize,
@@ -61,11 +61,11 @@ pub struct SubnetConnection {
 // ============================================================================
 
 #[derive(Clone)]
-pub struct SubnetGraph {
-    pub id:                 SubnetId,
+pub struct IceGraph {
+    pub id:                 IceGraphId,
     pub name:               String,
-    pub nodes:              Vec<SubnetNode>,
-    pub connections:        Vec<SubnetConnection>,
+    pub nodes:              Vec<IceGraphNode>,
+    pub connections:        Vec<IceGraphConnection>,
     pub next_node_id:       usize,
     pub next_connection_id: usize,
     pub selected_node:      Option<NodeId>,
@@ -77,8 +77,8 @@ pub struct SubnetGraph {
     pub zoom:               f32,
 }
 
-impl SubnetGraph {
-    pub fn new(id: SubnetId, name: String) -> Self {
+impl IceGraph {
+    pub fn new(id: IceGraphId, name: String) -> Self {
         let mut g = Self {
             id, name,
             nodes: vec![], connections: vec![],
@@ -87,52 +87,52 @@ impl SubnetGraph {
             drag_offset: egui::Vec2::ZERO,
             connecting_from: None, pan_offset: egui::Vec2::ZERO, zoom: 1.0,
         };
-        g.add_node("SubInput".into(),  SubnetNodeType::SubInput,  egui::pos2(60.0,  200.0));
-        g.add_node("SubOutput".into(), SubnetNodeType::SubOutput, egui::pos2(500.0, 200.0));
+        g.add_node("SubInput".into(),  IceGraphNodeType::SubInput,  egui::pos2(60.0,  200.0));
+        g.add_node("SubOutput".into(), IceGraphNodeType::SubOutput, egui::pos2(500.0, 200.0));
         g
     }
 
-    pub fn add_node(&mut self, name: String, t: SubnetNodeType, pos: egui::Pos2) -> NodeId {
+    pub fn add_node(&mut self, name: String, t: IceGraphNodeType, pos: egui::Pos2) -> NodeId {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&t);
-        self.nodes.push(SubnetNode { id, name, node_type: t, position: pos, inputs, outputs });
+        self.nodes.push(IceGraphNode { id, name, node_type: t, position: pos, inputs, outputs });
         id
     }
 
-    pub fn create_sockets(t: &SubnetNodeType)
-        -> (Vec<SubnetInputSocket>, Vec<SubnetOutputSocket>)
+    pub fn create_sockets(t: &IceGraphNodeType)
+        -> (Vec<IceGraphInputSocket>, Vec<IceGraphOutputSocket>)
     {
-        let i = |n: &str, h: &'static str| SubnetInputSocket {
+        let i = |n: &str, h: &'static str| IceGraphInputSocket {
             name: n.into(), value_hint: h, connected_output: None,
         };
-        let o = |n: &str, h: &'static str| SubnetOutputSocket {
+        let o = |n: &str, h: &'static str| IceGraphOutputSocket {
             name: n.into(), value_hint: h,
         };
         match t {
-            SubnetNodeType::SubInput =>
+            IceGraphNodeType::SubInput =>
                 (vec![], vec![o("Mesh", "Mesh"), o("Points", "Vec3"), o("Template", "Mesh")]),
-            SubnetNodeType::SubOutput =>
+            IceGraphNodeType::SubOutput =>
                 (vec![i("Output", "AnyMesh")], vec![o("Out", "AnyMesh")]),
-            SubnetNodeType::AddVec3 | SubnetNodeType::SubtractVec3 | SubnetNodeType::CrossProduct =>
+            IceGraphNodeType::AddVec3 | IceGraphNodeType::SubtractVec3 | IceGraphNodeType::CrossProduct =>
                 (vec![i("A", "Vec3"), i("B", "Vec3")], vec![o("Result", "Vec3")]),
-            SubnetNodeType::MultiplyVec3 { .. } =>
+            IceGraphNodeType::MultiplyVec3 { .. } =>
                 (vec![i("Vec", "Vec3")], vec![o("Result", "Vec3")]),
-            SubnetNodeType::Normalize =>
+            IceGraphNodeType::Normalize =>
                 (vec![i("Vec", "Vec3")], vec![o("Result", "Vec3")]),
-            SubnetNodeType::DotProduct =>
+            IceGraphNodeType::DotProduct =>
                 (vec![i("A", "Vec3"), i("B", "Vec3")], vec![o("Value", "Float")]),
-            SubnetNodeType::LerpVec3 { .. } =>
+            IceGraphNodeType::LerpVec3 { .. } =>
                 (vec![i("A", "Vec3"), i("B", "Vec3")], vec![o("Result", "Vec3")]),
-            SubnetNodeType::ConstVec3  { .. } => (vec![], vec![o("Value", "Vec3")]),
-            SubnetNodeType::ConstFloat { .. } => (vec![], vec![o("Value", "Float")]),
-            SubnetNodeType::ConstInt   { .. } => (vec![], vec![o("Value", "Int")]),
-            SubnetNodeType::ScatterPoints { .. } =>
+            IceGraphNodeType::ConstVec3  { .. } => (vec![], vec![o("Value", "Vec3")]),
+            IceGraphNodeType::ConstFloat { .. } => (vec![], vec![o("Value", "Float")]),
+            IceGraphNodeType::ConstInt   { .. } => (vec![], vec![o("Value", "Int")]),
+            IceGraphNodeType::ScatterPoints { .. } =>
                 (vec![i("Geometry", "Mesh")], vec![o("Points", "Points")]),
 
-            SubnetNodeType::GetTemplate =>
+            IceGraphNodeType::GetTemplate =>
                 (vec![], vec![o("Template", "Mesh")]),
-            SubnetNodeType::CopyToPoints =>
+            IceGraphNodeType::CopyToPoints =>
                 (vec![i("Points", "Points"), i("Template", "Mesh")], vec![o("Instances", "Mesh")]),
         }
     }
@@ -146,7 +146,7 @@ impl SubnetGraph {
                 inp.connected_output = Some((from, from_out));
             }
         }
-        self.connections.push(SubnetConnection {
+        self.connections.push(IceGraphConnection {
             id,
             from_node: from, from_output: from_out,
             to_node:   to,   to_input:    to_in,
@@ -157,7 +157,7 @@ impl SubnetGraph {
     /// output stay: every ICE tree has them. Returns whether it was deleted.
     pub fn remove_node(&mut self, id: NodeId) -> bool {
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return false };
-        if matches!(node.node_type, SubnetNodeType::SubInput | SubnetNodeType::SubOutput) { return false; }
+        if matches!(node.node_type, IceGraphNodeType::SubInput | IceGraphNodeType::SubOutput) { return false; }
         let wires: Vec<ConnectionId> = self.connections.iter()
             .filter(|c| c.from_node == id || c.to_node == id)
             .map(|c| c.id)
@@ -188,10 +188,10 @@ impl SubnetGraph {
     /// write stays shared with `input`. A tree with nothing wired to its
     /// output, or that fails, gives `input` back unchanged.
     pub fn evaluate(&self, input: &Geo, template: Option<&Geo>) -> Geo {
-        let Some(sub_out) = self.nodes.iter().find(|n| matches!(n.node_type, SubnetNodeType::SubOutput)) else {
+        let Some(sub_out) = self.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::SubOutput)) else {
             return input.clone();
         };
-        if !self.nodes.iter().any(|n| matches!(n.node_type, SubnetNodeType::SubInput)) {
+        if !self.nodes.iter().any(|n| matches!(n.node_type, IceGraphNodeType::SubInput)) {
             return input.clone();
         }
         let Some((src_id, _)) = sub_out.inputs[0].connected_output else { return input.clone() };
@@ -242,7 +242,7 @@ impl SubnetGraph {
                     // Don't recurse into SubInput
                     if !self.nodes.iter()
                         .find(|n| n.id == src_id)
-                        .map(|n| matches!(n.node_type, SubnetNodeType::SubInput))
+                        .map(|n| matches!(n.node_type, IceGraphNodeType::SubInput))
                         .unwrap_or(false)
                     {
                         self.visit_node(src_id, visited, order);
@@ -261,58 +261,58 @@ impl SubnetGraph {
             .ok_or_else(|| format!("Node {:?} not found", node_id))?;
 
         match &node.node_type {
-            SubnetNodeType::SubInput => {
+            IceGraphNodeType::SubInput => {
                 // P is already in context, nothing to do
                 Ok(())
             }
 
-            SubnetNodeType::SubOutput => {
+            IceGraphNodeType::SubOutput => {
                 // Just pass through - result is already in P
                 Ok(())
             }
 
-            SubnetNodeType::AddVec3 => {
+            IceGraphNodeType::AddVec3 => {
                 let (a_name, b_name) = self.get_input_attribute_names(node, 0, 1)?;
                 let add = AddVec3::new(a_name, b_name, "P"); // Write to P
                 add.execute(ctx)
             }
 
-            SubnetNodeType::SubtractVec3 => {
+            IceGraphNodeType::SubtractVec3 => {
                 let (a_name, b_name) = self.get_input_attribute_names(node, 0, 1)?;
                 let sub = SubtractVec3::new(a_name, b_name, "P");
                 sub.execute(ctx)
             }
 
-            SubnetNodeType::MultiplyVec3 { scalar } => {
+            IceGraphNodeType::MultiplyVec3 { scalar } => {
                 let input_name = self.get_input_attribute_name(node, 0)?;
                 let mul = MultiplyVec3::new(input_name, *scalar, "P");
                 mul.execute(ctx)
             }
 
-            SubnetNodeType::Normalize => {
+            IceGraphNodeType::Normalize => {
                 let input_name = self.get_input_attribute_name(node, 0)?;
                 let norm = NormalizeVec3::new(input_name, "P");
                 norm.execute(ctx)
             }
 
-            SubnetNodeType::CrossProduct => {
+            IceGraphNodeType::CrossProduct => {
                 let (a_name, b_name) = self.get_input_attribute_names(node, 0, 1)?;
                 let cross = CrossProduct::new(a_name, b_name, "P");
                 cross.execute(ctx)
             }
 
-            SubnetNodeType::DotProduct => {
+            IceGraphNodeType::DotProduct => {
                 // TODO: Implement when we have float attributes working
                 Err("DotProduct not yet implemented in new system".into())
             }
 
-            SubnetNodeType::LerpVec3 { t } => {
+            IceGraphNodeType::LerpVec3 { t } => {
                 let (a_name, b_name) = self.get_input_attribute_names(node, 0, 1)?;
                 let lerp = LerpVec3::new(a_name, b_name, *t, "P");
                 lerp.execute(ctx)
             }
 
-            SubnetNodeType::ConstVec3 { value } => {
+            IceGraphNodeType::ConstVec3 { value } => {
                 // Create an attribute filled with this constant value
                 let point_count = ctx.get_vec3("P")?.len();
                 let const_data = vec![*value; point_count];
@@ -320,30 +320,30 @@ impl SubnetGraph {
                 Ok(())
             }
 
-            SubnetNodeType::ConstFloat { value } => {
+            IceGraphNodeType::ConstFloat { value } => {
                 let point_count = ctx.get_vec3("P")?.len();
                 let const_data = vec![*value; point_count];
                 ctx.set_float(Attribute::new("const_float", const_data));
                 Ok(())
             }
 
-            SubnetNodeType::ConstInt { value } => {
+            IceGraphNodeType::ConstInt { value } => {
                 let point_count = ctx.get_vec3("P")?.len();
                 let const_data = vec![*value; point_count];
                 ctx.set_int(Attribute::new("const_int", const_data));
                 Ok(())
             }
 
-            SubnetNodeType::ScatterPoints { count, seed } => {
+            IceGraphNodeType::ScatterPoints { count, seed } => {
                 let scatter = ice_nodes::ScatterPoints::new(*count, *seed);
                 scatter.execute(ctx)
             }
-            SubnetNodeType::GetTemplate => {
+            IceGraphNodeType::GetTemplate => {
                 let get_template = ice_nodes::GetTemplate::new();
                 get_template.execute(ctx)
             }
             
-            SubnetNodeType::CopyToPoints => {
+            IceGraphNodeType::CopyToPoints => {
                 let copy = ice_nodes::CopyToPoints::new();
                 copy.execute(ctx)
             }
@@ -351,7 +351,7 @@ impl SubnetGraph {
     }
 
     /// Helper: Get attribute name from node's input connection
-    fn get_input_attribute_name(&self, node: &SubnetNode, input_idx: usize) -> Result<String, String> {
+    fn get_input_attribute_name(&self, node: &IceGraphNode, input_idx: usize) -> Result<String, String> {
         let input = node.inputs.get(input_idx)
             .ok_or_else(|| format!("Input {} not found", input_idx))?;
         
@@ -360,7 +360,7 @@ impl SubnetGraph {
                 // Check if it's SubInput
                 if self.nodes.iter()
                     .find(|n| n.id == src_id)
-                    .map(|n| matches!(n.node_type, SubnetNodeType::SubInput))
+                    .map(|n| matches!(n.node_type, IceGraphNodeType::SubInput))
                     .unwrap_or(false)
                 {
                     Ok("P".to_string()) // SubInput provides P
@@ -373,7 +373,7 @@ impl SubnetGraph {
     }
 
     /// Helper: Get two input attribute names
-    fn get_input_attribute_names(&self, node: &SubnetNode, idx_a: usize, idx_b: usize) 
+    fn get_input_attribute_names(&self, node: &IceGraphNode, idx_a: usize, idx_b: usize) 
         -> Result<(String, String), String> 
     {
         Ok((
@@ -388,20 +388,20 @@ impl SubnetGraph {
 // ============================================================================
 
 #[derive(Default)]
-pub struct SubnetStore {
-    pub subnets: HashMap<SubnetId, SubnetGraph>,
+pub struct IceGraphStore {
+    pub subnets: HashMap<IceGraphId, IceGraph>,
     pub next_id: usize,
 }
 
-impl SubnetStore {
-    pub fn create_subnet(&mut self, name: String) -> SubnetId {
-        let id = SubnetId(self.next_id);
+impl IceGraphStore {
+    pub fn create_subnet(&mut self, name: String) -> IceGraphId {
+        let id = IceGraphId(self.next_id);
         self.next_id += 1;
-        self.subnets.insert(id, SubnetGraph::new(id, name));
+        self.subnets.insert(id, IceGraph::new(id, name));
         id
     }
-    pub fn get(&self,         id: SubnetId) -> Option<&SubnetGraph>     { self.subnets.get(&id)     }
-    pub fn get_mut(&mut self, id: SubnetId) -> Option<&mut SubnetGraph> { self.subnets.get_mut(&id) }
+    pub fn get(&self,         id: IceGraphId) -> Option<&IceGraph>     { self.subnets.get(&id)     }
+    pub fn get_mut(&mut self, id: IceGraphId) -> Option<&mut IceGraph> { self.subnets.get_mut(&id) }
 }
 #[cfg(test)]
 mod tree_tests {
@@ -412,9 +412,9 @@ mod tree_tests {
     #[test]
     fn a_tree_runs_on_geo_and_shares_what_it_does_not_write() {
         // In → Multiply by 2 → Out.
-        let mut tree = SubnetGraph::new(SubnetId(0), "double".into());
+        let mut tree = IceGraph::new(IceGraphId(0), "double".into());
         let (input, output) = (tree.nodes[0].id, tree.nodes[1].id);
-        let mul = tree.add_node("Multiply".into(), SubnetNodeType::MultiplyVec3 { scalar: 2.0 }, egui::pos2(0.0, 0.0));
+        let mul = tree.add_node("Multiply".into(), IceGraphNodeType::MultiplyVec3 { scalar: 2.0 }, egui::pos2(0.0, 0.0));
         tree.add_connection(input, 0, mul, 0);
         tree.add_connection(mul, 0, output, 0);
 
@@ -431,7 +431,7 @@ mod tree_tests {
 
     #[test]
     fn a_tree_with_nothing_wired_gives_its_input_back() {
-        let tree = SubnetGraph::new(SubnetId(0), "empty".into());
+        let tree = IceGraph::new(IceGraphId(0), "empty".into());
         let geo = Geo::from_points(vec![[1.0, 2.0, 3.0]]);
         let out = tree.evaluate(&geo, None);
         assert!(out.attr(Context::Point, POINTS).unwrap().same(geo.attr(Context::Point, POINTS).unwrap()));

@@ -23,6 +23,9 @@ const MESH_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Flo
 const INSTANCE_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
     2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4];
 const LINE_ATTRS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
+const POINT_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32];
+/// Floats per vertex dot: position, colour, radius.
+const POINT_FLOATS: usize = 8;
 /// Floats per instance and per line vertex.
 const INSTANCE_FLOATS: usize = 24;
 const LINE_FLOATS: usize = 7;
@@ -71,6 +74,8 @@ pub struct ViewerGpu {
     raised:      wgpu::RenderPipeline,
     on_top:      wgpu::RenderPipeline,
     top_buffer:  Option<(wgpu::Buffer, u32)>,
+    points:      wgpu::RenderPipeline,
+    point_buffer: Option<(wgpu::Buffer, u32)>,
     frame_lines: [Option<(wgpu::Buffer, u32)>; 2],
     blit:        wgpu::RenderPipeline,
     blit_layout: wgpu::BindGroupLayout,
@@ -112,7 +117,7 @@ impl ViewerGpu {
             }],
         });
         let view_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("viewer view"), size: 80, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
+            label: Some("viewer view"), size: 96, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
         });
         let view_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("viewer view"), layout: &view_layout,
@@ -179,6 +184,11 @@ impl ViewerGpu {
             wgpu::PrimitiveTopology::LineList, false, wgpu::CompareFunction::GreaterEqual);
         let on_top = pipeline_with("viewer lines on top", &line_layout, "vs_line", "fs_line", &line_buffers,
             wgpu::PrimitiveTopology::LineList, false, wgpu::CompareFunction::Always);
+        let point_buffers = [
+            wgpu::VertexBufferLayout { array_stride: (POINT_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &POINT_ATTRS },
+        ];
+        let points = pipeline_with("viewer points", &line_layout, "vs_point", "fs_point", &point_buffers,
+            wgpu::PrimitiveTopology::TriangleList, false, wgpu::CompareFunction::GreaterEqual);
         let opaque  = pipeline("viewer opaque", &layout, "vs_mesh", "fs_mesh", &mesh_buffers, wgpu::PrimitiveTopology::TriangleList, true);
         let blended = pipeline("viewer blended", &layout, "vs_mesh", "fs_mesh", &mesh_buffers, wgpu::PrimitiveTopology::TriangleList, false);
         let lines   = pipeline("viewer lines", &line_layout, "vs_line", "fs_line", &line_buffers, wgpu::PrimitiveTopology::LineList, true);
@@ -247,6 +257,7 @@ impl ViewerGpu {
 
         ViewerGpu {
             view_buffer, view_group, opaque, blended, lines, edges, raised, on_top, top_buffer: None, frame_lines: [None, None],
+            points, point_buffer: None,
             blit, blit_layout, sampler,
             material_layout, map_sampler, textures: HashMap::new(), white, materials: vec![], plain,
             target: None, meshes: vec![], draws: vec![], line_buffer: None, generation: u64::MAX,
@@ -365,11 +376,16 @@ impl ViewerGpu {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
-        // Edit Poly's wireframe, on its surface.
+        // Edit Poly's wireframe and vertices, on their surface.
         if let Some((buffer, count)) = &self.frame_lines[0] {
             pass.set_pipeline(&self.raised);
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
+        }
+        if let Some((buffer, count)) = &self.point_buffer {
+            pass.set_pipeline(&self.points);
+            pass.set_vertex_buffer(0, buffer.slice(..));
+            pass.draw(0..6, 0..*count);
         }
         pass.set_pipeline(&self.blended);
         for d in self.draws.iter().filter(|d| d.blend && !d.edges) { self.draw_mesh(&mut pass, d); }
@@ -456,11 +472,19 @@ impl CallbackTrait for ViewerPaint {
         let f = &self.0;
         gpu.ensure_target(device, [f.size[0].max(1), f.size[1].max(1)]);
         if gpu.generation != f.scene.generation { gpu.upload(device, queue, &f.scene); }
-        let mut view = [0f32; 20];
+        let mut view = [0f32; 24];
         view[..16].copy_from_slice(&f.view_proj.to_cols_array());
         view[16..19].copy_from_slice(&f.eye.to_array());
+        view[20] = f.size[0] as f32;
+        view[21] = f.size[1] as f32;
         queue.write_buffer(&gpu.view_buffer, 0, bytemuck::cast_slice(&view));
         gpu.frame_lines = [line_buffer(device, &f.overlay.depth), line_buffer(device, &f.overlay.top)];
+        gpu.point_buffer = (!f.overlay.points.is_empty()).then(|| (
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("viewer points"), contents: bytemuck::cast_slice(&f.overlay.points), usage: wgpu::BufferUsages::VERTEX,
+            }),
+            (f.overlay.points.len() / POINT_FLOATS) as u32,
+        ));
         gpu.render(encoder, f.clear);
         vec![]
     }

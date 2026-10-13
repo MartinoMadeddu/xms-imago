@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
 
-use crate::types::{EvalResult, MeshData, NamedMesh, Purpose};
+use crate::types::{EvalResult, MeshData, Prim, Purpose};
 use crate::viewport::display::{wire_edges, DisplayMode};
 
 /// Floats per vertex: position, normal, texture coordinates.
@@ -156,7 +156,7 @@ fn push_lines(out: &mut Vec<f32>, points: &[[f32; 3]], pairs: &[u32], at: &Mat4,
 /// What the Viewer reads to build its scene.
 pub struct Inputs<'a> {
     pub graph:     &'a crate::node_graph::NodeGraphState,
-    pub subnets:   &'a crate::ice::SubnetStore,
+    pub subnets:   &'a crate::ice::IceGraphStore,
     pub hierarchy: &'a crate::types::SceneHierarchy,
     pub time:      f64,
 }
@@ -190,7 +190,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 
     let graph = input.graph;
     let subnets = input.subnets;
-    let eval_subnet = |sid: crate::types::SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+    let eval_subnet = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
 
@@ -234,7 +234,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
     match packed {
         Some(EvalResult::Named(prims)) => {
             // Purposes the Scene Explorer's toggles leave out are not drawn.
-            let prims: Vec<NamedMesh> = prims.into_iter()
+            let prims: Vec<Prim> = prims.into_iter()
                 .filter(|p| p.purpose == Purpose::Default || input.hierarchy.draws_purpose(p.purpose))
                 .collect();
             // Closed prims of a composed stage: the box around what is below.

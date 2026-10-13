@@ -32,7 +32,7 @@ use glam::{DMat4, Mat4};
 
 use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, POINTS, WIDTHS};
 use crate::edits::{edit_set, PrimEdit};
-use crate::types::{CurveBasis, CurveWrap, NamedMesh, Placement, Purpose};
+use crate::types::{CurveBasis, CurveWrap, Prim, Placement, Purpose};
 use crate::usd_scene::{StageNode, StageTree};
 
 /// The last result of each Write USD node, for its properties panel.
@@ -62,7 +62,7 @@ pub struct WriteReport {
 }
 
 /// Write the override layer for these primitives to `out`.
-pub fn write_override(prims: &[NamedMesh], out: &Path) -> Result<WriteReport, String> {
+pub fn write_override(prims: &[Prim], out: &Path) -> Result<WriteReport, String> {
     if let Some(dir) = out.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
     let (text, report) = override_layer(prims, out)?;
     std::fs::write(out, text).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -71,7 +71,7 @@ pub fn write_override(prims: &[NamedMesh], out: &Path) -> Result<WriteReport, St
 
 /// The override layer as text, for a layer to be written at `out` (paths to
 /// the sources are relative to it).
-pub fn override_layer(prims: &[NamedMesh], out: &Path) -> Result<(String, WriteReport), String> {
+pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport), String> {
     // Each stage once.
     let mut trees: Vec<Arc<StageTree>> = vec![];
     for p in prims {
@@ -85,7 +85,7 @@ pub fn override_layer(prims: &[NamedMesh], out: &Path) -> Result<(String, WriteR
     for tree in &trees {
         let nodes: BTreeMap<&str, &StageNode> = tree.nodes.iter().map(|n| (n.path.as_str(), n)).collect();
         let set = edit_set(prims, tree);
-        let by_path: BTreeMap<&str, &NamedMesh> = prims.iter()
+        let by_path: BTreeMap<&str, &Prim> = prims.iter()
             .filter(|p| p.stage.as_ref().is_some_and(|t| Arc::ptr_eq(t, tree)))
             .map(|p| (p.path.as_str(), p)).collect();
 
@@ -190,7 +190,7 @@ impl Spec {
 }
 
 /// The opinions for one edited prim of a stage.
-fn prim_opinions(spec: &mut Spec, p: &NamedMesh, e: &PrimEdit, node: &StageNode, tree: &StageTree) {
+fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree: &StageTree) {
     let src = p.source.as_ref().expect("edits come from prims with a source");
     // Its placement when loaded: root · parents · its own transform.
     let loaded = match &src.place { Placement::One(m) => m.as_dmat4(), _ => DMat4::IDENTITY };
@@ -237,7 +237,7 @@ fn prim_opinions(spec: &mut Spec, p: &NamedMesh, e: &PrimEdit, node: &StageNode,
 }
 
 /// A prim that is not in the stage (or not in any): written whole, as new.
-fn new_prim(spec: &mut Spec, p: &NamedMesh, root: Mat4) {
+fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
     let geo = p.geo.as_deref().cloned().unwrap_or_else(|| Geo::from_mesh(&p.mesh));
     spec.def = Some(match geo.topology {
         Topology::Mesh { .. } => "Mesh",
@@ -410,7 +410,7 @@ mod tests {
 
     /// A stage on disk, loaded as Load USD gives it: packed primitives with
     /// their sources.
-    fn load(name: &str, text: &str) -> (PathBuf, Vec<NamedMesh>) {
+    fn load(name: &str, text: &str) -> (PathBuf, Vec<Prim>) {
         let dir = std::env::temp_dir().join("xms_usd_write_test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
@@ -418,13 +418,13 @@ mod tests {
         (path.clone(), prims_of(&path))
     }
 
-    fn prims_of(path: &Path) -> Vec<NamedMesh> {
+    fn prims_of(path: &Path) -> Vec<Prim> {
         let scene = crate::usd_scene::load(path).unwrap();
-        scene.meshes.iter().map(|m| NamedMesh {
+        scene.meshes.iter().map(|m| Prim {
             mesh: m.mesh.clone(), geo: m.geo.clone(), place: m.place.clone(), stage: Some(scene.tree.clone()),
             material: m.material.clone(), purpose: m.purpose,
             source: m.geo.clone().map(|geo| Arc::new(Source { geo, place: m.place.clone(), material: m.material.clone(), purpose: m.purpose })),
-            ..NamedMesh::new(m.path.clone(), MeshData::default())
+            ..Prim::new(m.path.clone(), MeshData::default())
         }).collect()
     }
 

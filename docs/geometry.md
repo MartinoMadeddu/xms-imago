@@ -22,7 +22,7 @@ Every column and every topology array is an `Arc`. Cloning a `Geo` copies pointe
 
 ## Primitives
 
-A `NamedMesh` is a primitive:
+A `Prim` is a primitive:
 
 | Field | What it holds |
 |---|---|
@@ -45,8 +45,8 @@ Write USD (`usd_write`) turns an edit set into an override layer. A render deleg
 ## The three rules
 
 1. **Replace only the columns you change.** Clone the `Geo`, write through `points_mut()` or `attr_mut()`, or `set` a new attribute. Never rebuild a whole `Geo` to change one thing: every attribute you rebuild becomes an edit, is copied in memory, and is written back to USD even though it did not change.
-2. **Keep primitives placed.** Move a primitive by its `place`, not its points (`Placement::moved`). Work on geometry in its own space. For code that needs the mesh where it is drawn, `NamedMesh::world()` gives it, and `map_mesh` already takes one placed primitive there and back.
-3. **Keep the primitive's identity.** Build changed primitives with `NamedMesh { geo, mesh, ..p.clone() }` so path, `source`, `stage`, material and purpose travel with it. If a node cannot keep the geometry traceable (it merges primitives, say), set `geo: None`: the edit is then written whole instead of as changed columns.
+2. **Keep primitives placed.** Move a primitive by its `place`, not its points (`Placement::moved`). Work on geometry in its own space. For code that needs the mesh where it is drawn, `Prim::world()` gives it, and `map_mesh` already takes one placed primitive there and back.
+3. **Keep the primitive's identity.** Build changed primitives with `Prim { geo, mesh, ..p.clone() }` so path, `source`, `stage`, material and purpose travel with it. If a node cannot keep the geometry traceable (it merges primitives, say), set `geo: None`: the edit is then written whole instead of as changed columns.
 
 ## Tests
 
