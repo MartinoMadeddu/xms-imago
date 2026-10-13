@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use crate::shell::{MainCamera, GeneratedMesh, ViewportRect};
+use crate::shell::{MainCamera, GeneratedMesh};
+use crate::app::AppState;
 use super::nav::{Held, NavAction, NavSettings, NavStyle};
 
 #[derive(Resource, Default)]
@@ -40,14 +41,14 @@ pub fn camera_controller(
     mut mouse_wheel:  EventReader<bevy::input::mouse::MouseWheel>,
     keyboard:         Res<ButtonInput<KeyCode>>,
     nav:              Res<NavSettings>,
-    vp_rect:          Res<ViewportRect>,
+    mut app: ResMut<AppState>,
     windows:          Query<&Window>,
     mut cam_q:        Query<&mut Transform, With<MainCamera>>,
     mut orbit:        ResMut<CameraOrbitState>,
-    mut playback:     ResMut<crate::timeline::Playback>,
     mut contexts:     EguiContexts,
     mut drag:         Local<NavDrag>,
 ) {
+    let AppState { vp_rect, playback, .. } = &mut *app;
     let ctx = contexts.ctx_mut();
     let typing = ctx.wants_keyboard_input();
     let mut h = held(&keyboard, &mouse_btn);
@@ -144,15 +145,13 @@ pub fn bounds_of(points: impl Iterator<Item = Vec3>) -> Option<(Vec3, f32)> {
 /// and Modo (A) use. The cursor has to be over the viewport.
 pub fn focus_camera(
     keyboard:     Res<ButtonInput<KeyCode>>,
-    graph:        Res<crate::node_graph::NodeGraphState>,
-    subnets:      Res<crate::ice::SubnetStore>,
-    playback:     Res<crate::timeline::Playback>,
-    vp_rect:      Res<ViewportRect>,
+    app: Res<AppState>,
     windows:      Query<&Window>,
     mut cam_q:    Query<(&mut Transform, &Projection), With<MainCamera>>,
     mut orbit:    ResMut<CameraOrbitState>,
     mut contexts: EguiContexts,
 ) {
+    let AppState { graph, subnets, playback, vp_rect, .. } = &*app;
     let selection_key = keyboard.any_just_pressed([KeyCode::KeyF, KeyCode::KeyG, KeyCode::KeyZ, KeyCode::Period, KeyCode::NumpadDecimal]);
     let all_key = keyboard.any_just_pressed([KeyCode::KeyA, KeyCode::KeyH]);
     if !selection_key && !all_key { return; }
@@ -252,8 +251,9 @@ mod tests {
 pub fn draw_origin_label(
     mut contexts: EguiContexts,
     cam_q:        Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    vp_rect:      Res<ViewportRect>,
+    app: Res<AppState>,
 ) {
+    let AppState { vp_rect, .. } = &*app;
     let Ok((cam, ct)) = cam_q.get_single() else { return; };
     // Only while the viewport pane is showing, and inside it.
     let Some(rect) = vp_rect.0 else { return };

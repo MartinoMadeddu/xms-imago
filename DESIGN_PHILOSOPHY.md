@@ -99,7 +99,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 ## One shell, being replaced
 
-- Bevy is the program's shell until the eframe + wgpu rework is done (Martino, branch `core/uiframework`). Outside `main.rs`, `modelling.rs`, `viewport/` and `shell.rs`, code uses `glam` and `egui` directly, never Bevy: new code keeps to that, so the shell can be swapped without touching it.
+- Bevy is the program's shell until the eframe + wgpu rework is done (Martino, branch `core/uiframework`). Outside `main.rs`, `modelling.rs`, `viewport/` and `shell.rs`, code uses `glam` and `egui` directly, never Bevy: new code keeps to that, so the shell can be swapped without touching it. The program's state is one struct, `AppState` (`app.rs`), that the shell owns: new state goes there, not into a shell-specific resource.
 
 ## Say what is true
 
@@ -126,3 +126,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 12/10/2026: read from Martino's commits: `VOCABULARY.md` and the vocabulary applied across the program and docs; pointed to under "The same words for the same things", and this file brought into it.
 - 12/10/2026: "Like any other program" added: a menu bar at the top left, and questions before losing changes or writing over a file (Simon). FBX only for meshes and characters, the `.xmsclip` and `.xmsmesh` formats removed; the rest pose is the skeleton, so a Transform carries through Retarget (Simon).
 - 13/10/2026: from Martino's eframe rework, stage 0: "One shell, being replaced" added; Bevy kept to the shell files. The Gaffer credit removed and the contexts named Object, Point, Face, Corner, as Martino decided (11/10 and 12/10/2026).
+- 13/10/2026: eframe rework, stage 0b: the program's state gathered into `AppState`, which Bevy holds as one resource; the template-opens-solved test removed (a known mismatch with the shipped solve, Martino).

@@ -1,0 +1,51 @@
+//! The program's state: everything the interface, the graph and the Viewer
+//! work on, in one place, owned by whatever shell runs the program.
+//!
+//! Bevy holds it as one resource while it is the shell (`shell.rs`); the
+//! eframe app will own it as a field. Nothing in it depends on the shell.
+
+use crate::batch::BatchState;
+use crate::file_browser::FileBrowser;
+use crate::history::History;
+use crate::ice::{GraphNavigation, SubnetStore};
+use crate::layout::Layout;
+use crate::node_graph::{GraphRevision, NodeGraphState};
+use crate::recent::Recent;
+use crate::scene_explorer::OperatorStack;
+use crate::timeline::Playback;
+use crate::types::{PrimInspectorState, SceneHierarchy};
+use crate::uv_editor::UvEditorState;
+use crate::{Confirm, GraphFile, SaveFirst};
+
+/// The screen rectangle of the Viewer pane, when it is showing.
+#[derive(Default)]
+pub struct ViewportRect(pub Option<egui::Rect>);
+
+#[derive(Default)]
+pub struct AppState {
+    /// The root scene graph, and what changed in it.
+    pub graph:      NodeGraphState,
+    pub revision:   GraphRevision,
+    /// ICE graphs, and which one is open.
+    pub subnets:    SubnetStore,
+    pub nav:        GraphNavigation,
+    /// What the panes show.
+    pub stack:      OperatorStack,
+    pub hierarchy:  SceneHierarchy,
+    pub prim_state: PrimInspectorState,
+    pub uv_state:   UvEditorState,
+    pub playback:   Playback,
+    pub vp_rect:    ViewportRect,
+    pub layout:     Layout,
+    /// Files: the graph's own, the browser, recent files, questions before
+    /// losing changes or writing over a file.
+    pub graph_file: GraphFile,
+    pub browser:    FileBrowser,
+    pub recent:     Recent,
+    pub save_first: SaveFirst,
+    pub confirm:    Confirm,
+    /// Undo and redo.
+    pub history:    History,
+    /// Write FBX running over a folder, in the background.
+    pub batch:      BatchState,
+}

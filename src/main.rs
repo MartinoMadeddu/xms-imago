@@ -1,5 +1,6 @@
 mod core;
 mod shell;
+mod app;
 mod types;
 mod node_graph;
 mod scene_explorer;
@@ -35,7 +36,8 @@ mod recent;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
-use shell::{MainCamera, GeneratedMesh, GroundGrid, ViewportRect};
+use shell::{MainCamera, GeneratedMesh, GroundGrid};
+use app::{AppState, ViewportRect};
 use types::{MeshData, SceneHierarchy, SubnetId, PrimInspectorState};
 use node_graph::NodeGraphState;
 use scene_explorer::OperatorStack;
@@ -82,28 +84,12 @@ fn main() {
             focused_mode:   bevy::winit::UpdateMode::reactive(std::time::Duration::from_millis(250)),
             unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(std::time::Duration::from_secs(1)),
         })
-        .init_resource::<NodeGraphState>()
+        // The program's state, as one resource while Bevy is the shell.
+        .init_resource::<app::AppState>()
         .init_resource::<CameraOrbitState>()
-        .init_resource::<OperatorStack>()
-        .init_resource::<SceneHierarchy>()
-        .init_resource::<SubnetStore>()
-        .init_resource::<GraphNavigation>()
-        .init_resource::<ViewportRect>()
-        .init_resource::<PrimInspectorState>()
-        .init_resource::<Playback>()
         .init_gizmo_group::<modelling::PolyGizmos>()
-        .init_resource::<FileBrowser>()
-        .init_resource::<BatchState>()
-        .init_resource::<GraphFile>()
         .init_resource::<modelling::PolyTool>()
-        .init_resource::<Layout>()
-        .init_resource::<uv_editor::UvEditorState>()
-        .init_resource::<node_graph::GraphRevision>()
         .init_resource::<viewport::nav::NavSettings>()
-        .init_resource::<history::History>()
-        .init_resource::<recent::Recent>()
-        .init_resource::<SaveFirst>()
-        .init_resource::<Confirm>()
         .add_systems(Startup, (open_splash, setup_scene, setup_egui_theme, setup_gizmos, modelling::setup_gizmos))
         .add_systems(Update, (
             dcc_ui,
@@ -243,22 +229,15 @@ fn close_splash(
 
 fn dcc_ui(
     mut contexts:   EguiContexts,
-    mut graph:      ResMut<NodeGraphState>,
-    mut stack:      ResMut<OperatorStack>,
-    mut hierarchy:  ResMut<SceneHierarchy>,
-    mut subnets:    ResMut<SubnetStore>,
-    mut nav:        ResMut<GraphNavigation>,
-    mut vp_rect:    ResMut<ViewportRect>,
-    mut prim_state: ResMut<PrimInspectorState>,
-    mut playback:   ResMut<Playback>,
-    mut browser:    ResMut<FileBrowser>,
-    mut graph_file: ResMut<GraphFile>,
+    mut app:        ResMut<AppState>,
     mut poly_tool:  ResMut<modelling::PolyTool>,
     mut nav_settings: ResMut<viewport::nav::NavSettings>,
-    (mut layout, revision, mut uv_state, mut history, mut recent, mut save_first, mut confirm): (ResMut<Layout>, Res<node_graph::GraphRevision>, ResMut<uv_editor::UvEditorState>, ResMut<history::History>, ResMut<recent::Recent>, ResMut<SaveFirst>, ResMut<Confirm>),
-    batch:          Res<BatchState>,
     time:           Res<Time>,
 ) {
+    let AppState {
+        graph, stack, hierarchy, subnets, nav, vp_rect, prim_state, playback, browser, graph_file,
+        layout, revision, uv_state, history, recent, save_first, confirm, batch, ..
+    } = &mut *app;
     let ctx = contexts.ctx_mut();
 
     // ── Path chosen in the file browser ──────────────────────────────────────
@@ -294,19 +273,19 @@ fn dcc_ui(
                 };
             }
             BrowseTarget::SaveGraph => {
-                save_graph(&graph, &path, &mut graph_file, &mut history, &mut recent);
+                save_graph(&graph, &path, &mut *graph_file, &mut *history, &mut *recent);
             }
             BrowseTarget::ImportGraph => {
-                graph_file.message = add_graph_file(&mut graph, &mut subnets, &path, &mut recent);
+                graph_file.message = add_graph_file(&mut *graph, &mut *subnets, &path, &mut *recent);
             }
             BrowseTarget::ImportFbx => {
                 let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Load FBX".into());
-                import_node(&mut graph, name, NodeType::LoadFbx { path: text, take: 0 });
+                import_node(&mut *graph, name, NodeType::LoadFbx { path: text, take: 0 });
                 graph_file.message = format!("Imported {}", path.display());
             }
             BrowseTarget::ImportUsd => {
                 let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Load USD".into());
-                import_node(&mut graph, name, NodeType::LoadUsd { path: text });
+                import_node(&mut *graph, name, NodeType::LoadUsd { path: text });
                 graph_file.message = format!("Imported {}", path.display());
             }
         }
@@ -368,9 +347,9 @@ fn dcc_ui(
                 ui.scope(|ui| {
                     ui.visuals_mut().button_frame = false;
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
-                    edit_menu(ui, &mut graph, &mut subnets, &mut history, &mut graph_file);
-                    templates_menu(ui, &mut save_first);
-                    ui.menu_button("Window", |ui| window_menu(ui, &mut layout, &mut browser, locked));
+                    edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
+                    templates_menu(ui, &mut *save_first);
+                    ui.menu_button("Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked));
                 });
                 // The file the graph is in, and whether it has changed since.
                 let doc = graph_file.path.as_deref().map(file_name).unwrap_or_else(|| "Untitled".into());
@@ -402,8 +381,8 @@ fn dcc_ui(
             FileCommand::Open => { browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", &["json"], ""); }
             FileCommand::OpenRecent(p) => save_first.load(Source::File(p)),
             FileCommand::ClearRecent => recent.clear(),
-            FileCommand::Save => { save_or_ask(&graph, &mut graph_file, &mut history, &mut recent, &mut browser); }
-            FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut browser),
+            FileCommand::Save => { save_or_ask(&graph, &mut *graph_file, &mut *history, &mut *recent, &mut *browser); }
+            FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut *browser),
             FileCommand::ImportGraph => browser.open(BrowseTarget::ImportGraph, BrowseMode::File, "Import graph", &["json"], ""),
             FileCommand::ImportFbx => browser.open(BrowseTarget::ImportFbx, BrowseMode::File, "Import FBX", &["fbx"], ""),
             FileCommand::ImportUsd => browser.open(BrowseTarget::ImportUsd, BrowseMode::File, "Import USD", &["usd", "usda", "usdc", "usdz"], ""),
@@ -443,15 +422,15 @@ fn dcc_ui(
     let mut tab_pressed = None;
     {
         let mut panes = Panes {
-            graph: &mut graph, stack: &mut stack, hierarchy: &mut hierarchy, subnets: &mut subnets,
-            nav: &mut nav, vp_rect: &mut vp_rect, prim_state: &mut prim_state, playback: &mut playback,
-            browser: &mut browser, graph_file: &mut graph_file, poly_tool: &mut poly_tool,
+            graph: &mut *graph, stack: &mut *stack, hierarchy: &mut *hierarchy, subnets: &mut *subnets,
+            nav: &mut *nav, vp_rect: &mut *vp_rect, prim_state: &mut *prim_state, playback: &mut *playback,
+            browser: &mut *browser, graph_file: &mut *graph_file, poly_tool: &mut poly_tool,
             batch: &batch, anim_ctx: &anim_ctx, timeline_state: &timeline_state,
             dt: time.delta_seconds_f64(), keys_free,
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0, locked, toggle_float: &mut toggle_float, tab_pressed: &mut tab_pressed,
-            uv_state: &mut uv_state, history: &mut history,
-            confirm: &mut confirm,
+            uv_state: &mut *uv_state, history: &mut *history,
+            confirm: &mut *confirm,
         };
         let mut style = egui_dock::Style::from_egui(ctx.style().as_ref());
         style.tab_bar.fill_tab_bar = true;
@@ -863,12 +842,10 @@ impl egui_dock::TabViewer for Panes<'_> {
 /// a text field has the keyboard: there they edit the text.
 fn history_system(
     mut contexts: EguiContexts,
-    mut graph:    ResMut<NodeGraphState>,
-    mut history:  ResMut<history::History>,
-    mut nav:      ResMut<GraphNavigation>,
+    mut app: ResMut<AppState>,
     mouse:        Res<ButtonInput<MouseButton>>,
-    browser:      Res<FileBrowser>,
 ) {
+    let AppState { graph, history, nav, browser, .. } = &mut *app;
     let ctx = contexts.ctx_mut();
     let typing = ctx.wants_keyboard_input();
     if !typing && !browser.is_open() {
@@ -886,8 +863,7 @@ fn history_system(
         || ctx.is_using_pointer()
         || ctx.input(|i| i.pointer.any_down());
     // Look without touching: only an actual change marks the graph changed.
-    if history.update(graph.bypass_change_detection(), busy) {
-        graph.set_changed();
+    if history.update(graph, busy) {
         // Leave a subnet whose node is gone.
         if let Some(sid) = nav.current_subnet {
             let there = graph.nodes.iter().any(|n| matches!(&n.node_type, NodeType::Subnet { id, .. } if *id == sid));
@@ -899,13 +875,12 @@ fn history_system(
 /// Bump the graph revision when the graph's content changed this frame.
 /// Cooking systems run after this and only when the revision moved.
 fn track_revision(
-    graph:        Res<NodeGraphState>,
-    nav:          Res<GraphNavigation>,
+    mut app: ResMut<AppState>,
     mouse:        Res<ButtonInput<MouseButton>>,
     keys:         Res<ButtonInput<KeyCode>>,
-    mut revision: ResMut<node_graph::GraphRevision>,
     mut last:     Local<Option<u64>>,
 ) {
+    let AppState { graph, nav, revision, .. } = &mut *app;
     let hash = graph.content_hash();
     // Subnet contents are not part of the hash. While one is open, any
     // click or key press counts as a change.
@@ -921,7 +896,7 @@ fn track_revision(
 
 /// Feedback line for graph open / save, and the file the graph is in.
 #[derive(Resource, Default)]
-struct GraphFile {
+pub(crate) struct GraphFile {
     message: String,
     /// Last opened from or saved to. None: never saved, or a template.
     path:    Option<std::path::PathBuf>,
@@ -1116,7 +1091,7 @@ fn import_node(graph: &mut NodeGraphState, name: String, node_type: NodeType) ->
 
 /// Writing over files that exist asks first, as in any other program.
 #[derive(Resource, Default)]
-struct Confirm {
+pub(crate) struct Confirm {
     /// What exists, and the write waiting on Replace.
     pending: Option<(Vec<String>, PanelAction)>,
 }
@@ -1280,7 +1255,7 @@ impl After {
 /// first when it has unsaved changes: Save, Don't save or Cancel. Opening a
 /// file, picking a template and closing the window all go through here.
 #[derive(Resource, Default)]
-struct SaveFirst {
+pub(crate) struct SaveFirst {
     /// A file or template picked: add it, or open it as new?
     choosing:  Option<Source>,
     after:     Option<After>,
@@ -1380,15 +1355,9 @@ fn save_first_system(
     mut requests:   EventReader<bevy::window::WindowCloseRequested>,
     primary:        Query<Entity, With<bevy::window::PrimaryWindow>>,
     mut exit:       EventWriter<AppExit>,
-    mut save_first: ResMut<SaveFirst>,
-    mut history:    ResMut<history::History>,
-    mut recent:     ResMut<recent::Recent>,
-    mut graph_file: ResMut<GraphFile>,
-    mut browser:    ResMut<FileBrowser>,
-    mut graph:      ResMut<NodeGraphState>,
-    mut subnets:    ResMut<SubnetStore>,
-    mut nav:        ResMut<GraphNavigation>,
+    mut app: ResMut<AppState>,
 ) {
+    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, .. } = &mut *app;
     let main = primary.get_single().ok();
     for r in requests.read() {
         if Some(r.window) != main { continue; }
@@ -1401,7 +1370,7 @@ fn save_first_system(
     // File > New with nothing to lose: no question.
     if save_first.after == Some(After::New) && !save_first.saving_as && !history.is_dirty() {
         *save_first = SaveFirst::default();
-        carry_out(After::New, &mut graph, &mut subnets, &mut nav, &mut graph_file, &mut history, &mut recent);
+        carry_out(After::New, &mut *graph, &mut *subnets, &mut *nav, &mut *graph_file, &mut *history, &mut *recent);
         return;
     }
     if let Some(source) = save_first.choosing.clone() {
@@ -1411,15 +1380,15 @@ fn save_first_system(
             Some(0) => {
                 *save_first = SaveFirst::default();
                 graph_file.message = match source {
-                    Source::File(p) => add_graph_file(&mut graph, &mut subnets, &p, &mut recent),
-                    Source::Template(i) => add_template(&mut graph, &mut subnets, &templates::TEMPLATES[i]),
+                    Source::File(p) => add_graph_file(&mut *graph, &mut *subnets, &p, &mut *recent),
+                    Source::Template(i) => add_template(&mut *graph, &mut *subnets, &templates::TEMPLATES[i]),
                 };
             }
             Some(1) => {
                 save_first.choosing = None;
                 let after = source.open();
                 if !save_first.ask(&history, &after) {
-                    carry_out(after, &mut graph, &mut subnets, &mut nav, &mut graph_file, &mut history, &mut recent);
+                    carry_out(after, &mut *graph, &mut *subnets, &mut *nav, &mut *graph_file, &mut *history, &mut *recent);
                 }
             }
             Some(_) => *save_first = SaveFirst::default(),
@@ -1456,7 +1425,7 @@ fn save_first_system(
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) { choice = Some(2); }
         match choice {
             Some(0) => {
-                if save_or_ask(&graph, &mut graph_file, &mut history, &mut recent, &mut browser) {
+                if save_or_ask(&graph, &mut *graph_file, &mut *history, &mut *recent, &mut *browser) {
                     go = true;
                 } else if browser.is_open() {
                     save_first.saving_as = true;
@@ -1473,18 +1442,19 @@ fn save_first_system(
     if go {
         *save_first = SaveFirst::default();
         if after == After::Quit { exit.send(AppExit::Success); }
-        else { carry_out(after, &mut graph, &mut subnets, &mut nav, &mut graph_file, &mut history, &mut recent); }
+        else { carry_out(after, &mut *graph, &mut *subnets, &mut *nav, &mut *graph_file, &mut *history, &mut *recent); }
     }
 }
 
 // ── Systems ───────────────────────────────────────────────────────────────────
 
 fn update_operator_stack(
-    graph:     Res<NodeGraphState>,
-    revision:  Res<node_graph::GraphRevision>,
-    mut stack: ResMut<OperatorStack>,
+    mut app: ResMut<AppState>,
+    mut seen: Local<u64>,
 ) {
-    if revision.is_changed() {
+    let AppState { graph, revision, stack, .. } = &mut *app;
+    // Rebuilt when the graph's revision moves.
+    if std::mem::replace(&mut *seen, revision.0) != revision.0 {
         stack.rebuild(&graph.nodes, &graph.connections);
         if let Some(sel) = graph.selected_node {
             stack.selected_entry = Some(sel);
@@ -1493,12 +1463,12 @@ fn update_operator_stack(
 }
 
 fn update_scene_hierarchy(
-    graph:         Res<NodeGraphState>,
-    subnets:       Res<SubnetStore>,
-    revision:      Res<node_graph::GraphRevision>,
-    mut hierarchy: ResMut<SceneHierarchy>,
+    mut app: ResMut<AppState>,
+    mut seen: Local<u64>,
 ) {
-    if !revision.is_changed() { return; }
+    let AppState { graph, subnets, revision, hierarchy, .. } = &mut *app;
+    // Rebuilt when the graph's revision moves.
+    if std::mem::replace(&mut *seen, revision.0) == revision.0 { return; }
 
     // Update the closure to accept template parameter
     let eval_subnet = |sid: SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
@@ -1524,12 +1494,12 @@ fn follow_theme_background(mut clear: ResMut<ClearColor>, mut seen: Local<Option
 /// Frames while something moves without input: playback, the splash and
 /// the first frames, textures decoding, a batch writing.
 fn keep_awake(
-    playback:   Res<Playback>,
-    batch:      Res<BatchState>,
+    app: Res<AppState>,
     splash:     Query<(), With<SplashPart>>,
     mut redraw: EventWriter<bevy::window::RequestRedraw>,
     mut frames: Local<u32>,
 ) {
+    let AppState { playback, batch, .. } = &*app;
     *frames = frames.saturating_add(1);
     let busy = *frames < 120
         || playback.playing
@@ -1540,21 +1510,21 @@ fn keep_awake(
 }
 
 fn update_generated_meshes(
-    graph:        Res<NodeGraphState>,
-    subnets:      Res<SubnetStore>,
-    playback:     Res<Playback>,
+    app: Res<AppState>,
     mut commands: Commands,
     mut meshes:   ResMut<Assets<Mesh>>,
     mut mats:     ResMut<Assets<StandardMaterial>>,
     query:        Query<Entity, (With<GeneratedMesh>, Without<shell::PosedMesh>)>,
     posed:        Query<Entity, With<shell::PosedMesh>>,
-    revision:     Res<node_graph::GraphRevision>,
     mut shown:    Local<Option<(f64, u64, u64)>>,
+    mut seen_revision: Local<u64>,
     mut images:   ResMut<Assets<Image>>,
     mut textures: Local<std::collections::HashMap<std::path::PathBuf, Handle<Image>>>,
     clear:        Res<ClearColor>,
-    hierarchy:    Res<SceneHierarchy>,
 ) {
+    let AppState { graph, subnets, playback, revision, hierarchy, .. } = &*app;
+    // Whether the graph changed since the last time this ran.
+    let revised = std::mem::replace(&mut *seen_revision, revision.0) != revision.0;
     use viewport::display::DisplayMode;
     let mode = viewport::display::mode();
     // Cook again when the graph changed, the playhead moved, the theme
@@ -1562,10 +1532,10 @@ fn update_generated_meshes(
     // Opening or closing prims in the scene explorer changes what is drawn
     // as boxes, without cooking the graph again.
     let now = (playback.time, theme::revision() ^ viewport::textures::generation().rotate_left(32), hierarchy.display_revision);
-    if !revision.is_changed() && *shown == Some(now) { return; }
+    if !revised && *shown == Some(now) { return; }
     // When only the playhead moved, only what follows it is made again. A
     // heavy model standing next to a character is left alone.
-    let only_time = !revision.is_changed() && shown.map(|s| (s.1, s.2)) == Some((now.1, now.2));
+    let only_time = !revised && shown.map(|s| (s.1, s.2)) == Some((now.1, now.2));
     *shown = Some(now);
     for e in posed.iter() { commands.entity(e).despawn(); }
 
@@ -1763,10 +1733,10 @@ fn setup_gizmos(mut store: ResMut<GizmoConfigStore>) {
 }
 
 fn draw_skeleton(
-    graph:      Res<NodeGraphState>,
-    playback:   Res<Playback>,
+    app: Res<AppState>,
     mut gizmos: Gizmos,
 ) {
+    let AppState { graph, playback, .. } = &*app;
     for clip in graph.display_clips() {
         draw_clip_skeleton(&clip, playback.time, &mut gizmos);
     }
@@ -1804,10 +1774,11 @@ fn draw_clip_skeleton(clip: &core::anim::AnimData, time: f64, gizmos: &mut Gizmo
 }
 
 fn apply_viewport_rect(
-    vp_rect:   Res<ViewportRect>,
+    app: Res<AppState>,
     windows:   Query<&Window>,
     mut cam_q: Query<&mut Camera, With<MainCamera>>,
 ) {
+    let AppState { vp_rect, .. } = &*app;
     let Ok(mut cam) = cam_q.get_single_mut() else { return };
     // The viewport pane is hidden behind another tab: draw nothing.
     let Some(rect) = vp_rect.0 else {

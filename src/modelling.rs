@@ -13,6 +13,7 @@ use crate::core::poly::{self, eval_cached, Component as Picked, PickMode, PickVi
 use crate::ice::SubnetStore;
 use crate::node_graph::NodeGraphState;
 use crate::shell::MainCamera;
+use crate::app::AppState;
 use crate::types::{MeshData, NodeId, NodeType, SubnetId};
 
 /// Gizmo settings for the modelling overlay. Unlike the skeleton, which is
@@ -155,18 +156,17 @@ fn transform_of(kind: &PolyOpKind) -> Option<(Vec3, Quat, Vec3)> {
 /// rotate and scale; dragging a manipulator handle writes a Transform
 /// operation. Delete adds a Delete operation.
 pub fn pick_system(
-    mut graph:    ResMut<NodeGraphState>,
-    subnets:      Res<SubnetStore>,
+    mut app: ResMut<AppState>,
     windows:      Query<&Window>,
     cam_q:        Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mouse:        Res<ButtonInput<MouseButton>>,
     keys:         Res<ButtonInput<KeyCode>>,
     mut contexts: EguiContexts,
     nav:          Res<crate::viewport::nav::NavSettings>,
-    vp_rect:      Res<crate::shell::ViewportRect>,
     mut tool:     ResMut<PolyTool>,
     mut drag:     Local<Drag>,
 ) {
+    let AppState { graph, subnets, vp_rect, .. } = &mut *app;
     let Some(stage) = stage(&graph, &subnet_eval(&subnets)) else { *drag = Drag::Idle; tool.hot = None; return };
     let (Ok(window), Ok((cam, gt))) = (windows.get_single(), cam_q.get_single()) else { return };
     let Some((view, rect)) = pick_view(cam, gt) else { return };
@@ -303,13 +303,13 @@ pub fn pick_system(
 /// Wireframe and selection drawn over the mesh being edited. Only the side
 /// facing the camera is drawn, which is also the side that can be picked.
 pub fn overlay_system(
-    graph:      Res<NodeGraphState>,
-    subnets:    Res<SubnetStore>,
+    app: Res<AppState>,
     cam_q:      Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     tool:       Res<PolyTool>,
     mut gizmos: Gizmos<PolyGizmos>,
     mut top:    Gizmos,
 ) {
+    let AppState { graph, subnets, .. } = &*app;
     let Some(stage) = stage(&graph, &subnet_eval(&subnets)) else { return };
     let Ok((cam, gt)) = cam_q.get_single() else { return };
     let Some((view, _)) = pick_view(cam, gt) else { return };

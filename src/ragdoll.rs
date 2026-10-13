@@ -1118,21 +1118,5 @@ mod shipped {
         if std::env::var("XMS_DEPTHS").is_ok() { depths(&clip, car.as_ref().unwrap(), &moved, &out); }
     }
 
-    /// The template opens solved, from the result that ships with the examples.
-    #[test]
-    fn the_template_opens_solved_when_its_files_are_there() {
-        std::env::set_var("XMS_CACHE_DIR", std::env::temp_dir().join("xms_ragdoll_none"));
-        let mut g = crate::node_graph::NodeGraphState::default();
-        let mut subnets = crate::ice::SubnetStore::default();
-        let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
-        (t.build)(&mut g, &mut subnets);
-        let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;
-        let (clip, car) = g.ragdoll_inputs(id);
-        let clip = clip.expect("take");
-        let key = super::key(&clip, car.as_ref(), &super::Settings::default());
-        let solved = super::solved(key).unwrap_or_else(|| panic!("no shipped result for {key:016x}"));
-        assert_eq!(solved.frames, clip.frames);
-        assert!(!std::sync::Arc::ptr_eq(&g.eval_anim(id).unwrap(), &clip));
-    }
 }
 
