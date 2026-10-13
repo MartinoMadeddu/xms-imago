@@ -1,6 +1,7 @@
 mod core;
 mod shell;
 mod app;
+mod eframe_app;
 mod types;
 mod node_graph;
 mod scene_explorer;
@@ -55,6 +56,12 @@ use batch::BatchState;
 use layout::{Layout, Pane};
 
 fn main() {
+    // The eframe shell, being built (stage 1 of the rework): the whole
+    // interface, the Viewer's 3D view still to come. `XMS_SHELL=eframe cargo run`.
+    if std::env::var("XMS_SHELL").as_deref() == Ok("eframe") {
+        if let Err(e) = eframe_app::run() { eprintln!("{e}"); }
+        return;
+    }
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -121,7 +128,7 @@ fn setup_egui_theme(mut contexts: EguiContexts) {
 
 // ── Icon and splash ──────────────────────────────────────────────────────────
 
-fn decode_png(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+pub(crate) fn decode_png(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok()?.into_rgba8();
     let (w, h) = img.dimensions();
     Some((img.into_raw(), w, h))
@@ -227,6 +234,7 @@ fn close_splash(
 
 // ── UI ────────────────────────────────────────────────────────────────────────
 
+/// The interface, under Bevy.
 fn dcc_ui(
     mut contexts:   EguiContexts,
     mut app:        ResMut<AppState>,
@@ -234,11 +242,25 @@ fn dcc_ui(
     mut nav_settings: ResMut<viewport::nav::NavSettings>,
     time:           Res<Time>,
 ) {
+    draw_ui(contexts.ctx_mut(), &mut app, &mut poly_tool, &mut nav_settings, time.delta_seconds_f64(), false);
+}
+
+/// The whole interface for one frame: menus, the dock and every pane, the
+/// file browser and the Viewer's navigation menu. The same in any shell.
+/// `viewer_placeholder`: the shell does not draw the 3D view yet, so the
+/// Viewer pane says so instead of leaving a hole.
+pub(crate) fn draw_ui(
+    ctx:            &mut egui::Context,
+    app:            &mut AppState,
+    poly_tool:      &mut modelling::PolyTool,
+    nav_settings:   &mut viewport::nav::NavSettings,
+    dt:             f64,
+    viewer_placeholder: bool,
+) {
     let AppState {
         graph, stack, hierarchy, subnets, nav, vp_rect, prim_state, playback, browser, graph_file,
         layout, revision, uv_state, history, recent, save_first, confirm, batch, ..
-    } = &mut *app;
-    let ctx = contexts.ctx_mut();
+    } = app;
 
     // ── Path chosen in the file browser ──────────────────────────────────────
     if let Some((target, path)) = browser.take_result() {
@@ -424,9 +446,9 @@ fn dcc_ui(
         let mut panes = Panes {
             graph: &mut *graph, stack: &mut *stack, hierarchy: &mut *hierarchy, subnets: &mut *subnets,
             nav: &mut *nav, vp_rect: &mut *vp_rect, prim_state: &mut *prim_state, playback: &mut *playback,
-            browser: &mut *browser, graph_file: &mut *graph_file, poly_tool: &mut poly_tool,
+            browser: &mut *browser, graph_file: &mut *graph_file, poly_tool: &mut *poly_tool,
             batch: &batch, anim_ctx: &anim_ctx, timeline_state: &timeline_state,
-            dt: time.delta_seconds_f64(), keys_free,
+            dt, keys_free, viewer_placeholder,
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0, locked, toggle_float: &mut toggle_float, tab_pressed: &mut tab_pressed,
             uv_state: &mut *uv_state, history: &mut *history,
@@ -653,6 +675,8 @@ struct Panes<'a> {
     uv_state:       &'a mut uv_editor::UvEditorState,
     history:        &'a mut history::History,
     confirm:        &'a mut Confirm,
+    /// The shell does not draw the 3D view yet: say so in the Viewer.
+    viewer_placeholder: bool,
 }
 
 impl egui_dock::TabViewer for Panes<'_> {
@@ -672,12 +696,17 @@ impl egui_dock::TabViewer for Panes<'_> {
     // Panes scroll their own content where they need to.
     fn scroll_bars(&self, _tab: &Pane) -> [bool; 2] { [false, false] }
     // The 3D view is drawn by the camera behind the interface.
-    fn clear_background(&self, tab: &Pane) -> bool { *tab != Pane::Viewer }
+    fn clear_background(&self, tab: &Pane) -> bool { *tab != Pane::Viewer || self.viewer_placeholder }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Pane) {
         match tab {
             Pane::Viewer => {
                 self.vp_rect.0 = Some(ui.max_rect());
+                if self.viewer_placeholder {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(egui::RichText::new("The Viewer's 3D view moves to wgpu in the next stage of the eframe rework.").weak());
+                    });
+                }
             }
 
             Pane::Timeline => {
@@ -840,13 +869,14 @@ impl egui_dock::TabViewer for Panes<'_> {
 /// gesture making them is over, and carry out undo, redo and jumps.
 /// Ctrl+Z undoes, Ctrl+Shift+Z or Ctrl+Y redoes (Cmd on macOS), except while
 /// a text field has the keyboard: there they edit the text.
-fn history_system(
-    mut contexts: EguiContexts,
-    mut app: ResMut<AppState>,
-    mouse:        Res<ButtonInput<MouseButton>>,
-) {
-    let AppState { graph, history, nav, browser, .. } = &mut *app;
-    let ctx = contexts.ctx_mut();
+fn history_system(mut contexts: EguiContexts, mut app: ResMut<AppState>) {
+    history_frame(contexts.ctx_mut(), &mut app);
+}
+
+/// Undo and redo for one frame: the shortcuts, and a step recorded when the
+/// graph changed and nothing is being dragged or typed.
+pub(crate) fn history_frame(ctx: &mut egui::Context, app: &mut AppState) {
+    let AppState { graph, history, nav, browser, .. } = app;
     let typing = ctx.wants_keyboard_input();
     if !typing && !browser.is_open() {
         let (redo, undo) = ctx.input_mut(|i| {
@@ -859,7 +889,6 @@ fn history_system(
         if undo { history.request = Some(history::Request::Undo); }
     }
     let busy = typing || browser.is_open()
-        || mouse.get_pressed().next().is_some()
         || ctx.is_using_pointer()
         || ctx.input(|i| i.pointer.any_down());
     // Look without touching: only an actual change marks the graph changed.
@@ -874,19 +903,20 @@ fn history_system(
 
 /// Bump the graph revision when the graph's content changed this frame.
 /// Cooking systems run after this and only when the revision moved.
-fn track_revision(
-    mut app: ResMut<AppState>,
-    mouse:        Res<ButtonInput<MouseButton>>,
-    keys:         Res<ButtonInput<KeyCode>>,
-    mut last:     Local<Option<u64>>,
-) {
-    let AppState { graph, nav, revision, .. } = &mut *app;
+fn track_revision(mut contexts: EguiContexts, mut app: ResMut<AppState>, mut last: Local<Option<u64>>) {
+    track_revision_frame(contexts.ctx_mut(), &mut app, &mut last);
+}
+
+/// Move the graph's revision when its content changed. `last`: the content
+/// hash seen last time.
+pub(crate) fn track_revision_frame(ctx: &egui::Context, app: &mut AppState, last: &mut Option<u64>) {
+    let AppState { graph, nav, revision, .. } = app;
     let hash = graph.content_hash();
-    // Subnet contents are not part of the hash. While one is open, any
+    // ICE graph contents are not part of the hash. While one is open, any
     // click or key press counts as a change.
     let in_subnet = nav.current_subnet.is_some()
-        && (mouse.get_pressed().next().is_some() || mouse.get_just_released().next().is_some()
-            || keys.get_just_pressed().next().is_some());
+        && ctx.input(|i| i.pointer.any_down() || i.pointer.any_released()
+            || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. })));
     // A solve that finished on its thread changes what its node puts out.
     if *last != Some(hash) || in_subnet || ragdoll::take_changed() {
         *last = Some(hash);
@@ -1357,25 +1387,29 @@ fn save_first_system(
     mut exit:       EventWriter<AppExit>,
     mut app: ResMut<AppState>,
 ) {
-    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, .. } = &mut *app;
     let main = primary.get_single().ok();
-    for r in requests.read() {
-        if Some(r.window) != main { continue; }
-        if !save_first.ask(&history, &After::Quit) { exit.send(AppExit::Success); return; }
-    }
+    let close = requests.read().fold(false, |any, r| any || Some(r.window) == main);
+    if save_first_frame(contexts.ctx_mut(), &mut app, close) { exit.send(AppExit::Success); }
+}
+
+/// Questions before losing changes, for one frame: closing the window
+/// (`close_requested`), Quit, New, opening a file or a template. Returns
+/// true when the program should close now.
+pub(crate) fn save_first_frame(ctx: &mut egui::Context, app: &mut AppState, close_requested: bool) -> bool {
+    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, .. } = app;
+    if close_requested && !save_first.ask(&history, &After::Quit) { return true; }
     if std::mem::take(&mut save_first.quit) && !save_first.ask(&history, &After::Quit) {
-        exit.send(AppExit::Success);
-        return;
+        return true;
     }
     // File > New with nothing to lose: no question.
     if save_first.after == Some(After::New) && !save_first.saving_as && !history.is_dirty() {
         *save_first = SaveFirst::default();
         carry_out(After::New, &mut *graph, &mut *subnets, &mut *nav, &mut *graph_file, &mut *history, &mut *recent);
-        return;
+        return false;
     }
     if let Some(source) = save_first.choosing.clone() {
         let empty = graph.nodes.iter().all(|n| matches!(n.node_type, NodeType::Output));
-        let choice = if empty { Some(1) } else { ask_add_or_open(contexts.ctx_mut(), &source.name()) };
+        let choice = if empty { Some(1) } else { ask_add_or_open(ctx, &source.name()) };
         match choice {
             Some(0) => {
                 *save_first = SaveFirst::default();
@@ -1394,9 +1428,9 @@ fn save_first_system(
             Some(_) => *save_first = SaveFirst::default(),
             None => {}
         }
-        return;
+        return false;
     }
-    let Some(after) = save_first.after.clone() else { return };
+    let Some(after) = save_first.after.clone() else { return false };
     // Whether to go ahead with `after` this frame.
     let mut go = false;
     if save_first.saving_as {
@@ -1404,7 +1438,6 @@ fn save_first_system(
         // The browser was closed without saving, or the save failed.
         else if !browser.is_open() && !browser.has_result() { *save_first = SaveFirst::default(); }
     } else {
-        let ctx = contexts.ctx_mut();
         dim_behind(ctx);
         let (what, warning) = (after.question(&graph_file), after.warning());
         let mut choice = None;
@@ -1441,20 +1474,22 @@ fn save_first_system(
     }
     if go {
         *save_first = SaveFirst::default();
-        if after == After::Quit { exit.send(AppExit::Success); }
-        else { carry_out(after, &mut *graph, &mut *subnets, &mut *nav, &mut *graph_file, &mut *history, &mut *recent); }
+        if after == After::Quit { return true; }
+        carry_out(after, &mut *graph, &mut *subnets, &mut *nav, &mut *graph_file, &mut *history, &mut *recent);
     }
+    false
 }
 
 // ── Systems ───────────────────────────────────────────────────────────────────
 
-fn update_operator_stack(
-    mut app: ResMut<AppState>,
-    mut seen: Local<u64>,
-) {
-    let AppState { graph, revision, stack, .. } = &mut *app;
-    // Rebuilt when the graph's revision moves.
-    if std::mem::replace(&mut *seen, revision.0) != revision.0 {
+fn update_operator_stack(mut app: ResMut<AppState>, mut seen: Local<u64>) {
+    refresh_operator_stack(&mut app, &mut seen);
+}
+
+/// The Operator Stack, rebuilt when the graph's revision moved past `seen`.
+pub(crate) fn refresh_operator_stack(app: &mut AppState, seen: &mut u64) {
+    let AppState { graph, revision, stack, .. } = app;
+    if std::mem::replace(seen, revision.0) != revision.0 {
         stack.rebuild(&graph.nodes, &graph.connections);
         if let Some(sel) = graph.selected_node {
             stack.selected_entry = Some(sel);
@@ -1462,13 +1497,14 @@ fn update_operator_stack(
     }
 }
 
-fn update_scene_hierarchy(
-    mut app: ResMut<AppState>,
-    mut seen: Local<u64>,
-) {
-    let AppState { graph, subnets, revision, hierarchy, .. } = &mut *app;
-    // Rebuilt when the graph's revision moves.
-    if std::mem::replace(&mut *seen, revision.0) == revision.0 { return; }
+fn update_scene_hierarchy(mut app: ResMut<AppState>, mut seen: Local<u64>) {
+    refresh_scene_hierarchy(&mut app, &mut seen);
+}
+
+/// The Scene Explorer, rebuilt when the graph's revision moved past `seen`.
+pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {
+    let AppState { graph, subnets, revision, hierarchy, .. } = app;
+    if std::mem::replace(seen, revision.0) == revision.0 { return; }
 
     // Update the closure to accept template parameter
     let eval_subnet = |sid: SubnetId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
