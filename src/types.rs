@@ -603,6 +603,62 @@ impl MeshData {
 
     /// Total number of face-varying elements (3 per triangle).
     pub fn num_face_varying(&self) -> usize { self.indices.len() }
+
+    /// Every point, numbered as the Primitive Inspector lists them: polygon
+    /// vertices, then curve control points, then free points.
+    pub fn point_count(&self) -> usize {
+        self.vertices.len() + self.curve_points.len() + self.points.len()
+    }
+
+    /// Polygon corners: one per point of each polygon, as `Geo` stores them
+    /// (`Topology::Mesh::indices`), not the corners of the triangles drawn.
+    pub fn corner_count(&self) -> usize {
+        if self.polys.is_empty() { self.indices.len() } else { self.polys.iter().map(|p| p.len()).sum() }
+    }
+
+    /// The point of each polygon corner, polygon after polygon.
+    pub fn corner_points(&self) -> Vec<u32> {
+        if self.polys.is_empty() { self.indices.clone() } else { self.polys.iter().flatten().copied().collect() }
+    }
+
+    /// The UV of each polygon corner, in the order of `corner_points`, read
+    /// back from `uvs` (one per triangle corner, each polygon a fan from its
+    /// first corner, as `from_polys` and `Geo::to_mesh` triangulate). `None`
+    /// when the mesh has no UVs or they do not follow that triangulation.
+    pub fn corner_uvs(&self) -> Option<Vec<[f32; 2]>> {
+        if self.uvs.is_empty() || self.uvs.len() != self.indices.len() { return None; }
+        if self.polys.is_empty() { return Some(self.uvs.clone()); }
+        let tris: usize = self.polys.iter().map(|p| p.len().saturating_sub(2)).sum();
+        if tris * 3 != self.uvs.len() { return None; }
+        let mut out = Vec::with_capacity(self.corner_count());
+        let mut t = 0usize; // first triangle of the polygon
+        for p in &self.polys {
+            let n = p.len();
+            if n < 3 { out.extend(std::iter::repeat([0.0; 2]).take(n)); continue; }
+            // Corner 0 starts every triangle; corner k (1..n-1) is the second
+            // corner of triangle k-1, and the last is the third of the last.
+            out.push(self.uvs[t * 3]);
+            for k in 1..n - 1 { out.push(self.uvs[(t + k - 1) * 3 + 1]); }
+            out.push(self.uvs[(t + n - 3) * 3 + 2]);
+            t += n - 2;
+        }
+        Some(out)
+    }
+
+    /// The segments of the curves' control hulls: each pair of control points
+    /// that follow each other along a curve, and the last back to the first
+    /// on a periodic curve. Indices are into `curve_points`.
+    pub fn curve_segments(&self) -> Vec<[u32; 2]> {
+        let closed = self.curve_wrap == CurveWrap::Periodic;
+        let mut out = Vec::with_capacity(self.curve_points.len());
+        let mut at = 0u32;
+        for &n in &self.curve_counts {
+            for k in 1..n { out.push([at + k - 1, at + k]); }
+            if closed && n > 2 { out.push([at + n - 1, at]); }
+            at += n;
+        }
+        out
+    }
 }
 
 // ============================================================================
@@ -801,6 +857,17 @@ impl EvalResult {
         }
     }
 
+    /// Each primitive where it is drawn, kept apart. Unlike `into_mesh`, curves
+    /// of different kinds keep their control points instead of becoming
+    /// polylines, so this is what the Primitive Inspector lists.
+    pub fn into_parts(self) -> Vec<MeshData> {
+        match self {
+            EvalResult::Single(m) => vec![m],
+            EvalResult::Named(prims) => prims.iter().map(|p| p.world().into_owned()).collect(),
+            EvalResult::Anim(_) => vec![],
+        }
+    }
+
     pub fn as_anim(&self) -> Option<&std::sync::Arc<crate::core::anim::AnimData>> {
         if let EvalResult::Anim(a) = self { Some(a) } else { None }
     }
@@ -921,8 +988,18 @@ pub struct InspectorTable {
     /// Text column before the numbers (joint names), with its heading.
     pub labels: Option<(String, Vec<String>)>,
     /// Column group name and its values per row. A group wider than one
-    /// is shown as name.X, name.Y, name.Z.
+    /// is shown as name.X, name.Y, name.Z, unless it is an array.
     pub cols:   Vec<(String, Vec<Vec<f32>>)>,
+    /// Columns whose values are arrays of whole numbers of any length (the
+    /// points of a face or an edge), each shown in one cell as `[0, 3, 2, 1]`,
+    /// with the length in characters of their widest cell.
+    pub arrays: Vec<(String, usize)>,
+}
+
+/// An array of whole numbers as one cell shows it: `[0, 3, 2, 1]`.
+pub fn array_text(values: &[f32]) -> String {
+    let items: Vec<String> = values.iter().map(|v| format!("{}", *v as i64)).collect();
+    format!("[{}]", items.join(", "))
 }
 
 #[derive(Default)]
@@ -930,12 +1007,12 @@ pub struct PrimInspectorState {
     pub active_tab:   PrimInspectorTab,
     pub row_offset:   usize,
 
-    // Mesh or clip of the selected node, cooked once per graph revision.
-    cached_mesh:    Option<std::sync::Arc<MeshData>>,
+    // Primitives or clip of the selected node, cooked once per graph revision.
+    cached_parts:   Option<std::sync::Arc<Vec<MeshData>>>,
     cached_clip:    Option<std::sync::Arc<crate::core::anim::AnimData>>,
     cached_node_id: Option<NodeId>,
     cached_rev:     Option<u64>,
-    /// Number of edges of the cached mesh.
+    /// Number of edges of the cached primitives: polygon edges and curve segments.
     pub edge_count: usize,
     // The open tab, built once per cached data (and per frame for a clip).
     table_key: Option<(PrimInspectorTab, usize)>,
@@ -950,13 +1027,14 @@ impl PrimInspectorState {
     pub fn update_cache(
         &mut self,
         node_id:  Option<NodeId>,
-        mesh:     Option<MeshData>,
+        parts:    Vec<MeshData>,
         clip:     Option<std::sync::Arc<crate::core::anim::AnimData>>,
         revision: u64,
     ) {
-        self.edge_count = mesh.as_ref()
-            .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len()).unwrap_or(0);
-        self.cached_mesh    = mesh.map(std::sync::Arc::new);
+        self.edge_count = parts.iter()
+            .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
+            .sum();
+        self.cached_parts   = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
         self.cached_clip    = clip;
         self.cached_node_id = node_id;
         self.cached_rev     = Some(revision);
@@ -964,7 +1042,8 @@ impl PrimInspectorState {
         self.table          = InspectorTable::default();
     }
 
-    pub fn cached_mesh(&self) -> Option<std::sync::Arc<MeshData>> { self.cached_mesh.clone() }
+    /// The selected node's primitives, each where it is drawn.
+    pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> { self.cached_parts.clone() }
     pub fn cached_clip(&self) -> Option<std::sync::Arc<crate::core::anim::AnimData>> { self.cached_clip.clone() }
 
     /// True when the stored table is this tab at this frame.

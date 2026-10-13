@@ -142,7 +142,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - Cube, sphere and grid shapes, Transform, Merge
 - Scatter Points and Copy To Points
 - ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). A tree runs on each primitive in its own space
-- Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for a mesh, Joint and Bone tabs for a clip
+- Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip
 - Graphs saved and loaded as JSON
 
 ## Get it

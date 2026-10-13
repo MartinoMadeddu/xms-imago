@@ -40,6 +40,9 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Replace only the columns you change. Columns are shared and copied only when written; never rebuild a whole `Geo` to change one thing.
 - Keep primitives placed. Geometry stays in its own space; a primitive moves by its placement, not its points.
 - Keep the primitive's identity: path, source, stage, material and purpose travel with it through every node.
+- Curves are shown in the same contexts: their control points are points, the segments between them edges, and each curve one face (Face context), its control points its corners. The Primitive Inspector lists them so, by their control points as authored, alongside polygons and free points (Martino).
+- The points of a face or an edge are one attribute, an array as long as it has corners, not a column per point: the Primitive Inspector shows them in one cell, `indices = [0, 3, 2, 1]` (Martino).
+- A corner is listed with the point it belongs to, `ptIndex` (several corners share a point), not with its own number again: the spreadsheet's row number is the corner. Corners are those of the polygons, as `Geo` stores them, not of the triangles drawn (Martino).
 
 ## Nothing typed that can be picked
 
@@ -133,3 +136,6 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 13/10/2026: eframe rework, stage 2b: Textured mode on wgpu (colour and emissive textures with their mip chains, opacity, cut-out), on instanced copies too; F/G/Z/. and A/H framing and the origin label in the eframe Viewer.
 - 13/10/2026: eframe rework, stage 3: Edit Poly's picking, box selection, Q/W/E/R manipulators and Delete in the wgpu Viewer, with its wireframe and selection overlay; clip skeletons drawn over everything. The eframe shell now does everything the Bevy one does.
 - 13/10/2026: eframe rework done: Bevy removed (its systems, `shell.rs`, the old viewport drawing, the dependencies); eframe is the only shell. `NamedMesh` renamed `Prim`, the `Subnet*` types `IceGraph*`, the ICE node `NodeType::Ice` (graphs saved with `Subnet` still load).
+- 13/10/2026: curves in the Primitive Inspector: control points as points, segments as edges, one face per curve (Martino).
+- 13/10/2026: a face's or an edge's points are one array attribute, `indices`, in the Primitive Inspector (Martino).
+- 13/10/2026: the Corner tab lists polygon corners with `ptIndex`, the point each belongs to (Martino).
