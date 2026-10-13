@@ -5,3 +5,7 @@ _site/
 /examples/ragdoll/*.fbx
 !/examples/ragdoll/car.fbx
 .DS_Store
+
+# Archives and patches made for sharing, never committed
+*.zip
+*.patch
