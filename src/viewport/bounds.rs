@@ -14,7 +14,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 
-use bevy::math::{Mat4, Vec3};
+use glam::{Mat4, Vec3};
 
 use crate::types::{MeshData, NamedMesh, SceneHierarchy};
 use crate::usd_scene::StageTree;

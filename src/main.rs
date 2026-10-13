@@ -2,6 +2,7 @@ mod core;
 mod shell;
 mod app;
 mod eframe_app;
+mod viewer;
 mod types;
 mod node_graph;
 mod scene_explorer;
@@ -242,20 +243,20 @@ fn dcc_ui(
     mut nav_settings: ResMut<viewport::nav::NavSettings>,
     time:           Res<Time>,
 ) {
-    draw_ui(contexts.ctx_mut(), &mut app, &mut poly_tool, &mut nav_settings, time.delta_seconds_f64(), false);
+    draw_ui(contexts.ctx_mut(), &mut app, &mut poly_tool, &mut nav_settings, time.delta_seconds_f64(), None);
 }
 
 /// The whole interface for one frame: menus, the dock and every pane, the
 /// file browser and the Viewer's navigation menu. The same in any shell.
-/// `viewer_placeholder`: the shell does not draw the 3D view yet, so the
-/// Viewer pane says so instead of leaving a hole.
+/// `viewer`: the Viewer's 3D view when the interface draws it (eframe);
+/// `None` when the shell draws it behind the interface (Bevy).
 pub(crate) fn draw_ui(
     ctx:            &mut egui::Context,
     app:            &mut AppState,
     poly_tool:      &mut modelling::PolyTool,
     nav_settings:   &mut viewport::nav::NavSettings,
     dt:             f64,
-    viewer_placeholder: bool,
+    viewer:         Option<&mut viewer::Viewer>,
 ) {
     let AppState {
         graph, stack, hierarchy, subnets, nav, vp_rect, prim_state, playback, browser, graph_file,
@@ -448,7 +449,7 @@ pub(crate) fn draw_ui(
             nav: &mut *nav, vp_rect: &mut *vp_rect, prim_state: &mut *prim_state, playback: &mut *playback,
             browser: &mut *browser, graph_file: &mut *graph_file, poly_tool: &mut *poly_tool,
             batch: &batch, anim_ctx: &anim_ctx, timeline_state: &timeline_state,
-            dt, keys_free, viewer_placeholder,
+            dt, keys_free, viewer, nav_settings: *nav_settings,
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0, locked, toggle_float: &mut toggle_float, tab_pressed: &mut tab_pressed,
             uv_state: &mut *uv_state, history: &mut *history,
@@ -675,8 +676,9 @@ struct Panes<'a> {
     uv_state:       &'a mut uv_editor::UvEditorState,
     history:        &'a mut history::History,
     confirm:        &'a mut Confirm,
-    /// The shell does not draw the 3D view yet: say so in the Viewer.
-    viewer_placeholder: bool,
+    /// The Viewer's 3D view, when the interface draws it (eframe).
+    viewer:         Option<&'a mut viewer::Viewer>,
+    nav_settings:   viewport::nav::NavSettings,
 }
 
 impl egui_dock::TabViewer for Panes<'_> {
@@ -696,17 +698,16 @@ impl egui_dock::TabViewer for Panes<'_> {
     // Panes scroll their own content where they need to.
     fn scroll_bars(&self, _tab: &Pane) -> [bool; 2] { [false, false] }
     // The 3D view is drawn by the camera behind the interface.
-    fn clear_background(&self, tab: &Pane) -> bool { *tab != Pane::Viewer || self.viewer_placeholder }
+    fn clear_background(&self, tab: &Pane) -> bool { *tab != Pane::Viewer || self.viewer.is_some() }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Pane) {
         match tab {
             Pane::Viewer => {
                 self.vp_rect.0 = Some(ui.max_rect());
-                if self.viewer_placeholder {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(egui::RichText::new(format!(
-                            "The Viewer's 3D view moves to wgpu in the next stage of the eframe rework.\nInterface scale: {:.2} (pixels per point on this screen)",
-                            ui.ctx().pixels_per_point())).weak());
+                if let Some(v) = self.viewer.as_deref_mut() {
+                    v.show(ui, viewer::ViewerInput {
+                        graph: &*self.graph, subnets: &*self.subnets, hierarchy: &*self.hierarchy,
+                        playback: &mut *self.playback, revision: self.revision, nav: self.nav_settings,
                     });
                 }
             }

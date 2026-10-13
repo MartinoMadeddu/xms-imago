@@ -83,7 +83,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 - **Instancing:** a mesh with more than 64 copies is one entity with a GPU instance buffer of matrices and colours, uploaded once per change. Fewer copies are drawn as entities with full materials.
 - **Curves and points:** curves are evaluated to polylines at draw time (their control points are kept); points are drawn as crosses sized by width.
 - **Redraws on demand:** input, a change, playback, background jobs. An idle window costs nothing.
-- **Current renderer:** Bevy. It is being replaced by eframe + wgpu (§10). Bevy is already confined to the shell: `main.rs`, `modelling.rs`, `viewport/` and `shell.rs` (components, and `AppState`, the program's whole state, held as one resource). Everything else uses `glam` and `egui` directly. The interface and the per-frame state work (undo, revision, questions before closing, Operator Stack, Scene Explorer) are plain functions in `main.rs` (`draw_ui`, `history_frame`, `track_revision_frame`, `save_first_frame`, `refresh_*`), called by the Bevy systems and by the eframe shell alike. `XMS_SHELL=eframe cargo run` runs the program under eframe: the whole interface, the Viewer's 3D view still to come.
+- **Current renderer:** Bevy. It is being replaced by eframe + wgpu (§10). Bevy is already confined to the shell: `main.rs`, `modelling.rs`, `viewport/` and `shell.rs` (components, and `AppState`, the program's whole state, held as one resource). Everything else uses `glam` and `egui` directly. The interface and the per-frame state work (undo, revision, questions before closing, Operator Stack, Scene Explorer) are plain functions in `main.rs` (`draw_ui`, `history_frame`, `track_revision_frame`, `save_first_frame`, `refresh_*`), called by the Bevy systems and by the eframe shell alike. `XMS_SHELL=eframe cargo run` runs the program under eframe: the whole interface, the Viewer's 3D view drawn with wgpu by `src/viewer/` (its own picture with depth and 4x multisampling, made in linear light, laid into the pane by egui's paint callback).
 
 ## 8. ICE
 
@@ -135,6 +135,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 |---|---|
 | `src/app.rs` | `AppState`: the program's whole state (graph, ICE graphs, panes, files, undo), owned by the shell |
 | `src/eframe_app.rs` | the eframe shell taking over from Bevy: owns `AppState`, draws the interface with the same code (`XMS_SHELL=eframe`) |
+| `src/viewer/` | the Viewer's 3D view on wgpu (eframe shell): camera and navigation, the scene from the graph's output, the GPU picture laid into the pane |
 | `src/shell.rs` | what ties the program to Bevy until the eframe rework: components, and `AppState` as one resource |
 | `src/core/xform.rs` | `Transform` (translation, rotation, scale) for clips, on glam |
 | `crates/xms-scene`, `crates/xms-usd` | scene layer, USD → scene layer translation (forked from rray) |

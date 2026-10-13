@@ -6418,6 +6418,7 @@ version = "0.1.5"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bytemuck",
  "eframe",
  "egui",
  "egui_dock",

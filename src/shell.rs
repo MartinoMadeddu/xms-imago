@@ -24,3 +24,4 @@ pub struct GroundGrid;
 
 // The program's state, held by Bevy as one resource for now.
 impl Resource for crate::app::AppState {}
+impl Resource for crate::viewport::nav::NavSettings {}

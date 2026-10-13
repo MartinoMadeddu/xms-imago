@@ -1,6 +1,6 @@
-//! The eframe shell (stage 1 of the eframe rework): a window run by eframe,
-//! with the whole interface drawn by the same code as under Bevy. The
-//! Viewer's 3D view is not drawn yet (stage 2); its pane says so.
+//! The eframe shell: a window run by eframe, with the whole interface drawn
+//! by the same code as under Bevy, and the Viewer's 3D view on wgpu
+//! (`crate::viewer`).
 //!
 //! Run it with `XMS_SHELL=eframe cargo run`. Without it, Bevy runs the
 //! program as before.
@@ -10,11 +10,16 @@ use std::time::{Duration, Instant};
 use crate::app::AppState;
 use crate::{modelling, theme, viewport};
 
+/// Multisampling of the interface's pass; the Viewer's picture is laid into
+/// it, so its pipeline has to match.
+const EGUI_SAMPLES: u16 = 4;
+
 /// The program under eframe.
 pub struct ImagoApp {
     app:          AppState,
     poly_tool:    modelling::PolyTool,
     nav_settings: viewport::nav::NavSettings,
+    viewer:       crate::viewer::Viewer,
     /// The graph's content hash last seen (revision tracking).
     last_hash:    Option<u64>,
     /// The revision the Operator Stack and Scene Explorer were last built at.
@@ -29,6 +34,9 @@ pub struct ImagoApp {
 impl ImagoApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::init(&cc.egui_ctx);
+        if let Some(render_state) = cc.wgpu_render_state.as_ref() {
+            crate::viewer::install(render_state, EGUI_SAMPLES as u32);
+        }
         // eframe draws egui into a gamma-space target, as egui intends, where
         // `bevy_egui` drew into Bevy's sRGB target: edges came out a touch
         // softer there. A slightly wider feathering brings shapes (wires,
@@ -38,6 +46,7 @@ impl ImagoApp {
             app:          AppState::default(),
             poly_tool:    modelling::PolyTool::default(),
             nav_settings: viewport::nav::NavSettings::default(),
+            viewer:       crate::viewer::Viewer::default(),
             last_hash:    None,
             seen_stack:   0,
             seen_scene:   0,
@@ -56,7 +65,7 @@ impl eframe::App for ImagoApp {
 
         // The same order as the Bevy systems: the interface, undo, what
         // changed, questions before closing, then what the panes show.
-        crate::draw_ui(&mut ctx, &mut self.app, &mut self.poly_tool, &mut self.nav_settings, dt, true);
+        crate::draw_ui(&mut ctx, &mut self.app, &mut self.poly_tool, &mut self.nav_settings, dt, Some(&mut self.viewer));
         crate::history_frame(&mut ctx, &mut self.app);
         crate::track_revision_frame(&ctx, &mut self.app, &mut self.last_hash);
 
@@ -96,7 +105,7 @@ pub fn run() -> eframe::Result<()> {
         viewport,
         renderer: eframe::Renderer::Wgpu,
         // Smoother wires and outlines, as under Bevy (4 samples there).
-        multisampling: 4,
+        multisampling: EGUI_SAMPLES,
         ..Default::default()
     };
     eframe::run_native("XMS | Imago", options, Box::new(|cc| Ok(Box::new(ImagoApp::new(cc)))))

@@ -128,3 +128,5 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 13/10/2026: from Martino's eframe rework, stage 0: "One shell, being replaced" added; Bevy kept to the shell files. The Gaffer credit removed and the contexts named Object, Point, Face, Corner, as Martino decided (11/10 and 12/10/2026).
 - 13/10/2026: eframe rework, stage 0b: the program's state gathered into `AppState`, which Bevy holds as one resource; the template-opens-solved test removed (a known mismatch with the shipped solve, Martino).
 - 13/10/2026: eframe rework, stage 1: the interface and the per-frame state work are plain functions; an eframe shell runs them (`XMS_SHELL=eframe`), Bevy still the default until the Viewer is drawn with wgpu.
+- 13/10/2026: eframe rework, stage 2a: the Viewer's 3D view on wgpu in the eframe shell (grid, shaded, wireframe, hidden line, boxes, curves and points, instancing, navigation); textures, overlays and picking to follow.
+- 13/10/2026: Viewer on wgpu: reversed, infinite depth as Bevy had, so the grid stays behind models; polygon edges drawn as instanced lines at every copy, so Wireframe and Hidden Line work on instancers too.
