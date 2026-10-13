@@ -31,11 +31,11 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - A feature comes with its template and the demo files it needs, packaged in `examples/`. A model too big for the repository (the Moana Island scene, say) is not packaged: its template asks whether to download it from where it is published, and says where from.
 - A node that does not exist yet is sketched in the graph: a Placeholder with named inputs and outputs and a description of what it should do, data going through unchanged. The saved graph is how a new node is asked for.
 - An ICE node runs its ICE graph on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
-- Where a known tool already has a convention, follow it: ICE graphs drawn and navigated after Softimage ICE, the Viewer drawing what the Scene Explorer opens as in Gaffer, edits between two nodes as stacked layers as in Solaris.
+- Where a known tool already has a convention, follow it: ICE graphs drawn and navigated after Softimage ICE (loosely modelled after Softimage ICE and Houdini VOPs), edits between two nodes as stacked layers as in Solaris. The Viewer drawing what the Scene Explorer opens is Imago's own, not credited to another program (Martino).
 
 ## One geometry model
 
-- Packed primitives, the nodes and ICE share one geometry: `Geo`, a topology and named attribute columns per context (object, point, primitive, corner), matching USD's interpolations.
+- Packed primitives, the nodes and ICE share one geometry: `Geo`, a topology and named attribute columns per context (Object, Point, Face, Corner), matching USD's interpolations.
 - Names follow USD (`points`, `normals`, `st`, `displayColor`, `widths`), so reading and writing USD is one to one. Interfaces can show friendlier names on top.
 - Replace only the columns you change. Columns are shared and copied only when written; never rebuild a whole `Geo` to change one thing.
 - Keep primitives placed. Geometry stays in its own space; a primitive moves by its placement, not its points.
@@ -97,6 +97,10 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Only the rows in view are laid out. The window draws a frame when something happens, not all the time.
 - Long work runs in the background, in chunks, written to disk as it goes, and is found again by the content it was made from.
 
+## One shell, being replaced
+
+- Bevy is the program's shell until the eframe + wgpu rework is done (Martino, branch `core/uiframework`). Outside `main.rs`, `modelling.rs`, `viewport/` and `shell.rs`, code uses `glam` and `egui` directly, never Bevy: new code keeps to that, so the shell can be swapped without touching it.
+
 ## Say what is true
 
 - Documentation states what the program does, measured where it can be. Every page has a "Not done yet" list.
@@ -121,3 +125,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 12/10/2026: the Placeholder node, for asking for a node in the graph itself; Write FBX solves Body Collide upstream for each file it writes (Simon).
 - 12/10/2026: read from Martino's commits: `VOCABULARY.md` and the vocabulary applied across the program and docs; pointed to under "The same words for the same things", and this file brought into it.
 - 12/10/2026: "Like any other program" added: a menu bar at the top left, and questions before losing changes or writing over a file (Simon). FBX only for meshes and characters, the `.xmsclip` and `.xmsmesh` formats removed; the rest pose is the skeleton, so a Transform carries through Retarget (Simon).
+- 13/10/2026: from Martino's eframe rework, stage 0: "One shell, being replaced" added; Bevy kept to the shell files. The Gaffer credit removed and the contexts named Object, Point, Face, Corner, as Martino decided (11/10 and 12/10/2026).

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use crate::types::{MainCamera, GeneratedMesh, ViewportRect};
+use crate::shell::{MainCamera, GeneratedMesh, ViewportRect};
 use super::nav::{Held, NavAction, NavSettings, NavStyle};
 
 #[derive(Resource, Default)]

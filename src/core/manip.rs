@@ -1,7 +1,7 @@
 //! Maths of the viewport manipulators: where the handles are, which one is
 //! under the cursor, and what a drag means. No Bevy systems here.
 
-use bevy::math::{Quat, Vec2, Vec3};
+use glam::{Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use super::poly::PickView;
@@ -147,7 +147,7 @@ pub fn compose(base: (Vec3, Quat, Vec3), delta: Delta) -> (Vec3, Quat, Vec3) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::math::Mat4;
+    use glam::Mat4;
 
     fn camera(eye: Vec3) -> PickView {
         let size = Vec2::new(800.0, 600.0);

@@ -16,6 +16,7 @@ pub mod skin;
 pub mod pattern;
 pub mod uv;
 pub mod manip;
+pub mod xform;
 /// The geometry model of packed primitives, the nodes and ICE: typed
 /// attribute columns per context.
 pub mod geo;

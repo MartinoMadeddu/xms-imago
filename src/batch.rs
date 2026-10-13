@@ -5,7 +5,6 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use bevy::prelude::Resource;
 
 use crate::fbx_loader::list_fbx;
 use crate::fbx_writer::{resolve_path, write_fbx};
@@ -22,7 +21,7 @@ pub struct Progress {
     pub log:     Vec<String>,
 }
 
-#[derive(Resource, Default, Clone)]
+#[derive(Default, Clone)]
 pub struct BatchState(pub Arc<Mutex<Progress>>);
 
 /// Every Write FBX node of the graph.
@@ -198,7 +197,7 @@ mod tests {
     use crate::fbx_loader::load_fbx;
     use crate::graph_io::mocap_split_template;
     use crate::types::{NodeType, SplitPick};
-    use bevy::math::Vec3;
+    use glam::Vec3;
 
     /// Whole pipeline on generated data: two characters in two files, split,
     /// written as animation and as skinned T-pose, for every file.
@@ -283,7 +282,7 @@ mod tests {
         let dir = std::env::temp_dir().join("xms_batch_collide_test");
         let _ = std::fs::remove_dir_all(&dir);
         let mut g = NodeGraphState::default();
-        let p = |x: f32, y: f32| bevy_egui::egui::pos2(x, y);
+        let p = |x: f32, y: f32| egui::pos2(x, y);
         // A clip no other test makes: its own rate and length.
         let walk = g.add_node("Walk".into(), NodeType::TestClip { seconds: 0.4, fps_num: 25, fps_den: 1 }, p(0.0, 0.0));
         let body = g.add_node("Body".into(), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(0.0, 100.0));
@@ -361,7 +360,7 @@ mod tests {
             for j in 0..mine.joints.len() {
                 assert_eq!(mine.joints[j].name, refr.joints[j].name);
                 assert!(close(pa[j].w_axis.truncate(), pb[j].w_axis.truncate(), 1e-5), "{}", mine.joints[j].name);
-                assert!(mine.local(j, 0).rotation.angle_between(bevy::math::Quat::IDENTITY) < 1e-5);
+                assert!(mine.local(j, 0).rotation.angle_between(glam::Quat::IDENTITY) < 1e-5);
             }
             let sa = ufbx::load_file(&format!("{dir}/split/{name}"), ufbx::LoadOpts::default()).unwrap();
             let sb = ufbx::load_file(&format!("{reference}/{name}"), ufbx::LoadOpts::default()).unwrap();

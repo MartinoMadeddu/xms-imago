@@ -1,4 +1,4 @@
-use bevy::prelude::{EulerRot, Quat, Vec3};
+use glam::{EulerRot, Quat, Vec3};
 use crate::types::{EvalResult, MeshData, NamedMesh, NodeType, Placement, RetimeMode, SubnetId};
 use crate::core::anim::{self, AnimData, FrameRate};
 use std::sync::Arc;
@@ -417,8 +417,8 @@ pub fn create_grid(rows: u32, cols: u32, size: f32) -> MeshData {
 
 /// The matrix of a Transform node: scale, then rotation X, Y, Z (radians),
 /// then translation.
-pub fn transform_matrix(t: Vec3, r: Vec3, s: Vec3) -> bevy::math::Mat4 {
-    bevy::math::Mat4::from_scale_rotation_translation(s, Quat::from_euler(EulerRot::XYZ, r.x, r.y, r.z), t)
+pub fn transform_matrix(t: Vec3, r: Vec3, s: Vec3) -> glam::Mat4 {
+    glam::Mat4::from_scale_rotation_translation(s, Quat::from_euler(EulerRot::XYZ, r.x, r.y, r.z), t)
 }
 
 /// A skeleton scales the same on every axis: a clip takes the X scale.
@@ -455,7 +455,7 @@ pub fn transform(mesh: &MeshData, t: Vec3, r: Vec3, s: Vec3) -> MeshData {
 
 /// A mesh moved by a matrix: an instanced copy made into a mesh of its own.
 /// A mirroring matrix turns the faces round, so they keep facing out.
-pub fn place_mesh(mesh: &MeshData, m: &bevy::math::Mat4) -> MeshData {
+pub fn place_mesh(mesh: &MeshData, m: &glam::Mat4) -> MeshData {
     let mut out = MeshData {
         vertices:   mesh.vertices.iter().map(|v| m.transform_point3(Vec3::from_array(*v)).to_array()).collect(),
         indices:    mesh.indices.clone(),
@@ -649,7 +649,7 @@ mod packed_tests {
     /// Three unit cubes side by side, as packed primitives.
     fn packed() -> EvalResult {
         EvalResult::Named((0..3).map(|i| {
-            let mesh = transform(&create_cube(1.0), bevy::math::Vec3::new(i as f32 * 5.0, 0.0, 0.0), bevy::math::Vec3::ZERO, bevy::math::Vec3::ONE);
+            let mesh = transform(&create_cube(1.0), glam::Vec3::new(i as f32 * 5.0, 0.0, 0.0), glam::Vec3::ZERO, glam::Vec3::ONE);
             NamedMesh::new(format!("/car/{}", ["body", "wheel_L", "wheel_R"][i]), mesh)
         }).collect())
     }
@@ -658,7 +658,7 @@ mod packed_tests {
 
     #[test]
     fn transform_moves_instances_without_copying_their_mesh() {
-        use bevy::math::Mat4;
+        use glam::Mat4;
         let shared = Arc::new(create_cube(1.0));
         let copy = |x: f32| NamedMesh {
             mesh: shared.clone(),
@@ -679,7 +679,7 @@ mod packed_tests {
     #[test]
     fn a_mirrored_copy_keeps_its_faces_facing_out() {
         let cube = create_cube(1.0);
-        let mirrored = place_mesh(&cube, &bevy::math::Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
+        let mirrored = place_mesh(&cube, &glam::Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
         // Mirroring and turning the faces round gives the same normals, mirrored.
         let n = |m: &MeshData, t: usize| {
             let p = |k: usize| Vec3::from_array(m.vertices[m.indices[t * 3 + k] as usize]);
@@ -707,7 +707,7 @@ mod packed_tests {
     fn a_mesh_node_after_a_pick_changes_only_the_picked() {
         let input = packed();
         let picked = run(NodeType::PickPrims { pattern: "wheel".into() }, &input);
-        let lift = NodeType::Transform { translation: bevy::math::Vec3::new(0.0, 10.0, 0.0), rotation: bevy::math::Vec3::ZERO, scale: bevy::math::Vec3::ONE };
+        let lift = NodeType::Transform { translation: glam::Vec3::new(0.0, 10.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE };
         let out = run(lift.clone(), &picked);
         // The two wheels move, each staying a primitive of its own.
         let p = prims(&out);
@@ -723,7 +723,7 @@ mod packed_tests {
     #[test]
     fn a_placed_primitive_is_edited_in_its_own_space() {
         use crate::core::geo::{Context, Geo, POINTS, ST};
-        use bevy::math::Mat4;
+        use glam::Mat4;
         // A quad with UVs, placed ten units up, as a prim of a composed stage is.
         let mut geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]], vec![4], vec![0, 1, 2, 3]);
         geo.set(Context::Corner, ST, crate::core::geo::Attr::new(

@@ -2,8 +2,6 @@ pub mod nodes;
 pub mod ui;
 
 use std::collections::HashMap;
-use bevy::prelude::*;
-use bevy_egui::egui;
 use crate::types::{BodyView, ConnectionId, EvalResult, MeshData, NodeId, NodeType, SubnetId};
 use nodes::evaluate_node_type;
 
@@ -47,10 +45,10 @@ pub struct Connection {
 }
 
 // ============================================================================
-// NODE GRAPH STATE  (Bevy Resource)
+// NODE GRAPH STATE
 // ============================================================================
 
-#[derive(Resource, Clone)]
+#[derive(Clone)]
 pub struct NodeGraphState {
     pub nodes:               Vec<GraphNode>,
     pub connections:         Vec<Connection>,
@@ -104,7 +102,7 @@ impl Default for NodeGraphState {
 
 /// Counts changes to what the graph evaluates to or shows. Systems that
 /// cook the graph run when this changes, not on every frame.
-#[derive(bevy::prelude::Resource, Default)]
+#[derive(Default)]
 pub struct GraphRevision(pub u64);
 
 impl NodeGraphState {

@@ -14,7 +14,7 @@
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use bevy_egui::egui::{self, Color32, Stroke};
+use egui::{self, Color32, Stroke};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]

@@ -5,8 +5,7 @@ pub mod ops;
 pub mod ice_nodes;
 
 use std::collections::HashMap;
-use bevy::prelude::*;
-use bevy_egui::egui;
+use glam::Vec3;
 use crate::types::{
     ConnectionId, MeshData, NodeId, SubnetId,
     SubnetNodeType,
@@ -16,7 +15,7 @@ use ops::Attribute;
 use ops::{ExecutionContext, IceNode};  // ✅ Added IceNode trait import!
 use ice_nodes::*;
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct GraphNavigation {
     pub current_subnet: Option<SubnetId>,
 }
@@ -388,7 +387,7 @@ impl SubnetGraph {
 // SUBNET STORE  (unchanged)
 // ============================================================================
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct SubnetStore {
     pub subnets: HashMap<SubnetId, SubnetGraph>,
     pub next_id: usize,

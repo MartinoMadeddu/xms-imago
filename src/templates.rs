@@ -1,8 +1,7 @@
 //! Ready-made graphs, one for each area of the program. Picking one from
 //! the Templates menu replaces the current graph.
 
-use bevy::math::Vec3;
-use bevy_egui::egui;
+use glam::Vec3;
 
 use crate::core::poly::{ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
 use crate::examples;

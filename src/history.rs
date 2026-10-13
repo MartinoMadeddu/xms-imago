@@ -29,7 +29,6 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use bevy_egui::egui;
 
 use crate::node_graph::{Connection, GraphNode, NodeGraphState};
 use crate::types::{NodeId, NodeType};
@@ -206,7 +205,6 @@ pub struct Step {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Request { Undo, Redo, Jump(usize) }
 
-#[derive(bevy::prelude::Resource)]
 pub struct History {
     steps:   Vec<Option<Step>>,
     root:    usize,

@@ -1,4 +1,5 @@
 mod core;
+mod shell;
 mod types;
 mod node_graph;
 mod scene_explorer;
@@ -34,7 +35,8 @@ mod recent;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 
-use types::{MainCamera, GeneratedMesh, GroundGrid, MeshData, SceneHierarchy, SubnetId, ViewportRect, PrimInspectorState};
+use shell::{MainCamera, GeneratedMesh, GroundGrid, ViewportRect};
+use types::{MeshData, SceneHierarchy, SubnetId, PrimInspectorState};
 use node_graph::NodeGraphState;
 use scene_explorer::OperatorStack;
 use viewport::camera::{CameraOrbitState, camera_controller, focus_camera, draw_origin_label};
@@ -1544,8 +1546,8 @@ fn update_generated_meshes(
     mut commands: Commands,
     mut meshes:   ResMut<Assets<Mesh>>,
     mut mats:     ResMut<Assets<StandardMaterial>>,
-    query:        Query<Entity, (With<GeneratedMesh>, Without<types::PosedMesh>)>,
-    posed:        Query<Entity, With<types::PosedMesh>>,
+    query:        Query<Entity, (With<GeneratedMesh>, Without<shell::PosedMesh>)>,
+    posed:        Query<Entity, With<shell::PosedMesh>>,
     revision:     Res<node_graph::GraphRevision>,
     mut shown:    Local<Option<(f64, u64, u64)>>,
     mut images:   ResMut<Assets<Image>>,
@@ -1593,7 +1595,7 @@ fn update_generated_meshes(
                 ..default()
             },
             GeneratedMesh,
-            types::PosedMesh,
+            shell::PosedMesh,
         ));
     }
     if only_time { return; }

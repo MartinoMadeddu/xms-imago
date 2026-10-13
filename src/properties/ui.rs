@@ -6,8 +6,7 @@
 //! thing everywhere: Translate, Rotate and Scale for every transform, Path
 //! for every file, In and Out for what passes through.
 
-use bevy::prelude::Vec3;
-use bevy_egui::egui;
+use glam::Vec3;
 use std::sync::Arc;
 use crate::types::{BodyView, NodeId, NodeType, RetimeMode, SplitPick, node_type_icon, node_type_label};
 use crate::core::anim::{AnimData, FrameRate, PoseEdit, RATE_PRESETS};
@@ -15,7 +14,7 @@ use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
 use crate::batch::{self, BatchState};
 use crate::core::manip::Tool;
 use crate::core::poly::{collapse_all, collapse_op, eval_cached, push_op, restore_run, ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
-use bevy::math::{EulerRot, Quat};
+use glam::{EulerRot, Quat};
 use crate::node_graph::NodeGraphState;
 use crate::scene_explorer::OperatorStack;
 use crate::ice::{SubnetStore, GraphNavigation};

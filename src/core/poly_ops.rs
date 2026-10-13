@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::{Mat3, Quat, Vec3};
+use glam::{Mat3, Quat, Vec3};
 
 use super::poly::{edge_key, PolyMesh};
 

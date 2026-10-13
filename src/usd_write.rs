@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bevy::math::{DMat4, Mat4};
+use glam::{DMat4, Mat4};
 
 use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, POINTS, WIDTHS};
 use crate::edits::{edit_set, PrimEdit};
@@ -467,7 +467,7 @@ def Xform "set" {{
         let mut g = (**prims[0].geo.as_ref().unwrap()).clone();
         g.points_mut()[2] = [1.0, 1.0, 5.0];
         prims[0].geo = Some(Arc::new(g));
-        prims[1].place = prims[1].place.moved(Mat4::from_translation(bevy::math::Vec3::new(2.0, 0.0, 0.0)));
+        prims[1].place = prims[1].place.moved(Mat4::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)));
         let shown_b = prims[1].place.clone();
         prims.truncate(2);
 

@@ -1,7 +1,7 @@
 //! Math operations on attributes
 
 use crate::ice::ops::{Attribute, ExecutionContext, IceNode};
-use bevy::prelude::*;
+use glam::Vec3;
 
 // ============================================================================
 // ADD VEC3

@@ -158,7 +158,7 @@ mod tests {
     use crate::core::geo::{Attr, Column, Role, POINTS, ST};
     use crate::types::{MeshData, Source};
     use crate::usd_scene::StageNode;
-    use bevy::math::{Mat4, Vec3};
+    use glam::{Mat4, Vec3};
 
     fn node(path: &str, ty: &str) -> StageNode {
         StageNode { path: path.into(), name: path.rsplit('/').next().unwrap().into(), type_name: ty.into(), depth: 1, ..Default::default() }

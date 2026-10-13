@@ -1,4 +1,3 @@
-use bevy_egui::egui;
 use crate::node_graph::NodeGraphState;
 use crate::types::{NodeId, SceneHierarchy, SceneObjectId};
 use super::OperatorStack;
@@ -6,7 +5,7 @@ use super::OperatorStack;
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn PANEL_BG() -> Color32 { crate::theme::c(118, 118, 118) }
     pub fn HEADER() -> Color32 { crate::theme::c(248, 248, 248) }
     pub fn NAME() -> Color32 { crate::theme::c(238, 238, 238) }

@@ -1,5 +1,4 @@
-use bevy::prelude::Vec3;
-use bevy_egui::egui;
+use glam::Vec3;
 use std::collections::HashSet;
 use crate::types::{ConnectionId, NodeId, SubnetNodeType};
 use super::{SubnetGraph, SubnetNode};
@@ -32,7 +31,7 @@ const WIRE_W:   f32 = 1.6;
 
 mod pal {
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     // ICE's own look, the same in both themes.
     pub fn BG() -> Color32 { Color32::from_rgb(170, 170, 170) }
     pub fn GRID() -> Color32 { Color32::from_rgb(161, 161, 161) }
@@ -181,7 +180,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut SubnetGraph) {
     match &mut node.node_type {
         SubnetNodeType::ConstVec3 { value } => group(ui, "Value", None, |f| {
             let mut v = value.to_array();
-            if f.xyz("Value", None, &mut v, 0.01, "") { *value = bevy::math::Vec3::from_array(v); }
+            if f.xyz("Value", None, &mut v, 0.01, "") { *value = glam::Vec3::from_array(v); }
         }),
         SubnetNodeType::ConstFloat { value } => group(ui, "Value", None, |f| { f.drag("Value", None, value, 0.01, ""); }),
         SubnetNodeType::ConstInt { value } => group(ui, "Value", None, |f| {

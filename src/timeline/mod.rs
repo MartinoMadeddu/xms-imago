@@ -8,7 +8,6 @@
 pub mod ui;
 
 use std::sync::Arc;
-use bevy::prelude::Resource;
 
 use crate::core::anim::AnimData;
 use crate::node_graph::NodeGraphState;
@@ -16,7 +15,6 @@ use crate::node_graph::NodeGraphState;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RulerUnit { Frames, Timecode }
 
-#[derive(Resource)]
 pub struct Playback {
     /// Playhead on the timecode axis, in seconds (see `frame_to_tc_seconds`).
     /// Not a frame number, so it stays on the same timecode when the

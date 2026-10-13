@@ -12,7 +12,8 @@ use crate::core::manip::{self, Handle, Tool, AXES, RING_STEPS};
 use crate::core::poly::{self, eval_cached, Component as Picked, PickMode, PickView, PolyMesh, PolyOp, PolyOpKind, PolySelection, SubLevel};
 use crate::ice::SubnetStore;
 use crate::node_graph::NodeGraphState;
-use crate::types::{MainCamera, MeshData, NodeId, NodeType, SubnetId};
+use crate::shell::MainCamera;
+use crate::types::{MeshData, NodeId, NodeType, SubnetId};
 
 /// Gizmo settings for the modelling overlay. Unlike the skeleton, which is
 /// drawn over everything, the wireframe is hidden by geometry in front of it.
@@ -162,7 +163,7 @@ pub fn pick_system(
     keys:         Res<ButtonInput<KeyCode>>,
     mut contexts: EguiContexts,
     nav:          Res<crate::viewport::nav::NavSettings>,
-    vp_rect:      Res<crate::types::ViewportRect>,
+    vp_rect:      Res<crate::shell::ViewportRect>,
     mut tool:     ResMut<PolyTool>,
     mut drag:     Local<Drag>,
 ) {

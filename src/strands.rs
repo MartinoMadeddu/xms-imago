@@ -6,7 +6,7 @@
 //! polylines only to be drawn, a few steps per segment. Points are drawn as
 //! small crosses, their width when they have one.
 
-use bevy::math::Vec3;
+use glam::Vec3;
 
 use crate::types::{CurveBasis, CurveWrap, MeshData};
 

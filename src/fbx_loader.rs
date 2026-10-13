@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
-use bevy::math::{Mat4, Quat, Vec3};
-use bevy::prelude::Transform;
+use glam::{Mat4, Quat, Vec3};
+use crate::core::xform::Transform;
 
 use crate::core::anim::{AnimData, FileSpace, FrameRate, Joint, SkinMesh, Track};
 use crate::types::MeshData;

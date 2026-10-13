@@ -1,5 +1,4 @@
-use bevy::prelude::Vec3;
-use bevy_egui::egui;
+use glam::Vec3;
 use crate::types::{ConnectionId, NodeId, NodeType, RetimeMode, SubnetId, node_type_icon};
 use super::{GraphNode, NodeGraphState};
 
@@ -13,7 +12,7 @@ const NODE_ROUNDING:   f32 = 5.0;
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn BG() -> Color32 { crate::theme::c(100, 100, 100) }
     pub fn GRID() -> Color32 { crate::theme::c( 90,  90,  90) }
     pub fn NODE_BODY() -> Color32 { crate::theme::raised(130, 130, 130) }

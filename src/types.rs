@@ -1,27 +1,4 @@
-use bevy::prelude::*;
-use bevy_egui::egui;
-
-// ============================================================================
-// BEVY COMPONENTS
-// ============================================================================
-
-#[derive(Component)]
-pub struct MainCamera;
-
-#[derive(Component)]
-pub struct GeneratedMesh;
-
-/// A generated mesh that follows the playhead: rebuilt when time moves,
-/// while the others stay as they are.
-#[derive(Component)]
-pub struct PosedMesh;
-
-#[derive(Component)]
-pub struct GroundGrid;
-
-/// Tracks the screen rect available for the 3D viewport (excluding egui panels).
-#[derive(Resource, Default)]
-pub struct ViewportRect(pub Option<egui::Rect>);
+use glam::Vec3;
 
 // ============================================================================
 // SHARED IDs
@@ -46,7 +23,7 @@ pub struct SceneObjectId(pub usize);
 
 /// Vec3 stored as a plain array in saved graphs.
 mod vec3_array {
-    use bevy::math::Vec3;
+    use glam::Vec3;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub fn serialize<S: Serializer>(v: &Vec3, s: S) -> Result<S::Ok, S::Error> {
         v.to_array().serialize(s)
@@ -541,7 +518,7 @@ impl MeshData {
     /// more than 40 degrees and smooth shading elsewhere, so a box looks like
     /// a box and a sphere like a sphere.
     pub fn render_buffers(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<u32>) {
-        use bevy::math::Vec3;
+        use glam::Vec3;
         if self.polys.is_empty() {
             let normals = if self.normals.len() == self.vertices.len() {
                 self.normals.clone()
@@ -584,7 +561,7 @@ impl MeshData {
     /// Compute flat (per-triangle) normals and store them as a Vertex primvar.
     /// Called by generators after building geometry.
     pub fn compute_normals(&mut self) {
-        use bevy::math::Vec3;
+        use glam::Vec3;
         let n = self.vertices.len();
         let mut normals = vec![Vec3::ZERO; n];
         let mut counts  = vec![0u32; n];
@@ -698,9 +675,9 @@ pub enum Placement {
     #[default]
     InPlace,
     /// One copy of a shared mesh.
-    One(bevy::math::Mat4),
+    One(glam::Mat4),
     /// Many copies of a shared mesh.
-    Many(std::sync::Arc<[bevy::math::Mat4]>),
+    Many(std::sync::Arc<[glam::Mat4]>),
 }
 
 impl Placement {
@@ -712,12 +689,12 @@ impl Placement {
     }
 
     /// The placements, empty when the mesh is in place.
-    pub fn matrices(&self) -> &[bevy::math::Mat4] {
+    pub fn matrices(&self) -> &[glam::Mat4] {
         match self { Placement::InPlace => &[], Placement::One(m) => std::slice::from_ref(m), Placement::Many(m) => &m[..] }
     }
 
     /// Every copy moved by `m` afterwards.
-    pub fn moved(&self, m: bevy::math::Mat4) -> Placement {
+    pub fn moved(&self, m: glam::Mat4) -> Placement {
         match self {
             Placement::InPlace => Placement::InPlace,
             Placement::One(x) => Placement::One(m * *x),
@@ -916,7 +893,7 @@ impl EvalResult {
 }
 
 // ============================================================================
-// PRIMITIVE INSPECTOR STATE  (Bevy Resource)
+// PRIMITIVE INSPECTOR STATE
 // ============================================================================
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -945,7 +922,7 @@ pub struct InspectorTable {
     pub cols:   Vec<(String, Vec<Vec<f32>>)>,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct PrimInspectorState {
     pub active_tab:   PrimInspectorTab,
     pub row_offset:   usize,
@@ -1011,7 +988,7 @@ impl PrimInspectorState {
 }
 
 // ============================================================================
-// SCENE HIERARCHY  (Bevy Resource)
+// SCENE HIERARCHY
 // ============================================================================
 
 /// Pick a display icon based on the prim name and whether it has children.
@@ -1066,7 +1043,7 @@ pub struct SceneObject {
     pub stage_path:   Option<String>,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct SceneHierarchy {
     pub objects:            Vec<SceneObject>,
     pub selected:           Option<SceneObjectId>,

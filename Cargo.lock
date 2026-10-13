@@ -5928,8 +5928,10 @@ version = "0.1.5"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "egui",
  "egui_dock",
  "flate2",
+ "glam 0.27.0",
  "image",
  "openusd 0.1.4",
  "regex",

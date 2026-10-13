@@ -18,6 +18,10 @@ xms-usd   = { path = "crates/xms-usd" }
 
 bevy = "0.14"
 bevy_egui = "0.28"
+# Used directly everywhere outside the shell, at the versions Bevy and
+# bevy_egui bring, so the types are the same ones.
+glam = { version = "0.27", features = ["serde"] }
+egui = "0.28"
 # Pure-Rust OpenUSD: .usda/.usdc/.usdz with composition
 openusd = "0.1.4"
 ufbx = "0.11"

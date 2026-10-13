@@ -4,7 +4,6 @@
 //! place, stacked, or pulled out as floating windows. The layout is kept in
 //! the config folder and restored at the next start.
 
-use bevy::prelude::Resource;
 use egui_dock::{DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
 
@@ -47,7 +46,7 @@ pub enum Edge { Left, Right, Top, Bottom }
 
 impl Edge {
     /// The edge within `reach` of a point, if any. The nearest one wins.
-    pub fn near(screen: bevy_egui::egui::Rect, p: bevy_egui::egui::Pos2, reach: f32) -> Option<Edge> {
+    pub fn near(screen: egui::Rect, p: egui::Pos2, reach: f32) -> Option<Edge> {
         [
             (Edge::Left, p.x - screen.left()), (Edge::Right, screen.right() - p.x),
             (Edge::Top, p.y - screen.top()), (Edge::Bottom, screen.bottom() - p.y),
@@ -60,7 +59,7 @@ impl Edge {
     }
 
     /// The strip of the window a pane docked on this edge will take.
-    pub fn strip(self, screen: bevy_egui::egui::Rect) -> bevy_egui::egui::Rect {
+    pub fn strip(self, screen: egui::Rect) -> egui::Rect {
         let (w, h) = (screen.width() * self.share(), screen.height() * self.share());
         let mut r = screen;
         match self {
@@ -73,7 +72,6 @@ impl Edge {
     }
 }
 
-#[derive(Resource)]
 pub struct Layout {
     pub dock:   DockState<Pane>,
     /// Locked: tabs cannot be moved, floated or closed. Dividers still resize.
@@ -164,7 +162,7 @@ impl Layout {
     pub fn reset(&mut self) { self.dock = default_dock(); }
 
     /// Content rectangle of a floating window, once it has been drawn.
-    fn window_rect(&self, surface: usize) -> Option<bevy_egui::egui::Rect> {
+    fn window_rect(&self, surface: usize) -> Option<egui::Rect> {
         let tree = self.dock.get_surface(egui_dock::SurfaceIndex(surface))?.node_tree()?;
         let r = tree.root_node()?.rect()?;
         (r.is_finite() && r.width() > 1.0 && r.height() > 1.0).then_some(r)
@@ -184,8 +182,8 @@ impl Layout {
         for i in self.windows() {
             let Some(r) = self.window_rect(i) else { continue };
             if let Some(state) = self.dock.get_window_state_mut(egui_dock::SurfaceIndex(i)) {
-                state.set_position(r.min - bevy_egui::egui::vec2(7.0, 24.0));
-                state.set_size(r.size() + bevy_egui::egui::vec2(0.0, CLOSE_BAR));
+                state.set_position(r.min - egui::vec2(7.0, 24.0));
+                state.set_size(r.size() + egui::vec2(0.0, CLOSE_BAR));
             }
             self.sized.push(i);
         }
@@ -199,7 +197,7 @@ impl Layout {
         for i in &now {
             if self.sized.contains(i) { continue; }
             if let Some(state) = self.dock.get_window_state_mut(egui_dock::SurfaceIndex(*i)) {
-                state.set_size(bevy_egui::egui::vec2(440.0, 480.0));
+                state.set_size(egui::vec2(440.0, 480.0));
             }
         }
         self.sized = now;
@@ -396,7 +394,7 @@ mod tests {
 
     #[test]
     fn panes_dock_along_a_whole_edge() {
-        use bevy_egui::egui::{pos2, Rect};
+        use egui::{pos2, Rect};
         let screen = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 800.0));
         assert_eq!(Edge::near(screen, pos2(500.0, 795.0), 30.0), Some(Edge::Bottom));
         assert_eq!(Edge::near(screen, pos2(4.0, 400.0), 30.0), Some(Edge::Left));

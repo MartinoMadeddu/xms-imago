@@ -141,7 +141,7 @@ pub fn write_all(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::math::Vec3;
+    use glam::Vec3;
     use crate::core::poly::PolyMesh;
 
     #[test]

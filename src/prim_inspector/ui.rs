@@ -1,4 +1,3 @@
-use bevy_egui::egui;
 use crate::core::anim::AnimData;
 use crate::types::{InspectorTable, MeshData, PrimInspectorState, PrimInspectorTab, PrimVarInterp};
 use crate::node_graph::NodeGraphState;
@@ -13,7 +12,7 @@ const MAX_ROWS:   usize = 200; // max rows rendered at once (virtual scroll)
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn BG() -> Color32 { crate::theme::c(72, 72, 72) }
     pub fn HEADER_BG() -> Color32 { crate::theme::c(58, 58, 58) }
     pub fn ROW_EVEN() -> Color32 { crate::theme::c(72, 72, 72) }
@@ -176,7 +175,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
         _ => {
             let n = clip.joints.len();
             let euler = |j: usize| {
-                let (x, y, z) = clip.local(j, frame).rotation.to_euler(bevy::math::EulerRot::XYZ);
+                let (x, y, z) = clip.local(j, frame).rotation.to_euler(glam::EulerRot::XYZ);
                 vec![x.to_degrees(), y.to_degrees(), z.to_degrees()]
             };
             InspectorTable {
@@ -195,7 +194,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
 
 /// One component tab of a mesh.
 pub fn mesh_table(mesh: &MeshData, tab: &PrimInspectorTab) -> InspectorTable {
-    use bevy::math::Vec3;
+    use glam::Vec3;
     let vars = |interp: PrimVarInterp| mesh.primvars.iter().filter(move |p| p.interp == interp);
     let p = |v: u32| Vec3::from_array(mesh.vertices[v as usize]);
     let (rows, cols): (usize, Vec<(String, Vec<Vec<f32>>)>) = match tab {

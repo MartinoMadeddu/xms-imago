@@ -7,7 +7,6 @@
 
 use std::path::Path;
 
-use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 
 use crate::ice::SubnetStore;
@@ -102,7 +101,7 @@ fn upgrade(saved: &mut SavedGraph) {
             }
         }
     }
-    use bevy::math::{EulerRot, Quat, Vec3};
+    use glam::{EulerRot, Quat, Vec3};
     for n in saved.nodes.iter_mut() {
         if let NodeType::TransformClip { translate, rotate, scale } = n.node_type.clone() {
             let q = Quat::from_euler(EulerRot::YXZ, rotate[1].to_radians(), rotate[0].to_radians(), rotate[2].to_radians());
@@ -384,8 +383,8 @@ mod tests {
         let mut g = NodeGraphState::default();
         let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(0.0, 0.0));
         let xf = g.add_node("Xf".into(), NodeType::Transform {
-            translation: bevy::math::Vec3::new(5.0, 0.0, 0.0),
-            rotation: bevy::math::Vec3::ZERO, scale: bevy::math::Vec3::ONE,
+            translation: glam::Vec3::new(5.0, 0.0, 0.0),
+            rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE,
         }, egui::pos2(0.0, 0.0));
         g.add_connection(cube, 0, xf, 0);
         let pass = |_: crate::types::SubnetId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
@@ -410,8 +409,8 @@ mod tests {
         mocap_split_template(&mut g);
         let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(1.0, 2.0));
         let xf = g.add_node("Xf".into(), NodeType::Transform {
-            translation: bevy::math::Vec3::new(1.0, 2.0, 3.0),
-            rotation: bevy::math::Vec3::ZERO, scale: bevy::math::Vec3::ONE,
+            translation: glam::Vec3::new(1.0, 2.0, 3.0),
+            rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE,
         }, egui::pos2(5.0, 6.0));
         g.add_connection(cube, 0, xf, 0);
         g.toggle_bypass(xf);
@@ -680,7 +679,7 @@ mod tests {
         assert_eq!(out.inputs[0].connected_output, Some((NodeId(4), 0)), "Output is wired to Body Collide now");
         // Same motion as the old Transform Clip.
         let old = crate::core::anim::create_test_clip(1.0, crate::core::anim::FrameRate::new(30, 1))
-            .transformed(bevy::math::Vec3::new(1.0, 0.0, 0.0), bevy::math::Vec3::new(0.0, 90.0, 0.0), 2.0);
+            .transformed(glam::Vec3::new(1.0, 0.0, 0.0), glam::Vec3::new(0.0, 90.0, 0.0), 2.0);
         let new = g.eval_anim(NodeId(3)).unwrap();
         for f in [0, 11] {
             let (a, b) = (old.world_pose(f), new.world_pose(f));

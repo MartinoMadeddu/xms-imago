@@ -5,8 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-use bevy::prelude::Resource;
-use bevy_egui::egui;
 
 use crate::types::NodeId;
 
@@ -52,7 +50,6 @@ struct Request {
     replacing: Option<PathBuf>,
 }
 
-#[derive(Resource)]
 pub struct FileBrowser {
     dir:     PathBuf,
     request: Option<Request>,

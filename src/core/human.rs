@@ -330,7 +330,7 @@ impl Human {
     }
 
     /// Where along its segment each twist joint sits, from the rest pose.
-    pub fn place_twists(&mut self, rest: &[bevy::math::Mat4]) {
+    pub fn place_twists(&mut self, rest: &[glam::Mat4]) {
         let p = |j: usize| rest[j].w_axis.truncate();
         for limb in self.limbs.iter_mut() {
             for (list, a, b) in [(&mut limb.upper_twist, limb.upper, limb.mid), (&mut limb.mid_twist, limb.mid, limb.end)] {
@@ -563,7 +563,7 @@ fn convention(joints: &[Joint], h: &Human) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::Transform;
+    use crate::core::xform::Transform;
 
     /// A skeleton from (name, parent name) pairs.
     fn skeleton(defs: &[(&str, &str)]) -> Vec<Joint> {

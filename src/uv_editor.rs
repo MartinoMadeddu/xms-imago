@@ -3,14 +3,11 @@
 
 use std::sync::Arc;
 
-use bevy::prelude::Resource;
-use bevy_egui::egui;
 
 use crate::core::uv::{self, IslandEdit};
 use crate::node_graph::NodeGraphState;
 use crate::types::{MeshData, NodeId, NodeType};
 
-#[derive(Resource)]
 pub struct UvEditorState {
     /// View offset in UV units, and magnification.
     pan:  egui::Vec2,
@@ -167,9 +164,9 @@ pub fn draw_uv_editor(
     let to_screen = |uv: [f32; 2], pan: egui::Vec2| -> egui::Pos2 {
         rect.center() + egui::vec2((uv[0] - 0.5 + pan.x) * scale, -(uv[1] - 0.5 + pan.y) * scale)
     };
-    let to_uv = |p: egui::Pos2, pan: egui::Vec2| -> bevy::math::Vec2 {
+    let to_uv = |p: egui::Pos2, pan: egui::Vec2| -> glam::Vec2 {
         let d = p - rect.center();
-        bevy::math::Vec2::new(d.x / scale + 0.5 - pan.x, -d.y / scale + 0.5 - pan.y)
+        glam::Vec2::new(d.x / scale + 0.5 - pan.x, -d.y / scale + 0.5 - pan.y)
     };
 
     // Zoom about the cursor, pan, fit.

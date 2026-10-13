@@ -83,7 +83,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 - **Instancing:** a mesh with more than 64 copies is one entity with a GPU instance buffer of matrices and colours, uploaded once per change. Fewer copies are drawn as entities with full materials.
 - **Curves and points:** curves are evaluated to polylines at draw time (their control points are kept); points are drawn as crosses sized by width.
 - **Redraws on demand:** input, a change, playback, background jobs. An idle window costs nothing.
-- **Current renderer:** Bevy. It is being replaced by eframe + wgpu (§10).
+- **Current renderer:** Bevy. It is being replaced by eframe + wgpu (§10). Bevy is already confined to the shell: `main.rs`, `modelling.rs`, `viewport/` and `shell.rs` (components, the Viewer's rectangle, the program's state registered as resources). Everything else uses `glam` and `egui` directly.
 
 ## 8. ICE
 
@@ -133,6 +133,8 @@ One model for primitives, nodes and ICE (`core::geo`).
 
 | | |
 |---|---|
+| `src/shell.rs` | what ties the program to Bevy until the eframe rework: components, resources |
+| `src/core/xform.rs` | `Transform` (translation, rotation, scale) for clips, on glam |
 | `crates/xms-scene`, `crates/xms-usd` | scene layer, USD → scene layer translation (forked from rray) |
 | `src/usd_stage.rs` | scene layer → `Geo` + placements + `StageTree` |
 | `src/usd_scene.rs` | `UsdScene`, loading and caching, root-layer fallback |

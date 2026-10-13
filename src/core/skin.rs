@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bevy::math::{Mat4, Vec3};
+use glam::{Mat4, Vec3};
 
 use super::anim::{AnimData, SkinMesh};
 use super::geo::{Attr, Column, Context, Geo, Role, Topology};

@@ -1,4 +1,3 @@
-use bevy_egui::egui;
 
 use super::{Playback, RulerUnit, TimelineSource, TimelineState};
 use crate::core::anim::AnimData;
@@ -6,7 +5,7 @@ use crate::core::anim::AnimData;
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn PANEL_BG() -> Color32 { crate::theme::c(104, 104, 104) }
     pub fn TRACK_BG() -> Color32 { crate::theme::c( 78,  78,  78) }
     pub fn INPUT_BAR() -> Color32 { crate::theme::c(116, 116, 116) }

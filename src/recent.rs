@@ -3,12 +3,10 @@
 
 use std::path::{Path, PathBuf};
 
-use bevy::prelude::Resource;
 
 /// How many files the list keeps.
 pub const KEEP: usize = 10;
 
-#[derive(Resource)]
 pub struct Recent {
     pub files: Vec<PathBuf>,
     file:      Option<PathBuf>,
