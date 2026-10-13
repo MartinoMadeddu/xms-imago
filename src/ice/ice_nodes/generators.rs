@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::core::geo::{Geo, Topology};
 use crate::ice::ops::{ExecutionContext, IceNode};
-use bevy::prelude::*;
+use glam::Vec3;
 
 /// A geometry's polygons as triangles (each polygon as a fan), by their corners.
 fn triangles(geo: &Geo) -> Vec<[Vec3; 3]> {

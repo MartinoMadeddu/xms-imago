@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
-use bevy::math::{Mat4, Quat, Vec3};
-use bevy::prelude::Transform;
+use glam::{Mat4, Quat, Vec3};
+use crate::core::xform::Transform;
 
 use crate::core::anim::{AnimData, FileSpace, FrameRate, Joint, SkinMesh, Track};
 use crate::types::MeshData;
@@ -449,7 +449,7 @@ pub struct FbxScene {
     /// One packed primitive per mesh node, in its own space, placed where
     /// the file has it at rest, with normals, texture coordinates, colours,
     /// its material and its skin weights.
-    pub prims: Arc<Vec<crate::types::NamedMesh>>,
+    pub prims: Arc<Vec<crate::types::Prim>>,
     pub info: Arc<FbxInfo>,
 }
 
@@ -498,7 +498,7 @@ fn look_of(m: &ufbx::Material, dir: &std::path::Path) -> crate::types::Look {
 }
 
 /// A mesh node as a packed primitive, with its skin weights by joint name.
-fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Option<crate::types::NamedMesh> {
+fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Option<crate::types::Prim> {
     use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, ST};
     let points: Vec<[f32; 3]> = mesh.vertices.iter().map(|p| [p.x as f32, p.y as f32, p.z as f32]).collect();
     // Polygons, and the file's index of each of their corners.
@@ -569,7 +569,7 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
     }
     let material = mesh.materials.iter().next();
     let geo = Arc::new(geo);
-    Some(crate::types::NamedMesh {
+    Some(crate::types::Prim {
         path: node_path(node),
         mesh: Arc::new(geo.to_mesh()),
         picked: false,

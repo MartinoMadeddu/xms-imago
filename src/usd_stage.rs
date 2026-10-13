@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use bevy::math::{DMat4, DQuat, DVec3, Mat4};
+use glam::{DMat4, DQuat, DVec3, Mat4};
 use xms_scene as rs;
 
 use crate::core::geo::{self, Attr, Column, Context, Geo, Kind, Role, Subdiv, Topology};

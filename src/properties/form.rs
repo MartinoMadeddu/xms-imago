@@ -9,13 +9,12 @@
 //! the panel. What the panel shows is the parameters and the state of the
 //! node: what came in, what goes out, what went wrong.
 
-use bevy_egui::egui;
 
 /// Colours of the panel. Light theme values; `theme::c` gives the dark
 /// counterpart.
 #[allow(non_snake_case)]
 pub mod ink {
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn PANEL_BG() -> Color32 { crate::theme::c(118, 118, 118) }
     pub fn GROUP_BG() -> Color32 { crate::theme::c(108, 108, 108) }
     pub fn TITLE() -> Color32 { crate::theme::c(248, 248, 248) }

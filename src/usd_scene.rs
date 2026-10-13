@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use bevy::math::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use openusd::sdf::{self, AbstractData, Value};
 
 use crate::types::MeshData;
@@ -75,7 +75,7 @@ pub struct StageNode {
     /// Invisible: listed, not drawn.
     pub hidden:    bool,
     /// Its own transform, relative to its parent (as authored, f64).
-    pub local:     bevy::math::DMat4,
+    pub local:     glam::DMat4,
     /// It ignores its parents' transforms (`!resetXformStack!`).
     pub reset_xform: bool,
     /// Inside a native instance: read from the prototype, and read-only in
@@ -92,7 +92,7 @@ pub struct StageTree {
     pub nodes: Vec<StageNode>,
     /// The stage's up-axis and unit correction, included in every primitive's
     /// placement: what writing takes off again to get back to the file's space.
-    pub root:  bevy::math::Mat4,
+    pub root:  glam::Mat4,
     /// The file the stage was read from, and its up axis and unit: what an
     /// override layer sublayers and repeats.
     pub source:          std::path::PathBuf,
@@ -918,7 +918,7 @@ def Xform "set" {
         let (lo, _) = bounds(&world(card));
         // Z up: authored +Y becomes -Z, authored Z (the set's 5) becomes Y.
         assert!((lo - Vec3::new(0.0, 5.0, -1.0)).length() < 1e-4, "{lo}");
-        assert_ne!(scene.tree.root, bevy::math::Mat4::IDENTITY);
+        assert_ne!(scene.tree.root, glam::Mat4::IDENTITY);
         // Every primvar, in its context, with its indices and role.
         let st = geo.attr(Context::Corner, ST).expect("st per corner");
         assert_eq!((st.indices.as_ref().map(|i| i.len()), st.role), (Some(4), Role::TexCoord));

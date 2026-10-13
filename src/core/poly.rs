@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::{Mat4, Quat, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::types::MeshData;

@@ -31,11 +31,11 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - A feature comes with its template and the demo files it needs, packaged in `examples/`. A model too big for the repository (the Moana Island scene, say) is not packaged: its template asks whether to download it from where it is published, and says where from.
 - A node that does not exist yet is sketched in the graph: a Placeholder with named inputs and outputs and a description of what it should do, data going through unchanged. The saved graph is how a new node is asked for.
 - An ICE node runs its ICE graph on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
-- Where a known tool already has a convention, follow it: ICE graphs drawn and navigated after Softimage ICE, the Viewer drawing what the Scene Explorer opens as in Gaffer, edits between two nodes as stacked layers as in Solaris.
+- Where a known tool already has a convention, follow it: ICE graphs drawn and navigated after Softimage ICE (loosely modelled after Softimage ICE and Houdini VOPs), edits between two nodes as stacked layers as in Solaris. The Viewer drawing what the Scene Explorer opens is Imago's own, not credited to another program (Martino).
 
 ## One geometry model
 
-- Packed primitives, the nodes and ICE share one geometry: `Geo`, a topology and named attribute columns per context (object, point, primitive, corner), matching USD's interpolations.
+- Packed primitives, the nodes and ICE share one geometry: `Geo`, a topology and named attribute columns per context (Object, Point, Face, Corner), matching USD's interpolations.
 - Names follow USD (`points`, `normals`, `st`, `displayColor`, `widths`), so reading and writing USD is one to one. Interfaces can show friendlier names on top.
 - Replace only the columns you change. Columns are shared and copied only when written; never rebuild a whole `Geo` to change one thing.
 - Keep primitives placed. Geometry stays in its own space; a primitive moves by its placement, not its points.
@@ -100,6 +100,10 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Only the rows in view are laid out. The window draws a frame when something happens, not all the time.
 - Long work runs in the background, in chunks, written to disk as it goes, and is found again by the content it was made from.
 
+## One shell
+
+- The program runs in an eframe window: the interface in egui, the Viewer's 3D view in wgpu (`src/viewer/`). Bevy is gone (Martino, branch `core/uiframework`). The program's state is one struct, `AppState` (`app.rs`), owned by the app: new state goes there. Code outside `eframe_app.rs` and `viewer/` does not depend on the window or the GPU.
+
 ## Say what is true
 
 - Documentation states what the program does, measured where it can be. Every page has a "Not done yet" list.
@@ -124,6 +128,14 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 12/10/2026: the Placeholder node, for asking for a node in the graph itself; Write FBX solves Body Collide upstream for each file it writes (Simon).
 - 12/10/2026: read from Martino's commits: `VOCABULARY.md` and the vocabulary applied across the program and docs; pointed to under "The same words for the same things", and this file brought into it.
 - 12/10/2026: "Like any other program" added: a menu bar at the top left, and questions before losing changes or writing over a file (Simon). FBX only for meshes and characters, the `.xmsclip` and `.xmsmesh` formats removed; the rest pose is the skeleton, so a Transform carries through Retarget (Simon).
+- 13/10/2026: from Martino's eframe rework, stage 0: "One shell, being replaced" added; Bevy kept to the shell files. The Gaffer credit removed and the contexts named Object, Point, Face, Corner, as Martino decided (11/10 and 12/10/2026).
+- 13/10/2026: eframe rework, stage 0b: the program's state gathered into `AppState`, which Bevy holds as one resource; the template-opens-solved test removed (a known mismatch with the shipped solve, Martino).
+- 13/10/2026: eframe rework, stage 1: the interface and the per-frame state work are plain functions; an eframe shell runs them (`XMS_SHELL=eframe`), Bevy still the default until the Viewer is drawn with wgpu.
+- 13/10/2026: eframe rework, stage 2a: the Viewer's 3D view on wgpu in the eframe shell (grid, shaded, wireframe, hidden line, boxes, curves and points, instancing, navigation); textures, overlays and picking to follow.
+- 13/10/2026: Viewer on wgpu: reversed, infinite depth as Bevy had, so the grid stays behind models; polygon edges drawn as instanced lines at every copy, so Wireframe and Hidden Line work on instancers too.
+- 13/10/2026: eframe rework, stage 2b: Textured mode on wgpu (colour and emissive textures with their mip chains, opacity, cut-out), on instanced copies too; F/G/Z/. and A/H framing and the origin label in the eframe Viewer.
+- 13/10/2026: eframe rework, stage 3: Edit Poly's picking, box selection, Q/W/E/R manipulators and Delete in the wgpu Viewer, with its wireframe and selection overlay; clip skeletons drawn over everything. The eframe shell now does everything the Bevy one does.
+- 13/10/2026: eframe rework done: Bevy removed (its systems, `shell.rs`, the old viewport drawing, the dependencies); eframe is the only shell. `NamedMesh` renamed `Prim`, the `Subnet*` types `IceGraph*`, the ICE node `NodeType::Ice` (graphs saved with `Subnet` still load).
 - 13/10/2026: curves in the Primitive Inspector: control points as points, segments as edges, one face per curve (Martino).
 - 13/10/2026: a face's or an edge's points are one array attribute, `indices`, in the Primitive Inspector (Martino).
 - 13/10/2026: the Corner tab lists polygon corners with `ptIndex`, the point each belongs to (Martino).

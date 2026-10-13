@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use bevy::math::{Mat4, Quat, Vec3};
-use bevy::prelude::Transform;
+use glam::{Mat4, Quat, Vec3};
+use crate::core::xform::Transform;
 
 use super::anim::{AnimData, Joint, Track};
 
@@ -246,7 +246,7 @@ impl AnimData {
     pub fn transformed(&self, translate: Vec3, rotate_deg: Vec3, scale: f32) -> AnimData {
         let x = Mat4::from_scale_rotation_translation(
             Vec3::splat(scale.max(1e-6)),
-            Quat::from_euler(bevy::math::EulerRot::YXZ, rotate_deg.y.to_radians(), rotate_deg.x.to_radians(), rotate_deg.z.to_radians()),
+            Quat::from_euler(glam::EulerRot::YXZ, rotate_deg.y.to_radians(), rotate_deg.x.to_radians(), rotate_deg.z.to_radians()),
             translate,
         );
         self.moved(x)

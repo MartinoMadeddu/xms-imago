@@ -1,4 +1,3 @@
-use bevy_egui::egui;
 use crate::core::anim::AnimData;
 use crate::types::{array_text, InspectorTable, MeshData, PrimInspectorState, PrimInspectorTab, PrimVarInterp};
 use crate::node_graph::NodeGraphState;
@@ -17,7 +16,7 @@ const ARRAY_COL_MAX_W: f32 = 420.0;
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn BG() -> Color32 { crate::theme::c(72, 72, 72) }
     pub fn HEADER_BG() -> Color32 { crate::theme::c(58, 58, 58) }
     pub fn ROW_EVEN() -> Color32 { crate::theme::c(72, 72, 72) }
@@ -180,7 +179,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
         _ => {
             let n = clip.joints.len();
             let euler = |j: usize| {
-                let (x, y, z) = clip.local(j, frame).rotation.to_euler(bevy::math::EulerRot::XYZ);
+                let (x, y, z) = clip.local(j, frame).rotation.to_euler(glam::EulerRot::XYZ);
                 vec![x.to_degrees(), y.to_degrees(), z.to_degrees()]
             };
             InspectorTable {
@@ -244,7 +243,7 @@ pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable
 /// One component tab of one primitive. `first_point` is the number of its
 /// first point in the whole table.
 fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first_point: usize) -> (usize, Vec<(String, Vec<Vec<f32>>)>) {
-    use bevy::math::Vec3;
+    use glam::Vec3;
     let vars = |interp: PrimVarInterp| mesh.primvars.iter().filter(move |p| p.interp == interp);
     // Points, numbered as listed: polygon vertices, curve control points, free points.
     let (nv, nc) = (mesh.vertices.len(), mesh.curve_points.len());
@@ -699,13 +698,13 @@ mod tests {
     /// The curves and points example, as the Load USD node gives it.
     #[test]
     fn the_strands_example_lists_its_curves_and_points() {
-        use crate::types::{EvalResult, NamedMesh};
+        use crate::types::{EvalResult, Prim};
         let dir = std::env::temp_dir().join("xms_inspector_strands");
         let _ = std::fs::remove_dir_all(&dir);
         crate::examples::write_all(&dir).unwrap();
         let scene = crate::usd_stage::read(&dir.join(crate::examples_stage::STRANDS)).unwrap();
-        let prims: Vec<NamedMesh> = scene.meshes.iter()
-            .map(|m| NamedMesh { place: m.place.clone(), ..NamedMesh::new(m.path.clone(), (*m.mesh).clone()) })
+        let prims: Vec<Prim> = scene.meshes.iter()
+            .map(|m| Prim { place: m.place.clone(), ..Prim::new(m.path.clone(), (*m.mesh).clone()) })
             .collect();
         let parts = EvalResult::Named(prims).into_parts();
 

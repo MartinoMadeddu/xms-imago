@@ -1,8 +1,7 @@
 //! Viewport navigation styles: which keys and mouse buttons orbit, pan and
 //! zoom, modelled on other packages. Plain data and functions, no systems.
 
-use bevy::math::Vec2;
-use bevy::prelude::Resource;
+use glam::Vec2;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NavStyle { #[default] Maya, Houdini, Xsi, Blender, Max, Modo, Unreal }
@@ -121,7 +120,7 @@ impl NavStyle {
 }
 
 /// The chosen style. Kept between sessions in the config folder.
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NavSettings {
     pub style:       NavStyle,
     /// Swap the direction of the zoom drag.

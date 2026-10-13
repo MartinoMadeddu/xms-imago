@@ -1,6 +1,5 @@
-use bevy::prelude::Vec3;
-use bevy_egui::egui;
-use crate::types::{ConnectionId, NodeId, NodeType, RetimeMode, SubnetId, node_type_icon};
+use glam::Vec3;
+use crate::types::{ConnectionId, NodeId, NodeType, RetimeMode, IceGraphId, node_type_icon};
 use super::{GraphNode, NodeGraphState};
 
 pub const NODE_WIDTH:  f32 = 180.0;
@@ -13,7 +12,7 @@ const NODE_ROUNDING:   f32 = 5.0;
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
-    use bevy_egui::egui::Color32;
+    use egui::Color32;
     pub fn BG() -> Color32 { crate::theme::c(100, 100, 100) }
     pub fn GRID() -> Color32 { crate::theme::c( 90,  90,  90) }
     pub fn NODE_BODY() -> Color32 { crate::theme::raised(130, 130, 130) }
@@ -58,8 +57,8 @@ pub fn input_socket_pos(node: &GraphNode, in_idx: usize) -> egui::Pos2 {
 // GRAPH CANVAS
 // ============================================================================
 
-pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<SubnetId> {
-    let mut dive_into: Option<SubnetId> = None;
+pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<IceGraphId> {
+    let mut dive_into: Option<IceGraphId> = None;
 
     let (response, painter) = ui.allocate_painter(
         egui::Vec2::new(ui.available_width(), ui.available_height()),
@@ -259,7 +258,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
     // ── Down arrow: into the selected ICE node, as a double-click does ───────
     if ptr_in_canvas && !ui.ctx().wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
         let selected = graph.selected_node.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
-        if let Some(NodeType::Subnet { id: sid, .. }) = selected.map(|n| &n.node_type) {
+        if let Some(NodeType::Ice { id: sid, .. }) = selected.map(|n| &n.node_type) {
             dive_into = Some(*sid);
         }
     }
@@ -373,14 +372,14 @@ fn draw_node(
     to_screen:   &impl Fn(egui::Pos2) -> egui::Pos2,
     to_canvas:   &impl Fn(egui::Pos2) -> egui::Pos2,
     _canvas_rect: egui::Rect,
-) -> Option<SubnetId> {
-    let mut dive: Option<SubnetId> = None;
+) -> Option<IceGraphId> {
+    let mut dive: Option<IceGraphId> = None;
     let zoom   = graph.zoom;
     let np     = to_screen(node.position);
     let rect   = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, NODE_HEIGHT * zoom));
     let id     = node.id;
     let is_sel = graph.selected_node == Some(id) || graph.selected_nodes.contains(&id);
-    let is_sub = matches!(node.node_type, NodeType::Subnet { .. });
+    let is_sub = matches!(node.node_type, NodeType::Ice { .. });
 
     // ── Node body ─────────────────────────────────────────────────────────────
     // As the ICE nodes: a grey ring around the node (white when selected),
@@ -585,7 +584,7 @@ fn draw_node(
         }
     }
     if dr.double_clicked() {
-        if let NodeType::Subnet { id: sid, .. } = &node.node_type { dive = Some(*sid); }
+        if let NodeType::Ice { id: sid, .. } = &node.node_type { dive = Some(*sid); }
     }
     if dr.drag_started() && graph.connecting_from.is_none() {
         // If dragging a node not in the current selection, replace selection
@@ -643,7 +642,7 @@ const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B];   // teal          (#70BA9A
 /// colour; nodes in no category (Output) keep the theme's node grey.
 fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     // The ICE node stands apart from its category.
-    if matches!(t, NodeType::Subnet { .. }) {
+    if matches!(t, NodeType::Ice { .. }) {
         let [r, g, b] = ICE_NODE_COLOUR;
         return colours_on(r, g, b);
     }
@@ -705,7 +704,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Merge, "Two meshes as one"),
             (NodeType::ScatterPoints { count: 100, seed: 42 }, "Points spread over a surface"),
             (NodeType::CopyToPoints, "A copy of the first input on every point of the second"),
-            (NodeType::Subnet { id: SubnetId(usize::MAX), name: "ICE".into() }, "A graph inside a node"),
+            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICE".into() }, "A graph inside a node"),
         ]),
         ("📦", "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),

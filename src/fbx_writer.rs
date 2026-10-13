@@ -15,8 +15,8 @@
 use std::io::Write;
 use std::path::Path;
 
-use bevy::math::{Mat4, Quat, Vec3};
-use bevy::prelude::Transform;
+use glam::{Mat4, Quat, Vec3};
+use crate::core::xform::Transform;
 use flate2::{write::ZlibEncoder, Compression};
 
 use crate::core::anim::{AnimData, FileSpace, FrameRate, SkinMesh};
@@ -181,8 +181,8 @@ fn time_mode(rate: FrameRate, drop_frame: bool) -> (i32, f64) {
 /// library conversion that treats anything near 90 degrees of Y as the
 /// singular case was half a degree out on a captured clavicle at 89.7.
 fn euler_xyz(q: Quat) -> [f64; 3] {
-    let q = bevy::math::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64).normalize();
-    let m = bevy::math::DMat3::from_quat(q);
+    let q = glam::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64).normalize();
+    let m = glam::DMat3::from_quat(q);
     // m.col(c)[r] is row r, column c. R = Rz * Ry * Rx.
     let (m00, m10, m20) = (m.x_axis.x, m.x_axis.y, m.x_axis.z);
     let (m21, m22) = (m.y_axis.z, m.z_axis.z);
@@ -246,7 +246,7 @@ fn curve(id: i64, times: &[i64], values: Vec<f32>) -> Node {
 
 /// The skinned mesh, in the file's space (`to_file`).
 fn geometry(id: i64, name: &str, skin: &SkinMesh, to_file: Mat4) -> Node {
-    let turn = bevy::math::Mat3::from_mat4(to_file);
+    let turn = glam::Mat3::from_mat4(to_file);
     let verts: Vec<f64> = skin.positions.iter()
         .map(|v| to_file.transform_point3(*v))
         .flat_map(|v| [v.x as f64, v.y as f64, v.z as f64])
@@ -1030,7 +1030,7 @@ mod tests {
     fn euler_angles_hold_near_gimbal_lock() {
         let back = |e: [f64; 3]| {
             let r = |a: f64| a.to_radians();
-            bevy::math::DQuat::from_rotation_z(r(e[2])) * bevy::math::DQuat::from_rotation_y(r(e[1])) * bevy::math::DQuat::from_rotation_x(r(e[0]))
+            glam::DQuat::from_rotation_z(r(e[2])) * glam::DQuat::from_rotation_y(r(e[1])) * glam::DQuat::from_rotation_x(r(e[0]))
         };
         let mut seed = 7u64;
         let mut rnd = move || { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0 };
@@ -1041,7 +1041,7 @@ mod tests {
                 * Quat::from_rotation_y((y as f32).to_radians())
                 * Quat::from_rotation_x((rnd() * 180.0).to_radians() as f32);
             let e = euler_xyz(q);
-            let d = bevy::math::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64).normalize().inverse() * back(e);
+            let d = glam::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64).normalize().inverse() * back(e);
             worst = worst.max((2.0 * d.xyz().length().min(1.0).asin()).to_degrees());
         }
         assert!(worst < 1e-3, "worst {worst} degrees");
@@ -1056,7 +1056,7 @@ mod tests {
         let Ok(src) = std::env::var("XMS_SAME_SKELETON") else { return };
         std::env::set_var("XMS_CACHE_DIR", std::env::temp_dir().join("xms_ragdoll_none"));
         let mut g = crate::node_graph::NodeGraphState::default();
-        let mut subnets = crate::ice::SubnetStore::default();
+        let mut subnets = crate::ice::IceGraphStore::default();
         let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
         (t.build)(&mut g, &mut subnets);
         let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;

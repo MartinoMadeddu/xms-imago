@@ -47,7 +47,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 
 ## 5. Primitives
 
-`NamedMesh`: one per mesh, curves or points prim, passed between nodes without copying.
+`Prim`: one per mesh, curves or points prim, passed between nodes without copying.
 
 | Field | |
 |---|---|
@@ -83,7 +83,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 - **Instancing:** a mesh with more than 64 copies is one entity with a GPU instance buffer of matrices and colours, uploaded once per change. Fewer copies are drawn as entities with full materials.
 - **Curves and points:** curves are evaluated to polylines at draw time (their control points are kept); points are drawn as crosses sized by width.
 - **Redraws on demand:** input, a change, playback, background jobs. An idle window costs nothing.
-- **Current renderer:** Bevy. It is being replaced by eframe + wgpu (§10).
+- **Renderer:** wgpu, drawn by `src/viewer/` inside the eframe window: the Viewer's picture is made in a texture of its own (reversed infinite depth, 4x multisampling, linear light) and laid into its pane by egui's paint callback. Polygon edges, materials and textures are drawn per copy by instancing. The interface and the per-frame state work are plain functions (`draw_ui`, `history_frame`, `track_revision_frame`, `save_first_frame`, `refresh_*`) the eframe app calls each frame.
 
 ## 8. ICE
 
@@ -114,13 +114,13 @@ One model for primitives, nodes and ICE (`core::geo`).
 ## 9. Rules for anyone writing a node
 
 1. **Replace only the columns you change.** Clone the `Geo`; write through `points_mut()`, `attr_mut()` or `set()`. Never rebuild a `Geo` to change one thing: every rebuilt column becomes an edit, a copy and a write.
-2. **Keep primitives placed.** Move by `place` (`Placement::moved`), and work in the primitive's own space. `NamedMesh::world()` gives the drawn mesh when needed.
-3. **Keep identity.** Build outputs with `NamedMesh { geo, mesh, ..p.clone() }` so `path`, `source`, `stage`, material and purpose travel along. If geometry can't stay traceable, set `geo: None`.
+2. **Keep primitives placed.** Move by `place` (`Placement::moved`), and work in the primitive's own space. `Prim::world()` gives the drawn mesh when needed.
+3. **Keep identity.** Build outputs with `Prim { geo, mesh, ..p.clone() }` so `path`, `source`, `stage`, material and purpose travel along. If geometry can't stay traceable, set `geo: None`.
 4. **Keep `mesh` in step with `geo`.** Rebuild the view (`geo.to_mesh()`), or clear `geo` if only `mesh` changed.
 
 ## 10. Where it's going
 
-1. **eframe + wgpu** replaces Bevy as the app shell. egui UI code stays as it is. The viewport becomes a raster **render delegate** at parity, drawing straight from `Geo`, which retires the eager `MeshData` view.
+1. **Done:** eframe + wgpu replaced Bevy as the shell (branch `core/uiframework`). Next for the Viewer: draw straight from `Geo`, retiring the eager `MeshData` view; modes (Scene, Render, Image).
 2. **The ICE engine** of §8.
 3. **rray as render delegates**: its viewport integrator and path tracer, consuming the scene layer plus edits (dirty bits). At that point `xms-scene` and `rray-scene` merge into one shared crate.
 4. **Follow-ups:**
@@ -133,11 +133,15 @@ One model for primitives, nodes and ICE (`core::geo`).
 
 | | |
 |---|---|
+| `src/app.rs` | `AppState`: the program's whole state (graph, ICE graphs, panes, files, undo), owned by the shell |
+| `src/eframe_app.rs` | the shell: the eframe window owning `AppState`, calling the interface and the frame's state work |
+| `src/viewer/` | the Viewer's 3D view on wgpu (eframe shell): camera and navigation, the scene from the graph's output (materials and textures, skeletons), Edit Poly's picking and manipulators (`edit.rs`), the GPU picture laid into the pane |
+| `src/core/xform.rs` | `Transform` (translation, rotation, scale) for clips, on glam |
 | `crates/xms-scene`, `crates/xms-usd` | scene layer, USD → scene layer translation (forked from rray) |
 | `src/usd_stage.rs` | scene layer → `Geo` + placements + `StageTree` |
 | `src/usd_scene.rs` | `UsdScene`, loading and caching, root-layer fallback |
 | `src/core/geo.rs` | `Geo`, `Column`, `Attr`, `Topology`, `Context` |
-| `src/types.rs` | `NamedMesh`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |
+| `src/types.rs` | `Prim`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |
 | `src/edits.rs` | edits against the source, edit sets, layers between nodes |
 | `src/usd_write.rs` | override layer writer |
 | `src/node_graph/` | scene graph: nodes, evaluation, UI |

@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bevy::prelude::*;
+use glam::Vec3;
 
 use crate::core::geo::{Attr, Column, Context, Geo, Role, POINTS};
 

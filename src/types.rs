@@ -1,27 +1,4 @@
-use bevy::prelude::*;
-use bevy_egui::egui;
-
-// ============================================================================
-// BEVY COMPONENTS
-// ============================================================================
-
-#[derive(Component)]
-pub struct MainCamera;
-
-#[derive(Component)]
-pub struct GeneratedMesh;
-
-/// A generated mesh that follows the playhead: rebuilt when time moves,
-/// while the others stay as they are.
-#[derive(Component)]
-pub struct PosedMesh;
-
-#[derive(Component)]
-pub struct GroundGrid;
-
-/// Tracks the screen rect available for the 3D viewport (excluding egui panels).
-#[derive(Resource, Default)]
-pub struct ViewportRect(pub Option<egui::Rect>);
+use glam::Vec3;
 
 // ============================================================================
 // SHARED IDs
@@ -34,7 +11,7 @@ pub struct NodeId(pub usize);
 pub struct ConnectionId(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct SubnetId(pub usize);
+pub struct IceGraphId(pub usize);
 
 // Scene object ID — one per visible object in the scene explorer
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,7 +23,7 @@ pub struct SceneObjectId(pub usize);
 
 /// Vec3 stored as a plain array in saved graphs.
 mod vec3_array {
-    use bevy::math::Vec3;
+    use glam::Vec3;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub fn serialize<S: Serializer>(v: &Vec3, s: S) -> Result<S::Ok, S::Error> {
         v.to_array().serialize(s)
@@ -82,7 +59,10 @@ pub enum NodeType {
     Merge,
     ScatterPoints { count: u32, seed: u32 },
     CopyToPoints,
-    Subnet       { id: SubnetId, name: String },
+    /// An ICE node: an ICE graph run on what comes in. Saved as "Subnet" by
+    /// earlier versions.
+    #[serde(alias = "Subnet")]
+    Ice          { id: IceGraphId, name: String },
     Output,
 
     // ── Animation ────────────────────────────────────────────────────────────
@@ -265,7 +245,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Merge                => "➕",
         NodeType::ScatterPoints { .. } => "✳",
         NodeType::CopyToPoints         => "❇",
-        NodeType::Subnet { .. }        => "▣",
+        NodeType::Ice { .. }        => "▣",
         NodeType::Output               => "▶",
         NodeType::Placeholder { .. }   => "📝",
         NodeType::LoadFbx { .. }       => "🎬",
@@ -319,7 +299,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Merge                => "Merge",
         NodeType::ScatterPoints { .. } => "Scatter Points",
         NodeType::CopyToPoints         => "Copy to Points",
-        NodeType::Subnet { .. }        => "ICE",
+        NodeType::Ice { .. }        => "ICE",
         NodeType::Output               => "Output",
         NodeType::Placeholder { .. }   => "Placeholder",
         NodeType::LoadFbx { .. }       => "Load FBX",
@@ -364,7 +344,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
 // ============================================================================
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum SubnetNodeType {
+pub enum IceGraphNodeType {
     SubInput,
     SubOutput,
     AddVec3,
@@ -383,43 +363,43 @@ pub enum SubnetNodeType {
     CopyToPoints,
 }
 
-pub fn subnet_node_label(t: &SubnetNodeType) -> &'static str {
+pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
     match t {
-        SubnetNodeType::SubInput            => "Graph Input",
-        SubnetNodeType::SubOutput           => "Graph Output",
-        SubnetNodeType::AddVec3             => "Add",
-        SubnetNodeType::SubtractVec3        => "Subtract",
-        SubnetNodeType::MultiplyVec3 { .. } => "Multiply",
-        SubnetNodeType::CrossProduct        => "Cross Product",
-        SubnetNodeType::Normalize           => "Normalize",
-        SubnetNodeType::DotProduct          => "Dot Product",
-        SubnetNodeType::LerpVec3 { .. }     => "Blend",
-        SubnetNodeType::ConstVec3 { .. }    => "Vector",
-        SubnetNodeType::ConstFloat { .. }   => "Number",
-        SubnetNodeType::ConstInt { .. }     => "Integer",
-        SubnetNodeType::ScatterPoints { .. } => "Scatter Points",
-        SubnetNodeType::GetTemplate          => "Get Template",
-        SubnetNodeType::CopyToPoints         => "Copy to Points",
+        IceGraphNodeType::SubInput            => "Graph Input",
+        IceGraphNodeType::SubOutput           => "Graph Output",
+        IceGraphNodeType::AddVec3             => "Add",
+        IceGraphNodeType::SubtractVec3        => "Subtract",
+        IceGraphNodeType::MultiplyVec3 { .. } => "Multiply",
+        IceGraphNodeType::CrossProduct        => "Cross Product",
+        IceGraphNodeType::Normalize           => "Normalize",
+        IceGraphNodeType::DotProduct          => "Dot Product",
+        IceGraphNodeType::LerpVec3 { .. }     => "Blend",
+        IceGraphNodeType::ConstVec3 { .. }    => "Vector",
+        IceGraphNodeType::ConstFloat { .. }   => "Number",
+        IceGraphNodeType::ConstInt { .. }     => "Integer",
+        IceGraphNodeType::ScatterPoints { .. } => "Scatter Points",
+        IceGraphNodeType::GetTemplate          => "Get Template",
+        IceGraphNodeType::CopyToPoints         => "Copy to Points",
     }
 }
 
-pub fn subnet_node_icon(t: &SubnetNodeType) -> &'static str {
+pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
     match t {
-        SubnetNodeType::SubInput            => "▶",
-        SubnetNodeType::SubOutput           => "◀",
-        SubnetNodeType::AddVec3             => "+",
-        SubnetNodeType::SubtractVec3        => "-",
-        SubnetNodeType::MultiplyVec3 { .. } => "×",
-        SubnetNodeType::CrossProduct        => "×",
-        SubnetNodeType::Normalize           => "|v|",
-        SubnetNodeType::DotProduct          => "·",
-        SubnetNodeType::LerpVec3 { .. }     => "≈",
-        SubnetNodeType::ConstVec3 { .. }    => "→v",
-        SubnetNodeType::ConstFloat { .. }   => "→f",
-        SubnetNodeType::ConstInt { .. }     => "→i",
-        SubnetNodeType::ScatterPoints { .. } => "✳",
-        SubnetNodeType::GetTemplate          => "📄",
-        SubnetNodeType::CopyToPoints         => "📦",
+        IceGraphNodeType::SubInput            => "▶",
+        IceGraphNodeType::SubOutput           => "◀",
+        IceGraphNodeType::AddVec3             => "+",
+        IceGraphNodeType::SubtractVec3        => "-",
+        IceGraphNodeType::MultiplyVec3 { .. } => "×",
+        IceGraphNodeType::CrossProduct        => "×",
+        IceGraphNodeType::Normalize           => "|v|",
+        IceGraphNodeType::DotProduct          => "·",
+        IceGraphNodeType::LerpVec3 { .. }     => "≈",
+        IceGraphNodeType::ConstVec3 { .. }    => "→v",
+        IceGraphNodeType::ConstFloat { .. }   => "→f",
+        IceGraphNodeType::ConstInt { .. }     => "→i",
+        IceGraphNodeType::ScatterPoints { .. } => "✳",
+        IceGraphNodeType::GetTemplate          => "📄",
+        IceGraphNodeType::CopyToPoints         => "📦",
     }
 }
 
@@ -428,18 +408,18 @@ pub fn subnet_node_icon(t: &SubnetNodeType) -> &'static str {
 // ============================================================================
 
 #[derive(Clone, Debug)]
-pub enum SubnetValue {
+pub enum IceGraphValue {
     Mesh(MeshData),
     Vec3(Vec3),
     Float(f32),
     Int(i32),
 }
 
-impl SubnetValue {
-    pub fn as_mesh(&self)  -> Option<&MeshData> { if let SubnetValue::Mesh(m)  = self { Some(m)  } else { None } }
-    pub fn as_vec3(&self)  -> Option<Vec3>       { if let SubnetValue::Vec3(v)  = self { Some(*v) } else { None } }
-    pub fn as_float(&self) -> Option<f32>        { if let SubnetValue::Float(f) = self { Some(*f) } else { None } }
-    pub fn as_int(&self)   -> Option<i32>        { if let SubnetValue::Int(i)   = self { Some(*i) } else { None } }
+impl IceGraphValue {
+    pub fn as_mesh(&self)  -> Option<&MeshData> { if let IceGraphValue::Mesh(m)  = self { Some(m)  } else { None } }
+    pub fn as_vec3(&self)  -> Option<Vec3>       { if let IceGraphValue::Vec3(v)  = self { Some(*v) } else { None } }
+    pub fn as_float(&self) -> Option<f32>        { if let IceGraphValue::Float(f) = self { Some(*f) } else { None } }
+    pub fn as_int(&self)   -> Option<i32>        { if let IceGraphValue::Int(i)   = self { Some(*i) } else { None } }
 }
 
 // ============================================================================
@@ -541,7 +521,7 @@ impl MeshData {
     /// more than 40 degrees and smooth shading elsewhere, so a box looks like
     /// a box and a sphere like a sphere.
     pub fn render_buffers(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<u32>) {
-        use bevy::math::Vec3;
+        use glam::Vec3;
         if self.polys.is_empty() {
             let normals = if self.normals.len() == self.vertices.len() {
                 self.normals.clone()
@@ -584,7 +564,7 @@ impl MeshData {
     /// Compute flat (per-triangle) normals and store them as a Vertex primvar.
     /// Called by generators after building geometry.
     pub fn compute_normals(&mut self) {
-        use bevy::math::Vec3;
+        use glam::Vec3;
         let n = self.vertices.len();
         let mut normals = vec![Vec3::ZERO; n];
         let mut counts  = vec![0u32; n];
@@ -686,7 +666,7 @@ impl MeshData {
 // ============================================================================
 
 #[derive(Clone, Debug)]
-pub struct NamedMesh {
+pub struct Prim {
     pub path:     String,
     /// Shared: a packed primitive is passed along without being copied.
     pub mesh:     std::sync::Arc<MeshData>,
@@ -754,9 +734,9 @@ pub enum Placement {
     #[default]
     InPlace,
     /// One copy of a shared mesh.
-    One(bevy::math::Mat4),
+    One(glam::Mat4),
     /// Many copies of a shared mesh.
-    Many(std::sync::Arc<[bevy::math::Mat4]>),
+    Many(std::sync::Arc<[glam::Mat4]>),
 }
 
 impl Placement {
@@ -768,12 +748,12 @@ impl Placement {
     }
 
     /// The placements, empty when the mesh is in place.
-    pub fn matrices(&self) -> &[bevy::math::Mat4] {
+    pub fn matrices(&self) -> &[glam::Mat4] {
         match self { Placement::InPlace => &[], Placement::One(m) => std::slice::from_ref(m), Placement::Many(m) => &m[..] }
     }
 
     /// Every copy moved by `m` afterwards.
-    pub fn moved(&self, m: bevy::math::Mat4) -> Placement {
+    pub fn moved(&self, m: glam::Mat4) -> Placement {
         match self {
             Placement::InPlace => Placement::InPlace,
             Placement::One(x) => Placement::One(m * *x),
@@ -807,7 +787,7 @@ pub struct Look {
     pub cutout:    bool,
 }
 
-impl NamedMesh {
+impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
         Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default }
     }
@@ -833,7 +813,7 @@ impl NamedMesh {
 /// result goes back into its own space and geometry. Points the operation
 /// left alone keep their exact values, so an operation on UVs alone leaves
 /// the points shared with the source.
-fn edit_in_place(p: &NamedMesh, op: impl FnOnce(MeshData) -> MeshData) -> NamedMesh {
+fn edit_in_place(p: &Prim, op: impl FnOnce(MeshData) -> MeshData) -> Prim {
     use crate::node_graph::nodes::place_mesh;
     let Placement::One(at) = p.place else { return p.clone() };
     let world = p.world().into_owned();
@@ -847,14 +827,14 @@ fn edit_in_place(p: &NamedMesh, op: impl FnOnce(MeshData) -> MeshData) -> NamedM
     match &p.geo {
         Some(geo) => {
             let geo = std::sync::Arc::new(geo.with_mesh_edits(&p.mesh, &local));
-            NamedMesh { mesh: std::sync::Arc::new(geo.to_mesh()), geo: Some(geo), ..p.clone() }
+            Prim { mesh: std::sync::Arc::new(geo.to_mesh()), geo: Some(geo), ..p.clone() }
         }
-        None => NamedMesh { mesh: std::sync::Arc::new(local), ..p.clone() },
+        None => Prim { mesh: std::sync::Arc::new(local), ..p.clone() },
     }
 }
 
 /// The world meshes of some packed primitives, merged into one.
-fn merge_world(prims: &[&NamedMesh]) -> MeshData {
+fn merge_world(prims: &[&Prim]) -> MeshData {
     let worlds: Vec<std::borrow::Cow<'_, MeshData>> = prims.iter().map(|p| p.world()).collect();
     let parts: Vec<&MeshData> = worlds.iter().map(|w| &**w).collect();
     crate::node_graph::nodes::merge_all(&parts)
@@ -863,7 +843,7 @@ fn merge_world(prims: &[&NamedMesh]) -> MeshData {
 #[derive(Clone, Debug)]
 pub enum EvalResult {
     Single(MeshData),
-    Named(Vec<NamedMesh>),
+    Named(Vec<Prim>),
     /// Skeleton + clip. Shared, so passing it along the graph is cheap.
     Anim(std::sync::Arc<crate::core::anim::AnimData>),
 }
@@ -962,12 +942,12 @@ impl EvalResult {
             }
             EvalResult::Named(prims) if prims.iter().any(|p| p.picked) => {
                 let result = op(self.work_mesh());
-                let mut out: Vec<NamedMesh> = Vec::with_capacity(prims.len());
+                let mut out: Vec<Prim> = Vec::with_capacity(prims.len());
                 let mut result = Some(result);
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(NamedMesh { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose });
                     }
                 }
                 EvalResult::Named(out)
@@ -983,7 +963,7 @@ impl EvalResult {
 }
 
 // ============================================================================
-// PRIMITIVE INSPECTOR STATE  (Bevy Resource)
+// PRIMITIVE INSPECTOR STATE
 // ============================================================================
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1022,7 +1002,7 @@ pub fn array_text(values: &[f32]) -> String {
     format!("[{}]", items.join(", "))
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct PrimInspectorState {
     pub active_tab:   PrimInspectorTab,
     pub row_offset:   usize,
@@ -1090,7 +1070,7 @@ impl PrimInspectorState {
 }
 
 // ============================================================================
-// SCENE HIERARCHY  (Bevy Resource)
+// SCENE HIERARCHY
 // ============================================================================
 
 /// Pick a display icon based on the prim name and whether it has children.
@@ -1145,7 +1125,7 @@ pub struct SceneObject {
     pub stage_path:   Option<String>,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct SceneHierarchy {
     pub objects:            Vec<SceneObject>,
     pub selected:           Option<SceneObjectId>,

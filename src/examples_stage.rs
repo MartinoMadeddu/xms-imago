@@ -395,8 +395,8 @@ mod tests {
         assert_eq!(n.iter().filter(|p| p.starts_with("/Street/Shapes")).count(), 9, "{n:?}");
         let south = street.meshes.iter().find(|m| m.path == "/Street/PavementSouth").unwrap();
         // Prims are read in their own space, placed by their transform.
-        let world = match &south.place { Placement::One(m) => *m, _ => bevy::math::Mat4::IDENTITY };
-        let z_max = south.mesh.vertices.iter().map(|v| world.transform_point3(bevy::math::Vec3::from_array(*v)).z).fold(f32::MIN, f32::max);
+        let world = match &south.place { Placement::One(m) => *m, _ => glam::Mat4::IDENTITY };
+        let z_max = south.mesh.vertices.iter().map(|v| world.transform_point3(glam::Vec3::from_array(*v)).z).fold(f32::MIN, f32::max);
         assert!((z_max - -2.8).abs() < 1e-3, "the override moves the pavement: {z_max}");
 
         // Curves of each basis, the grass, and the spiral of points.

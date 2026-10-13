@@ -5,7 +5,6 @@
 pub mod ui;
 
 use std::collections::{HashMap, HashSet};
-use bevy::prelude::*;
 use crate::types::{NodeId, NodeType, node_type_icon, node_type_label};
 use crate::node_graph::{Connection, GraphNode};
 
@@ -24,7 +23,7 @@ pub struct StackEntry {
     pub has_children: bool,
 }
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct OperatorStack {
     pub entries:        Vec<StackEntry>,
     pub selected_entry: Option<NodeId>,

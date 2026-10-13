@@ -12,8 +12,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bevy::math::{EulerRot, Mat4, Quat, Vec3};
-use bevy::prelude::Transform;
+use glam::{EulerRot, Mat4, Quat, Vec3};
+use crate::core::xform::Transform;
 
 // ============================================================================
 // FRAME RATE
@@ -279,7 +279,7 @@ impl FileSpace {
             v[a.clamp(0, 2) as usize] = if sgn < 0 { -1.0 } else { 1.0 };
             v
         };
-        let basis = Mat4::from_cols(axis(coord).extend(0.0), axis(up).extend(0.0), axis(front).extend(0.0), bevy::math::Vec4::W);
+        let basis = Mat4::from_cols(axis(coord).extend(0.0), axis(up).extend(0.0), axis(front).extend(0.0), glam::Vec4::W);
         let unit = (unit_cm * 0.01) as f32;
         let to_internal = Mat4::from_scale(Vec3::splat(unit)) * basis.transpose();
         Self { up, front, coord, unit_cm, to_internal, root_joints: vec![], mesh_name: String::new() }
@@ -678,7 +678,7 @@ fn lerp_transform(a: &Transform, b: &Transform, t: f32) -> Transform {
 /// Procedural biped walking on the spot. Joint names carry a namespace so the
 /// rename node has something to clean. Starts at 01:00:00:00.
 pub fn create_test_clip(seconds: f32, rate: FrameRate) -> AnimData {
-    use bevy::math::Quat;
+    use glam::Quat;
 
     const NS: &str = "Take01:";
     // (name, parent, rest translation)

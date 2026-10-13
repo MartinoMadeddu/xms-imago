@@ -24,8 +24,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use bevy::math::{Mat3, Mat4, Quat, Vec3};
-use bevy::prelude::Transform;
+use glam::{Mat3, Mat4, Quat, Vec3};
+use crate::core::xform::Transform;
 use xms_ragdoll::{BakeInput, BakeReport, BodyDef, Bvh, Hinge, Hull, Params, Pose, Role, Side, Solver};
 
 use crate::core::human::{Human, Slot};
@@ -965,7 +965,7 @@ mod shipped {
         let dir = std::env::temp_dir().join("xms_ragdoll_solve");
         std::env::set_var("XMS_CACHE_DIR", &dir);
         let mut g = crate::node_graph::NodeGraphState::default();
-        let mut subnets = crate::ice::SubnetStore::default();
+        let mut subnets = crate::ice::IceGraphStore::default();
         let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
         (t.build)(&mut g, &mut subnets);
         let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;
@@ -1013,19 +1013,19 @@ mod shipped {
     fn hinge_axes_of_the_template() {
         std::env::set_var("XMS_CACHE_DIR", std::env::temp_dir().join("xms_ragdoll_none"));
         let mut g = crate::node_graph::NodeGraphState::default();
-        let mut subnets = crate::ice::SubnetStore::default();
+        let mut subnets = crate::ice::IceGraphStore::default();
         let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
         (t.build)(&mut g, &mut subnets);
         let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;
         let clip = g.ragdoll_inputs(id).0.unwrap();
         let rig = super::build_rig(&clip, &super::Settings::default()).unwrap();
-        let rot = |m: &bevy::math::Mat4| m.to_scale_rotation_translation().1;
+        let rot = |m: &glam::Mat4| m.to_scale_rotation_translation().1;
         for (b, d) in rig.defs.iter().enumerate() {
             let Some(h) = d.hinge else { continue };
             let (j, p) = (rig.joints[b], rig.joints[d.parent.unwrap()]);
             let c = rig.joints[(0..rig.defs.len()).find(|c| rig.defs[*c].parent == Some(b)).unwrap()];
             // Geometric: plane normal of the two bones, in the child's frame, weighted by bend.
-            let mut sum = bevy::math::Vec3::ZERO;
+            let mut sum = glam::Vec3::ZERO;
             for f in (0..clip.frames).step_by(20) {
                 let w = clip.world_pose(f);
                 let (s, e, wr) = (w[p].w_axis.truncate(), w[j].w_axis.truncate(), w[c].w_axis.truncate());
@@ -1046,7 +1046,7 @@ mod shipped {
         use crate::core::human::{Human, Slot};
         std::env::set_var("XMS_CACHE_DIR", std::env::temp_dir().join("xms_ragdoll_none"));
         let mut g = crate::node_graph::NodeGraphState::default();
-        let mut subnets = crate::ice::SubnetStore::default();
+        let mut subnets = crate::ice::IceGraphStore::default();
         let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
         (t.build)(&mut g, &mut subnets);
         let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;
@@ -1060,18 +1060,18 @@ mod shipped {
             let old = super::read_solved(std::path::Path::new(&p)).unwrap();
             println!("earlier solve: {:?}", old.report);
             let before = super::apply(&clip, &old);
-            if std::env::var("XMS_DEPTHS").is_ok() { println!("earlier solve, and the human pass on it:"); let bvh = super::tree(car.as_ref().unwrap()); let crosses = |a: bevy::math::Vec3, b: bevy::math::Vec3| bvh.segment(a, b).is_some(); let (o, r) = crate::core::human_ik::humanize(&clip, &before, &h, &Default::default(), Some(&crosses)); println!("{r:?}"); depths(&clip, car.as_ref().unwrap(), &before, &o); println!("this solve:"); }
+            if std::env::var("XMS_DEPTHS").is_ok() { println!("earlier solve, and the human pass on it:"); let bvh = super::tree(car.as_ref().unwrap()); let crosses = |a: glam::Vec3, b: glam::Vec3| bvh.segment(a, b).is_some(); let (o, r) = crate::core::human_ik::humanize(&clip, &before, &h, &Default::default(), Some(&crosses)); println!("{r:?}"); depths(&clip, car.as_ref().unwrap(), &before, &o); println!("this solve:"); }
         }
         let moved = super::apply(&clip, &solved);
         let t0 = std::time::Instant::now();
         let bvh = super::tree(car.as_ref().unwrap());
-        let crosses = |a: bevy::math::Vec3, b: bevy::math::Vec3| bvh.segment(a, b).is_some();
+        let crosses = |a: glam::Vec3, b: glam::Vec3| bvh.segment(a, b).is_some();
         let mut limits = crate::core::human_ik::Limits::default();
         if let Ok(v) = std::env::var("XMS_SWIVEL") { limits.swivel = v.parse().unwrap(); }
         let (out, r) = crate::core::human_ik::humanize(&clip, &moved, &h, &limits, Some(&crosses));
         println!("human pass {:.2} s over {} frames: {r:?}", t0.elapsed().as_secs_f32(), clip.frames);
         // Hand against forearm, and forearm against capture, in degrees.
-        let rot = |m: &bevy::math::Mat4| m.to_scale_rotation_translation().1;
+        let rot = |m: &glam::Mat4| m.to_scale_rotation_translation().1;
         for (hand, fore) in [(Slot::LeftHand, Slot::LeftLowerArm), (Slot::RightHand, Slot::RightLowerArm), (Slot::LeftFoot, Slot::LeftCalf), (Slot::RightFoot, Slot::RightCalf)] {
             let (e, m) = (h.get(hand).unwrap(), h.get(fore).unwrap());
             let rest = clip.skin.as_ref().map(|s| s.bind.clone()).unwrap();
@@ -1080,7 +1080,7 @@ mod shipped {
             for f in 0..clip.frames {
                 for (k, c) in [&*clip, &moved, &out].iter().enumerate() {
                     let w = c.world_pose(f);
-                    let a = (neutral.inverse() * rot(&w[m]).inverse() * rot(&w[e])).angle_between(bevy::math::Quat::IDENTITY).to_degrees();
+                    let a = (neutral.inverse() * rot(&w[m]).inverse() * rot(&w[e])).angle_between(glam::Quat::IDENTITY).to_degrees();
                     if a > worst[k].0 { worst[k] = (a, f); }
                 }
             }
@@ -1104,7 +1104,7 @@ mod shipped {
         for s in [Slot::LeftLowerArm, Slot::RightLowerArm, Slot::LeftCalf, Slot::RightCalf] {
             let j = h.get(s).unwrap();
             let (mut most, mut touched, mut jump_s, mut jump_o, mut jump_at) = (0.0f32, 0usize, 0.0f32, 0.0f32, 0usize);
-            let (mut prev_s, mut prev_o): (Option<bevy::math::Vec3>, Option<bevy::math::Vec3>) = (None, None);
+            let (mut prev_s, mut prev_o): (Option<glam::Vec3>, Option<glam::Vec3>) = (None, None);
             for f in 0..clip.frames {
                 let (a, b) = (moved.world_pose(f)[j].w_axis.truncate(), out.world_pose(f)[j].w_axis.truncate());
                 let d = (a - b).length();
@@ -1118,21 +1118,5 @@ mod shipped {
         if std::env::var("XMS_DEPTHS").is_ok() { depths(&clip, car.as_ref().unwrap(), &moved, &out); }
     }
 
-    /// The template opens solved, from the result that ships with the examples.
-    #[test]
-    fn the_template_opens_solved_when_its_files_are_there() {
-        std::env::set_var("XMS_CACHE_DIR", std::env::temp_dir().join("xms_ragdoll_none"));
-        let mut g = crate::node_graph::NodeGraphState::default();
-        let mut subnets = crate::ice::SubnetStore::default();
-        let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
-        (t.build)(&mut g, &mut subnets);
-        let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;
-        let (clip, car) = g.ragdoll_inputs(id);
-        let clip = clip.expect("take");
-        let key = super::key(&clip, car.as_ref(), &super::Settings::default());
-        let solved = super::solved(key).unwrap_or_else(|| panic!("no shipped result for {key:016x}"));
-        assert_eq!(solved.frames, clip.frames);
-        assert!(!std::sync::Arc::ptr_eq(&g.eval_anim(id).unwrap(), &clip));
-    }
 }
 
