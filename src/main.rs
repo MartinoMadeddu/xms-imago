@@ -756,14 +756,14 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::PrimInspector => {
-                let get_mesh = |g: &NodeGraphState| -> Option<MeshData> {
+                let get_parts = |g: &NodeGraphState| -> Option<Vec<MeshData>> {
                     let id = g.selected_node?;
                     let mut cache = std::collections::HashMap::new();
                     let eval_subnet = |_sid: SubnetId, mesh: &crate::core::geo::Geo, _template: Option<&crate::core::geo::Geo>| mesh.clone();
-                    g.eval_node(id, &mut cache, &eval_subnet).map(|r| r.into_mesh())
+                    g.eval_node(id, &mut cache, &eval_subnet).map(|r| r.into_parts())
                 };
                 let get_clip = |g: &NodeGraphState| g.selected_node.and_then(|id| g.eval_anim(id));
-                draw_prim_inspector(ui, self.graph, self.prim_state, self.revision, self.playback.time, &get_mesh, &get_clip);
+                draw_prim_inspector(ui, self.graph, self.prim_state, self.revision, self.playback.time, &get_parts, &get_clip);
             }
 
             Pane::NodeGraph => match self.nav.current_subnet {

@@ -40,6 +40,9 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Replace only the columns you change. Columns are shared and copied only when written; never rebuild a whole `Geo` to change one thing.
 - Keep primitives placed. Geometry stays in its own space; a primitive moves by its placement, not its points.
 - Keep the primitive's identity: path, source, stage, material and purpose travel with it through every node.
+- Curves are shown in the same contexts: their control points are points, the segments between them edges, and each curve one face (Face context), its control points its corners. The Primitive Inspector lists them so, by their control points as authored, alongside polygons and free points (Martino).
+- The points of a face or an edge are one attribute, an array as long as it has corners, not a column per point: the Primitive Inspector shows them in one cell, `indices = [0, 3, 2, 1]` (Martino).
+- A corner is listed with the point it belongs to, `ptIndex` (several corners share a point), not with its own number again: the spreadsheet's row number is the corner. Corners are those of the polygons, as `Geo` stores them, not of the triangles drawn (Martino).
 
 ## Nothing typed that can be picked
 
@@ -121,3 +124,6 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 12/10/2026: the Placeholder node, for asking for a node in the graph itself; Write FBX solves Body Collide upstream for each file it writes (Simon).
 - 12/10/2026: read from Martino's commits: `VOCABULARY.md` and the vocabulary applied across the program and docs; pointed to under "The same words for the same things", and this file brought into it.
 - 12/10/2026: "Like any other program" added: a menu bar at the top left, and questions before losing changes or writing over a file (Simon). FBX only for meshes and characters, the `.xmsclip` and `.xmsmesh` formats removed; the rest pose is the skeleton, so a Transform carries through Retarget (Simon).
+- 13/10/2026: curves in the Primitive Inspector: control points as points, segments as edges, one face per curve (Martino).
+- 13/10/2026: a face's or an edge's points are one array attribute, `indices`, in the Primitive Inspector (Martino).
+- 13/10/2026: the Corner tab lists polygon corners with `ptIndex`, the point each belongs to (Martino).

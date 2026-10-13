@@ -245,15 +245,17 @@ The attributes of the selected node, or of the primitive selected in the Scene E
 
 | Tab | Rows |
 |---|---|
-| Point | Points of the mesh: position and normal |
-| Edge | Edges: the two points and the length |
-| Face | Polygons |
-| Corner | Polygon corners, with UVs when the mesh has them |
-| Object | Values for the whole mesh |
+| Point | Points: polygon vertices, curve control points and free points. Position `P`, normal `N` for polygon vertices, `widths` for free points |
+| Edge | Polygon edges, then curve segments (between control points that follow each other, and the last back to the first on a periodic curve): `indices`, its two points as one array, and the length |
+| Face | Polygons, then curves, one row each: the number of corners (a curve's control points), `indices`, every point of the face as one array, and the normal and area of a polygon or the length of a curve |
+| Corner | Polygon corners, polygon after polygon (24 on a cube, not the 36 corners of the triangles it is drawn with): `ptIndex`, the point each corner belongs to (several corners share a point), and the UV when the mesh has them. Curves have none |
+| Object | One row per primitive, with its Object attributes |
 | Joint | Joints of a clip: name, parent, position and rotation at the current frame |
 | Bone | Bones of a clip: from one joint to another, with length |
 
-Mesh nodes show the first five tabs, clip nodes the last two.
+Nodes that give geometry show the first five tabs, clip nodes the last two.
+
+Each primitive is listed where it is drawn, one after the other, and points are numbered across all of them, so the point numbers in the Edge and Face tabs are rows of the Point tab. An edge's or a face's points are one value, an array as long as it has corners, shown in one cell as `[0, 3, 2, 1]`; the column is as wide as its widest cell, up to a limit past which longer arrays are cut off at the cell's edge. A column one primitive does not have (a normal on a curve point, the area of a curve) shows `-` on its rows. Curves are listed by their control points as authored, whatever their basis, not by the lines they are drawn as. With the Strands template, Point lists 3430 points (3030 control points, then the spiral's 400), Edge 2427 segments, Face 604 curves.
 
 The mesh is cooked and the table built only when the graph changes or another node is selected. Moving the camera, or anything else in the Viewer that leaves the graph alone, does not refresh it. Each frame draws only the rows in view.
 
@@ -267,6 +269,7 @@ The window draws a new frame when something happens (input, a change in the grap
 
 ## Not done yet
 
+- The Primitive Inspector shows curves' positions only: their widths and other attributes are not listed yet. Nor are the attributes of a primitive placed from a stage, apart from positions, normals, UVs and points' widths.
 - The Edit menu acts on the root scene graph, not inside an ICE graph.
 - Paste in the Edit menu pastes the nodes copied last; Ctrl+V over the canvas also takes nodes from the system clipboard, under the pointer.
 - No question before Write FBX or Write USD overwrites a file in a batch run started some other way than the node's buttons (the tests, say).

@@ -1,6 +1,6 @@
 use bevy_egui::egui;
 use crate::core::anim::AnimData;
-use crate::types::{InspectorTable, MeshData, PrimInspectorState, PrimInspectorTab, PrimVarInterp};
+use crate::types::{array_text, InspectorTable, MeshData, PrimInspectorState, PrimInspectorTab, PrimVarInterp};
 use crate::node_graph::NodeGraphState;
 
 const ROW_H:      f32 = 20.0;
@@ -9,6 +9,10 @@ const DATA_COL_W: f32 = 90.0;
 const LABEL_COL_W: f32 = 230.0;
 const HEADER_H:   f32 = 24.0;
 const MAX_ROWS:   usize = 200; // max rows rendered at once (virtual scroll)
+/// Width of one character of a 10 pt monospace array cell, and the widest an
+/// array column grows to before its longer cells are cut off.
+const ARRAY_CHAR_W:    f32 = 6.2;
+const ARRAY_COL_MAX_W: f32 = 420.0;
 
 mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
@@ -41,7 +45,7 @@ pub fn draw_prim_inspector(
     revision: u64,
     // Playhead, for the pose a clip is listed in.
     time:     f64,
-    get_mesh: &dyn Fn(&NodeGraphState) -> Option<MeshData>,
+    get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<MeshData>>,
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
 ) {
     egui::Frame::none()
@@ -50,8 +54,8 @@ pub fn draw_prim_inspector(
             let selected_node = graph.selected_node;
             if !state.is_cache_valid(selected_node, revision) {
                 let clip = get_clip(graph);
-                let mesh = if clip.is_none() { get_mesh(graph) } else { None };
-                state.update_cache(selected_node, mesh, clip, revision);
+                let parts = if clip.is_none() { get_parts(graph).unwrap_or_default() } else { vec![] };
+                state.update_cache(selected_node, parts, clip, revision);
             }
 
             // ── Path breadcrumb ───────────────────────────────────────────────
@@ -78,7 +82,7 @@ pub fn draw_prim_inspector(
                 });
 
             let clip = state.cached_clip();
-            let mesh = state.cached_mesh().filter(|m| !m.vertices.is_empty() || !m.points.is_empty());
+            let mesh = state.cached_parts().filter(|parts| parts.iter().any(|m| m.point_count() > 0));
             if clip.is_none() && mesh.is_none() {
                 ui.add_space(12.0);
                 ui.centered_and_justified(|ui| {
@@ -103,14 +107,13 @@ pub fn draw_prim_inspector(
                         if let Some(c) = &clip {
                             tab_btn(ui, state, Tab::Joint, &format!("Joint ({})", c.joints.len()));
                             tab_btn(ui, state, Tab::Bone, &format!("Bone ({})", bones(c).len()));
-                        } else if let Some(m) = &mesh {
-                            let count = |interp: PrimVarInterp| m.primvars.iter().filter(|p| p.interp == interp).count();
-                            let verts = if m.vertices.is_empty() { m.points.len() } else { m.vertices.len() };
-                            tab_btn(ui, state, Tab::Vertex, &format!("Point ({verts})"));
+                        } else if let Some(parts) = &mesh {
+                            let sum = |f: &dyn Fn(&MeshData) -> usize| parts.iter().map(f).sum::<usize>();
+                            tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", sum(&|m: &MeshData| m.point_count())));
                             tab_btn(ui, state, Tab::Edge, &format!("Edge ({})", state.edge_count));
-                            tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", m.num_faces()));
-                            tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", m.num_face_varying()));
-                            tab_btn(ui, state, Tab::Constant, &format!("Object ({})", count(PrimVarInterp::Constant)));
+                            tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", sum(&|m: &MeshData| m.num_faces() + m.curve_counts.len())));
+                            tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", sum(&|m: &MeshData| m.corner_count())));
+                            tab_btn(ui, state, Tab::Constant, &format!("Object ({})", object_rows(parts)));
                         }
                     });
                 });
@@ -125,7 +128,7 @@ pub fn draw_prim_inspector(
             if !state.table_is_for(&tab, frame) {
                 let table = match (&clip, &mesh) {
                     (Some(c), _) => clip_table(c, &tab, frame),
-                    (None, Some(m)) => mesh_table(m, &tab),
+                    (None, Some(parts)) => parts_table(parts, &tab),
                     _ => InspectorTable::default(),
                 };
                 state.set_table(tab.clone(), frame, table);
@@ -171,6 +174,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
                     ("length".into(), list.iter().map(|(a, b)| vec![pos(*a).distance(pos(*b))]).collect()),
                     ("dir".into(), list.iter().map(|(a, b)| (pos(*b) - pos(*a)).normalize_or_zero().to_array().to_vec()).collect()),
                 ],
+                arrays: vec![],
             }
         }
         _ => {
@@ -188,6 +192,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
                     ("R".into(), (0..n).map(euler).collect()),
                     ("bone".into(), clip.joints.iter().map(|j| vec![j.is_bone as u8 as f32]).collect()),
                 ],
+                arrays: vec![],
             }
         }
     }
@@ -195,67 +200,149 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
 
 /// One component tab of a mesh.
 pub fn mesh_table(mesh: &MeshData, tab: &PrimInspectorTab) -> InspectorTable {
+    parts_table(std::slice::from_ref(mesh), tab)
+}
+
+/// Rows of the Object tab: one per primitive, when any has Object attributes.
+pub fn object_rows(parts: &[MeshData]) -> usize {
+    let any = parts.iter().any(|m| m.primvars.iter().any(|p| p.interp == PrimVarInterp::Constant));
+    if any { parts.len() } else { 0 }
+}
+
+/// One component tab of some primitives, each where it is drawn: the rows of
+/// each primitive in turn, with point numbers counted across all of them.
+/// A column one primitive lacks shows `-` on its rows.
+pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable {
+    let mut rows = 0usize;
+    let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
+    let mut first_point = 0usize;
+    for m in parts {
+        let (n, part_cols) = part_table(m, tab, first_point);
+        for (name, values) in part_cols {
+            let at = match cols.iter().position(|c| c.0 == name) {
+                Some(at) => at,
+                None => { cols.push((name, vec![vec![]; rows])); cols.len() - 1 }
+            };
+            cols[at].1.extend(values);
+        }
+        rows += n;
+        for c in cols.iter_mut() { c.1.resize(rows, vec![]); }
+        first_point += m.point_count();
+    }
+    // The points of an edge or a face: one array each, `indices`, as the
+    // face's slice of `Topology::Mesh::indices` (USD faceVertexIndices).
+    let arrays = match tab {
+        PrimInspectorTab::Edge | PrimInspectorTab::Uniform => cols.iter()
+            .filter(|c| c.0 == "indices")
+            .map(|c| (c.0.clone(), c.1.iter().map(|v| array_text(v).len()).max().unwrap_or(2)))
+            .collect(),
+        _ => vec![],
+    };
+    InspectorTable { rows, labels: None, cols, arrays }
+}
+
+/// One component tab of one primitive. `first_point` is the number of its
+/// first point in the whole table.
+fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first_point: usize) -> (usize, Vec<(String, Vec<Vec<f32>>)>) {
     use bevy::math::Vec3;
     let vars = |interp: PrimVarInterp| mesh.primvars.iter().filter(move |p| p.interp == interp);
-    let p = |v: u32| Vec3::from_array(mesh.vertices[v as usize]);
-    let (rows, cols): (usize, Vec<(String, Vec<Vec<f32>>)>) = match tab {
-        PrimInspectorTab::Vertex if mesh.vertices.is_empty() => (
-            // A point cloud.
-            mesh.points.len(),
-            vec![("P".into(), mesh.points.iter().map(|v| v.to_vec()).collect())],
-        ),
+    // Points, numbered as listed: polygon vertices, curve control points, free points.
+    let (nv, nc) = (mesh.vertices.len(), mesh.curve_points.len());
+    let at = |i: usize| -> Vec3 {
+        Vec3::from_array(if i < nv { mesh.vertices[i] } else if i < nv + nc { mesh.curve_points[i - nv] } else { mesh.points[i - nv - nc] })
+    };
+    let num = |i: usize| (first_point + i) as f32;
+    // A column with values on some rows and `-` on the others.
+    let fill = |n: usize, from: usize, values: Vec<Vec<f32>>| -> Vec<Vec<f32>> {
+        let mut col = vec![vec![]; n];
+        for (k, v) in values.into_iter().enumerate() {
+            if let Some(slot) = col.get_mut(from + k) { *slot = v; }
+        }
+        col
+    };
+    match tab {
         PrimInspectorTab::Vertex => {
+            let n = mesh.point_count();
             let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![
-                ("P".into(), mesh.vertices.iter().map(|v| vec![v[0], v[1], v[2]]).collect()),
+                ("P".into(), (0..n).map(|i| at(i).to_array().to_vec()).collect()),
             ];
             if !mesh.normals.is_empty() {
-                cols.push(("N".into(), mesh.normals.iter().map(|n| vec![n[0], n[1], n[2]]).collect()));
+                cols.push(("N".into(), fill(n, 0, mesh.normals.iter().map(|v| v.to_vec()).collect())));
             }
             for pv in vars(PrimVarInterp::Vertex) {
-                if pv.name != "N" { cols.push((pv.name.clone(), pv.values.clone())); }
+                if pv.name != "N" { cols.push((pv.name.clone(), fill(n, 0, pv.values.clone()))); }
             }
-            (mesh.vertices.len(), cols)
+            // Free points' widths: one each, or one for them all.
+            if !mesh.widths.is_empty() && !mesh.points.is_empty() {
+                let w = |i: usize| mesh.widths.get(i).or(mesh.widths.first()).copied().unwrap_or(0.0);
+                cols.push(("widths".into(), fill(n, nv + nc, (0..mesh.points.len()).map(|i| vec![w(i)]).collect())));
+            }
+            (n, cols)
         }
         PrimInspectorTab::Edge => {
-            let edges = crate::core::poly::PolyMesh::from_mesh(mesh).edges();
+            // Polygon edges, then the segments of each curve.
+            let mut edges = crate::core::poly::PolyMesh::from_mesh(mesh).edges();
+            edges.extend(mesh.curve_segments().into_iter().map(|[a, b]| [a + nv as u32, b + nv as u32]));
             (edges.len(), vec![
-                ("vtx[0]".into(), edges.iter().map(|e| vec![e[0] as f32]).collect()),
-                ("vtx[1]".into(), edges.iter().map(|e| vec![e[1] as f32]).collect()),
-                ("length".into(), edges.iter().map(|e| vec![p(e[0]).distance(p(e[1]))]).collect()),
+                ("indices".into(), edges.iter().map(|e| vec![num(e[0] as usize), num(e[1] as usize)]).collect()),
+                ("length".into(), edges.iter().map(|e| vec![at(e[0] as usize).distance(at(e[1] as usize))]).collect()),
             ])
         }
         PrimInspectorTab::Uniform => {
+            // Polygons, then curves: a curve is one face, its control points
+            // its corners (as `Topology::corner_count` counts them).
             let poly = crate::core::poly::PolyMesh::from_mesh(mesh);
-            let n = poly.polys.len();
-            let corner = |k: usize| -> Vec<Vec<f32>> {
-                poly.polys.iter().map(|q| vec![q.get(k).map(|v| *v as f32).unwrap_or(-1.0)]).collect()
-            };
+            let np = poly.polys.len();
+            let mut corners: Vec<Vec<usize>> = poly.polys.iter().map(|q| q.iter().map(|v| *v as usize).collect()).collect();
+            let mut next = nv;
+            for &c in &mesh.curve_counts {
+                corners.push((next..next + c as usize).collect());
+                next += c as usize;
+            }
+            let n = corners.len();
             let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![
-                ("corners".into(), poly.polys.iter().map(|q| vec![q.len() as f32]).collect()),
-                ("vtx[0]".into(), corner(0)), ("vtx[1]".into(), corner(1)),
-                ("vtx[2]".into(), corner(2)), ("vtx[3]".into(), corner(3)),
-                ("N".into(), (0..n).map(|q| poly.normal(q).to_array().to_vec()).collect()),
-                ("area".into(), (0..n).map(|q| vec![poly.area_normal(q).length() * 0.5]).collect()),
+                ("corners".into(), corners.iter().map(|q| vec![q.len() as f32]).collect()),
+                ("indices".into(), corners.iter().map(|q| q.iter().map(|v| num(*v)).collect()).collect()),
             ];
-            for pv in vars(PrimVarInterp::Uniform) { cols.push((pv.name.clone(), pv.values.clone())); }
+            if np > 0 {
+                cols.push(("N".into(), fill(n, 0, (0..np).map(|q| poly.normal(q).to_array().to_vec()).collect())));
+                cols.push(("area".into(), fill(n, 0, (0..np).map(|q| vec![poly.area_normal(q).length() * 0.5]).collect())));
+            }
+            if n > np {
+                // Along the control points, closing a periodic curve.
+                let closed = mesh.curve_wrap == crate::types::CurveWrap::Periodic;
+                let length = |cv: &Vec<usize>| -> f32 {
+                    let open: f32 = cv.windows(2).map(|w| at(w[0]).distance(at(w[1]))).sum();
+                    if closed && cv.len() > 2 { open + at(cv[cv.len() - 1]).distance(at(cv[0])) } else { open }
+                };
+                cols.push(("length".into(), fill(n, np, corners[np..].iter().map(|cv| vec![length(cv)]).collect())));
+            }
+            for pv in vars(PrimVarInterp::Uniform) { cols.push((pv.name.clone(), fill(n, 0, pv.values.clone()))); }
             (n, cols)
         }
         PrimInspectorTab::FaceVarying => {
+            // Polygon corners, polygon after polygon: the point each belongs to
+            // (several corners share a point), then what each corner carries.
+            let n = mesh.corner_count();
             let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
-            if mesh.uvs.len() == mesh.indices.len() && !mesh.uvs.is_empty() {
-                cols.push(("vtx".into(), mesh.indices.iter().map(|i| vec![*i as f32]).collect()));
-                cols.push(("uv".into(), mesh.uvs.iter().map(|uv| uv.to_vec()).collect()));
+            if n > 0 {
+                cols.push(("ptIndex".into(), mesh.corner_points().iter().map(|i| vec![num(*i as usize)]).collect()));
             }
-            cols.extend(vars(PrimVarInterp::FaceVarying).map(|pv| (pv.name.clone(), pv.values.clone())));
-            (mesh.num_face_varying(), cols)
+            if let Some(uvs) = mesh.corner_uvs() {
+                cols.push(("uv".into(), uvs.iter().map(|uv| uv.to_vec()).collect()));
+            }
+            cols.extend(vars(PrimVarInterp::FaceVarying).map(|pv| (pv.name.clone(), fill(n, 0, pv.values.clone()))));
+            (n, cols)
         }
         PrimInspectorTab::Constant => {
-            let cols: Vec<_> = vars(PrimVarInterp::Constant).map(|pv| (pv.name.clone(), pv.values.clone())).collect();
-            (cols.len(), cols)
+            // One row: this primitive's value of each.
+            let cols: Vec<_> = vars(PrimVarInterp::Constant)
+                .map(|pv| (pv.name.clone(), vec![pv.values.first().cloned().unwrap_or_default()]))
+                .collect();
+            (1, cols)
         }
         _ => (0, vec![]),
-    };
-    InspectorTable { rows, labels: None, cols }
+    }
 }
 
 // ── Tab button ────────────────────────────────────────────────────────────────
@@ -296,13 +383,23 @@ fn draw_spreadsheet(
         return;
     }
 
-    // Expand column headers: P with width 3 → P.X, P.Y, P.Z
-    struct ColDef<'a> { header: String, source: &'a str, component: usize }
+    // Expand column headers: P with width 3 → P.X, P.Y, P.Z. An array
+    // column stays one column, as wide as its widest cell.
+    struct ColDef<'a> { header: String, source: &'a str, component: usize, array: bool, x: f32, w: f32 }
     let mut col_defs: Vec<ColDef> = Vec::new();
+    let mut x = 0.0;
     for (name, rows) in cols {
-        let width = rows.first().map(|r| r.len()).unwrap_or(1);
+        if let Some((_, chars)) = table.arrays.iter().find(|a| a.0 == *name) {
+            let w = (*chars as f32 * ARRAY_CHAR_W + 12.0).clamp(DATA_COL_W, ARRAY_COL_MAX_W);
+            col_defs.push(ColDef { header: name.to_string(), source: name, component: 0, array: true, x, w });
+            x += w;
+            continue;
+        }
+        // A row may be empty (`-`) where a primitive lacks the column.
+        let width = rows.iter().map(|r| r.len()).find(|&w| w > 0).unwrap_or(1);
         if width == 1 {
-            col_defs.push(ColDef { header: name.to_string(), source: name, component: 0 });
+            col_defs.push(ColDef { header: name.to_string(), source: name, component: 0, array: false, x, w: DATA_COL_W });
+            x += DATA_COL_W;
         } else {
             let suffixes = ["X","Y","Z","W"];
             for c in 0..width {
@@ -310,12 +407,16 @@ fn draw_spreadsheet(
                     header:    format!("{}.{}", name, suffixes.get(c).unwrap_or(&"?")),
                     source:    name,
                     component: c,
+                    array:     false,
+                    x,
+                    w:         DATA_COL_W,
                 });
+                x += DATA_COL_W;
             }
         }
     }
 
-    let total_w = IDX_COL_W + label_w + col_defs.len() as f32 * DATA_COL_W;
+    let total_w = IDX_COL_W + label_w + x;
     let avail_h = ui.available_height();
 
     // Virtual scroll: how many rows fit?
@@ -358,11 +459,11 @@ fn draw_spreadsheet(
             painter.text(cell.center(), egui::Align2::CENTER_CENTER, heading, egui::FontId::proportional(11.0), xsi::TEXT());
         }
 
-        for (ci, cd) in col_defs.iter().enumerate() {
-            let x = outer_rect.min.x + IDX_COL_W + label_w + ci as f32 * DATA_COL_W;
+        for cd in col_defs.iter() {
+            let x = outer_rect.min.x + IDX_COL_W + label_w + cd.x;
             let cell = egui::Rect::from_min_size(
                 egui::pos2(x, outer_rect.min.y),
-                egui::vec2(DATA_COL_W, HEADER_H),
+                egui::vec2(cd.w, HEADER_H),
             );
             painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
             painter.text(
@@ -410,18 +511,31 @@ fn draw_spreadsheet(
             }
 
             // Data cells
-            for (ci, cd) in col_defs.iter().enumerate() {
-                let x = outer_rect.min.x + IDX_COL_W + label_w + ci as f32 * DATA_COL_W;
+            for cd in col_defs.iter() {
+                let x = outer_rect.min.x + IDX_COL_W + label_w + cd.x;
                 let cell = egui::Rect::from_min_size(
                     egui::pos2(x, y),
-                    egui::vec2(DATA_COL_W, ROW_H),
+                    egui::vec2(cd.w, ROW_H),
                 );
                 painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
 
-                // Find value
-                let val_str = cols.iter()
+                let row = cols.iter()
                     .find(|(n, _)| *n == cd.source)
-                    .and_then(|(_, rows)| rows.get(row_idx))
+                    .and_then(|(_, rows)| rows.get(row_idx));
+                if cd.array {
+                    // The whole array in one cell, from the left; cut off at
+                    // the edge when it is longer than the widest column allows.
+                    let text = row.filter(|r| !r.is_empty()).map(|r| array_text(r)).unwrap_or_else(|| "-".into());
+                    painter.with_clip_rect(cell.shrink(2.0)).text(
+                        egui::pos2(cell.min.x + 6.0, cell.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        &text,
+                        egui::FontId::monospace(10.0),
+                        xsi::TEXT(),
+                    );
+                    continue;
+                }
+                let val_str = row
                     .and_then(|r| r.get(cd.component))
                     .map(|v| format!("{:.4}", v))
                     .unwrap_or_else(|| "-".into());
@@ -491,14 +605,130 @@ mod tests {
         assert!(col(&p, "corners").iter().all(|c| c[0] == 4.0));
         assert!(col(&p, "area").iter().all(|a| (a[0] - 1.0).abs() < 1e-6));
         assert_eq!(col(&p, "N")[3], vec![0.0, 1.0, 0.0]);
-        // No UVs: nothing per corner. With UVs: one row per triangle corner.
-        assert!(mesh_table(&cube, &PrimInspectorTab::FaceVarying).cols.is_empty());
+        // Corners of the polygons, not of the triangles drawn: 6 quads, 24
+        // corners, each with the point it belongs to. No UVs, no uv column.
+        let c = mesh_table(&cube, &PrimInspectorTab::FaceVarying);
+        assert_eq!(c.rows, 24);
+        let pt: Vec<f32> = col(&c, "ptIndex").iter().map(|v| v[0]).collect();
+        assert_eq!(&pt[..4], &[0.0, 3.0, 2.0, 1.0], "the first face's corners");
+        // Each of the 8 points is shared by three corners.
+        assert!((0..8).all(|p| pt.iter().filter(|&&q| q == p as f32).count() == 3));
+        assert!(c.cols.iter().all(|c| c.0 != "vtx" && c.0 != "uv"));
+        // With UVs: one per polygon corner, read back from the triangles.
+        // A planar unwrap gives every corner of a point the same UV.
         let mut grid = create_grid(2, 2, 2.0);
         grid.uvs = crate::core::uv::unwrap(&grid, crate::core::uv::UvMethod::Planar, 0.0, 0.0, 1, 1);
         let fv = mesh_table(&grid, &PrimInspectorTab::FaceVarying);
-        assert_eq!(fv.rows, 24);
-        assert_eq!(col(&fv, "uv").len(), 24);
-        assert_eq!(col(&fv, "uv")[0].len(), 2);
+        assert_eq!(fv.rows, 16);
+        let (pts, uvs) = (col(&fv, "ptIndex"), col(&fv, "uv"));
+        assert_eq!(uvs.len(), 16);
+        assert_eq!(uvs[0].len(), 2);
+        for a in 0..16 {
+            for b in 0..16 {
+                if pts[a] == pts[b] { assert_eq!(uvs[a], uvs[b], "corners {a} and {b} share a point"); }
+            }
+        }
+    }
+
+    /// Two curves of three control points, one open and one periodic.
+    fn two_curves(wrap: crate::types::CurveWrap) -> MeshData {
+        MeshData {
+            curve_points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 0.0, 2.0], [3.0, 0.0, 2.0], [3.0, 4.0, 2.0]],
+            curve_counts: vec![3, 3],
+            curve_wrap: wrap,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn curves_list_control_points_segments_and_one_face_each() {
+        use crate::types::CurveWrap;
+        let open = two_curves(CurveWrap::Nonperiodic);
+        let v = mesh_table(&open, &PrimInspectorTab::Vertex);
+        assert_eq!(v.rows, 6);
+        assert_eq!(col(&v, "P")[4], vec![3.0, 0.0, 2.0]);
+        // Segments between control points that follow each other, per curve.
+        let e = mesh_table(&open, &PrimInspectorTab::Edge);
+        assert_eq!(e.rows, 4);
+        assert_eq!(col(&e, "indices")[2], vec![3.0, 4.0]);
+        assert_eq!(e.arrays, vec![("indices".to_string(), "[0, 1]".len())]);
+        assert_eq!(col(&e, "length")[3], vec![4.0]);
+        // One face per curve: its control points are its corners.
+        let f = mesh_table(&open, &PrimInspectorTab::Uniform);
+        assert_eq!(f.rows, 2);
+        assert_eq!(col(&f, "corners")[1], vec![3.0]);
+        // Every point of the face, as one array: as many as it has corners.
+        assert_eq!(col(&f, "indices")[1], vec![3.0, 4.0, 5.0]);
+        assert!(f.cols.iter().all(|c| !c.0.starts_with("vtx[")), "one indices array, not a column per point");
+        assert_eq!(col(&f, "length")[1], vec![7.0]);
+        assert!(f.cols.iter().all(|c| c.0 != "area" && c.0 != "N"), "no polygon columns for curves");
+        // A periodic curve closes: one more segment, and a longer curve.
+        let ring = two_curves(CurveWrap::Periodic);
+        let e = mesh_table(&ring, &PrimInspectorTab::Edge);
+        assert_eq!(e.rows, 6);
+        assert_eq!(col(&e, "indices")[5], vec![5.0, 3.0]);
+        assert_eq!(mesh_table(&ring, &PrimInspectorTab::Uniform).cols.iter().find(|c| c.0 == "length").unwrap().1[1], vec![12.0]);
+        // Curves have no polygon corners.
+        assert!(mesh_table(&open, &PrimInspectorTab::FaceVarying).cols.is_empty());
+    }
+
+    #[test]
+    fn primitives_are_listed_one_after_the_other() {
+        use crate::types::CurveWrap;
+        let parts = vec![create_cube(1.0), two_curves(CurveWrap::Nonperiodic)];
+        // Points: the cube's 8, then the curves', numbered on.
+        let v = parts_table(&parts, &PrimInspectorTab::Vertex);
+        assert_eq!(v.rows, 14);
+        assert_eq!(col(&v, "P")[12], vec![3.0, 0.0, 2.0]);
+        assert_eq!(col(&v, "N")[0].len(), 3);
+        assert!(col(&v, "N")[8].is_empty(), "a curve point has no normal: shown as -");
+        let e = parts_table(&parts, &PrimInspectorTab::Edge);
+        assert_eq!(e.rows, 12 + 4);
+        assert_eq!(col(&e, "indices")[12], vec![8.0, 9.0]);
+        let f = parts_table(&parts, &PrimInspectorTab::Uniform);
+        assert_eq!(f.rows, 6 + 2);
+        assert_eq!(col(&f, "corners")[6], vec![3.0]);
+        assert_eq!(col(&f, "indices")[6], vec![8.0, 9.0, 10.0]);
+        assert_eq!(col(&f, "indices")[0].len(), 4);
+        // The widest cell sets the column's width: a quad, "[0, 3, 2, 1]".
+        assert_eq!(f.arrays, vec![("indices".to_string(), 12)]);
+        assert_eq!(col(&f, "area")[0].len(), 1);
+        assert!(col(&f, "area")[6].is_empty() && col(&f, "length")[0].is_empty());
+    }
+
+    /// The curves and points example, as the Load USD node gives it.
+    #[test]
+    fn the_strands_example_lists_its_curves_and_points() {
+        use crate::types::{EvalResult, NamedMesh};
+        let dir = std::env::temp_dir().join("xms_inspector_strands");
+        let _ = std::fs::remove_dir_all(&dir);
+        crate::examples::write_all(&dir).unwrap();
+        let scene = crate::usd_stage::read(&dir.join(crate::examples_stage::STRANDS)).unwrap();
+        let prims: Vec<NamedMesh> = scene.meshes.iter()
+            .map(|m| NamedMesh { place: m.place.clone(), ..NamedMesh::new(m.path.clone(), (*m.mesh).clone()) })
+            .collect();
+        let parts = EvalResult::Named(prims).into_parts();
+
+        // Control points as authored, of every basis (not the polylines they
+        // are drawn as), then the 400 points of the spiral.
+        let curve_points = 7 + 7 + 8 + 8 + 600 * 5;
+        let v = parts_table(&parts, &PrimInspectorTab::Vertex);
+        assert_eq!(v.rows, curve_points + 400);
+        let linear = scene.meshes.iter().position(|m| m.path.ends_with("Linear")).unwrap();
+        let first: usize = parts[..linear].iter().map(|m| m.point_count()).sum();
+        let p = &col(&v, "P")[first];
+        assert!((p[0] - -4.0).abs() < 1e-5 && (p[1] - 0.2).abs() < 1e-5 && p[2].abs() < 1e-5, "{p:?}");
+        // Widths for the spiral's points only.
+        let widths = col(&v, "widths");
+        assert_eq!(widths.iter().filter(|w| !w.is_empty()).count(), 400);
+
+        // Segments: n - 1 per open curve, n for the periodic ring.
+        let e = parts_table(&parts, &PrimInspectorTab::Edge);
+        assert_eq!(e.rows, 6 + 6 + 7 + 8 + 600 * 4);
+        // One face per curve.
+        let f = parts_table(&parts, &PrimInspectorTab::Uniform);
+        assert_eq!(f.rows, 4 + 600);
+        assert!(col(&f, "length").iter().all(|l| l[0] > 0.0));
     }
 
     #[test]
