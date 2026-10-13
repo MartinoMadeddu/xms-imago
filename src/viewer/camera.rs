@@ -70,6 +70,25 @@ impl Camera {
     }
 }
 
+/// Where the camera has to be to see a sphere, looking along `dir`.
+/// Returns the new position. `fov` is the vertical field of view in radians.
+pub fn frame_position(centre: Vec3, radius: f32, dir: Vec3, fov: f32, aspect: f32) -> Vec3 {
+    // The narrower of the two view angles has to hold the sphere.
+    let half_v = fov * 0.5;
+    let half_h = (half_v.tan() * aspect.max(0.05)).atan();
+    let half = half_v.min(half_h).max(0.01);
+    let dir = if dir.length_squared() > 1e-10 { dir.normalize() } else { Vec3::new(0.5, 0.45, 0.74).normalize() };
+    centre + dir * (radius.max(1e-3) / half.sin() * 1.15)
+}
+
+/// Bounding sphere of some points: centre of their box, and its half diagonal.
+pub fn bounds_of(points: impl Iterator<Item = Vec3>) -> Option<(Vec3, f32)> {
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let mut any = false;
+    for p in points { if p.is_finite() { lo = lo.min(p); hi = hi.max(p); any = true; } }
+    any.then(|| ((lo + hi) * 0.5, ((hi - lo) * 0.5).length()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

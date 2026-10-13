@@ -7,6 +7,11 @@ struct View {
 };
 @group(0) @binding(0) var<uniform> view: View;
 
+// A material's textures; a white pixel where there is none.
+@group(1) @binding(0) var colour_map:   texture_2d<f32>;
+@group(1) @binding(1) var emissive_map: texture_2d<f32>;
+@group(1) @binding(2) var map_sampler:  sampler;
+
 struct MeshIn {
     @location(0) pos:    vec3<f32>,
     @location(1) nrm:    vec3<f32>,
@@ -15,14 +20,17 @@ struct MeshIn {
     @location(4) m2:     vec4<f32>,
     @location(5) m3:     vec4<f32>,
     @location(6) colour: vec4<f32>,
+    // x: lit, y: colour map, z: emissive map, w: cut out by the colour map's alpha.
     @location(7) flags:  vec4<f32>,
+    @location(8) uv:     vec2<f32>,
 };
 
 struct MeshOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) nrm:    vec3<f32>,
     @location(1) colour: vec4<f32>,
-    @location(2) lit:    f32,
+    @location(2) flags:  vec4<f32>,
+    @location(3) uv:     vec2<f32>,
 };
 
 fn mesh_out(v: MeshIn) -> MeshOut {
@@ -31,7 +39,8 @@ fn mesh_out(v: MeshIn) -> MeshOut {
     o.clip = view.view_proj * (m * vec4<f32>(v.pos, 1.0));
     o.nrm = (m * vec4<f32>(v.nrm, 0.0)).xyz;
     o.colour = v.colour;
-    o.lit = v.flags.x;
+    o.flags = v.flags;
+    o.uv = v.uv;
     return o;
 }
 
@@ -42,15 +51,23 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
 
 @fragment
 fn fs_mesh(i: MeshOut) -> @location(0) vec4<f32> {
-    if i.lit < 0.5 {
-        return i.colour;
+    // Textures are read before any branch: sampling needs every pixel of a
+    // quad to take the same path.
+    let tex = mix(vec4<f32>(1.0), textureSample(colour_map, map_sampler, i.uv), i.flags.y);
+    let glow = textureSample(emissive_map, map_sampler, i.uv).rgb * i.flags.z;
+    let base = i.colour * tex;
+    if i.flags.w > 0.5 && base.a < 0.5 {
+        discard;
+    }
+    if i.flags.x < 0.5 {
+        return base;
     }
     // A key light and the sky, lighting both sides alike.
     let len = length(i.nrm);
     let n = select(vec3<f32>(0.0, 1.0, 0.0), i.nrm / len, len > 1e-8);
     let key = abs(dot(n, normalize(vec3<f32>(0.4, 0.8, 0.45))));
     let sky = 0.5 + 0.5 * abs(n.y);
-    return vec4<f32>(i.colour.rgb * (0.22 + 0.18 * sky + 0.6 * key), i.colour.a);
+    return vec4<f32>(base.rgb * (0.22 + 0.18 * sky + 0.6 * key) + glow, base.a);
 }
 
 // Polygon edges: a mesh's edges drawn at each of its copies, as the surfaces
@@ -73,11 +90,24 @@ struct LineOut {
     @location(0) colour: vec4<f32>,
 };
 
-@vertex
-fn vs_line(v: LineIn) -> LineOut {
+fn line_out(v: LineIn) -> LineOut {
     var o: LineOut;
     o.clip = view.view_proj * vec4<f32>(v.pos, 1.0);
     o.colour = v.colour;
+    return o;
+}
+
+@vertex
+fn vs_line(v: LineIn) -> LineOut {
+    return line_out(v);
+}
+
+// A line on its surface (Edit Poly's wireframe): a little towards the
+// camera, in proportion to the distance.
+@vertex
+fn vs_line_raised(v: LineIn) -> LineOut {
+    var o = line_out(v);
+    o.clip.z = o.clip.z * 1.002;
     return o;
 }
 

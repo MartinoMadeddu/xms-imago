@@ -135,7 +135,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 |---|---|
 | `src/app.rs` | `AppState`: the program's whole state (graph, ICE graphs, panes, files, undo), owned by the shell |
 | `src/eframe_app.rs` | the eframe shell taking over from Bevy: owns `AppState`, draws the interface with the same code (`XMS_SHELL=eframe`) |
-| `src/viewer/` | the Viewer's 3D view on wgpu (eframe shell): camera and navigation, the scene from the graph's output, the GPU picture laid into the pane |
+| `src/viewer/` | the Viewer's 3D view on wgpu (eframe shell): camera and navigation, the scene from the graph's output (materials and textures, skeletons), Edit Poly's picking and manipulators (`edit.rs`), the GPU picture laid into the pane |
 | `src/shell.rs` | what ties the program to Bevy until the eframe rework: components, and `AppState` as one resource |
 | `src/core/xform.rs` | `Transform` (translation, rotation, scale) for clips, on glam |
 | `crates/xms-scene`, `crates/xms-usd` | scene layer, USD → scene layer translation (forked from rray) |

@@ -141,7 +141,7 @@ pub enum Drag {
     },
 }
 
-fn transform_of(kind: &PolyOpKind) -> Option<(Vec3, Quat, Vec3)> {
+pub(crate) fn transform_of(kind: &PolyOpKind) -> Option<(Vec3, Quat, Vec3)> {
     match kind {
         PolyOpKind::Transform { translate, rotate, scale, .. } =>
             Some((Vec3::from_array(*translate), Quat::from_array(*rotate).normalize(), Vec3::from_array(*scale))),
