@@ -255,17 +255,17 @@ impl AnimData {
     /// The whole clip moved by `x`, in world space. Only the joints at the
     /// top of the hierarchy change; everything under them follows. A mesh
     /// skinned to the skeleton is left as it is: it follows the joints when
-    /// it is posed, and moving it as well would move it twice.
+    /// it is posed, and moving it as well would move it twice. The rest pose
+    /// stays: it is the skeleton, not where it is. Nodes that measure the
+    /// motion against the rest (Retarget) then carry the move on.
     pub fn moved(&self, x: Mat4) -> AnimData {
         let n = self.frame_count();
         let mut tracks: Vec<Track> = (*self.tracks).clone();
-        let mut joints = self.joints.clone();
         for j in 0..self.joints.len() {
             if self.joints[j].parent.is_some() { continue; }
             tracks[j] = (0..n).map(|i| Transform::from_matrix(x * self.local(j, i).compute_matrix())).collect();
-            joints[j].rest = Transform::from_matrix(x * self.joints[j].rest.compute_matrix());
         }
-        AnimData { joints, tracks: Arc::new(tracks), ..self.clone() }
+        AnimData { tracks: Arc::new(tracks), ..self.clone() }
     }
 
     // ── Blend ────────────────────────────────────────────────────────────────
@@ -401,6 +401,7 @@ impl AnimData {
                 _ => Quat::IDENTITY,
             };
         }
+        let mut start_hips: Option<Vec3> = None;
         for i in 0..n {
             let world = self.world_pose(i);
             let mut world_rot = vec![Quat::IDENTITY; nj];
@@ -416,8 +417,15 @@ impl AnimData {
             if let (Some(s), Some(t)) = (src_hip, tgt_hip) {
                 if map[t] == Some(s) || map[t].is_some() {
                     let s = map[t].unwrap_or(s);
-                    let travel = (world[s].w_axis.truncate() - src_rest[s].w_axis.truncate()) * ratio;
-                    let want = tgt_rest[t].w_axis.truncate() + travel;
+                    // Where the hips start is kept as it is across the floor: a
+                    // Transform that placed the actor, or where the actor stood
+                    // in the capture volume. Height, and the travel from there,
+                    // are scaled to the target.
+                    let start = start_hips.get_or_insert_with(|| self.world_pose(0)[s].w_axis.truncate());
+                    let rest = src_rest[s].w_axis.truncate();
+                    let placed = Vec3::new(start.x - rest.x, (start.y - rest.y) * ratio, start.z - rest.z);
+                    let travel = (world[s].w_axis.truncate() - *start) * ratio;
+                    let want = tgt_rest[t].w_axis.truncate() + placed + travel;
                     // Hips position in the space of their parent, which stays at rest.
                     let parent = target.joints[t].parent.map(|p| tgt_rest[p]).unwrap_or(Mat4::IDENTITY);
                     local_t[t] = parent.inverse().transform_point3(want);
@@ -699,6 +707,26 @@ mod tests {
             out
         }).collect();
         AnimData { joints, frames: 1, tracks: Arc::new(vec![vec![]; c.joints.len()]), ..c }
+    }
+
+    /// A clip moved by Transform before Retarget: the move is carried on.
+    /// Where it was put stays where it was put; the travel from there scales.
+    #[test]
+    fn retarget_carries_a_transform_before_it() {
+        let c = travelling();
+        let moved = c.transformed(Vec3::new(1.0, 0.0, 2.0), Vec3::new(0.0, 90.0, 0.0), 1.0);
+        // The rest pose is the skeleton: moving the clip leaves it.
+        assert_eq!(moved.joints[0].rest, c.joints[0].rest);
+        let (out, _) = moved.retargeted(&big_skeleton());
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        assert!(close(flat(pos(&out, 0, "Hips")), Vec3::new(1.0, 0.0, 2.0), 2e-3), "{}", pos(&out, 0, "Hips"));
+        // One metre of travel along Z, turned onto X, twice as long.
+        assert!(close(flat(pos(&out, 30, "Hips")), Vec3::new(3.0, 0.0, 2.0), 2e-3), "{}", pos(&out, 30, "Hips"));
+        // Turned: the pose about the hips is the moved pose, twice the size.
+        for f in [0, 17] {
+            let want = (pos(&moved, f, "LeftHand") - pos(&moved, f, "Hips")) * 2.0;
+            assert!(close(pos(&out, f, "LeftHand") - pos(&out, f, "Hips"), want, 3e-3), "frame {f}");
+        }
     }
 
     #[test]

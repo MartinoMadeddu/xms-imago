@@ -150,6 +150,32 @@ pub fn run(graph: &NodeGraphState, targets: &[NodeId], all_files: bool, progress
     p.running = false;
 }
 
+/// Files a run would write over, for the question asked before it starts.
+/// For the current file: each output that exists. For every file of a
+/// folder: the output folders that already hold FBX files, with how many,
+/// since the names come from files not loaded yet.
+pub fn existing_outputs(graph: &NodeGraphState, targets: &[NodeId], all_files: bool) -> Vec<String> {
+    let mut paths = vec![];
+    for id in targets {
+        let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else { continue };
+        let NodeType::WriteFbx { path, .. } = &node.node_type else { continue };
+        if let Some(clip) = graph.eval_anim(*id) { paths.push(resolve_path(path, &clip)); }
+    }
+    let many = all_files && !upstream_folder_loaders(graph, targets).is_empty();
+    if !many {
+        let mut out: Vec<String> = paths.iter().filter(|p| p.is_file()).map(|p| p.display().to_string()).collect();
+        out.dedup();
+        return out;
+    }
+    let mut dirs: Vec<std::path::PathBuf> = paths.iter().filter_map(|p| p.parent().map(|d| d.to_path_buf())).collect();
+    dirs.sort();
+    dirs.dedup();
+    dirs.into_iter().filter_map(|d| {
+        let n = list_fbx(&d.to_string_lossy()).len();
+        (n > 0).then(|| format!("{} ({n} FBX file{} there)", d.display(), if n == 1 { "" } else { "s" }))
+    }).collect()
+}
+
 /// Start a batch in the background. Does nothing while one is running.
 pub fn start(state: &BatchState, graph: &NodeGraphState, targets: Vec<NodeId>, all_files: bool) {
     {
@@ -268,8 +294,12 @@ mod tests {
         let NodeType::Ragdoll { settings, .. } = g.nodes.iter().find(|n| n.id == body).unwrap().node_type else { panic!() };
         crate::ragdoll::clear(crate::ragdoll::key(clip.as_ref().unwrap(), collider.as_ref(), &settings));
 
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(existing_outputs(&g, &[write], false).is_empty());
         let progress = Mutex::new(Progress::default());
         run(&g, &[write], false, &progress);
+        // Written once: the next run asks before writing over it.
+        assert_eq!(existing_outputs(&g, &[write], false), vec![dir.join("walk.fbx").display().to_string()]);
         let p1 = progress.lock().unwrap();
         assert_eq!((p1.written, p1.failed), (1, 0), "{:#?}", p1.log);
         assert!(p1.log.iter().any(|l| l.starts_with("Body: solved 10 frames")), "{:#?}", p1.log);

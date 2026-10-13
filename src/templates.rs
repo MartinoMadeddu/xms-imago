@@ -97,7 +97,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: SIMON, group: "FBX and characters", name: "Capture and Skin", build: capture_skin,
         hint: "The character's mesh weighted again by proximity to its bones, and its skin put on the retargeted take by joint name" },
     Template { by: SIMON, group: "FBX and characters", name: "Mocap folder: retarget, skin, collide, write", build: mocap_pipeline,
-        hint: "A folder of raw takes, each actor retargeted onto a skinned character, kept out of the set by Body Collide, and written as skinned FBX. Write FBX with All files solves and writes every take" },
+        hint: "A folder of raw takes, each actor placed and retargeted onto a skinned character, kept out of the set by Body Collide, and written as skinned FBX. Write FBX with All files solves and writes every take" },
     Template { by: SIMON, group: "FBX and characters", name: "Human Limits", build: human_limits,
         hint: "An elbow turned the wrong way by Fix Pose, put back by the Body Collide node's human pass" },
 ];
@@ -653,8 +653,9 @@ fn capture_skin(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     format!("Capture and Skin: the character's mesh weighted again by proximity to its bones (Capture), then that skin put on the retargeted take by joint name (Skin). Bypass Capture to use the weights the file came with. Space plays.{}", missing_examples())
 }
 
-/// The whole mocap pipeline, per actor: a folder of raw takes, split,
-/// retargeted onto a skinned character in its bind pose, feet put where the
+/// The whole mocap pipeline, per actor: a folder of raw takes, split, each
+/// actor placed (a Transform, still at zero), retargeted onto a skinned
+/// character in its bind pose, feet put where the
 /// actor's are, kept out of the set and out of itself, and written as FBX
 /// with the character's mesh and skin.
 fn mocap_pipeline(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
@@ -663,29 +664,34 @@ fn mocap_pipeline(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {
     let split = g.add_node("Actors".into(), NodeType::SplitSkeleton { picks: vec![crate::types::SplitPick::Character(0), crate::types::SplitPick::Character(1)] }, p(300.0, 120.0));
     let who   = g.add_node("Character".into(), NodeType::LoadFbx { path: examples::path(examples::CHARACTER_FBX), take: 0 }, p(40.0, 20.0));
     let set   = g.add_node("Set".into(), NodeType::LoadFbx { path: examples::path(examples::STUDIO_FBX), take: 0 }, p(560.0, 20.0));
+    let place_set = g.add_node("PlaceSet".into(), NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, p(700.0, 120.0));
     g.add_connection(takes, 0, split, 0);
+    g.add_connection(set, 1, place_set, 0);
     let mut first_collide = None;
     for k in 0..2usize {
         let x = 120.0 + k as f32 * 400.0;
         let n = k + 1;
-        let ret   = g.add_node(format!("Retarget{n}"), NodeType::Retarget, p(x, 240.0));
-        let reach = g.add_node(format!("Reach{n}"), NodeType::Reach { settings: Default::default() }, p(x, 340.0));
-        let body  = g.add_node(format!("BodyCollide{n}"), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(x, 440.0));
-        let write = g.add_node(format!("Write{n}"), NodeType::WriteFbx { path: "{dir}/retargeted/{file}_{char}.fbx".into(), mesh: true }, p(x, 540.0));
-        g.add_connection(split, k, ret, 0);
+        let place = g.add_node(format!("Place{n}"), NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, p(x, 240.0));
+        let ret   = g.add_node(format!("Retarget{n}"), NodeType::Retarget, p(x, 340.0));
+        let reach = g.add_node(format!("Reach{n}"), NodeType::Reach { settings: Default::default() }, p(x, 440.0));
+        let body  = g.add_node(format!("BodyCollide{n}"), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(x, 540.0));
+        let write = g.add_node(format!("Write{n}"), NodeType::WriteFbx { path: "{dir}/retargeted/{file}_{char}.fbx".into(), mesh: true }, p(x, 640.0));
+        g.add_connection(split, k, place, 0);
+        g.add_connection(place, 0, ret, 0);
         g.add_connection(who, 2, ret, 1);
         g.add_connection(ret, 0, reach, 0);
-        g.add_connection(split, k, reach, 1);
+        // The feet go where the placed actor's are.
+        g.add_connection(place, 0, reach, 1);
         g.add_connection(reach, 0, body, 0);
-        g.add_connection(set, 1, body, 1);
+        g.add_connection(place_set, 0, body, 1);
         g.add_connection(body, 0, write, 0);
         first_collide.get_or_insert(body);
     }
     let body = first_collide.unwrap();
-    view(g, body, p(320.0, 660.0));
+    view(g, body, p(320.0, 760.0));
     g.selected_node = Some(body);
     g.selected_nodes = vec![body];
-    format!("Mocap folder: each take in the Takes folder is split into its actors; each actor is retargeted onto Character (its Rest output: bind pose and skin), its feet put where the actor's are (Reach), kept out of Set and out of itself (Body Collide), and written with the character's mesh and skin to {{dir}}/retargeted. Set is a stand-in: point it at your own set. Press Solve on a Body Collide node to see one take; Write FBX with All files solves and writes every take in the folder.{}", missing_examples())
+    format!("Mocap folder: each take in the Takes folder is split into its actors; each actor is placed in the set (Place1, Place2: Transform, at zero), retargeted onto Character (its Rest output: bind pose and skin), its feet put where the actor's are (Reach), kept out of Set and out of itself (Body Collide), and written with the character's mesh and skin to {{dir}}/retargeted. Set is a stand-in: point it at your own set, and move it with PlaceSet. Press Solve on a Body Collide node to see one take; Write FBX with All files solves and writes every take in the folder.{}", missing_examples())
 }
 
 fn human_limits(g: &mut NodeGraphState, _: &mut SubnetStore) -> String {

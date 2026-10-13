@@ -19,8 +19,8 @@ pub const DELOREAN_USD: &str = "DeLorean.usdz";
 
 /// The take and the set of the Ragdoll template, in the program's own
 /// compact formats: as FBX they are too large for the repository.
-pub const RAGDOLL_TAKE: &str = "ragdoll/into_the_car.xmsclip";
-pub const RAGDOLL_SET:  &str = "ragdoll/car.xmsmesh";
+pub const RAGDOLL_TAKE: &str = "ragdoll/split/into_the_car_.fbx";
+pub const RAGDOLL_SET:  &str = "ragdoll/car.fbx";
 /// A small studio written by hand: two meshes, two materials, a camera, a light.
 pub const STUDIO_FBX: &str = "fbx/studio.fbx";
 /// A 342-joint character with its skinned mesh and bind pose: frames 1200

@@ -15,23 +15,23 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 ## Martino's project
 
 - XMS | Imago is Martino's. Other work builds on his: before starting, read what he has pushed since the last change, and start from it.
-- Use the models he has set (the `Geo` attribute model, placements, edits as opinions, the ICE tree, the theme) and extend them. Do not replace them with a parallel version.
+- Use the models he has set (the `Geo` attribute model, placements, edits as opinions, the ICE graph, the theme, the vocabulary) and extend them. Do not replace them with a parallel version.
 - When a change would rewrite or remove something of his, say which part and why before making it, and ask.
 - Where his work and another change touch the same lines, his version is kept, and the change is redone on top of it.
 - His decisions are written here as they are read from his code, so everyone works from the same file.
-- `ARCHITECTURE.md` (Martino, 11/10/2026) records the decisions that shape the data and its evaluation: the geometry model, copy on demand, packed primitives, edits and USD out, the viewport, the ICE engine to come, and where it is all going. Read it before changing any of those. It is to be merged with this file once Martino and Simon have talked.
+- `ARCHITECTURE.md` (Martino, 11/10/2026) records the decisions that shape the data and its evaluation: the geometry model, copy on demand, primitives, edits and USD out, the Viewer, the ICE engine to come, and where it is all going. Read it before changing any of those. It is to be merged with this file once Martino and Simon have talked.
 
 ## The graph is the program
 
 - Everything is a node. A graph describes a result; changing a number upstream changes everything below it.
-- One node per idea. A node that moves things moves anything: Transform takes a mesh, packed primitives or a clip. What a node shows in the viewport is a setting on that node, not another node (Body Collide's Skin, Pieces and Hulls display, which replaced the separate Calamari node).
+- One node per idea. A node that moves things moves anything: Transform takes a mesh, primitives or a clip. What a node shows in the Viewer is a setting on that node, not another node (Body Collide's Skin, Pieces and Hulls display, which replaced the separate Calamari node).
 - Opening a file or a template asks every time whether to add it to the scene or open it as new. Added nodes land beside what is there. (One question replaced the + buttons first tried, the same day.)
 - Copied nodes are text, kept after the program closes: they paste in another window, in a later session, or from a message.
 - Every area of the program has templates: working graphs that load laid out and framed, with a line saying what to look at. Templates are grouped by whose work they show.
 - A feature comes with its template and the demo files it needs, packaged in `examples/`. A model too big for the repository (the Moana Island scene, say) is not packaged: its template asks whether to download it from where it is published, and says where from.
 - A node that does not exist yet is sketched in the graph: a Placeholder with named inputs and outputs and a description of what it should do, data going through unchanged. The saved graph is how a new node is asked for.
-- An ICE node runs its tree on each packed primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
-- Where a known tool already has a convention, follow it: ICE trees drawn and navigated after Softimage ICE, the viewport drawing what the Scene Explorer opens as in Gaffer, edits between two nodes as stacked layers as in Solaris.
+- An ICE node runs its ICE graph on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
+- Where a known tool already has a convention, follow it: ICE graphs drawn and navigated after Softimage ICE, the Viewer drawing what the Scene Explorer opens as in Gaffer, edits between two nodes as stacked layers as in Solaris.
 
 ## One geometry model
 
@@ -48,12 +48,19 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 ## The same words for the same things
 
+- `VOCABULARY.md` (Martino, 12/10/2026) is the list of words: primitive (an object in the stage, "packed" dropped), scene graph (the network of operators; the Scene Explorer shows the stage's hierarchy), ICE graph, operator, parameters, attributes, the contexts Object, Point, Face, Corner, shapes for cube, sphere and grid, and the panes Viewer and Parameters. Interface, docs and code use those words; old names in saved graphs and layouts still load.
 - Translate, Rotate, Scale for every transform. Path for every file. In and Out for what passes through.
-- The properties of every node share one layout: titled groups, labels right-aligned in one column, values filling the width. Explanations go in tooltips; the panel shows parameters and the state of the node: what came in, what goes out, what went wrong.
-- The light theme is the default. The viewport's background follows the colour scheme.
+- The parameters of every node share one layout: titled groups, labels right-aligned in one column, values filling the width. Explanations go in tooltips; the panel shows parameters and the state of the node: what came in, what goes out, what went wrong.
+- The light theme is the default. The Viewer's background follows the colour scheme.
 - Nodes are coloured by their add-menu category; the ICE node has its own teal, after Softimage's ICETree.
 - Imago keeps its own way of working. Softimage XSI and other programs are references for conventions, not a look or a layout to copy.
 - How it looks is a theme, chosen by the user. A button style setting has been proposed but not built: from soft, rounded XSI buttons to the square IRIX Motif look. Colour schemes can be worked out with a palette tool such as [Adobe Color](https://color.adobe.com/create/color-wheel).
+
+## Like any other program
+
+- The program works with files as other programs do. File, Edit, Templates and Window menus at the top left, with the usual shortcuts (New, Open, Save, Save As, Quit). A node graph pane holds what belongs to the graph only.
+- Nothing is lost without asking: closing, New, or opening a file or template as new over unsaved changes asks to save first.
+- Nothing is written over a file that exists without asking: Save As, a saved layout, Write FBX, Write USD. Save writes to the graph's own file without asking, as everywhere.
 
 ## Undo is for the scene
 
@@ -68,6 +75,8 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - A file is read for everything it holds. What is not used yet is listed, not dropped: Load FBX gives the clip, every mesh and the rest skeleton, and lists cameras, lights, materials and blend shapes, as Load USD lists what it does not draw.
 - A character is taken in the pose its skin was bound in, not in the first frame of a take.
 - Skin weights live on the geometry and go by joint name (after Houdini's KineFX): the same weights fit any skeleton with those names, and the rest pose is a skeleton of its own.
+- The rest pose is the skeleton. Moving a clip moves its animation, never its rest pose, so the move carries through every node after it (Retarget, Reach).
+- Meshes, characters and takes come in as FBX (or USD). The program has no mesh or clip format of its own: one way in is clearer than two. Example data too big for GitHub is cut or written lighter, still as FBX.
 - A USD file is read composed, as usdview shows it. Nothing is baked into the points: up axis and unit become a correction on the placement.
 - Changes go back to USD as opinions: an override layer over the file the stage came from, holding only what changed. A stage nothing touched gives a layer with its header alone.
 - What changed is what no longer shares with what was loaded, compared by pointer, not by value.
@@ -110,3 +119,5 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 11/10/2026: read from Martino's commits: `ARCHITECTURE.md` added (pointed to under "Martino's project"); nodes coloured by add-menu category, the ICE node teal.
 - 12/10/2026: Load FBX reads everything a file holds; skin weights by joint name, after KineFX; characters taken in their bind pose; one human solver shared by Body Collide, Reach and Human Limits (Simon).
 - 12/10/2026: the Placeholder node, for asking for a node in the graph itself; Write FBX solves Body Collide upstream for each file it writes (Simon).
+- 12/10/2026: read from Martino's commits: `VOCABULARY.md` and the vocabulary applied across the program and docs; pointed to under "The same words for the same things", and this file brought into it.
+- 12/10/2026: "Like any other program" added: a menu bar at the top left, and questions before losing changes or writing over a file (Simon). FBX only for meshes and characters, the `.xmsclip` and `.xmsmesh` formats removed; the rest pose is the skeleton, so a Transform carries through Retarget (Simon).

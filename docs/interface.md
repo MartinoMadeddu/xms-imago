@@ -4,25 +4,38 @@
 
 ## Top bar
 
-A fixed line across the top of the window, for things that belong to the whole program. It holds the logo and the name on the left, the Theme menu, the Panes menu and the layout padlock on the right. It is not a pane: it cannot be moved, floated or closed.
+A fixed line across the top of the window, for things that belong to the whole program. It holds the logo and the name, the menus, the name of the graph's file, and the layout padlock at the right. It is not a pane: it cannot be moved, floated or closed.
+
+![The File menu](xms_menu_bar.png)
+
+The menus, from the left, as in other programs:
+
+| Menu | Holds |
+|---|---|
+| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD...), Quit (Ctrl+Q). See [Files](#files) |
+| Edit | Undo, Redo, Copy, Paste, Delete, Select All, for the operators of the root scene graph |
+| Templates | The ready-made graphs, by author, then by area. See [Templates](templates.md) |
+| Window | The panes (tick to show), Dock floating panes, Reset layout, Save layout..., Load layout..., Theme |
+
+On macOS the shortcuts take Cmd in place of Ctrl.
 
 ## Panes
 
-Nine panes: Viewer, Node Graph, UV Editor, Scene Explorer, Operator Stack, History, Parameters, Primitive Inspector, Timeline. Each one is a tab. The default layout has the Scene Explorer in a narrow column at the left, the Viewport beside it with the UV Editor as a tab behind it (see [UV](uv.md)), and the Primitive Inspector under both; then the Node Graph, then Parameters over the Operator Stack. The Timeline runs along the bottom of those, and History (see [Undo](undo.md)) down the whole right side. A layout saved before the History pane existed does not have it: tick it in the Panes menu, or "Reset layout" for this default.
+Nine panes: Viewer, Node Graph, UV Editor, Scene Explorer, Operator Stack, History, Parameters, Primitive Inspector, Timeline. Each one is a tab. The default layout has the Scene Explorer in a narrow column at the left, the Viewer beside it with the UV Editor as a tab behind it (see [UV](uv.md)), and the Primitive Inspector under both; then the Node Graph, then Parameters over the Operator Stack. The Timeline runs along the bottom of those, and History (see [Undo](undo.md)) down the whole right side. A layout saved before the History pane existed does not have it: tick it in the Window menu, or "Reset layout" for this default.
 
 | To | Do this |
 |---|---|
 | Move a pane | Drag its tab by the title. Drop it on one of the five squares that appear over the pane under the cursor: the middle one stacks it as a tab, the others split that pane on that side |
 | Float a pane | Drag its tab and drop it anywhere that is not one of the squares, or double-click the tab |
 | Dock along a whole side of the window | Drag the tab to within a few pixels of that side. Blue bars mark the four sides while a tab is dragged, and a blue strip shows where the pane will land. This is how the timeline goes back across the bottom |
-| Dock a floating pane | Drag its tab (the title inside the window, not the bar above it) onto one of the squares, or double-click the tab, or use "Dock floating panes" in the Panes menu |
+| Dock a floating pane | Drag its tab (the title inside the window, not the bar above it) onto one of the squares, or double-click the tab, or use "Dock floating panes" in the Window menu |
 | Move a floating window | Drag the bar at its top |
 | Close a pane | The cross on its tab, docked or floating |
-| Show a closed pane | Tick it in the Panes menu, in the top bar. It comes back as a tab of the main area |
+| Show a closed pane | Tick it in the Window menu. It comes back as a tab of the main area |
 | Resize | Drag the line between two panes, or the corner of a floating window |
-| Start over | "Reset layout" in the Panes menu |
-| Keep a layout | "Save layout..." in the Panes menu writes it to a file |
-| Bring one back | "Load layout..." in the Panes menu. A file that is not a layout is refused and the current layout stays |
+| Start over | "Reset layout" in the Window menu |
+| Keep a layout | "Save layout..." in the Window menu writes it to a file. A file that exists is replaced only after Replace |
+| Bring one back | "Load layout..." in the Window menu. A file that is not a layout is refused and the current layout stays |
 
 Right-clicking a tab offers the same close and float actions.
 
@@ -30,7 +43,7 @@ Right-clicking a tab offers the same close and float actions.
 
 ### Lock
 
-The padlock at the right of the top bar locks the layout. While it is locked, tabs cannot be moved, floated or closed, and the Panes menu is greyed out. The lines between panes still resize. Click the padlock again to unlock.
+The padlock at the right of the top bar locks the layout. While it is locked, tabs cannot be moved, floated or closed, and the layout items of the Window menu are greyed out. The lines between panes still resize. Click the padlock again to unlock.
 
 ### Saved layout
 
@@ -44,20 +57,34 @@ The graph is saved as a JSON file. The top bar shows its name, and "(unsaved)" w
 
 | To | Do this |
 |---|---|
-| Open a graph | Open, in the node graph header |
-| Open one used lately | Recent: the last ten graphs opened or saved. Files no longer there are greyed out. "Clear the list" empties it |
-| Save | Save or Ctrl+S (Cmd+S on macOS): to the current file, or asks where when there is none yet |
-| Save to a new file | Save as |
+| Start an empty graph | File > New (Ctrl+N). Asks to save unsaved changes first |
+| Open a graph | File > Open... (Ctrl+O) |
+| Open one used lately | File > Open Recent: the last ten graphs opened or saved. Files no longer there are greyed out. "Clear the list" empties it |
+| Save | File > Save or Ctrl+S (Cmd+S on macOS): to the current file, or asks where when there is none yet |
+| Save to a new file | File > Save As... (Ctrl+Shift+S) |
+| Add a saved graph to this one | File > Import > Graph... |
+| Add a node reading a file | File > Import > FBX... or USD...: a Load FBX or Load USD node with the file set, right of the nodes there, selected |
+| Close | File > Quit (Ctrl+Q), or the window's close button. Asks to save unsaved changes first |
+
+### Replacing files
+
+As in other programs, nothing is written over a file that exists without asking:
+
+- **Save As, Save layout:** choosing a name that is taken shows "*name* already exists. Replace it?" in the browser. Replace writes over it; Cancel goes back to choosing. Save (Ctrl+S) writes to the graph's own file without asking, as elsewhere.
+
+  ![Save As over a file that exists](xms_replace.png)
+
+- **Write FBX, Write USD:** when what the node would write is there already, a question lists it: Replace or Cancel (Esc). For one file, the files themselves; for All files of a folder, the folders that already hold FBX files and how many, since the names come from files not read yet.
 
 Opening a graph is a step in the [history](undo.md): undo goes back to the graph before it.
 
 Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If its Output is not wired, it takes what the added graph's Output was wired to; if nothing is viewed, the added graph's viewed node is. ICE graphs are not saved in graph files yet, so an ICE node added from a file comes with an empty tree (from a template, or copied and pasted, it keeps its tree).
 
-Opening a graph (Open or Recent) or picking a template asks first whether to **Add** it to the graph, beside the nodes already there, or **Open as new** in place of the graph. On a graph with nothing but Output it opens straight away.
+Opening a graph (Open or Open Recent) or picking a template asks first whether to **Add** it to the graph, beside the nodes already there, or **Open as new** in place of the graph. On a graph with nothing but Output it opens straight away.
 
 ![Picking a template over a graph with nodes](xms_add_or_open.png)
 
-Anything that replaces the whole graph asks first when it has unsaved changes: closing the window, and opening a graph or a template as new. The choice is Save, Don't save, or Cancel (Esc). Save writes to the current file, or opens the browser for a graph never saved; the file or template opens, or the program closes, once it is written. Cancel keeps the graph as it is. With nothing unsaved it goes ahead straight away. Adding replaces nothing, so it never asks about saving.
+Anything that replaces the whole graph asks first when it has unsaved changes: closing the window, and opening a graph or a template as new. The choice is Save, Don't save, or Cancel (Esc). Save writes to the current file, or opens the browser for a graph never saved; the file or template opens, or the program closes, once it is written. Cancel keeps the graph as it is. With nothing unsaved it goes ahead straight away. Adding replaces nothing, so it never asks about saving. File > Import > Graph... adds without asking.
 
 ![Loading a template over unsaved changes](xms_unsaved_template.png)
 
@@ -237,3 +264,9 @@ The Viewer meshes, the scene explorer, the operator stack and the primitive insp
 While an ICE graph is open, every click and key press counts as a change.
 
 The window draws a new frame when something happens (input, a change in the graph, playback, a texture arriving), not all the time, so an idle window costs almost nothing and a heavy Viewer does not slow the panes down while nothing moves.
+
+## Not done yet
+
+- The Edit menu acts on the root scene graph, not inside an ICE graph.
+- Paste in the Edit menu pastes the nodes copied last; Ctrl+V over the canvas also takes nodes from the system clipboard, under the pointer.
+- No question before Write FBX or Write USD overwrites a file in a batch run started some other way than the node's buttons (the tests, say).

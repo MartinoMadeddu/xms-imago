@@ -2,16 +2,12 @@
 
 | File | What |
 |---|---|
-| `into_the_car.xmsclip` | The take: a skinned character of 342 joints and 32,334 vertices, 12,227 frames at 30 fps. An actor walks through a car and sits in it |
-| `car.xmsmesh` | The set: the car, 1,743,007 triangles |
+| `split/into_the_car_.fbx` | The take: a skinned character of 342 joints and 32,334 vertices, frames 1200 to 9199 of the capture at 30 fps. An actor walks through a car and sits in it |
+| `car.fbx` | The set: the car, 1,743,007 triangles, without normals |
 | `solved/` | The take solved against the car with the default settings |
 
-The take and the car are Simon Legrand's. As FBX they are 205 MB and 99 MB, more than GitHub takes in one file. Here they are in the program's own compact formats, 4 MB and 15 MB. Joint positions differ from the FBX by less than a tenth of a millimetre.
-
-To make them again from the FBX files:
-
-    XMS_PACK_CLIP=take.fbx XMS_PACK_SET=set.fbx cargo test pack_ragdoll_example -- --ignored --nocapture
+The take and the car are Simon Legrand's. The whole capture as FBX is 205 MB and the car with normals 99 MB, more than GitHub takes in one file: the take is cut to 8,000 frames, and the car is written without normals (25 MB). Normals are worked out again when the car is drawn.
 
 To solve the take again after a change to the solver, and put the result in `solved/` in place of the one there:
 
-    cargo test solve_the_template -- --ignored --nocapture
+    cargo test --release solve_the_template -- --ignored --nocapture

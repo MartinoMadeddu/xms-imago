@@ -30,16 +30,9 @@ The node solves nothing by itself. Until Solve has run for exactly the clip, col
 
 ## The template
 
-**Body Collide: into the car** is the take this was built on: an actor who walks through a car and sits in it for six minutes. The take, the car and the solved result ship with the program, in `examples/ragdoll`, and the template opens solved, with no wait. Change a setting and it has to be solved again.
+**Body Collide: into the car** is the take this was built on: an actor who walks through a car and sits in it. The take, the car and the solved result ship with the program, in `examples/ragdoll`, and the template opens solved, with no wait. Change a setting and it has to be solved again.
 
-As FBX the take is 205 MB and the car 99 MB, more than GitHub takes in one file. They ship in two compact formats of the program's own:
-
-| File | Holds | Size |
-|---|---|---|
-| `.xmsclip` | Skeleton, every frame, and the skin with its weights. What never moves is written once, rotations in 16 bits a component | 4 MB for the take |
-| `.xmsmesh` | Positions and triangles | 15 MB for the car |
-
-Load FBX reads `.xmsclip` (on its Clip output) and `.xmsmesh` (on its Geometry output), by the extension. The take loads in a sixth of a second this way, against five seconds as FBX. Joint positions differ from the FBX by less than a tenth of a millimetre.
+Both are FBX, read by Load FBX: the take is `split/into_the_car_.fbx`, frames 1200 to 9199 of the capture (8,000 frames, 4 minutes 27 at 30 fps); the car is `car.fbx`, 1,743,007 triangles, 25 MB, written without normals to stay small. The car has the same triangles in the same order as the `.xmsmesh` it replaced, so polygons picked on it in Edit Poly are the same polygons. Graphs saved with the old `.xmsclip` and `.xmsmesh` paths open on the FBX files.
 
 ## What it does
 

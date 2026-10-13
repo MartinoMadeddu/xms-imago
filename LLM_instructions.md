@@ -36,21 +36,24 @@ This is how a change goes from a request in a Claude chat to `main`, with the pe
 2. **The assistant works in its own copy.** In its workspace it keeps a clone of `MartinoMadeddu/xms-imago` and, before every change, fetches `main` and starts from it, so the change is made against what is really there.
    - It reads what Martino pushed since the last change (`git log --author=Martino`, his diffs and his docs), and builds on it: his models and functions are used and extended, not replaced. A change that would rewrite something of his is named and asked about first.
    - It adds to `DESIGN_PHILOSOPHY.md` the decisions his new code shows, in the same patch, with a line in its log.
+   - It uses the words in `VOCABULARY.md`.
+   - It fetches `main` again just before making the patch. If anything new came in, it rebases onto it first.
 
    It builds, runs `cargo test`, runs the program to look at the result (a screenshot under a virtual display: `xvfb-run` with `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `README.md` and `docs/`.
 3. **The assistant makes one patch** of everything since `origin/main`: `git diff --binary origin/main > xms-<what>-<suffix>.patch`. The suffix is new every time (date and time, `DDMMYYYY-HHMM`): a file sent again under a name already used replaces the earlier one in the chat instead of arriving as a new download, and "Download all" does not appear. `--binary` carries images, example files and solved data. It then checks the patch on a clean copy of `main` (`git worktree add` on `origin/main`, `git apply`), so it is known to apply before it is handed over.
 4. **The assistant sends the files**: the patch, and any screenshot worth looking at, as downloads in the chat, with the block of commands below filled in (patch name and commit message). It says what changed, what was tested and what was not.
 5. **The person clicks "Download all"**, so the files land in `~/Downloads`, and pastes the block into a terminal:
 
-       cd ~/Software/Martino_dcc-xms/dcc-xms
-       git pull --rebase origin main
-       git apply ~/Downloads/xms-<what>-<suffix>.patch
-       git add -A
-       git commit -m "<what changed>"
-       git push origin main
+       cd ~/Software/Martino_dcc-xms/dcc-xms && \
+       git pull --rebase origin main && \
+       git apply ~/Downloads/xms-<what>-<suffix>.patch && \
+       git add -A && \
+       git commit -m "<what changed>" && \
+       git push origin main && \
        cargo run
 
    `git pull --rebase` brings in what others pushed; `git apply` adds the change; the next three lines commit and push it; `cargo run` comes last, so the change is on `main` straight away and the program can stay open as long as the person likes without holding up anyone else. The assistant has built and tested the change before sending it; if something is wrong once it runs, the fix is the next patch. (The path in the first line is Simon's clone; use your own.)
+   The commands are joined with `&&`, so the first one that fails stops the rest: a patch that does not apply is never followed by a commit and a push. The block holds no other commands (no `git rm`): deletions travel in the patch. On 13/10/2026 a block without `&&` committed and pushed only the deletions of a patch that had failed to apply.
 6. **When `git apply` fails**, someone pushed to `main` in between and the patch no longer fits. The person pastes the terminal output into the chat; the assistant fetches `main` again, rebases its work onto it (keeping the other person's version where both changed the same lines of documentation, and saying so), runs the tests again and sends a new patch. Nothing is lost: a failed `git apply` changes nothing, and the commands after it have nothing to commit.
 7. **The next change starts from the last patch.** Until the person says a patch is pushed, the assistant keeps its work committed locally (never pushed) and makes the next patch on top of it, saying in which order to apply them; or folds them into one.
 
@@ -73,7 +76,7 @@ A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that do
 - **Documentation with every change.** `README.md` and the pages in `docs/` that describe what changed are updated in the same change. The website (`site/`) only when something on it is wrong.
 - **A screenshot when something visible changed**, in `docs/`, taken from the running program.
 - **Say what was tested and what was not.** A claim in the docs is measured where it can be.
-- **Files under 100 MB.** GitHub refuses larger ones; example data goes in the program's compact formats (`.xmsclip`, `.xmsmesh`).
+- **Files under 100 MB.** GitHub refuses larger ones. A patch sent in the chat must be under 30 MB: a bigger one is split in two, applied one after the other in the same block. Example data goes in as FBX, cut to fewer frames or written without normals to fit (see `examples/ragdoll/README.md`); the program has no compact formats of its own.
 - **Credit.** XMS was created by Martino Madeddu. Additional development by Simon Legrand.
 
 ## Flag what does not fit

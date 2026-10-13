@@ -258,37 +258,43 @@ fn geometry(id: i64, name: &str, skin: &SkinMesh, to_file: Mat4) -> Node {
         for (k, vi) in f[..n].iter().enumerate() {
             // The last index of a polygon is stored bit-inverted.
             index.push(if k == n - 1 { !(*vi as i32) } else { *vi as i32 });
-            let nr = (turn * skin.normals[*vi as usize]).normalize_or_zero();
-            normals.extend([nr.x as f64, nr.y as f64, nr.z as f64]);
+            if let Some(nr) = skin.normals.get(*vi as usize) {
+                let nr = (turn * *nr).normalize_or_zero();
+                normals.extend([nr.x as f64, nr.y as f64, nr.z as f64]);
+            }
         }
     }
     let layer_el = |ty: &str| node("LayerElement", vec![], vec![
         leaf("Type", vec![s(ty)]), leaf("TypedIndex", vec![Prop::I32(0)]),
     ]);
-    node("Geometry", vec![Prop::I64(id), named(name, "Geometry"), s("Mesh")], vec![
+    // Without normals (a set), the reader makes its own from the polygons.
+    let with_normals = !skin.normals.is_empty();
+    let mut kids = vec![
         leaf("Vertices", vec![Prop::ArrF64(verts)]),
         leaf("PolygonVertexIndex", vec![Prop::ArrI32(index)]),
         leaf("GeometryVersion", vec![Prop::I32(124)]),
-        node("LayerElementNormal", vec![Prop::I32(0)], vec![
+    ];
+    if with_normals {
+        kids.push(node("LayerElementNormal", vec![Prop::I32(0)], vec![
             leaf("Version", vec![Prop::I32(101)]),
             leaf("Name", vec![s("")]),
             leaf("MappingInformationType", vec![s("ByPolygonVertex")]),
             leaf("ReferenceInformationType", vec![s("Direct")]),
             leaf("Normals", vec![Prop::ArrF64(normals)]),
-        ]),
-        node("LayerElementSmoothing", vec![Prop::I32(0)], vec![
-            leaf("Version", vec![Prop::I32(102)]),
-            leaf("Name", vec![s("")]),
-            leaf("MappingInformationType", vec![s("ByPolygon")]),
-            leaf("ReferenceInformationType", vec![s("Direct")]),
-            leaf("Smoothing", vec![Prop::ArrI32(vec![1; skin.faces.len()])]),
-        ]),
-        node("Layer", vec![Prop::I32(0)], vec![
-            leaf("Version", vec![Prop::I32(100)]),
-            layer_el("LayerElementNormal"),
-            layer_el("LayerElementSmoothing"),
-        ]),
-    ])
+        ]));
+    }
+    kids.push(node("LayerElementSmoothing", vec![Prop::I32(0)], vec![
+        leaf("Version", vec![Prop::I32(102)]),
+        leaf("Name", vec![s("")]),
+        leaf("MappingInformationType", vec![s("ByPolygon")]),
+        leaf("ReferenceInformationType", vec![s("Direct")]),
+        leaf("Smoothing", vec![Prop::ArrI32(vec![1; skin.faces.len()])]),
+    ]));
+    let mut layer = vec![leaf("Version", vec![Prop::I32(100)])];
+    if with_normals { layer.push(layer_el("LayerElementNormal")); }
+    layer.push(layer_el("LayerElementSmoothing"));
+    kids.push(node("Layer", vec![Prop::I32(0)], layer));
+    node("Geometry", vec![Prop::I64(id), named(name, "Geometry"), s("Mesh")], kids)
 }
 
 /// Write `clip` to `path`. With `animation` false, or a single-frame clip,
@@ -473,6 +479,72 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
         objects.push(node("Pose", vec![Prop::I64(pose), named("BindPose", "Pose"), s("BindPose")], kids));
     }
 
+    let out = file_bytes(&space, clip.rate, clip.drop_frame, animated, take, t_start, t_stop, objects, conns, &mut ids)?;
+
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() { std::fs::create_dir_all(dir)?; }
+    }
+    std::fs::write(path, out)?;
+
+    Ok(WriteStats { joints: clip.joints.len(), frames: if animated { frames } else { 0 }, vertices })
+}
+
+/// Meshes standing on their own, no skeleton, no animation: a set. Each
+/// mesh is a model at the origin with its points where they are, Y up, in
+/// centimetres, without normals. Polygons of more than four corners are cut
+/// into triangles.
+/// `examples/ragdoll/car.fbx` was written with it.
+#[allow(dead_code)]
+pub fn write_meshes_fbx(path: &Path, meshes: &[(String, &crate::types::MeshData)]) -> std::io::Result<WriteStats> {
+    let space = FileSpace::y_up_cm();
+    let pre = Mat4::from_scale(Vec3::splat(CM));
+    let mut ids = Ids(1_000_000);
+    let mut objects: Vec<Node> = vec![];
+    let mut conns: Vec<Node> = vec![];
+    let mut vertices = 0;
+    for (name, m) in meshes {
+        // As a skin with no joints: points, normals, triangles and quads.
+        let mut faces: Vec<[u32; 4]> = vec![];
+        if !m.polys.is_empty() {
+            for poly in &m.polys {
+                match poly.len() {
+                    3 => faces.push([poly[0], poly[1], poly[2], poly[2]]),
+                    4 => faces.push([poly[0], poly[1], poly[2], poly[3]]),
+                    n if n > 4 => for k in 1..n - 1 { faces.push([poly[0], poly[k], poly[k + 1], poly[k + 1]]); },
+                    _ => {}
+                }
+            }
+        } else {
+            for t in m.indices.chunks_exact(3) { faces.push([t[0], t[1], t[2], t[2]]); }
+        }
+        let positions: Vec<Vec3> = m.vertices.iter().map(|v| Vec3::from_array(*v)).collect();
+        // No normals: the reader makes them from the polygons, and a set
+        // of a million polygons is a third of the size without them.
+        vertices += positions.len();
+        let skin = SkinMesh { positions, faces, ..Default::default() };
+        let (model, geo) = (ids.next(), ids.next());
+        objects.push(geometry(geo, name, &skin, pre));
+        objects.push(node("Model", vec![Prop::I64(model), named(name, "Model"), s("Mesh")], vec![
+            leaf("Version", vec![Prop::I32(232)]),
+            node("Properties70", vec![], vec![p_int("DefaultAttributeIndex", 0)]),
+            leaf("Shading", vec![Prop::Bool(true)]),
+            leaf("Culling", vec![s("CullingOff")]),
+        ]));
+        conns.extend([oo(model, 0), oo(geo, model)]);
+    }
+    let out = file_bytes(&space, FrameRate::new(30, 1), false, false, "", 0, 0, objects, conns, &mut ids)?;
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() { std::fs::create_dir_all(dir)?; }
+    }
+    std::fs::write(path, out)?;
+    Ok(WriteStats { joints: 0, frames: 0, vertices })
+}
+
+/// The whole file: header, settings, definitions counted from `objects`,
+/// the objects and their connections, takes, footer.
+#[allow(clippy::too_many_arguments)]
+fn file_bytes(space: &FileSpace, rate: FrameRate, drop_frame: bool, animated: bool, take: &str, t_start: i64, t_stop: i64,
+              objects: Vec<Node>, conns: Vec<Node>, ids: &mut Ids) -> std::io::Result<Vec<u8>> {
     // ── Definitions ──────────────────────────────────────────────────────────
     let mut counts: Vec<(&'static str, i32)> = vec![];
     for o in &objects {
@@ -492,7 +564,7 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
     }
 
     // ── Sections ─────────────────────────────────────────────────────────────
-    let (mode, custom_rate) = time_mode(clip.rate, clip.drop_frame);
+    let (mode, custom_rate) = time_mode(rate, drop_frame);
     let top = vec![
         node("FBXHeaderExtension", vec![], vec![
             leaf("FBXHeaderVersion", vec![Prop::I32(1003)]),
@@ -579,12 +651,7 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
     out.extend_from_slice(&[0u8; 120]);
     out.extend_from_slice(&FOOT_MAGIC);
 
-    if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() { std::fs::create_dir_all(dir)?; }
-    }
-    std::fs::write(path, out)?;
-
-    Ok(WriteStats { joints: clip.joints.len(), frames: if animated { frames } else { 0 }, vertices })
+    Ok(out)
 }
 
 /// Expand the tokens of an output path for one clip:
@@ -609,6 +676,29 @@ pub fn resolve_path(pattern: &str, clip: &AnimData) -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+    /// A set written as FBX reads back as the same meshes, where they were.
+    #[test]
+    fn meshes_go_out_and_come_back() {
+        let cube = crate::node_graph::nodes::create_cube(2.0);
+        let mut moved = cube.clone();
+        for v in moved.vertices.iter_mut() { v[0] += 5.0; }
+        let path = std::env::temp_dir().join("xms_meshes_out.fbx");
+        let stats = write_meshes_fbx(&path, &[("Box".into(), &cube), ("Moved Box".into(), &moved)]).unwrap();
+        assert_eq!(stats.vertices, 16);
+        let scene = crate::fbx_loader::load_scene(path.to_str().unwrap()).unwrap();
+        assert_eq!(scene.prims.len(), 2);
+        for p in scene.prims.iter() {
+            let g = p.geo.as_ref().unwrap();
+            g.validate().unwrap();
+            assert_eq!(g.point_count(), 8);
+            let w = p.world();
+            let max_x = w.vertices.iter().map(|v| v[0]).fold(f32::MIN, f32::max);
+            assert!((max_x - if p.path.contains("Moved") { 6.0 } else { 1.0 }).abs() < 1e-4, "{}: {max_x}", p.path);
+        }
+        assert!(scene.info.bones == 0 && scene.info.takes.is_empty());
+    }
+
+
     use super::*;
     use crate::core::anim::{create_test_clip, PoseEdit};
     use crate::fbx_loader::load_fbx;

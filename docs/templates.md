@@ -1,6 +1,6 @@
 # Templates and example files
 
-The Templates menu in the node graph header holds ready-made graphs. Picking one asks whether to add it to the current graph, beside the nodes already there, or open it as a new graph; opening as new asks to save unsaved changes first (see [Interface](interface.md#files)). On an empty graph it opens straight away. A line under the header then says what to look at.
+The Templates menu, in the menu bar at the top left, holds ready-made graphs. Picking one asks whether to add it to the current graph, beside the nodes already there, or open it as a new graph; opening as new asks to save unsaved changes first (see [Interface](interface.md#files)). On an empty graph it opens straight away. A line under the header then says what to look at.
 
 The menu is in two parts, by whose work the templates show: **Martino** (composed USD stages, ICE) and **Simon** (everything else).
 
@@ -82,7 +82,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 | Load FBX: what a file holds | `examples/fbx/studio.fbx`, written by hand: a floor and a crate with their materials and UVs on the Geometry output, a camera that dollies in and a point light listed in the parameters |
 | Retarget onto a character | The example take's first actor on the 342-joint character of `ragdoll/split/into_the_car_.fbx`, taken in the pose its skin was bound in (Load FBX's Rest output), then Reach: feet where the actor's are, within human limits |
 | Capture and Skin | The same, with the character's mesh weighted again by proximity (Capture) and its skin put on the retargeted take by joint name (Skin). Bypass Capture to use the file's own weights |
-| Mocap folder: retarget, skin, collide, write | The example takes folder, each actor retargeted onto the character, feet set by Reach, kept out of a stand-in set by Body Collide, written as skinned FBX to `{dir}/retargeted`. All files on a Write node solves and writes the whole folder |
+| Mocap folder: retarget, skin, collide, write | The example takes folder, each actor placed by a Transform and retargeted onto the character, feet set by Reach, kept out of a stand-in set by Body Collide, written as skinned FBX to `{dir}/retargeted`. All files on a Write node solves and writes the whole folder |
 | Human Limits | Fix Pose bends the test walk's left elbow 80 degrees the wrong way; Human Limits, against the walk before it, bends it back |
 
 ## Example files

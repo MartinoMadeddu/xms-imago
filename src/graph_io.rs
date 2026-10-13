@@ -92,6 +92,16 @@ fn upgrade(saved: &mut SavedGraph) {
             for c in saved.connections.iter_mut().filter(|c| c[0] == n.id && c[1] == 0) { c[1] = 1; }
         }
     }
+    // The example take and car were `.xmsclip` and `.xmsmesh` files; they
+    // are FBX now. The car is the same mesh, polygon for polygon, so picks
+    // made on it still hold.
+    for n in saved.nodes.iter_mut() {
+        if let NodeType::LoadFbx { path, .. } = &mut n.node_type {
+            for (old, new) in [("ragdoll/car.xmsmesh", "ragdoll/car.fbx"), ("ragdoll/into_the_car.xmsclip", "ragdoll/split/into_the_car_.fbx")] {
+                if path.replace('\\', "/").ends_with(old) { *path = format!("{}{new}", &path[..path.len() - old.len()]); }
+            }
+        }
+    }
     use bevy::math::{EulerRot, Quat, Vec3};
     for n in saved.nodes.iter_mut() {
         if let NodeType::TransformClip { translate, rotate, scale } = n.node_type.clone() {
@@ -462,6 +472,20 @@ mod tests {
         assert_eq!(h.picked, vec![Slot::LeftHand]);
     }
 
+    /// Graphs saved when the example take and car were `.xmsclip` and
+    /// `.xmsmesh` open on the FBX files that replaced them.
+    #[test]
+    fn old_example_files_open_as_fbx() {
+        let mut g = NodeGraphState::default();
+        g.add_node("Car".into(), NodeType::LoadFbx { path: "/home/x/examples/ragdoll/car.xmsmesh".into(), take: 0 }, egui::pos2(0.0, 0.0));
+        g.add_node("Take".into(), NodeType::LoadFbx { path: "/home/x/examples/ragdoll/into_the_car.xmsclip".into(), take: 0 }, egui::pos2(0.0, 80.0));
+        g.add_node("Other".into(), NodeType::LoadFbx { path: "/home/x/takes/car.fbx".into(), take: 0 }, egui::pos2(0.0, 160.0));
+        let mut back = NodeGraphState::default();
+        from_json(&mut back, &to_json(&g)).unwrap();
+        let paths: Vec<String> = back.nodes.iter().filter_map(|n| match &n.node_type { NodeType::LoadFbx { path, .. } => Some(path.clone()), _ => None }).collect();
+        assert_eq!(paths, ["/home/x/examples/ragdoll/car.fbx", "/home/x/examples/ragdoll/split/into_the_car_.fbx", "/home/x/takes/car.fbx"]);
+    }
+
     /// Copied nodes come back through text (the clipboard) with their
     /// parameters, the wires between them and their ICE tree, as new nodes.
     #[test]
@@ -624,13 +648,13 @@ mod tests {
     fn a_load_fbx_mesh_node_becomes_load_fbx() {
         let json = r#"{"version":1,"nodes":[
             {"id":0,"name":"Output","position":[0,500],"node_type":"Output"},
-            {"id":2,"name":"Car","position":[0,0],"node_type":{"LoadFbxMesh":{"path":"car.xmsmesh"}}},
+            {"id":2,"name":"Car","position":[0,0],"node_type":{"LoadFbxMesh":{"path":"car.fbx"}}},
             {"id":3,"name":"Move","position":[0,100],"node_type":{"Transform":{"translation":[0.0,0.0,0.0],"rotation":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0]}}}
         ],"connections":[[2,0,3,0],[3,0,0,0]],"view_flag":null}"#;
         let mut g = NodeGraphState::default();
         from_json(&mut g, json).unwrap();
         let car = g.nodes.iter().find(|n| n.id == NodeId(2)).unwrap();
-        assert!(matches!(&car.node_type, NodeType::LoadFbx { path, take: 0 } if path == "car.xmsmesh"));
+        assert!(matches!(&car.node_type, NodeType::LoadFbx { path, take: 0 } if path == "car.fbx"));
         assert_eq!(car.outputs.len(), 3);
         // Its wire leaves from the Geometry output now.
         let mv = g.nodes.iter().find(|n| n.id == NodeId(3)).unwrap();

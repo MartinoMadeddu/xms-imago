@@ -3,4 +3,5 @@ _site/
 /crates/*/target
 /crates/*/Cargo.lock
 /examples/ragdoll/*.fbx
+!/examples/ragdoll/car.fbx
 .DS_Store

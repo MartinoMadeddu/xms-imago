@@ -10,7 +10,7 @@ The timeline has no range of its own. It takes range, rate and timecode from the
 
 | Node | What it does |
 |---|---|
-| Load FBX | Everything in an FBX file, converted to Y-up metres, on three outputs. **Clip**: the hierarchy and one take, baked per frame, with the mesh bound to the skeleton and its weights. **Geometry**: every mesh as a packed primitive, with normals, UVs, colours, material and skin weights. **Rest**: the skeleton in the pose its skin was bound in, one frame. Cameras, lights, materials, blend shapes and takes are listed in its properties. See [Characters](#characters-fbx-skin-weights-and-retargeting) |
+| Load FBX | Everything in an FBX file, converted to Y-up metres, on three outputs. **Clip**: the hierarchy and one take, baked per frame, with the mesh bound to the skeleton and its weights. **Geometry**: every mesh as a primitive, with normals, UVs, colours, material and skin weights. **Rest**: the skeleton in the pose its skin was bound in, one frame. Cameras, lights, materials, blend shapes and takes are listed in its parameters. See [Characters](#characters-fbx-skin-weights-and-retargeting) |
 | Load FBX Folder | One file out of a folder, picked by index or from a dropdown of file names |
 | Test Clip | A generated clip for trying things out |
 | Rename Joints | Renames joints. Find is a regular expression, picked from the joint list or typed. Replace may use `$1`, `$2` for its groups |
@@ -34,7 +34,7 @@ In the "Mocap tools" section of the same sub-menu.
 | In Place | Removes horizontal travel of the root. Optionally keeps the height, or moves the travel to a root joint |
 | Blend | Plays the first clip, then the second, with a blend in frames. Can align the second clip to where the first ends |
 | Loop | Blends the end of a clip into its start |
-| Retarget | Puts the motion of the first input on the skeleton of the second. Joints are matched by the part of the body they are, so a Mixamo take drives an Unreal skeleton; joints with no part (fingers, helpers) by name, ignoring prefixes and namespaces. Each skeleton is taken in the pose its skin was bound in (its rest pose when it has no skin), so the two may rest differently. Hips travel scaled by the ratio of hip heights |
+| Retarget | Puts the motion of the first input on the skeleton of the second. Joints are matched by the part of the body they are, so a Mixamo take drives an Unreal skeleton; joints with no part (fingers, helpers) by name, ignoring prefixes and namespaces. Each skeleton is taken in the pose its skin was bound in (its rest pose when it has no skin), so the two may rest differently. Hips travel scaled by the ratio of hip heights; where the source starts on the ground is kept as it is, so a Transform before Retarget places the result where it placed the source |
 | Characterize | Says which joint is which part of a human. See below |
 | Time Warp | Changes speed, or reverses |
 | Prune Joints | Removes joints whose names match a pattern, with everything below them |
@@ -44,7 +44,7 @@ In the "Mocap tools" section of the same sub-menu.
 
 ![Retarget onto the test skeleton](xms_retarget.png)
 
-Retarget copies rotations and hips travel. Where the proportions differ the feet can slide or sink: put a **Reach** node after it (below).
+Retarget copies rotations and hips travel. A Transform before it carries through: the source moved or turned is retargeted moved or turned, from its first frame. Where the proportions differ the feet can slide or sink: put a **Reach** node after it (below).
 
 ## Skeletons and Characterize
 
@@ -102,11 +102,11 @@ With a clip node selected, the Primitive Inspector shows a Joint tab (name, pare
 
 A clip read from a file is written back with the skeleton it came in with, after any process: trims, retimes, mocap tools, a Body Collide solve. Same joint names and hierarchy, same kinds (an FBX "Root" stays a Root, a "LimbNode" a LimbNode), the same axes and unit as the source (Z up in centimetres for a file from Unreal), and the same local values on every joint that was not changed. An engine that imported the source as a skeleton sees the file as an animation of that skeleton.
 
-The properties of the Write node say which space a file goes out in, such as "Z up, cm, as the source file". A clip made in the program (Test Clip) goes out Y up in centimetres.
+The parameters of the Write node say which space a file goes out in, such as "Z up, cm, as the source file". A clip made in the program (Test Clip) goes out Y up in centimetres.
 
 "Mesh" adds the skinned mesh, its skin and bind pose. Leave it off to import motion onto a skeleton the engine already has: the file then holds the skeleton and its animation only. New Write nodes start with it off; graphs saved before the switch existed keep writing the mesh.
 
-How this is checked: the take of the Body Collide template, written as it ships and written after the shipped solve, is compared with the source FBX read without any conversion. Names, parents, kinds, axes and unit match on all 342 joints. As shipped, the largest difference in a local rotation is 0.003 degrees (the packed clip stores rotations in 16 bits); written straight from the FBX it is 0.00003 degrees, and 0 in position. Import into Unreal itself has not been tried here.
+How this is checked: the take of the Body Collide template, written as it ships and written after the shipped solve, is compared with the source FBX read without any conversion. Names, parents, kinds, axes and unit match on all 342 joints. Written straight from the FBX, the largest difference in a local rotation is 0.00003 degrees, and 0 in position (measured when the take still shipped in a packed format of its own, which stored rotations in 16 bits; it ships as FBX now). Import into Unreal itself has not been tried here.
 
 Earlier builds wrote every file Y up, put the source's axis turn and a 0.01 scale on the top joint, and wrote the other joints a hundred times too long, so an engine saw a different skeleton. Rotations within a degree of 90 on Y could also be written half a degree out. Both are fixed.
 
@@ -118,7 +118,7 @@ Every path field has a folder button that opens the file browser. It reopens in 
 
 ## Graphs
 
-Open, Recent, Save and Save as in the node graph header read and write the graph as JSON. See [Interface](interface.md#files). The contents of ICE graphs are not saved.
+The File menu (Open, Open Recent, Save, Save As, Import) reads and writes the graph as JSON. See [Interface](interface.md#files). The contents of ICE graphs are not saved.
 
 ## Not done yet
 
@@ -134,10 +134,10 @@ Open, Recent, Save and Save as in the node graph header read and write the graph
 | Output | What |
 |---|---|
 | Clip | The skeleton and one take, baked per frame, with the mesh skinned to it. What it always gave |
-| Geometry | Every mesh node as a packed primitive, in its own space, placed where the file has it: polygons as written, normals, UVs, vertex colours, its material (colour, roughness, metalness, opacity, colour texture) and its skin weights by joint name |
+| Geometry | Every mesh node as a primitive, in its own space, placed where the file has it: polygons as written, normals, UVs, vertex colours, its material (colour, roughness, metalness, opacity, colour texture) and its skin weights by joint name |
 | Rest | The skeleton in the pose its skin was bound in (the file's bind pose), one frame, with the skin. Read without the take, so it is quick for a long one |
 
-Its properties list the meshes (points, polygons, skinned, UVs, blend shapes), the materials and their textures, the cameras (lens, film back, clipping, position, whether animated), the lights (kind, colour, intensity, position), the takes, and what is not read in full. Load FBX Mesh is gone: Load FBX's Geometry output does what it did, and graphs that used it open with a Load FBX node wired from that output. Load FBX also reads `.xmsclip` and `.xmsmesh` files.
+Its parameters list the meshes (points, polygons, skinned, UVs, blend shapes), the materials and their textures, the cameras (lens, film back, clipping, position, whether animated), the lights (kind, colour, intensity, position), the takes, and what is not read in full. Load FBX Mesh is gone: Load FBX's Geometry output does what it did, and graphs that used it open with a Load FBX node wired from that output.
 
 ![Load FBX on the studio example: the floor and the crate with their materials, the camera and the light listed](xms_fbx_studio.png)
 
@@ -163,7 +163,7 @@ The human pass of Body Collide, on its own and after a retarget. Body Collide it
 
 ### A folder of raw takes, retargeted, skinned and collided
 
-The "Mocap folder: retarget, skin, collide, write" template is the whole pipeline. Load FBX Folder reads the takes; Split Characters gives each actor; per actor, Retarget onto the character's Rest output (its bind pose and skin), Reach for the feet, Body Collide against the set, and Write FBX with Mesh ticked to `{dir}/retargeted/{file}_{char}.fbx`. **All files** on a Write FBX node solves and writes every take of the folder. The set is a stand-in (`examples/fbx/studio.fbx`): point it at your own.
+The "Mocap folder: retarget, skin, collide, write" template is the whole pipeline. Load FBX Folder reads the takes; Split Characters gives each actor; per actor, a Transform to place the actor (Place1, Place2, at zero), Retarget onto the character's Rest output (its bind pose and skin), Reach for the feet (towards the placed actor), Body Collide against the set (moved by PlaceSet), and Write FBX with Mesh ticked to `{dir}/retargeted/{file}_{char}.fbx`. **All files** on a Write FBX node solves and writes every take of the folder. The set is a stand-in (`examples/fbx/studio.fbx`): point it at your own.
 
 On the "Retarget onto a character" template, the example take's first actor (69 joints, `Skeleton 001_…`) on the 342-joint character of `examples/ragdoll/split/into_the_car_.fbx`: Reach takes the feet from at most 2.2 cm off their goals to 0.3 cm, and no knee bends the wrong way.
 
@@ -171,7 +171,7 @@ On the "Retarget onto a character" template, the example take's first actor (69 
 
 ## Moving a clip
 
-Transform, the same node that moves meshes, moves a clip: Translate, Rotate and one Scale for the whole skeleton. It moves the joints at the top of the hierarchy and everything under them follows. A mesh skinned to the skeleton is not moved itself: it follows its joints when it is posed, so it moves once, with them. Graphs saved with the old Transform Clip node open with a Transform node in its place, turning the clip the same way.
+Transform, the same node that moves meshes, moves a clip: Translate, Rotate and one Scale for the whole skeleton. It moves the joints at the top of the hierarchy and everything under them follows. A mesh skinned to the skeleton is not moved itself: it follows its joints when it is posed, so it moves once, with them. The skeleton's rest pose is not moved: it is the skeleton, and nodes after it (Retarget, Reach) read the move from the animation. Graphs saved with the old Transform Clip node open with a Transform node in its place, turning the clip the same way.
 
 ## Body Collide
 

@@ -74,7 +74,7 @@ pub fn draw_properties_panel(
         });
 }
 
-const FBX_EXTS: &[&str] = &["fbx", crate::packed::CLIP_EXT, crate::packed::MESH_EXT];
+const FBX_EXTS: &[&str] = &["fbx"];
 
 /// What an FBX file holds, as Load FBX reads it.
 fn fbx_contents(ui: &mut egui::Ui, info: &crate::fbx_loader::FbxInfo) {
@@ -237,7 +237,7 @@ pub fn draw_properties(
         NodeType::LoadFbx { path, take } => {
             group(ui, "File", Some("Everything the file holds. Clip: the skeleton and one take, baked per frame, with the mesh skinned to it. Geometry: every mesh as a packed primitive, placed where the file has it, with normals, texture coordinates, colours, material and skin weights by joint name. Rest: the skeleton in the pose its skin was bound in, one frame. Read Y up, in metres; written back in the file's own axes and unit"), |f| {
                 path_row(f, path, "/path/to/take.fbx", io, sel_id, BrowseMode::File, "Open FBX", FBX_EXTS);
-                if !crate::packed::is_mesh(path) { take_rows(f, crate::fbx_loader::load_fbx_cached(path, *take), take); }
+                take_rows(f, crate::fbx_loader::load_fbx_cached(path, *take), take);
             });
             if let Ok(scene) = crate::fbx_loader::load_scene_cached(path) { fbx_contents(ui, &scene.info); }
             clip_summary(ui, anim, false);
@@ -270,7 +270,7 @@ pub fn draw_properties(
             clip_summary(ui, anim, false);
         }
         NodeType::LoadFbxMesh { path } => group(ui, "File", Some("Every mesh of an FBX file, where it stands, as primitives. A set for Body Collide to keep a character out of"), |f| {
-            path_row(f, path, "/path/to/set.fbx", io, sel_id, BrowseMode::File, "Open FBX", &["fbx", crate::packed::MESH_EXT]);
+            path_row(f, path, "/path/to/set.fbx", io, sel_id, BrowseMode::File, "Open FBX", &["fbx"]);
             match crate::fbx_loader::load_meshes_cached(path) {
                 Ok(meshes) => {
                     let tris: usize = meshes.iter().map(|m| m.1.indices.len() / 3).sum();

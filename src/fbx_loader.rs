@@ -198,10 +198,7 @@ pub fn load_meshes_cached(path: &str) -> Result<Vec<(String, Arc<MeshData>)>, St
     if let Some((t, r)) = cache.lock().unwrap().get(path) {
         if *t == mtime { return r.clone(); }
     }
-    let result = if mtime.is_none() { Err("file not found".to_string()) }
-        else if crate::packed::is_mesh(path) {
-            crate::packed::read_mesh(path).map(|m| vec![(std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), Arc::new(m))])
-        } else { load_meshes(path) };
+    let result = if mtime.is_none() { Err("file not found".to_string()) } else { load_meshes(path) };
     let mut cache = cache.lock().unwrap();
     if cache.len() > 3 { cache.clear(); }
     cache.insert(path.to_string(), (mtime, result.clone()));
@@ -678,8 +675,7 @@ pub fn load_scene(path: &str) -> Result<FbxScene, String> {
 type SceneEntry = (Option<SystemTime>, Result<FbxScene, String>);
 static SCENES: OnceLock<Mutex<HashMap<String, SceneEntry>>> = OnceLock::new();
 
-/// `load_scene`, kept until the file changes. A packed mesh (`.xmsmesh`)
-/// gives its one mesh.
+/// `load_scene`, kept until the file changes.
 pub fn load_scene_cached(path: &str) -> Result<FbxScene, String> {
     if path.is_empty() { return Err("no file set".into()); }
     let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
@@ -687,16 +683,7 @@ pub fn load_scene_cached(path: &str) -> Result<FbxScene, String> {
     if let Some((t, r)) = cache.lock().unwrap().get(path) {
         if *t == mtime { return r.clone(); }
     }
-    let result = if mtime.is_none() { Err("file not found".to_string()) }
-        else if crate::packed::is_mesh(path) {
-            crate::packed::read_mesh(path).map(|m| {
-                let name = std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                let info = FbxInfo { meshes: vec![MeshInfo { path: format!("/{}", safe_name(&name)), points: m.vertices.len(), polygons: m.indices.len() / 3, skinned: false, uv_sets: 0, shapes: vec![] }], ..Default::default() };
-                FbxScene { prims: Arc::new(vec![crate::types::NamedMesh::new(format!("/{}", safe_name(&name)), m)]), info: Arc::new(info) }
-            })
-        } else if crate::packed::is_clip(path) {
-            Ok(FbxScene { prims: Arc::new(vec![]), info: Arc::new(FbxInfo::default()) })
-        } else { load_scene(path) };
+    let result = if mtime.is_none() { Err("file not found".to_string()) } else { load_scene(path) };
     let mut cache = cache.lock().unwrap();
     if cache.len() > 3 { cache.clear(); }
     cache.insert(path.to_string(), (mtime, result.clone()));
@@ -724,9 +711,7 @@ pub fn load_fbx_cached(path: &str, take: u32) -> Result<LoadedFbx, String> {
     let result = if mtime.is_none() {
         Err("file not found".to_string())
     } else {
-        let r = if crate::packed::is_clip(path) {
-            crate::packed::read_clip(path).map(|c| LoadedFbx { takes: Arc::new(vec![c.name.clone()]), anim: Arc::new(c) })
-        } else { load_fbx(path, take) };
+        let r = load_fbx(path, take);
         if let Err(e) = &r { eprintln!("[LoadFbx] failed to load '{path}': {e}"); }
         r
     };

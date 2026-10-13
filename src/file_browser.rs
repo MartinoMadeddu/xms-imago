@@ -29,6 +29,12 @@ pub enum BrowseTarget {
     SaveGraph,
     OpenLayout,
     SaveLayout,
+    /// File > Import: add a saved graph to the one open.
+    ImportGraph,
+    /// File > Import: add a Load FBX node reading this file.
+    ImportFbx,
+    /// File > Import: add a Load USD node reading this file.
+    ImportUsd,
 }
 
 struct Request {
@@ -41,6 +47,9 @@ struct Request {
     file_name: String,
     path_edit: String,
     all_files: bool,
+    /// Save mode: the chosen file exists, and the browser asks whether to
+    /// replace it.
+    replacing: Option<PathBuf>,
 }
 
 #[derive(Resource)]
@@ -54,6 +63,12 @@ impl Default for FileBrowser {
     fn default() -> Self {
         Self { dir: load_last_dir(), request: None, result: None }
     }
+}
+
+/// Whether choosing `path` has to be confirmed first: saving over a file
+/// that exists asks before replacing it, as in any other program.
+pub fn asks_to_replace(mode: BrowseMode, path: &Path) -> bool {
+    mode == BrowseMode::Save && path.is_file()
 }
 
 /// A file in the application's config folder.
@@ -105,6 +120,7 @@ impl FileBrowser {
             file_name: file_name.to_string(),
             path_edit: self.dir.to_string_lossy().to_string(),
             all_files: false,
+            replacing: None,
         });
     }
 
@@ -123,6 +139,7 @@ impl FileBrowser {
         save_last_dir(&self.dir);
         if let Some(r) = &mut self.request {
             r.selected  = None;
+            r.replacing = None;
             r.path_edit = self.dir.to_string_lossy().to_string();
         }
     }
@@ -222,8 +239,19 @@ impl FileBrowser {
                 if req.mode == BrowseMode::Save {
                     ui.horizontal(|ui| {
                         ui.label("File name:");
-                        ui.add(egui::TextEdit::singleline(&mut req.file_name).desired_width(f32::INFINITY));
+                        let edit = ui.add(egui::TextEdit::singleline(&mut req.file_name).desired_width(f32::INFINITY));
+                        if edit.changed() { req.replacing = None; }
                     });
+                }
+                // Saving over a file that exists: Replace or keep it.
+                if let Some(existing) = req.replacing.clone() {
+                    ui.horizontal(|ui| {
+                        let name = existing.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        ui.colored_label(ui.visuals().warn_fg_color, format!("⚠ {name} already exists. Replace it?"));
+                        if ui.button("Replace").clicked() { confirm = Some(existing.clone()); }
+                        if ui.button("Cancel").clicked() { req.replacing = None; }
+                    });
+                    return;
                 }
                 ui.horizontal(|ui| {
                     match req.mode {
@@ -255,6 +283,13 @@ impl FileBrowser {
             });
 
         if let Some(dir) = go_to { self.go(dir); }
+        // A file that exists is replaced only once Replace is clicked.
+        if let (Some(path), Some(req)) = (confirm.as_ref(), self.request.as_mut()) {
+            if asks_to_replace(req.mode, path) && req.replacing.as_ref() != Some(path) {
+                req.replacing = Some(path.clone());
+                confirm = None;
+            }
+        }
         if let Some(path) = confirm {
             let target = self.request.as_ref().map(|r| r.target);
             if let Some(target) = target { self.result = Some((target, path)); }
@@ -290,6 +325,13 @@ mod tests {
         // A new session starts where the last one left off.
         let again = FileBrowser::default();
         assert_eq!(again.dir, visited);
+
+        // Saving over a file that exists asks first; a new name does not.
+        let there = visited.join("graph.json");
+        std::fs::write(&there, "{}").unwrap();
+        assert!(asks_to_replace(BrowseMode::Save, &there));
+        assert!(!asks_to_replace(BrowseMode::Save, &visited.join("new.json")));
+        assert!(!asks_to_replace(BrowseMode::File, &there));
 
         // If that folder is gone, fall back to the home folder.
         std::fs::remove_dir_all(&visited).unwrap();

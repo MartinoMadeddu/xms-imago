@@ -117,7 +117,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Remembered:** layout, floating windows, theme and navigation style come back at the next start
 - **Copy and paste nodes:** Ctrl+C and Ctrl+V, with their wires and ICE graphs, between windows and from one session to the next
 - **Add or open:** opening a file or a template asks whether to add it to the graph or open it as new, and asks to save first before anything is replaced
-- **Files:** Open, Recent (the last ten), Save, Save as, Ctrl+S. The top bar shows the file and whether it is saved; closing, opening a file or loading a template over unsaved changes asks first
+- **Menus:** File, Edit, Templates and Window at the top left, as in other programs. File has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an FBX, a USD) and Quit, with the usual shortcuts. The top bar shows the file and whether it is saved; closing, New, opening a file or loading a template over unsaved changes asks first, and nothing writes over a file that exists without asking (Save As, Save layout, Write FBX, Write USD)
 - **Fast:** the graph is cooked when its content changes, not on every frame
 - **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange for whatever is selected or active). A colour editor changes any of them
 - **Layouts as files:** save a layout, load it back, pass it to someone else
@@ -185,7 +185,7 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 ## Example files
 
 - `examples/DeLorean.usdz` is by VTX (https://sketchfab.com/VTX_car), under CC BY-NC-SA 4.0, included with the permission of its author. See `examples/CREDITS.md`.
-- `examples/ragdoll/` holds Simon Legrand's take and car for the Body Collide template, in the program's compact `.xmsclip` and `.xmsmesh` formats, with the solved result. `examples/ragdoll/split/into_the_car_.fbx` is frames 1200 to 9199 of the take as FBX. See [examples/ragdoll/README.md](examples/ragdoll/README.md).
+- `examples/ragdoll/` holds Simon Legrand's take and car for the Body Collide template, as FBX, with the solved result: `split/into_the_car_.fbx` is frames 1200 to 9199 of the take, `car.fbx` the car. See [examples/ragdoll/README.md](examples/ragdoll/README.md).
 
 ## Credit
 

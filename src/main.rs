@@ -28,7 +28,6 @@ mod examples;
 mod examples_stage;
 mod templates;
 mod ragdoll;
-mod packed;
 mod history;
 mod recent;
 
@@ -102,6 +101,7 @@ fn main() {
         .init_resource::<history::History>()
         .init_resource::<recent::Recent>()
         .init_resource::<SaveFirst>()
+        .init_resource::<Confirm>()
         .add_systems(Startup, (open_splash, setup_scene, setup_egui_theme, setup_gizmos, modelling::setup_gizmos))
         .add_systems(Update, (
             dcc_ui,
@@ -253,7 +253,7 @@ fn dcc_ui(
     mut graph_file: ResMut<GraphFile>,
     mut poly_tool:  ResMut<modelling::PolyTool>,
     mut nav_settings: ResMut<viewport::nav::NavSettings>,
-    (mut layout, revision, mut uv_state, mut history, mut recent, mut save_first): (ResMut<Layout>, Res<node_graph::GraphRevision>, ResMut<uv_editor::UvEditorState>, ResMut<history::History>, ResMut<recent::Recent>, ResMut<SaveFirst>),
+    (mut layout, revision, mut uv_state, mut history, mut recent, mut save_first, mut confirm): (ResMut<Layout>, Res<node_graph::GraphRevision>, ResMut<uv_editor::UvEditorState>, ResMut<history::History>, ResMut<recent::Recent>, ResMut<SaveFirst>, ResMut<Confirm>),
     batch:          Res<BatchState>,
     time:           Res<Time>,
 ) {
@@ -294,13 +294,35 @@ fn dcc_ui(
             BrowseTarget::SaveGraph => {
                 save_graph(&graph, &path, &mut graph_file, &mut history, &mut recent);
             }
+            BrowseTarget::ImportGraph => {
+                graph_file.message = add_graph_file(&mut graph, &mut subnets, &path, &mut recent);
+            }
+            BrowseTarget::ImportFbx => {
+                let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Load FBX".into());
+                import_node(&mut graph, name, NodeType::LoadFbx { path: text, take: 0 });
+                graph_file.message = format!("Imported {}", path.display());
+            }
+            BrowseTarget::ImportUsd => {
+                let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Load USD".into());
+                import_node(&mut graph, name, NodeType::LoadUsd { path: text });
+                graph_file.message = format!("Imported {}", path.display());
+            }
         }
     }
 
-    // Ctrl+S (Cmd+S): save to the current file, or ask where.
-    if !ctx.wants_keyboard_input() && !browser.is_open()
-        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
-        save_or_ask(&graph, &mut graph_file, &mut history, &mut recent, &mut browser);
+    // File shortcuts (Cmd on macOS). Ctrl+Shift+S is checked before Ctrl+S,
+    // which would match it too.
+    let mut command = None;
+    if !ctx.wants_keyboard_input() && !browser.is_open() && !save_first.busy() && confirm.pending.is_none() {
+        use egui::{Key, Modifiers};
+        command = ctx.input_mut(|i| {
+            if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) { Some(FileCommand::SaveAs) }
+            else if i.consume_key(Modifiers::COMMAND, Key::S) { Some(FileCommand::Save) }
+            else if i.consume_key(Modifiers::COMMAND, Key::N) { Some(FileCommand::New) }
+            else if i.consume_key(Modifiers::COMMAND, Key::O) { Some(FileCommand::Open) }
+            else if i.consume_key(Modifiers::COMMAND, Key::Q) { Some(FileCommand::Quit) }
+            else { None }
+        });
     }
 
     // Range, rate and timecode come from the clip of the selected node.
@@ -338,6 +360,16 @@ fn dcc_ui(
             ui.horizontal_centered(|ui| {
                 draw_logo(ui);
                 ui.label(egui::RichText::new("XMS | Imago").strong().color(theme::c(243, 243, 243)));
+                ui.add_space(6.0);
+                // The menus, as in any other program: File, Edit, Templates, Window.
+                // Flat menu titles, as in a menu bar.
+                ui.scope(|ui| {
+                    ui.visuals_mut().button_frame = false;
+                    if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
+                    edit_menu(ui, &mut graph, &mut subnets, &mut history, &mut graph_file);
+                    templates_menu(ui, &mut save_first);
+                    ui.menu_button("Window", |ui| window_menu(ui, &mut layout, &mut browser, locked));
+                });
                 // The file the graph is in, and whether it has changed since.
                 let doc = graph_file.path.as_deref().map(file_name).unwrap_or_else(|| "Untitled".into());
                 let unsaved = history.is_dirty();
@@ -349,7 +381,7 @@ fn dcc_ui(
                         (None, _)        => "Not saved to a file yet. Ctrl+S saves".into(),
                     });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Right to left: the lock sits at the far right, the menu before it.
+                    // The lock sits at the far right.
                     {
                         let tip = if locked {
                             "Layout locked: panes cannot be moved, floated or closed. Dividers still resize. Click to unlock"
@@ -358,39 +390,51 @@ fn dcc_ui(
                         };
                         if lock_button(ui, locked).on_hover_text(tip).clicked() { layout.locked = !locked; }
                     }
-                        ui.menu_button("Panes ⏷", |ui| {
-                            for pane in Pane::ALL {
-                                let mut open = layout.is_open(pane);
-                                let label = if layout.is_floating(pane) { format!("{} (floating)", pane.title()) } else { pane.title().to_string() };
-                                if ui.add_enabled(!locked, egui::Checkbox::new(&mut open, label)).changed() {
-                                    if open { layout.show(pane); } else { layout.hide(pane); }
-                                }
-                            }
-                            ui.separator();
-                            if ui.add_enabled(!locked && layout.any_floating(), egui::Button::new("Dock floating panes")).clicked() {
-                                layout.dock_all();
-                                ui.close_menu();
-                            }
-                            if ui.add_enabled(!locked, egui::Button::new("Reset layout")).clicked() {
-                                layout.reset();
-                                ui.close_menu();
-                            }
-                            ui.separator();
-                            if ui.button("Save layout...").on_hover_text("Write this layout to a file").clicked() {
-                                browser.open(BrowseTarget::SaveLayout, BrowseMode::Save, "Save layout", &["json"], "layout.json");
-                                ui.close_menu();
-                            }
-                            if ui.add_enabled(!locked, egui::Button::new("Load layout...")).on_hover_text("Replace this layout with one from a file").clicked() {
-                                browser.open(BrowseTarget::OpenLayout, BrowseMode::File, "Load layout", &["json"], "");
-                                ui.close_menu();
-                            }
-                            if locked { ui.label(egui::RichText::new("Unlock the layout to change it.").small()); }
-                        });
-                        ui.menu_button("Theme ⏷", theme::menu);
                 });
             });
         });
     theme::editor(ctx);
+    if let Some(c) = command {
+        match c {
+            FileCommand::New => save_first.load_new(),
+            FileCommand::Open => { browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", &["json"], ""); }
+            FileCommand::OpenRecent(p) => save_first.load(Source::File(p)),
+            FileCommand::ClearRecent => recent.clear(),
+            FileCommand::Save => { save_or_ask(&graph, &mut graph_file, &mut history, &mut recent, &mut browser); }
+            FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut browser),
+            FileCommand::ImportGraph => browser.open(BrowseTarget::ImportGraph, BrowseMode::File, "Import graph", &["json"], ""),
+            FileCommand::ImportFbx => browser.open(BrowseTarget::ImportFbx, BrowseMode::File, "Import FBX", &["fbx"], ""),
+            FileCommand::ImportUsd => browser.open(BrowseTarget::ImportUsd, BrowseMode::File, "Import USD", &["usd", "usda", "usdc", "usdz"], ""),
+            FileCommand::Quit => save_first.quit = true,
+        }
+    }
+    // Writing over files that exist: Replace or Cancel.
+    if let Some((existing, _)) = &confirm.pending {
+        let existing = existing.clone();
+        dim_behind(ctx);
+        let mut choice = None;
+        egui::Window::new("Replace files?")
+            .order(egui::Order::Tooltip)
+            .collapsible(false).resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label(if existing.len() == 1 { "This already exists:" } else { "These already exist:" });
+                for e in existing.iter().take(8) { ui.label(egui::RichText::new(e).monospace().small()); }
+                if existing.len() > 8 { ui.label(format!("and {} more", existing.len() - 8)); }
+                ui.label(egui::RichText::new("Writing replaces what is there.").small().weak());
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Replace").clicked() { choice = Some(true); }
+                    if ui.button("Cancel").clicked() { choice = Some(false); }
+                });
+            });
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) { choice = Some(false); }
+        if let Some(go) = choice {
+            if let Some((_, action)) = confirm.pending.take() {
+                if go { run_action(&graph, &subnets, &batch, action); }
+            }
+        }
+    }
 
     let mut toggle_float = None;
     let mut dock_rect = ctx.screen_rect();
@@ -404,7 +448,8 @@ fn dcc_ui(
             dt: time.delta_seconds_f64(), keys_free,
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0, locked, toggle_float: &mut toggle_float, tab_pressed: &mut tab_pressed,
-            uv_state: &mut uv_state, history: &mut history, recent: &mut recent, save_first: &mut save_first,
+            uv_state: &mut uv_state, history: &mut history,
+            confirm: &mut confirm,
         };
         let mut style = egui_dock::Style::from_egui(ctx.style().as_ref());
         style.tab_bar.fill_tab_bar = true;
@@ -626,8 +671,7 @@ struct Panes<'a> {
     tab_pressed:    &'a mut Option<Pane>,
     uv_state:       &'a mut uv_editor::UvEditorState,
     history:        &'a mut history::History,
-    recent:         &'a mut recent::Recent,
-    save_first:     &'a mut SaveFirst,
+    confirm:        &'a mut Confirm,
 }
 
 impl egui_dock::TabViewer for Panes<'_> {
@@ -675,10 +719,11 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let mut tool = self.poly_tool.tool;
                     let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool };
                     draw_properties_panel(ui, self.graph, &*self.stack, self.subnets, self.nav, self.anim_ctx, &mut io);
-                    match io.action {
-                        Some(PanelAction::Write { targets, all_files }) => batch::start(self.batch, self.graph, targets, all_files),
-                        Some(PanelAction::WriteUsd(id)) => write_usd(self.graph, &*self.subnets, id),
-                        None => {}
+                    // Writing over files that exist asks first.
+                    if let Some(action) = io.action {
+                        let existing = existing_outputs(self.graph, &action);
+                        if existing.is_empty() { run_action(self.graph, &*self.subnets, self.batch, action); }
+                        else { self.confirm.pending = Some((existing, action)); }
                     }
                     if tool != self.poly_tool.tool { self.poly_tool.tool = tool; }
                 });
@@ -745,40 +790,6 @@ impl egui_dock::TabViewer for Panes<'_> {
                 None => {
                     // Wraps when the pane is narrow.
                     ui.horizontal_wrapped(|ui| {
-                        if ui.button("📂 Open").on_hover_text("Load a saved graph").clicked() {
-                            self.browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", &["json"], "");
-                        }
-                        let mut open = None;
-                        ui.menu_button("Recent", |ui| {
-                            if self.recent.files.is_empty() {
-                                ui.label(egui::RichText::new("No graphs opened or saved yet").weak());
-                            }
-                            for f in self.recent.files.clone() {
-                                let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                                let there = f.is_file();
-                                let label = if there { name } else { format!("{name} (missing)") };
-                                if ui.add_enabled(there, egui::Button::new(label)).on_hover_text(f.display().to_string())
-                                    .on_disabled_hover_text(format!("{}\nNot found", f.display())).clicked() {
-                                    open = Some(f.clone());
-                                    ui.close_menu();
-                                }
-                            }
-                            if !self.recent.files.is_empty() {
-                                ui.separator();
-                                if ui.button("Clear the list").clicked() { self.recent.clear(); ui.close_menu(); }
-                            }
-                        }).response.on_hover_text("Graphs opened or saved lately");
-                        if let Some(path) = open { self.save_first.load(Source::File(path)); }
-                        let save_tip = match &self.graph_file.path {
-                            Some(p) => format!("Save to {} (Ctrl+S)", p.display()),
-                            None => "Save this graph (Ctrl+S)".into(),
-                        };
-                        if ui.button("💾 Save").on_hover_text(save_tip).clicked() {
-                            save_or_ask(self.graph, self.graph_file, self.history, self.recent, self.browser);
-                        }
-                        if ui.button("Save as").on_hover_text("Save this graph to a new file").clicked() {
-                            ask_where_to_save(self.graph_file, self.browser);
-                        }
                         if ui.button("Tidy").on_hover_text("Lay the nodes out in rows, top to bottom, and bring them into view").clicked() {
                             self.graph.auto_layout();
                         }
@@ -787,25 +798,6 @@ impl egui_dock::TabViewer for Panes<'_> {
                         }
                         ui.small_button("?").on_hover_text(
                             "Right-click or Tab: add a node\nCtrl+C, Ctrl+V: copy and paste nodes\nShift+drag: pan\nEsc: cancel a wire\nDouble-click an ICE node, or ↓: open its ICE graph\nRight-click an output: add a node under it, wired\nF or A: frame every node\nRing at the left of a node: bypass\nEye at the right: show in the Viewer");
-                        // Ready-made graphs. Picking one asks whether to add it to the
-                        // graph or open it as new (see `SaveFirst::load`).
-                        // By whose work they show, then by area.
-                        ui.menu_button("Templates", |ui| {
-                            for (by, groups) in templates::MENU {
-                                ui.menu_button(by, |ui| {
-                                    for group in groups.iter().copied() {
-                                        ui.menu_button(group, |ui| {
-                                            for (index, t) in templates::TEMPLATES.iter().enumerate().filter(|(_, t)| t.by == by && t.group == group) {
-                                                if ui.button(t.name).on_hover_text(t.hint).clicked() {
-                                                    self.save_first.load(Source::Template(index));
-                                                    ui.close_menu();
-                                                }
-                                            }
-                                        });
-                                    }
-                                });
-                            }
-                        });
                     });
                     if !self.graph_file.message.is_empty() {
                         ui.label(egui::RichText::new(&self.graph_file.message).small().color(theme::c(230, 230, 230)));
@@ -952,6 +944,199 @@ fn open_graph(graph: &mut NodeGraphState, path: &std::path::Path, file: &mut Gra
     }
 }
 
+// ── Menu bar ──────────────────────────────────────────────────────────────────
+
+/// What a File menu item or its shortcut asks for.
+#[derive(Clone, Debug, PartialEq)]
+enum FileCommand {
+    New,
+    Open,
+    OpenRecent(std::path::PathBuf),
+    ClearRecent,
+    Save,
+    SaveAs,
+    ImportGraph,
+    ImportFbx,
+    ImportUsd,
+    Quit,
+}
+
+/// A menu item with its shortcut written at the right, as menus show them.
+fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
+    let clicked = ui.add(egui::Button::new(label).shortcut_text(shortcut)).clicked();
+    if clicked { ui.close_menu(); }
+    clicked
+}
+
+const CMD: &str = if cfg!(target_os = "macos") { "Cmd" } else { "Ctrl" };
+
+fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Option<FileCommand> {
+    let mut c = None;
+    ui.menu_button("File", |ui| {
+        ui.set_min_width(200.0);
+        if menu_item(ui, "New", &format!("{CMD}+N")) { c = Some(FileCommand::New); }
+        if menu_item(ui, "Open...", &format!("{CMD}+O")) { c = Some(FileCommand::Open); }
+        ui.menu_button("Open Recent", |ui| {
+            if recent.files.is_empty() { ui.label(egui::RichText::new("No graphs opened or saved yet").weak()); }
+            for f in &recent.files {
+                let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                let there = f.is_file();
+                let label = if there { name } else { format!("{name} (missing)") };
+                if ui.add_enabled(there, egui::Button::new(label)).on_hover_text(f.display().to_string())
+                    .on_disabled_hover_text(format!("{}\nNot found", f.display())).clicked() {
+                    c = Some(FileCommand::OpenRecent(f.clone()));
+                    ui.close_menu();
+                }
+            }
+            if !recent.files.is_empty() {
+                ui.separator();
+                if ui.button("Clear the list").clicked() { c = Some(FileCommand::ClearRecent); ui.close_menu(); }
+            }
+        });
+        ui.separator();
+        let save = ui.add(egui::Button::new("Save").shortcut_text(format!("{CMD}+S"))).on_hover_text(match &file.path {
+            Some(p) => format!("Save to {}", p.display()),
+            None => "Not saved to a file yet: asks where".into(),
+        });
+        if save.clicked() { c = Some(FileCommand::Save); ui.close_menu(); }
+        if menu_item(ui, "Save As...", &format!("{CMD}+Shift+S")) { c = Some(FileCommand::SaveAs); }
+        ui.separator();
+        ui.menu_button("Import", |ui| {
+            if ui.button("Graph...").on_hover_text("Add the nodes of a saved graph beside these").clicked() { c = Some(FileCommand::ImportGraph); ui.close_menu(); }
+            if ui.button("FBX...").on_hover_text("Add a Load FBX node reading the file").clicked() { c = Some(FileCommand::ImportFbx); ui.close_menu(); }
+            if ui.button("USD...").on_hover_text("Add a Load USD node reading the file").clicked() { c = Some(FileCommand::ImportUsd); ui.close_menu(); }
+        });
+        ui.separator();
+        if menu_item(ui, "Quit", &format!("{CMD}+Q")) { c = Some(FileCommand::Quit); }
+    });
+    c
+}
+
+fn edit_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, subnets: &mut SubnetStore, history: &mut history::History, file: &mut GraphFile) {
+    ui.menu_button("Edit", |ui| {
+        ui.set_min_width(200.0);
+        if ui.add_enabled(history.can_undo(), egui::Button::new("Undo").shortcut_text(format!("{CMD}+Z"))).clicked() {
+            history.request = Some(history::Request::Undo);
+            ui.close_menu();
+        }
+        if ui.add_enabled(history.can_redo(), egui::Button::new("Redo").shortcut_text(format!("{CMD}+Shift+Z"))).clicked() {
+            history.request = Some(history::Request::Redo);
+            ui.close_menu();
+        }
+        ui.separator();
+        let any = !graph.selected_nodes.is_empty();
+        if ui.add_enabled(any, egui::Button::new("Copy").shortcut_text(format!("{CMD}+C"))).clicked() {
+            if let Some(m) = copy_nodes(ui.ctx(), graph, subnets) { file.message = m; }
+            ui.close_menu();
+        }
+        if ui.add(egui::Button::new("Paste").shortcut_text(format!("{CMD}+V"))).on_hover_text("The nodes copied last, in this window or another").clicked() {
+            file.message = paste_nodes(graph, subnets, None, None).unwrap_or_else(|| "Nothing copied to paste".into());
+            ui.close_menu();
+        }
+        if ui.add_enabled(any || graph.selected_connection.is_some(), egui::Button::new("Delete").shortcut_text("Del")).clicked() {
+            graph.delete_selected();
+            ui.close_menu();
+        }
+        ui.separator();
+        if ui.button("Select All").clicked() {
+            graph.selected_nodes = graph.nodes.iter().map(|n| n.id).collect();
+            ui.close_menu();
+        }
+    });
+}
+
+/// Ready-made graphs, by whose work they show, then by area. Picking one
+/// asks whether to add it to the graph or open it as new (`SaveFirst::load`).
+fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
+    ui.menu_button("Templates", |ui| {
+        for (by, groups) in templates::MENU {
+            ui.menu_button(by, |ui| {
+                for group in groups.iter().copied() {
+                    ui.menu_button(group, |ui| {
+                        for (index, t) in templates::TEMPLATES.iter().enumerate().filter(|(_, t)| t.by == by && t.group == group) {
+                            if ui.button(t.name).on_hover_text(t.hint).clicked() {
+                                save_first.load(Source::Template(index));
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                }
+            });
+        }
+    });
+}
+
+/// Panes, layout and theme.
+fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser, locked: bool) {
+    ui.set_min_width(200.0);
+    for pane in Pane::ALL {
+        let mut open = layout.is_open(pane);
+        let label = if layout.is_floating(pane) { format!("{} (floating)", pane.title()) } else { pane.title().to_string() };
+        if ui.add_enabled(!locked, egui::Checkbox::new(&mut open, label)).changed() {
+            if open { layout.show(pane); } else { layout.hide(pane); }
+        }
+    }
+    ui.separator();
+    if ui.add_enabled(!locked && layout.any_floating(), egui::Button::new("Dock floating panes")).clicked() {
+        layout.dock_all();
+        ui.close_menu();
+    }
+    if ui.add_enabled(!locked, egui::Button::new("Reset layout")).clicked() {
+        layout.reset();
+        ui.close_menu();
+    }
+    ui.separator();
+    if ui.button("Save layout...").on_hover_text("Write this layout to a file").clicked() {
+        browser.open(BrowseTarget::SaveLayout, BrowseMode::Save, "Save layout", &["json"], "layout.json");
+        ui.close_menu();
+    }
+    if ui.add_enabled(!locked, egui::Button::new("Load layout...")).on_hover_text("Replace this layout with one from a file").clicked() {
+        browser.open(BrowseTarget::OpenLayout, BrowseMode::File, "Load layout", &["json"], "");
+        ui.close_menu();
+    }
+    if locked { ui.label(egui::RichText::new("Unlock the layout to change it.").small()); }
+    ui.separator();
+    ui.menu_button("Theme", theme::menu);
+}
+
+/// Add a node reading an imported file, right of the nodes there, selected.
+fn import_node(graph: &mut NodeGraphState, name: String, node_type: NodeType) -> types::NodeId {
+    let x = graph.nodes.iter().map(|n| n.position.x).fold(f32::MIN, f32::max);
+    let y = graph.nodes.iter().map(|n| n.position.y).fold(f32::MAX, f32::min);
+    let at = if x == f32::MIN { egui::pos2(200.0, 100.0) } else { egui::pos2(x + 260.0, y) };
+    let id = graph.add_node(name.clone(), node_type, at);
+    graph.selected_node = Some(id);
+    graph.selected_nodes = vec![id];
+    graph.frame_request = true;
+    history::note(format!("Import {name}"));
+    id
+}
+
+/// Writing over files that exist asks first, as in any other program.
+#[derive(Resource, Default)]
+struct Confirm {
+    /// What exists, and the write waiting on Replace.
+    pending: Option<(Vec<String>, PanelAction)>,
+}
+
+/// Files a write from the properties panel would replace.
+fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String> {
+    match action {
+        PanelAction::Write { targets, all_files } => batch::existing_outputs(graph, targets, *all_files),
+        PanelAction::WriteUsd(id) => graph.nodes.iter().find(|n| n.id == *id).and_then(|n| match &n.node_type {
+            NodeType::WriteUsd { path } if std::path::Path::new(path.trim()).is_file() => Some(path.trim().to_string()),
+            _ => None,
+        }).into_iter().collect(),
+    }
+}
+
+fn run_action(graph: &NodeGraphState, subnets: &SubnetStore, batch: &BatchState, action: PanelAction) {
+    match action {
+        PanelAction::Write { targets, all_files } => batch::start(batch, graph, targets, all_files),
+        PanelAction::WriteUsd(id) => write_usd(graph, subnets, id),
+    }
+}
+
 /// Add a saved graph to the one open, beside its nodes, as one undoable
 /// step. The current file stays the same.
 fn add_graph_file(graph: &mut NodeGraphState, subnets: &mut SubnetStore, path: &std::path::Path, recent: &mut recent::Recent) -> String {
@@ -1058,6 +1243,8 @@ impl Source {
 #[derive(Clone, Debug, PartialEq)]
 enum After {
     Quit,
+    /// An empty graph.
+    New,
     Open(std::path::PathBuf),
     /// Index in `templates::TEMPLATES`.
     Template(usize),
@@ -1071,6 +1258,7 @@ impl After {
         };
         match self {
             After::Quit => format!("Save {changes} before closing?"),
+            After::New => format!("Save {changes} before starting a new graph?"),
             After::Open(p) => format!("Save {changes} before opening {}?", file_name(p)),
             After::Template(i) => format!("Save {changes} before loading the template {}?", templates::TEMPLATES[*i].name),
         }
@@ -1079,6 +1267,7 @@ impl After {
     fn warning(&self) -> &'static str {
         match self {
             After::Quit => "Closing without saving loses them.",
+            After::New => "A new graph replaces this one: without saving, the changes are lost.",
             _ => "Opening it as new replaces the whole graph: without saving, the changes are lost.",
         }
     }
@@ -1095,6 +1284,8 @@ struct SaveFirst {
     after:     Option<After>,
     /// Save was chosen for a graph with no file: the browser asks where.
     saving_as: bool,
+    /// File > Quit or Ctrl+Q: close the window, asking first.
+    quit:      bool,
 }
 
 impl SaveFirst {
@@ -1103,6 +1294,14 @@ impl SaveFirst {
     fn load(&mut self, source: Source) {
         *self = SaveFirst { choosing: Some(source), ..Default::default() };
     }
+
+    /// File > New: an empty graph in place of this one, asking to save first.
+    fn load_new(&mut self) {
+        *self = SaveFirst { after: Some(After::New), ..Default::default() };
+    }
+
+    /// A question is showing, or waits on the browser.
+    fn busy(&self) -> bool { self.choosing.is_some() || self.after.is_some() }
 
     /// Hold `after` and ask, when there is something to lose. Returns
     /// whether it is held (false: carry it out now).
@@ -1120,6 +1319,15 @@ fn carry_out(after: After, graph: &mut NodeGraphState, subnets: &mut SubnetStore
              file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent) {
     match after {
         After::Quit => {}
+        After::New => {
+            graph_io::clear(graph);
+            subnets.subnets.clear();
+            graph.frame_request = true;
+            history::note("New graph");
+            history.mark_clean();
+            file.path = None;
+            file.message = "New graph".into();
+        }
         After::Open(path) => open_graph(graph, &path, file, history, recent),
         After::Template(i) => {
             let t = &templates::TEMPLATES[i];
@@ -1183,6 +1391,16 @@ fn save_first_system(
     for r in requests.read() {
         if Some(r.window) != main { continue; }
         if !save_first.ask(&history, &After::Quit) { exit.send(AppExit::Success); return; }
+    }
+    if std::mem::take(&mut save_first.quit) && !save_first.ask(&history, &After::Quit) {
+        exit.send(AppExit::Success);
+        return;
+    }
+    // File > New with nothing to lose: no question.
+    if save_first.after == Some(After::New) && !save_first.saving_as && !history.is_dirty() {
+        *save_first = SaveFirst::default();
+        carry_out(After::New, &mut graph, &mut subnets, &mut nav, &mut graph_file, &mut history, &mut recent);
+        return;
     }
     if let Some(source) = save_first.choosing.clone() {
         let empty = graph.nodes.iter().all(|n| matches!(n.node_type, NodeType::Output));
