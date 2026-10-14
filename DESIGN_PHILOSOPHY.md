@@ -160,3 +160,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 14/10/2026: results kept between evaluations, keyed by parameters and what is wired in; Edit Poly keyed by its operations only; Retarget and Reach on every core (Simon).
 - 14/10/2026: the Scene Explorer lists the scene at the view flag as its tree, with no row per operator; the Primitive Inspector shows the row selected there, or the whole scene at the view flag (Martino).
 - 14/10/2026: the Output node removed; one operator always has the view flag, which picks the output too; the Operator Stack starts at the viewed operator; graphs with Output open with the view on what was wired into it (Martino).
+- 14/10/2026: the diagram of a primitive's parts (`docs/imago_geo_parts_v3`) shown in the README, ARCHITECTURE and VOCABULARY, its labels brought to `ptIndices` (Martino).

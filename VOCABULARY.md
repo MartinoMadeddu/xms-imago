@@ -28,6 +28,10 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | Face | polygon or curve | `uniform` |
 | Corner | polygon corner | `faceVarying` |
 
+![The parts of a primitive, with Imago's words for them](docs/imago_geo_parts_v3.png)
+
+The Primitive Inspector has a tab for each, and one for **Edge**, which is not a context: an edge is two points that follow each other around a face, worked out from the topology. A face's and an edge's points are its **ptIndices**; a corner's point is its **ptIndex**.
+
 ## Panes
 
 | Old name | New name | Why |

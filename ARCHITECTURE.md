@@ -30,6 +30,10 @@ One model for primitives, nodes and ICE (`core::geo`).
 | `Face` | polygon / curve | `uniform` | per face |
 | `Corner` | polygon corner | `faceVarying` | per sample |
 
+![The parts of a primitive: points, edges, faces, corners and the primitive itself, each with what it holds](docs/imago_geo_parts_v3.png)
+
+Edges are not a context: they are worked out from the topology (each pair of points that follow each other around a face, or along a curve), so they carry no attributes of their own. The Primitive Inspector lists them, with their `ptIndices` and length.
+
 - **`Column`:** a typed array, `Arc<Vec<T>>` for `T` in `bool, i32, f32, [f32;2], [f32;3], [f32;4], quat, [f64;16], token`. This is the generalised `Array<T>`: every attribute in every context is one.
 - **`Attr`:** a column, plus optional indices (USD indexed primvars) and a role (point, normal, vector, colour, texCoord) for writing the right USD type.
 - **`Topology`:** `Points`, `Mesh` (counts, indices, orientation, subdivision scheme) or `Curves` (counts, basis, wrap). The arrays are `Arc` too.

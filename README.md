@@ -58,6 +58,10 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 
 ![One wheel picked and pulled out](docs/xms_usd_pick.png)
 
+Every primitive is one geometry, in USD's terms: points, faces (polygons or curves) and their corners, with attributes on each, and on the primitive as a whole. The Primitive Inspector shows them tab by tab, with edges worked out from the faces.
+
+![The parts of a primitive: point, edge, face, corner and object](docs/imago_geo_parts_v3.png)
+
 ## Motion capture, from take to engine
 
 Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and write the files your engine wants, in one graph that runs over the whole folder.
