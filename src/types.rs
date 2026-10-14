@@ -1054,10 +1054,12 @@ pub struct PrimInspectorState {
     pub active_tab:   PrimInspectorTab,
     pub row_offset:   usize,
 
-    // Primitives or clip of the selected node, cooked once per graph revision.
+    // Primitives or clip of the scene at the view flag (the selected row's
+    // part of it), cooked once per graph revision and selection.
     cached_parts:   Option<std::sync::Arc<Vec<MeshData>>>,
     cached_clip:    Option<std::sync::Arc<crate::core::anim::AnimData>>,
     cached_node_id: Option<NodeId>,
+    cached_path:    Option<String>,
     cached_rev:     Option<u64>,
     /// Number of edges of the cached primitives: polygon edges and curve segments.
     pub edge_count: usize,
@@ -1067,13 +1069,16 @@ pub struct PrimInspectorState {
 }
 
 impl PrimInspectorState {
-    pub fn is_cache_valid(&self, node_id: Option<NodeId>, revision: u64) -> bool {
-        self.cached_node_id == node_id && self.cached_rev == Some(revision)
+    /// Whether what is held is for this operator, this selected path and
+    /// this revision of the graph.
+    pub fn is_cache_valid(&self, node_id: Option<NodeId>, path: Option<&str>, revision: u64) -> bool {
+        self.cached_node_id == node_id && self.cached_path.as_deref() == path && self.cached_rev == Some(revision)
     }
 
     pub fn update_cache(
         &mut self,
         node_id:  Option<NodeId>,
+        path:     Option<&str>,
         parts:    Vec<MeshData>,
         clip:     Option<std::sync::Arc<crate::core::anim::AnimData>>,
         revision: u64,
@@ -1084,12 +1089,13 @@ impl PrimInspectorState {
         self.cached_parts   = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
         self.cached_clip    = clip;
         self.cached_node_id = node_id;
+        self.cached_path    = path.map(str::to_string);
         self.cached_rev     = Some(revision);
         self.table_key      = None;
         self.table          = InspectorTable::default();
     }
 
-    /// The selected node's primitives, each where it is drawn.
+    /// The primitives shown, each where it is drawn.
     pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> { self.cached_parts.clone() }
     pub fn cached_clip(&self) -> Option<std::sync::Arc<crate::core::anim::AnimData>> { self.cached_clip.clone() }
 
@@ -1159,10 +1165,6 @@ pub struct SceneObject {
     pub depth:        usize,
     pub has_children: bool,
     pub expanded:     bool,
-    pub node_id:      NodeId,
-    /// Full USD prim path for leaf mesh objects (e.g. "/root/Chair/Geom/pCylinder1").
-    /// None for group/xform nodes and for procedural Single meshes.
-    pub prim_path:    Option<String>,
     /// What the row's expansion is remembered by: unique, so two rows of the
     /// same name do not open together. A prim of a composed stage uses its
     /// path, shared with the viewport, which draws by it.
@@ -1170,14 +1172,19 @@ pub struct SceneObject {
     /// The prim path of a row of a composed stage, whatever its type. These
     /// rows decide what the viewport draws as geometry or as a box.
     pub stage_path:   Option<String>,
+    /// The path of the prim the row stands for, a group or a mesh, of a
+    /// stage or made in Imago. Selecting the row shows what is at or below
+    /// it in the Primitive Inspector. None for joints and a plain mesh.
+    pub path:         Option<String>,
 }
 
 #[derive(Default)]
 pub struct SceneHierarchy {
     pub objects:            Vec<SceneObject>,
     pub selected:           Option<SceneObjectId>,
-    /// The prim path of the currently selected leaf, if any.
-    /// Used by the Primitive Inspector to show only that prim's data.
+    /// The path of the selected row, a prim or a group, if any. The
+    /// Primitive Inspector shows what is at or below it; nothing selected,
+    /// the whole scene.
     pub selected_prim_path: Option<String>,
     next_id:                usize,
     /// Rows opened or closed, by key. A row not in here takes its default:
@@ -1282,7 +1289,6 @@ impl SceneHierarchy {
         &mut self,
         tree:       &crate::usd_scene::StageTree,
         present:    &std::collections::HashSet<&str>,
-        node_id:    NodeId,
         listed:     &mut std::collections::HashSet<String>,
     ) {
         let nodes = &tree.nodes;
@@ -1317,13 +1323,36 @@ impl SceneHierarchy {
                 depth:        n.depth,
                 has_children,
                 expanded,
-                node_id,
-                prim_path:    mesh.then(|| n.path.clone()),
                 key:          n.path.clone(),
                 stage_path:   Some(n.path.clone()),
+                path:         Some(n.path.clone()),
             });
         }
     }
+
+    /// Rebuild from the scene at the view flag (or what reaches Output): the
+    /// operator it is read from, its name and what it puts out. The rows are
+    /// the scene's own tree, as USD has it: no row for the operator. Only a
+    /// plain mesh, which has no path, is listed as one row by the operator's
+    /// name. A selected row stays selected while its path is in the scene;
+    /// once it is gone nothing is selected, and the Primitive Inspector shows
+    /// the whole scene again.
+    pub fn rebuild_scene(&mut self, scene: Option<(NodeId, String, EvalResult)>) {
+        let plain = matches!(scene, Some((_, _, EvalResult::Single(_))));
+        self.rebuild(scene.into_iter().collect());
+        if !plain && self.objects.first().is_some_and(|o| o.key.starts_with("node:")) {
+            self.objects.remove(0);
+            for o in self.objects.iter_mut() { o.depth = o.depth.saturating_sub(1); }
+        }
+        let still = self.selected_prim_path.as_ref()
+            .and_then(|p| self.objects.iter().find(|o| o.path.as_ref() == Some(p)).map(|o| o.id));
+        self.selected = still;
+        if still.is_none() { self.selected_prim_path = None; }
+    }
+
+    /// The selected row's path: the scene, or the part of it, the Primitive
+    /// Inspector shows.
+    pub fn selected_path(&self) -> Option<&str> { self.selected_prim_path.as_deref() }
 
     /// Rebuild from the evaluated node graph results.
     /// Expansion is kept by each row's key, so it survives graph changes.
@@ -1344,10 +1373,9 @@ impl SceneHierarchy {
                         depth:        0,
                         has_children: false,
                         expanded:     true,
-                        node_id,
-                        prim_path:    None,
                         key:          node_key,
                         stage_path:   None,
+                        path:         None,
                     });
                 }
 
@@ -1361,10 +1389,9 @@ impl SceneHierarchy {
                         depth:        0,
                         has_children: !anim.joints.is_empty(),
                         expanded:     node_open,
-                        node_id,
-                        prim_path:    None,
                         key:          node_key,
                         stage_path:   None,
+                        path:         None,
                     });
                     let depths = anim.joint_depths();
                     let mut is_parent = vec![false; anim.joints.len()];
@@ -1389,10 +1416,9 @@ impl SceneHierarchy {
                             depth:        depths[i] + 1,
                             has_children: is_parent[i],
                             expanded:     exp,
-                            node_id,
-                            prim_path:    None,
                             key,
                             stage_path:   None,
+                            path:         None,
                         });
                         todo.extend(kids[i].iter().copied());
                     }
@@ -1407,10 +1433,9 @@ impl SceneHierarchy {
                         depth:        0,
                         has_children: !prims.is_empty(),
                         expanded:     node_open,
-                        node_id,
-                        prim_path:    None,
                         key:          node_key,
                         stage_path:   None,
+                        path:         None,
                     });
 
                     // Primitives from a composed stage are listed in the stage's
@@ -1425,7 +1450,7 @@ impl SceneHierarchy {
                     }
                     let mut listed: std::collections::HashSet<String> = std::collections::HashSet::new();
                     for tree in stages {
-                        self.push_stage(tree, &present, node_id, &mut listed);
+                        self.push_stage(tree, &present, &mut listed);
                     }
 
                     // Everything else by the segments of its path.
@@ -1438,13 +1463,13 @@ impl SceneHierarchy {
                             .split('/')
                             .collect();
 
-                        // Every parent on the path, as an Xform row (no
-                        // prim_path): `/root/asset/cube1` lists root, asset,
+                        // Every parent on the path, as an Xform row:
+                        // `/root/asset/cube1` lists root, asset,
                         // then cube1 under them.
                         for seg_depth in 0..segs.len().saturating_sub(1) {
                             let parent_key = segs[..=seg_depth].join("/");
                             if seen_parents.insert(parent_key.clone()) {
-                                let key = format!("seg:{}:{parent_key}", node_id.0);
+                                let key = format!("seg:{parent_key}");
                                 let exp = *self.expanded.get(&key).unwrap_or(&true);
                                 let id = self.next_id();
                                 self.objects.push(SceneObject {
@@ -1454,10 +1479,9 @@ impl SceneHierarchy {
                                     depth:        seg_depth + 1,
                                     has_children: true,
                                     expanded:     exp,
-                                    node_id,
-                                    prim_path:    None,
                                     key,
                                     stage_path:   None,
+                                    path:         Some(format!("/{parent_key}")),
                                 });
                             }
                         }
@@ -1473,10 +1497,9 @@ impl SceneHierarchy {
                             depth:        leaf_depth,
                             has_children: false,
                             expanded:     true,
-                            node_id,
-                            prim_path:    Some(prim.path.clone()),
-                            key:          format!("seg:{}:{}", node_id.0, prim.path),
+                            key:          format!("seg:{}", prim.path),
                             stage_path:   None,
+                            path:         Some(prim.path.clone()),
                         });
                     }
                 }
@@ -1531,6 +1554,30 @@ mod location_tests {
         h.rebuild(vec![(NodeId(1), "Cube".into(), EvalResult::Named(vec![cube]))]);
         let rows: Vec<(&str, usize)> = h.objects.iter().map(|o| (o.name.as_str(), o.depth)).collect();
         assert_eq!(rows, vec![("Cube", 0), ("root", 1), ("asset", 2), ("cube1", 3)]);
-        assert_eq!(h.objects[3].prim_path.as_deref(), Some("/root/asset/cube1"));
+        assert_eq!(h.objects[3].path.as_deref(), Some("/root/asset/cube1"));
+    }
+
+    #[test]
+    fn the_scene_explorer_lists_the_scene_not_the_operator() {
+        let mut h = SceneHierarchy::default();
+        let prims = |paths: &[&str]| EvalResult::Named(paths.iter().map(|p| Prim::new(p.to_string(), MeshData::default())).collect());
+        h.rebuild_scene(Some((NodeId(4), "Merge".into(), prims(&["/root/asset/cube1", "/sphere"]))));
+        let rows: Vec<(&str, usize)> = h.objects.iter().map(|o| (o.name.as_str(), o.depth)).collect();
+        assert_eq!(rows, vec![("root", 0), ("asset", 1), ("cube1", 2), ("sphere", 0)]);
+        assert_eq!(h.objects[1].path.as_deref(), Some("/root/asset"), "a group row has its path too");
+
+        // A selection stays while its path is in the scene, and goes with it.
+        h.selected_prim_path = Some("/sphere".into());
+        h.rebuild_scene(Some((NodeId(4), "Merge".into(), prims(&["/root/asset/cube1", "/sphere"]))));
+        assert_eq!(h.selected, Some(h.objects[3].id));
+        h.rebuild_scene(Some((NodeId(4), "Merge".into(), prims(&["/root/asset/cube1"]))));
+        assert_eq!((h.selected, h.selected_path()), (None, None));
+
+        // A plain mesh has no tree: one row, by the operator's name.
+        h.rebuild_scene(Some((NodeId(5), "Unpack".into(), EvalResult::Single(MeshData::default()))));
+        assert_eq!(h.objects.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), vec!["Unpack"]);
+        // No scene at all: no rows.
+        h.rebuild_scene(None);
+        assert!(h.objects.is_empty());
     }
 }

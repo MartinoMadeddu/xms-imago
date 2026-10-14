@@ -23,10 +23,13 @@ const INDENT:       f32 = 16.0;
 const EXPANDER_W:   f32 = 14.0;
 const TREE_LINE_X:  f32 =  7.0;
 
+/// The scene at the view flag, as its own tree. Clicking a row shows that
+/// prim, or that group and what is below it, in the Primitive Inspector;
+/// clicking it again shows the whole scene there again. It does not change
+/// which operator is selected.
 pub fn draw_scene_explorer(
     ui:        &mut egui::Ui,
     hierarchy: &mut SceneHierarchy,
-    graph:     &mut NodeGraphState,
 ) {
     egui::Frame::NONE
         .fill(xsi::PANEL_BG())
@@ -62,7 +65,7 @@ pub fn draw_scene_explorer(
 
             let mut toggle_id = None;
             let mut geometry_toggle: Option<String> = None;
-            let mut select_id: Option<(SceneObjectId, NodeId, Option<String>)> = None;
+            let mut select_id: Option<(SceneObjectId, Option<String>)> = None;
 
             let n = hierarchy.objects.len();
             // Whether each row is the last of its siblings, in one pass
@@ -117,7 +120,7 @@ pub fn draw_scene_explorer(
                             egui::Sense::click(),
                         );
                         if row_resp.clicked() {
-                            select_id = Some((obj.id, obj.node_id, obj.prim_path.clone()));
+                            select_id = Some((obj.id, obj.path.clone()));
                         }
 
                         let line_col  = xsi::DIVIDER();
@@ -231,10 +234,16 @@ pub fn draw_scene_explorer(
                 hierarchy.toggle_geometry(path);
             }
             // A click on the geometry square is not a click on the row.
-            if let (Some((scene_id, node_id, prim_path)), None) = (select_id, geometry_toggle) {
-                hierarchy.selected           = Some(scene_id);
-                hierarchy.selected_prim_path = prim_path;
-                graph.selected_node          = Some(node_id);
+            // A row without a path (a joint, a plain mesh) has nothing of its
+            // own to show: the Inspector keeps the whole scene.
+            if let (Some((scene_id, path)), None) = (select_id, geometry_toggle) {
+                if hierarchy.selected == Some(scene_id) || path.is_none() {
+                    hierarchy.selected           = None;
+                    hierarchy.selected_prim_path = None;
+                } else {
+                    hierarchy.selected           = Some(scene_id);
+                    hierarchy.selected_prim_path = path;
+                }
             }
         });
 }

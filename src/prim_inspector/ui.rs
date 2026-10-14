@@ -39,8 +39,11 @@ pub fn draw_prim_inspector(
     ui:       &mut egui::Ui,
     graph:    &NodeGraphState,
     state:    &mut PrimInspectorState,
+    // The operator with the view flag, and the row selected in the Scene
+    // Explorer: whose scene is shown, and which part of it.
+    source:   super::Source,
     // Graph revision: the data is cooked again only when this or the
-    // selected node changes, not on every frame.
+    // source changes, not on every frame.
     revision: u64,
     // Playhead, for the pose a clip is listed in.
     time:     f64,
@@ -50,21 +53,19 @@ pub fn draw_prim_inspector(
     egui::Frame::NONE
         .fill(xsi::BG())
         .show(ui, |ui| {
-            let selected_node = graph.selected_node;
-            if !state.is_cache_valid(selected_node, revision) {
+            let path = source.path.as_deref();
+            if !state.is_cache_valid(source.node, path, revision) {
                 let clip = get_clip(graph);
                 let parts = if clip.is_none() { get_parts(graph).unwrap_or_default() } else { vec![] };
-                state.update_cache(selected_node, parts, clip, revision);
+                state.update_cache(source.node, path, parts, clip, revision);
             }
 
             // ── Path breadcrumb ───────────────────────────────────────────────
-            let path_str = if let Some(id) = selected_node {
-                graph.nodes.iter()
-                    .find(|n| n.id == id)
-                    .map(|n| format!("/{}", n.name))
-                    .unwrap_or_else(|| "/".into())
-            } else {
-                String::new()
+            // The selected prim (or all of the scene), and the operator whose
+            // scene it is.
+            let path_str = match source.node.and_then(|id| graph.nodes.iter().find(|n| n.id == id)) {
+                Some(n) => format!("{}   at {}", path.unwrap_or("/"), n.name),
+                None => String::new(),
             };
 
             egui::Frame::NONE
@@ -85,7 +86,7 @@ pub fn draw_prim_inspector(
             if clip.is_none() && mesh.is_none() {
                 ui.add_space(12.0);
                 ui.centered_and_justified(|ui| {
-                    ui.label(egui::RichText::new("No mesh or clip on the selected node.")
+                    ui.label(egui::RichText::new("No mesh or clip in the scene at the view flag.")
                         .color(xsi::TEXT_DIM()));
                 });
                 return;
