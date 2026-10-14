@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="590" viewBox="0 0 800 590" font-family="Inter, Segoe UI, Helvetica Neue, Arial, sans-serif">
+<title>The parts of a primitive in Imago</title>
+<defs><pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#cfd4da"/></pattern></defs>
+<rect width="800" height="590" fill="#ffffff"/>
+<rect x="14" y="14" width="470" height="562" rx="10" fill="#f6f7f8" stroke="#c9ced4" stroke-width="1.5"/>
+<rect x="15" y="132" width="468" height="443" fill="url(#dots)"/>
+<rect x="14" y="14" width="470" height="72" rx="10" fill="#2f343b"/>
+<rect x="14" y="54" width="470" height="32" fill="#2f343b"/>
+<text x="32" y="48" font-size="22" font-weight="700" fill="#fff">Primitive</text>
+<text x="142" y="48" font-size="14" font-family="JetBrains Mono, SF Mono, Menlo, Consolas, monospace" fill="#aab3bd">/World/Tile</text>
+<text x="32" y="72" font-size="13.5" fill="#d5dbe1">points · topology (counts, indices) · attributes per context</text>
+<rect x="28.0" y="96" width="72.0" height="28" rx="14" fill="#fff" stroke="#23272e" stroke-width="1.6"/>
+<circle cx="41.0" cy="110" r="4" fill="#23272e"/>
+<text x="51.0" y="114.2" font-size="12" font-weight="600" fill="#23272e">Point</text>
+<rect x="112.0" y="96" width="64.4" height="28" rx="14" fill="#fff" stroke="#c2417a" stroke-width="1.6"/>
+<circle cx="125.0" cy="110" r="4" fill="#c2417a"/>
+<text x="135.0" y="114.2" font-size="12" font-weight="600" fill="#23272e">Edge</text>
+<rect x="188.4" y="96" width="64.4" height="28" rx="14" fill="#fff" stroke="#2f8f86" stroke-width="1.6"/>
+<circle cx="201.4" cy="110" r="4" fill="#2f8f86"/>
+<text x="211.4" y="114.2" font-size="12" font-weight="600" fill="#23272e">Face</text>
+<rect x="264.8" y="96" width="79.6" height="28" rx="14" fill="#fff" stroke="#e2892b" stroke-width="1.6"/>
+<circle cx="277.8" cy="110" r="4" fill="#e2892b"/>
+<text x="287.8" y="114.2" font-size="12" font-weight="600" fill="#23272e">Corner</text>
+<rect x="356.4" y="96" width="79.6" height="28" rx="14" fill="#fff" stroke="#5a6fb0" stroke-width="1.6"/>
+<circle cx="369.4" cy="110" r="4" fill="#5a6fb0"/>
+<text x="379.4" y="114.2" font-size="12" font-weight="600" fill="#23272e">Object</text>
+<polygon points="85.4,470.4 255.6,495.6 296.9,225.9 105.2,265.9" fill="#d7efeb" stroke="#2f8f86" stroke-width="2" stroke-linejoin="round"/>
+<text x="185.5" y="358.5" font-size="15" font-weight="600" fill="#2f8f86" text-anchor="middle" opacity="0.85">face 0</text>
+<polygon points="260.7,495.8 425.6,437.7 300.9,226.9" fill="#d7efeb" stroke="#2f8f86" stroke-width="2" stroke-linejoin="round"/>
+<text x="329.3" y="381.3" font-size="15" font-weight="600" fill="#2f8f86" text-anchor="middle" opacity="0.85">face 1</text>
+<line x1="258" y1="500" x2="300" y2="222" stroke="#c2417a" stroke-width="6" stroke-linecap="round"/>
+<circle cx="108.8" cy="453.0" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="108.8" y="457.5" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">0</text>
+<circle cx="237.8" cy="472.7" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="237.8" y="477.2" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<circle cx="276.6" cy="246.6" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="276.6" y="251.1" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<circle cx="127.3" cy="284.7" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="127.3" y="289.2" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<circle cx="279.7" cy="473.8" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="279.7" y="478.3" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<circle cx="398.0" cy="428.4" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="398.0" y="432.9" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+<circle cx="309.7" cy="271.5" r="11" fill="#e2892b" stroke="#fff" stroke-width="2"/>
+<text x="309.7" y="276.0" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+<rect x="67" y="459" width="30" height="30" rx="5" fill="#23272e" stroke="#fff" stroke-width="2.5"/>
+<text x="82" y="480" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">0</text>
+<rect x="243" y="485" width="30" height="30" rx="5" fill="#23272e" stroke="#fff" stroke-width="2.5"/>
+<text x="258" y="506" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<rect x="415" y="425" width="30" height="30" rx="5" fill="#23272e" stroke="#fff" stroke-width="2.5"/>
+<text x="430" y="446" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<rect x="87" y="247" width="30" height="30" rx="5" fill="#23272e" stroke="#fff" stroke-width="2.5"/>
+<text x="102" y="268" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<rect x="285" y="207" width="30" height="30" rx="5" fill="#23272e" stroke="#fff" stroke-width="2.5"/>
+<text x="300" y="228" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<line x1="476.0" y1="50.0" x2="520" y2="36" stroke="#fff" stroke-width="5"/>
+<line x1="476.0" y1="50.0" x2="520" y2="36" stroke="#5a6fb0" stroke-width="1.8"/>
+<circle cx="476.0" cy="50.0" r="3.5" fill="#5a6fb0" stroke="#fff" stroke-width="1.5"/>
+<rect x="520" y="14" width="266" height="82" rx="8" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+<rect x="520" y="14" width="6" height="82" rx="3" fill="#5a6fb0"/>
+<text x="540" y="42" font-size="19" font-weight="700" fill="#23272e">Object</text>
+<text x="540" y="67" font-size="14" fill="#5b636e">one value for the whole primitive:</text>
+<text x="540" y="88" font-size="14" fill="#5b636e">path, placement, Object attributes</text>
+<line x1="320.7" y1="268.5" x2="520" y2="148" stroke="#fff" stroke-width="5"/>
+<line x1="320.7" y1="268.5" x2="520" y2="148" stroke="#e2892b" stroke-width="1.8"/>
+<circle cx="320.7" cy="268.5" r="3.5" fill="#e2892b" stroke="#fff" stroke-width="1.5"/>
+<rect x="520" y="126" width="266" height="82" rx="8" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+<rect x="520" y="126" width="6" height="82" rx="3" fill="#e2892b"/>
+<text x="540" y="154" font-size="19" font-weight="700" fill="#23272e">Corner</text>
+<text x="540" y="179" font-size="14" fill="#5b636e">Corner attributes</text>
+<text x="540" y="200" font-size="13.5" font-family="JetBrains Mono, SF Mono, Menlo, Consolas, monospace" fill="#23272e">ptIndex = 4</text>
+<line x1="279.0" y1="361.0" x2="520" y2="254" stroke="#fff" stroke-width="5"/>
+<line x1="279.0" y1="361.0" x2="520" y2="254" stroke="#c2417a" stroke-width="1.8"/>
+<circle cx="279.0" cy="361.0" r="3.5" fill="#c2417a" stroke="#fff" stroke-width="1.5"/>
+<rect x="520" y="232" width="266" height="103" rx="8" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+<rect x="520" y="232" width="6" height="103" rx="3" fill="#c2417a"/>
+<text x="540" y="260" font-size="19" font-weight="700" fill="#23272e">Edge</text>
+<text x="540" y="285" font-size="13.5" font-family="JetBrains Mono, SF Mono, Menlo, Consolas, monospace" fill="#23272e">indices = [1, 4]</text>
+<text x="540" y="306" font-size="14" fill="#5b636e">length, worked out, not stored</text>
+<text x="540" y="327" font-size="14" fill="#5b636e">shared by face 0 and face 1</text>
+<line x1="343.3" y1="409.3" x2="520" y2="381" stroke="#fff" stroke-width="5"/>
+<line x1="343.3" y1="409.3" x2="520" y2="381" stroke="#2f8f86" stroke-width="1.8"/>
+<circle cx="343.3" cy="409.3" r="3.5" fill="#2f8f86" stroke="#fff" stroke-width="1.5"/>
+<rect x="520" y="359" width="266" height="82" rx="8" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+<rect x="520" y="359" width="6" height="82" rx="3" fill="#2f8f86"/>
+<text x="540" y="387" font-size="19" font-weight="700" fill="#23272e">Face</text>
+<text x="540" y="412" font-size="14" fill="#5b636e">Face attributes</text>
+<text x="540" y="433" font-size="13.5" font-family="JetBrains Mono, SF Mono, Menlo, Consolas, monospace" fill="#23272e">indices = [1, 2, 4]</text>
+<line x1="445.0" y1="440.0" x2="520" y2="487" stroke="#fff" stroke-width="5"/>
+<line x1="445.0" y1="440.0" x2="520" y2="487" stroke="#23272e" stroke-width="1.8"/>
+<circle cx="445.0" cy="440.0" r="3.5" fill="#23272e" stroke="#fff" stroke-width="1.5"/>
+<rect x="520" y="465" width="266" height="82" rx="8" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+<rect x="520" y="465" width="6" height="82" rx="3" fill="#23272e"/>
+<text x="540" y="493" font-size="19" font-weight="700" fill="#23272e">Point</text>
+<text x="540" y="518" font-size="14" fill="#5b636e">Point attributes</text>
+<text x="540" y="539" font-size="13.5" font-family="JetBrains Mono, SF Mono, Menlo, Consolas, monospace" fill="#23272e">P</text>
+</svg>
