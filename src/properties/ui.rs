@@ -13,7 +13,7 @@ use crate::core::anim::{AnimData, FrameRate, PoseEdit, RATE_PRESETS};
 use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
 use crate::batch::{self, BatchState};
 use crate::core::manip::Tool;
-use crate::core::poly::{collapse_all, collapse_op, eval_cached, push_op, restore_run, ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
+use crate::core::poly::{collapse_all, collapse_op, push_op, restore_run, ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
 use glam::{EulerRot, Quat};
 use crate::node_graph::NodeGraphState;
 use crate::scene_explorer::OperatorStack;
@@ -45,7 +45,7 @@ pub struct PanelIo<'a> {
     pub batch:   &'a BatchState,
     pub action:  Option<PanelAction>,
     /// Mesh entering the selected node, when it is an Edit Poly node.
-    pub poly_input: Option<crate::core::poly::PolyMesh>,
+    pub poly_input: Option<crate::modelling::InputMesh>,
     /// Viewport tool of the Edit Poly node.
     pub tool: &'a mut Tool,
 }
@@ -949,8 +949,8 @@ fn edit_poly(
     if edit.map(|i| i >= ops.len() || ops[i].collapsed).unwrap_or(false) { *edit = None; }
     let input = io.poly_input.clone();
     // Mesh the selection under edit applies to, and the final mesh.
-    let stage = input.as_ref().map(|m| eval_cached(m, ops, edit.unwrap_or(ops.len())));
-    let end   = input.as_ref().map(|m| eval_cached(m, ops, ops.len()));
+    let stage = input.as_ref().map(|m| crate::core::poly::eval_cached_seeded(&m.mesh, m.seed, ops, edit.unwrap_or(ops.len())));
+    let end   = input.as_ref().map(|m| crate::core::poly::eval_cached_seeded(&m.mesh, m.seed, ops, ops.len()));
 
     let sel_title = match *edit { Some(i) => format!("Selection of #{} {}", i + 1, ops[i].kind.label()), None => "Selection".into() };
     let mut done = false;

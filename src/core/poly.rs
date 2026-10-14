@@ -711,7 +711,7 @@ pub fn restore_run(ops: &mut [PolyOp], i: usize) {
 
 // ── Cached evaluation ────────────────────────────────────────────────────────
 
-fn mesh_hash(mesh: &PolyMesh) -> u64 {
+pub fn mesh_hash(mesh: &PolyMesh) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for v in &mesh.verts { for c in v.to_array() { c.to_bits().hash(&mut h); } }
@@ -744,8 +744,13 @@ fn cache_put(key: u64, mesh: std::sync::Arc<PolyMesh>) {
 /// mesh back, and the leading run of collapsed operations is stored on its
 /// own, so editing a live operation does not replay the collapsed ones.
 pub fn eval_cached(input: &PolyMesh, ops: &[PolyOp], count: usize) -> std::sync::Arc<PolyMesh> {
+    eval_cached_seeded(input, mesh_hash(input), ops, count)
+}
+
+/// `eval_cached` for a mesh whose fingerprint is already known (`seed`):
+/// a big mesh is not hashed again on every frame.
+pub fn eval_cached_seeded(input: &PolyMesh, seed: u64, ops: &[PolyOp], count: usize) -> std::sync::Arc<PolyMesh> {
     let ops  = &ops[..count.min(ops.len())];
-    let seed = mesh_hash(input);
     let key  = ops_hash(seed, ops);
     if let Some(m) = cache_get(key) { return m; }
 

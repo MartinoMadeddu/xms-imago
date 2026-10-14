@@ -124,6 +124,7 @@ The File menu (Open, Open Recent, Save, Save As, Import) reads and writes the gr
 
 - Timeline zoom and pan, curve cleanup.
 - Reach follows the source's hands and feet; it does not find contacts or lock a foot that slides in the source.
+- Retarget and Reach make the whole clip when they cook, not one frame at a time as HumanIK or MotionBuilder retarget live. Their result is kept (see [When the graph is cooked](interface.md#when-the-graph-is-cooked)), so playing and scrubbing cost nothing, but dragging a parameter above them cooks the whole clip at each step: about 30 microseconds a frame for Retarget and 0.3 ms a frame for Reach on a 342-joint character, on 2 cores. The human pass in Reach goes frame after frame and does not use more cores.
 - Load FBX lists blend shapes, cameras and lights; it does not apply, draw or look through them. Several UV sets: the first is read. A mesh with several materials is shown with the first.
 - Written files are checked against their source, not yet by importing them into Unreal.
 

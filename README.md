@@ -118,7 +118,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Copy and paste nodes:** Ctrl+C and Ctrl+V, with their wires and ICE graphs, between windows and from one session to the next
 - **Add or open:** opening a file or a template asks whether to add it to the graph or open it as new, and asks to save first before anything is replaced
 - **Menus:** File, Edit, Templates and Window at the top left, as in other programs. File has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an FBX, a USD) and Quit, with the usual shortcuts. The top bar shows the file and whether it is saved; closing, New, opening a file or loading a template over unsaved changes asks first, and nothing writes over a file that exists without asking (Save As, Save layout, Write FBX, Write USD)
-- **Fast:** the graph is cooked when its content changes, not on every frame
+- **Fast:** each operator's result is kept until it or something above it changes, as in Houdini: selecting, redrawing and playing cook nothing again, and a change cooks only what is below it
 - **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange for whatever is selected or active). A colour editor changes any of them
 - **Layouts as files:** save a layout, load it back, pass it to someone else
 - **One add menu:** seven categories, each a submenu; every node has one name, the same in the menu, on the node and in its parameters

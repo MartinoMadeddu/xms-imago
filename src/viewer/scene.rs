@@ -101,6 +101,21 @@ pub struct Scene {
 #[derive(Default)]
 pub struct GeometryCache(HashMap<(usize, Kind), (Arc<MeshData>, Arc<Geometry>)>);
 
+/// The mesh Edit Poly is working on, made drawable once and kept while it
+/// stays the same: picking polygons on a big model does not build it, or
+/// send it to the GPU, again.
+fn stage_mesh(mesh: &Arc<crate::core::poly::PolyMesh>) -> Arc<MeshData> {
+    use std::sync::{Mutex, Weak};
+    static LAST: Mutex<Option<(Weak<crate::core::poly::PolyMesh>, Arc<MeshData>)>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((w, md)) = last.as_ref() {
+        if std::ptr::eq(w.as_ptr(), Arc::as_ptr(mesh)) && w.strong_count() > 0 { return md.clone(); }
+    }
+    let md = Arc::new(mesh.to_mesh());
+    *last = Some((Arc::downgrade(mesh), md.clone()));
+    md
+}
+
 impl GeometryCache {
     fn get(&mut self, md: &Arc<MeshData>, kind: Kind, used: &mut Vec<(usize, Kind)>) -> Arc<Geometry> {
         let key = (Arc::as_ptr(md) as usize, kind);
@@ -315,7 +330,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             let collider = if stage.is_none() && matches!(other, Some(EvalResult::Anim(_))) { graph.display_collider() } else { None };
             let ghostly = collider.is_some();
             let shown: Option<Arc<MeshData>> = match (&stage, collider) {
-                (Some(st), _) => Some(Arc::new(st.mesh.to_mesh())),
+                (Some(st), _) => Some(stage_mesh(&st.mesh)),
                 (None, Some(c)) => Some(c),
                 (None, None) => other.map(|r| Arc::new(r.into_mesh())),
             };

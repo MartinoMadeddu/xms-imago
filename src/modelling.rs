@@ -9,7 +9,7 @@
 use glam::{Quat, Vec2, Vec3};
 
 use crate::core::manip::{self, Handle, Tool};
-use crate::core::poly::{eval_cached, PickView, PolyMesh, PolyOpKind, PolySelection};
+use crate::core::poly::{PickView, PolyMesh, PolyOpKind, PolySelection};
 use crate::node_graph::NodeGraphState;
 use crate::types::{MeshData, NodeId, NodeType, IceGraphId};
 
@@ -39,18 +39,44 @@ impl Stage {
     }
 }
 
-/// Mesh entering a node's first input.
+/// The mesh entering an Edit Poly node, shared, with its fingerprint.
+#[derive(Clone)]
+pub struct InputMesh {
+    pub mesh: std::sync::Arc<PolyMesh>,
+    /// Fingerprint of the mesh: the cook key of what is wired in, so a big
+    /// mesh is not hashed on every frame.
+    pub seed: u64,
+}
+
+/// Mesh entering a node's first input. The same mesh is handed out again,
+/// without being rebuilt, until what is wired in changes: the Viewer, the
+/// panel and picking ask for it on every frame.
 pub fn input_mesh(
     graph:       &NodeGraphState,
     id:          NodeId,
     eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
-) -> Option<PolyMesh> {
+) -> Option<InputMesh> {
+    use std::sync::{Arc, Mutex};
+    static KEPT: Mutex<Vec<InputMesh>> = Mutex::new(Vec::new());
     let node = graph.nodes.iter().find(|n| n.id == id)?;
     let (src, out) = node.inputs.first()?.connected_output?;
+    let key = graph.cook_key(src, out);
+    if let Some(k) = key {
+        if let Some(m) = KEPT.lock().ok()?.iter().find(|m| m.seed == k) { return Some(m.clone()); }
+    }
     let mut cache = std::collections::HashMap::new();
     // On packed primitives with some picked, the tools see only those.
     let mesh = graph.eval_node_out(src, out, &mut cache, eval_subnet)?.work_mesh();
-    (!mesh.vertices.is_empty()).then(|| PolyMesh::from_mesh(&mesh))
+    if mesh.vertices.is_empty() { return None; }
+    let mesh = Arc::new(PolyMesh::from_mesh(&mesh));
+    let seed = key.unwrap_or_else(|| crate::core::poly::mesh_hash(&mesh));
+    let input = InputMesh { mesh, seed };
+    if key.is_some() {
+        let mut kept = KEPT.lock().ok()?;
+        if kept.len() >= 2 { kept.remove(0); }
+        kept.push(input.clone());
+    }
+    Some(input)
 }
 
 /// Stage of the selected node, if it is an Edit Poly node with a mesh.
@@ -65,7 +91,7 @@ pub fn stage(
     let edit  = edit.filter(|i| *i < ops.len());
     Some(Stage {
         node: id,
-        mesh: eval_cached(&input, ops, edit.unwrap_or(ops.len())),
+        mesh: crate::core::poly::eval_cached_seeded(&input.mesh, input.seed, ops, edit.unwrap_or(ops.len())),
         editing: edit.is_some(),
         selection: match edit {
             Some(i) => ops[i].selection.clone(),

@@ -401,44 +401,58 @@ impl AnimData {
                 _ => Quat::IDENTITY,
             };
         }
-        let mut start_hips: Option<Vec3> = None;
-        for i in 0..n {
+        // What does not change from frame to frame is worked out once: the
+        // turn from each source bone at rest to its target bone at rest, and
+        // where the hips start.
+        let tgt_rot: Vec<Quat> = tgt_rest.iter().map(rot).collect();
+        let fixed: Vec<Quat> = (0..nj).map(|j| match map[j] {
+            Some(s) => rot(&src_rest[s]).inverse() * align[j] * tgt_rot[j],
+            None => Quat::IDENTITY,
+        }).collect();
+        let hips = match (src_hip, tgt_hip) {
+            (Some(s), Some(t)) if map[t].is_some() => {
+                let s = map[t].unwrap_or(s);
+                // Where the hips start is kept as it is across the floor: a
+                // Transform that placed the actor, or where the actor stood
+                // in the capture volume. Height, and the travel from there,
+                // are scaled to the target.
+                let start = self.world_pose(0)[s].w_axis.truncate();
+                let rest = src_rest[s].w_axis.truncate();
+                let placed = Vec3::new(start.x - rest.x, (start.y - rest.y) * ratio, start.z - rest.z);
+                // Hips position in the space of their parent, which stays at rest.
+                let parent_inv = target.joints[t].parent.map(|p| tgt_rest[p]).unwrap_or(Mat4::IDENTITY).inverse();
+                Some((s, t, start, tgt_rest[t].w_axis.truncate() + placed, parent_inv))
+            }
+            _ => None,
+        };
+        let rest_t: Vec<Vec3> = target.joints.iter().map(|j| j.rest.translation).collect();
+        let pose = |i: usize| -> Vec<Transform> {
             let world = self.world_pose(i);
             let mut world_rot = vec![Quat::IDENTITY; nj];
-            let mut local_t: Vec<Vec3> = target.joints.iter().map(|j| j.rest.translation).collect();
+            let mut local_t = rest_t.clone();
             for j in 0..nj {
                 let parent = target.joints[j].parent.filter(|p| *p < j);
                 world_rot[j] = match map[j] {
-                    Some(s) => (rot(&world[s]) * rot(&src_rest[s]).inverse() * align[j] * rot(&tgt_rest[j])).normalize(),
+                    Some(s) => (rot(&world[s]) * fixed[j]).normalize(),
                     // Unmatched: stay at rest under the parent.
                     None => (parent.map(|p| world_rot[p]).unwrap_or(Quat::IDENTITY) * tgt_local_rot[j]).normalize(),
                 };
             }
-            if let (Some(s), Some(t)) = (src_hip, tgt_hip) {
-                if map[t] == Some(s) || map[t].is_some() {
-                    let s = map[t].unwrap_or(s);
-                    // Where the hips start is kept as it is across the floor: a
-                    // Transform that placed the actor, or where the actor stood
-                    // in the capture volume. Height, and the travel from there,
-                    // are scaled to the target.
-                    let start = start_hips.get_or_insert_with(|| self.world_pose(0)[s].w_axis.truncate());
-                    let rest = src_rest[s].w_axis.truncate();
-                    let placed = Vec3::new(start.x - rest.x, (start.y - rest.y) * ratio, start.z - rest.z);
-                    let travel = (world[s].w_axis.truncate() - *start) * ratio;
-                    let want = tgt_rest[t].w_axis.truncate() + placed + travel;
-                    // Hips position in the space of their parent, which stays at rest.
-                    let parent = target.joints[t].parent.map(|p| tgt_rest[p]).unwrap_or(Mat4::IDENTITY);
-                    local_t[t] = parent.inverse().transform_point3(want);
-                }
+            if let Some((s, t, start, base, parent_inv)) = hips {
+                let travel = (world[s].w_axis.truncate() - start) * ratio;
+                local_t[t] = parent_inv.transform_point3(base + travel);
             }
             // Joints above the hips keep their rest rotation, so the parent
             // space used for the hips position holds.
             if let Some(t) = tgt_hip {
-                for j in 0..t { world_rot[j] = rot(&tgt_rest[j]); }
+                for j in 0..t { world_rot[j] = tgt_rot[j]; }
             }
-            let locals = target.locals_from_world_rotations(&world_rot, &local_t, &scale);
-            for (j, l) in locals.into_iter().enumerate() { tracks[j].push(l); }
-        }
+            target.locals_from_world_rotations(&world_rot, &local_t, &scale)
+        };
+        // Frames do not depend on each other: they are worked out on every
+        // core, in runs of frames.
+        let poses = super::reach::on_every_core(n, &pose);
+        for p in poses { for (j, l) in p.into_iter().enumerate() { tracks[j].push(l); } }
         (AnimData {
             name:        self.name.clone(),
             joints:      target.joints.clone(),

@@ -608,6 +608,16 @@ pub struct Job {
 
 static JOBS: OnceLock<Mutex<HashMap<u64, Arc<Job>>>> = OnceLock::new();
 static CHANGED: AtomicBool = AtomicBool::new(false);
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Counts finished and cleared solves: what a Body Collide node puts out
+/// may have changed each time it moves.
+pub fn generation() -> u64 { GENERATION.load(Ordering::Relaxed) }
+
+fn changed() {
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+    CHANGED.store(true, Ordering::Relaxed);
+}
 
 fn jobs() -> &'static Mutex<HashMap<u64, Arc<Job>>> { JOBS.get_or_init(|| Mutex::new(HashMap::new())) }
 
@@ -648,7 +658,7 @@ pub fn clear(key: u64) {
     cancel(key);
     jobs().lock().unwrap().remove(&key);
     if let Some(p) = file_of(key) { let _ = std::fs::remove_file(p); }
-    CHANGED.store(true, Ordering::Relaxed);
+    changed();
 }
 
 /// Solve on a thread of its own. Progress is read from the job.
@@ -667,7 +677,7 @@ pub fn start(clip: Arc<AnimData>, collider: Option<Arc<MeshData>>, settings: Set
             Ok(None) => State::Cancelled,
             Err(e) => State::Failed(e),
         };
-        CHANGED.store(true, Ordering::Relaxed);
+        changed();
     });
     key
 }
@@ -689,7 +699,7 @@ pub fn solve_now(clip: Arc<AnimData>, collider: Option<Arc<MeshData>>, settings:
         Ok(None) => State::Cancelled,
         Err(e) => State::Failed(e),
     };
-    CHANGED.store(true, Ordering::Relaxed);
+    changed();
     out
 }
 

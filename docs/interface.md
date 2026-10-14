@@ -282,6 +282,18 @@ The mesh is cooked and the table built only when the graph changes or another no
 
 The Viewer meshes, the scene explorer, the operator stack and the primitive inspector are rebuilt when the content of the graph changes: a node added or removed, a parameter edited, a wire changed, the view flag or the selection moved. Moving nodes about, panning the graph and moving the camera do not cook anything. Animated meshes are also rebuilt when the playhead moves.
 
+Each operator's result is kept, as in Houdini, until the operator or something above it changes. It is found by a key made of the operator's parameters and the keys of what is wired into it, so:
+
+- Selecting a node, redrawing the window, playing or scrubbing the timeline cooks nothing again: a skinned character is posed at the playhead, its clip is not made again.
+- Changing a parameter cooks that operator and what is below it; what is above it, and other branches, are not cooked again. Changing it back finds the earlier result.
+- Picking polygons in Edit Poly does not cook Edit Poly again: only its operations make its result. The mesh it works on is built once and kept while its input stays the same.
+- A file read is read again when it is written again (its date and size are part of the key). Body Collide is asked again when a solve finishes or is cleared.
+- ICE operators, and what comes after them, are cooked each time asked, as before.
+
+Results are kept up to about 3 GB, the least recently used going first. Copies of the graph (undo steps, Write FBX over a folder) share them.
+
+Measured on the example take (728 frames, 342 joints) and the car (1.7 million triangles), on 2 cores: a Body Collide node with the car upstream took 2.3 to 6.6 seconds every time it was asked for (its panel, the timeline and the Viewer each ask on every frame); it now takes 1 to 2 ms after its first cook. Retarget takes 25 to 45 ms for the take, Reach 250 ms; both work on every core, so on a machine with more cores they take less. Edit Poly on the car takes 2.8 seconds when an operation changes, once.
+
 While an ICE graph is open, every click and key press counts as a change.
 
 The window draws a new frame when something happens (input, a change in the graph, playback, a texture arriving), not all the time, so an idle window costs almost nothing and a heavy Viewer does not slow the panes down while nothing moves.

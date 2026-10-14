@@ -65,6 +65,21 @@ pub fn remember_report(clip: &Arc<AnimData>, report: ReachReport) {
     }
 }
 
+/// `f(0)`, `f(1)` … `f(count - 1)`, worked out in runs of frames on every
+/// core, in order.
+pub fn on_every_core<T: Send>(count: usize, f: &(impl Fn(usize) -> T + Sync)) -> Vec<T> {
+    let threads = std::thread::available_parallelism().map(|t| t.get()).unwrap_or(1).clamp(1, 16);
+    let run = count.div_ceil(threads).max(32);
+    let mut out = Vec::with_capacity(count);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..count).step_by(run)
+            .map(|a| scope.spawn(move || (a..(a + run).min(count)).map(f).collect::<Vec<T>>()))
+            .collect();
+        for w in workers { out.extend(w.join().expect("worker")); }
+    });
+    out
+}
+
 /// `clip` with its hands and feet where `goal` has them, scaled to its size.
 pub fn reach(clip: &AnimData, goal: &AnimData, settings: &ReachSettings) -> (AnimData, ReachReport) {
     let mut report = ReachReport::default();
@@ -109,15 +124,18 @@ pub fn reach(clip: &AnimData, goal: &AnimData, settings: &ReachSettings) -> (Ani
         rot(&nc[u]).inverse() * if arm { -forward } else { forward }
     }).collect();
     let w = settings.weight.clamp(0.0, 1.0);
-    let (mut miss_before, mut miss_after) = (0.0f32, 0.0f32);
-    for f in 0..frames {
+    // Frames do not depend on each other: each is solved on its own, on
+    // every core, and the turns written back after.
+    let solve = |f: usize| -> (f32, Vec<(usize, Quat)>) {
+        let mut miss = 0.0f32;
+        let mut turns = vec![];
         let wc = clip.world_pose(f);
         let wg = goal.world_pose(f.min(goal.frames.max(1) - 1));
         for (k, &(u, m, e, ge)) in pairs.iter().enumerate() {
             let (s, el, wr) = (pos(&wc[u]), pos(&wc[m]), pos(&wc[e]));
             let want = pos(&wc[hip_c]) + (pos(&wg[ge]) - pos(&wg[hip_g])) * ratio;
             let target = wr.lerp(want, w);
-            miss_before = miss_before.max(wr.distance(want));
+            miss = miss.max(wr.distance(want));
             let (l1, l2) = (s.distance(el), el.distance(wr));
             if l1 < 1e-5 || l2 < 1e-5 { continue; }
             // Never quite straight: a straight limb has no plane to bend in.
@@ -143,23 +161,28 @@ pub fn reach(clip: &AnimData, goal: &AnimData, settings: &ReachSettings) -> (Ani
             let q_m = (Quat::from_rotation_arc((wr - el).normalize(), (end - elbow).normalize()) * rot(&wc[m])).normalize();
             let q_e = rot(&wc[e]);
             let parent_rot = |j: usize| clip.joints[j].parent.filter(|p| *p < n).map(|p| rot(&wc[p])).unwrap_or(Quat::IDENTITY);
-            let set = |tracks: &mut Vec<Track>, j: usize, q: Quat| tracks[j][f].rotation = q.normalize();
-            set(&mut tracks, u, parent_rot(u).inverse() * q_u);
-            set(&mut tracks, m, q_u.inverse() * q_m);
-            set(&mut tracks, e, q_m.inverse() * q_e);
+            turns.push((u, parent_rot(u).inverse() * q_u));
+            turns.push((m, q_u.inverse() * q_m));
+            turns.push((e, q_m.inverse() * q_e));
         }
+        (miss, turns)
+    };
+    let mut miss_before = 0.0f32;
+    for (f, (miss, turns)) in on_every_core(frames, &solve).into_iter().enumerate() {
+        miss_before = miss_before.max(miss);
+        for (j, q) in turns { tracks[j][f].rotation = q.normalize(); }
     }
     let solved = AnimData { tracks: Arc::new(tracks), ..clip.clone() };
     let (out, human) = humanize(clip, &solved, &hc, &settings.limits, None);
     // How far the ends are from their goals now.
-    for f in 0..frames {
+    let miss_after = on_every_core(frames, &|f: usize| {
         let wo = out.world_pose(f);
         let wg = goal.world_pose(f.min(goal.frames.max(1) - 1));
-        for &(_, _, e, ge) in &pairs {
+        pairs.iter().map(|&(_, _, e, ge)| {
             let want = pos(&wo[hip_c]) + (pos(&wg[ge]) - pos(&wg[hip_g])) * ratio;
-            miss_after = miss_after.max(pos(&wo[e]).distance(want));
-        }
-    }
+            pos(&wo[e]).distance(want)
+        }).fold(0.0f32, f32::max)
+    }).into_iter().fold(0.0f32, f32::max);
     report.miss_before = miss_before;
     report.miss_after = miss_after;
     report.human = human;

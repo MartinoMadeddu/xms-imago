@@ -106,6 +106,8 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Moving instances moves matrices. Many copies of one mesh are one draw call.
 - Only the rows in view are laid out. The window draws a frame when something happens, not all the time.
 - Long work runs in the background, in chunks, written to disk as it goes, and is found again by the content it was made from.
+- An operator's result is kept until the operator or something above it changes, as in Houdini. Selecting, redrawing, playing and scrubbing cook nothing again; a change cooks only what is below it. What only the Viewer shows (the polygons being picked in Edit Poly) is not part of a result (Simon).
+- An operator that is heavy to cook does it once per change, on every core where its frames do not depend on each other. Body Collide solves only when Solve is pressed or Write FBX asks (Simon).
 
 ## One shell
 
@@ -153,3 +155,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 14/10/2026: shapes are primitives at a Primitive Location, written to USD as `def`s under Xforms with a `defaultPrim`; Merge merges primitives when its first input is primitives (Auto, Primitives, Flatten), the second input stronger on the same path; Scatter Points and Copy to Points removed for ICE (Martino).
 - 14/10/2026: the Corner tab gives each corner's `faceIndex` and `localCornerIndex`, the Face tab each polygon's `firstCorner`; corners stay numbered across the mesh, as in USD (Martino).
 - 14/10/2026: the points of an edge or a face are `ptIndices` in the Primitive Inspector, not `indices`: what they index is in the name, as in `ptIndex` (Martino).
+- 14/10/2026: results kept between evaluations, keyed by parameters and what is wired in; Edit Poly keyed by its operations only; Retarget and Reach on every core (Simon).

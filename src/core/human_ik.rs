@@ -260,293 +260,300 @@ pub fn humanize(capture: &AnimData, moved: &AnimData, human: &Human, limits: &Li
 
     // Where each joint was last sent round to, so the next frame starts there.
     let mut last_phi = vec![0.0f32; preps.len()];
-    for f in 0..frames {
-        let wc = capture.world_pose(f);
-        let mut w = moved.world_pose(f);
-        let (mut flipped_before, mut flipped_after, mut end_before, mut end_after) = (false, false, false, false);
-        let (mut roll_hit, mut swivel_hit) = (false, false);
-        for (pi, (p, (upper_tw, mid_tw))) in preps.iter().zip(&twists).enumerate() {
-            let (u, m, e) = (p.limb.upper.unwrap(), p.limb.mid.unwrap(), p.limb.end.unwrap());
-            let r = p.range;
-            let parent_rot = |w: &[Mat4], j: usize| capture.joints[j].parent.filter(|x| *x < n).map(|x| rot(&w[x])).unwrap_or(Quat::IDENTITY);
-            let (s, el, wr) = (pos(&w[u]), pos(&w[m]), pos(&w[e]));
-            let (sc, ec, wcp) = (pos(&wc[u]), pos(&wc[m]), pos(&wc[e]));
-            let (qu, ql, qe) = (rot(&w[u]), rot(&w[m]), rot(&w[e]));
-            let (quc, qlc, qec) = (rot(&wc[u]), rot(&wc[m]), rot(&wc[e]));
-            let (qp, qpc) = (parent_rot(&w, u), parent_rot(&wc, u));
-            let (l1, l2) = ((el - s).length(), (wr - el).length());
-            if l1 < 1e-5 || l2 < 1e-5 { continue; }
-            let b_u = qu.inverse() * (el - s) / l1;
-            let b_l = ql.inverse() * (wr - el) / l2;
+    // The frames go one after the other (each starts where the last one
+    // left its joints), but their poses are worked out ahead, on every
+    // core, a run of frames at a time.
+    const RUN: usize = 256;
+    for run_start in (0..frames).step_by(RUN) {
+        let run = (frames - run_start).min(RUN);
+        let poses = super::reach::on_every_core(run, &|k: usize| (capture.world_pose(run_start + k), moved.world_pose(run_start + k)));
+        for (k, (wc, mut w)) in poses.into_iter().enumerate() {
+            let f = run_start + k;
+            let (mut flipped_before, mut flipped_after, mut end_before, mut end_after) = (false, false, false, false);
+            let (mut roll_hit, mut swivel_hit) = (false, false);
+            for (pi, (p, (upper_tw, mid_tw))) in preps.iter().zip(&twists).enumerate() {
+                let (u, m, e) = (p.limb.upper.unwrap(), p.limb.mid.unwrap(), p.limb.end.unwrap());
+                let r = p.range;
+                let parent_rot = |w: &[Mat4], j: usize| capture.joints[j].parent.filter(|x| *x < n).map(|x| rot(&w[x])).unwrap_or(Quat::IDENTITY);
+                let (s, el, wr) = (pos(&w[u]), pos(&w[m]), pos(&w[e]));
+                let (sc, ec, wcp) = (pos(&wc[u]), pos(&wc[m]), pos(&wc[e]));
+                let (qu, ql, qe) = (rot(&w[u]), rot(&w[m]), rot(&w[e]));
+                let (quc, qlc, qec) = (rot(&wc[u]), rot(&wc[m]), rot(&wc[e]));
+                let (qp, qpc) = (parent_rot(&w, u), parent_rot(&wc, u));
+                let (l1, l2) = ((el - s).length(), (wr - el).length());
+                if l1 < 1e-5 || l2 < 1e-5 { continue; }
+                let b_u = qu.inverse() * (el - s) / l1;
+                let b_l = ql.inverse() * (wr - el) / l2;
 
-            // ── Elbow or knee ────────────────────────────────────────────
-            // Three corrections, each nothing while its limit holds:
-            // the swivel, the roll of the upper bone against the plane the
-            // joint bends in, the twist of the lower bone. The wrist or
-            // ankle stays where it is through all three.
-            let mut qu_new = qu;
-            let mut ql_new = ql;
-            if let (Some(hinge), Some(k)) = (p.hinge, p.twist_ref) {
-                let a = perp(hinge, b_u).normalize_or_zero();
-                let k = perp(k, b_l).normalize_or_zero();
-                let bend_of = |s: Vec3, e: Vec3, w: Vec3| (e - s).angle_between(w - e);
-                let (bend, bend_c) = (bend_of(s, el, wr), bend_of(sc, ec, wcp));
-                // How much the bend plane means: nothing for a straight limb.
-                let plane = |b: f32| smooth(6f32.to_radians(), 14f32.to_radians(), b);
-                let (w_s, w_c) = (plane(bend), plane(bend_c));
-                let dir = (wr - s).normalize_or_zero();
-                let carry = qp * qpc.inverse();
-                // Roll of the upper bone against its bend plane.
-                let roll_of = |s: Vec3, e: Vec3, w: Vec3, q: Quat| {
-                    let (d1, d2) = ((e - s).normalize_or_zero(), (w - e).normalize_or_zero());
-                    angle_about(d1.cross(d2).normalize_or_zero(), perp(q * a, d1).normalize_or_zero(), d1)
-                };
-                if roll_of(s, el, wr, qu).abs() > 90f32.to_radians() && bend > 15f32.to_radians() { flipped_before = true; }
+                // ── Elbow or knee ────────────────────────────────────────────
+                // Three corrections, each nothing while its limit holds:
+                // the swivel, the roll of the upper bone against the plane the
+                // joint bends in, the twist of the lower bone. The wrist or
+                // ankle stays where it is through all three.
+                let mut qu_new = qu;
+                let mut ql_new = ql;
+                if let (Some(hinge), Some(k)) = (p.hinge, p.twist_ref) {
+                    let a = perp(hinge, b_u).normalize_or_zero();
+                    let k = perp(k, b_l).normalize_or_zero();
+                    let bend_of = |s: Vec3, e: Vec3, w: Vec3| (e - s).angle_between(w - e);
+                    let (bend, bend_c) = (bend_of(s, el, wr), bend_of(sc, ec, wcp));
+                    // How much the bend plane means: nothing for a straight limb.
+                    let plane = |b: f32| smooth(6f32.to_radians(), 14f32.to_radians(), b);
+                    let (w_s, w_c) = (plane(bend), plane(bend_c));
+                    let dir = (wr - s).normalize_or_zero();
+                    let carry = qp * qpc.inverse();
+                    // Roll of the upper bone against its bend plane.
+                    let roll_of = |s: Vec3, e: Vec3, w: Vec3, q: Quat| {
+                        let (d1, d2) = ((e - s).normalize_or_zero(), (w - e).normalize_or_zero());
+                        angle_about(d1.cross(d2).normalize_or_zero(), perp(q * a, d1).normalize_or_zero(), d1)
+                    };
+                    if roll_of(s, el, wr, qu).abs() > 90f32.to_radians() && bend > 15f32.to_radians() { flipped_before = true; }
 
-                let most = limits.swivel.max(0.0).to_radians();
-                let excess = |x: f32, m: f32| if x > m { x - m } else if x < -m { x + m } else { 0.0 };
-                // How far the lower bone leaves the plane its hinge allows, in
-                // the capture: a carrying angle, give or take.
-                let off_plane_c = (quc * a).dot((wcp - ec).normalize_or_zero()).clamp(-1.0, 1.0).asin();
-                let plane_give = 15f32.to_radians();
-                // The upper bone's roll against the bend plane, put back to the
-                // nearest roll at which the lower bone stays that near its
-                // hinge plane and bends forward. What it takes.
-                let roll_c = roll_of(sc, ec, wcp, quc);
-                let roll_fix = |roll: f32| -> f32 {
-                    let sb = bend.sin().abs();
-                    // Never tighter than the capture itself.
-                    let lim = 85f32.to_radians().max(if w_c > 0.0 { roll_c.abs() + 0.02 } else { 0.0 });
-                    let (lo, hi) = if sb < 1e-3 { (-lim, lim) } else {
-                        let x = (-(off_plane_c + plane_give).sin() / sb).clamp(-1.0, 1.0).asin();
-                        let y = (-(off_plane_c - plane_give).sin() / sb).clamp(-1.0, 1.0).asin();
-                        (x.min(y).max(-lim), x.max(y).min(lim))
+                    let most = limits.swivel.max(0.0).to_radians();
+                    let excess = |x: f32, m: f32| if x > m { x - m } else if x < -m { x + m } else { 0.0 };
+                    // How far the lower bone leaves the plane its hinge allows, in
+                    // the capture: a carrying angle, give or take.
+                    let off_plane_c = (quc * a).dot((wcp - ec).normalize_or_zero()).clamp(-1.0, 1.0).asin();
+                    let plane_give = 15f32.to_radians();
+                    // The upper bone's roll against the bend plane, put back to the
+                    // nearest roll at which the lower bone stays that near its
+                    // hinge plane and bends forward. What it takes.
+                    let roll_c = roll_of(sc, ec, wcp, quc);
+                    let roll_fix = |roll: f32| -> f32 {
+                        let sb = bend.sin().abs();
+                        // Never tighter than the capture itself.
+                        let lim = 85f32.to_radians().max(if w_c > 0.0 { roll_c.abs() + 0.02 } else { 0.0 });
+                        let (lo, hi) = if sb < 1e-3 { (-lim, lim) } else {
+                            let x = (-(off_plane_c + plane_give).sin() / sb).clamp(-1.0, 1.0).asin();
+                            let y = (-(off_plane_c - plane_give).sin() / sb).clamp(-1.0, 1.0).asin();
+                            (x.min(y).max(-lim), x.max(y).min(lim))
+                        };
+                        let r = wrap(roll);
+                        r - r.clamp(lo, hi.max(lo))
                     };
-                    let r = wrap(roll);
-                    r - r.clamp(lo, hi.max(lo))
-                };
-                // The capture's swivel, carried from its own line to the wrist
-                // over to this one.
-                let dir_c = (carry * (wcp - sc)).normalize_or_zero();
-                let pole_c = perp(carry * (ec - sc), dir_c);
-                let pole_ref = if dir_c == Vec3::ZERO || dir == Vec3::ZERO { Vec3::ZERO }
-                    else { perp(Quat::from_rotation_arc(dir_c, dir) * pole_c, dir).normalize_or_zero() };
-                let swivel_off = |pole: Vec3| if w_c > 0.0 && pole_ref != Vec3::ZERO { excess(angle_about(pole_ref, pole, dir), most) } else { 0.0 };
-                let pole_s = perp(el - s, dir).normalize_or_zero();
-                let roll_s = roll_of(s, el, wr, qu);
-                let wrong_roll = w_s * roll_fix(roll_s).abs();
-                let wrong_swivel = w_s * w_c * swivel_off(pole_s).abs();
-                if wrong_roll > 1e-4 { roll_hit = true; }
-                let wrong = wrong_roll + wrong_swivel;
+                    // The capture's swivel, carried from its own line to the wrist
+                    // over to this one.
+                    let dir_c = (carry * (wcp - sc)).normalize_or_zero();
+                    let pole_c = perp(carry * (ec - sc), dir_c);
+                    let pole_ref = if dir_c == Vec3::ZERO || dir == Vec3::ZERO { Vec3::ZERO }
+                        else { perp(Quat::from_rotation_arc(dir_c, dir) * pole_c, dir).normalize_or_zero() };
+                    let swivel_off = |pole: Vec3| if w_c > 0.0 && pole_ref != Vec3::ZERO { excess(angle_about(pole_ref, pole, dir), most) } else { 0.0 };
+                    let pole_s = perp(el - s, dir).normalize_or_zero();
+                    let roll_s = roll_of(s, el, wr, qu);
+                    let wrong_roll = w_s * roll_fix(roll_s).abs();
+                    let wrong_swivel = w_s * w_c * swivel_off(pole_s).abs();
+                    if wrong_roll > 1e-4 { roll_hit = true; }
+                    let wrong = wrong_roll + wrong_swivel;
 
-                // 1. Bent the wrong way, or pointing far from the capture.
-                //    The shoulder or hip turns the upper bone about its length
-                //    until the joint bends about its hinge, as far as it may
-                //    turn from the capture; past that the joint goes round the
-                //    line to the wrist (which stays put). Least change wins.
-                let upper_most = r.upper_twist.to_radians();
-                let qu_ref = (carry * quc).normalize();
-                if wrong > 1e-4 && pole_s != Vec3::ZERO && dir != Vec3::ZERO {
-                    let dist = (wr - s).length();
-                    let cos_a = ((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist.max(1e-6))).clamp(-1.0, 1.0);
-                    let sin_a = (1.0 - cos_a * cos_a).sqrt();
-                    // The upper bone swung to the joint's new place, then
-                    // turned about its length as far as the roll needs and
-                    // the shoulder or hip allows. What it could not turn is left.
-                    let at = |phi: f32| {
-                        let pole = Quat::from_axis_angle(dir, phi) * pole_s;
-                        let d1 = (dir * cos_a + pole * sin_a).normalize();
-                        let q = (Quat::from_rotation_arc((qu * b_u).normalize(), d1) * qu).normalize();
-                        let roll = roll_of(s, s + d1 * l1, wr, q);
-                        let full = w_s * roll_fix(roll);
-                        let turned = |t: f32| (Quat::from_axis_angle(d1, -full * t) * q).normalize();
-                        let twist_of = |q: Quat| twist_angle((qu_ref.inverse() * q).normalize(), b_u);
-                        let budget = upper_most.max(twist_of(q).abs());
-                        let mut t = 1.0f32;
-                        if twist_of(turned(1.0)).abs() > budget {
-                            let (mut lo, mut hi) = (0.0f32, 1.0f32);
-                            for _ in 0..10 { let m = 0.5 * (lo + hi); if twist_of(turned(m)).abs() > budget { hi = m; } else { lo = m; } }
-                            t = lo;
+                    // 1. Bent the wrong way, or pointing far from the capture.
+                    //    The shoulder or hip turns the upper bone about its length
+                    //    until the joint bends about its hinge, as far as it may
+                    //    turn from the capture; past that the joint goes round the
+                    //    line to the wrist (which stays put). Least change wins.
+                    let upper_most = r.upper_twist.to_radians();
+                    let qu_ref = (carry * quc).normalize();
+                    if wrong > 1e-4 && pole_s != Vec3::ZERO && dir != Vec3::ZERO {
+                        let dist = (wr - s).length();
+                        let cos_a = ((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist.max(1e-6))).clamp(-1.0, 1.0);
+                        let sin_a = (1.0 - cos_a * cos_a).sqrt();
+                        // The upper bone swung to the joint's new place, then
+                        // turned about its length as far as the roll needs and
+                        // the shoulder or hip allows. What it could not turn is left.
+                        let at = |phi: f32| {
+                            let pole = Quat::from_axis_angle(dir, phi) * pole_s;
+                            let d1 = (dir * cos_a + pole * sin_a).normalize();
+                            let q = (Quat::from_rotation_arc((qu * b_u).normalize(), d1) * qu).normalize();
+                            let roll = roll_of(s, s + d1 * l1, wr, q);
+                            let full = w_s * roll_fix(roll);
+                            let turned = |t: f32| (Quat::from_axis_angle(d1, -full * t) * q).normalize();
+                            let twist_of = |q: Quat| twist_angle((qu_ref.inverse() * q).normalize(), b_u);
+                            let budget = upper_most.max(twist_of(q).abs());
+                            let mut t = 1.0f32;
+                            if twist_of(turned(1.0)).abs() > budget {
+                                let (mut lo, mut hi) = (0.0f32, 1.0f32);
+                                for _ in 0..10 { let m = 0.5 * (lo + hi); if twist_of(turned(m)).abs() > budget { hi = m; } else { lo = m; } }
+                                t = lo;
+                            }
+                            let q = turned(t);
+                            (pole, d1, q, full * t, full * (1.0 - t))
+                        };
+                        let prev = last_phi[pi];
+                        let cost = |phi: f32| {
+                            let (pole, _, _, fix, left) = at(phi);
+                            10.0 * left * left + (w_c * swivel_off(pole)).powi(2)
+                                + 0.05 * phi * phi + 0.02 * (phi - prev).powi(2) + 0.01 * fix * fix
+                        };
+                        // Through the set is no way: the joint, or a bone that was
+                        // clear of it, must not cross a surface to get there.
+                        let clear = |phi: f32| match blocked {
+                            None => true,
+                            Some(b) => {
+                                let (_, d1, _, _, _) = at(phi);
+                                let e = s + d1 * l1;
+                                !(b(el, e) || (b(s, e) && !b(s, el)) || (b(e, wr) && !b(el, wr)))
+                            }
+                        };
+                        let mut ranked: Vec<(f32, f32)> = (-90..=90).map(|k| { let phi = (k as f32 * 2.0).to_radians(); (cost(phi), phi) }).collect();
+                        ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        let mut best = (cost(0.0), 0.0f32);
+                        // Not round to a place worse than staying put.
+                        if let Some(c) = ranked.iter().filter(|c| c.0 <= best.0).take(24).find(|c| clear(c.1)) {
+                            best = *c;
+                            for k in -10..=10 {
+                                let phi = c.1 + (k as f32 * 0.2).to_radians();
+                                let v = cost(phi);
+                                if v < best.0 && clear(phi) { best = (v, phi); }
+                            }
                         }
-                        let q = turned(t);
-                        (pole, d1, q, full * t, full * (1.0 - t))
-                    };
-                    let prev = last_phi[pi];
-                    let cost = |phi: f32| {
-                        let (pole, _, _, fix, left) = at(phi);
-                        10.0 * left * left + (w_c * swivel_off(pole)).powi(2)
-                            + 0.05 * phi * phi + 0.02 * (phi - prev).powi(2) + 0.01 * fix * fix
-                    };
-                    // Through the set is no way: the joint, or a bone that was
-                    // clear of it, must not cross a surface to get there.
-                    let clear = |phi: f32| match blocked {
-                        None => true,
-                        Some(b) => {
-                            let (_, d1, _, _, _) = at(phi);
-                            let e = s + d1 * l1;
-                            !(b(el, e) || (b(s, e) && !b(s, el)) || (b(e, wr) && !b(el, wr)))
-                        }
-                    };
-                    let mut ranked: Vec<(f32, f32)> = (-90..=90).map(|k| { let phi = (k as f32 * 2.0).to_radians(); (cost(phi), phi) }).collect();
-                    ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
-                    let mut best = (cost(0.0), 0.0f32);
-                    // Not round to a place worse than staying put.
-                    if let Some(c) = ranked.iter().filter(|c| c.0 <= best.0).take(24).find(|c| clear(c.1)) {
-                        best = *c;
-                        for k in -10..=10 {
-                            let phi = c.1 + (k as f32 * 0.2).to_radians();
-                            let v = cost(phi);
-                            if v < best.0 && clear(phi) { best = (v, phi); }
-                        }
+                        if best.1.abs() > 1e-4 { swivel_hit = true; }
+                        last_phi[pi] = best.1;
+                        let (_, d1, q, _, _) = at(best.1);
+                        qu_new = q;
+                        let d2 = (wr - (s + d1 * l1)).normalize_or_zero();
+                        if d2 != Vec3::ZERO { ql_new = (Quat::from_rotation_arc((ql * b_l).normalize(), d2) * ql).normalize(); }
+                    } else {
+                        last_phi[pi] = 0.0;
                     }
-                    if best.1.abs() > 1e-4 { swivel_hit = true; }
-                    last_phi[pi] = best.1;
-                    let (_, d1, q, _, _) = at(best.1);
-                    qu_new = q;
-                    let d2 = (wr - (s + d1 * l1)).normalize_or_zero();
-                    if d2 != Vec3::ZERO { ql_new = (Quat::from_rotation_arc((ql * b_l).normalize(), d2) * ql).normalize(); }
-                } else {
-                    last_phi[pi] = 0.0;
-                }
 
-                // 2. Straight, the bend plane says nothing: the upper bone's
-                //    roll stays near the capture's instead.
-                let d1 = (qu_new * b_u).normalize();
-                let off_roll = angle_about(perp(carry * quc * a, d1).normalize_or_zero(), perp(qu_new * a, d1).normalize_or_zero(), d1);
-                let turn = (1.0 - w_s) * excess(off_roll, most);
-                if turn.abs() > 1e-6 && dir != Vec3::ZERO {
-                    let r = Quat::from_axis_angle(dir, -turn);
-                    qu_new = (r * qu_new).normalize();
-                    ql_new = (r * ql_new).normalize();
-                }
-                let el1 = s + qu_new * b_u * l1;
+                    // 2. Straight, the bend plane says nothing: the upper bone's
+                    //    roll stays near the capture's instead.
+                    let d1 = (qu_new * b_u).normalize();
+                    let off_roll = angle_about(perp(carry * quc * a, d1).normalize_or_zero(), perp(qu_new * a, d1).normalize_or_zero(), d1);
+                    let turn = (1.0 - w_s) * excess(off_roll, most);
+                    if turn.abs() > 1e-6 && dir != Vec3::ZERO {
+                        let r = Quat::from_axis_angle(dir, -turn);
+                        qu_new = (r * qu_new).normalize();
+                        ql_new = (r * ql_new).normalize();
+                    }
+                    let el1 = s + qu_new * b_u * l1;
 
-                // 3. Twist of the lower bone about its length, against the hinge.
-                let twist_of = |e: Vec3, w: Vec3, qu: Quat, ql: Quat| {
-                    let d2 = (w - e).normalize_or_zero();
-                    angle_about(perp(qu * a, d2).normalize_or_zero(), perp(ql * k, d2).normalize_or_zero(), d2)
+                    // 3. Twist of the lower bone about its length, against the hinge.
+                    let twist_of = |e: Vec3, w: Vec3, qu: Quat, ql: Quat| {
+                        let d2 = (w - e).normalize_or_zero();
+                        angle_about(perp(qu * a, d2).normalize_or_zero(), perp(ql * k, d2).normalize_or_zero(), d2)
+                    };
+                    let tw = twist_of(el1, wr, qu_new, ql_new);
+                    let tw_c = twist_of(ec, wcp, quc, qlc);
+                    let fix = excess(wrap(tw - tw_c), r.mid_twist.to_radians());
+                    let d2 = (wr - el1).normalize_or_zero();
+                    if fix.abs() > 1e-6 && d2 != Vec3::ZERO { ql_new = (Quat::from_axis_angle(d2, -fix) * ql_new).normalize(); }
+
+                    // 4. No further than a human joint bends: the lower bone
+                    //    turns back about the hinge, and the wrist with it.
+                    let bend_max = r.bend.to_radians().max(bend_c + 0.02);
+                    let bend_now = (qu_new * b_u).angle_between(ql_new * b_l);
+                    if bend_now > bend_max {
+                        let axis = (qu_new * b_u).cross(ql_new * b_l).normalize_or_zero();
+                        if axis != Vec3::ZERO { ql_new = (Quat::from_axis_angle(axis, bend_max - bend_now) * ql_new).normalize(); }
+                    }
+                }
+                // ── Wrist or ankle ────────────────────────────────────────────
+                let rel = ql_new.inverse() * qe;
+                let rel_c = qlc.inverse() * qec;
+                let dev = (p.neutral.inverse() * rel).normalize();
+                let dev_c = (p.neutral.inverse() * rel_c).normalize();
+                let ax = p.end_axis;
+                let (sw, tw) = swing_twist(dev, ax);
+                let (sw_c, tw_c) = swing_twist(dev_c, ax);
+                let (tau, tau_c) = (twist_angle(tw, ax), twist_angle(tw_c, ax));
+                // Twist about the hand's or foot's length: within its range from
+                // where the skin was bound (the capture's, where that is further),
+                // and within the give of the capture.
+                let give = limits.give.max(0.0).to_radians();
+                let most_twist = r.end_twist.to_radians().max(tau_c.abs());
+                let tau = (tau_c + wrap(tau - tau_c).clamp(-give, give)).clamp(-most_twist, most_twist);
+                let (mut v, v_c) = (rotvec(sw), rotvec(sw_c));
+                let norm = |v: Vec3| match p.flex_axis {
+                    Some(fx) => { let g = ax.cross(fx); ((v.dot(fx) / r.flex.to_radians()).powi(2) + (v.dot(g) / r.side.to_radians()).powi(2)).sqrt() }
+                    None => v.length() / 60f32.to_radians(),
                 };
-                let tw = twist_of(el1, wr, qu_new, ql_new);
-                let tw_c = twist_of(ec, wcp, quc, qlc);
-                let fix = excess(wrap(tw - tw_c), r.mid_twist.to_radians());
-                let d2 = (wr - el1).normalize_or_zero();
-                if fix.abs() > 1e-6 && d2 != Vec3::ZERO { ql_new = (Quat::from_axis_angle(d2, -fix) * ql_new).normalize(); }
-
-                // 4. No further than a human joint bends: the lower bone
-                //    turns back about the hinge, and the wrist with it.
-                let bend_max = r.bend.to_radians().max(bend_c + 0.02);
-                let bend_now = (qu_new * b_u).angle_between(ql_new * b_l);
-                if bend_now > bend_max {
-                    let axis = (qu_new * b_u).cross(ql_new * b_l).normalize_or_zero();
-                    if axis != Vec3::ZERO { ql_new = (Quat::from_axis_angle(axis, bend_max - bend_now) * ql_new).normalize(); }
+                let room = norm(v_c).max(1.0);
+                if norm(v) > room * 1.0005 { end_before = true; }
+                for _ in 0..4 {
+                    let off = v - v_c;
+                    if off.length() > give { v = v_c + off * (give / off.length()); }
+                    let k = norm(v);
+                    if k > room { v *= room / k; }
                 }
-            }
-            // ── Wrist or ankle ────────────────────────────────────────────
-            let rel = ql_new.inverse() * qe;
-            let rel_c = qlc.inverse() * qec;
-            let dev = (p.neutral.inverse() * rel).normalize();
-            let dev_c = (p.neutral.inverse() * rel_c).normalize();
-            let ax = p.end_axis;
-            let (sw, tw) = swing_twist(dev, ax);
-            let (sw_c, tw_c) = swing_twist(dev_c, ax);
-            let (tau, tau_c) = (twist_angle(tw, ax), twist_angle(tw_c, ax));
-            // Twist about the hand's or foot's length: within its range from
-            // where the skin was bound (the capture's, where that is further),
-            // and within the give of the capture.
-            let give = limits.give.max(0.0).to_radians();
-            let most_twist = r.end_twist.to_radians().max(tau_c.abs());
-            let tau = (tau_c + wrap(tau - tau_c).clamp(-give, give)).clamp(-most_twist, most_twist);
-            let (mut v, v_c) = (rotvec(sw), rotvec(sw_c));
-            let norm = |v: Vec3| match p.flex_axis {
-                Some(fx) => { let g = ax.cross(fx); ((v.dot(fx) / r.flex.to_radians()).powi(2) + (v.dot(g) / r.side.to_radians()).powi(2)).sqrt() }
-                None => v.length() / 60f32.to_radians(),
-            };
-            let room = norm(v_c).max(1.0);
-            if norm(v) > room * 1.0005 { end_before = true; }
-            for _ in 0..4 {
-                let off = v - v_c;
-                if off.length() > give { v = v_c + off * (give / off.length()); }
-                let k = norm(v);
-                if k > room { v *= room / k; }
-            }
-            if norm(v) > room * 1.0005 { end_after = true; }
-            let rel_new = p.neutral * from_rotvec(v) * Quat::from_axis_angle(ax, tau);
-            let qe_new = (ql_new * rel_new).normalize();
+                if norm(v) > room * 1.0005 { end_after = true; }
+                let rel_new = p.neutral * from_rotvec(v) * Quat::from_axis_angle(ax, tau);
+                let qe_new = (ql_new * rel_new).normalize();
 
-            // ── Written back, joint by joint down the limb ───────────────
-            let set = |w: &mut Vec<Mat4>, tracks: &mut Vec<Track>, j: usize, world_rot: Quat| {
-                let parent = capture.joints[j].parent.filter(|x| *x < n).map(|x| w[x]).unwrap_or(Mat4::IDENTITY);
-                let mut local = tracks[j][f];
-                local.rotation = (rot(&parent).inverse() * world_rot).normalize();
-                tracks[j][f] = local;
-                w[j] = parent * local.compute_matrix();
-            };
-            let refresh = |w: &mut Vec<Mat4>, tracks: &Vec<Track>, from: usize, to: usize| {
-                // Joints between `from` and `to`, top down, from their samples.
-                let mut path = vec![];
-                let mut c = capture.joints[to].parent;
-                while let Some(x) = c { if x == from { break; } path.push(x); c = capture.joints[x].parent; }
-                for j in path.into_iter().rev() {
+                // ── Written back, joint by joint down the limb ───────────────
+                let set = |w: &mut Vec<Mat4>, tracks: &mut Vec<Track>, j: usize, world_rot: Quat| {
+                    let parent = capture.joints[j].parent.filter(|x| *x < n).map(|x| w[x]).unwrap_or(Mat4::IDENTITY);
+                    let mut local = tracks[j][f];
+                    local.rotation = (rot(&parent).inverse() * world_rot).normalize();
+                    tracks[j][f] = local;
+                    w[j] = parent * local.compute_matrix();
+                };
+                let refresh = |w: &mut Vec<Mat4>, tracks: &Vec<Track>, from: usize, to: usize| {
+                    // Joints between `from` and `to`, top down, from their samples.
+                    let mut path = vec![];
+                    let mut c = capture.joints[to].parent;
+                    while let Some(x) = c { if x == from { break; } path.push(x); c = capture.joints[x].parent; }
+                    for j in path.into_iter().rev() {
+                        let parent = capture.joints[j].parent.map(|x| w[x]).unwrap_or(Mat4::IDENTITY);
+                        let local = tracks[j].get(f).copied().unwrap_or_else(|| moved.local(j, f));
+                        w[j] = parent * local.compute_matrix();
+                    }
+                };
+                let refresh_one = |w: &mut Vec<Mat4>, tracks: &Vec<Track>, j: usize| {
                     let parent = capture.joints[j].parent.map(|x| w[x]).unwrap_or(Mat4::IDENTITY);
                     let local = tracks[j].get(f).copied().unwrap_or_else(|| moved.local(j, f));
                     w[j] = parent * local.compute_matrix();
-                }
-            };
-            let refresh_one = |w: &mut Vec<Mat4>, tracks: &Vec<Track>, j: usize| {
-                let parent = capture.joints[j].parent.map(|x| w[x]).unwrap_or(Mat4::IDENTITY);
-                let local = tracks[j].get(f).copied().unwrap_or_else(|| moved.local(j, f));
-                w[j] = parent * local.compute_matrix();
-            };
-            // Twist about an axis given in the world, put on a joint's own turn.
-            let twist_joint = |w: &mut Vec<Mat4>, tracks: &mut Vec<Track>, j: usize, axis_world: Vec3, angle: f32| {
-                if angle.abs() < 1e-6 { return; }
-                let axis = (rot(&w[j]).inverse() * axis_world).normalize_or_zero();
-                if axis == Vec3::ZERO { return; }
-                let mut local = tracks[j][f];
-                local.rotation = (local.rotation * Quat::from_axis_angle(axis, angle)).normalize();
-                tracks[j][f] = local;
-            };
+                };
+                // Twist about an axis given in the world, put on a joint's own turn.
+                let twist_joint = |w: &mut Vec<Mat4>, tracks: &mut Vec<Track>, j: usize, axis_world: Vec3, angle: f32| {
+                    if angle.abs() < 1e-6 { return; }
+                    let axis = (rot(&w[j]).inverse() * axis_world).normalize_or_zero();
+                    if axis == Vec3::ZERO { return; }
+                    let mut local = tracks[j][f];
+                    local.rotation = (local.rotation * Quat::from_axis_angle(axis, angle)).normalize();
+                    tracks[j][f] = local;
+                };
 
-            set(&mut w, &mut tracks, u, qu_new);
-            // Upper twist joints: the end at the shoulder or hip keeps the
-            // turn it had, the share toward the elbow or knee goes with the bone.
-            let rel_old = (qpc.inverse() * quc).normalize();
-            let rel_now = (parent_rot(&w, u).inverse() * qu_new).normalize();
-            let delta_u = twist_angle((rel_old.inverse() * rel_now).normalize(), b_u);
-            for t in upper_tw {
-                if t.in_line { refresh(&mut w, &tracks, u, t.joint); }
-                refresh_one(&mut w, &tracks, t.joint);
-                twist_joint(&mut w, &mut tracks, t.joint, qu_new * b_u, -(1.0 - t.at) * delta_u);
-                refresh_one(&mut w, &tracks, t.joint);
+                set(&mut w, &mut tracks, u, qu_new);
+                // Upper twist joints: the end at the shoulder or hip keeps the
+                // turn it had, the share toward the elbow or knee goes with the bone.
+                let rel_old = (qpc.inverse() * quc).normalize();
+                let rel_now = (parent_rot(&w, u).inverse() * qu_new).normalize();
+                let delta_u = twist_angle((rel_old.inverse() * rel_now).normalize(), b_u);
+                for t in upper_tw {
+                    if t.in_line { refresh(&mut w, &tracks, u, t.joint); }
+                    refresh_one(&mut w, &tracks, t.joint);
+                    twist_joint(&mut w, &mut tracks, t.joint, qu_new * b_u, -(1.0 - t.at) * delta_u);
+                    refresh_one(&mut w, &tracks, t.joint);
+                }
+                refresh(&mut w, &tracks, u, m);
+                set(&mut w, &mut tracks, m, ql_new);
+                // Lower twist joints follow the hand or foot by their place.
+                let delta_e = twist_angle((rel_c.inverse() * rel_new).normalize(), (rel_new.inverse() * b_l).normalize_or_zero());
+                for t in mid_tw {
+                    if t.in_line { refresh(&mut w, &tracks, m, t.joint); }
+                    refresh_one(&mut w, &tracks, t.joint);
+                    twist_joint(&mut w, &mut tracks, t.joint, ql_new * b_l, t.at * delta_e);
+                    refresh_one(&mut w, &tracks, t.joint);
+                }
+                refresh(&mut w, &tracks, m, e);
+                set(&mut w, &mut tracks, e, qe_new);
+                report.moved_end = report.moved_end.max((pos(&w[e]) - wr).length());
+                if let Some(hinge) = p.hinge {
+                    let (s2, e2, w2) = (pos(&w[u]), pos(&w[m]), pos(&w[e]));
+                    let b2 = rot(&w[u]).inverse() * (e2 - s2).normalize_or_zero();
+                    let a = perp(hinge, b2).normalize_or_zero();
+                    let (d1, d2) = ((e2 - s2).normalize_or_zero(), (w2 - e2).normalize_or_zero());
+                    let roll = angle_about(d1.cross(d2).normalize_or_zero(), perp(rot(&w[u]) * a, d1).normalize_or_zero(), d1);
+                    if d1.angle_between(d2) > 15f32.to_radians() && roll.abs() > 90f32.to_radians() { flipped_after = true; }
+                }
             }
-            refresh(&mut w, &tracks, u, m);
-            set(&mut w, &mut tracks, m, ql_new);
-            // Lower twist joints follow the hand or foot by their place.
-            let delta_e = twist_angle((rel_c.inverse() * rel_new).normalize(), (rel_new.inverse() * b_l).normalize_or_zero());
-            for t in mid_tw {
-                if t.in_line { refresh(&mut w, &tracks, m, t.joint); }
-                refresh_one(&mut w, &tracks, t.joint);
-                twist_joint(&mut w, &mut tracks, t.joint, ql_new * b_l, t.at * delta_e);
-                refresh_one(&mut w, &tracks, t.joint);
-            }
-            refresh(&mut w, &tracks, m, e);
-            set(&mut w, &mut tracks, e, qe_new);
-            report.moved_end = report.moved_end.max((pos(&w[e]) - wr).length());
-            if let Some(hinge) = p.hinge {
-                let (s2, e2, w2) = (pos(&w[u]), pos(&w[m]), pos(&w[e]));
-                let b2 = rot(&w[u]).inverse() * (e2 - s2).normalize_or_zero();
-                let a = perp(hinge, b2).normalize_or_zero();
-                let (d1, d2) = ((e2 - s2).normalize_or_zero(), (w2 - e2).normalize_or_zero());
-                let roll = angle_about(d1.cross(d2).normalize_or_zero(), perp(rot(&w[u]) * a, d1).normalize_or_zero(), d1);
-                if d1.angle_between(d2) > 15f32.to_radians() && roll.abs() > 90f32.to_radians() { flipped_after = true; }
-            }
+            report.flips_before += flipped_before as usize;
+            report.flips_after += flipped_after as usize;
+            report.ends_before += end_before as usize;
+            report.ends_after += end_after as usize;
+            report.roll_frames += roll_hit as usize;
+            report.swivel_frames += swivel_hit as usize;
         }
-        report.flips_before += flipped_before as usize;
-        report.flips_after += flipped_after as usize;
-        report.ends_before += end_before as usize;
-        report.ends_after += end_after as usize;
-        report.roll_frames += roll_hit as usize;
-        report.swivel_frames += swivel_hit as usize;
     }
     (AnimData { tracks: Arc::new(tracks), ..moved.clone() }, report)
 }
