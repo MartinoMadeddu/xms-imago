@@ -16,6 +16,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | Where attribute values live (UI, ICE and code) | Constant, Vertex, Polygon, FaceVarying (UI) · Object, Point, Primitive, Corner (code) | **Object, Point, Face, Corner** | One set of names everywhere. "Primitive" now means a stage object, and one value per primitive is the Object context, so the per-polygon context becomes Face. Face also covers curves (one value per curve). |
 | Cube, sphere, grid | primitives | **shapes** | Frees "primitive" for stage objects. |
 | Where an operator puts the primitive it makes | path / prim path | **Primitive Location** (a parameter) | As in Solaris: a USD path such as `/cube` or `/set/props/box1`. The parents on it are Xforms. |
+| The primitives an operator works on | Pick Primitives upstream | **Primitive Locations**, in the operator's **Prims Location** tab | As Solaris' Primitives parameter on a LOP: each operator says what it works on. Paths with `*`, `?` and `**`; a path takes everything below it; empty means everything. |
 | How a Merge joins its inputs | (none: always one mesh) | **Auto**, **Primitives**, **Flatten** (Merge's Mode) | Auto goes by the first input. "Flatten" is what Unpack does: everything as one plain mesh. |
 | ICE graph input and output nodes | SubnetInput / SubnetOutput | **GraphInput / GraphOutput** | Follows "ICE graph". "Graph" also fits ICE compounds (graphs inside an ICE graph), which will use the same terminals. |
 

@@ -10,7 +10,7 @@ Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Pr
 | Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
 | Merge | Two inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
-| Prune Primitives | Removes the primitives whose path matches a pattern, or keeps only those |
+| Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -45,7 +45,7 @@ The Parameters of a Load USD node show the stage: primitive and triangle counts 
 
 A stage comes in as primitives: each mesh, curves or points prim stays a separate piece, with its path, material binding and purpose, and is passed from node to node without being copied. Nothing is merged until a node needs one mesh.
 
-Pick Primitives chooses which pieces the following nodes work on. After a pick:
+Transform, Edit Poly and Prune Primitives say which pieces they work on in their **Prims Location** tab: a list of paths, a path taking its prim and everything below it (see [Interface](interface.md#parameters)). An empty list means every piece. Pick Primitives still chooses pieces for the operators after it with an empty list, as before. Either way, on the chosen pieces:
 
 - Transform moves each picked primitive on its own, by its placement. The geometry is not copied.
 - Edit Poly, UV Unwrap, UV Transform and UV Edit on one picked primitive edit it where it is drawn, and it stays itself: same path, same material, same placement. Only what the node changed is replaced: a UV node leaves the points shared with the file.

@@ -573,7 +573,8 @@ impl egui_dock::TabViewer for Panes<'_> {
                         if is_edit_poly { modelling::input_mesh(self.graph, id, &eval) } else { None }
                     });
                     let mut tool = self.poly_tool.tool;
-                    let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool };
+                    let scene_paths = self.hierarchy.selected_paths().to_vec();
+                    let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool, scene_paths };
                     draw_properties_panel(ui, self.graph, &*self.stack, self.subnets, self.nav, self.anim_ctx, &mut io);
                     // Writing over files that exist asks first.
                     if let Some(action) = io.action {
@@ -612,21 +613,21 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::PrimInspector => {
-                // The scene at the view flag: the row selected in the Scene
-                // Explorer and what is below it, or all of it.
+                // The scene at the view flag: the rows selected in the Scene
+                // Explorer and what is below them, or all of it.
                 let subnets = &*self.subnets;
-                let path = self.hierarchy.selected_path().map(str::to_string);
+                let paths = self.hierarchy.selected_paths().to_vec();
                 let get_parts = |g: &NodeGraphState| -> Option<Vec<MeshData>> {
                     let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
                     let (_, _, scene) = g.evaluate_scene(&eval)?;
-                    Some(prim_inspector::scene_parts(scene, path.as_deref()))
+                    Some(prim_inspector::scene_parts(scene, &paths))
                 };
                 let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim_out(id, g.viewed_output()));
                 let source = prim_inspector::Source {
                     node: self.graph.display_source(),
-                    path: self.hierarchy.selected_path().map(str::to_string),
+                    paths: self.hierarchy.selected_paths().to_vec(),
                 };
                 draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip);
             }

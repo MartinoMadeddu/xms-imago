@@ -48,6 +48,8 @@ pub struct PanelIo<'a> {
     pub poly_input: Option<crate::modelling::InputMesh>,
     /// Viewport tool of the Edit Poly node.
     pub tool: &'a mut Tool,
+    /// The rows selected in the Scene Explorer: what "+ Add Location" adds.
+    pub scene_paths: Vec<String>,
 }
 
 pub fn draw_properties_panel(
@@ -161,10 +163,15 @@ pub fn draw_properties(
     let all_writers  = batch::write_nodes(graph);
     let batch_files  = batch::file_count(graph, &batch::upstream_folder_loaders(graph, &[sel_id]));
     let mut resync   = false;
+    // Operators that work on primitives have a second tab, Prims Location:
+    // which primitives they work on.
+    let takes = graph.nodes.iter().find(|n| n.id == sel_id).is_some_and(|n| crate::core::locations::takes_locations(&n.node_type));
+    let tab_id = egui::Id::new(("parameters_tab", sel_id.0));
+    let mut on_locations = takes && ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
     // Packed primitives coming into the node: their paths, and which are picked.
     // Asked only for the nodes that list them: it cooks what is upstream.
     let packed_in: Vec<(String, bool)> = graph.nodes.iter().find(|n| n.id == sel_id)
-        .filter(|n| matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims))
+        .filter(|n| on_locations || matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims))
         .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
             let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
@@ -182,6 +189,28 @@ pub fn draw_properties(
     // ── The node itself ──────────────────────────────────────────────────────
     let title = format!("{}  {}", node_type_icon(&node.node_type), node_type_label(&node.node_type));
     group(ui, &title, None, |f| { f.text("Name", None, &mut node.name, ""); });
+
+    if takes {
+        let set = crate::core::locations::rows(&node.locations).count();
+        ui.horizontal(|ui| {
+            if ui.selectable_label(!on_locations, "Parameters").clicked() { on_locations = false; }
+            let label = if set == 0 { "Prims Location".to_string() } else { format!("Prims Location ({set})") };
+            let tab = ui.selectable_label(on_locations, label)
+                .on_hover_text("The primitives this operator works on. Drop prims from the Scene Explorer here");
+            if tab.clicked() { on_locations = true; }
+            // A prim dragged from the Scene Explorer and dropped on the tab.
+            if let Some(p) = tab.dnd_release_payload::<crate::types::DraggedPrims>() {
+                for path in &p.0 { add_location(&mut node.locations, path); }
+                on_locations = true;
+            }
+        });
+        ui.data_mut(|d| d.insert_temp(tab_id, on_locations));
+        if on_locations {
+            let prune = matches!(node.node_type, NodeType::PrunePrims { .. });
+            locations_tab(ui, &mut node.locations, &prim_paths, &io.scene_paths, prune);
+            return;
+        }
+    }
 
     match &mut node.node_type {
         // ── Create ───────────────────────────────────────────────────────────
@@ -360,9 +389,16 @@ pub fn draw_properties(
             pattern_rows(f, "pick_prims", "Paths", pattern, &prim_paths, false);
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
-        NodeType::PrunePrims { pattern, keep } => group(ui, "Prune", None, |f| {
-            pattern_rows(f, "prune_prims", "Paths", pattern, &prim_paths, false);
-            f.choice("Matches", None, keep, &[(false, "Remove"), (true, "Keep only")]);
+        NodeType::PrunePrims { pattern, keep } => group(ui, "Prune", Some("The primitives to prune are listed in the Prims Location tab"), |f| {
+            f.choice("Matches", Some("Remove the primitives the Prims Location tab lists, or keep only those"), keep, &[(false, "Remove"), (true, "Keep only")]);
+            // Graphs from before the tab pruned by a pattern of their own,
+            // still used while the tab is empty.
+            if !pattern.trim().is_empty() {
+                pattern_rows(f, "prune_prims", "Older pattern", pattern, &prim_paths, false);
+                f.status(Status::Info, "From an older graph: used while the Prims Location tab is empty");
+            } else {
+                f.status(Status::Info, "Which primitives: the Prims Location tab. Empty, nothing is pruned");
+            }
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
         NodeType::UnpackPrims => group(ui, "Unpack", Some("Nodes that need one mesh do this on their own. Unpack makes it explicit, or drops a pick"), |f| {
@@ -1331,6 +1367,80 @@ fn usd_summary(ui: &mut egui::Ui, path: &str) {
 /// A name pattern: comma-separated regular expressions (see
 /// `core::pattern`), with a picker of the names coming in and a match count.
 /// With `single`, the field holds one expression and picking replaces it.
+/// The background of a Primitive Location field: a grey of its own, between
+/// the panel and the other fields, in light and dark schemes alike.
+fn location_bg() -> egui::Color32 { crate::theme::c(140, 140, 140) }
+
+/// Add a path to a list of Primitive Locations, unless it is there already.
+fn add_location(list: &mut Vec<String>, path: &str) {
+    let path = path.trim();
+    if path.is_empty() { list.push(String::new()); return; }
+    if !list.iter().any(|l| l.trim() == path) { list.push(path.to_string()); }
+}
+
+/// The Prims Location tab: the Primitive Locations an operator works on, one
+/// per row, each with how many of the primitives coming in it matches.
+fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], prune: bool) {
+    use crate::core::locations;
+    let hint = "A path takes that primitive and everything below it. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/**/lamp*";
+    group(ui, "Primitive Locations", Some(hint), |f| {
+        let mut remove = None;
+        for (k, row) in list.iter_mut().enumerate() {
+            f.row(&format!("{}", k + 1), None, |ui| {
+                ui.horizontal(|ui| {
+                    let w = (ui.available_width() - 74.0).max(60.0);
+                    // A path, not text: grey, in the code font, so a location
+                    // is told apart from the other text fields at a glance.
+                    ui.add(egui::TextEdit::singleline(row).desired_width(w).hint_text("/path/to/prim")
+                        .font(egui::TextStyle::Monospace).background_color(location_bg()));
+                    // How many of the primitives coming in this row matches.
+                    if !row.trim().is_empty() && !paths.is_empty() {
+                        let n = paths.iter().filter(|p| locations::matches(row, p)).count();
+                        let text = egui::RichText::new(format!("{n}")).monospace();
+                        let label = if n == 0 { ui.colored_label(ink::BAD(), text) } else { ui.label(text) };
+                        label.on_hover_text(if n == 0 { "Matches no primitive coming in".to_string() } else { format!("Matches {n} of the primitives coming in") });
+                    }
+                    if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
+                });
+            });
+        }
+        if let Some(k) = remove { list.remove(k); }
+        f.row("", None, |ui| {
+            ui.horizontal(|ui| {
+                let tip = match selected {
+                    [] => "Add a row. Select prims in the Scene Explorer first to add their paths, or drag prims from it and drop them here".to_string(),
+                    [one] => format!("Add {one}, the prim selected in the Scene Explorer. Prims dragged from the Scene Explorer can be dropped here"),
+                    many => format!("Add the {} prims selected in the Scene Explorer. Prims dragged from the Scene Explorer can be dropped here", many.len()),
+                };
+                let add = ui.button("+ Add Location").on_hover_text(tip);
+                if add.clicked() {
+                    if selected.is_empty() { add_location(list, ""); }
+                    for p in selected { add_location(list, p); }
+                }
+                if let Some(p) = add.dnd_release_payload::<crate::types::DraggedPrims>() { for path in &p.0 { add_location(list, path); } }
+                ui.add_enabled_ui(!paths.is_empty(), |ui| {
+                    crate::menus::menu(ui, "Pick", |ui| {
+                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                            for p in paths {
+                                let listed = list.iter().any(|l| l.trim() == p);
+                                if ui.selectable_label(listed, p).clicked() && !listed { add_location(list, p); }
+                            }
+                        });
+                    }).response.on_hover_text("Add a path from the primitives coming in");
+                });
+            });
+        });
+        let set = locations::is_set(list);
+        let taken = paths.iter().filter(|p| locations::any_matches(list, p)).count();
+        match (set, prune) {
+            (false, false) => f.status(Status::Info, "Empty: every primitive coming in (or those an earlier Pick Primitives chose)"),
+            (false, true) => f.status(Status::Info, "Empty: nothing is pruned"),
+            (true, _) if paths.is_empty() => f.status(Status::Info, "No primitives coming in"),
+            (true, _) => f.status(Status::Info, format!("Takes {taken} of the {} primitives coming in", paths.len())),
+        }
+    });
+}
+
 fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &[String], single: bool) {
     use crate::core::pattern;
     let hint = if single { "A regular expression, case ignored" }

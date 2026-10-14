@@ -14,6 +14,8 @@ pub mod reach;
 /// Skin weights kept on the geometry by joint name; Capture and Skin.
 pub mod skin;
 pub mod pattern;
+/// Primitive Locations: the paths an operator works on.
+pub mod locations;
 pub mod uv;
 pub mod manip;
 pub mod xform;

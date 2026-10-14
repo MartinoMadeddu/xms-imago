@@ -102,6 +102,9 @@ pub struct GraphNode {
     pub outputs:   Vec<OutputSocket>,
     /// A bypassed node hands its first input on unchanged.
     pub bypassed:  bool,
+    /// Primitive Locations (the Prims Location tab): the primitives the
+    /// operator works on. Empty: every primitive (`core::locations`).
+    pub locations: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -202,6 +205,7 @@ impl NodeGraphState {
             for i in &n.inputs { i.connected_output.map(|(id, out)| (id.0, out)).hash(&mut w.0); }
             n.outputs.len().hash(&mut w.0);
             n.bypassed.hash(&mut w.0);
+            n.locations.hash(&mut w.0);
         }
         for c in &self.connections { (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut w.0); }
         self.view_flag.map(|n| n.0).hash(&mut w.0);
@@ -220,7 +224,7 @@ impl NodeGraphState {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&node_type);
-        self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false });
+        self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false, locations: vec![] });
         // The first operator of a graph is viewed: there is always one.
         if self.view_flag.is_none() { self.view_flag = Some(id); self.view_output = 0; }
         self.mark_dirty();
@@ -589,6 +593,7 @@ impl NodeGraphState {
             other => serde_json::to_string(other).ok()?.hash(&mut h),
         }
         (node.bypassed, output).hash(&mut h);
+        node.locations.hash(&mut h);
         match &node.node_type {
             NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } | NodeType::LoadUsd { path } => file_stamp(path).hash(&mut h),
             NodeType::LoadFbxDir { dir, index, .. } => {
@@ -655,6 +660,19 @@ impl NodeGraphState {
             node.inputs.first()
                 .and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet))
+        } else if crate::core::locations::takes_locations(&node.node_type) && crate::core::locations::is_set(&node.locations) {
+            // The operator works on the primitives its Prims Location tab
+            // lists; what comes after it sees the picks that came in.
+            use crate::core::locations;
+            let first = inputs.first()?;
+            match &node.node_type {
+                NodeType::PrunePrims { keep, .. } => Some(locations::prune(first, &node.locations, *keep)),
+                t => {
+                    let mut targeted = inputs.clone();
+                    targeted[0] = locations::target(first, &node.locations);
+                    evaluate_node_type(t, &targeted, eval_subnet, output).map(|r| locations::restore_picks(r, first))
+                }
+            }
         } else {
             evaluate_node_type(&node.node_type, &inputs, eval_subnet, output)
         };

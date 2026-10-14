@@ -53,18 +53,21 @@ pub fn draw_prim_inspector(
     egui::Frame::NONE
         .fill(xsi::BG())
         .show(ui, |ui| {
-            let path = source.path.as_deref();
-            if !state.is_cache_valid(source.node, path, revision) {
+            let paths = &source.paths;
+            if !state.is_cache_valid(source.node, paths, revision) {
                 let clip = get_clip(graph);
                 let parts = if clip.is_none() { get_parts(graph).unwrap_or_default() } else { vec![] };
-                state.update_cache(source.node, path, parts, clip, revision);
+                state.update_cache(source.node, paths, parts, clip, revision);
             }
 
             // ── Path breadcrumb ───────────────────────────────────────────────
             // The selected prim (or all of the scene), and the operator whose
             // scene it is.
             let path_str = match source.node.and_then(|id| graph.nodes.iter().find(|n| n.id == id)) {
-                Some(n) => format!("{}   at {}", path.unwrap_or("/"), n.name),
+                Some(n) => {
+                    let what = match paths.as_slice() { [] => "/".to_string(), [one] => one.clone(), many => format!("{} prims", many.len()) };
+                    format!("{what}   at {}", n.name)
+                }
                 None => String::new(),
             };
 

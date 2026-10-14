@@ -60,13 +60,21 @@ pub fn input_mesh(
     static KEPT: Mutex<Vec<InputMesh>> = Mutex::new(Vec::new());
     let node = graph.nodes.iter().find(|n| n.id == id)?;
     let (src, out) = node.inputs.first()?.connected_output?;
-    let key = graph.cook_key(src, out);
+    // What is wired in, and which of it the node's Prims Location tab takes.
+    let key = graph.cook_key(src, out).map(|k| {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (k, &node.locations).hash(&mut h);
+        h.finish()
+    });
     if let Some(k) = key {
         if let Some(m) = KEPT.lock().ok()?.iter().find(|m| m.seed == k) { return Some(m.clone()); }
     }
     let mut cache = std::collections::HashMap::new();
-    // On packed primitives with some picked, the tools see only those.
-    let mesh = graph.eval_node_out(src, out, &mut cache, eval_subnet)?.work_mesh();
+    // On packed primitives with some picked, the tools see only those: the
+    // ones its Prims Location tab lists, or else what came in picked.
+    let input = graph.eval_node_out(src, out, &mut cache, eval_subnet)?;
+    let mesh = crate::core::locations::target(&input, &node.locations).work_mesh();
     if mesh.vertices.is_empty() { return None; }
     let mesh = Arc::new(PolyMesh::from_mesh(&mesh));
     let seed = key.unwrap_or_else(|| crate::core::poly::mesh_hash(&mesh));

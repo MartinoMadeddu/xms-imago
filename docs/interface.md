@@ -162,6 +162,16 @@ Every node's parameters are laid out the same way. The first group is the node's
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 
+Operators that work on primitives (Transform, Edit Poly, Prune Primitives) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
+
+- A path takes that primitive and everything below it: `/DeLorean/wheels` takes every wheel. `*` stands for any run of characters in a name, `?` for one, `**` for any number of levels: `/set/**/lamp*`. `/` takes everything.
+- Each row says how many of the primitives coming in it matches, in red when none: a typo shows at once. The tab's title counts the rows.
+- A location's field is grey and in the code font, so it is told apart from the other text fields.
+- **+ Add Location** adds the prims selected in the Scene Explorer, or an empty row. **Pick** adds a path from the primitives coming in.
+- Rows of the Scene Explorer can be dragged and dropped on an operator in the Node Graph, on its Prims Location tab or on + Add Location: every selected row when the one dragged is selected, else that one. Their paths join the list, and the operator is selected with the tab open.
+- An empty list means every primitive: the operator works as it did without one, on what an earlier Pick Primitives chose, or on everything. For Prune Primitives an empty list prunes nothing.
+- The list is the operator's own: the operators after it see the primitives as they came in, not its list. It is saved with the graph and copied with the operator.
+
 The same words mean the same thing everywhere: Translate, Rotate and Scale on every transform (Transform, UV Transform, UV Edit, Fix Pose, Edit Poly's Transform); Path for every file; In and Out for what passes through. Units are in the value: m, cm, °, cm/s.
 
 ![A template after loading: laid out in rows and framed](xms_graph_layout.png)
@@ -248,7 +258,7 @@ A menu stays open while it is used: ticking panes in Window, Invert zoom in Navi
 
 The Scene Explorer lists the scene at the operator with the view flag as its own tree, as usdview would: the prims of a stage in the stage's hierarchy, prims made in Imago under the Xforms of their path, the joints of a clip. There is no row for the operator: a Prune, a Merge or a shape put on another prim's path shows as the scene has it. A plain mesh, which has no path (after Unpack, or a Merge set to Flatten), is one row with the operator's name.
 
-Clicking a row shows that prim, or that group and everything below it, in the Primitive Inspector. Clicking it again shows the whole scene there again, and so does a selected prim leaving the scene (moving the view flag, or a Prune). Selecting a row does not select an operator. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
+Clicking a row shows that prim, or that group and everything below it, in the Primitive Inspector. Ctrl+click (Cmd+click on macOS) adds a row to the selection or takes it out; Shift+click selects every row from the last one clicked. Rows dragged out go together when the one dragged is selected (see [Parameters](#parameters)). Clicking the only selected row again shows the whole scene there again, and so does a selected prim leaving the scene (moving the view flag, or a Prune). Selecting a row does not select an operator. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
 
 ## Operator Stack
 

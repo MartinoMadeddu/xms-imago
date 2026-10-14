@@ -59,7 +59,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 |---|---|
 | USD: heavy model | A 461,595 triangle model as 43 primitives, with its materials, textures and UVs |
 | USD: pick and edit | One wheel picked by a path pattern, moved, and handed to an Edit Poly node. The other primitives pass through |
-| USD: prune | The model cut down to its wheels and callipers |
+| USD: prune | The model cut down to its wheels and callipers, listed in the Prune node's Prims Location tab as `/**/*Wheel*` and `/**/*Calliper*` |
 
 ## Simon: Animation & Mocap
 

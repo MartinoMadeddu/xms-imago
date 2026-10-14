@@ -629,6 +629,30 @@ fn draw_node(
     }
     if dr.drag_stopped() { graph.dragging_node = None; }
 
+    // A prim dragged from the Scene Explorer onto an operator that works on
+    // primitives joins its Primitive Locations; the operator is selected
+    // with its Prims Location tab open.
+    if crate::core::locations::takes_locations(&node.node_type)
+        && egui::DragAndDrop::has_payload_of_type::<crate::types::DraggedPrims>(ui.ctx())
+    {
+        let over = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| rect.contains(p));
+        if over {
+            painter.rect_stroke(rect.expand(3.0), 6.0 * zoom, egui::Stroke::new(2.0, crate::theme::selection()), egui::StrokeKind::Outside);
+            if ui.input(|i| i.pointer.any_released()) {
+                if let Some(p) = egui::DragAndDrop::take_payload::<crate::types::DraggedPrims>(ui.ctx()) {
+                    if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == node.id) {
+                        for path in &p.0 {
+                            if !n.locations.iter().any(|l| l.trim() == path) { n.locations.push(path.clone()); }
+                        }
+                    }
+                    graph.selected_node = Some(node.id);
+                    graph.selected_nodes = vec![node.id];
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new(("parameters_tab", node.id.0)), true));
+                }
+            }
+        }
+    }
+
     dive
 }
 

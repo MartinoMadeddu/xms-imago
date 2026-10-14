@@ -21,6 +21,9 @@ struct SavedNode {
     node_type: NodeType,
     #[serde(default)]
     bypassed:  bool,
+    /// Its Prims Location tab. Left out of the file when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    locations: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -45,6 +48,7 @@ pub fn to_json(graph: &NodeGraphState) -> String {
             position:  [n.position.x, n.position.y],
             node_type: n.node_type.clone(),
             bypassed:  n.bypassed,
+            locations: n.locations.clone(),
         }).collect(),
         connections: graph.connections.iter()
             .map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input])
@@ -68,7 +72,7 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
         if let NodeType::Ice { id, .. } = &mut node_type { *id = IceGraphId(usize::MAX); }
         let id = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]));
         // Keep the saved ids so connections can be restored as written.
-        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; }
+        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; node.locations = n.locations; }
         graph.next_node_id = graph.next_node_id.max(n.id + 1);
     }
     for [from, out, to, input] in saved.connections {
@@ -281,7 +285,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
         xms_nodes: 1,
         nodes: picked.iter().map(|n| SavedNode {
             id: n.id.0, name: n.name.clone(), position: [n.position.x, n.position.y],
-            node_type: n.node_type.clone(), bypassed: n.bypassed,
+            node_type: n.node_type.clone(), bypassed: n.bypassed, locations: n.locations.clone(),
         }).collect(),
         connections: graph.connections.iter()
             .filter(|c| inside(c.from_node) && inside(c.to_node))
@@ -309,7 +313,7 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: 
                 .unwrap_or(IceGraphId(usize::MAX));
         }
         let new = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]) + shift);
-        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; }
+        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; node.locations = n.locations.clone(); }
         placed.insert(n.id, new);
     }
     for [from, out, to, input] in saved.connections {
@@ -821,5 +825,53 @@ mod tests {
         let mut h = NodeGraphState::default();
         from_json(&mut h, &to_json(&g)).unwrap();
         assert_eq!((h.view_flag, h.viewed_output()), (Some(NodeId(1)), 1));
+    }
+
+    /// An operator's Prims Location tab: it works on what the list matches,
+    /// the operators after it do not inherit the list, and the list is saved.
+    #[test]
+    fn an_operator_works_on_its_primitive_locations() {
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let mut g = NodeGraphState::default();
+        let a = g.add_node("A".into(), NodeType::CreateCube { size: 1.0, location: "/set/a".into() }, egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), NodeType::CreateCube { size: 1.0, location: "/set/b".into() }, egui::pos2(200.0, 0.0));
+        let merge = g.add_node("Merge".into(), NodeType::merge(), egui::pos2(100.0, 100.0));
+        let lift = g.add_node("Lift".into(), NodeType::Transform { translation: glam::Vec3::new(0.0, 10.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(100.0, 200.0));
+        let after = g.add_node("After".into(), NodeType::Transform { translation: glam::Vec3::new(5.0, 0.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(100.0, 300.0));
+        g.add_connection(a, 0, merge, 0);
+        g.add_connection(b, 0, merge, 1);
+        g.add_connection(merge, 0, lift, 0);
+        g.add_connection(lift, 0, after, 0);
+        g.nodes.iter_mut().find(|n| n.id == lift).unwrap().locations = vec!["/set/b".into()];
+
+        let prims = |g: &NodeGraphState, id| match g.eval_node(id, &mut Default::default(), &pass).unwrap() {
+            crate::types::EvalResult::Named(p) => p, _ => panic!("primitives"),
+        };
+        let low = |p: &crate::types::Prim| p.mesh.vertices.iter().map(|v| v[1]).fold(f32::MAX, f32::min);
+        let left = |p: &crate::types::Prim| p.mesh.vertices.iter().map(|v| v[0]).fold(f32::MAX, f32::min);
+        let lifted = prims(&g, lift);
+        assert!(low(&lifted[0]) < 0.0 && low(&lifted[1]) > 9.0, "only /set/b is lifted");
+        assert!(lifted.iter().all(|p| !p.picked), "the list does not leave the operator");
+        // The next operator, with no list, works on everything.
+        let moved = prims(&g, after);
+        assert!(moved.iter().all(|p| left(p) > 4.0));
+
+        // Prune by the list.
+        let prune = g.add_node("Prune".into(), NodeType::PrunePrims { pattern: String::new(), keep: false }, egui::pos2(300.0, 300.0));
+        g.add_connection(lift, 0, prune, 0);
+        assert_eq!(prims(&g, prune).len(), 2, "an empty list prunes nothing");
+        g.nodes.iter_mut().find(|n| n.id == prune).unwrap().locations = vec!["/set/a".into()];
+        assert_eq!(prims(&g, prune).iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), vec!["/set/b"]);
+
+        // Saved and opened: the lists are there; a node without one writes none.
+        let json = to_json(&g);
+        assert_eq!(json.matches("\"locations\"").count(), 2);
+        let mut h = NodeGraphState::default();
+        from_json(&mut h, &json).unwrap();
+        assert_eq!(h.nodes.iter().find(|n| n.id == lift).unwrap().locations, vec!["/set/b".to_string()]);
+        // Copied and pasted: the list comes along.
+        let text = copy(&g, &IceGraphStore::default(), &[lift]).unwrap().to_text();
+        let placed = paste(&mut h, &mut IceGraphStore::default(), Fragment::from_text(&text).unwrap(), None);
+        assert_eq!(h.nodes.iter().find(|n| n.id == placed[&lift.0]).unwrap().locations, vec!["/set/b".to_string()]);
     }
 }

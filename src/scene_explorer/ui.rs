@@ -1,5 +1,5 @@
 use crate::node_graph::NodeGraphState;
-use crate::types::{NodeId, SceneHierarchy, SceneObjectId};
+use crate::types::{NodeId, SceneHierarchy};
 use super::OperatorStack;
 
 mod xsi {
@@ -25,8 +25,9 @@ const TREE_LINE_X:  f32 =  7.0;
 
 /// The scene at the view flag, as its own tree. Clicking a row shows that
 /// prim, or that group and what is below it, in the Primitive Inspector;
-/// clicking it again shows the whole scene there again. It does not change
-/// which operator is selected.
+/// clicking it again shows the whole scene there again. Ctrl (Cmd) adds or
+/// takes out a row, Shift selects the rows between. It does not change which
+/// operator is selected.
 pub fn draw_scene_explorer(
     ui:        &mut egui::Ui,
     hierarchy: &mut SceneHierarchy,
@@ -65,7 +66,8 @@ pub fn draw_scene_explorer(
 
             let mut toggle_id = None;
             let mut geometry_toggle: Option<String> = None;
-            let mut select_id: Option<(SceneObjectId, Option<String>)> = None;
+            // The row clicked, with Ctrl (Cmd) and Shift.
+            let mut clicked: Option<(Option<String>, bool, bool)> = None;
 
             let n = hierarchy.objects.len();
             // Whether each row is the last of its siblings, in one pass
@@ -112,15 +114,25 @@ pub fn draw_scene_explorer(
                         let depth = obj.depth;
                         let is_last = last_of_siblings[idx];
 
-                        let is_sel = hierarchy.selected.map(|s| s == obj.id).unwrap_or(false);
+                        let is_sel = hierarchy.is_selected(obj.path.as_deref());
 
                         // Allocate a full-width row
                         let (row_rect, row_resp) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), ROW_H),
-                            egui::Sense::click(),
+                            egui::Sense::click_and_drag(),
                         );
+                        // Dragged out, prims' paths can be dropped on an
+                        // operator or its Prims Location tab: every selected
+                        // row when the one dragged is selected, else that one.
+                        if row_resp.drag_started() {
+                            if let Some(path) = &obj.path {
+                                let paths = if is_sel { hierarchy.selected_paths().to_vec() } else { vec![path.clone()] };
+                                egui::DragAndDrop::set_payload(ui.ctx(), crate::types::DraggedPrims(paths));
+                            }
+                        }
                         if row_resp.clicked() {
-                            select_id = Some((obj.id, obj.path.clone()));
+                            let m = ui.input(|i| i.modifiers);
+                            clicked = Some((obj.path.clone(), m.command, m.shift));
                         }
 
                         let line_col  = xsi::DIVIDER();
@@ -234,15 +246,28 @@ pub fn draw_scene_explorer(
                 hierarchy.toggle_geometry(path);
             }
             // A click on the geometry square is not a click on the row.
+            // What is being dragged, under the pointer, over every pane: the
+            // path, or how many.
+            if let (Some(p), Some(at)) = (egui::DragAndDrop::payload::<crate::types::DraggedPrims>(ui.ctx()), ui.ctx().pointer_latest_pos()) {
+                let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("dragged_prim")));
+                let text = match p.0.as_slice() { [one] => one.clone(), many => format!("{} prims", many.len()) };
+                let galley = painter.layout_no_wrap(text, egui::FontId::monospace(11.0), xsi::NAME());
+                let r = egui::Rect::from_min_size(at + egui::vec2(14.0, 10.0), galley.size()).expand(4.0);
+                painter.rect_filled(r, 3.0, xsi::SEL_BG());
+                painter.galley(r.min + egui::vec2(4.0, 4.0), galley, xsi::NAME());
+            }
+
             // A row without a path (a joint, a plain mesh) has nothing of its
-            // own to show: the Inspector keeps the whole scene.
-            if let (Some((scene_id, path)), None) = (select_id, geometry_toggle) {
-                if hierarchy.selected == Some(scene_id) || path.is_none() {
-                    hierarchy.selected           = None;
-                    hierarchy.selected_prim_path = None;
-                } else {
-                    hierarchy.selected           = Some(scene_id);
-                    hierarchy.selected_prim_path = path;
+            // own to show: a click on it selects nothing, and the Inspector
+            // shows the whole scene. Shift takes the rows in view between.
+            if let (Some((path, toggle, range)), None) = (clicked, geometry_toggle) {
+                match path {
+                    Some(p) => {
+                        let owned: Vec<String> = shown.iter().filter_map(|(i, _)| hierarchy.objects[*i].path.clone()).collect();
+                        let listed: Vec<&str> = owned.iter().map(String::as_str).collect();
+                        hierarchy.click(&p, toggle, range, &listed);
+                    }
+                    None => hierarchy.clear_selection(),
                 }
             }
         });

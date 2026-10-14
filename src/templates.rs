@@ -394,10 +394,13 @@ fn usd_pick(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 
 fn usd_prune(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let load = load_delorean(g);
-    let prune = g.add_node("WheelsOnly".into(), NodeType::PrunePrims { pattern: "Wheel, Calliper".into(), keep: true }, p(180.0, 110.0));
+    let prune = g.add_node("WheelsOnly".into(), NodeType::PrunePrims { pattern: String::new(), keep: true }, p(180.0, 110.0));
+    // What it keeps is in its Prims Location tab: every prim with Wheel or
+    // Calliper in its name, at any depth.
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == prune) { n.locations = vec!["/**/*Wheel*".into(), "/**/*Calliper*".into()]; }
     g.add_connection(load, 0, prune, 0);
     finish(g, prune, prune);
-    format!("USD prune: only the primitives whose path matches the pattern are kept. Switch to \"Remove the matches\" for the car without its wheels.{}", missing_examples())
+    format!("USD prune: only the primitives its Prims Location tab lists are kept. Switch Matches to \"Remove\" for the car without its wheels.{}", missing_examples())
 }
 
 // ── UV ───────────────────────────────────────────────────────────────────────

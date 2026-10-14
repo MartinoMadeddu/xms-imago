@@ -7,6 +7,12 @@ use glam::Vec3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NodeId(pub usize);
 
+/// Primitive paths dragged out of the Scene Explorer (the selected rows, or
+/// the one row dragged): dropped on an operator, its Prims Location tab or
+/// its "+ Add Location", they join the operator's Primitive Locations.
+#[derive(Clone, Debug)]
+pub struct DraggedPrims(pub Vec<String>);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConnectionId(pub usize);
 
@@ -1058,7 +1064,7 @@ pub struct PrimInspectorState {
     cached_parts:   Option<std::sync::Arc<Vec<MeshData>>>,
     cached_clip:    Option<std::sync::Arc<crate::core::anim::AnimData>>,
     cached_node_id: Option<NodeId>,
-    cached_path:    Option<String>,
+    cached_paths:   Vec<String>,
     cached_rev:     Option<u64>,
     /// Number of edges of the cached primitives: polygon edges and curve segments.
     pub edge_count: usize,
@@ -1068,16 +1074,16 @@ pub struct PrimInspectorState {
 }
 
 impl PrimInspectorState {
-    /// Whether what is held is for this operator, this selected path and
+    /// Whether what is held is for this operator, these selected paths and
     /// this revision of the graph.
-    pub fn is_cache_valid(&self, node_id: Option<NodeId>, path: Option<&str>, revision: u64) -> bool {
-        self.cached_node_id == node_id && self.cached_path.as_deref() == path && self.cached_rev == Some(revision)
+    pub fn is_cache_valid(&self, node_id: Option<NodeId>, paths: &[String], revision: u64) -> bool {
+        self.cached_node_id == node_id && self.cached_paths == paths && self.cached_rev == Some(revision)
     }
 
     pub fn update_cache(
         &mut self,
         node_id:  Option<NodeId>,
-        path:     Option<&str>,
+        paths:    &[String],
         parts:    Vec<MeshData>,
         clip:     Option<std::sync::Arc<crate::core::anim::AnimData>>,
         revision: u64,
@@ -1088,7 +1094,7 @@ impl PrimInspectorState {
         self.cached_parts   = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
         self.cached_clip    = clip;
         self.cached_node_id = node_id;
-        self.cached_path    = path.map(str::to_string);
+        self.cached_paths   = paths.to_vec();
         self.cached_rev     = Some(revision);
         self.table_key      = None;
         self.table          = InspectorTable::default();
@@ -1180,11 +1186,12 @@ pub struct SceneObject {
 #[derive(Default)]
 pub struct SceneHierarchy {
     pub objects:            Vec<SceneObject>,
-    pub selected:           Option<SceneObjectId>,
-    /// The path of the selected row, a prim or a group, if any. The
-    /// Primitive Inspector shows what is at or below it; nothing selected,
-    /// the whole scene.
-    pub selected_prim_path: Option<String>,
+    /// The paths of the selected rows, prims or groups, in the order they
+    /// were selected. The Primitive Inspector shows what is at or below
+    /// them; nothing selected, the whole scene. Dragged out, they all go.
+    selected_paths:         Vec<String>,
+    /// The row a Shift+click selects from.
+    anchor:                 Option<String>,
     next_id:                usize,
     /// Rows opened or closed, by key. A row not in here takes its default:
     /// prims of a composed stage start closed, everything else open.
@@ -1343,15 +1350,55 @@ impl SceneHierarchy {
             self.objects.remove(0);
             for o in self.objects.iter_mut() { o.depth = o.depth.saturating_sub(1); }
         }
-        let still = self.selected_prim_path.as_ref()
-            .and_then(|p| self.objects.iter().find(|o| o.path.as_ref() == Some(p)).map(|o| o.id));
-        self.selected = still;
-        if still.is_none() { self.selected_prim_path = None; }
+        // A selected path stays selected while it is in the scene.
+        let present: std::collections::HashSet<&str> = self.objects.iter().filter_map(|o| o.path.as_deref()).collect();
+        let kept: Vec<String> = self.selected_paths.iter().filter(|p| present.contains(p.as_str())).cloned().collect();
+        if self.anchor.as_deref().is_some_and(|a| !present.contains(a)) { self.anchor = None; }
+        self.selected_paths = kept;
     }
 
-    /// The selected row's path: the scene, or the part of it, the Primitive
-    /// Inspector shows.
-    pub fn selected_path(&self) -> Option<&str> { self.selected_prim_path.as_deref() }
+    /// The selected rows' paths: the parts of the scene the Primitive
+    /// Inspector shows (all of it when none), and what "+ Add Location" adds.
+    pub fn selected_paths(&self) -> &[String] { &self.selected_paths }
+
+    /// Whether a row is selected.
+    pub fn is_selected(&self, path: Option<&str>) -> bool {
+        path.is_some_and(|p| self.selected_paths.iter().any(|s| s == p))
+    }
+
+    /// A click on a row with a path. Alone: that row only (clicked again,
+    /// nothing). With Ctrl (Cmd on macOS): the row added or taken out. With
+    /// Shift: every row with a path from the last one clicked to this one,
+    /// as listed. `listed`: the paths of the rows in view, in order.
+    pub fn click(&mut self, path: &str, toggle: bool, range: bool, listed: &[&str]) {
+        if range {
+            if let Some(a) = self.anchor.clone() {
+                let (i, j) = (listed.iter().position(|p| *p == a), listed.iter().position(|p| *p == path));
+                if let (Some(i), Some(j)) = (i, j) {
+                    let (lo, hi) = (i.min(j), i.max(j));
+                    for p in &listed[lo..=hi] {
+                        if !self.is_selected(Some(p)) { self.selected_paths.push(p.to_string()); }
+                    }
+                    return;
+                }
+            }
+        }
+        if toggle {
+            if self.is_selected(Some(path)) { self.selected_paths.retain(|p| p != path); }
+            else { self.selected_paths.push(path.to_string()); }
+        } else if self.selected_paths.len() == 1 && self.selected_paths[0] == path {
+            self.selected_paths.clear();
+        } else {
+            self.selected_paths = vec![path.to_string()];
+        }
+        self.anchor = Some(path.to_string());
+    }
+
+    /// Select nothing: the Primitive Inspector shows the whole scene.
+    pub fn clear_selection(&mut self) {
+        self.selected_paths.clear();
+        self.anchor = None;
+    }
 
     /// Rebuild from the evaluated node graph results.
     /// Expansion is kept by each row's key, so it survives graph changes.
@@ -1566,11 +1613,12 @@ mod location_tests {
         assert_eq!(h.objects[1].path.as_deref(), Some("/root/asset"), "a group row has its path too");
 
         // A selection stays while its path is in the scene, and goes with it.
-        h.selected_prim_path = Some("/sphere".into());
+        h.click("/sphere", false, false, &[]);
+        h.click("/root/asset/cube1", true, false, &[]);
         h.rebuild_scene(Some((NodeId(4), "Merge".into(), prims(&["/root/asset/cube1", "/sphere"]))));
-        assert_eq!(h.selected, Some(h.objects[3].id));
+        assert_eq!(h.selected_paths(), &["/sphere".to_string(), "/root/asset/cube1".to_string()]);
         h.rebuild_scene(Some((NodeId(4), "Merge".into(), prims(&["/root/asset/cube1"]))));
-        assert_eq!((h.selected, h.selected_path()), (None, None));
+        assert_eq!(h.selected_paths(), &["/root/asset/cube1".to_string()]);
 
         // A plain mesh has no tree: one row, by the operator's name.
         h.rebuild_scene(Some((NodeId(5), "Unpack".into(), EvalResult::Single(MeshData::default()))));
@@ -1578,5 +1626,21 @@ mod location_tests {
         // No scene at all: no rows.
         h.rebuild_scene(None);
         assert!(h.objects.is_empty());
+    }
+
+    #[test]
+    fn rows_are_selected_one_toggled_or_a_range() {
+        let mut h = SceneHierarchy::default();
+        let listed = ["/a", "/b", "/c", "/d"];
+        h.click("/b", false, false, &listed);
+        assert_eq!(h.selected_paths(), &["/b".to_string()]);
+        h.click("/d", false, true, &listed);
+        assert_eq!(h.selected_paths().len(), 3, "Shift: /b to /d");
+        h.click("/c", true, false, &listed);
+        assert_eq!(h.selected_paths(), &["/b".to_string(), "/d".to_string()], "Ctrl takes one out");
+        h.click("/a", false, false, &listed);
+        assert_eq!(h.selected_paths(), &["/a".to_string()], "a plain click: that one only");
+        h.click("/a", false, false, &listed);
+        assert!(h.selected_paths().is_empty(), "clicked again: nothing");
     }
 }
