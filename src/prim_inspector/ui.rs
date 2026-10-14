@@ -209,14 +209,15 @@ pub fn object_rows(parts: &[MeshData]) -> usize {
 }
 
 /// One component tab of some primitives, each where it is drawn: the rows of
-/// each primitive in turn, with point numbers counted across all of them.
+/// each primitive in turn, with point, face and corner numbers counted
+/// across all of them.
 /// A column one primitive lacks shows `-` on its rows.
 pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable {
     let mut rows = 0usize;
     let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
-    let mut first_point = 0usize;
+    let mut first = First::default();
     for m in parts {
-        let (n, part_cols) = part_table(m, tab, first_point);
+        let (n, part_cols) = part_table(m, tab, first);
         for (name, values) in part_cols {
             let at = match cols.iter().position(|c| c.0 == name) {
                 Some(at) => at,
@@ -226,13 +227,15 @@ pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable
         }
         rows += n;
         for c in cols.iter_mut() { c.1.resize(rows, vec![]); }
-        first_point += m.point_count();
+        first.point += m.point_count();
+        first.face += m.polygons().len() + m.curve_counts.len();
+        first.corner += m.corner_count();
     }
-    // The points of an edge or a face: one array each, `indices`, as the
+    // The points of an edge or a face: one array each, `ptIndices`, as the
     // face's slice of `Topology::Mesh::indices` (USD faceVertexIndices).
     let arrays = match tab {
         PrimInspectorTab::Edge | PrimInspectorTab::Uniform => cols.iter()
-            .filter(|c| c.0 == "indices")
+            .filter(|c| c.0 == "ptIndices")
             .map(|c| (c.0.clone(), c.1.iter().map(|v| array_text(v).len()).max().unwrap_or(2)))
             .collect(),
         _ => vec![],
@@ -240,9 +243,14 @@ pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable
     InspectorTable { rows, labels: None, cols, arrays }
 }
 
-/// One component tab of one primitive. `first_point` is the number of its
-/// first point in the whole table.
-fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first_point: usize) -> (usize, Vec<(String, Vec<Vec<f32>>)>) {
+/// The numbers of a primitive's first point, face and corner in the whole
+/// table, when several primitives are listed one after the other.
+#[derive(Clone, Copy, Default)]
+struct First { point: usize, face: usize, corner: usize }
+
+/// One component tab of one primitive, numbered on from `first`.
+fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first: First) -> (usize, Vec<(String, Vec<Vec<f32>>)>) {
+    let first_point = first.point;
     use glam::Vec3;
     let vars = |interp: PrimVarInterp| mesh.primvars.iter().filter(move |p| p.interp == interp);
     // Points, numbered as listed: polygon vertices, curve control points, free points.
@@ -283,7 +291,7 @@ fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first_point: usize) -> (u
             let mut edges = crate::core::poly::PolyMesh::from_mesh(mesh).edges();
             edges.extend(mesh.curve_segments().into_iter().map(|[a, b]| [a + nv as u32, b + nv as u32]));
             (edges.len(), vec![
-                ("indices".into(), edges.iter().map(|e| vec![num(e[0] as usize), num(e[1] as usize)]).collect()),
+                ("ptIndices".into(), edges.iter().map(|e| vec![num(e[0] as usize), num(e[1] as usize)]).collect()),
                 ("length".into(), edges.iter().map(|e| vec![at(e[0] as usize).distance(at(e[1] as usize))]).collect()),
             ])
         }
@@ -301,9 +309,13 @@ fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first_point: usize) -> (u
             let n = corners.len();
             let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![
                 ("corners".into(), corners.iter().map(|q| vec![q.len() as f32]).collect()),
-                ("indices".into(), corners.iter().map(|q| q.iter().map(|v| num(*v)).collect()).collect()),
+                ("ptIndices".into(), corners.iter().map(|q| q.iter().map(|v| num(*v)).collect()).collect()),
             ];
             if np > 0 {
+                // Where each polygon's corners start in the Corner tab: its
+                // corners are firstCorner, firstCorner + 1, … (corners).
+                let starts = poly.polys.iter().scan(first.corner, |at, q| { let s = *at; *at += q.len(); Some(vec![s as f32]) });
+                cols.push(("firstCorner".into(), fill(n, 0, starts.collect())));
                 cols.push(("N".into(), fill(n, 0, (0..np).map(|q| poly.normal(q).to_array().to_vec()).collect())));
                 cols.push(("area".into(), fill(n, 0, (0..np).map(|q| vec![poly.area_normal(q).length() * 0.5]).collect())));
             }
@@ -321,11 +333,20 @@ fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first_point: usize) -> (u
         }
         PrimInspectorTab::FaceVarying => {
             // Polygon corners, polygon after polygon: the point each belongs to
-            // (several corners share a point), then what each corner carries.
+            // (several corners share a point), the face it is a corner of and
+            // its place in that face (0 for a face's first corner), then what
+            // each corner carries. The row number is the corner's own number,
+            // counted across the whole mesh as USD counts faceVarying values.
             let n = mesh.corner_count();
             let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
             if n > 0 {
                 cols.push(("ptIndex".into(), mesh.corner_points().iter().map(|i| vec![num(*i as usize)]).collect()));
+                let polys = mesh.polygons();
+                let of_face = |f: usize, q: &Vec<u32>| (0..q.len()).map(move |k| (f, k));
+                let (faces, local): (Vec<Vec<f32>>, Vec<Vec<f32>>) = polys.iter().enumerate().flat_map(|(f, q)| of_face(f, q))
+                    .map(|(f, k)| (vec![(first.face + f) as f32], vec![k as f32])).unzip();
+                cols.push(("faceIndex".into(), faces));
+                cols.push(("localCornerIndex".into(), local));
             }
             if let Some(uvs) = mesh.corner_uvs() {
                 cols.push(("uv".into(), uvs.iter().map(|uv| uv.to_vec()).collect()));
@@ -613,6 +634,15 @@ mod tests {
         // Each of the 8 points is shared by three corners.
         assert!((0..8).all(|p| pt.iter().filter(|&&q| q == p as f32).count() == 3));
         assert!(c.cols.iter().all(|c| c.0 != "vtx" && c.0 != "uv"));
+        // The face each corner belongs to, and its place in that face.
+        let face: Vec<f32> = col(&c, "faceIndex").iter().map(|v| v[0]).collect();
+        let local: Vec<f32> = col(&c, "localCornerIndex").iter().map(|v| v[0]).collect();
+        assert_eq!(&face[..6], &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(&local[..6], &[0.0, 1.0, 2.0, 3.0, 0.0, 1.0]);
+        // A face's first corner, which a corner of local index 0 is.
+        let starts: Vec<f32> = col(&p, "firstCorner").iter().map(|v| v[0]).collect();
+        assert_eq!(starts, vec![0.0, 4.0, 8.0, 12.0, 16.0, 20.0]);
+        assert!(starts.iter().all(|&s| local[s as usize] == 0.0));
         // With UVs: one per polygon corner, read back from the triangles.
         // A planar unwrap gives every corner of a point the same UV.
         let mut grid = create_grid(2, 2, 2.0);
@@ -649,23 +679,23 @@ mod tests {
         // Segments between control points that follow each other, per curve.
         let e = mesh_table(&open, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 4);
-        assert_eq!(col(&e, "indices")[2], vec![3.0, 4.0]);
-        assert_eq!(e.arrays, vec![("indices".to_string(), "[0, 1]".len())]);
+        assert_eq!(col(&e, "ptIndices")[2], vec![3.0, 4.0]);
+        assert_eq!(e.arrays, vec![("ptIndices".to_string(), "[0, 1]".len())]);
         assert_eq!(col(&e, "length")[3], vec![4.0]);
         // One face per curve: its control points are its corners.
         let f = mesh_table(&open, &PrimInspectorTab::Uniform);
         assert_eq!(f.rows, 2);
         assert_eq!(col(&f, "corners")[1], vec![3.0]);
         // Every point of the face, as one array: as many as it has corners.
-        assert_eq!(col(&f, "indices")[1], vec![3.0, 4.0, 5.0]);
-        assert!(f.cols.iter().all(|c| !c.0.starts_with("vtx[")), "one indices array, not a column per point");
+        assert_eq!(col(&f, "ptIndices")[1], vec![3.0, 4.0, 5.0]);
+        assert!(f.cols.iter().all(|c| !c.0.starts_with("vtx[")), "one ptIndices array, not a column per point");
         assert_eq!(col(&f, "length")[1], vec![7.0]);
         assert!(f.cols.iter().all(|c| c.0 != "area" && c.0 != "N"), "no polygon columns for curves");
         // A periodic curve closes: one more segment, and a longer curve.
         let ring = two_curves(CurveWrap::Periodic);
         let e = mesh_table(&ring, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 6);
-        assert_eq!(col(&e, "indices")[5], vec![5.0, 3.0]);
+        assert_eq!(col(&e, "ptIndices")[5], vec![5.0, 3.0]);
         assert_eq!(mesh_table(&ring, &PrimInspectorTab::Uniform).cols.iter().find(|c| c.0 == "length").unwrap().1[1], vec![12.0]);
         // Curves have no polygon corners.
         assert!(mesh_table(&open, &PrimInspectorTab::FaceVarying).cols.is_empty());
@@ -683,16 +713,24 @@ mod tests {
         assert!(col(&v, "N")[8].is_empty(), "a curve point has no normal: shown as -");
         let e = parts_table(&parts, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 12 + 4);
-        assert_eq!(col(&e, "indices")[12], vec![8.0, 9.0]);
+        assert_eq!(col(&e, "ptIndices")[12], vec![8.0, 9.0]);
         let f = parts_table(&parts, &PrimInspectorTab::Uniform);
         assert_eq!(f.rows, 6 + 2);
         assert_eq!(col(&f, "corners")[6], vec![3.0]);
-        assert_eq!(col(&f, "indices")[6], vec![8.0, 9.0, 10.0]);
-        assert_eq!(col(&f, "indices")[0].len(), 4);
+        assert_eq!(col(&f, "ptIndices")[6], vec![8.0, 9.0, 10.0]);
+        assert_eq!(col(&f, "ptIndices")[0].len(), 4);
         // The widest cell sets the column's width: a quad, "[0, 3, 2, 1]".
-        assert_eq!(f.arrays, vec![("indices".to_string(), 12)]);
+        assert_eq!(f.arrays, vec![("ptIndices".to_string(), 12)]);
         assert_eq!(col(&f, "area")[0].len(), 1);
         assert!(col(&f, "area")[6].is_empty() && col(&f, "length")[0].is_empty());
+        assert!(col(&f, "firstCorner")[6].is_empty(), "curves have no polygon corners");
+
+        // Face and corner numbers run on from one primitive to the next.
+        let two = vec![create_cube(1.0), create_cube(1.0)];
+        let c = parts_table(&two, &PrimInspectorTab::FaceVarying);
+        assert_eq!(c.rows, 48);
+        assert_eq!((col(&c, "faceIndex")[24][0], col(&c, "localCornerIndex")[24][0]), (6.0, 0.0));
+        assert_eq!(col(&parts_table(&two, &PrimInspectorTab::Uniform), "firstCorner")[6], vec![24.0]);
     }
 
     /// The curves and points example, as the Load USD node gives it.

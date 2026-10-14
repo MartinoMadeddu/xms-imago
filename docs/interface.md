@@ -265,9 +265,9 @@ The attributes of the selected node, or of the primitive selected in the Scene E
 | Tab | Rows |
 |---|---|
 | Point | Points: polygon vertices, curve control points and free points. Position `P`, normal `N` for polygon vertices, `widths` for free points |
-| Edge | Polygon edges, then curve segments (between control points that follow each other, and the last back to the first on a periodic curve): `indices`, its two points as one array, and the length |
-| Face | Polygons, then curves, one row each: the number of corners (a curve's control points), `indices`, every point of the face as one array, and the normal and area of a polygon or the length of a curve |
-| Corner | Polygon corners, polygon after polygon (24 on a cube, not the 36 corners of the triangles it is drawn with): `ptIndex`, the point each corner belongs to (several corners share a point), and the UV when the mesh has them. Curves have none |
+| Edge | Polygon edges, then curve segments (between control points that follow each other, and the last back to the first on a periodic curve): `ptIndices`, its two points as one array, and the length |
+| Face | Polygons, then curves, one row each: the number of corners (a curve's control points), `ptIndices`, every point of the face as one array, and the normal and area of a polygon or the length of a curve. A polygon's `firstCorner` is the Corner row its corners start at. A curve's root point is the first number of its `ptIndices` |
+| Corner | Polygon corners, polygon after polygon (24 on a cube, not the 36 corners of the triangles it is drawn with): `ptIndex`, the point each corner belongs to (several corners share a point), `faceIndex`, the face it is a corner of, `localCornerIndex`, its place in that face (0 for the first, as Houdini's vertex `0:0, 0:1…`), and the UV when the mesh has them. The row number is the corner's own number, counted across the whole mesh as USD counts faceVarying values. Curves have none |
 | Object | One row per primitive, with its Object attributes |
 | Joint | Joints of a clip: name, parent, position and rotation at the current frame |
 | Bone | Bones of a clip: from one joint to another, with length |
