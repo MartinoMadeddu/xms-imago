@@ -360,7 +360,7 @@ pub fn draw_operator_stack(
                         if let Some(e) = stack.entries.iter_mut().find(|e| e.node_id == id) {
                             e.expanded = !e.expanded;
                         }
-                        stack.rebuild(&graph.nodes, &graph.connections);
+                        stack.rebuild(&graph.nodes, &graph.connections, graph.view_flag);
                     }
                     if let Some(id) = select_id {
                         stack.selected_entry = Some(id);

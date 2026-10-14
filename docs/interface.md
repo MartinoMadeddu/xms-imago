@@ -78,9 +78,9 @@ As in other programs, nothing is written over a file that exists without asking:
 
 Opening a graph is a step in the [history](undo.md): undo goes back to the graph before it.
 
-Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If its Output is not wired, it takes what the added graph's Output was wired to; if nothing is viewed, the added graph's viewed node is. ICE graphs are not saved in graph files yet, so an ICE node added from a file comes with an empty tree (from a template, or copied and pasted, it keeps its tree).
+Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If nothing was viewed (the graph was empty), the added graph's viewed operator is. ICE graphs are not saved in graph files yet, so an ICE node added from a file comes with an empty tree (from a template, or copied and pasted, it keeps its tree).
 
-Opening a graph (Open or Open Recent) or picking a template asks first whether to **Add** it to the graph, beside the nodes already there, or **Open as new** in place of the graph. On a graph with nothing but Output it opens straight away.
+Opening a graph (Open or Open Recent) or picking a template asks first whether to **Add** it to the graph, beside the nodes already there, or **Open as new** in place of the graph. On an empty graph it opens straight away.
 
 ![Picking a template over a graph with nodes](xms_add_or_open.png)
 
@@ -101,13 +101,13 @@ The list of recent files is kept in `recent.json` in the config folder.
 | Draw a wire | Drag from an output socket with the left button |
 | Remove a wire | Right-click it |
 | See every node | "Frame" in the header, or F or A over the graph |
-| Tidy the graph | "Tidy" in the header lays the nodes out in rows, top to bottom, Output last, each node above the first node that uses it |
-| Copy nodes | Ctrl+C (Cmd+C on macOS) over the graph: the selected nodes, their parameters, the wires between them and the trees of their ICE nodes. Output is not copied |
+| Tidy the graph | "Tidy" in the header lays the nodes out in rows, top to bottom, each node above the first node that uses it |
+| Copy nodes | Ctrl+C (Cmd+C on macOS) over the graph: the selected nodes, their parameters, the wires between them and the trees of their ICE nodes |
 | Paste nodes | Ctrl+V (Cmd+V) over the graph: new nodes, under the pointer, selected. Each ICE node gets a tree of its own |
 
 Copied nodes go to the system clipboard as text, and to `clipboard.json` in the config folder. They paste in another window of the program, after it was closed and started again, or on another computer from text sent over. When the clipboard holds something else, Ctrl+V pastes the nodes copied last.
 
-![The ICE spherify template, then the same template added to it: the added nodes sit beside the first ones, and Output stays with the first](xms_copy_paste_add.png)
+![The ICE spherify template, then the same template added to it: the added nodes sit beside the first ones, and the view stays with the first](xms_copy_paste_add.png)
 
 A new node is never left out of sight: the view moves just enough to show it. Templates are laid out with Tidy and framed when they load.
 
@@ -172,8 +172,10 @@ Each node in the graph has two buttons in its title.
 
 | Button | Where | Does |
 |---|---|---|
-| Bypass | Left, a ring | Switches the node off. Its first input passes through unchanged. The ring turns orange with a bar through it and the node is greyed. A bypassed node with nothing wired to it gives nothing. Output cannot be bypassed |
-| View | Right | Shows that node in the Viewer |
+| Bypass | Left, a ring | Switches the node off. Its first input passes through unchanged. The ring turns orange with a bar through it and the node is greyed. A bypassed node with nothing wired to it gives nothing |
+| View | Right | Makes that operator's output the scene: what the Viewer draws, the Scene Explorer lists and the Primitive Inspector shows. Clicked again on an operator with several outputs (Load FBX: Clip, Geometry, Rest), it moves on to the next; its tooltip says which is viewed |
+
+There is no Output node: the view flag says what the scene is, as Houdini's display flag does. One operator always has it while the graph has any. The first operator added to a graph gets it, and so does an operator added from the viewed output of the viewed one; deleting the viewed operator gives it to what was wired into it, else to the end of the last chain. A graph saved with an Output node opens without it, the view on what was wired into Output (unless another operator was viewed), and on the same output of it.
 
 Bypass is saved with the graph.
 
@@ -244,13 +246,13 @@ A menu stays open while it is used: ticking panes in Window, Invert zoom in Navi
 
 ## Scene Explorer
 
-The Scene Explorer lists the scene at the operator with the view flag (or what reaches Output when no operator has it) as its own tree, as usdview would: the prims of a stage in the stage's hierarchy, prims made in Imago under the Xforms of their path, the joints of a clip. There is no row for the operator: a Prune, a Merge or a shape put on another prim's path shows as the scene has it. A plain mesh, which has no path (after Unpack, or a Merge set to Flatten), is one row with the operator's name.
+The Scene Explorer lists the scene at the operator with the view flag as its own tree, as usdview would: the prims of a stage in the stage's hierarchy, prims made in Imago under the Xforms of their path, the joints of a clip. There is no row for the operator: a Prune, a Merge or a shape put on another prim's path shows as the scene has it. A plain mesh, which has no path (after Unpack, or a Merge set to Flatten), is one row with the operator's name.
 
 Clicking a row shows that prim, or that group and everything below it, in the Primitive Inspector. Clicking it again shows the whole scene there again, and so does a selected prim leaving the scene (moving the view flag, or a Prune). Selecting a row does not select an operator. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
 
 ## Operator Stack
 
-One row per node, from Output down to the sources. A chain of single inputs stays in one column however long it is. Only a node with several inputs, such as a Merge, steps its branches in. The triangle at the left of a row folds what is under it: it shows at branch points, on folded rows, and under the cursor. The type of the node is at the right when there is room. A bypassed node is struck through.
+One row per node, from the viewed operator down to the sources. A chain of single inputs stays in one column however long it is. Only a node with several inputs, such as a Merge, steps its branches in. The triangle at the left of a row folds what is under it: it shows at branch points, on folded rows, and under the cursor. The type of the node is at the right when there is room. A bypassed node is struck through.
 
 ## Splash and icon
 

@@ -354,7 +354,6 @@ pub fn draw_properties(
             }
         }),
         NodeType::Ice { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
-        NodeType::Output => group(ui, "Output", None, |f| { f.status(Status::Info, "What reaches this node is the scene"); }),
 
         // ── Primitives ───────────────────────────────────────────────────────
         NodeType::PickPrims { pattern } => group(ui, "Pick", Some("The nodes after this one work on the picked primitives only and pass the others through: Edit Poly, Transform and the UV nodes all do"), |f| {

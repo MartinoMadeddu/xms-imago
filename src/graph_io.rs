@@ -30,6 +30,10 @@ struct SavedGraph {
     /// from node, from output, to node, to input
     connections: Vec<[usize; 4]>,
     view_flag:   Option<usize>,
+    /// The output of the viewed operator that is viewed (see
+    /// `NodeGraphState::view_output`).
+    #[serde(default)]
+    view_output: usize,
 }
 
 pub fn to_json(graph: &NodeGraphState) -> String {
@@ -46,6 +50,7 @@ pub fn to_json(graph: &NodeGraphState) -> String {
             .map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input])
             .collect(),
         view_flag: graph.view_flag.map(|n| n.0),
+        view_output: graph.view_output,
     };
     serde_json::to_string_pretty(&saved).unwrap_or_default()
 }
@@ -57,11 +62,7 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
     upgrade_json(&mut value);
     let mut saved: SavedGraph = serde_json::from_value(value).map_err(|e| e.to_string())?;
     upgrade(&mut saved);
-    if !saved.nodes.iter().any(|n| matches!(n.node_type, NodeType::Output)) {
-        return Err("graph has no Output node".into());
-    }
     clear(graph);
-    graph.nodes.clear();
     for n in saved.nodes {
         let mut node_type = n.node_type;
         if let NodeType::Ice { id, .. } = &mut node_type { *id = IceGraphId(usize::MAX); }
@@ -76,6 +77,9 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
         if ok { graph.add_connection(NodeId(from), out, NodeId(to), input); }
     }
     graph.view_flag = saved.view_flag.map(NodeId).filter(|v| graph.nodes.iter().any(|n| n.id == *v));
+    graph.view_output = saved.view_output;
+    // A graph saved with nothing viewed views the end of its last chain.
+    graph.repair_view_flag(None);
     Ok(())
 }
 
@@ -86,8 +90,11 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
 /// - Scatter Points and Copy to Points are gone: ICE graphs do both. Each
 ///   becomes a Placeholder with the same inputs and outputs and a note, so
 ///   the graph opens with its wires in place.
+/// - Output is gone: the view flag says what the scene is. What was wired
+///   into Output gets the flag, unless another operator had it.
 fn upgrade_json(value: &mut serde_json::Value) {
     use serde_json::{json, Value};
+    remove_output(value);
     let Some(nodes) = value.get_mut("nodes").and_then(Value::as_array_mut) else { return };
     for node in nodes {
         let Some(t) = node.get_mut("node_type") else { continue };
@@ -106,6 +113,36 @@ fn upgrade_json(value: &mut serde_json::Value) {
             "CopyToPoints" => removed(&["Template", "Points"], &["Geo"], "Copy to Points"),
             _ => continue,
         };
+    }
+}
+
+/// Take the Output node out of a saved graph (or copied nodes). The view
+/// flag goes to the operator and output wired into it, when no other
+/// operator had the flag.
+fn remove_output(value: &mut serde_json::Value) {
+    use serde_json::{json, Value};
+    let ids: Vec<Value> = value.get("nodes").and_then(Value::as_array).map(|nodes| nodes.iter()
+        .filter(|n| n.get("node_type").and_then(Value::as_str) == Some("Output"))
+        .filter_map(|n| n.get("id").cloned()).collect()).unwrap_or_default();
+    for id in ids {
+        let wired = value.get("connections").and_then(Value::as_array)
+            .and_then(|cs| cs.iter().find(|c| c.get(2) == Some(&id)))
+            .map(|c| (c[0].clone(), c[1].clone()));
+        if let Some(cs) = value.get_mut("connections").and_then(Value::as_array_mut) {
+            cs.retain(|c| c.get(0) != Some(&id) && c.get(2) != Some(&id));
+        }
+        if let Some(nodes) = value.get_mut("nodes").and_then(Value::as_array_mut) {
+            nodes.retain(|n| n.get("id") != Some(&id));
+        }
+        if let Some(obj) = value.as_object_mut() {
+            let unset = obj.get("view_flag").is_none_or(|f| f.is_null() || *f == id);
+            if unset && obj.contains_key("view_flag") {
+                match wired {
+                    Some((src, out)) => { obj.insert("view_flag".into(), src); obj.insert("view_output".into(), out); }
+                    None => { obj.insert("view_flag".into(), Value::Null); obj.insert("view_output".into(), json!(0)); }
+                }
+            }
+        }
     }
 }
 
@@ -223,10 +260,10 @@ impl Fragment {
     }
 }
 
-/// Copy nodes, with the wires between them. Output is left out.
+/// Copy nodes, with the wires between them.
 pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> Option<Fragment> {
     let picked: Vec<&crate::node_graph::GraphNode> = graph.nodes.iter()
-        .filter(|n| ids.contains(&n.id) && !matches!(n.node_type, NodeType::Output)).collect();
+        .filter(|n| ids.contains(&n.id)).collect();
     if picked.is_empty() { return None; }
     let inside = |id: NodeId| picked.iter().any(|n| n.id == id);
     let trees = picked.iter().filter_map(|n| match &n.node_type {
@@ -259,7 +296,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
 pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: Fragment, at: Option<egui::Pos2>) -> Placed {
     let Fragment { nodes, connections, trees, .. } = fragment;
     // Nodes from an older version are brought up to date as a file is.
-    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None };
+    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0 };
     upgrade(&mut saved);
     let corner = saved.nodes.iter().fold(egui::pos2(f32::MAX, f32::MAX), |c, n| egui::pos2(c.x.min(n.position[0]), c.y.min(n.position[1])));
     let shift = match at { Some(at) => at - corner, None => egui::vec2(40.0, 40.0) };
@@ -310,10 +347,10 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
 }
 
 /// Add every node of `other` to `graph`, to the right of what is there.
-/// When `graph`'s Output is not wired, it takes what `other`'s was wired
-/// to; when nothing is viewed, the viewed node of `other` is. Returns how
-/// many nodes were added.
+/// When `graph` had nothing to view, the viewed operator of `other` is
+/// viewed. Returns how many nodes were added.
 pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other: &NodeGraphState) -> usize {
+    let had_view = graph.view_flag.is_some();
     let ids: Vec<NodeId> = other.nodes.iter().map(|n| n.id).collect();
     let Some(fragment) = copy(other, subnets, &ids) else { return 0 };
     let count = fragment.len();
@@ -325,14 +362,13 @@ pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other:
         })
         .map(|r| egui::pos2(r.right() + 120.0, r.top()));
     let placed = paste(graph, subnets, fragment, at.or(Some(egui::pos2(40.0, 20.0))));
-    let out_of = |g: &NodeGraphState| g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output))
-        .map(|n| (n.id, n.inputs.first().and_then(|i| i.connected_output)));
-    if let (Some((out, None)), Some((_, Some((src, socket))))) = (out_of(graph), out_of(other)) {
-        if let Some(&new) = placed.get(&src.0) { graph.add_connection(new, socket, out, 0); }
+    if !had_view {
+        if let Some(&v) = other.view_flag.and_then(|v| placed.get(&v.0)) {
+            graph.view_flag = Some(v);
+            graph.view_output = other.view_output;
+        }
     }
-    if graph.view_flag.is_none() {
-        graph.view_flag = other.view_flag.and_then(|v| placed.get(&v.0).copied());
-    }
+    graph.repair_view_flag(None);
     graph.frame_request = true;
     count
 }
@@ -352,17 +388,15 @@ pub fn remembered() -> Option<Fragment> {
     Fragment::from_text(&std::fs::read_to_string(file).ok()?)
 }
 
-/// Remove everything except the Output node.
+/// Remove every operator.
 pub(crate) fn clear(graph: &mut NodeGraphState) {
     graph.connections.clear();
-    graph.nodes.retain(|n| matches!(n.node_type, NodeType::Output));
-    for n in &mut graph.nodes {
-        for i in &mut n.inputs { i.connected_output = None; }
-    }
+    graph.nodes.clear();
     graph.selected_node = None;
     graph.selected_nodes.clear();
     graph.selected_connection = None;
     graph.view_flag = None;
+    graph.view_output = 0;
     graph.dragging_node = None;
     graph.connecting_from = None;
 }
@@ -400,10 +434,8 @@ pub fn mocap_split_template(graph: &mut NodeGraphState) {
         graph.add_connection(skin, 0, write, 0);
     }
 
-    if let Some(out) = graph.nodes.iter_mut().find(|n| matches!(n.node_type, NodeType::Output)) {
-        out.position = p(330.0, 660.0);
-    }
     graph.view_flag     = Some(split);
+    graph.view_output   = 0;
     graph.selected_node = Some(load);
     graph.selected_nodes = vec![load];
 }
@@ -429,10 +461,7 @@ mod tests {
         g.toggle_bypass(xf);
         assert_ne!(before, g.content_hash());
         assert!((max_x(&g) - 1.0).abs() < 1e-5);
-        // Output cannot be bypassed, and a bypassed node with nothing wired gives nothing.
-        let out = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
-        g.toggle_bypass(out);
-        assert!(!g.nodes.iter().find(|n| n.id == out).unwrap().bypassed);
+        // A bypassed node with nothing wired gives nothing.
         g.toggle_bypass(cube);
         assert!(g.eval_node(cube, &mut Default::default(), &pass).is_none());
     }
@@ -538,24 +567,22 @@ mod tests {
         let ice = g.add_node("ICE".into(), NodeType::Ice { id: sid, name: "Spherify".into() }, egui::pos2(100.0, 100.0));
         g.add_connection(cube, 0, ice, 0);
         g.toggle_bypass(cube);
-        let out = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
-        g.add_connection(ice, 0, out, 0);
+        g.set_view_flag(ice);
 
-        // Output is not copied, nor the wire to it.
-        let text = copy(&g, &subnets, &[cube, ice, out]).unwrap().to_text();
+        let text = copy(&g, &subnets, &[cube, ice]).unwrap().to_text();
         let fragment = Fragment::from_text(&text).unwrap();
         assert_eq!(fragment.len(), 2);
 
         let placed = paste(&mut g, &mut subnets, fragment, Some(egui::pos2(500.0, 300.0)));
         let (new_cube, new_ice) = (placed[&cube.0], placed[&ice.0]);
-        assert_eq!(g.nodes.len(), 5);
+        assert_eq!(g.nodes.len(), 4);
         assert_eq!(g.selected_nodes.len(), 2);
         let node = |id: NodeId| g.nodes.iter().find(|n| n.id == id).unwrap();
         assert_eq!(node(new_cube).position, egui::pos2(500.0, 300.0));
         assert_eq!(node(new_ice).position, egui::pos2(500.0, 400.0));
         assert!(node(new_cube).bypassed);
         assert_eq!(node(new_ice).inputs[0].connected_output, Some((new_cube, 0)));
-        assert_eq!(g.connections.iter().filter(|c| c.to_node == out).count(), 1, "the pasted ICE node is not wired to Output");
+        assert_eq!(g.view_flag, Some(ice), "pasting leaves the view where it was");
         // A tree of its own, with the same nodes and wires.
         let NodeType::Ice { id: new_sid, .. } = node(new_ice).node_type else { panic!() };
         assert_ne!(new_sid, sid);
@@ -573,41 +600,65 @@ mod tests {
         assert!(Fragment::from_text("hello").is_none());
         assert!(Fragment::from_text(r#"{"version":1,"nodes":[],"connections":[],"view_flag":null}"#).is_none());
         let g = NodeGraphState::default();
-        let out = g.nodes[0].id;
-        assert!(copy(&g, &IceGraphStore::default(), &[out]).is_none(), "Output alone copies nothing");
+        assert!(copy(&g, &IceGraphStore::default(), &[]).is_none(), "nothing picked copies nothing");
     }
 
-    /// A graph added to another lands to the right of its nodes, and takes
-    /// Output only when Output was free.
+    /// A graph added to another lands to the right of its nodes. Its view
+    /// comes with it only when nothing was viewed.
     #[test]
-    fn a_graph_added_sits_beside_and_wires_a_free_output() {
+    fn a_graph_added_sits_beside_and_brings_its_view_to_an_empty_graph() {
         let mut subnets = IceGraphStore::default();
         let mut other = NodeGraphState::default();
         mocap_split_template(&mut other);
         let cube = other.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
-        let other_out = other.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
-        other.add_connection(cube, 0, other_out, 0);
-        let added = other.nodes.len() - 1;
+        other.set_view_flag(cube);
+        let added = other.nodes.len();
 
+        // Into an empty graph: the added graph's view comes with it.
+        let mut e = NodeGraphState::default();
+        assert_eq!(add_graph(&mut e, &mut subnets, &other), added);
+        let viewed = e.nodes.iter().find(|n| Some(n.id) == e.view_flag).unwrap();
+        assert!(matches!(viewed.node_type, NodeType::CreateCube { .. }));
+
+        // Beside a viewed sphere: the sphere stays viewed.
         let mut g = NodeGraphState::default();
         let mine = g.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
+        assert_eq!(g.view_flag, Some(mine), "the first operator of a graph is viewed");
         assert_eq!(add_graph(&mut g, &mut subnets, &other), added);
-        assert_eq!(g.nodes.len(), 2 + added);
-        assert_eq!(g.nodes.iter().filter(|n| matches!(n.node_type, NodeType::Output)).count(), 1);
+        assert_eq!(g.nodes.len(), 1 + added);
         let right = g.nodes.iter().find(|n| n.id == mine).unwrap().position.x + crate::node_graph::ui::NODE_WIDTH;
         assert!(g.nodes.iter().filter(|n| g.selected_nodes.contains(&n.id)).all(|n| n.position.x > right));
-        let out = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap();
-        let (src, _) = out.inputs[0].connected_output.expect("Output was free: it takes the added cube");
-        assert!(matches!(g.nodes.iter().find(|n| n.id == src).unwrap().node_type, NodeType::CreateCube { .. }));
-        assert!(g.view_flag.is_some(), "nothing was viewed: the added graph's view comes with it");
+        assert_eq!(g.view_flag, Some(mine));
+    }
 
-        // Output already wired stays as it was.
-        let mut h = NodeGraphState::default();
-        let s = h.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
-        let h_out = h.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
-        h.add_connection(s, 0, h_out, 0);
-        add_graph(&mut h, &mut subnets, &other);
-        assert_eq!(h.nodes.iter().find(|n| n.id == h_out).unwrap().inputs[0].connected_output, Some((s, 0)));
+    /// One operator is always viewed: deleting it moves the view to what was
+    /// wired into it; the flag clicked again moves to the next output.
+    #[test]
+    fn one_operator_is_always_viewed() {
+        let mut g = NodeGraphState::default();
+        assert_eq!(g.view_flag, None, "an empty graph views nothing");
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let xf = g.add_node("Xf".into(), NodeType::Transform { translation: glam::Vec3::ZERO, rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 100.0));
+        g.add_connection(cube, 0, xf, 0);
+        assert_eq!(g.view_flag, Some(cube));
+        g.set_view_flag(xf);
+        g.set_view_flag(xf);
+        assert_eq!((g.view_flag, g.view_output), (Some(xf), 0), "clicked again, one output: still viewed");
+        g.selected_nodes = vec![xf];
+        g.delete_selected();
+        assert_eq!(g.view_flag, Some(cube), "the view goes to what came in");
+        g.selected_nodes = vec![cube];
+        g.delete_selected();
+        assert_eq!(g.view_flag, None);
+
+        // Several outputs: the flag clicked again goes round them.
+        let fbx = g.add_node("Load".into(), NodeType::LoadFbx { path: String::new(), take: 0 }, egui::pos2(0.0, 0.0));
+        assert_eq!(g.view_flag, Some(fbx));
+        g.set_view_flag(fbx);
+        assert_eq!(g.viewed_output(), 1);
+        g.set_view_flag(fbx);
+        g.set_view_flag(fbx);
+        assert_eq!(g.viewed_output(), 0);
     }
 
     #[test]
@@ -616,7 +667,7 @@ mod tests {
         mocap_split_template(&mut g);
         let before = to_json(&g);
         assert!(from_json(&mut g, "{ not json").is_err());
-        assert!(from_json(&mut g, r#"{"version":1,"nodes":[],"connections":[],"view_flag":null}"#).is_err());
+        assert!(from_json(&mut g, r#"{"version":1}"#).is_err());
         assert_eq!(to_json(&g), before);
     }
 
@@ -692,6 +743,9 @@ mod tests {
         // Its wire leaves from the Geometry output now.
         let mv = g.nodes.iter().find(|n| n.id == NodeId(3)).unwrap();
         assert_eq!(mv.inputs[0].connected_output, Some((NodeId(2), 1)));
+        // Output is gone; what was wired into it is viewed.
+        assert_eq!(g.nodes.len(), 2);
+        assert_eq!((g.view_flag, g.view_output), (Some(NodeId(3)), 0));
     }
 
     #[test]
@@ -708,9 +762,8 @@ mod tests {
         assert!(!g.nodes.iter().any(|n| matches!(n.node_type, NodeType::Calamari { .. } | NodeType::TransformClip { .. })));
         let rag = g.nodes.iter().find(|n| n.id == NodeId(4)).unwrap();
         assert!(matches!(rag.node_type, NodeType::Ragdoll { view: crate::types::BodyView::Hulls, .. }));
-        assert_eq!(g.view_flag, Some(NodeId(4)));
-        let out = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap();
-        assert_eq!(out.inputs[0].connected_output, Some((NodeId(4), 0)), "Output is wired to Body Collide now");
+        assert_eq!(g.view_flag, Some(NodeId(4)), "viewed: Body Collide, which took over the old display node's view");
+        assert_eq!(g.nodes.len(), 3, "Output and Calamari are gone");
         // Same motion as the old Transform Clip.
         let old = crate::core::anim::create_test_clip(1.0, crate::core::anim::FrameRate::new(30, 1))
             .transformed(glam::Vec3::new(1.0, 0.0, 0.0), glam::Vec3::new(0.0, 90.0, 0.0), 2.0);
@@ -736,6 +789,7 @@ mod tests {
         let mut g = NodeGraphState::default();
         from_json(&mut g, json).unwrap();
         let node = |id: usize| g.nodes.iter().find(|n| n.id == NodeId(id)).unwrap();
+        assert_eq!(g.view_flag, Some(NodeId(5)), "what reached Output is viewed");
         assert!(matches!(&node(3).node_type, NodeType::CreateCube { location, .. } if location == "/cube"));
         assert!(matches!(&node(1).node_type, NodeType::CreateGrid { location, .. } if location == "/grid"));
         assert!(matches!(node(5).node_type, NodeType::Merge { mode: crate::types::MergeMode::Auto }));
@@ -749,5 +803,23 @@ mod tests {
         let mut again = NodeGraphState::default();
         from_json(&mut again, &to_json(&g)).unwrap();
         assert_eq!(again.nodes.len(), g.nodes.len());
+    }
+
+    /// A graph from before the view flag was always set: an Output wired from
+    /// Load FBX's Geometry output, nothing flagged. That output is viewed.
+    #[test]
+    fn output_wired_from_a_second_output_keeps_that_output_viewed() {
+        let json = r#"{"version":1,"nodes":[
+            {"id":0,"name":"Output","position":[0,500],"node_type":"Output"},
+            {"id":1,"name":"Studio","position":[0,0],"node_type":{"LoadFbx":{"path":"studio.fbx","take":0}}}
+        ],"connections":[[1,1,0,0]],"view_flag":null}"#;
+        let mut g = NodeGraphState::default();
+        from_json(&mut g, json).unwrap();
+        assert_eq!(g.nodes.len(), 1);
+        assert_eq!((g.view_flag, g.viewed_output()), (Some(NodeId(1)), 1));
+        // Saved again, the output viewed is kept.
+        let mut h = NodeGraphState::default();
+        from_json(&mut h, &to_json(&g)).unwrap();
+        assert_eq!((h.view_flag, h.viewed_output()), (Some(NodeId(1)), 1));
     }
 }

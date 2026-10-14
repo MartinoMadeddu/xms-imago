@@ -137,7 +137,13 @@ pub struct NodeGraphState {
     pub marquee_start:       Option<egui::Pos2>,
     pub selected_connection: Option<ConnectionId>,
     pub graph_version:       u64,
-    pub view_flag:           Option<NodeId>,  // Which node viewport displays
+    /// The operator whose output is the scene: what the Viewer draws, the
+    /// Scene Explorer lists and the Primitive Inspector shows. One operator
+    /// always has it while the graph has any (see `repair_view_flag`).
+    pub view_flag:           Option<NodeId>,
+    /// Which output of that operator is viewed, for operators with several
+    /// (Load FBX: Clip, Geometry, Rest). Clicking the flag again moves on.
+    pub view_output:         usize,
     /// Output socket the add-node menu was opened from: the new node goes
     /// under it, wired to it.
     pub menu_from:           Option<(NodeId, usize)>,
@@ -163,11 +169,11 @@ impl Default for NodeGraphState {
             selected_connection: None,
             graph_version: 0,
             view_flag: None,
+            view_output: 0,
             menu_from: None,
             frame_request: true,
             cooked: Cooked::default(),
         };
-        s.add_node("Output".into(), NodeType::Output, egui::pos2(200.0, 400.0));
         s
     }
 }
@@ -199,6 +205,7 @@ impl NodeGraphState {
         }
         for c in &self.connections { (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut w.0); }
         self.view_flag.map(|n| n.0).hash(&mut w.0);
+        self.view_output.hash(&mut w.0);
         self.selected_node.map(|n| n.0).hash(&mut w.0);
         for n in &self.selected_nodes { n.0.hash(&mut w.0); }
         w.0.finish()
@@ -214,6 +221,8 @@ impl NodeGraphState {
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&node_type);
         self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false });
+        // The first operator of a graph is viewed: there is always one.
+        if self.view_flag.is_none() { self.view_flag = Some(id); self.view_output = 0; }
         self.mark_dirty();
         id
     }
@@ -232,7 +241,6 @@ impl NodeGraphState {
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
             NodeType::Merge { .. }          => (vec![i("A"), i("B")], vec![o("Result")]),
-            NodeType::Output                => (vec![i("Scene")], vec![]),
             NodeType::Placeholder { inputs, outputs, .. } => (
                 inputs.iter().map(|n| InputSocket { name: n.clone(), connected_output: None }).collect(),
                 outputs.iter().map(|n| OutputSocket { name: n.clone() }).collect(),
@@ -308,15 +316,13 @@ impl NodeGraphState {
         // Delete selected connection first (if any), nodes take priority if both set
         if !self.selected_nodes.is_empty() {
             let to_delete: Vec<NodeId> = self.selected_nodes.drain(..).collect();
+            // The viewed operator going: the view moves to what came into it.
+            let next_view = self.view_flag.filter(|v| to_delete.contains(v))
+                .and_then(|v| self.nodes.iter().find(|n| n.id == v))
+                .and_then(|n| n.inputs.iter().find_map(|i| i.connected_output))
+                .map(|(src, _)| src)
+                .filter(|src| !to_delete.contains(src));
             for nid in &to_delete {
-                // Skip the Output node — it can't be deleted
-                if let Some(n) = self.nodes.iter().find(|n| n.id == *nid) {
-                    if matches!(n.node_type, NodeType::Output) { continue; }
-                }
-                // 👁️ NEW - Clear view flag if deleting the viewed node
-                if self.view_flag == Some(*nid) {
-                    self.view_flag = None;
-                }
                 // Remove all connections involving this node
                 let conns_to_remove: Vec<ConnectionId> = self.connections.iter()
                     .filter(|c| c.from_node == *nid || c.to_node == *nid)
@@ -328,6 +334,7 @@ impl NodeGraphState {
             if self.selected_node.map(|id| to_delete.contains(&id)).unwrap_or(false) {
                 self.selected_node = None;
             }
+            self.repair_view_flag(next_view);
             self.selected_connection = None;
         } else if let Some(cid) = self.selected_connection.take() {
             self.remove_connection(cid);
@@ -339,21 +346,44 @@ impl NodeGraphState {
     // 👁️ NEW - VIEW FLAG SYSTEM
     // ============================================================================
 
-    /// Toggle the view flag on a node
-    /// If the node already has the view flag, remove it (revert to Output)
-    /// Otherwise, set the view flag to this node
-    pub fn toggle_view_flag(&mut self, node_id: NodeId) {
+    /// Put the view flag on an operator. On the operator that has it
+    /// already, the view moves on to its next output, for operators with
+    /// several (Load FBX: Clip, Geometry, Rest). The flag never goes off:
+    /// one operator is always viewed, as Houdini's display flag.
+    pub fn set_view_flag(&mut self, node_id: NodeId) {
+        let outputs = self.nodes.iter().find(|n| n.id == node_id).map(|n| n.outputs.len()).unwrap_or(0);
         if self.view_flag == Some(node_id) {
-            // Remove view flag (will show Output)
-            self.view_flag = None;
+            if outputs > 1 { self.view_output = (self.view_output + 1) % outputs; }
         } else {
-            // Set view flag to this node
             self.view_flag = Some(node_id);
+            self.view_output = 0;
         }
     }
 
-    /// Check if a specific node has the view flag
-    /// Lay the graph out top to bottom: Output last, each node on the row
+    /// Keep one operator viewed while the graph has any. When the viewed one
+    /// is gone (deleted, or never set in a file), the view goes to `prefer`
+    /// if it is there, else to the last operator nothing is wired from: the
+    /// end of the last chain.
+    pub fn repair_view_flag(&mut self, prefer: Option<NodeId>) {
+        let exists = |id: NodeId| self.nodes.iter().any(|n| n.id == id);
+        if self.view_flag.is_some_and(exists) { return; }
+        let end = self.nodes.iter().rev()
+            .find(|n| !self.connections.iter().any(|c| c.from_node == n.id))
+            .or(self.nodes.last())
+            .map(|n| n.id);
+        let next = prefer.filter(|p| exists(*p)).or(end);
+        self.view_flag = next;
+        self.view_output = 0;
+    }
+
+    /// The output of the viewed operator that is viewed, within the outputs
+    /// it has.
+    pub fn viewed_output(&self) -> usize {
+        let n = self.view_flag.and_then(|id| self.nodes.iter().find(|n| n.id == id)).map(|n| n.outputs.len()).unwrap_or(1);
+        if self.view_output < n { self.view_output } else { 0 }
+    }
+
+    /// Lay the graph out top to bottom: each node on the row
     /// above the first node that uses it. Rows are centred on
     /// one another and a chain of single inputs comes out as a straight line.
     pub fn auto_layout(&mut self) {
@@ -384,12 +414,7 @@ impl NodeGraphState {
             if !moved { break; }
         }
         let depth = above.iter().copied().max().unwrap_or(0);
-        let mut row: Vec<usize> = above.iter().map(|a| depth - a).collect();
-        // Output goes under everything, wired or not.
-        let last = row.iter().copied().max().unwrap_or(0);
-        for (i, node) in self.nodes.iter().enumerate() {
-            if matches!(node.node_type, NodeType::Output) { row[i] = if parents[i].is_empty() { last + 1 } else { row[i].max(last) }; }
-        }
+        let row: Vec<usize> = above.iter().map(|a| depth - a).collect();
         let rows = row.iter().copied().max().unwrap_or(0) + 1;
         let mut by_row: Vec<Vec<usize>> = vec![vec![]; rows];
         // Start from the order the nodes already have, left to right.
@@ -453,7 +478,6 @@ impl NodeGraphState {
 
     pub fn toggle_bypass(&mut self, node_id: NodeId) {
         if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
-            if matches!(n.node_type, NodeType::Output) { return; }
             n.bypassed = !n.bypassed;
         }
         self.mark_dirty();
@@ -463,83 +487,29 @@ impl NodeGraphState {
         self.view_flag == Some(node_id)
     }
 
-    /// Get the node ID that should be displayed in the viewport
-    /// Returns the view flag node if set, otherwise returns Output node
-    pub fn get_viewport_node(&self) -> Option<NodeId> {
-        if let Some(flagged_node) = self.view_flag {
-            // View flag is set, use that node
-            return Some(flagged_node);
-        }
-        
-        // No view flag, fallback to Output node
-        self.nodes.iter()
-            .find(|n| matches!(n.node_type, NodeType::Output))
-            .map(|n| n.id)
-    }
+    /// The operator the Viewer shows: the one with the view flag.
+    pub fn get_viewport_node(&self) -> Option<NodeId> { self.view_flag }
 
-    /// Clear the view flag (revert to showing Output)
-    pub fn clear_view_flag(&mut self) {
-        self.view_flag = None;
-    }
-
-    // ============================================================================
-    // END VIEW FLAG SYSTEM
-    // ============================================================================
-
-    // ── Viewport evaluation ───────────────────────────────────────────────────
-    // 👁️ MODIFIED - Now respects view flag
-    // Evaluates from the view flag node if set, otherwise from Output.
-    // This allows viewing intermediate results in the node chain.
-    /// What the viewport shows, before anything is merged: packed
-    /// primitives keep their materials.
+    /// What the Viewer shows, before anything is merged: packed primitives
+    /// keep their materials. The viewed output of the viewed operator.
     pub fn evaluate_for_viewport_packed(
         &self,
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
-        let id = self.get_viewport_node()?;
-        let node = self.nodes.iter().find(|n| n.id == id)?;
-        let mut cache = HashMap::new();
-        if matches!(node.node_type, NodeType::Output) {
-            let (src, out) = node.inputs.first()?.connected_output?;
-            return self.eval_node_out(src, out, &mut cache, eval_subnet);
-        }
-        self.eval_node(id, &mut cache, eval_subnet)
+        let id = self.view_flag?;
+        self.eval_node_out(id, self.viewed_output(), &mut HashMap::new(), eval_subnet)
     }
 
+    /// The same, as one mesh.
     pub fn evaluate_for_viewport(
         &self,
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
     ) -> Option<MeshData> {
-        // 👁️ Use view flag if set, otherwise use Output
-        let display_node_id = self.get_viewport_node()?;
-        
-        // If viewing a node with no output (like Output itself), walk upstream
-        let node = self.nodes.iter().find(|n| n.id == display_node_id)?;
-        
-        // If this is the Output node, get its input
-        if matches!(node.node_type, NodeType::Output) {
-            let (src, out) = node.inputs.first()?.connected_output?;
-            let mut cache = HashMap::new();
-            return self.eval_node_out(src, out, &mut cache, eval_subnet)
-                .map(|r| r.into_mesh());
-        }
-        
-        // Otherwise, evaluate the flagged node directly
-        let mut cache = HashMap::new();
-        self.eval_node(display_node_id, &mut cache, eval_subnet)
-            .map(|r| r.into_mesh())
+        self.evaluate_for_viewport_packed(eval_subnet).map(|r| r.into_mesh())
     }
 
-    /// The node the viewport displays, resolved through Output to its source.
-    pub fn display_source(&self) -> Option<NodeId> {
-        let id   = self.get_viewport_node()?;
-        let node = self.nodes.iter().find(|n| n.id == id)?;
-        if matches!(node.node_type, NodeType::Output) {
-            node.inputs.first()?.connected_output.map(|(src, _)| src)
-        } else {
-            Some(id)
-        }
-    }
+    /// The operator the Viewer shows.
+    pub fn display_source(&self) -> Option<NodeId> { self.view_flag }
 
     /// Clip produced by one node, if it produces animation. Clip operators
     /// never go through subnets, so no subnet evaluator is needed.
@@ -582,10 +552,6 @@ impl NodeGraphState {
                 Some(r @ EvalResult::Anim(_)) => Some(r),
                 _ => None,
             },
-            NodeType::Output => {
-                let (src, out) = node.inputs.first()?.connected_output?;
-                self.eval_anim_node(src, out, cache, eval_subnet)
-            }
             _ => None,
         }
     }
@@ -697,9 +663,8 @@ impl NodeGraphState {
     }
 
     // ── The scene ───────────────────────────────────────────────────────────
-    /// The scene at the view flag, or what reaches Output when no operator
-    /// has the flag: the operator it is read from, its name, and what it puts
-    /// out. The Viewer draws it, the Scene Explorer lists it, the Primitive
+    /// The scene at the view flag: the operator it is read from, its name,
+    /// and what its viewed output puts out. The Viewer draws it, the Scene Explorer lists it, the Primitive
     /// Inspector shows it.
     pub fn evaluate_scene(
         &self,
@@ -717,13 +682,9 @@ impl NodeGraphState {
         let Some(id) = self.get_viewport_node() else { return vec![] };
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return vec![] };
         let clips: Vec<_> = match &node.node_type {
-            NodeType::Output => node.inputs.first()
-                .and_then(|i| i.connected_output)
-                .and_then(|(src, out)| self.eval_anim_out(src, out))
-                .into_iter().collect(),
             NodeType::SplitSkeleton { picks } =>
                 (0..picks.len()).filter_map(|o| self.eval_anim_out(id, o)).collect(),
-            _ => self.eval_anim(id).into_iter().collect(),
+            _ => self.eval_anim_out(id, self.viewed_output()).into_iter().collect(),
         };
         // Body Collide can show the bodies it collides instead of the skin.
         let bodies = self.body_collide_node().and_then(|n| match &n.node_type {

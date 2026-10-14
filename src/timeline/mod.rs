@@ -76,7 +76,7 @@ pub fn resolve_source(graph: &NodeGraphState) -> TimelineState {
         node.inputs.first()
             .and_then(|s| s.connected_output)
             .and_then(|(src, out)| graph.eval_anim_out(src, out))
-            // An Output node resolves to the same clip as its input.
+            // An operator that passes the clip on unchanged has no input to compare.
             .filter(|i| !Arc::ptr_eq(i, &clip))
     };
     TimelineState::Source(TimelineSource {

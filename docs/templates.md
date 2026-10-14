@@ -78,7 +78,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
-| Load FBX: what a file holds | `examples/fbx/studio.fbx`, written by hand: a floor and a crate with their materials and UVs on the Geometry output, a camera that dollies in and a point light listed in the parameters |
+| Load FBX: what a file holds | `examples/fbx/studio.fbx`, written by hand: a floor and a crate with their materials and UVs on the Geometry output, which is the one viewed, a camera that dollies in and a point light listed in the parameters |
 | Retarget onto a character | The example take's first actor on the 342-joint character of `ragdoll/split/into_the_car_.fbx`, taken in the pose its skin was bound in (Load FBX's Rest output), then Reach: feet where the actor's are, within human limits |
 | Capture and Skin | The same, with the character's mesh weighted again by proximity (Capture) and its skin put on the retargeted take by joint name (Skin). Bypass Capture to use the file's own weights |
 | Mocap folder: retarget, skin, collide, write | The example takes folder, each actor placed by a Transform and retargeted onto the character, feet set by Reach, kept out of a stand-in set by Body Collide, written as skinned FBX to `{dir}/retargeted`. All files on a Write node solves and writes the whole folder |

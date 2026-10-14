@@ -67,7 +67,8 @@ pub enum NodeType {
     /// earlier versions.
     #[serde(alias = "Subnet")]
     Ice          { id: IceGraphId, name: String },
-    Output,
+    // The Output node is gone: the view flag says what the scene is. Graphs
+    // saved with one have it taken out when read (`graph_io`).
 
     // ── Animation ────────────────────────────────────────────────────────────
     // Each of these outputs a whole clip. Time is not a parameter: the
@@ -288,7 +289,6 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
         NodeType::Ice { .. }        => "▣",
-        NodeType::Output               => "▶",
         NodeType::Placeholder { .. }   => "📝",
         NodeType::LoadFbx { .. }       => "🎬",
         NodeType::TestClip { .. }      => "🚶",
@@ -340,7 +340,6 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",
         NodeType::Ice { .. }        => "ICE",
-        NodeType::Output               => "Output",
         NodeType::Placeholder { .. }   => "Placeholder",
         NodeType::LoadFbx { .. }       => "Load FBX",
         NodeType::TestClip { .. }      => "Test Clip",

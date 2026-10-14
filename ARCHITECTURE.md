@@ -80,7 +80,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 
 ## 7. Viewer
 
-- **One scene, at the view flag.** `NodeGraphState::evaluate_scene` gives the scene at the view flag (else what reaches Output). The Viewer draws it, `SceneHierarchy::rebuild_scene` lists it as its own tree (no row per operator, each row with its `path`), and the Primitive Inspector shows the selected row's part of it (`prim_inspector::scene_parts`).
+- **One scene, at the view flag.** `NodeGraphState::evaluate_scene` gives the scene at the view flag: the viewed output (`view_output`) of the viewed operator. There is no Output node; one operator always has the flag (`set_view_flag`, `repair_view_flag`). The Viewer draws it, `SceneHierarchy::rebuild_scene` lists it as its own tree (no row per operator, each row with its `path`), and the Primitive Inspector shows the selected row's part of it (`prim_inspector::scene_parts`).
 - **Draws what the Scene Explorer opens.** A closed prim is the box around its subtree; open prims hand down to their children. There's a per-row geometry toggle and a "Show all geometry" switch. Boxes come from the primitives as they arrive, so they follow upstream nodes.
 - **Purposes:** guide/proxy/render toggles. Render geometry gives way to its asset's proxy when proxies are shown.
 - **Instancing:** a mesh with more than 64 copies is one entity with a GPU instance buffer of matrices and colours, uploaded once per change. Fewer copies are drawn as entities with full materials.

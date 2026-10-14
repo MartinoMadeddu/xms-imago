@@ -48,6 +48,7 @@ pub struct Doc {
     node_hashes: Vec<u64>,
     connections: Vec<Connection>,
     view_flag:   Option<NodeId>,
+    view_output: usize,
     next_node:   usize,
     next_conn:   usize,
 }
@@ -97,6 +98,7 @@ fn doc_hashes(g: &NodeGraphState) -> (u64, u64) {
     for h in [&mut full, &mut core] {
         for c in &g.connections { (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(h); }
         g.view_flag.map(|n| n.0).hash(h);
+        g.view_output.hash(h);
     }
     (full.finish(), core.finish())
 }
@@ -124,6 +126,7 @@ impl Doc {
             nodes, node_hashes,
             connections: g.connections.clone(),
             view_flag:   g.view_flag,
+            view_output: g.view_output,
             next_node:   g.next_node_id,
             next_conn:   g.next_connection_id,
         }, bytes)
@@ -136,6 +139,7 @@ impl Doc {
         g.nodes = self.nodes.iter().map(|n| (**n).clone()).collect();
         g.connections = self.connections.clone();
         g.view_flag = self.view_flag;
+        g.view_output = self.view_output;
         g.next_node_id = g.next_node_id.max(self.next_node);
         g.next_connection_id = g.next_connection_id.max(self.next_conn);
         g.dragging_node = None;
@@ -467,7 +471,8 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     touch(&params); touch(&added); touch(&renamed); touch(&bypassed);
     let wire_nodes: Vec<NodeId> = wired.iter().chain(unwired.iter()).flat_map(|w| [w.2, w.0]).collect();
     touch(&wire_nodes); touch(&removed); touch(&moved);
-    if a.view_flag != b.view_flag { touch(&b.view_flag.into_iter().collect::<Vec<_>>()); }
+    let view_moved = a.view_flag != b.view_flag || a.view_output != b.view_output;
+    if view_moved { touch(&b.view_flag.into_iter().collect::<Vec<_>>()); }
 
     let count = |n: usize, one: String, many: &str| if n == 1 { one } else { format!("{n} {many}") };
     let (label, kind) = if !added.is_empty() && !removed.is_empty() && removed.len() + added.len() > 2 {
@@ -499,10 +504,14 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     } else if !bypassed.is_empty() {
         let on = b.node(bypassed[0]).map_or(false, |n| n.bypassed);
         (format!("{} {}", if on { "Bypass" } else { "Turn on" }, count(bypassed.len(), name(b, bypassed[0]), "nodes")), Kind::Bypass)
-    } else if a.view_flag != b.view_flag {
+    } else if view_moved {
         match b.view_flag {
-            Some(id) => (format!("Show {} in the Viewer", name(b, id)), Kind::Display),
-            None     => ("Show Output in the Viewer".into(), Kind::Display),
+            // An operator with several outputs says which is viewed.
+            Some(id) => match b.node(id).filter(|n| n.outputs.len() > 1).and_then(|n| n.outputs.get(b.view_output)) {
+                Some(out) => (format!("View {}'s {} output", name(b, id), out.name), Kind::Display),
+                None => (format!("View {}", name(b, id)), Kind::Display),
+            },
+            None => ("View nothing".into(), Kind::Display),
         }
     } else if !moved.is_empty() {
         (format!("Move {}", count(moved.len(), name(b, moved[0]), "nodes")), Kind::Move)
@@ -787,10 +796,6 @@ mod tests {
         g.add_node("Cube".into(), NodeType::cube(size), egui::pos2(0.0, 0.0))
     }
 
-    fn output(g: &NodeGraphState) -> NodeId {
-        g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id
-    }
-
     fn set_size(g: &mut NodeGraphState, id: NodeId, v: f32) {
         if let Some(NodeType::CreateCube { size, .. }) = g.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type) { *size = v; }
     }
@@ -808,10 +813,14 @@ mod tests {
         set_size(&mut g, c, 2.5);
         h.update(&mut g, false);
         assert_eq!(label(&h), "Cube: size 1 to 2.5");
-        let out = output(&g);
-        g.add_connection(c, 0, out, 0);
+        let mv = g.add_node("Move".into(), NodeType::Transform { translation: glam::Vec3::ZERO, rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 100.0));
         h.update(&mut g, false);
-        assert_eq!(label(&h), "Connect Cube to Output");
+        g.add_connection(c, 0, mv, 0);
+        h.update(&mut g, false);
+        assert_eq!(label(&h), "Connect Cube to Move");
+        g.set_view_flag(mv);
+        h.update(&mut g, false);
+        assert_eq!(label(&h), "View Move");
         g.nodes.iter_mut().find(|n| n.id == c).unwrap().name = "Box".into();
         h.update(&mut g, false);
         assert_eq!(label(&h), "Rename Cube to Box");
@@ -875,9 +884,9 @@ mod tests {
         h.update(&mut g, false);
         h.request = Some(Request::Undo);
         assert!(!h.update(&mut g, true));
-        assert_eq!(g.nodes.len(), 2);
-        assert!(h.update(&mut g, false));
         assert_eq!(g.nodes.len(), 1);
+        assert!(h.update(&mut g, false));
+        assert_eq!(g.nodes.len(), 0);
     }
 
     #[test]
@@ -1041,15 +1050,18 @@ mod tests {
             let start = doc_hashes(&g).0;
             let mut states = vec![start];
             for _ in 0..60 {
-                let ids: Vec<NodeId> = g.nodes.iter().filter(|n| !matches!(n.node_type, NodeType::Output)).map(|n| n.id).collect();
+                let ids: Vec<NodeId> = g.nodes.iter().map(|n| n.id).collect();
                 match rnd(7) {
                     0 => { cube(&mut g, rnd(10) as f32); }
                     1 if !ids.is_empty() => { g.selected_nodes = vec![ids[rnd(ids.len())]]; g.delete_selected(); }
                     2 if !ids.is_empty() => { let id = ids[rnd(ids.len())]; set_size(&mut g, id, rnd(100) as f32 * 0.5); }
-                    3 if ids.len() >= 1 => { let out = output(&g); g.add_connection(ids[rnd(ids.len())], 0, out, 0); }
+                    3 if ids.len() >= 1 => {
+                        let mv = g.add_node("Move".into(), NodeType::Transform { translation: glam::Vec3::ZERO, rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 100.0));
+                        g.add_connection(ids[rnd(ids.len())], 0, mv, 0);
+                    }
                     4 if !ids.is_empty() => { let id = ids[rnd(ids.len())]; if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) { n.position.x += 10.0; } }
                     5 if !ids.is_empty() => { let id = ids[rnd(ids.len())]; if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) { n.bypassed = !n.bypassed; } }
-                    6 if !ids.is_empty() => { g.view_flag = Some(ids[rnd(ids.len())]); }
+                    6 if !ids.is_empty() => { g.set_view_flag(ids[rnd(ids.len())]); }
                     _ => {}
                 }
                 // Sometimes several changes make one gesture.

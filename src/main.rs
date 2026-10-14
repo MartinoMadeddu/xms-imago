@@ -623,7 +623,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let (_, _, scene) = g.evaluate_scene(&eval)?;
                     Some(prim_inspector::scene_parts(scene, path.as_deref()))
                 };
-                let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim(id));
+                let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim_out(id, g.viewed_output()));
                 let source = prim_inspector::Source {
                     node: self.graph.display_source(),
                     path: self.hierarchy.selected_path().map(str::to_string),
@@ -1140,7 +1140,7 @@ pub(crate) struct SaveFirst {
 
 impl SaveFirst {
     /// Bring in a file or a template. Asks whether to add it or open it as
-    /// new, unless the graph holds nothing but Output.
+    /// new, unless the graph is empty.
     fn load(&mut self, source: Source) {
         *self = SaveFirst { choosing: Some(source), ..Default::default() };
     }
@@ -1239,7 +1239,7 @@ pub(crate) fn save_first_frame(ctx: &egui::Context, app: &mut AppState, close_re
         return false;
     }
     if let Some(source) = save_first.choosing.clone() {
-        let empty = graph.nodes.iter().all(|n| matches!(n.node_type, NodeType::Output));
+        let empty = graph.nodes.is_empty();
         let choice = if empty { Some(1) } else { ask_add_or_open(ctx, &source.name()) };
         match choice {
             Some(0) => {
@@ -1318,7 +1318,7 @@ pub(crate) fn save_first_frame(ctx: &egui::Context, app: &mut AppState, close_re
 pub(crate) fn refresh_operator_stack(app: &mut AppState, seen: &mut u64) {
     let AppState { graph, revision, stack, .. } = app;
     if std::mem::replace(seen, revision.0) != revision.0 {
-        stack.rebuild(&graph.nodes, &graph.connections);
+        stack.rebuild(&graph.nodes, &graph.connections, graph.view_flag);
         if let Some(sel) = graph.selected_node {
             stack.selected_entry = Some(sel);
         }

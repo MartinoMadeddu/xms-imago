@@ -1,11 +1,11 @@
 //! The Scene Explorer (the stage's primitives as a hierarchy, in `ui`) and
-//! the Operator Stack (the chain of operators feeding the selected one).
+//! the Operator Stack (the chain of operators feeding the viewed one).
 //! Not to be confused with the scene graph, the network of operators.
 
 pub mod ui;
 
 use std::collections::{HashMap, HashSet};
-use crate::types::{NodeId, NodeType, node_type_icon, node_type_label};
+use crate::types::{NodeId, node_type_icon, node_type_label};
 use crate::node_graph::{Connection, GraphNode};
 
 // ============================================================================
@@ -30,15 +30,14 @@ pub struct OperatorStack {
 }
 
 impl OperatorStack {
-    pub fn rebuild(&mut self, nodes: &[GraphNode], connections: &[Connection]) {
+    /// The operators the scene is made by: from `root`, the operator with
+    /// the view flag, up through everything wired into it.
+    pub fn rebuild(&mut self, nodes: &[GraphNode], connections: &[Connection], root: Option<NodeId>) {
         let expansions: HashMap<NodeId, bool> =
             self.entries.iter().map(|e| (e.node_id, e.expanded)).collect();
         self.entries.clear();
 
-        let output = match nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)) {
-            Some(n) => n,
-            None    => return,
-        };
+        let Some(output) = root.and_then(|r| nodes.iter().find(|n| n.id == r)) else { return };
 
         let mut children_of: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
         for conn in connections {

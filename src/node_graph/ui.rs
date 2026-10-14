@@ -157,7 +157,12 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
             if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == new_id) { node.position = at; }
             if let Some((src, out, _)) = from {
                 let has_input = graph.nodes.iter().find(|n| n.id == new_id).map(|n| !n.inputs.is_empty()).unwrap_or(false);
-                if has_input { graph.add_connection(src, out, new_id, 0); }
+                if has_input {
+                    graph.add_connection(src, out, new_id, 0);
+                    // Added under the viewed operator, from its viewed
+                    // output: the view moves down to it, as in Houdini.
+                    if graph.view_flag == Some(src) && graph.viewed_output() == out { graph.set_view_flag(new_id); }
+                }
             }
             graph.selected_node = Some(new_id);
             graph.selected_nodes = vec![new_id];
@@ -447,19 +452,21 @@ fn draw_node(
         eye_color
     );
     
-// Handle click - toggle view flag
+    // A click puts the view flag here. On the viewed operator it moves on
+    // to its next output, when it has several. The flag never goes off.
+    let outputs: Vec<String> = node.outputs.iter().map(|o| o.name.clone()).collect();
+    let viewed = outputs.get(graph.viewed_output()).cloned().unwrap_or_default();
     let click_at = if dr.clicked() { dr.interact_pointer_pos() } else { None };
     let on_eye = click_at.map(|p| eye_rect.contains(p)).unwrap_or(false);
     if eye_response.clicked() || on_eye {
-        graph.toggle_view_flag(id);
+        graph.set_view_flag(id);
     }
-    
-    // Tooltip - simpler API
+
     if eye_response.hovered() {
-        let tooltip_text = if has_view_flag {
-            "The Viewer shows this node (click to go back to Output)"
-        } else {
-            "Click to show this node's output in the Viewer"
+        let tooltip_text = match (has_view_flag, outputs.len() > 1) {
+            (true, true) => format!("The scene is this operator's {viewed} output. Click to view its next output"),
+            (true, false) => "The scene is this operator's output: the Viewer, the Scene Explorer and the Primitive Inspector show it".to_string(),
+            (false, _) => "Click to make this operator's output the scene".to_string(),
         };
         eye_response.on_hover_text(tooltip_text);
     }
@@ -469,7 +476,7 @@ fn draw_node(
 
     // ── Bypass button, left of the title ─────────────────────────────────────
     let mut on_bypass = false;
-    if !matches!(node.node_type, NodeType::Output) {
+    {
         let by_rect = egui::Rect::from_min_size(
             egui::pos2(np.x + 4.0 * zoom, np.y + 4.0 * zoom), egui::vec2(eye_size, eye_size));
         let by = ui.allocate_rect(by_rect, egui::Sense::click());
@@ -643,7 +650,7 @@ const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B];   // teal          (#70BA9A
 
 /// A node's body colour, and the text colours that read on it: black on
 /// the light colours, white on the dark ones. The ICE node has its own
-/// colour; nodes in no category (Output) keep the theme's node grey.
+/// colour; nodes in no category keep the theme's node grey.
 fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     // The ICE node stands apart from its category.
     if matches!(t, NodeType::Ice { .. }) {
