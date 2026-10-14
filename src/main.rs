@@ -587,7 +587,7 @@ impl egui_dock::TabViewer for Panes<'_> {
 
             Pane::SceneExplorer => {
                 egui::ScrollArea::both().id_salt("scene_explorer_scroll").auto_shrink([false, false])
-                    .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy, self.graph));
+                    .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy));
             }
 
             Pane::History => {
@@ -612,14 +612,23 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::PrimInspector => {
+                // The scene at the view flag: the row selected in the Scene
+                // Explorer and what is below it, or all of it.
+                let subnets = &*self.subnets;
+                let path = self.hierarchy.selected_path().map(str::to_string);
                 let get_parts = |g: &NodeGraphState| -> Option<Vec<MeshData>> {
-                    let id = g.selected_node?;
-                    let mut cache = std::collections::HashMap::new();
-                    let eval_subnet = |_sid: IceGraphId, mesh: &crate::core::geo::Geo, _template: Option<&crate::core::geo::Geo>| mesh.clone();
-                    g.eval_node(id, &mut cache, &eval_subnet).map(|r| r.into_parts())
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                        subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                    };
+                    let (_, _, scene) = g.evaluate_scene(&eval)?;
+                    Some(prim_inspector::scene_parts(scene, path.as_deref()))
                 };
-                let get_clip = |g: &NodeGraphState| g.selected_node.and_then(|id| g.eval_anim(id));
-                draw_prim_inspector(ui, self.graph, self.prim_state, self.revision, self.playback.time, &get_parts, &get_clip);
+                let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim(id));
+                let source = prim_inspector::Source {
+                    node: self.graph.display_source(),
+                    path: self.hierarchy.selected_path().map(str::to_string),
+                };
+                draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip);
             }
 
             Pane::NodeGraph => match self.nav.current_subnet {
@@ -1330,8 +1339,8 @@ pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {
             .unwrap_or_else(|| mesh.clone())
     };
 
-    let entries = graph.evaluate_for_scene(&eval_subnet);
-    hierarchy.rebuild(entries);
+    // The scene at the view flag, as its own tree.
+    hierarchy.rebuild_scene(graph.evaluate_scene(&eval_subnet));
 }
 
 

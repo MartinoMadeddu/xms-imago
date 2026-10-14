@@ -244,7 +244,9 @@ A menu stays open while it is used: ticking panes in Window, Invert zoom in Navi
 
 ## Scene Explorer
 
-The scene explorer lists what each node in view gives: a mesh, the joints of a clip, or a USD stage as its hierarchy. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
+The Scene Explorer lists the scene at the operator with the view flag (or what reaches Output when no operator has it) as its own tree, as usdview would: the prims of a stage in the stage's hierarchy, prims made in Imago under the Xforms of their path, the joints of a clip. There is no row for the operator: a Prune, a Merge or a shape put on another prim's path shows as the scene has it. A plain mesh, which has no path (after Unpack, or a Merge set to Flatten), is one row with the operator's name.
+
+Clicking a row shows that prim, or that group and everything below it, in the Primitive Inspector. Clicking it again shows the whole scene there again, and so does a selected prim leaving the scene (moving the view flag, or a Prune). Selecting a row does not select an operator. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
 
 ## Operator Stack
 
@@ -260,7 +262,7 @@ The icon is the wireframe cube of the splash. It is the logo in the top bar and 
 
 ## Primitive Inspector
 
-The attributes of the selected node, or of the primitive selected in the Scene Explorer, as a spreadsheet.
+The attributes of the scene at the view flag, as a spreadsheet: the row selected in the Scene Explorer and what is below it, or the whole scene when none is. The bar at the top says which, and at which operator. To look at the scene further up the graph, move the view flag there.
 
 | Tab | Rows |
 |---|---|

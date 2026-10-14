@@ -696,76 +696,19 @@ impl NodeGraphState {
         result
     }
 
-    // ── Scene explorer evaluation ─────────────────────────────────────────────
-    // Separate from viewport eval. Walks the graph to collect generator nodes
-    // (Cube, Sphere, LoadUsd…) with their names and raw EvalResults for the
-    // scene hierarchy UI. Operators are transparent here — only leaf generators
-    // appear as scene objects.
-    pub fn evaluate_for_scene(
+    // ── The scene ───────────────────────────────────────────────────────────
+    /// The scene at the view flag, or what reaches Output when no operator
+    /// has the flag: the operator it is read from, its name, and what it puts
+    /// out. The Viewer draws it, the Scene Explorer lists it, the Primitive
+    /// Inspector shows it.
+    pub fn evaluate_scene(
         &self,
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
-    ) -> Vec<(NodeId, String, EvalResult)> {
-        let mut cache: EvalCache = HashMap::new();
-        let mut out    = vec![];
-        let mut visited = std::collections::HashSet::new();
-
-        let root_src = self.nodes.iter()
-            .find(|n| matches!(n.node_type, NodeType::Output))
-            .and_then(|n| n.inputs.first())
-            .and_then(|i| i.connected_output);
-
-        // Only walk nodes reachable from Output
-        if let Some((src, _)) = root_src {
-            self.walk_for_scene(src, &mut cache, eval_subnet, &mut out, &mut visited);
-        }
-
-        // Animation: show the skeleton that reaches Output, after every
-        // operator, so renames and splits are visible in the explorer.
-        if let Some((src, socket)) = root_src {
-            if let Some(r @ EvalResult::Anim(_)) = self.eval_node_out(src, socket, &mut cache, eval_subnet) {
-                if let Some(n) = self.nodes.iter().find(|n| n.id == src) {
-                    out.push((n.id, n.name.clone(), r));
-                }
-            }
-        }
-        out
-    }
-
-    fn walk_for_scene(
-        &self,
-        id:          NodeId,
-        cache:       &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
-        out:         &mut Vec<(NodeId, String, EvalResult)>,
-        visited:     &mut std::collections::HashSet<NodeId>,
-    ) {
-        if !visited.insert(id) { return; }
-
-        let node = match self.nodes.iter().find(|n| n.id == id) {
-            Some(n) => n,
-            None    => return,
-        };
-
-        // Recurse into upstream nodes first
-        for inp in &node.inputs {
-            if let Some((src, _)) = inp.connected_output {
-                self.walk_for_scene(src, cache, eval_subnet, out, visited);
-            }
-        }
-
-        // Only mesh generator nodes appear in the scene explorer. Load FBX
-        // shows its meshes (its second output) when it has any.
-        let socket = match node.node_type {
-            NodeType::CreateCube { .. } | NodeType::CreateSphere { .. }
-            | NodeType::CreateGrid { .. } | NodeType::LoadUsd { .. } | NodeType::LoadFbxMesh { .. } => Some(0),
-            NodeType::LoadFbx { .. } => Some(1),
-            _ => None,
-        };
-        if let Some(socket) = socket {
-            if let Some(r) = self.eval_node_out(id, socket, cache, eval_subnet) {
-                out.push((node.id, node.name.clone(), r));
-            }
-        }
+    ) -> Option<(NodeId, String, EvalResult)> {
+        let id = self.display_source()?;
+        let name = self.nodes.iter().find(|n| n.id == id)?.name.clone();
+        let result = self.evaluate_for_viewport_packed(eval_subnet)?;
+        Some((id, name, result))
     }
 
     /// Clips the viewport should draw: the viewed node's clip, or one per
