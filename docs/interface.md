@@ -124,13 +124,19 @@ Seven categories, each a submenu, each item a node. A node has one name, the sam
 | Placeholder | Placeholder |
 | Create | Cube, Sphere, Grid, Test Clip |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
-| Modify | Transform, Edit Poly, Merge, Scatter Points, Copy to Points, ICE |
+| Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Unpack |
 | UV | UV Unwrap, UV Transform, UV Edit |
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |
 | Mocap | Split Characters, Characterize, Retarget, Reach, Human Limits, Capture, Skin, Auto T-Pose, Fix Pose, Proxy Skin, Body Collide |
 
 Transform moves anything: a mesh, primitives (the picked ones, or each of them), or a clip. A clip moves by its top joints, so a skinned mesh follows its skeleton once and is not moved a second time.
+
+Cube, Sphere and Grid each make a primitive at their **Primitive Location**, `/cube`, `/sphere` and `/grid` unless another path is typed (see [USD](usd.md#shapes-are-primitives)).
+
+Merge joins its two inputs by its **Mode**. Auto goes by the first input: primitives are merged as primitives, each keeping its path, and on a path both inputs have the second is the stronger; a plain mesh or a clip is flattened into one mesh. Primitives and Flatten force one or the other.
+
+Scatter Points and Copy to Points are done in an ICE graph. A graph saved with them opens with a Placeholder in their place, wires kept.
 
 ![The add menu, Animation open](xms_add_menu.png)
 

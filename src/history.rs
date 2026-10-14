@@ -784,7 +784,7 @@ mod tests {
     fn graph() -> NodeGraphState { NodeGraphState::default() }
 
     fn cube(g: &mut NodeGraphState, size: f32) -> NodeId {
-        g.add_node("Cube".into(), NodeType::CreateCube { size }, egui::pos2(0.0, 0.0))
+        g.add_node("Cube".into(), NodeType::cube(size), egui::pos2(0.0, 0.0))
     }
 
     fn output(g: &NodeGraphState) -> NodeId {
@@ -792,7 +792,7 @@ mod tests {
     }
 
     fn set_size(g: &mut NodeGraphState, id: NodeId, v: f32) {
-        if let Some(NodeType::CreateCube { size }) = g.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type) { *size = v; }
+        if let Some(NodeType::CreateCube { size, .. }) = g.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type) { *size = v; }
     }
 
     fn label(h: &History) -> String { h.step(h.current()).unwrap().label.clone() }
@@ -894,7 +894,7 @@ mod tests {
         assert!(g.nodes.iter().any(|n| n.id == c));
         assert!(h.can_redo());
         h.redo(&mut g);
-        assert!(matches!(g.nodes.iter().find(|n| n.id == c).unwrap().node_type, NodeType::CreateCube { size } if size == 9.0));
+        assert!(matches!(g.nodes.iter().find(|n| n.id == c).unwrap().node_type, NodeType::CreateCube { size, .. } if size == 9.0));
     }
 
     #[test]

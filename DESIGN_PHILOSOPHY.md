@@ -42,6 +42,9 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Keep the primitive's identity: path, source, stage, material and purpose travel with it through every node.
 - Curves are shown in the same contexts: their control points are points, the segments between them edges, and each curve one face (Face context), its control points its corners. The Primitive Inspector lists them so, by their control points as authored, alongside polygons and free points (Martino).
 - The points of a face or an edge are one attribute, an array as long as it has corners, not a column per point: the Primitive Inspector shows them in one cell, `indices = [0, 3, 2, 1]` (Martino).
+- The scene is always USD: everything an operator makes is a primitive at a path. Shapes have a Primitive Location (`/cube` by default, any path typed, parents as Xforms, as in Solaris), written as a `def` and the layer's `defaultPrim` (Martino).
+- Merge goes by the data coming into its first input: primitives are merged as primitives, a plain mesh or a clip into one mesh. A Mode overrides it. On the same path the second input is stronger, as an `over` (Martino).
+- Scattering and copying to points belong to ICE graphs: the Scatter Points and Copy to Points operators are gone, and old graphs open with Placeholders in their place (Martino).
 - A corner is listed with the point it belongs to, `ptIndex` (several corners share a point), not with its own number again: the spreadsheet's row number is the corner. Corners are those of the polygons, as `Geo` stores them, not of the triangles drawn (Martino).
 
 ## Nothing typed that can be picked
@@ -146,3 +149,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 14/10/2026: the scheme is egui's style for the system's light and dark modes alike (Imago started white otherwise); text unhinted, its weight a setting of the scheme (Martino).
 - 14/10/2026: text weight 50 in Light, 80 in Dark and ADHD; one selection blue, also around selected nodes, at least 3 pixels wide at any zoom; in Light, tabs behind darker than the panel (Martino).
 - 14/10/2026: in Light, the box dragged to select (nodes, Edit Poly components) in the selection blue (Martino).
+- 14/10/2026: shapes are primitives at a Primitive Location, written to USD as `def`s under Xforms with a `defaultPrim`; Merge merges primitives when its first input is primitives (Auto, Primitives, Flatten), the second input stronger on the same path; Scatter Points and Copy to Points removed for ICE (Martino).

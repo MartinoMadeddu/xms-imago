@@ -69,7 +69,7 @@ The canvas is built as a stack of layers composed into that image. The wireframe
 
 - Editing single UV vertices and edges, sewing and cutting seams by hand
 - A checker texture in the Viewer
-- UVs through Edit Poly, Copy To Points and Scatter. Transform and Merge keep them
+- UVs through Edit Poly. Transform and Merge keep them
 - UVs read from FBX, and written to FBX or USD. UVs are read from USD
 - ABF++, SLIM and BFF. Charts with strong curvature stretch under LSCM
 - Packing is by rows, not tight

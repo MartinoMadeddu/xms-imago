@@ -687,9 +687,9 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
     use crate::types::SplitPick;
     vec![
         ("◼", "Create", vec![
-            (NodeType::CreateCube { size: 1.0 }, "A cube"),
-            (NodeType::CreateSphere { radius: 0.5, segments: 32 }, "A sphere"),
-            (NodeType::CreateGrid { rows: 10, cols: 10, size: 2.0 }, "A flat grid of quads"),
+            (NodeType::cube(1.0), "A cube"),
+            (NodeType::sphere(0.5, 32), "A sphere"),
+            (NodeType::grid(10, 10, 2.0), "A flat grid of quads"),
             (NodeType::TestClip { seconds: 4.0, fps_num: 30, fps_den: 1 }, "A walk on the spot, to try the animation nodes"),
         ]),
         ("📝", "Placeholder", vec![
@@ -705,9 +705,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("🔨", "Modify", vec![
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
-            (NodeType::Merge, "Two meshes as one"),
-            (NodeType::ScatterPoints { count: 100, seed: 42 }, "Points spread over a surface"),
-            (NodeType::CopyToPoints, "A copy of the first input on every point of the second"),
+            (NodeType::merge(), "Two inputs as one: primitives side by side, or one mesh"),
             (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICE".into() }, "A graph inside a node"),
         ]),
         ("📦", "Primitives", vec![

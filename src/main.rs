@@ -1365,7 +1365,8 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         };
         match graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval) {
             Some(types::EvalResult::Named(prims)) => usd_write::write_override(&prims, std::path::Path::new(path.trim())),
-            Some(_) => Err("The input is not primitives".to_string()),
+            Some(types::EvalResult::Single(_)) => Err("The input is one plain mesh, with no primitive path (after Unpack, or a Merge set to Flatten)".to_string()),
+            Some(_) => Err("The input is a clip, not primitives".to_string()),
             None => Err("The input did not cook".to_string()),
         }
     })();
@@ -1395,7 +1396,7 @@ mod tests {
         assert!(!ask.ask(&h, &template), "nothing to lose: no question");
         assert!(ask.after.is_none());
 
-        g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, egui::pos2(0.0, 0.0));
+        g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
         h.update(&mut g, false);
         assert!(ask.ask(&h, &template));
         assert_eq!(ask.after, Some(template.clone()));
@@ -1413,7 +1414,7 @@ mod tests {
         // Don't save: the template replaces the graph.
         let (mut subnets, mut nav, mut file, mut recent) = (IceGraphStore::default(), GraphNavigation::default(), GraphFile::default(), recent::Recent::at(None));
         carry_out(template, &mut g, &mut subnets, &mut nav, &mut file, &mut h, &mut recent);
-        assert!(!g.nodes.iter().any(|n| n.name == "Cube" && matches!(n.node_type, NodeType::CreateCube { size } if size == 1.0) && n.position == egui::pos2(0.0, 0.0)));
+        assert!(!g.nodes.iter().any(|n| n.name == "Cube" && matches!(n.node_type, NodeType::CreateCube { size, .. } if size == 1.0) && n.position == egui::pos2(0.0, 0.0)));
         assert!(file.path.is_none());
     }
 }

@@ -139,8 +139,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 
 ## Also in the box
 
-- Cube, sphere and grid shapes, Transform, Merge
-- Scatter Points and Copy To Points
+- Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of primitives or into one mesh
 - ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). A tree runs on each primitive in its own space
 - Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip
 - Graphs saved and loaded as JSON
@@ -172,7 +171,7 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 - Undo inside ICE graphs, and history saved with the graph
 - Edit Poly: interactive cut and quickslice, extrude along spline, target weld, attach, smoothing groups, material IDs, paint deformation, constraints
 - USD: normal and roughness maps in the Viewer, cameras, animation and skinning, per-face material subsets, writing time samples and edits inside instances
-- UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept through Edit Poly and Copy To Points, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
+- UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept through Edit Poly, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
 - Mocap: contact detection and foot locking (Reach follows the source's feet); FBX blend shapes applied, cameras and lights drawn
 - Timeline zoom and pan
 - Curve cleanup

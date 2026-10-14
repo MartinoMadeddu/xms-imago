@@ -61,7 +61,9 @@ One model for primitives, nodes and ICE (`core::geo`).
 
 - **Instancing is kept.** Prototype geometry is held once, and copies are placements. Transform moves placements, not points.
 - **Nothing is baked.** Up axis and unit live in the placement, never in the points.
-- **Pick, then edit:** nodes work on picked primitives and pass the rest through. A single placed prim is edited where it's drawn and returned to its own space and placement (`map_mesh`). Several picked prims are merged (`geo: None`).
+- **Pick, then edit:** nodes work on picked primitives and pass the rest through. A single placed prim is edited where it's drawn and returned to its own space and placement (`map_mesh`). Several picked prims are merged (`geo: None`). With no pick, a lone primitive is edited the same way, so a shape stays a primitive through Edit Poly and the UV nodes.
+- **Shapes are primitives:** Cube, Sphere and Grid give `EvalResult::Named` with one `Prim` at their Primitive Location (`types::prim_location` makes the typed text a valid USD path). `EvalResult::Single` is left for the plain meshes of Unpack, a flattening Merge and ICE on a plain mesh.
+- **Merge by data type:** `MergeMode::Auto` merges primitives when the first input is primitives (`nodes::merge_prims`), else flattens; Primitives and Flatten force it. On the same path the second input is the stronger, its unset material, stage, source and purpose read from the first, like an `over`.
 
 ## 6. Edits and USD out
 
@@ -72,7 +74,7 @@ One model for primitives, nodes and ICE (`core::geo`).
   - It repeats `upAxis` and `metersPerUnit`, since USD reads stage metadata only from the root layer.
   - Moved prims get their own `xformOp:transform` (`L' = L · loaded⁻¹ · now`), so they keep following their parents.
   - Changed attributes are written with type, interpolation and indices; lost ones are blocked with `= None`.
-  - Pruned prims are deactivated; new prims are written as `def`s.
+  - Pruned prims are deactivated; new prims are written as `def`s, their parents as `def Xform` unless a stage has them, in the first stage's axes and unit (Y up, metres without one). `defaultPrim` is the first stage's first root, or the first prim made in Imago.
   - **Not written yet, but reported:** edits inside native instances (instance proxies are read-only in USD) and on point-instancer prototypes.
   - Values are written at the current frame.
 

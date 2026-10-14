@@ -114,19 +114,46 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
             }
         }
     }
-    // Prims that came from no stage at all.
+    // Prims that came from no stage at all (shapes, meshes made by nodes),
+    // in the layer's axes and unit: those of the first stage when there is
+    // one, Imago's (Y up, metres) when not. Their parents are Xforms,
+    // except where a stage already has a prim on that path.
+    let layer_root = trees.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
+    let in_a_stage = |path: &str| trees.iter().any(|t| t.nodes.iter().any(|n| n.path == path));
     for p in prims.iter().filter(|p| p.stage.is_none()) {
-        if p.path.is_empty() || !p.path.starts_with('/') { continue; }
-        new_prim(root.at(&p.path), p, Mat4::IDENTITY);
+        if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
+            report.skipped.push(format!("{}: not a primitive path", if p.path.is_empty() { "(no path)" } else { p.path.as_str() }));
+            continue;
+        }
+        new_prim(root.at(&p.path), p, layer_root);
         report.added += 1;
+        let segments: Vec<&str> = p.path.split('/').filter(|s| !s.is_empty()).collect();
+        for n in 1..segments.len() {
+            let parent = format!("/{}", segments[..n].join("/"));
+            let spec = root.at(&parent);
+            if spec.def.is_none() && !in_a_stage(&parent) { spec.def = Some("Xform"); }
+        }
     }
+
+    // The prim a reference to this layer gets when it names none: the first
+    // stage's first root prim, else the first prim made here (Imago does not
+    // read the stage's own defaultPrim yet).
+    let default_prim = trees.iter().flat_map(|t| t.nodes.iter()).find(|n| n.depth == 1).map(|n| n.name.clone())
+        .or_else(|| prims.iter().filter(|p| p.stage.is_none())
+            .find_map(|p| p.path.split('/').find(|s| !s.is_empty()).map(str::to_string)));
 
     // The layer: the stages' files as sublayers, their axis and unit (stage
     // metadata only comes from the root layer), then the opinions.
     let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
-    if let Some(t) = trees.first() {
-        if let Some(mpu) = t.meters_per_unit { let _ = writeln!(text, "    metersPerUnit = {}", num64(mpu)); }
-        if !t.up_axis.is_empty() { let _ = writeln!(text, "    upAxis = \"{}\"", t.up_axis); }
+    if let Some(name) = &default_prim { let _ = writeln!(text, "    defaultPrim = \"{name}\""); }
+    match trees.first() {
+        Some(t) => {
+            if let Some(mpu) = t.meters_per_unit { let _ = writeln!(text, "    metersPerUnit = {}", num64(mpu)); }
+            if !t.up_axis.is_empty() { let _ = writeln!(text, "    upAxis = \"{}\"", t.up_axis); }
+        }
+        // Only prims made in Imago: its own axes and unit.
+        None if !root.children.is_empty() => text.push_str("    metersPerUnit = 1\n    upAxis = \"Y\"\n"),
+        None => {}
     }
     if !trees.is_empty() {
         let dir = out.parent().unwrap_or(Path::new("."));
@@ -486,6 +513,58 @@ def Xform "set" {{
         assert!(find("/set/c").is_none(), "c is deactivated");
         // The same axis and unit as the original.
         assert_eq!((back.up_axis.as_str(), back.meters_per_unit), ("Z", Some(0.01)));
+    }
+
+    /// A cube made in Imago, as the Cube operator gives it.
+    fn cube_at(path: &str) -> Prim {
+        Prim::new(path.into(), crate::node_graph::nodes::create_cube(1.0))
+    }
+
+    #[test]
+    fn a_shape_is_written_as_a_mesh_under_xforms_and_is_the_default_prim() {
+        let out = std::env::temp_dir().join("xms_usd_write_test/shape_over.usda");
+        let report = write_override(&[cube_at("/root/asset/cube1")], &out).unwrap();
+        assert_eq!(report.added, 1, "{report:?}");
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in ["def Xform \"root\"", "def Xform \"asset\"", "def Mesh \"cube1\"", "defaultPrim = \"root\"", "upAxis = \"Y\"", "metersPerUnit = 1"] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        assert!(!text.contains("over "), "{text}");
+        // Read back: the cube is there, where it was made.
+        let back = crate::usd_scene::load(&out).unwrap();
+        let cube = back.meshes.iter().find(|m| m.path == "/root/asset/cube1").expect("the cube is read back");
+        assert_eq!(cube.geo.as_ref().unwrap().points().len(), 8);
+
+        // On its own at the default location, the cube is the default prim.
+        let (text, _) = override_layer(&[cube_at("/cube")], &out).unwrap();
+        assert!(text.contains("defaultPrim = \"cube\"") && text.contains("def Mesh \"cube\""), "{text}");
+    }
+
+    #[test]
+    fn a_shape_beside_a_stage_is_added_in_the_stage_axes() {
+        let (_, mut prims) = load("with_shape.usda", &stage_text());
+        prims.push(cube_at("/props/cube"));
+        let out = std::env::temp_dir().join("xms_usd_write_test/with_shape_over.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!((report.changed, report.added), (0, 1), "{report:?}");
+        assert!(text.contains("defaultPrim = \"set\"") && text.contains("def Xform \"props\""), "{text}");
+        assert!(!text.contains("over \"set\""), "the stage is untouched: {text}");
+        // Written in the stage's Z-up centimetres, it reads back where Imago drew it.
+        std::fs::write(&out, &text).unwrap();
+        let back = crate::usd_scene::load(&out).unwrap();
+        let cube = back.meshes.iter().find(|m| m.path == "/props/cube").expect("the cube is read back");
+        let world = Prim { place: cube.place.clone(), ..Prim::new(cube.path.clone(), (*cube.mesh).clone()) }.world().into_owned();
+        let bounds = |vs: &[[f32; 3]]| vs.iter().fold((glam::Vec3::splat(f32::MAX), glam::Vec3::splat(f32::MIN)),
+            |(lo, hi), v| (lo.min(glam::Vec3::from(*v)), hi.max(glam::Vec3::from(*v))));
+        let (lo, hi) = bounds(&world.vertices);
+        assert!(lo.abs_diff_eq(glam::Vec3::splat(-0.5), 1e-3) && hi.abs_diff_eq(glam::Vec3::splat(0.5), 1e-3), "{lo} {hi}");
+    }
+
+    #[test]
+    fn a_prim_without_a_path_is_listed_as_not_written() {
+        let out = std::env::temp_dir().join("xms_usd_write_test/no_path_over.usda");
+        let (_, report) = override_layer(&[cube_at("")], &out).unwrap();
+        assert_eq!((report.added, report.skipped.len()), (0, 1), "{report:?}");
     }
 
     #[test]

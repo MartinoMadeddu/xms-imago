@@ -7,7 +7,7 @@ use crate::core::poly::{ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection
 use crate::examples;
 use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
-use crate::types::{NodeId, NodeType, RetimeMode, IceGraphNodeType, DEFAULT_WRITE_PATH};
+use crate::types::{MergeMode, NodeId, NodeType, RetimeMode, IceGraphNodeType, DEFAULT_WRITE_PATH};
 
 pub struct Template {
     /// Whose work the template shows: the first level of the Templates menu.
@@ -43,10 +43,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A subdivided cube pushed onto a sphere by an ICE graph. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
         hint: "Cube, sphere and grid, each moved with a Transform and joined with Merge" },
-    Template { by: SIMON, group: "Basics", name: "Scatter and copy", build: scatter,
-        hint: "Points scattered on a grid, a small cube copied onto each" },
     Template { by: SIMON, group: "Basics", name: "ICE graph", build: subnet,
-        hint: "The same scatter and copy, built inside an ICE graph. Double-click the ICE node, or select it and press ↓, to open it" },
+        hint: "Points scattered on a grid and a small sphere copied onto each, inside an ICE graph. Double-click the ICE node, or select it and press ↓, to open it" },
     Template { by: SIMON, group: "Basics", name: "USD import", build: usd,
         hint: "Two example USD files loaded, moved and merged" },
     Template { by: SIMON, group: "Modelling", name: "Edit Poly: tower", build: tower,
@@ -157,13 +155,13 @@ fn missing_examples() -> &'static str {
 
 fn primitives(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
-    let cube   = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(40.0, 20.0));
-    let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 0.6, segments: 24 }, p(250.0, 20.0));
-    let grid   = g.add_node("Grid".into(), NodeType::CreateGrid { rows: 8, cols: 8, size: 5.0 }, p(460.0, 20.0));
+    let cube   = g.add_node("Cube".into(), NodeType::cube(1.0), p(40.0, 20.0));
+    let sphere = g.add_node("Sphere".into(), NodeType::sphere(0.6, 24), p(250.0, 20.0));
+    let grid   = g.add_node("Grid".into(), NodeType::grid(8, 8, 5.0), p(460.0, 20.0));
     let cube_x = g.add_node("MoveCube".into(), transform([-1.2, 0.5, 0.0], [0.0, 30.0, 0.0], [1.0, 1.0, 1.0]), p(40.0, 120.0));
     let sph_x  = g.add_node("MoveSphere".into(), transform([1.2, 0.6, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), p(250.0, 120.0));
-    let m1     = g.add_node("Merge".into(), NodeType::Merge, p(145.0, 220.0));
-    let m2     = g.add_node("MergeFloor".into(), NodeType::Merge, p(300.0, 320.0));
+    let m1     = g.add_node("Merge".into(), NodeType::merge(), p(145.0, 220.0));
+    let m2     = g.add_node("MergeFloor".into(), NodeType::merge(), p(300.0, 320.0));
     g.add_connection(cube, 0, cube_x, 0);
     g.add_connection(sphere, 0, sph_x, 0);
     g.add_connection(cube_x, 0, m1, 0);
@@ -172,22 +170,6 @@ fn primitives(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(grid, 0, m2, 1);
     finish(g, m2, cube_x, p(300.0, 420.0));
     "Shapes: select a Transform node and change its values in Parameters.".into()
-}
-
-fn scatter(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
-    crate::graph_io::clear(g);
-    let grid  = g.add_node("Ground".into(), NodeType::CreateGrid { rows: 10, cols: 10, size: 6.0 }, p(60.0, 20.0));
-    let pts   = g.add_node("Scatter".into(), NodeType::ScatterPoints { count: 150, seed: 7 }, p(60.0, 120.0));
-    let cube  = g.add_node("Pebble".into(), NodeType::CreateCube { size: 0.15 }, p(300.0, 20.0));
-    let copy  = g.add_node("Copy".into(), NodeType::CopyToPoints, p(180.0, 220.0));
-    let merge = g.add_node("Merge".into(), NodeType::Merge, p(180.0, 320.0));
-    g.add_connection(grid, 0, pts, 0);
-    g.add_connection(cube, 0, copy, 0);
-    g.add_connection(pts, 0, copy, 1);
-    g.add_connection(copy, 0, merge, 0);
-    g.add_connection(grid, 0, merge, 1);
-    finish(g, merge, pts, p(180.0, 420.0));
-    "Scatter and copy: change Count or Seed on the Scatter node.".into()
 }
 
 fn subnet(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
@@ -203,10 +185,12 @@ fn subnet(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         sub.add_connection(input, 2, copy, 1);     // Template
         sub.add_connection(copy, 0, out, 0);
     }
-    let grid   = g.add_node("Ground".into(), NodeType::CreateGrid { rows: 6, cols: 6, size: 5.0 }, p(60.0, 20.0));
-    let sphere = g.add_node("Ball".into(), NodeType::CreateSphere { radius: 0.12, segments: 10 }, p(300.0, 20.0));
+    let grid   = g.add_node("Ground".into(), NodeType::grid(6, 6, 5.0), p(60.0, 20.0));
+    let sphere = g.add_node("Ball".into(), NodeType::sphere(0.12, 10), p(300.0, 20.0));
     let node   = g.add_node("ScatterCopy".into(), NodeType::Ice { id, name: "ScatterCopy".into() }, p(180.0, 140.0));
-    let merge  = g.add_node("Merge".into(), NodeType::Merge, p(180.0, 260.0));
+    // Both inputs come from the same grid, so they have the same path: as
+    // primitives the ground would replace the copies. Flatten keeps both.
+    let merge  = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Flatten }, p(180.0, 260.0));
     g.add_connection(grid, 0, node, 0);
     g.add_connection(sphere, 0, node, 1);
     g.add_connection(node, 0, merge, 0);
@@ -220,7 +204,7 @@ fn usd(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let shapes = g.add_node("Shapes".into(), NodeType::LoadUsd { path: examples::path(examples::SHAPES_USD) }, p(40.0, 20.0));
     let table  = g.add_node("Table".into(), NodeType::LoadUsd { path: examples::path(examples::TABLE_USD) }, p(300.0, 20.0));
     let lift   = g.add_node("OnTable".into(), transform([0.0, 0.77, 0.0], [0.0, 0.0, 0.0], [0.35, 0.35, 0.35]), p(40.0, 120.0));
-    let merge  = g.add_node("Merge".into(), NodeType::Merge, p(170.0, 220.0));
+    let merge  = g.add_node("Merge".into(), NodeType::merge(), p(170.0, 220.0));
     g.add_connection(shapes, 0, lift, 0);
     g.add_connection(lift, 0, merge, 0);
     g.add_connection(table, 0, merge, 1);
@@ -245,7 +229,7 @@ fn tower(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         PolyOp::new(top(), PolyOpKind::Inset { amount: 0.05, by_polygon: false }),
         PolyOp::new(top(), PolyOpKind::Extrude { height: -0.2, mode: group }),
     ];
-    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let ep   = g.add_node("Tower".into(), edit_poly(ops, top()), p(180.0, 130.0));
     g.add_connection(cube, 0, ep, 0);
     finish(g, ep, ep, p(180.0, 260.0));
@@ -262,7 +246,7 @@ fn panels(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         PolyOp::new(cells(), PolyOpKind::Extrude { height: 0.08, mode: ExtrudeMode::ByPolygon }),
         PolyOp::new(every_other(), PolyOpKind::Bevel { height: 0.25, outline: -0.08, mode: ExtrudeMode::ByPolygon }),
     ];
-    let grid = g.add_node("Grid".into(), NodeType::CreateGrid { rows: 6, cols: 6, size: 3.0 }, p(180.0, 20.0));
+    let grid = g.add_node("Grid".into(), NodeType::grid(6, 6, 3.0), p(180.0, 20.0));
     let ep   = g.add_node("Panels".into(), edit_poly(ops, every_other()), p(180.0, 130.0));
     g.add_connection(grid, 0, ep, 0);
     finish(g, ep, ep, p(180.0, 260.0));
@@ -299,7 +283,7 @@ fn goblet(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     ops.push(PolyOp::new(top(), PolyOpKind::Inset { amount: 0.1, by_polygon: false }));
     ops.push(PolyOp::new(top(), PolyOpKind::Extrude { height: -0.9, mode: group }));
     ops.push(PolyOp::new(PolySelection { source: SelSource::All, ..Default::default() }, PolyOpKind::Subdivide { iterations: 2 }));
-    let node = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
+    let node = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let ep   = g.add_node("Goblet".into(), edit_poly(ops, top()), p(180.0, 130.0));
     g.add_connection(node, 0, ep, 0);
     finish(g, ep, ep, p(180.0, 260.0));
@@ -318,10 +302,11 @@ fn bridge(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         PolyOp::new(PolySelection { level: SubLevel::Edge, source: SelSource::InBox { min: [-0.6, 0.4, -0.6], max: [0.6, 2.1, 0.6] }, ..Default::default() },
             PolyOpKind::Connect { segments: 3 }),
     ];
-    let a    = g.add_node("Lower".into(), NodeType::CreateCube { size: 1.0 }, p(60.0, 20.0));
-    let b    = g.add_node("Upper".into(), NodeType::CreateCube { size: 1.0 }, p(300.0, 20.0));
+    // Two cubes, each a primitive of its own.
+    let a    = g.add_node("Lower".into(), NodeType::CreateCube { size: 1.0, location: "/lower".into() }, p(60.0, 20.0));
+    let b    = g.add_node("Upper".into(), NodeType::CreateCube { size: 1.0, location: "/upper".into() }, p(300.0, 20.0));
     let lift = g.add_node("Lift".into(), transform([0.0, 2.5, 0.0], [0.0, 45.0, 0.0], [1.0, 1.0, 1.0]), p(300.0, 120.0));
-    let m    = g.add_node("Merge".into(), NodeType::Merge, p(180.0, 220.0));
+    let m    = g.add_node("Merge".into(), NodeType::merge(), p(180.0, 220.0));
     let ep   = g.add_node("Bridge".into(), edit_poly(ops, Default::default()), p(180.0, 320.0));
     g.add_connection(b, 0, lift, 0);
     g.add_connection(a, 0, m, 0);
@@ -356,7 +341,7 @@ fn sea_mine(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     ops.push(PolyOp::new(short(), PolyOpKind::Inset { amount: 0.04, by_polygon: true }));
     ops.push(PolyOp::new(short(), PolyOpKind::Extrude { height: -0.12, mode: each }));
     ops.push(PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 2 }));
-    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let ep   = g.add_node("SeaMine".into(), edit_poly(ops, long()), p(180.0, 130.0));
     g.add_connection(cube, 0, ep, 0);
     finish(g, ep, ep, p(180.0, 260.0));
@@ -384,7 +369,7 @@ fn bolt(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         PolyOp::new(top_corners, PolyOpKind::ExtrudeVertex { height: 0.15, width: 0.08 }),
         PolyOp::new(top(), PolyOpKind::Hinge { angle: 50.0, segments: 5, edge: 0 }),
     ];
-    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let ep   = g.add_node("Bolt".into(), edit_poly(ops, top()), p(180.0, 130.0));
     g.add_connection(cube, 0, ep, 0);
     finish(g, ep, ep, p(180.0, 260.0));
@@ -438,8 +423,8 @@ fn uv_mine(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
 
 fn uv_udim(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
-    let cube   = g.add_node("Box".into(), NodeType::CreateCube { size: 1.0 }, p(260.0, 20.0));
-    let sphere = g.add_node("Ball".into(), NodeType::CreateSphere { radius: 0.5, segments: 16 }, p(40.0, 20.0));
+    let cube   = g.add_node("Box".into(), NodeType::cube(1.0), p(260.0, 20.0));
+    let sphere = g.add_node("Ball".into(), NodeType::sphere(0.5, 16), p(40.0, 20.0));
     let body   = g.add_node("Body".into(), transform([0.0, 1.5, 0.0], [0.0; 3], [1.6, 3.0, 1.0]), p(480.0, 110.0));
     g.add_connection(cube, 0, body, 0);
     let mut last = body;
@@ -454,13 +439,13 @@ fn uv_udim(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             let row = 200.0 + f as f32 * 90.0;
             let finger = g.add_node(format!("Finger{}_{}", h + 1, f + 1),
                 transform([x - 0.3 + f as f32 * 0.3, 2.35, 0.0], [0.0; 3], [0.2, 0.7, 0.2]), p(col + 110.0, row));
-            let merge = g.add_node(format!("Hand{}_{}", h + 1, f + 1), NodeType::Merge, p(col, row + 45.0));
+            let merge = g.add_node(format!("Hand{}_{}", h + 1, f + 1), NodeType::Merge { mode: MergeMode::Flatten }, p(col, row + 45.0));
             g.add_connection(cube, 0, finger, 0);
             g.add_connection(hand, 0, merge, 0);
             g.add_connection(finger, 0, merge, 1);
             hand = merge;
         }
-        let join = g.add_node(format!("Join{}", h + 1), NodeType::Merge, p(480.0, 300.0 + h as f32 * 100.0));
+        let join = g.add_node(format!("Join{}", h + 1), NodeType::Merge { mode: MergeMode::Flatten }, p(480.0, 300.0 + h as f32 * 100.0));
         g.add_connection(last, 0, join, 0);
         g.add_connection(hand, 0, join, 1);
         last = join;
@@ -475,7 +460,7 @@ fn uv_udim(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 fn uv_edit(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     use crate::core::uv::{IslandEdit, UvMethod};
     crate::graph_io::clear(g);
-    let cube = g.add_node("Box".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
+    let cube = g.add_node("Box".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let size = g.add_node("Stretch".into(), transform([0.0, 0.5, 0.0], [0.0, 0.0, 0.0], [2.0, 1.0, 1.0]), p(180.0, 110.0));
     let uv   = g.add_node("Unwrap".into(), NodeType::UvUnwrap { method: UvMethod::Conformal, angle: 45.0, margin: 0.03, axis: 1, tiles: 1 }, p(180.0, 200.0));
     let edit = g.add_node("Arrange".into(), NodeType::UvEdit { edits: vec![
@@ -762,7 +747,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         sub.add_connection(grow, 0, out, 0);
     }
     let all = || PolySelection { source: SelSource::All, ..Default::default() };
-    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(180.0, 20.0));
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let dense = g.add_node("Subdivide".into(), edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()), p(180.0, 130.0));
     let tree = g.add_node("Spherify".into(), NodeType::Ice { id, name: "Spherify".into() }, p(180.0, 240.0));
     g.add_connection(cube, 0, dense, 0);
@@ -851,7 +836,7 @@ mod tests {
     #[test]
     fn a_chain_lays_out_as_a_straight_line() {
         let mut g = NodeGraphState::default();
-        let a = g.add_node("A".into(), NodeType::CreateCube { size: 1.0 }, p(500.0, 300.0));
+        let a = g.add_node("A".into(), NodeType::cube(1.0), p(500.0, 300.0));
         let b = g.add_node("B".into(), transform([0.0; 3], [0.0; 3], [1.0; 3]), p(-80.0, 10.0));
         g.add_connection(a, 0, b, 0);
         let out = output(&g);
@@ -944,7 +929,7 @@ mod tests {
         let mut other = NodeGraphState::default();
         t.load(&mut other, &mut store);
         let mut g = NodeGraphState::default();
-        g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, p(0.0, 0.0));
+        g.add_node("Cube".into(), NodeType::cube(1.0), p(0.0, 0.0));
         let added = crate::graph_io::add_graph(&mut g, &mut store, &other);
         assert_eq!(added, other.nodes.len() - 1);
         for n in &other.nodes {

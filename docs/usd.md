@@ -7,6 +7,8 @@ Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Pr
 | Node | What it does |
 |---|---|
 | Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one primitive per mesh, curves or points prim |
+| Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
+| Merge | Two inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives whose path matches a pattern, or keeps only those |
 | Unpack | Merges every primitive into one mesh |
@@ -50,7 +52,23 @@ Pick Primitives chooses which pieces the following nodes work on. After a pick:
 - Several picked primitives go through Edit Poly and the UV nodes merged, as one primitive in the place of the first.
 - Every other primitive passes through untouched.
 
+Without a pick, Transform moves each primitive, and Edit Poly and the UV nodes edit a lone primitive where it is drawn, keeping it itself. Several primitives with none picked go through those nodes merged into one mesh.
+
 An ICE node runs its graph on each primitive (or each picked one) in the primitive's own space, as an ICE tree runs on an object in Softimage.
+
+## Shapes are primitives
+
+Everything in the scene is a primitive, so Cube, Sphere and Grid each make one, at their **Primitive Location**: `/cube`, `/sphere` or `/grid`, or any path typed there, such as `/root/asset/cube1`. The parents on the path are Xforms, as in Solaris. What is typed is made a valid USD path: empty segments are dropped, and characters a USD name cannot hold become `_` ("Used as …" under the field says so).
+
+Merge joins two inputs by its **Mode**:
+
+| Mode | What it does |
+|---|---|
+| Auto | Goes by the first input: primitives are merged as primitives, a plain mesh or a clip is flattened |
+| Primitives | The primitives of both inputs side by side, each keeping its path. A plain mesh among them becomes a primitive at `/mesh` |
+| Flatten | Everything as one plain mesh, as before primitives were merged, and as Unpack does |
+
+On a path both inputs have, the second input is the stronger, as an `over` on the same path in USD: its primitive takes the first one's place. What it does not say is read from the first one: a shape put on the path of a prim loaded from a file keeps that prim's material and stage, and is written as a change to it.
 
 The pattern is a name pattern as described in [Interface](interface.md#name-patterns): comma-separated regular expressions matched against the full prim path, with a "Pick" list of the paths coming in.
 
@@ -109,7 +127,9 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | Several prims merged into one | The whole geometry, in the prim's own space |
 | A prim pruned | `active = false` |
 | Material binding or purpose changed | `material:binding`, `purpose` |
-| A prim made in Imago | A new prim (`def`) |
+| A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
+
+The layer's `defaultPrim` is the first root prim of the first stage, or, with no stage, the first prim made in Imago (`cube` for a lone Cube). A layer with no stage is Y up in metres, as Imago is; next to a stage, prims made in Imago are written in the stage's axes and unit.
 
 Only what changed is written: a stage nothing touched gives a layer with its header alone. What changed is found by comparison with the stage as it was loaded (see [Geometry](geometry.md)).
 
@@ -122,7 +142,8 @@ Values are written at the current frame, as single values.
 
 ## Not done yet
 
-- Write USD: time samples over a frame range, editing inside instances, a flattened single file
+- Write USD: time samples over a frame range, editing inside instances, a flattened single file; the stage's own `defaultPrim` (the first root prim is used)
+- A Primitive Location for the other operators that make geometry (ICE, Unpack, Merge set to Flatten); until then their plain mesh has no path, and Write USD says so
 - Normal, roughness, metallic and occlusion maps in the Viewer
 - Looking through a USD camera
 - Animation: time samples beyond the start time, skeletal animation, skinning, blend shapes

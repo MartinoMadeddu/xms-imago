@@ -35,9 +35,13 @@ mod vec3_array {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum NodeType {
-    CreateCube   { size: f32 },
-    CreateSphere { radius: f32, segments: u32 },
-    CreateGrid   { rows: u32, cols: u32, size: f32 },
+    /// The shapes. `location` is the Primitive Location: the path of the
+    /// primitive the shape is, in the scene (`/cube`, `/set/props/box1`).
+    /// Its parents are plain Xforms. Graphs saved before it existed get the
+    /// default.
+    CreateCube   { size: f32, #[serde(default = "cube_location")] location: String },
+    CreateSphere { radius: f32, segments: u32, #[serde(default = "sphere_location")] location: String },
+    CreateGrid   { rows: u32, cols: u32, size: f32, #[serde(default = "grid_location")] location: String },
     LoadUsd      { path: String },
     /// Write what the network changed in its stages as a USD override layer.
     WriteUsd     { path: String },
@@ -56,9 +60,9 @@ pub enum NodeType {
         #[serde(with = "vec3_array")] rotation:    Vec3,
         #[serde(with = "vec3_array")] scale:       Vec3,
     },
-    Merge,
-    ScatterPoints { count: u32, seed: u32 },
-    CopyToPoints,
+    /// Two inputs as one. What it does follows `mode`: see `MergeMode`.
+    /// Graphs saved before the mode existed get Auto (`graph_io`).
+    Merge        { #[serde(default)] mode: MergeMode },
     /// An ICE node: an ICE graph run on what comes in. Saved as "Subnet" by
     /// earlier versions.
     #[serde(alias = "Subnet")]
@@ -209,7 +213,47 @@ pub enum RetimeMode {
     Reinterpret,
 }
 
+/// How a Merge joins its inputs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MergeMode {
+    /// By what comes into the first input: primitives are merged as
+    /// primitives, a plain mesh or a clip is flattened.
+    #[default]
+    Auto,
+    /// Primitives side by side, each keeping its path. On the same path the
+    /// second input is the stronger one.
+    Primitives,
+    /// Everything as one plain mesh, as Unpack would make it.
+    Flatten,
+}
+
+/// A Primitive Location as typed, made a valid USD path: segments split on
+/// `/` (empty ones dropped), each a USD identifier (letters, digits and
+/// `_`, not starting with a digit; anything else becomes `_`). Nothing
+/// usable gives `fallback`.
+pub fn prim_location(text: &str, fallback: &str) -> String {
+    let segments: Vec<String> = text.split('/').map(str::trim).filter(|s| !s.is_empty()).map(|seg| {
+        let mut id: String = seg.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        if id.starts_with(|c: char| c.is_ascii_digit()) { id.insert(0, '_'); }
+        id
+    }).collect();
+    if segments.is_empty() { fallback.to_string() } else { format!("/{}", segments.join("/")) }
+}
+
+pub fn cube_location()   -> String { "/cube".into() }
+pub fn sphere_location() -> String { "/sphere".into() }
+pub fn grid_location()   -> String { "/grid".into() }
+
 impl NodeType {
+    /// A cube at its default Primitive Location.
+    pub fn cube(size: f32) -> Self { NodeType::CreateCube { size, location: cube_location() } }
+    /// A sphere at its default Primitive Location.
+    pub fn sphere(radius: f32, segments: u32) -> Self { NodeType::CreateSphere { radius, segments, location: sphere_location() } }
+    /// A grid at its default Primitive Location.
+    pub fn grid(rows: u32, cols: u32, size: f32) -> Self { NodeType::CreateGrid { rows, cols, size, location: grid_location() } }
+    /// A Merge that goes by its first input.
+    pub fn merge() -> Self { NodeType::Merge { mode: MergeMode::Auto } }
+
     /// Nodes that create animation data with no input.
     pub fn is_anim_generator(&self) -> bool {
         matches!(self, NodeType::LoadFbx { .. } | NodeType::LoadFbxDir { .. } | NodeType::TestClip { .. })
@@ -242,9 +286,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. }    => "🚫",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
-        NodeType::Merge                => "➕",
-        NodeType::ScatterPoints { .. } => "✳",
-        NodeType::CopyToPoints         => "❇",
+        NodeType::Merge { .. }         => "➕",
         NodeType::Ice { .. }        => "▣",
         NodeType::Output               => "▶",
         NodeType::Placeholder { .. }   => "📝",
@@ -296,9 +338,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. }    => "Prune Primitives",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
-        NodeType::Merge                => "Merge",
-        NodeType::ScatterPoints { .. } => "Scatter Points",
-        NodeType::CopyToPoints         => "Copy to Points",
+        NodeType::Merge { .. }         => "Merge",
         NodeType::Ice { .. }        => "ICE",
         NodeType::Output               => "Output",
         NodeType::Placeholder { .. }   => "Placeholder",
@@ -808,17 +848,18 @@ impl Prim {
     }
 }
 
-/// One picked primitive, placed once, through a mesh operation: the
-/// operation sees it where it is drawn (as the modelling tools do), and the
+/// One picked primitive, placed once or in place (or a lone primitive
+/// with no pick), through a mesh operation: the operation sees it where it
+/// is drawn (as the modelling tools do), and the
 /// result goes back into its own space and geometry. Points the operation
 /// left alone keep their exact values, so an operation on UVs alone leaves
 /// the points shared with the source.
 fn edit_in_place(p: &Prim, op: impl FnOnce(MeshData) -> MeshData) -> Prim {
     use crate::node_graph::nodes::place_mesh;
-    let Placement::One(at) = p.place else { return p.clone() };
+    let at = match p.place { Placement::One(at) => Some(at), Placement::InPlace => None, Placement::Many(_) => return p.clone() };
     let world = p.world().into_owned();
     let edited = op(world.clone());
-    let mut local = place_mesh(&edited, &at.inverse());
+    let mut local = match at { Some(at) => place_mesh(&edited, &at.inverse()), None => edited.clone() };
     if local.vertices.len() == p.mesh.vertices.len() {
         for (i, v) in local.vertices.iter_mut().enumerate() {
             if edited.vertices[i] == world.vertices[i] { *v = p.mesh.vertices[i]; }
@@ -926,7 +967,9 @@ impl EvalResult {
     /// its own space under the same placement, and into its geometry, where
     /// only the columns the operation changed are replaced. Several picked
     /// come out merged as one primitive, still picked, in the place of the
-    /// first of them. With none picked, everything is merged and goes through.
+    /// first of them. With none picked, a lone primitive is edited where it
+    /// is drawn and stays itself; several are merged and go through as one
+    /// mesh.
     pub fn map_mesh(&self, op: impl FnOnce(MeshData) -> MeshData) -> EvalResult {
         match self {
             EvalResult::Named(prims) if prims.iter().filter(|p| p.picked).count() == 1
@@ -952,6 +995,10 @@ impl EvalResult {
                 }
                 EvalResult::Named(out)
             }
+            // One primitive, none picked (a shape, a file with one mesh):
+            // it is edited where it is drawn and stays itself, path and all.
+            EvalResult::Named(prims) if prims.len() == 1 && !prims[0].picked && !matches!(prims[0].place, Placement::Many(_)) =>
+                EvalResult::Named(vec![edit_in_place(&prims[0], op)]),
             other => EvalResult::Single(op(other.as_mesh())),
         }
     }
@@ -1391,8 +1438,10 @@ impl SceneHierarchy {
                             .split('/')
                             .collect();
 
-                        // Intermediate Xform parent rows — no prim_path
-                        for seg_depth in 1..segs.len().saturating_sub(1) {
+                        // Every parent on the path, as an Xform row (no
+                        // prim_path): `/root/asset/cube1` lists root, asset,
+                        // then cube1 under them.
+                        for seg_depth in 0..segs.len().saturating_sub(1) {
                             let parent_key = segs[..=seg_depth].join("/");
                             if seen_parents.insert(parent_key.clone()) {
                                 let key = format!("seg:{}:{parent_key}", node_id.0);
@@ -1402,7 +1451,7 @@ impl SceneHierarchy {
                                     id,
                                     name:         segs[seg_depth].to_string(),
                                     icon:         prim_icon(segs[seg_depth], true),
-                                    depth:        seg_depth,
+                                    depth:        seg_depth + 1,
                                     has_children: true,
                                     expanded:     exp,
                                     node_id,
@@ -1414,7 +1463,7 @@ impl SceneHierarchy {
                         }
 
                         // Leaf mesh entry — store the full prim path
-                        let leaf_depth = segs.len().saturating_sub(1).max(1);
+                        let leaf_depth = segs.len().max(1);
                         let leaf_name  = segs.last().unwrap_or(&"mesh").to_string();
                         let id = self.next_id();
                         self.objects.push(SceneObject {
@@ -1458,5 +1507,30 @@ mod purpose_tests {
         assert!(!h.draws_purpose(render) && !h.draws_purpose(paired) && h.draws_purpose(Purpose::Default));
         h.set_purpose_shown(PurposeKind::Guide, true);
         assert!(h.draws_purpose(guide));
+    }
+}
+
+#[cfg(test)]
+mod location_tests {
+    use super::*;
+
+    #[test]
+    fn a_primitive_location_becomes_a_usd_path() {
+        assert_eq!(prim_location("/cube", "/x"), "/cube");
+        assert_eq!(prim_location("root/asset/cube1/", "/x"), "/root/asset/cube1");
+        assert_eq!(prim_location(" /set//props/ my box ", "/x"), "/set/props/my_box");
+        assert_eq!(prim_location("/2nd/box-a", "/x"), "/_2nd/box_a");
+        assert_eq!(prim_location("", "/cube"), "/cube");
+        assert_eq!(prim_location("///", "/cube"), "/cube");
+    }
+
+    #[test]
+    fn the_scene_explorer_lists_every_parent_on_the_path() {
+        let mut h = SceneHierarchy::default();
+        let cube = Prim::new("/root/asset/cube1".into(), MeshData::default());
+        h.rebuild(vec![(NodeId(1), "Cube".into(), EvalResult::Named(vec![cube]))]);
+        let rows: Vec<(&str, usize)> = h.objects.iter().map(|o| (o.name.as_str(), o.depth)).collect();
+        assert_eq!(rows, vec![("Cube", 0), ("root", 1), ("asset", 2), ("cube1", 3)]);
+        assert_eq!(h.objects[3].prim_path.as_deref(), Some("/root/asset/cube1"));
     }
 }

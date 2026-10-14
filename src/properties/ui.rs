@@ -8,7 +8,7 @@
 
 use glam::Vec3;
 use std::sync::Arc;
-use crate::types::{BodyView, NodeId, NodeType, RetimeMode, SplitPick, node_type_icon, node_type_label};
+use crate::types::{BodyView, MergeMode, NodeId, NodeType, RetimeMode, SplitPick, node_type_icon, node_type_label};
 use crate::core::anim::{AnimData, FrameRate, PoseEdit, RATE_PRESETS};
 use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
 use crate::batch::{self, BatchState};
@@ -185,18 +185,25 @@ pub fn draw_properties(
 
     match &mut node.node_type {
         // ── Create ───────────────────────────────────────────────────────────
-        NodeType::CreateCube { size } => group(ui, "Shape", None, |f| {
-            f.slider("Size", None, size, 0.1..=5.0, " m");
-        }),
-        NodeType::CreateSphere { radius, segments } => group(ui, "Shape", None, |f| {
-            f.slider("Radius", None, radius, 0.1..=3.0, " m");
-            f.slider_u32("Segments", None, segments, 4..=64, "");
-        }),
-        NodeType::CreateGrid { rows, cols, size } => group(ui, "Shape", None, |f| {
-            f.slider_u32("Rows", None, rows, 1..=100, "");
-            f.slider_u32("Columns", None, cols, 1..=100, "");
-            f.slider("Size", None, size, 0.1..=20.0, " m");
-        }),
+        NodeType::CreateCube { size, location } => {
+            location_group(ui, location, "/cube");
+            group(ui, "Shape", None, |f| { f.slider("Size", None, size, 0.1..=5.0, " m"); });
+        }
+        NodeType::CreateSphere { radius, segments, location } => {
+            location_group(ui, location, "/sphere");
+            group(ui, "Shape", None, |f| {
+                f.slider("Radius", None, radius, 0.1..=3.0, " m");
+                f.slider_u32("Segments", None, segments, 4..=64, "");
+            });
+        }
+        NodeType::CreateGrid { rows, cols, size, location } => {
+            location_group(ui, location, "/grid");
+            group(ui, "Shape", None, |f| {
+                f.slider_u32("Rows", None, rows, 1..=100, "");
+                f.slider_u32("Columns", None, cols, 1..=100, "");
+                f.slider("Size", None, size, 0.1..=20.0, " m");
+            });
+        }
         NodeType::TestClip { seconds, fps_num, fps_den } => group(ui, "Clip", Some("A procedural walk on the spot, starting at 01:00:00:00"), |f| {
             f.slider("Length", None, seconds, 0.5..=60.0, " s");
             rate_row(f, fps_num, fps_den);
@@ -337,14 +344,14 @@ pub fn draw_properties(
             if reset { *translation = Vec3::ZERO; *rotation = Vec3::ZERO; *scale = Vec3::ONE; }
             if clip { clip_summary(ui, anim, true); }
         }
-        NodeType::Merge => group(ui, "Inputs", None, |f| { f.status(Status::Info, "A and B, as one mesh"); }),
-        NodeType::ScatterPoints { count, seed } => group(ui, "Points", None, |f| {
-            f.slider_u32("Count", None, count, 1..=10_000, "");
-            f.slider_u32("Seed", Some("Another seed, another spread"), seed, 0..=9_999, "");
-        }),
-        NodeType::CopyToPoints => group(ui, "Inputs", None, |f| {
-            f.value("Template", "First input: the mesh copied");
-            f.value("Points", "Second input: where the copies go");
+        NodeType::Merge { mode } => group(ui, "Merge", None, |f| {
+            f.choice("Mode", Some("Auto goes by the first input: primitives are merged as primitives, a plain mesh or a clip becomes one mesh. Primitives and Flatten force one or the other"),
+                mode, &[(MergeMode::Auto, "Auto"), (MergeMode::Primitives, "Primitives"), (MergeMode::Flatten, "Flatten")]);
+            match mode {
+                MergeMode::Auto => f.status(Status::Info, "Primitives when A brings primitives, else one mesh"),
+                MergeMode::Primitives => f.status(Status::Info, "A and B side by side; on the same path, B is the stronger"),
+                MergeMode::Flatten => f.status(Status::Info, "A and B as one mesh"),
+            }
         }),
         NodeType::Ice { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
         NodeType::Output => group(ui, "Output", None, |f| { f.status(Status::Info, "What reaches this node is the scene"); }),
@@ -1378,4 +1385,15 @@ fn space_line(c: &AnimData) -> String {
         Some(sp) => format!("{} up, {}, as the source file", axis(sp.up), unit(sp.unit_cm)),
         None => "Y up, cm (made in this program)".into(),
     }
+}
+
+/// The Primitive Location of a shape: where in the scene its primitive is.
+/// Parents on the path are plain Xforms. What is typed is cleaned into a USD
+/// path, and the panel says so when that changes it.
+fn location_group(ui: &mut egui::Ui, location: &mut String, fallback: &str) {
+    group(ui, "Primitive", Some("Where the shape is in the scene. Its parents are Xforms"), |f| {
+        f.text("Primitive Location", Some("A USD path, such as /cube or /set/props/box1"), location, fallback);
+        let path = crate::types::prim_location(location, fallback);
+        if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
+    });
 }

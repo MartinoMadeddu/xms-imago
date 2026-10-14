@@ -53,7 +53,9 @@ pub fn to_json(graph: &NodeGraphState) -> String {
 /// Replace the contents of `graph` with a saved graph. View settings (pan,
 /// zoom) are kept.
 pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
-    let mut saved: SavedGraph = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let mut value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    upgrade_json(&mut value);
+    let mut saved: SavedGraph = serde_json::from_value(value).map_err(|e| e.to_string())?;
     upgrade(&mut saved);
     if !saved.nodes.iter().any(|n| matches!(n.node_type, NodeType::Output)) {
         return Err("graph has no Output node".into());
@@ -75,6 +77,36 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
     }
     graph.view_flag = saved.view_flag.map(NodeId).filter(|v| graph.nodes.iter().any(|n| n.id == *v));
     Ok(())
+}
+
+/// Operators that changed shape, brought up to date before the graph is
+/// read, in the text of a saved graph or of copied nodes (the scene
+/// graph's own nodes only: ICE graphs have operators of the same names):
+/// - Merge, saved before it had a mode, gets Auto.
+/// - Scatter Points and Copy to Points are gone: ICE graphs do both. Each
+///   becomes a Placeholder with the same inputs and outputs and a note, so
+///   the graph opens with its wires in place.
+fn upgrade_json(value: &mut serde_json::Value) {
+    use serde_json::{json, Value};
+    let Some(nodes) = value.get_mut("nodes").and_then(Value::as_array_mut) else { return };
+    for node in nodes {
+        let Some(t) = node.get_mut("node_type") else { continue };
+        let name = match t {
+            Value::String(s) => s.clone(),
+            Value::Object(o) if o.len() == 1 => o.keys().next().cloned().unwrap_or_default(),
+            _ => continue,
+        };
+        let removed = |inputs: &[&str], outputs: &[&str], what: &str| json!({ "Placeholder": {
+            "inputs": inputs, "outputs": outputs,
+            "description": format!("{what} was removed from the scene graph: do it in an ICE graph, which has {what} as a node. Until then this node passes its inputs through"),
+        }});
+        *t = match name.as_str() {
+            "Merge" if t.is_string() => json!({ "Merge": { "mode": "Auto" } }),
+            "ScatterPoints" => removed(&["Surface"], &["Points"], "Scatter Points"),
+            "CopyToPoints" => removed(&["Template", "Points"], &["Geo"], "Copy to Points"),
+            _ => continue,
+        };
+    }
 }
 
 /// Bring a graph saved by an older version up to date:
@@ -184,7 +216,9 @@ impl Fragment {
 
     /// The fragment in a text, if the text is one.
     pub fn from_text(text: &str) -> Option<Self> {
-        let f: Self = serde_json::from_str(text.trim()).ok()?;
+        let mut value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+        upgrade_json(&mut value);
+        let f: Self = serde_json::from_value(value).ok()?;
         (f.xms_nodes >= 1 && !f.nodes.is_empty()).then_some(f)
     }
 }
@@ -381,7 +415,7 @@ mod tests {
     #[test]
     fn bypass_passes_the_first_input_through() {
         let mut g = NodeGraphState::default();
-        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(0.0, 0.0));
+        let cube = g.add_node("Cube".into(), NodeType::cube(2.0), egui::pos2(0.0, 0.0));
         let xf = g.add_node("Xf".into(), NodeType::Transform {
             translation: glam::Vec3::new(5.0, 0.0, 0.0),
             rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE,
@@ -407,7 +441,7 @@ mod tests {
     fn graph_survives_save_and_load() {
         let mut g = NodeGraphState::default();
         mocap_split_template(&mut g);
-        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(1.0, 2.0));
+        let cube = g.add_node("Cube".into(), NodeType::cube(2.0), egui::pos2(1.0, 2.0));
         let xf = g.add_node("Xf".into(), NodeType::Transform {
             translation: glam::Vec3::new(1.0, 2.0, 3.0),
             rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE,
@@ -448,7 +482,7 @@ mod tests {
         assert_eq!(split.outputs.len(), 2);
         assert_eq!(h.connections.iter().filter(|c| c.from_node == split.id && c.from_output == 1).count(), 2);
         // New nodes do not collide with restored ids.
-        let fresh = h.add_node("New".into(), NodeType::Merge, egui::pos2(0.0, 0.0));
+        let fresh = h.add_node("New".into(), NodeType::merge(), egui::pos2(0.0, 0.0));
         assert_eq!(h.nodes.iter().filter(|n| n.id == fresh).count(), 1);
     }
 
@@ -492,7 +526,7 @@ mod tests {
         use crate::types::IceGraphNodeType;
         let mut subnets = IceGraphStore::default();
         let mut g = NodeGraphState::default();
-        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(100.0, 0.0));
+        let cube = g.add_node("Cube".into(), NodeType::cube(2.0), egui::pos2(100.0, 0.0));
         let sid = subnets.create_subnet("Spherify".into());
         {
             let sg = subnets.get_mut(sid).unwrap();
@@ -550,13 +584,13 @@ mod tests {
         let mut subnets = IceGraphStore::default();
         let mut other = NodeGraphState::default();
         mocap_split_template(&mut other);
-        let cube = other.add_node("Cube".into(), NodeType::CreateCube { size: 1.0 }, egui::pos2(0.0, 0.0));
+        let cube = other.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
         let other_out = other.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
         other.add_connection(cube, 0, other_out, 0);
         let added = other.nodes.len() - 1;
 
         let mut g = NodeGraphState::default();
-        let mine = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 1.0, segments: 8 }, egui::pos2(0.0, 0.0));
+        let mine = g.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
         assert_eq!(add_graph(&mut g, &mut subnets, &other), added);
         assert_eq!(g.nodes.len(), 2 + added);
         assert_eq!(g.nodes.iter().filter(|n| matches!(n.node_type, NodeType::Output)).count(), 1);
@@ -569,7 +603,7 @@ mod tests {
 
         // Output already wired stays as it was.
         let mut h = NodeGraphState::default();
-        let s = h.add_node("Sphere".into(), NodeType::CreateSphere { radius: 1.0, segments: 8 }, egui::pos2(0.0, 0.0));
+        let s = h.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
         let h_out = h.nodes.iter().find(|n| matches!(n.node_type, NodeType::Output)).unwrap().id;
         h.add_connection(s, 0, h_out, 0);
         add_graph(&mut h, &mut subnets, &other);
@@ -595,7 +629,7 @@ mod tests {
     #[test]
     fn a_placeholder_passes_its_inputs_through_and_is_saved() {
         let mut g = NodeGraphState::default();
-        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 2.0 }, egui::pos2(0.0, 0.0));
+        let cube = g.add_node("Cube".into(), NodeType::cube(2.0), egui::pos2(0.0, 0.0));
         let walk = g.add_node("Walk".into(), NodeType::TestClip { seconds: 1.0, fps_num: 30, fps_den: 1 }, egui::pos2(200.0, 0.0));
         let ph = g.add_node("FootLocker".into(), NodeType::Placeholder {
             inputs: vec!["Mesh".into(), "Clip".into()], outputs: vec!["Mesh".into(), "Locked clip".into()],
@@ -685,5 +719,35 @@ mod tests {
             let (a, b) = (old.world_pose(f), new.world_pose(f));
             for j in 0..a.len() { assert!((a[j].w_axis - b[j].w_axis).length() < 1e-4); }
         }
+    }
+
+    #[test]
+    fn graphs_from_before_primitive_locations_open() {
+        // A cube without a location, a Merge without a mode, and the
+        // Scatter Points and Copy to Points operators that are gone.
+        let json = r#"{"version":1,"nodes":[
+            {"id":0,"name":"Output","position":[0,500],"node_type":"Output"},
+            {"id":1,"name":"Ground","position":[0,0],"node_type":{"CreateGrid":{"rows":4,"cols":4,"size":2.0}}},
+            {"id":2,"name":"Scatter","position":[0,100],"node_type":{"ScatterPoints":{"count":10,"seed":1}}},
+            {"id":3,"name":"Pebble","position":[200,0],"node_type":{"CreateCube":{"size":0.2}}},
+            {"id":4,"name":"Copy","position":[0,200],"node_type":"CopyToPoints"},
+            {"id":5,"name":"Merge","position":[0,300],"node_type":"Merge"}
+        ],"connections":[[1,0,2,0],[3,0,4,0],[2,0,4,1],[4,0,5,0],[1,0,5,1],[5,0,0,0]],"view_flag":null}"#;
+        let mut g = NodeGraphState::default();
+        from_json(&mut g, json).unwrap();
+        let node = |id: usize| g.nodes.iter().find(|n| n.id == NodeId(id)).unwrap();
+        assert!(matches!(&node(3).node_type, NodeType::CreateCube { location, .. } if location == "/cube"));
+        assert!(matches!(&node(1).node_type, NodeType::CreateGrid { location, .. } if location == "/grid"));
+        assert!(matches!(node(5).node_type, NodeType::Merge { mode: crate::types::MergeMode::Auto }));
+        assert!(matches!(&node(2).node_type, NodeType::Placeholder { inputs, outputs, description }
+            if inputs == &["Surface"] && outputs == &["Points"] && description.contains("Scatter Points")));
+        assert!(matches!(&node(4).node_type, NodeType::Placeholder { inputs, .. } if inputs.len() == 2));
+        // Every wire is still there.
+        assert_eq!(node(4).inputs[1].connected_output, Some((NodeId(2), 0)));
+        assert_eq!(node(5).inputs[0].connected_output, Some((NodeId(4), 0)));
+        // Saved again, it reads back the same.
+        let mut again = NodeGraphState::default();
+        from_json(&mut again, &to_json(&g)).unwrap();
+        assert_eq!(again.nodes.len(), g.nodes.len());
     }
 }

@@ -1,5 +1,5 @@
 use glam::{EulerRot, Quat, Vec3};
-use crate::types::{EvalResult, MeshData, Prim, NodeType, Placement, RetimeMode, IceGraphId};
+use crate::types::{EvalResult, MeshData, MergeMode, Prim, NodeType, Placement, RetimeMode, IceGraphId};
 use crate::core::anim::{self, AnimData, FrameRate};
 use std::sync::Arc;
 use crate::usd_loader::load_usd_meshes;
@@ -16,9 +16,10 @@ pub fn evaluate_node_type(
     output:      usize,
 ) -> Option<EvalResult> {
     match node_type {
-        NodeType::CreateCube   { size }             => Some(EvalResult::Single(create_cube(*size))),
-        NodeType::CreateSphere { radius, segments } => Some(EvalResult::Single(create_sphere(*radius, *segments))),
-        NodeType::CreateGrid   { rows, cols, size } => Some(EvalResult::Single(create_grid(*rows, *cols, *size))),
+        // A shape is a primitive at its Primitive Location.
+        NodeType::CreateCube   { size, location }             => Some(shape(location, "/cube", create_cube(*size))),
+        NodeType::CreateSphere { radius, segments, location } => Some(shape(location, "/sphere", create_sphere(*radius, *segments))),
+        NodeType::CreateGrid   { rows, cols, size, location } => Some(shape(location, "/grid", create_grid(*rows, *cols, *size))),
 
         NodeType::LoadUsd { path } => {
             if path.is_empty() { return None; }
@@ -84,23 +85,25 @@ pub fn evaluate_node_type(
             other => Some(other.map_mesh(|m| transform(&m, *translation, *rotation, *scale))),
         }),
 
-        NodeType::Merge => {
-            let meshes: Vec<MeshData> = inputs.iter().map(|r| r.as_mesh()).collect();
-            if meshes.len() >= 2 {
-                Some(EvalResult::Single(merge(&meshes[0], &meshes[1])))
+        NodeType::Merge { mode } => {
+            let first = inputs.first()?;
+            if merges_primitives(*mode, first) {
+                // Primitives side by side; on the same path the later input
+                // is the stronger one. A plain mesh among them is a primitive.
+                let mut prims = match prims_of(first) { EvalResult::Named(p) => p, _ => vec![] };
+                for r in &inputs[1..] {
+                    if let EvalResult::Named(more) = prims_of(r) { prims = merge_prims(&prims, &more); }
+                }
+                Some(EvalResult::Named(prims))
             } else {
-                meshes.into_iter().next().map(EvalResult::Single)
+                let meshes: Vec<MeshData> = inputs.iter().map(|r| r.as_mesh()).collect();
+                if meshes.len() >= 2 {
+                    Some(EvalResult::Single(merge(&meshes[0], &meshes[1])))
+                } else {
+                    meshes.into_iter().next().map(EvalResult::Single)
+                }
             }
         }
-
-        NodeType::ScatterPoints { count, seed } =>
-            inputs.first()
-                .map(|r| EvalResult::Single(scatter_points(&r.as_mesh(), *count, *seed))),
-
-        NodeType::CopyToPoints =>
-            if inputs.len() >= 2 {
-                Some(EvalResult::Single(copy_to_points(&inputs[0].as_mesh(), &inputs[1].as_mesh())))
-            } else { None },
 
         NodeType::Ice { id, .. } => {
             // First input is the main geometry, second (if any) the template,
@@ -315,6 +318,53 @@ fn anim_op(
     let input: &Arc<AnimData> = inputs.first()?.as_anim()?;
     anim::memo(&format!("{node_type:?}"), Some(input), || Some(op(input)))
         .map(EvalResult::Anim)
+}
+
+/// A shape as a primitive at `location` (see `prim_location`).
+fn shape(location: &str, fallback: &str, mesh: MeshData) -> EvalResult {
+    EvalResult::Named(vec![Prim::new(crate::types::prim_location(location, fallback), mesh)])
+}
+
+/// Whether a Merge in `mode` merges primitives, given its first input.
+/// Auto goes by that input: primitives merge as primitives, a plain mesh or
+/// a clip is flattened.
+pub fn merges_primitives(mode: MergeMode, first: &EvalResult) -> bool {
+    match mode {
+        MergeMode::Auto       => matches!(first, EvalResult::Named(_)),
+        MergeMode::Primitives => true,
+        MergeMode::Flatten    => false,
+    }
+}
+
+/// Two lists of primitives as one. A primitive of `second` on a path that
+/// `first` has already is the stronger opinion: it takes that primitive's
+/// place, as an `over` on the same path does in USD. What it leaves
+/// unsaid (no material, no stage, no purpose) is read from the weaker one,
+/// so a shape put on the path of a prim loaded from a file becomes an edit
+/// of that prim, and is written as one.
+pub fn merge_prims(first: &[Prim], second: &[Prim]) -> Vec<Prim> {
+    let mut out: Vec<Prim> = first.to_vec();
+    for p in second {
+        match out.iter().position(|q| q.path == p.path) {
+            Some(i) => { let stronger = over(&out[i], p); out[i] = stronger; }
+            None => out.push(p.clone()),
+        }
+    }
+    out
+}
+
+/// `strong` over `weak`, on the same path.
+fn over(weak: &Prim, strong: &Prim) -> Prim {
+    let from_stage = strong.stage.is_some();
+    let has_material = strong.material.is_some();
+    Prim {
+        material: if has_material { strong.material.clone() } else { weak.material.clone() },
+        look:     if has_material { strong.look.clone() } else { weak.look.clone() },
+        stage:    if from_stage { strong.stage.clone() } else { weak.stage.clone() },
+        source:   if from_stage { strong.source.clone() } else { weak.source.clone() },
+        purpose:  if strong.purpose == crate::types::Purpose::Default { weak.purpose } else { strong.purpose },
+        ..strong.clone()
+    }
 }
 
 /// Packed primitives from whatever comes in: a mesh is one primitive.
@@ -565,78 +615,6 @@ pub fn merge(a: &MeshData, b: &MeshData) -> MeshData {
     m
 }
 
-pub fn scatter_points(mesh: &MeshData, count: u32, seed: u32) -> MeshData {
-    let mut pts = Vec::with_capacity(count as usize);
-    let mut rng = LcgRng::new(seed);
-    let tris: Vec<([f32; 3], [f32; 3], [f32; 3])> = mesh.indices
-        .chunks(3)
-        .filter_map(|c| {
-            if c.len() < 3 { return None; }
-            let (a, b, d) = (c[0] as usize, c[1] as usize, c[2] as usize);
-            if a < mesh.vertices.len() && b < mesh.vertices.len() && d < mesh.vertices.len() {
-                Some((mesh.vertices[a], mesh.vertices[b], mesh.vertices[d]))
-            } else { None }
-        })
-        .collect();
-    if tris.is_empty() { return MeshData::default(); }
-    for _ in 0..count {
-        let ti = rng.next_u32() as usize % tris.len();
-        let (a, b, c) = tris[ti];
-        let mut r1 = rng.next_f32();
-        let mut r2 = rng.next_f32();
-        if r1 + r2 > 1.0 { r1 = 1.0 - r1; r2 = 1.0 - r2; }
-        let r3 = 1.0 - r1 - r2;
-        pts.push([
-            a[0]*r3 + b[0]*r1 + c[0]*r2,
-            a[1]*r3 + b[1]*r1 + c[1]*r2,
-            a[2]*r3 + b[2]*r1 + c[2]*r2,
-        ]);
-    }
-    MeshData {
-        vertices: vec![],
-        indices:  vec![],
-        points:   pts,
-        ..Default::default()
-    }
-}
-
-pub fn copy_to_points(template: &MeshData, point_cloud: &MeshData) -> MeshData {
-    let pts = if !point_cloud.points.is_empty() {
-        &point_cloud.points
-    } else {
-        &point_cloud.vertices
-    };
-    let mut out_verts = Vec::new();
-    let mut out_idx   = Vec::new();
-    let mut out_polys = Vec::new();
-    for pt in pts {
-        let offset = out_verts.len() as u32;
-        let t = Vec3::from_array(*pt);
-        for v in &template.vertices {
-            out_verts.push((Vec3::from_array(*v) + t).to_array());
-        }
-        out_idx.extend(template.indices.iter().map(|i| i + offset));
-        out_polys.extend(template.polys.iter().map(|p| p.iter().map(|i| i + offset).collect::<Vec<u32>>()));
-    }
-    let mut m = MeshData::from_triangles(out_verts, out_idx);
-    if !out_polys.is_empty() {
-        m.face_count = out_polys.len();
-        m.polys = out_polys;
-    }
-    m.compute_normals();
-    m
-}
-
-struct LcgRng(u64);
-impl LcgRng {
-    fn new(seed: u32) -> Self { Self(seed as u64 | 1) }
-    fn next_u32(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005)
-                       .wrapping_add(1442695040888963407);
-        (self.0 >> 33) as u32
-    }
-    fn next_f32(&mut self) -> f32 { self.next_u32() as f32 / u32::MAX as f32 }
-}
 #[cfg(test)]
 mod packed_tests {
     use super::*;
@@ -782,5 +760,68 @@ mod packed_tests {
         assert_eq!((all.vertices.len(), all.indices.len(), all.polygons().len()), (pairs.vertices.len(), pairs.indices.len(), pairs.polygons().len()));
         assert_eq!(all.indices, pairs.indices);
         assert_eq!(all.normals.len(), all.vertices.len());
+    }
+
+    fn eval(node: NodeType, inputs: &[EvalResult]) -> EvalResult {
+        evaluate_node_type(&node, inputs, &pass, 0).unwrap()
+    }
+
+    #[test]
+    fn a_shape_is_a_primitive_at_its_location() {
+        let cube = eval(NodeType::cube(1.0), &[]);
+        assert_eq!(cube.prim_paths(), vec!["/cube"]);
+        let typed = eval(NodeType::CreateSphere { radius: 1.0, segments: 8, location: " root//asset/1 ball ".into() }, &[]);
+        assert_eq!(typed.prim_paths(), vec!["/root/asset/_1_ball"]);
+        let empty = eval(NodeType::CreateGrid { rows: 2, cols: 2, size: 1.0, location: " / ".into() }, &[]);
+        assert_eq!(empty.prim_paths(), vec!["/grid"], "nothing usable: the default");
+    }
+
+    #[test]
+    fn a_lone_primitive_stays_itself_through_a_mesh_operator() {
+        let cube = eval(NodeType::cube(1.0), &[]);
+        let out = run(NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, &cube);
+        assert_eq!(out.prim_paths(), vec!["/cube"]);
+        let lifted = run(NodeType::UvTransform { offset: [0.5, 0.0], rotate: 0.0, scale: [1.0, 1.0] }, &out);
+        assert_eq!(lifted.prim_paths(), vec!["/cube"]);
+        assert!(prims(&lifted)[0].mesh.vertices.len() >= 8);
+    }
+
+    #[test]
+    fn merge_goes_by_its_first_input() {
+        let auto = || NodeType::merge();
+        let sphere = eval(NodeType::sphere(0.5, 8), &[]);
+        let cube = eval(NodeType::cube(1.0), &[]);
+        // Primitives first: primitives out, each with its path.
+        let both = eval(auto(), &[cube.clone(), sphere.clone()]);
+        assert_eq!(both.prim_paths(), vec!["/cube", "/sphere"]);
+        // A plain mesh first: one mesh, as before.
+        let flat = eval(auto(), &[EvalResult::Single(create_cube(1.0)), sphere.clone()]);
+        assert!(matches!(&flat, EvalResult::Single(m) if m.vertices.len() == create_cube(1.0).vertices.len() + create_sphere(0.5, 8).vertices.len()));
+        // The mode overrides the input.
+        assert!(matches!(eval(NodeType::Merge { mode: MergeMode::Flatten }, &[cube.clone(), sphere.clone()]), EvalResult::Single(_)));
+        let forced = eval(NodeType::Merge { mode: MergeMode::Primitives }, &[EvalResult::Single(create_cube(1.0)), sphere]);
+        assert_eq!(forced.prim_paths(), vec!["/mesh", "/sphere"]);
+    }
+
+    #[test]
+    fn on_the_same_path_the_second_input_is_stronger() {
+        let small = eval(NodeType::cube(1.0), &[]);
+        let big = eval(NodeType::cube(4.0), &[]);
+        let out = eval(NodeType::merge(), &[small, big]);
+        assert_eq!(out.prim_paths(), vec!["/cube"]);
+        assert!(max_y(&prims(&out)[0].mesh) > 1.9, "the second cube wins");
+
+        // A shape over a prim of a file: it takes the file prim's place and
+        // keeps its stage, source and material, so it is written as an edit.
+        let mut loaded = Prim::new("/car/body".into(), create_cube(1.0));
+        loaded.material = Some("/looks/red".into());
+        loaded.stage = Some(Arc::new(Default::default()));
+        let body = EvalResult::Named(vec![loaded.clone(), prims(&packed())[1].clone()]);
+        let shape = eval(NodeType::CreateCube { size: 3.0, location: "/car/body".into() }, &[]);
+        let out = eval(NodeType::merge(), &[body, shape]);
+        assert_eq!(out.prim_paths(), vec!["/car/body", "/car/wheel_L"], "the first input's order is kept");
+        let p = &prims(&out)[0];
+        assert!(max_y(&p.mesh) > 1.4 && p.material.as_deref() == Some("/looks/red"));
+        assert!(Arc::ptr_eq(p.stage.as_ref().unwrap(), loaded.stage.as_ref().unwrap()));
     }
 }

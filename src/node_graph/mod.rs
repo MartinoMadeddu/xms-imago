@@ -159,9 +159,7 @@ impl NodeGraphState {
             NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::WriteUsd { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
-            NodeType::Merge                 => (vec![i("A"), i("B")], vec![o("Result")]),
-            NodeType::ScatterPoints { .. }  => (vec![i("Surface")], vec![o("Points")]),
-            NodeType::CopyToPoints          => (vec![i("Template"), i("Points")], vec![o("Geo")]),
+            NodeType::Merge { .. }          => (vec![i("A"), i("B")], vec![o("Result")]),
             NodeType::Output                => (vec![i("Scene")], vec![]),
             NodeType::Placeholder { inputs, outputs, .. } => (
                 inputs.iter().map(|n| InputSocket { name: n.clone(), connected_output: None }).collect(),
