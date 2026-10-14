@@ -40,7 +40,7 @@ pub fn draw_timeline(
     // False when the navigation style uses Space itself.
     space_plays: bool,
 ) {
-    egui::Frame::none().fill(xsi::PANEL_BG()).inner_margin(6.0).show(ui, |ui| {
+    egui::Frame::NONE.fill(xsi::PANEL_BG()).inner_margin(6.0).show(ui, |ui| {
         match state {
             TimelineState::Source(src) => draw_source(ui, pb, src, dt, keys, space_plays),
             TimelineState::NoTimeData { node_name } => {
@@ -206,7 +206,7 @@ fn draw_source(ui: &mut egui::Ui, pb: &mut Playback, src: &TimelineSource, dt: f
         painter.rect_filled(bar(a, b), 2.0, xsi::INPUT_BAR());
     }
     painter.rect_filled(bar(out_start, out_end), 2.0, xsi::CLIP_BAR());
-    painter.rect_stroke(bar(out_start, out_end), 2.0, egui::Stroke::new(1.0_f32, xsi::CLIP_EDGE()));
+    painter.rect_stroke(bar(out_start, out_end), 2.0, egui::Stroke::new(1.0_f32, xsi::CLIP_EDGE()), egui::StrokeKind::Middle);
 
     // ── Ruler ────────────────────────────────────────────────────────────────
     // Tick spacing follows the clip's timebase so major ticks land on seconds.

@@ -51,16 +51,16 @@ impl ImagoApp {
 }
 
 impl eframe::App for ImagoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.25);
         self.last_frame = now;
-        let mut ctx = ctx.clone();
+        let ctx = ui.ctx().clone();
 
         // The interface, undo, what changed, questions before closing, then
         // what the panes show.
-        crate::draw_ui(&mut ctx, &mut self.app, &mut self.poly_tool, &mut self.nav_settings, dt, Some(&mut self.viewer));
-        crate::history_frame(&mut ctx, &mut self.app);
+        crate::draw_ui(ui, &mut self.app, &mut self.poly_tool, &mut self.nav_settings, dt, Some(&mut self.viewer));
+        crate::history_frame(&ctx, &mut self.app);
         crate::track_revision_frame(&ctx, &mut self.app, &mut self.last_hash);
 
         // Closing the window asks first when there are unsaved changes.
@@ -68,7 +68,7 @@ impl eframe::App for ImagoApp {
         if close_requested && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-        if crate::save_first_frame(&mut ctx, &mut self.app, close_requested && !self.closing) {
+        if crate::save_first_frame(&ctx, &mut self.app, close_requested && !self.closing) {
             self.closing = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

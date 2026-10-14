@@ -237,7 +237,7 @@ pub fn draw_uv_editor(
                 painter.line_segment([to_screen([x, y + t], pan), to_screen([x + 1.0, y + t], pan)], egui::Stroke::new(1.0_f32, grid));
             }
         }
-        painter.rect_stroke(square, 0.0, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(120, 125, 135)));
+        painter.rect_stroke(square, 0.0, egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(120, 125, 135)), egui::StrokeKind::Middle);
         let label = if many || (*tu, *tv) != (0, 0) { format!("{}", uv::udim(*tu, *tv)) } else { "0,0".to_string() };
         painter.text(square.left_bottom() + egui::vec2(4.0, -4.0), egui::Align2::LEFT_BOTTOM, label,
             egui::FontId::monospace(if many { 12.0 } else { 10.0 }), egui::Color32::from_rgb(150, 155, 165));

@@ -59,7 +59,7 @@ pub fn draw_properties_panel(
     anim:    &AnimContext,
     io:      &mut PanelIo,
 ) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(ink::PANEL_BG())
         .inner_margin(6.0)
         .show(ui, |ui| {
@@ -256,7 +256,7 @@ pub fn draw_properties(
                     ui.horizontal(|ui| {
                         if ui.add_enabled(*index > 0, egui::Button::new("◀")).clicked() { *index -= 1; }
                         if ui.add_enabled(*index < last, egui::Button::new("▶")).clicked() { *index += 1; }
-                        egui::ComboBox::from_id_source("fbx_dir_file")
+                        egui::ComboBox::from_id_salt("fbx_dir_file")
                             .width(ui.available_width() - 8.0)
                             .selected_text(format!("{} of {}  {}", *index + 1, files.len(), name(*index as usize)))
                             .show_ui(ui, |ui| {
@@ -421,7 +421,7 @@ pub fn draw_properties(
             });
             if let (Some(i), Some(o)) = (&anim.input, &anim.output) {
                 group(ui, "Result", None, |f| f.wide(|ui| {
-                    egui::ScrollArea::vertical().id_source("rename_preview").max_height(220.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().id_salt("rename_preview").max_height(220.0).show(ui, |ui| {
                         for (a, b) in i.joints.iter().zip(o.joints.iter()) {
                             let col = if a.name == b.name { ink::DIM() } else { ink::VALUE() };
                             ui.colored_label(col, format!("{}  >  {}", a.name, b.name));
@@ -557,7 +557,7 @@ pub fn draw_properties(
                                 },
                                 SplitPick::Joint(name) => format!("Joint {name}"),
                             };
-                            egui::ComboBox::from_id_source(("split_pick", n))
+                            egui::ComboBox::from_id_salt(("split_pick", n))
                                 .width(ui.available_width() - 30.0)
                                 .selected_text(text)
                                 .show_ui(ui, |ui| {
@@ -763,7 +763,7 @@ fn characterize(ui: &mut egui::Ui, picks: &mut crate::core::human::Picks, input:
         let id = f.ui.id().with(("slot", s));
         f.row(s.label(), None, |ui| {
             let text = egui::RichText::new(&shown).color(if picked.is_some() { ink::VALUE() } else { ink::DIM() });
-            egui::ComboBox::from_id_source(id).width(ui.available_width() - 8.0).selected_text(text).height(320.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt(id).width(ui.available_width() - 8.0).selected_text(text).height(320.0).show_ui(ui, |ui| {
                 if ui.selectable_label(picked.is_none(), "Auto, from the names").clicked() { set = Some((s, None)); }
                 if ui.selectable_label(picked.as_deref() == Some(""), "None").clicked() { set = Some((s, Some(String::new()))); }
                 ui.separator();
@@ -905,7 +905,7 @@ fn body_collide(
                 } else {
                     f.value("Passed through", format!("{} frames in {} stretch{}", r.ghost_frames, r.ghost_ranges.len(), if r.ghost_ranges.len() == 1 { "" } else { "es" }));
                     f.row("", None, |ui| {
-                        egui::ScrollArea::vertical().id_source("collide_ghosts").max_height(110.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().id_salt("collide_ghosts").max_height(110.0).show(ui, |ui| {
                             for (a, b) in &r.ghost_ranges {
                                 ui.colored_label(ink::DIM(), egui::RichText::new(format!("{} to {}  (frames {} to {})",
                                     c.timecode(c.start_frame + *a as i64), c.timecode(c.start_frame + *b as i64), a, b)).monospace().small());
@@ -1266,7 +1266,7 @@ fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
         if p.running {
             ui.add(egui::ProgressBar::new(p.done as f32 / p.total.max(1) as f32).text(format!("Writing {} of {}", p.done, p.total)));
         }
-        egui::ScrollArea::vertical().id_source("batch_log").max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("batch_log").max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
             for line in &p.log {
                 let col = if line.starts_with("FAILED") { ink::BAD() } else { ink::LABEL() };
                 ui.colored_label(col, egui::RichText::new(line).small());
@@ -1293,7 +1293,7 @@ fn usd_summary(ui: &mut egui::Ui, path: &str) {
     let list = |ui: &mut egui::Ui, title: String, rows: Vec<(String, String)>| {
         if rows.is_empty() { return; }
         egui::CollapsingHeader::new(title).default_open(false).show(ui, |ui| {
-            egui::ScrollArea::vertical().id_source(ui.id().with("usd_rows")).max_height(180.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt(ui.id().with("usd_rows")).max_height(180.0).show(ui, |ui| {
                 for (name, detail) in rows {
                     ui.colored_label(ink::LABEL(), name);
                     if !detail.is_empty() { ui.colored_label(ink::DIM(), egui::RichText::new(detail).small()); }
@@ -1334,7 +1334,7 @@ fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &
             let w = (ui.available_width() - 48.0).max(60.0);
             ui.add(egui::TextEdit::singleline(text).desired_width(w).hint_text("regex, regex"));
             ui.add_enabled_ui(!names.is_empty(), |ui| {
-                ui.menu_button("Pick", |ui| {
+                crate::menus::menu(ui, "Pick", |ui| {
                     let filter_id = ui.id().with(id).with("filter");
                     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
                     ui.add(egui::TextEdit::singleline(&mut filter).desired_width(200.0).hint_text("filter the list"));
@@ -1344,7 +1344,7 @@ fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &
                         for n in names {
                             if !shown.is_empty() && !shown.matches(n) { continue; }
                             if single {
-                                if ui.selectable_label(false, n).clicked() { *text = regex::escape(n); ui.close_menu(); }
+                                if ui.selectable_label(false, n).clicked() { *text = regex::escape(n); ui.close(); }
                             } else if ui.selectable_label(current.matches(n), n).clicked() {
                                 pattern::toggle(text, n);
                             }

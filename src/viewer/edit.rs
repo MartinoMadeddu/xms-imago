@@ -96,7 +96,7 @@ pub fn run(
         rect.contains(p) && ctx.layer_id_at(p).map(|l| l == egui::LayerId::background()).unwrap_or(true)
     });
     let free = over && !alt;
-    let typing = ctx.wants_keyboard_input();
+    let typing = ctx.egui_wants_keyboard_input();
 
     if !typing && !ctrl && !alt {
         for (k, t) in [Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale].into_iter().enumerate() {
@@ -178,8 +178,12 @@ pub fn run(
                 if boxed {
                     let r = egui::Rect::from_two_pos(egui::pos2(start.x, start.y), egui::pos2(now.x, now.y));
                     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("poly_marquee")));
-                    painter.rect_filled(r, 0.0, egui::Color32::from_rgba_unmultiplied(120, 170, 255, 30));
-                    painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(150, 190, 255)));
+                    // Light: the selection blue; the dark schemes keep their pale blue.
+                    let (fill, edge) = if crate::theme::is_dark() {
+                        (egui::Color32::from_rgba_unmultiplied(120, 170, 255, 30), egui::Color32::from_rgb(150, 190, 255))
+                    } else { crate::theme::marquee_light() };
+                    painter.rect_filled(r, 0.0, fill);
+                    painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, edge), egui::StrokeKind::Middle);
                 }
             } else {
                 // Released: apply.

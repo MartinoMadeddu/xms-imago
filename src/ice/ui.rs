@@ -44,7 +44,7 @@ mod pal {
     pub fn DIVIDER() -> Color32 { Color32::from_black_alpha(80) }     // the line under the title
     pub fn RIM() -> Color32 { Color32::from_rgb( 38,  38,  38) }       // the node's edge
     pub fn FRAME() -> Color32 { Color32::from_rgb(105, 105, 105) }     // the grey ring around it
-    pub fn SELECTED() -> Color32 { Color32::from_rgb(255, 255, 255) }
+    pub fn SELECTED() -> Color32 { crate::theme::selection() }  // the ring of a selected node
     pub fn PORT_RIM() -> Color32 { Color32::from_rgb( 30,  30,  30) }
 
     // Node colours, by kind.
@@ -151,7 +151,7 @@ fn collapsed_id() -> egui::Id { egui::Id::new("ice_collapsed_nodes") }
 pub fn draw_breadcrumb(ui: &mut egui::Ui, subnet_name: &str) -> bool {
     let mut exit = false;
     ui.horizontal(|ui| {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(pal::BREADCRUMB_BG())
             .inner_margin(egui::vec2(8.0, 4.0))
             .show(ui, |ui| {
@@ -209,7 +209,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     );
     let canvas_rect = response.rect;
     let mut collapsed: HashSet<NodeId> = ui.data(|d| d.get_temp(collapsed_id())).unwrap_or_default();
-    let keys_free = response.hovered() && !ui.ctx().wants_keyboard_input();
+    let keys_free = response.hovered() && !ui.ctx().egui_wants_keyboard_input();
 
     // ── Up arrow: back up to the scene network ───────────────────────────────
     if keys_free && ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
@@ -219,7 +219,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     // ── Delete or Backspace: delete the selected node ────────────────────────
     // Pointer anywhere over the canvas, nodes included, as in the main network.
     let ptr_in_canvas = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| canvas_rect.contains(p));
-    if ptr_in_canvas && !ui.ctx().wants_keyboard_input()
+    if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input()
         && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
     {
         if let Some(id) = graph.selected_node { graph.remove_node(id); }
@@ -334,65 +334,65 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         ui.label(egui::RichText::new("Constants").strong());
         if ui.button("→v  Const Vec3").clicked() {
             graph.add_node("Vec3".into(), IceGraphNodeType::ConstVec3 { value: Vec3::ZERO }, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("→f  Const Float").clicked() {
             graph.add_node("Float".into(), IceGraphNodeType::ConstFloat { value: 0.0 }, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("→i  Const Int").clicked() {
             graph.add_node("Int".into(), IceGraphNodeType::ConstInt { value: 0 }, cp);
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         ui.label(egui::RichText::new("Vec3 Math").strong());
         if ui.button("+  Add").clicked() {
             graph.add_node("Add".into(), IceGraphNodeType::AddVec3, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("-  Subtract").clicked() {
             graph.add_node("Subtract".into(), IceGraphNodeType::SubtractVec3, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("×  Multiply").clicked() {
             graph.add_node("Multiply".into(), IceGraphNodeType::MultiplyVec3 { scalar: 1.0 }, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("×  Cross Product").clicked() {
             graph.add_node("Cross".into(), IceGraphNodeType::CrossProduct, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("|v|  Normalize").clicked() {
             graph.add_node("Normalize".into(), IceGraphNodeType::Normalize, cp);
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         ui.label(egui::RichText::new("Scalar").strong());
         if ui.button("·  Dot Product").clicked() {
             graph.add_node("Dot".into(), IceGraphNodeType::DotProduct, cp);
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         ui.label(egui::RichText::new("Interpolate").strong());
         if ui.button("≈  Lerp").clicked() {
             graph.add_node("Lerp".into(), IceGraphNodeType::LerpVec3 { t: 0.5 }, cp);
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         ui.label(egui::RichText::new("Points").strong());
         if ui.button("→  Scatter Points").clicked() {
             graph.add_node("Scatter".into(), IceGraphNodeType::ScatterPoints { count: 100, seed: 0 }, cp);
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         ui.label(egui::RichText::new("Geometry").strong());
         if ui.button("📦  Get Template").clicked() {
             graph.add_node("GetTemplate".into(), IceGraphNodeType::GetTemplate, cp);
-            ui.close_menu();
+            ui.close();
         }
         if ui.button("❇  Copy to Points").clicked() {
             graph.add_node("CopyToPoints".into(), IceGraphNodeType::CopyToPoints, cp);
-            ui.close_menu();
+            ui.close();
         }
     });
     false
@@ -420,11 +420,13 @@ fn draw_subnet_node(
     let is_sel  = graph.selected_node == Some(id);
     let body    = tint(&node.node_type);
 
-    // A grey ring, the body, a dark edge; white around it when selected.
-    let ring = rect.expand(2.0 * z.max(0.5));
-    painter.rect_filled(ring, if ROUNDING > 0.0 { (ROUNDING + 2.0) * z } else { 0.0 }, if is_sel { pal::SELECTED() } else { pal::FRAME() });
+    // A grey ring, the body, a dark edge; the selection blue around it when
+    // selected, wide enough to see at any zoom.
+    let w = crate::node_graph::ui::ring_width(z, is_sel);
+    let ring = rect.expand(w);
+    painter.rect_filled(ring, if ROUNDING > 0.0 { ROUNDING * z + w } else { 0.0 }, if is_sel { pal::SELECTED() } else { pal::FRAME() });
     painter.rect_filled(rect, ROUNDING * z, body);
-    painter.rect_stroke(rect, ROUNDING * z, egui::Stroke::new(1.0_f32, pal::RIM()));
+    painter.rect_stroke(rect, ROUNDING * z, egui::Stroke::new(1.0_f32, pal::RIM()), egui::StrokeKind::Middle);
 
     // Two-line title: the node's own name in bold (drawn twice, a hair
     // apart), its type in small dim text beneath. Collapsed, only the name.
@@ -510,7 +512,7 @@ fn draw_subnet_node(
         dr.context_menu(|ui| {
             if ui.button("Delete").clicked() {
                 graph.remove_node(id);
-                ui.close_menu();
+                ui.close();
             }
         });
     }
@@ -539,7 +541,7 @@ fn draw_port(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32, hot
 /// The collapse box: a small grey box with three lines in it.
 fn draw_fold_box(painter: &egui::Painter, r: egui::Rect) {
     painter.rect_filled(r, 1.5, egui::Color32::from_rgb(200, 200, 200));
-    painter.rect_stroke(r, 1.5, egui::Stroke::new(1.0_f32, pal::RIM()));
+    painter.rect_stroke(r, 1.5, egui::Stroke::new(1.0_f32, pal::RIM()), egui::StrokeKind::Middle);
     for k in 1..=3 {
         let y = r.min.y + r.height() * k as f32 / 4.0;
         painter.line_segment([egui::pos2(r.min.x + 2.0, y), egui::pos2(r.max.x - 2.0, y)], egui::Stroke::new(1.0_f32, pal::RIM()));

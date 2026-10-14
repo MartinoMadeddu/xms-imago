@@ -79,7 +79,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
     };
 
     // ── Frame every node ─────────────────────────────────────────────────────
-    let frame_key = response.hovered() && !ui.ctx().wants_keyboard_input()
+    let frame_key = response.hovered() && !ui.ctx().egui_wants_keyboard_input()
         && ui.input(|i| i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::A));
     if (graph.frame_request || frame_key) && canvas_rect.width() > 40.0 && !graph.nodes.is_empty() {
         graph.frame_request = false;
@@ -173,7 +173,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) { close = true; }
         if !opened_now && ui.input(|i| i.pointer.any_click()) && !area_resp.response.contains_pointer()
-            && !ui.ctx().memory(|m| m.any_popup_open()) {
+            && !ui.ctx().any_popup_open() {
             close = true;
         }
         if close {
@@ -256,7 +256,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
     }
 
     // ── Down arrow: into the selected ICE node, as a double-click does ───────
-    if ptr_in_canvas && !ui.ctx().wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+    if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
         let selected = graph.selected_node.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
         if let Some(NodeType::Ice { id: sid, .. }) = selected.map(|n| &n.node_type) {
             dive_into = Some(*sid);
@@ -304,8 +304,11 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
 
             // Draw the marquee rectangle in screen space
             let sr = egui::Rect::from_two_pos(to_screen(start), to_screen(cur));
-            painter.rect_filled(sr, 2.0, xsi::SEL_RECT());
-            painter.rect_stroke(sr, 2.0, egui::Stroke::new(1.0, xsi::SEL_RECT_BORDER()));
+            // Light: the selection blue (the dark schemes' tint, added to a
+            // pale canvas, came out white).
+            let (fill, edge) = if crate::theme::is_dark() { (xsi::SEL_RECT(), xsi::SEL_RECT_BORDER()) } else { crate::theme::marquee_light() };
+            painter.rect_filled(sr, 2.0, fill);
+            painter.rect_stroke(sr, 2.0, egui::Stroke::new(1.0, edge), egui::StrokeKind::Middle);
         }
     }
 
@@ -382,20 +385,21 @@ fn draw_node(
     let is_sub = matches!(node.node_type, NodeType::Ice { .. });
 
     // ── Node body ─────────────────────────────────────────────────────────────
-    // As the ICE nodes: a grey ring around the node (white when selected),
-    // one colour over the whole node, a dark edge, the name in bold over the
-    // type.
+    // As the ICE nodes: a grey ring around the node (the selection blue when
+    // selected), one colour over the whole node, a dark edge, the name in
+    // bold over the type.
     // One colour over the whole node, by the add-menu category it is in.
     let (body, ink, ink_dim) = node_colours(&node.node_type);
     let _ = is_sub;
-    let ring = rect.expand(2.0 * zoom.max(0.5));
-    painter.rect_filled(ring, (NODE_ROUNDING + 2.0) * zoom,
-        if is_sel { egui::Color32::WHITE } else { egui::Color32::from_rgb(105, 105, 105) });
+    let w = ring_width(zoom, is_sel);
+    let ring = rect.expand(w);
+    painter.rect_filled(ring, NODE_ROUNDING * zoom + w,
+        if is_sel { crate::theme::selection() } else { egui::Color32::from_rgb(105, 105, 105) });
     painter.rect_filled(rect, NODE_ROUNDING * zoom, body);
 
     let title_h    = 32.0 * zoom;
     let title_rect = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, title_h));
-    painter.rect_stroke(rect, NODE_ROUNDING * zoom, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(38, 38, 38)));
+    painter.rect_stroke(rect, NODE_ROUNDING * zoom, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(38, 38, 38)), egui::StrokeKind::Middle);
 
     // Icon, then the name in bold (drawn twice, a hair apart), the type
     // beneath in PascalCase, all from the left, after the bypass ring.
@@ -751,13 +755,20 @@ pub fn default_name(t: &NodeType) -> String {
     node_type_label(t).chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
+/// Width in pixels of the ring around a node. It follows the zoom, but a
+/// selected node keeps a ring of at least 3 pixels however far the graph is
+/// zoomed out, and at most 6 however far in, so the selection always shows.
+pub fn ring_width(zoom: f32, selected: bool) -> f32 {
+    if selected { (4.0 * zoom).clamp(3.0, 6.0) } else { 2.0 * zoom.max(0.5) }
+}
+
 fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2) -> bool {
     let mut added = false;
     ui.set_min_width(150.0);
     // Categories look like the items in them: menu rows, not buttons.
     ui.visuals_mut().button_frame = false;
     for (icon, category, nodes) in catalog() {
-        ui.menu_button(format!("{icon}  {category}"), |ui| {
+        crate::menus::menu(ui, format!("{icon}  {category}"), |ui| {
             ui.set_min_width(170.0);
             for (t, hint) in nodes {
                 let label = format!("{}  {}", node_type_icon(&t), node_type_label(&t));
@@ -765,11 +776,13 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2) 
                     let name = default_name(&t);
                     graph.add_node(name, t, cp);
                     added = true;
+                    // Closes the category's menu. The Tab menu around it is
+                    // an area of its own, closed by the caller on `added`.
+                    ui.close();
                 }
             }
         });
     }
-    if added { ui.close_menu(); }
     added
 }
 

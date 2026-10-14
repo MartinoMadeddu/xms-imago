@@ -47,7 +47,7 @@ pub fn draw_prim_inspector(
     get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<MeshData>>,
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
 ) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(xsi::BG())
         .show(ui, |ui| {
             let selected_node = graph.selected_node;
@@ -67,7 +67,7 @@ pub fn draw_prim_inspector(
                 String::new()
             };
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(xsi::PATH_BG())
                 .inner_margin(egui::vec2(8.0, 4.0))
                 .show(ui, |ui| {
@@ -98,7 +98,7 @@ pub fn draw_prim_inspector(
             if clip.is_some() && !clip_tab { state.set_active_tab(Tab::Joint); }
             if clip.is_none() && clip_tab { state.set_active_tab(Tab::Vertex); }
 
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(xsi::TAB_BG())
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
@@ -428,7 +428,7 @@ fn draw_spreadsheet(
     }
 
     let scroll_area = egui::ScrollArea::horizontal()
-        .id_source("prim_inspector_hscroll")
+        .id_salt("prim_inspector_hscroll")
         .auto_shrink([false, false]);
 
     scroll_area.show(ui, |ui| {
@@ -448,13 +448,13 @@ fn draw_spreadsheet(
         // Index column header
         painter.rect_stroke(
             egui::Rect::from_min_size(hdr_rect.min, egui::vec2(IDX_COL_W, HEADER_H)),
-            0.0, egui::Stroke::new(1.0, xsi::BORDER()),
+            0.0, egui::Stroke::new(1.0, xsi::BORDER()), egui::StrokeKind::Middle
         );
 
         if let Some((heading, _)) = &table.labels {
             let cell = egui::Rect::from_min_size(
                 egui::pos2(outer_rect.min.x + IDX_COL_W, outer_rect.min.y), egui::vec2(label_w, HEADER_H));
-            painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
+            painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()), egui::StrokeKind::Middle);
             painter.text(cell.center(), egui::Align2::CENTER_CENTER, heading, egui::FontId::proportional(11.0), xsi::TEXT());
         }
 
@@ -464,7 +464,7 @@ fn draw_spreadsheet(
                 egui::pos2(x, outer_rect.min.y),
                 egui::vec2(cd.w, HEADER_H),
             );
-            painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
+            painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()), egui::StrokeKind::Middle);
             painter.text(
                 cell.center(),
                 egui::Align2::CENTER_CENTER,
@@ -490,7 +490,7 @@ fn draw_spreadsheet(
                 egui::pos2(outer_rect.min.x, y),
                 egui::vec2(IDX_COL_W, ROW_H),
             );
-            painter.rect_stroke(idx_cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
+            painter.rect_stroke(idx_cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()), egui::StrokeKind::Middle);
             painter.text(
                 idx_cell.center(),
                 egui::Align2::CENTER_CENTER,
@@ -502,7 +502,7 @@ fn draw_spreadsheet(
             // Text cell
             if let Some((_, labels)) = &table.labels {
                 let cell = egui::Rect::from_min_size(egui::pos2(outer_rect.min.x + IDX_COL_W, y), egui::vec2(label_w, ROW_H));
-                painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
+                painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()), egui::StrokeKind::Middle);
                 painter.with_clip_rect(cell.shrink(2.0)).text(
                     egui::pos2(cell.min.x + 6.0, cell.center().y), egui::Align2::LEFT_CENTER,
                     labels.get(row_idx).map(|s| s.as_str()).unwrap_or("-"),
@@ -516,7 +516,7 @@ fn draw_spreadsheet(
                     egui::pos2(x, y),
                     egui::vec2(cd.w, ROW_H),
                 );
-                painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()));
+                painter.rect_stroke(cell, 0.0, egui::Stroke::new(1.0, xsi::BORDER()), egui::StrokeKind::Middle);
 
                 let row = cols.iter()
                     .find(|(n, _)| *n == cd.source)

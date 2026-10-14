@@ -54,10 +54,10 @@ pub fn group_with(
     header: impl FnOnce(&mut egui::Ui), body: impl FnOnce(&mut Rows),
 ) {
     let label_w = label_width(ui);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(ink::GROUP_BG())
-        .inner_margin(egui::Margin { left: 8.0, right: 8.0, top: 5.0, bottom: 7.0 })
-        .rounding(4.0)
+        .inner_margin(egui::Margin { left: 8, right: 8, top: 5, bottom: 7 })
+        .corner_radius(4.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -236,7 +236,7 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
         });
     } else {
         let current = options.iter().find(|o| o.0 == *v).map(|o| o.1).unwrap_or("");
-        egui::ComboBox::from_id_source(id).width(ui.available_width() - 8.0).selected_text(current).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(id).width(ui.available_width() - 8.0).selected_text(current).show_ui(ui, |ui| {
             for (t, name) in options {
                 if ui.selectable_label(*v == *t, *name).clicked() { *v = t.clone(); }
             }

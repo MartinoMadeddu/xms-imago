@@ -137,7 +137,7 @@ impl Viewer {
     /// the Viewer.
     fn frame_keys(&mut self, ctx: &egui::Context, rect: egui::Rect, input: &ViewerInput) {
         use glam::Vec3;
-        if ctx.wants_keyboard_input() { return; }
+        if ctx.egui_wants_keyboard_input() { return; }
         let (selection, all, held, pointer) = ctx.input(|i| {
             let k = |key| i.key_pressed(key);
             (k(egui::Key::F) || k(egui::Key::G) || k(egui::Key::Z) || k(egui::Key::Period),
@@ -194,9 +194,9 @@ impl Viewer {
 
     /// Orbit, pan and zoom, with the keys and buttons of the navigation style.
     fn navigate(&mut self, ctx: &egui::Context, rect: egui::Rect, nav: &NavSettings, playback: &mut crate::timeline::Playback) {
-        let typing = ctx.wants_keyboard_input();
+        let typing = ctx.egui_wants_keyboard_input();
         let (mut h, pressed, delta, wheel, pointer, space_down, space_up) = ctx.input(|i| {
-            (held(i), i.pointer.any_pressed(), i.pointer.delta(), i.raw_scroll_delta.y, i.pointer.hover_pos(),
+            (held(i), i.pointer.any_pressed(), i.pointer.delta(), wheel_points(i), i.pointer.hover_pos(),
              i.key_pressed(egui::Key::Space), i.key_released(egui::Key::Space))
         });
         if typing { h.space = false; h.s = false; }
@@ -230,4 +230,18 @@ impl Viewer {
         if wheel != 0.0 && over { self.camera.zoom(wheel / 50.0 * 0.12); }
         if action.is_some() { ctx.request_repaint(); }
     }
+}
+
+/// The wheel this frame, in points as egui counted them before 0.33 (50 a
+/// notch), straight from its events: not eased over the frames after, so a
+/// notch zooms by the same step at once.
+fn wheel_points(i: &egui::InputState) -> f32 {
+    i.events.iter().map(|e| match e {
+        egui::Event::MouseWheel { unit, delta, .. } => match unit {
+            egui::MouseWheelUnit::Point => delta.y,
+            egui::MouseWheelUnit::Line => delta.y * 50.0,
+            egui::MouseWheelUnit::Page => delta.y * i.viewport_rect().height(),
+        },
+        _ => 0.0,
+    }).sum()
 }

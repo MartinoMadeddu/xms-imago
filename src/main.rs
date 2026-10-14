@@ -33,6 +33,7 @@ mod templates;
 mod ragdoll;
 mod history;
 mod recent;
+mod menus;
 
 
 use app::{AppState, ViewportRect};
@@ -73,16 +74,18 @@ pub(crate) fn decode_png(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
 
 /// The whole interface for one frame: menus, the dock and every pane, the
 /// file browser and the Viewer's navigation menu. The same in any shell.
+/// `root`: the window's whole Ui, which the top bar and the dock divide.
 /// `viewer`: the Viewer's 3D view (`None` leaves the pane empty, as in
 /// tests).
 pub(crate) fn draw_ui(
-    ctx:            &mut egui::Context,
+    root:           &mut egui::Ui,
     app:            &mut AppState,
     poly_tool:      &mut modelling::PolyTool,
     nav_settings:   &mut viewport::nav::NavSettings,
     dt:             f64,
     viewer:         Option<&mut viewer::Viewer>,
 ) {
+    let ctx = &root.ctx().clone();
     let AppState {
         graph, stack, hierarchy, subnets, nav, vp_rect, prim_state, playback, browser, graph_file,
         layout, revision, uv_state, history, recent, save_first, confirm, batch, ..
@@ -142,7 +145,7 @@ pub(crate) fn draw_ui(
     // File shortcuts (Cmd on macOS). Ctrl+Shift+S is checked before Ctrl+S,
     // which would match it too.
     let mut command = None;
-    if !ctx.wants_keyboard_input() && !browser.is_open() && !save_first.busy() && confirm.pending.is_none() {
+    if !ctx.egui_wants_keyboard_input() && !browser.is_open() && !save_first.busy() && confirm.pending.is_none() {
         use egui::{Key, Modifiers};
         command = ctx.input_mut(|i| {
             if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) { Some(FileCommand::SaveAs) }
@@ -156,7 +159,7 @@ pub(crate) fn draw_ui(
 
     // Range, rate and timecode come from the clip of the selected node.
     let timeline_state = resolve_source(&graph);
-    let keys_free      = !ctx.wants_keyboard_input() && !browser.is_open();
+    let keys_free      = !ctx.egui_wants_keyboard_input() && !browser.is_open();
 
     // Clips around the selected node, for the properties panel.
     let selected_input = graph.selected_node
@@ -181,11 +184,11 @@ pub(crate) fn draw_ui(
     // ── Top bar ──────────────────────────────────────────────────────────────
     // Fixed line above the panes, for things that belong to the whole
     // program. It is not a pane: it cannot be moved, floated or closed.
-    egui::TopBottomPanel::top("top_bar")
-        .exact_height(26.0)
+    egui::Panel::top("top_bar")
+        .exact_size(26.0)
         .resizable(false)
-        .frame(egui::Frame::none().fill(theme::c(58, 58, 58)).inner_margin(egui::Margin::symmetric(8.0, 3.0)))
-        .show(ctx, |ui| {
+        .frame(egui::Frame::NONE.fill(theme::c(58, 58, 58)).inner_margin(egui::Margin::symmetric(8, 3)))
+        .show(root, |ui| {
             ui.horizontal_centered(|ui| {
                 draw_logo(ui);
                 ui.label(egui::RichText::new("XMS | Imago").strong().color(theme::c(243, 243, 243)));
@@ -197,7 +200,7 @@ pub(crate) fn draw_ui(
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
                     templates_menu(ui, &mut *save_first);
-                    ui.menu_button("Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked));
+                    crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked));
                 });
                 // The file the graph is in, and whether it has changed since.
                 let doc = graph_file.path.as_deref().map(file_name).unwrap_or_else(|| "Untitled".into());
@@ -266,7 +269,7 @@ pub(crate) fn draw_ui(
     }
 
     let mut toggle_float = None;
-    let mut dock_rect = ctx.screen_rect();
+    let mut dock_rect = ctx.content_rect();
     let mut tab_pressed = None;
     {
         let mut panes = Panes {
@@ -280,27 +283,38 @@ pub(crate) fn draw_ui(
             uv_state: &mut *uv_state, history: &mut *history,
             confirm: &mut *confirm,
         };
-        let mut style = egui_dock::Style::from_egui(ctx.style().as_ref());
+        let mut style = egui_dock::Style::from_egui(root.style());
         style.tab_bar.fill_tab_bar = true;
         // Tab titles: readable when idle, brightest on the tab in front.
         style.tab.inactive.text_color = theme::c(223, 223, 223);
         style.tab.hovered.text_color  = theme::c(250, 250, 250);
         style.tab.active.text_color   = theme::c(250, 250, 250);
         style.tab.focused.text_color  = theme::c(245, 245, 245);
+        // Light: tabs behind sit darker than the panel, the one in front is
+        // the lightest. egui_dock tints them towards the text-field colour,
+        // which in Light is near white and made them look in front. The
+        // dark schemes are right as they are.
+        if !theme::is_dark() {
+            let behind = theme::c(102, 102, 102);
+            style.tab.inactive.bg_fill = behind;
+            style.tab.inactive_with_kb_focus.bg_fill = behind;
+            style.tab.hovered.bg_fill = theme::c(110, 110, 110);
+        }
         layout.size_new_windows();
-        // What is left under the top bar.
-        let screen = ctx.available_rect();
-        dock_rect = screen;
-        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
+            // What is left under the top bar.
+            let screen = ui.max_rect();
+            dock_rect = screen;
             // Locked: tabs stay where they are. Dividers resize either way.
             egui_dock::DockArea::new(&mut layout.dock)
                 .style(style)
                 .window_bounds(screen)
                 .draggable_tabs(!locked)
                 .show_close_buttons(!locked)
-                // A floating window is closed by the cross on its tab.
-                .show_window_close_buttons(false)
-                .show_window_collapse_buttons(false)
+                // A pane is closed by the cross on its tab: no close-all or
+                // collapse buttons on the tab bars (egui_dock 0.15 added them).
+                .show_leaf_close_all_buttons(false)
+                .show_leaf_collapse_buttons(false)
                 .tab_context_menus(!locked)
                 .show_inside(ui, &mut panes);
         });
@@ -344,7 +358,7 @@ pub(crate) fn draw_ui(
                 painter.rect_filled(bar, 0.0, tint.gamma_multiply(0.6));
                 if edge == Some(e) {
                     painter.rect_filled(e.strip(screen), 0.0, tint.gamma_multiply(0.35));
-                    painter.rect_stroke(e.strip(screen).shrink(1.0), 0.0, egui::Stroke::new(2.0_f32, tint));
+                    painter.rect_stroke(e.strip(screen).shrink(1.0), 0.0, egui::Stroke::new(2.0_f32, tint), egui::StrokeKind::Middle);
                 }
             }
         }
@@ -368,16 +382,16 @@ pub(crate) fn draw_ui(
         .order(egui::Order::Background)
         .fixed_pos(vp.min + egui::vec2(10.0, 8.0))
         .show(ctx, |ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(theme::c(90, 90, 90).gamma_multiply(0.92))
                 .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
-                .rounding(4.0)
+                .corner_radius(4.0)
                 .inner_margin(3.0)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.menu_button(format!("Navigation: {} ⏷", chosen.style.label()), |ui| {
+                        crate::menus::menu(ui, format!("Navigation: {} ⏷", chosen.style.label()), |ui| {
                             for style in viewport::nav::NavStyle::ALL {
-                                if ui.radio_value(&mut chosen.style, style, style.label()).clicked() { ui.close_menu(); }
+                                if ui.radio_value(&mut chosen.style, style, style.label()).clicked() { ui.close(); }
                             }
                             ui.separator();
                             ui.checkbox(&mut chosen.invert_zoom, "Invert zoom drag");
@@ -386,9 +400,9 @@ pub(crate) fn draw_ui(
                             nav_help = !nav_help;
                         }
                         let shown = viewport::display::mode();
-                        ui.menu_button(format!("{} ⏷", shown.label()), |ui| {
+                        crate::menus::menu(ui, format!("{} ⏷", shown.label()), |ui| {
                             for m in viewport::display::DisplayMode::ALL {
-                                if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close_menu(); }
+                                if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
                         }).response.on_hover_text("How meshes are drawn");
                         let loading = viewport::textures::pending();
@@ -411,10 +425,10 @@ pub(crate) fn draw_ui(
         .fixed_pos(vp.min + egui::vec2(10.0, 40.0))
         .interactable(false)
         .show(ctx, |ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(theme::c(90, 90, 90).gamma_multiply(0.86))
                 .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
-                .rounding(6.0)
+                .corner_radius(6.0)
                 .inner_margin(8.0)
                 .show(ui, |ui| {
                     let play = if chosen.style == viewport::nav::NavStyle::Houdini { "Tap Space: play  |  Left/Right: step" } else { "Space: play  |  Left/Right: step" };
@@ -509,9 +523,12 @@ struct Panes<'a> {
 impl egui_dock::TabViewer for Panes<'_> {
     type Tab = Pane;
 
+    // By its title, as egui_dock named tabs before it asked for an id: the
+    // state a pane keeps (scroll positions) carries over.
+    fn id(&mut self, tab: &mut Pane) -> egui::Id { egui::Id::new(tab.title()) }
     fn title(&mut self, tab: &mut Pane) -> egui::WidgetText { tab.title().into() }
     // Closing hides the pane. The Panes menu shows it again.
-    fn closeable(&mut self, _tab: &mut Pane) -> bool { !self.locked }
+    fn is_closeable(&self, _tab: &Pane) -> bool { !self.locked }
     // Double-click a tab to float it, or to dock it back.
     fn on_tab_button(&mut self, tab: &mut Pane, response: &egui::Response) {
         if self.locked { return; }
@@ -569,7 +586,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::SceneExplorer => {
-                egui::ScrollArea::both().id_source("scene_explorer_scroll").auto_shrink([false, false])
+                egui::ScrollArea::both().id_salt("scene_explorer_scroll").auto_shrink([false, false])
                     .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy, self.graph));
             }
 
@@ -578,7 +595,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::OperatorStack => {
-                egui::ScrollArea::both().id_source("operator_stack_scroll").auto_shrink([false, false])
+                egui::ScrollArea::both().id_salt("operator_stack_scroll").auto_shrink([false, false])
                     .show(ui, |ui| draw_operator_stack(ui, self.stack, self.graph));
             }
 
@@ -616,7 +633,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                             ui.separator();
                             // Canvas in its own child Ui: see the note below.
                             let rect = ui.available_rect_before_wrap();
-                            let mut canvas = ui.child_ui(rect, *ui.layout(), None);
+                            let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                             canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
                             let up = draw_subnet_graph(&mut canvas, sg);
                             ui.allocate_rect(rect, egui::Sense::hover());
@@ -647,7 +664,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // at arbitrary positions; drawn straight into the pane, a
                     // node dragged or panned past the edge would stretch it.
                     let rect = ui.available_rect_before_wrap();
-                    let mut canvas = ui.child_ui(rect, *ui.layout(), None);
+                    let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                     canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
                     let dive = draw_node_graph(&mut canvas, self.graph);
                     ui.allocate_rect(rect, egui::Sense::hover());
@@ -655,7 +672,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // Ctrl+C, Ctrl+V (Cmd on macOS) over the canvas: copy the
                     // selected nodes, paste them under the pointer.
                     let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| rect.contains(*p));
-                    if pointer.is_some() && !ui.ctx().wants_keyboard_input() && !self.browser.is_open() {
+                    if pointer.is_some() && !ui.ctx().egui_wants_keyboard_input() && !self.browser.is_open() {
                         let (copy, paste, text) = ui.input(|i| {
                             let copy = i.events.iter().any(|e| matches!(e, egui::Event::Copy));
                             let paste = i.events.iter().any(|e| matches!(e,
@@ -697,9 +714,9 @@ impl egui_dock::TabViewer for Panes<'_> {
 
 /// Undo and redo for one frame: the shortcuts, and a step recorded when the
 /// graph changed and nothing is being dragged or typed.
-pub(crate) fn history_frame(ctx: &mut egui::Context, app: &mut AppState) {
+pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
     let AppState { graph, history, nav, browser, .. } = app;
-    let typing = ctx.wants_keyboard_input();
+    let typing = ctx.egui_wants_keyboard_input();
     if !typing && !browser.is_open() {
         let (redo, undo) = ctx.input_mut(|i| {
             use egui::{Key, Modifiers};
@@ -711,7 +728,7 @@ pub(crate) fn history_frame(ctx: &mut egui::Context, app: &mut AppState) {
         if undo { history.request = Some(history::Request::Undo); }
     }
     let busy = typing || browser.is_open()
-        || ctx.is_using_pointer()
+        || ctx.egui_is_using_pointer()
         || ctx.input(|i| i.pointer.any_down());
     // Look without touching: only an actual change marks the graph changed.
     if history.update(graph, busy) {
@@ -788,7 +805,7 @@ enum FileCommand {
 /// A menu item with its shortcut written at the right, as menus show them.
 fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
     let clicked = ui.add(egui::Button::new(label).shortcut_text(shortcut)).clicked();
-    if clicked { ui.close_menu(); }
+    if clicked { ui.close(); }
     clicked
 }
 
@@ -796,11 +813,11 @@ const CMD: &str = if cfg!(target_os = "macos") { "Cmd" } else { "Ctrl" };
 
 fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Option<FileCommand> {
     let mut c = None;
-    ui.menu_button("File", |ui| {
+    crate::menus::menu(ui, "File", |ui| {
         ui.set_min_width(200.0);
         if menu_item(ui, "New", &format!("{CMD}+N")) { c = Some(FileCommand::New); }
         if menu_item(ui, "Open...", &format!("{CMD}+O")) { c = Some(FileCommand::Open); }
-        ui.menu_button("Open Recent", |ui| {
+        crate::menus::menu(ui, "Open Recent", |ui| {
             if recent.files.is_empty() { ui.label(egui::RichText::new("No graphs opened or saved yet").weak()); }
             for f in &recent.files {
                 let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -809,12 +826,12 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
                 if ui.add_enabled(there, egui::Button::new(label)).on_hover_text(f.display().to_string())
                     .on_disabled_hover_text(format!("{}\nNot found", f.display())).clicked() {
                     c = Some(FileCommand::OpenRecent(f.clone()));
-                    ui.close_menu();
+                    ui.close();
                 }
             }
             if !recent.files.is_empty() {
                 ui.separator();
-                if ui.button("Clear the list").clicked() { c = Some(FileCommand::ClearRecent); ui.close_menu(); }
+                if ui.button("Clear the list").clicked() { c = Some(FileCommand::ClearRecent); ui.close(); }
             }
         });
         ui.separator();
@@ -822,13 +839,13 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
             Some(p) => format!("Save to {}", p.display()),
             None => "Not saved to a file yet: asks where".into(),
         });
-        if save.clicked() { c = Some(FileCommand::Save); ui.close_menu(); }
+        if save.clicked() { c = Some(FileCommand::Save); ui.close(); }
         if menu_item(ui, "Save As...", &format!("{CMD}+Shift+S")) { c = Some(FileCommand::SaveAs); }
         ui.separator();
-        ui.menu_button("Import", |ui| {
-            if ui.button("Graph...").on_hover_text("Add the nodes of a saved graph beside these").clicked() { c = Some(FileCommand::ImportGraph); ui.close_menu(); }
-            if ui.button("FBX...").on_hover_text("Add a Load FBX node reading the file").clicked() { c = Some(FileCommand::ImportFbx); ui.close_menu(); }
-            if ui.button("USD...").on_hover_text("Add a Load USD node reading the file").clicked() { c = Some(FileCommand::ImportUsd); ui.close_menu(); }
+        crate::menus::menu(ui, "Import", |ui| {
+            if ui.button("Graph...").on_hover_text("Add the nodes of a saved graph beside these").clicked() { c = Some(FileCommand::ImportGraph); ui.close(); }
+            if ui.button("FBX...").on_hover_text("Add a Load FBX node reading the file").clicked() { c = Some(FileCommand::ImportFbx); ui.close(); }
+            if ui.button("USD...").on_hover_text("Add a Load USD node reading the file").clicked() { c = Some(FileCommand::ImportUsd); ui.close(); }
         });
         ui.separator();
         if menu_item(ui, "Quit", &format!("{CMD}+Q")) { c = Some(FileCommand::Quit); }
@@ -837,34 +854,34 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
 }
 
 fn edit_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, subnets: &mut IceGraphStore, history: &mut history::History, file: &mut GraphFile) {
-    ui.menu_button("Edit", |ui| {
+    crate::menus::menu(ui, "Edit", |ui| {
         ui.set_min_width(200.0);
         if ui.add_enabled(history.can_undo(), egui::Button::new("Undo").shortcut_text(format!("{CMD}+Z"))).clicked() {
             history.request = Some(history::Request::Undo);
-            ui.close_menu();
+            ui.close();
         }
         if ui.add_enabled(history.can_redo(), egui::Button::new("Redo").shortcut_text(format!("{CMD}+Shift+Z"))).clicked() {
             history.request = Some(history::Request::Redo);
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         let any = !graph.selected_nodes.is_empty();
         if ui.add_enabled(any, egui::Button::new("Copy").shortcut_text(format!("{CMD}+C"))).clicked() {
             if let Some(m) = copy_nodes(ui.ctx(), graph, subnets) { file.message = m; }
-            ui.close_menu();
+            ui.close();
         }
         if ui.add(egui::Button::new("Paste").shortcut_text(format!("{CMD}+V"))).on_hover_text("The nodes copied last, in this window or another").clicked() {
             file.message = paste_nodes(graph, subnets, None, None).unwrap_or_else(|| "Nothing copied to paste".into());
-            ui.close_menu();
+            ui.close();
         }
         if ui.add_enabled(any || graph.selected_connection.is_some(), egui::Button::new("Delete").shortcut_text("Del")).clicked() {
             graph.delete_selected();
-            ui.close_menu();
+            ui.close();
         }
         ui.separator();
         if ui.button("Select All").clicked() {
             graph.selected_nodes = graph.nodes.iter().map(|n| n.id).collect();
-            ui.close_menu();
+            ui.close();
         }
     });
 }
@@ -872,15 +889,15 @@ fn edit_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, subnets: &mut IceGra
 /// Ready-made graphs, by whose work they show, then by area. Picking one
 /// asks whether to add it to the graph or open it as new (`SaveFirst::load`).
 fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
-    ui.menu_button("Templates", |ui| {
+    crate::menus::menu(ui, "Templates", |ui| {
         for (by, groups) in templates::MENU {
-            ui.menu_button(by, |ui| {
+            crate::menus::menu(ui, by, |ui| {
                 for group in groups.iter().copied() {
-                    ui.menu_button(group, |ui| {
+                    crate::menus::menu(ui, group, |ui| {
                         for (index, t) in templates::TEMPLATES.iter().enumerate().filter(|(_, t)| t.by == by && t.group == group) {
                             if ui.button(t.name).on_hover_text(t.hint).clicked() {
                                 save_first.load(Source::Template(index));
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                     });
@@ -903,24 +920,24 @@ fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser
     ui.separator();
     if ui.add_enabled(!locked && layout.any_floating(), egui::Button::new("Dock floating panes")).clicked() {
         layout.dock_all();
-        ui.close_menu();
+        ui.close();
     }
     if ui.add_enabled(!locked, egui::Button::new("Reset layout")).clicked() {
         layout.reset();
-        ui.close_menu();
+        ui.close();
     }
     ui.separator();
     if ui.button("Save layout...").on_hover_text("Write this layout to a file").clicked() {
         browser.open(BrowseTarget::SaveLayout, BrowseMode::Save, "Save layout", &["json"], "layout.json");
-        ui.close_menu();
+        ui.close();
     }
     if ui.add_enabled(!locked, egui::Button::new("Load layout...")).on_hover_text("Replace this layout with one from a file").clicked() {
         browser.open(BrowseTarget::OpenLayout, BrowseMode::File, "Load layout", &["json"], "");
-        ui.close_menu();
+        ui.close();
     }
     if locked { ui.label(egui::RichText::new("Unlock the layout to change it.").small()); }
     ui.separator();
-    ui.menu_button("Theme", theme::menu);
+    crate::menus::menu(ui, "Theme", theme::menu);
 }
 
 /// Add a node reading an imported file, right of the nodes there, selected.
@@ -1166,7 +1183,7 @@ fn carry_out(after: After, graph: &mut NodeGraphState, subnets: &mut IceGraphSto
 
 /// Dim the window behind a question, and take the clicks meant for it.
 fn dim_behind(ctx: &egui::Context) {
-    let screen = ctx.screen_rect();
+    let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("quit_dim")).order(egui::Order::Foreground).fixed_pos(screen.min)
         .show(ctx, |ui| {
             let (rect, _) = ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
@@ -1200,7 +1217,7 @@ fn ask_add_or_open(ctx: &egui::Context, what: &str) -> Option<u8> {
 /// Questions before losing changes, for one frame: closing the window
 /// (`close_requested`), Quit, New, opening a file or a template. Returns
 /// true when the program should close now.
-pub(crate) fn save_first_frame(ctx: &mut egui::Context, app: &mut AppState, close_requested: bool) -> bool {
+pub(crate) fn save_first_frame(ctx: &egui::Context, app: &mut AppState, close_requested: bool) -> bool {
     let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, .. } = app;
     if close_requested && !save_first.ask(&history, &After::Quit) { return true; }
     if std::mem::take(&mut save_first.quit) && !save_first.ask(&history, &After::Quit) {

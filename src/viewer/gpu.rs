@@ -143,26 +143,26 @@ impl ViewerGpu {
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("viewer meshes"), bind_group_layouts: &[&view_layout, &material_layout], push_constant_ranges: &[],
+            label: Some("viewer meshes"), bind_group_layouts: &[Some(&view_layout), Some(&material_layout)], immediate_size: 0,
         });
         let line_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("viewer lines"), bind_group_layouts: &[&view_layout], push_constant_ranges: &[],
+            label: Some("viewer lines"), bind_group_layouts: &[Some(&view_layout)], immediate_size: 0,
         });
 
         let mesh_buffers = [
-            wgpu::VertexBufferLayout { array_stride: (VERTEX_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &MESH_ATTRS },
-            wgpu::VertexBufferLayout { array_stride: (INSTANCE_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &INSTANCE_ATTRS },
+            Some(wgpu::VertexBufferLayout { array_stride: (VERTEX_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &MESH_ATTRS }),
+            Some(wgpu::VertexBufferLayout { array_stride: (INSTANCE_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &INSTANCE_ATTRS }),
         ];
         let line_buffers = [
-            wgpu::VertexBufferLayout { array_stride: (LINE_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &LINE_ATTRS },
+            Some(wgpu::VertexBufferLayout { array_stride: (LINE_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Vertex, attributes: &LINE_ATTRS }),
         ];
-        let pipeline_with = |label: &str, layout: &wgpu::PipelineLayout, vs: &str, fs: &str, buffers: &[wgpu::VertexBufferLayout], topology, write_depth: bool, compare: wgpu::CompareFunction| {
+        let pipeline_with = |label: &str, layout: &wgpu::PipelineLayout, vs: &str, fs: &str, buffers: &[Option<wgpu::VertexBufferLayout>], topology, write_depth: bool, compare: wgpu::CompareFunction| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: vs, buffers, compilation_options: Default::default() },
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers, compilation_options: Default::default() },
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader, entry_point: fs, compilation_options: Default::default(),
+                    module: &shader, entry_point: Some(fs), compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: PICTURE, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -170,14 +170,15 @@ impl ViewerGpu {
                 primitive: wgpu::PrimitiveState { topology, cull_mode: None, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     // Reversed depth: nearer is larger.
-                    format: DEPTH, depth_write_enabled: write_depth, depth_compare: compare,
+                    format: DEPTH, depth_write_enabled: Some(write_depth), depth_compare: Some(compare),
                     stencil: Default::default(), bias: Default::default(),
                 }),
                 multisample: wgpu::MultisampleState { count: SAMPLES, mask: !0, alpha_to_coverage_enabled: false },
-                multiview: None,
+                multiview_mask: None,
+                cache: None,
             })
         };
-        let pipeline = |label: &str, layout: &wgpu::PipelineLayout, vs: &str, fs: &str, buffers: &[wgpu::VertexBufferLayout], topology, write_depth: bool| {
+        let pipeline = |label: &str, layout: &wgpu::PipelineLayout, vs: &str, fs: &str, buffers: &[Option<wgpu::VertexBufferLayout>], topology, write_depth: bool| {
             pipeline_with(label, layout, vs, fs, buffers, topology, write_depth, wgpu::CompareFunction::GreaterEqual)
         };
         let raised = pipeline_with("viewer raised lines", &line_layout, "vs_line_raised", "fs_line", &line_buffers,
@@ -185,7 +186,7 @@ impl ViewerGpu {
         let on_top = pipeline_with("viewer lines on top", &line_layout, "vs_line", "fs_line", &line_buffers,
             wgpu::PrimitiveTopology::LineList, false, wgpu::CompareFunction::Always);
         let point_buffers = [
-            wgpu::VertexBufferLayout { array_stride: (POINT_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &POINT_ATTRS },
+            Some(wgpu::VertexBufferLayout { array_stride: (POINT_FLOATS * 4) as u64, step_mode: wgpu::VertexStepMode::Instance, attributes: &POINT_ATTRS }),
         ];
         let points = pipeline_with("viewer points", &line_layout, "vs_point", "fs_point", &point_buffers,
             wgpu::PrimitiveTopology::TriangleList, false, wgpu::CompareFunction::GreaterEqual);
@@ -212,22 +213,23 @@ impl ViewerGpu {
             ],
         });
         let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("viewer blit"), bind_group_layouts: &[&blit_layout], push_constant_ranges: &[],
+            label: Some("viewer blit"), bind_group_layouts: &[Some(&blit_layout)], immediate_size: 0,
         });
         // egui's target is usually not sRGB: the picture is encoded on the way.
         let fs = if egui_format.is_srgb() { "fs_blit_linear" } else { "fs_blit_encode" };
         let blit = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("viewer blit"),
             layout: Some(&blit_pipeline_layout),
-            vertex: wgpu::VertexState { module: &blit_shader, entry_point: "vs_blit", buffers: &[], compilation_options: Default::default() },
+            vertex: wgpu::VertexState { module: &blit_shader, entry_point: Some("vs_blit"), buffers: &[], compilation_options: Default::default() },
             fragment: Some(wgpu::FragmentState {
-                module: &blit_shader, entry_point: fs, compilation_options: Default::default(),
+                module: &blit_shader, entry_point: Some(fs), compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState { format: egui_format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState { count: egui_samples.max(1), mask: !0, alpha_to_coverage_enabled: false },
-            multiview: None,
+            multiview_mask: None,
+            cache: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("viewer blit"),
@@ -240,7 +242,7 @@ impl ViewerGpu {
         let map_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("viewer maps"),
             address_mode_u: wgpu::AddressMode::Repeat, address_mode_v: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let white = device.create_texture_with_data(
@@ -350,6 +352,7 @@ impl ViewerGpu {
             label: Some("viewer"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &t.colour,
+                depth_slice: None,
                 resolve_target: Some(&t.resolve),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color { r: clear[0] as f64, g: clear[1] as f64, b: clear[2] as f64, a: 1.0 }),
@@ -363,6 +366,7 @@ impl ViewerGpu {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_bind_group(0, &self.view_group, &[]);
         // Surfaces, their edges, lines (grid, boxes, curves), then what is
@@ -397,7 +401,7 @@ impl ViewerGpu {
         }
     }
 
-    fn draw_mesh<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, d: &'a Draw) {
+    fn draw_mesh(&self, pass: &mut wgpu::RenderPass<'_>, d: &Draw) {
         let m = &self.meshes[d.mesh];
         let material = d.material.and_then(|i| self.materials.get(i)).unwrap_or(&self.plain);
         pass.set_bind_group(1, material, &[]);
@@ -443,9 +447,9 @@ fn upload_texture(device: &wgpu::Device, queue: &wgpu::Queue, d: &Decoded) -> wg
         let size = (w * h * 4) as usize;
         if at + size > d.pixels.len() { break; }
         queue.write_texture(
-            wgpu::ImageCopyTexture { texture: &texture, mip_level: level, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: level, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
             &d.pixels[at..at + size],
-            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(w * 4), rows_per_image: Some(h) },
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * 4), rows_per_image: Some(h) },
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         at += size;
@@ -489,7 +493,7 @@ impl CallbackTrait for ViewerPaint {
         vec![]
     }
 
-    fn paint<'a>(&'a self, _info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'a>, resources: &'a CallbackResources) {
+    fn paint(&self, _info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
         let Some(gpu) = resources.get::<ViewerGpu>() else { return };
         let Some(t) = &gpu.target else { return };
         pass.set_pipeline(&gpu.blit);

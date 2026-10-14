@@ -55,6 +55,9 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Translate, Rotate, Scale for every transform. Path for every file. In and Out for what passes through.
 - The parameters of every node share one layout: titled groups, labels right-aligned in one column, values filling the width. Explanations go in tooltips; the panel shows parameters and the state of the node: what came in, what goes out, what went wrong.
 - The light theme is the default. The Viewer's background follows the colour scheme.
+- Text looks the same on every screen: as clean at 1x (Full HD) as on a high-density display. It is not hinted, sits on whole pixels, and its weight is a setting of the scheme, matched to how the Bevy shell drew it (Martino).
+- A menu stays open while it is used (check boxes, filter fields); a command closes it, as does a click outside.
+- What is selected is one colour everywhere (rows, nodes), and stays visible at any zoom. The tab in front is the lightest; the tabs behind are darker than the panel (Martino).
 - Nodes are coloured by their add-menu category; the ICE node has its own teal, after Softimage's ICETree.
 - Imago keeps its own way of working. Softimage XSI and other programs are references for conventions, not a look or a layout to copy.
 - How it looks is a theme, chosen by the user. A button style setting has been proposed but not built: from soft, rounded XSI buttons to the square IRIX Motif look. Colour schemes can be worked out with a palette tool such as [Adobe Color](https://color.adobe.com/create/color-wheel).
@@ -139,3 +142,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 13/10/2026: curves in the Primitive Inspector: control points as points, segments as edges, one face per curve (Martino).
 - 13/10/2026: a face's or an edge's points are one array attribute, `indices`, in the Primitive Inspector (Martino).
 - 13/10/2026: the Corner tab lists polygon corners with `ptIndex`, the point each belongs to (Martino).
+- 14/10/2026: egui and eframe 0.36, egui_dock 0.21, wgpu 30. Text as clean at 1x as under Bevy; menus stay open while used (Martino).
+- 14/10/2026: the scheme is egui's style for the system's light and dark modes alike (Imago started white otherwise); text unhinted, its weight a setting of the scheme (Martino).
+- 14/10/2026: text weight 50 in Light, 80 in Dark and ADHD; one selection blue, also around selected nodes, at least 3 pixels wide at any zoom; in Light, tabs behind darker than the panel (Martino).
+- 14/10/2026: in Light, the box dragged to select (nodes, Edit Poly components) in the selection blue (Martino).

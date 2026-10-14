@@ -47,20 +47,38 @@ pub struct Scheme {
     /// Selection, active flags, highlights.
     pub accent:  [u8; 3],
     pub outline: [u8; 3],
+    /// How heavy text is drawn, 0 (thinnest) to 100 (heaviest): see
+    /// `text_gamma`. Schemes saved without it take their preset's.
+    #[serde(default = "unset_text_weight")]
+    pub text_weight: u8,
 }
+
+/// Text weight at which `text_gamma` is 1.3: the Light preset's.
+pub const TEXT_WEIGHT: u8 = 50;
+/// The dark presets' text weight: light text on dark surfaces, set by eye
+/// against the Bevy shell at 1x (Martino).
+pub const DARK_TEXT_WEIGHT: u8 = 80;
+/// A scheme read from a file written before text weight existed; `settled`
+/// gives it its preset's.
+fn unset_text_weight() -> u8 { u8::MAX }
 
 impl Scheme {
     pub const fn preset(preset: Preset) -> Scheme {
         match preset {
             Preset::Light => Scheme { preset, low: [112, 112, 110], high: [206, 206, 202], text: [10, 10, 10],
-                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70] },
+                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT },
             Preset::Dark  => Scheme { preset, low: [12, 12, 12], high: [64, 64, 64], text: [234, 234, 234],
-                                      dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96] },
+                                      dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96], text_weight: DARK_TEXT_WEIGHT },
             Preset::Adhd  => Scheme { preset, low: [6, 12, 28], high: [36, 56, 96], text: [246, 238, 224],
-                                      dim: [170, 184, 210], accent: [255, 140, 40], outline: [80, 108, 160] },
+                                      dim: [170, 184, 210], accent: [255, 140, 40], outline: [80, 108, 160], text_weight: DARK_TEXT_WEIGHT },
         }
     }
     pub fn is_edited(&self) -> bool { *self != Scheme::preset(self.preset) }
+    /// A text weight not set in the file becomes the preset's.
+    fn settled(mut self) -> Scheme {
+        if self.text_weight > 100 { self.text_weight = Scheme::preset(self.preset).text_weight; }
+        self
+    }
     /// Text darker than the surfaces: the Light scheme, however edited.
     fn dark_text(&self) -> bool {
         let lum = |c: [u8; 3]| c[0] as u32 + c[1] as u32 + c[2] as u32;
@@ -88,7 +106,7 @@ pub fn viewport_bg() -> [u8; 3] {
 /// The Light scheme of earlier versions (dark greys, white text), as saved
 /// by them: read back as today's Light.
 const OLD_LIGHT: Scheme = Scheme { preset: Preset::Light, low: [40, 40, 40], high: [150, 150, 150], text: [230, 230, 230],
-                                   dim: [190, 190, 190], accent: [100, 130, 160], outline: [70, 70, 70] };
+                                   dim: [190, 190, 190], accent: [100, 130, 160], outline: [70, 70, 70], text_weight: TEXT_WEIGHT };
 
 fn store(s: Scheme) {
     *SCHEME.write().unwrap_or_else(|e| e.into_inner()) = s;
@@ -112,6 +130,7 @@ pub fn init(ctx: &egui::Context) {
     let saved = read("theme.json").and_then(|t| serde_json::from_str::<Scheme>(&t).ok())
         // Written by versions that had light and dark only.
         .or_else(|| read("theme.txt").filter(|t| t.trim() == "dark").map(|_| Scheme::preset(Preset::Dark)))
+        .map(Scheme::settled)
         .map(|s| if s == OLD_LIGHT { Scheme::preset(Preset::Light) } else { s })
         .unwrap_or(Scheme::preset(Preset::Light));
     store(saved);
@@ -184,9 +203,20 @@ pub fn outline(_r: u8, _g: u8, _b: u8) -> Color32 {
 /// The accent colour at full strength: active flags, highlights.
 pub fn accent() -> Color32 { let s = scheme(); rgb(accent_at(&s, 255)) }
 
+/// What is selected: the blue of a selected row in the Scene Explorer and
+/// the Operator Stack, also around selected nodes.
+pub fn selection() -> Color32 { c(90, 105, 120) }
+
+/// A box being dragged to select, in Light: the selection blue, its inside
+/// see-through. The dark schemes keep their own (see the callers).
+pub fn marquee_light() -> (Color32, Color32) {
+    let edge = selection();
+    (edge.gamma_multiply(0.3), edge)
+}
+
 /// Style egui's own widgets for the current scheme.
 pub fn apply(ctx: &egui::Context) {
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     let s = scheme();
 
     if s.dark_text() {
@@ -281,7 +311,40 @@ pub fn apply(ctx: &egui::Context) {
         v.hyperlink_color   = rgb(bright);
     }
 
-    ctx.set_style(style);
+    // Text as it looked under Bevy, also on screens of ordinary density
+    // (1x, Full HD), where the edges of glyphs are most of what is seen.
+    // Bevy blended egui in linear light, which thins dark text on a light
+    // ground and fills out light text on a dark one; eframe blends in gamma
+    // space, and egui turns glyph coverage into opacity by one curve for all
+    // text. Node titles are dark text on light bodies even in the dark
+    // schemes, so one curve has to suit both: a gamma above 1, set by the
+    // scheme's text weight. No hinting: Bevy's text was not hinted, and at
+    // 1x hinting makes small text blocky. Glyphs sit on whole pixels, as
+    // before.
+    let text = &mut style.visuals.text_options;
+    text.color_transfer_function = egui::epaint::FontColorTransferFunction::Gamma(text_gamma(&s));
+    text.font_hinting = false;
+    text.subpixel_binning = false;
+    // Text sizes of egui 0.28, which the panes are laid out for (0.33 made
+    // body text 13 and code 13).
+    use egui::{FontFamily, FontId, TextStyle};
+    style.text_styles.insert(TextStyle::Body, FontId::new(12.5, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Button, FontId::new(12.5, FontFamily::Proportional));
+    style.text_styles.insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
+
+    // egui keeps a style for the system's light mode and one for its dark
+    // mode, and follows the system: both are the scheme's, so the system's
+    // setting changes nothing (with one only, Imago started in egui's own
+    // white style).
+    ctx.set_style_of(egui::Theme::Dark, style.clone());
+    ctx.set_style_of(egui::Theme::Light, style);
+}
+
+/// How glyph coverage becomes opacity, from the scheme's text weight: a
+/// gamma of 1.3 at 50 (Light), about 0.77 at 80 (Dark, ADHD), down to about
+/// 0.55 (heavier) at 100 and up to about 3 (thinner) at 0.
+pub fn text_gamma(s: &Scheme) -> f32 {
+    1.3 * 2f32.powf((TEXT_WEIGHT as f32 - s.text_weight as f32) / 40.0)
 }
 
 /// The scheme menu of the top bar: the three presets and the editor.
@@ -291,13 +354,13 @@ pub fn menu(ui: &mut egui::Ui) {
         let label = if now.preset == p && now.is_edited() { format!("{} (edited)", p.label()) } else { p.label().to_string() };
         if ui.radio(now.preset == p, label).on_hover_text(p.hint()).clicked() {
             if now.preset != p { set_scheme(ui.ctx(), Scheme::preset(p)); }
-            ui.close_menu();
+            ui.close();
         }
     }
     ui.separator();
     if ui.button("Edit colours...").clicked() {
         ui.ctx().data_mut(|d| d.insert_temp(editor_id(), true));
-        ui.close_menu();
+        ui.close();
     }
 }
 
@@ -329,6 +392,10 @@ pub fn editor(ctx: &egui::Context) {
             row(ui, "Dim text",         "labels, hints",                  &mut s.dim);
             row(ui, "Accent",           "selection, active flags",        &mut s.accent);
             row(ui, "Outline",          "node borders, window edges",     &mut s.outline);
+            ui.label("Text weight");
+            ui.add(egui::Slider::new(&mut s.text_weight, 0..=100).show_value(true));
+            ui.label(egui::RichText::new("thinner or heavier text").small());
+            ui.end_row();
         });
         ui.separator();
         ui.horizontal(|ui| {
@@ -375,6 +442,26 @@ mod tests {
         assert!(lum(body) > lum(canvas) && contrast(body, canvas) > 1.3);
         // A Light scheme saved by an earlier version comes back as today's.
         assert_ne!(OLD_LIGHT, s);
+    }
+
+    /// Light starts at 50, the dark presets at 80; a heavier weight gives a
+    /// lower gamma (more opaque edges), and a scheme saved before the
+    /// setting existed loads with its preset's.
+    #[test]
+    fn text_weight() {
+        assert!((text_gamma(&Scheme::preset(Preset::Light)) - 1.3).abs() < 1e-6);
+        for p in DARKS { assert_eq!(Scheme::preset(p).text_weight, 80); }
+        let mut s = Scheme::preset(Preset::Light);
+        let mut last = f32::MAX;
+        for w in [0u8, 25, 50, 75, 100] {
+            s.text_weight = w;
+            let g = text_gamma(&s);
+            assert!(g < last && g > 0.3 && g < 4.0, "weight {w}: {g}");
+            last = g;
+        }
+        let old = r#"{"preset":"Dark","low":[12,12,12],"high":[64,64,64],"text":[234,234,234],"dim":[182,182,182],"accent":[60,110,170],"outline":[96,96,96]}"#;
+        let back: Scheme = serde_json::from_str(old).unwrap();
+        assert_eq!(back.settled(), Scheme::preset(Preset::Dark));
     }
 
     #[test]

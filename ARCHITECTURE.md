@@ -83,7 +83,7 @@ One model for primitives, nodes and ICE (`core::geo`).
 - **Instancing:** a mesh with more than 64 copies is one entity with a GPU instance buffer of matrices and colours, uploaded once per change. Fewer copies are drawn as entities with full materials.
 - **Curves and points:** curves are evaluated to polylines at draw time (their control points are kept); points are drawn as crosses sized by width.
 - **Redraws on demand:** input, a change, playback, background jobs. An idle window costs nothing.
-- **Renderer:** wgpu, drawn by `src/viewer/` inside the eframe window: the Viewer's picture is made in a texture of its own (reversed infinite depth, 4x multisampling, linear light) and laid into its pane by egui's paint callback. Polygon edges, materials and textures are drawn per copy by instancing. The interface and the per-frame state work are plain functions (`draw_ui`, `history_frame`, `track_revision_frame`, `save_first_frame`, `refresh_*`) the eframe app calls each frame.
+- **Renderer:** wgpu 30 (egui and eframe 0.36, egui_dock 0.21), drawn by `src/viewer/` inside the eframe window: the Viewer's picture is made in a texture of its own (reversed infinite depth, 4x multisampling, linear light) and laid into its pane by egui's paint callback. Polygon edges, materials and textures are drawn per copy by instancing. The interface and the per-frame state work are plain functions (`draw_ui`, `history_frame`, `track_revision_frame`, `save_first_frame`, `refresh_*`) the eframe app calls each frame.
 
 ## 8. ICE
 

@@ -149,7 +149,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 
 **Download:** binaries for Linux, macOS and Windows are built from every change to `main` and published on the [Releases page](https://github.com/MartinoMadeddu/xms-imago/releases). See [docs/releases.md](docs/releases.md).
 
-**Build from source:**
+**Build from source** (Rust 1.95 or newer; `rustup update` brings it):
 
     cargo run --release
 

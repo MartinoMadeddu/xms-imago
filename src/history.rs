@@ -711,7 +711,7 @@ fn row(ui: &mut egui::Ui, indent: f32, icon: &str, label: &str, when: &str, look
         ui.painter().rect_filled(rect, 2.0, v.widgets.hovered.weak_bg_fill);
     }
     let top = rect.top() + pad;
-    let first_line = top + galley.rows.first().map_or(galley.size().y, |r| r.rect.height()) / 2.0;
+    let first_line = top + galley.rows.first().map_or(galley.size().y, |r| r.rect().height()) / 2.0;
     ui.painter().text(egui::pos2(rect.left() + indent + 4.0, first_line), egui::Align2::LEFT_CENTER, icon, font.clone(), ink);
     ui.painter().galley(egui::pos2(rect.left() + indent + icon_w, top), galley, ink);
     ui.painter().text(egui::pos2(rect.right() - 4.0, first_line), egui::Align2::RIGHT_CENTER, when,
@@ -753,7 +753,7 @@ pub fn draw(ui: &mut egui::Ui, history: &mut History, selected: Option<NodeId>) 
                 if resp.clicked() { clicked = Some(i); }
                 resp.context_menu(|ui| {
                     let text = if s.pinned { "Unpin" } else { "Pin: keep this step" };
-                    if ui.button(text).clicked() { pin = Some((i, !s.pinned)); ui.close_menu(); }
+                    if ui.button(text).clicked() { pin = Some((i, !s.pinned)); ui.close(); }
                 });
             }
             // Branches that leave the line here, folded to one row each.

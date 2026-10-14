@@ -10,7 +10,7 @@ mod xsi {
     pub fn HEADER() -> Color32 { crate::theme::c(248, 248, 248) }
     pub fn NAME() -> Color32 { crate::theme::c(238, 238, 238) }
     pub fn TYPE_LABEL() -> Color32 { crate::theme::c(210, 210, 210) }
-    pub fn SEL_BG() -> Color32 { crate::theme::c( 90, 105, 120) }
+    pub fn SEL_BG() -> Color32 { crate::theme::selection() }
     pub fn SEL_NAME() -> Color32 { crate::theme::c(240, 238, 230) }
     pub fn HOVER_BG() -> Color32 { crate::theme::c(108, 108, 108) }
     pub fn DIVIDER() -> Color32 { crate::theme::c( 90,  90,  90) }
@@ -28,7 +28,7 @@ pub fn draw_scene_explorer(
     hierarchy: &mut SceneHierarchy,
     graph:     &mut NodeGraphState,
 ) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(xsi::PANEL_BG())
         .inner_margin(6.0)
         .show(ui, |ui| {
@@ -101,7 +101,7 @@ pub fn draw_scene_explorer(
             }
 
             egui::ScrollArea::vertical()
-                .id_source("scene_explorer_scroll")
+                .id_salt("scene_explorer_scroll")
                 .auto_shrink([false, false])
                 .show_rows(ui, ROW_H, shown.len(), |ui, range| {
                     for &(idx, last_mask) in &shown[range] {
@@ -161,7 +161,7 @@ pub fn draw_scene_explorer(
                             let col = if hierarchy.show_all_geometry { xsi::DIVIDER() } else { xsi::TYPE_LABEL() };
                             let r = egui::Rect::from_center_size(geo_rect.center(), egui::vec2(8.0, 8.0));
                             if on || hierarchy.show_all_geometry { painter.rect_filled(r, 1.0, col); }
-                            else { painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0_f32, col)); }
+                            else { painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0_f32, col), egui::StrokeKind::Middle); }
                         }
 
                         // Selection background
@@ -281,7 +281,7 @@ pub fn draw_operator_stack(
     stack: &mut OperatorStack,
     graph: &mut NodeGraphState,
 ) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(xsi::PANEL_BG())
         .inner_margin(6.0)
         .show(ui, |ui| {
@@ -295,7 +295,7 @@ pub fn draw_operator_stack(
                 graph.nodes.iter().filter(|n| n.bypassed).map(|n| n.id).collect();
 
             egui::ScrollArea::vertical()
-                .id_source("op_stack_scroll")
+                .id_salt("op_stack_scroll")
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 1.0;
                     let mut toggle_id = None;

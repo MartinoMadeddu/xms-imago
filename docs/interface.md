@@ -220,8 +220,21 @@ The Theme menu in the top bar has three schemes. The choice is kept.
 | Dim text | Labels, hints |
 | Accent | Selection, active flags, highlights |
 | Outline | Node borders, window edges |
+| Text weight | How heavy all text is drawn |
 
 Changes show at once and are saved as you edit, in `theme.json` in the config folder. "Start from" loads a preset, "Reset" undoes the edits to the current one. Colours that carry meaning (axes, wires, warnings) are the same in every scheme. The Viewer's background follows the scheme: mid grey in Light, dark grey in Dark and ADHD.
+
+### Text
+
+Text is drawn to look as it did before the move to eframe, on screens of ordinary density (Full HD and below) as well as on high-density ones: glyphs are not hinted (hinting makes small text blocky at 1x) and sit on whole pixels, and text sizes are those of before (body text 12.5, code 12). How heavy text looks is the scheme's **Text weight**, a slider in the colour editor (0 thinnest, 100 heaviest; 50 in Light, 80 in Dark and ADHD, set by eye against the earlier shell on a Full HD screen). It is one setting for all text of a scheme, dark text on light surfaces and light text on dark ones alike: node titles are dark on light in every scheme.
+
+### Selection and tabs
+
+What is selected shows in one blue everywhere: rows in the Scene Explorer and the Operator Stack, the ring around a selected node in the Node Graph and in ICE graphs, and in Light the box dragged to select nodes or Edit Poly components. The ring follows the zoom but stays between 3 and 6 pixels wide, so a selected node can be told apart however far the graph is zoomed out. In Light, the tabs behind sit darker than the panel and the tab in front is the lightest.
+
+### Menus
+
+A menu stays open while it is used: ticking panes in Window, Invert zoom in Navigation, typing in the filter of a Pick list. Choosing a command closes it, and so does a click outside.
 
 ## Scene Explorer
 

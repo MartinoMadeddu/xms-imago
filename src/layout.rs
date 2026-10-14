@@ -207,7 +207,7 @@ impl Layout {
 
     /// True when the pane sits in a floating window.
     pub fn is_floating(&self, pane: Pane) -> bool {
-        self.dock.find_tab(&pane).map(|(surface, _, _)| !surface.is_main()).unwrap_or(false)
+        self.dock.find_tab(&pane).map(|at| !at.surface.is_main()).unwrap_or(false)
     }
 
     pub fn any_floating(&self) -> bool { Pane::ALL.iter().any(|p| self.is_floating(*p)) }
@@ -334,10 +334,10 @@ mod tests {
     fn layout_and_lock_survive_the_file() {
         let mut l = layout();
         // Stack the properties with the node graph, close the timeline, float the inspector.
-        let (surface, node, _) = l.dock.find_tab(&Pane::Parameters).unwrap();
-        let tab = l.dock[surface][node].remove_tab(egui_dock::TabIndex(0)).unwrap();
-        let (surface, node, _) = l.dock.find_tab(&Pane::NodeGraph).unwrap();
-        l.dock[surface][node].append_tab(tab);
+        let at = l.dock.find_tab(&Pane::Parameters).unwrap();
+        let tab = l.dock.remove_tab(at).unwrap();
+        let at = l.dock.find_tab(&Pane::NodeGraph).unwrap();
+        l.dock.leaf_mut(at.node_path()).unwrap().append_tab(tab);
         l.hide(Pane::Timeline);
         l.hide(Pane::PrimInspector);
         l.dock.add_window(vec![Pane::PrimInspector]);
@@ -349,9 +349,9 @@ mod tests {
         assert!(locked);
         assert_eq!(to_json(&back, true).unwrap(), json);
         let back = Layout { dock: back, locked, saved: json, sized: vec![], tab_drag: None };
-        let (_, a, _) = back.dock.find_tab(&Pane::Parameters).unwrap();
-        let (_, b, _) = back.dock.find_tab(&Pane::NodeGraph).unwrap();
-        assert_eq!(a, b);
+        let a = back.dock.find_tab(&Pane::Parameters).unwrap();
+        let b = back.dock.find_tab(&Pane::NodeGraph).unwrap();
+        assert_eq!((a.surface, a.node), (b.surface, b.node));
         assert!(back.is_floating(Pane::PrimInspector));
         assert!(!back.is_open(Pane::Timeline));
         assert_eq!(open(&back), ALL - 1);
@@ -450,7 +450,7 @@ mod tests {
                 let mut at = NodeIndex(i);
                 while let Some(p) = at.parent() {
                     let f = match &tree[p] {
-                        egui_dock::Node::Horizontal { fraction, .. } | egui_dock::Node::Vertical { fraction, .. } => Some(*fraction),
+                        egui_dock::Node::Horizontal(split) | egui_dock::Node::Vertical(split) => Some(split.fraction),
                         _ => None,
                     };
                     if let Some(f) = f {
@@ -473,6 +473,35 @@ mod tests {
         let Ok(text) = std::fs::read_to_string(std::env::var("XMS_LAYOUT_FILE").unwrap_or_default()) else { return };
         let (theirs, _) = from_json(&text).unwrap();
         assert_eq!(shape(&default_dock()), shape(&theirs));
+    }
+
+    /// A layout file written by the egui_dock of Imago before the egui 0.36
+    /// upgrade (0.13), with the pane names of that time: it still loads, with
+    /// its splits, tabs, floating window and lock.
+    #[test]
+    fn layouts_saved_before_the_upgrade_still_load() {
+        let r = r#"{"min":{"x":0.0,"y":0.0},"max":{"x":0.0,"y":0.0}}"#;
+        let leaf = |tabs: &str| format!(r#"{{"Leaf":{{"rect":{r},"viewport":{r},"tabs":[{tabs}],"active":0,"scroll":0.0}}}}"#);
+        let main = format!(r#"{{"Main":{{"nodes":[{{"Horizontal":{{"rect":{r},"fraction":0.6}}}},{},{}],"focused_node":1}}}}"#,
+            leaf(r#""Viewport","UvEditor""#), leaf(r#""NodeGraph","SceneExplorer","OperatorStack","PrimInspector","Timeline","History""#));
+        let window = format!(r#"{{"Window":[{{"nodes":[{}],"focused_node":null}},{{"screen_rect":null,"dragged":false,"next_position":null,"next_size":null,"new":false}}]}}"#,
+            leaf(r#""Properties""#));
+        let json = format!(r#"{{"locked":true,"dock":{{"surfaces":[{main},{window}],"focused_surface":0,
+            "translations":{{"tab_context_menu":{{"close_button":"Close","eject_button":"Eject"}},"window":{{"close_button_tooltip":"Close"}}}}}}}}"#);
+        let (dock, locked) = from_json(&json).expect("a layout saved before the upgrade loads");
+        assert!(locked);
+        let l = Layout { dock, locked, saved: json, sized: vec![], tab_drag: None };
+        assert_eq!(open(&l), ALL);
+        assert!(l.is_floating(Pane::Parameters) && !l.is_floating(Pane::Viewer));
+        let tree = &l.dock[egui_dock::SurfaceIndex::main()];
+        match &tree[NodeIndex::root()] {
+            egui_dock::Node::Horizontal(split) => assert!((split.fraction - 0.6).abs() < 1e-6),
+            other => panic!("the root split was lost: {other:?}"),
+        }
+        let (node, _) = l.dock.find_main_surface_tab(&Pane::UvEditor).unwrap();
+        assert_eq!(node, NodeIndex::root().left());
+        // And it is written back in today's form, which loads again.
+        assert!(from_json(&to_json(&l.dock, true).unwrap()).is_some());
     }
 
     #[test]
