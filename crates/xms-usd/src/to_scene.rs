@@ -293,6 +293,27 @@ fn shader_value(v: Value) -> Option<rs::ShaderValue> {
     })
 }
 
+/// Properties the scene layer reads where they belong (geometry, primvars,
+/// transforms, bindings), or that are arrays by schema: not listed among a
+/// prim's authored values.
+fn listed_elsewhere(name: &str) -> bool {
+    const ARRAYS: &[&str] = &[
+        "points", "normals", "faceVertexCounts", "faceVertexIndices", "holeIndices", "extent", "extentsHint",
+        "velocities", "accelerations", "widths", "curveVertexCounts", "cornerIndices", "cornerSharpnesses",
+        "creaseIndices", "creaseLengths", "creaseSharpnesses", "positions", "orientations", "scales",
+        "protoIndices", "ids", "invisibleIds", "angularVelocities", "xformOpOrder", "proxyPrim", "prototypes",
+    ];
+    ARRAYS.contains(&name)
+        || ["primvars:", "xformOp:", "material:binding", "collection:", "skel:", "proxyPrim"].iter().any(|p| name.starts_with(p))
+}
+
+/// A value that is one value: a number, a bool, a token, a string, an asset
+/// or a small vector. Arrays are not.
+fn one_value(v: Value) -> Option<rs::ShaderValue> {
+    if numeric_values(v.clone()).is_some_and(|(_, values)| values.len() != 1) { return None; }
+    shader_value(v)
+}
+
 /// Where a connected attribute's value comes from.
 enum Source {
     /// Output `output` of the shader at `node`
@@ -589,12 +610,34 @@ impl<'s> Translator<'s> {
             .iter()
             .find_map(|n| self.value(prim, n).and_then(scalar))
             .map(|v| v != 0.0);
+        p.authored = self.authored(prim);
         self.scene.insert(p);
         if descend {
             for c in prim.children().unwrap_or_default() {
                 self.walk(&c);
             }
         }
+    }
+
+    /// What a prim authors beyond the schema fields the scene layer carries,
+    /// for listing: `kind` and `instanceable`, and every authored attribute
+    /// holding one value. Geometry arrays, primvars, transforms and
+    /// relationships are read where they belong, so they are skipped by name
+    /// before any value is fetched.
+    fn authored(&self, prim: &Prim) -> Vec<(String, rs::ShaderValue)> {
+        let mut out = vec![];
+        if let Ok(Some(k)) = prim.kind() {
+            if !k.as_str().is_empty() { out.push(("kind".to_string(), rs::ShaderValue::String(k.as_str().to_string()))); }
+        }
+        if let Ok(Some(Value::Bool(b))) = prim.get_metadata::<Value>("instanceable") {
+            out.push(("instanceable".to_string(), rs::ShaderValue::Bool(b)));
+        }
+        for name in prim.authored_property_names().unwrap_or_default() {
+            let name = name.as_str();
+            if listed_elsewhere(name) { continue; }
+            if let Some(v) = self.value(prim, name).and_then(one_value) { out.push((name.to_string(), v)); }
+        }
+        out
     }
 
     /// A native-instance prototype (`/__Prototype_N`) and its subtree, once.

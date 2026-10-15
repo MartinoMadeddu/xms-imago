@@ -27,8 +27,9 @@
 //!   USD on that Xform.
 //!
 //! What is set on a prim is inherited by the primitives below it, in Imago
-//! as in USD: `visibility` invisible hides them, `purpose` is theirs where
-//! they have none of their own, `active` off takes them out, and Object
+//! as in USD: `visibility` invisible hides them, `purpose` comes from the
+//! nearest prim that has one (authored in the file or set here,
+//! `purpose_from`), `active` off takes them out, and Object
 //! values reach them where they have no attribute of that name (`above`,
 //! `purpose_of`, `inherited_primvars`). The Primitive Inspector shows the
 //! inherited Object values; ICE reads only a primitive's own.
@@ -352,7 +353,9 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
     // Geometry primitives.
     let mut out: Vec<Prim> = Vec::with_capacity(prims.len());
     for p in prims {
-        if !targeted(p) { out.push(p.clone()); continue; }
+        // A point instancer is set as the stage prim it is (below), so what
+        // is set on it reaches its prototypes as on any group.
+        if !targeted(p) || p.instancing.is_some() { out.push(p.clone()); continue; }
         if let Some(q) = set_on_prim(p, &rows) { out.push(q); }
     }
     if !named { return EvalResult::Named(out); }
@@ -362,7 +365,7 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
 
     // Prims of a stage without geometry: opinions in its tree. Each stage
     // once; every primitive of it then shares the new tree.
-    let present: std::collections::HashSet<String> = prims.iter().map(|p| p.path.clone()).collect();
+    let present: std::collections::HashSet<String> = prims.iter().filter(|p| p.instancing.is_none()).map(|p| p.path.clone()).collect();
     let mut trees: Vec<Arc<crate::usd_scene::StageTree>> = vec![];
     for p in &out {
         if let Some(t) = &p.stage { if !trees.iter().any(|x| Arc::ptr_eq(x, t)) { trees.push(t.clone()); } }
@@ -473,13 +476,55 @@ pub fn invisible(p: &Prim) -> bool {
     off(p.props.get("visibility")) || above(p).iter().any(|(_, o)| off(o.props.get("visibility")))
 }
 
-/// The purpose a primitive is drawn with: its own, or, with none, that of
-/// the nearest prim above it set to one (USD inherits purpose).
+/// Where a primitive's purpose comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PurposeFrom {
+    /// Set on the primitive itself: by Set Attribute, or made so in Imago.
+    Set,
+    /// Authored on the primitive in its file.
+    File,
+    /// Inherited from the prim above at this path: set there by Set
+    /// Attribute (`true`), or authored there in the file (`false`).
+    Above(String, bool),
+    /// Nothing says: the default.
+    Unset,
+}
+
+/// Where a primitive's purpose comes from. As in USD, a purpose on the
+/// primitive itself wins; else the nearest prim above it with one, whether
+/// the file authors it there or Set Attribute set it there (on the same
+/// prim, Set Attribute's is the stronger opinion). A purpose a loaded
+/// primitive only inherited from its file does not hide a nearer one.
+pub fn purpose_from(p: &Prim) -> PurposeFrom {
+    let set_here = p.source.as_ref().map_or(p.purpose != Purpose::Default, |s| s.purpose != p.purpose);
+    if set_here { return PurposeFrom::Set; }
+    let tree = p.stage.as_deref();
+    let authored = |path: &str| tree.is_some_and(|t| t.authored(path, "purpose").is_some());
+    if authored(&p.path) { return PurposeFrom::File; }
+    let depth = |path: &str| path.matches('/').count();
+    let set_above = above(p).into_iter().rev()
+        .find(|(_, o)| o.props.get("purpose").and_then(Value::token).is_some())
+        .map(|(path, _)| path.to_string());
+    let file_above = if p.purpose != Purpose::Default { parents(&p.path).into_iter().rev().find(|a| authored(a)) } else { None };
+    match (set_above, file_above) {
+        (Some(s), Some(f)) if depth(&f) > depth(&s) => PurposeFrom::Above(f, false),
+        (Some(s), _) => PurposeFrom::Above(s, true),
+        (None, Some(f)) => PurposeFrom::Above(f, false),
+        (None, None) => PurposeFrom::Unset,
+    }
+}
+
+/// The purpose a primitive is drawn with (see `purpose_from`).
 pub fn purpose_of(p: &Prim) -> Purpose {
-    if p.purpose != Purpose::Default { return p.purpose; }
-    above(p).iter().rev()
-        .find_map(|(_, o)| o.props.get("purpose").and_then(Value::token).map(|t| purpose(t, Purpose::Default)))
-        .unwrap_or(Purpose::Default)
+    // Most primitives: nothing above them set a purpose.
+    if !above(p).iter().any(|(_, o)| o.props.contains_key("purpose")) { return p.purpose; }
+    match purpose_from(p) {
+        PurposeFrom::Above(path, true) => above(p).into_iter()
+            .find(|(k, _)| *k == path)
+            .and_then(|(_, o)| o.props.get("purpose").and_then(Value::token).map(|t| purpose(t, Purpose::Default)))
+            .unwrap_or(p.purpose),
+        _ => p.purpose,
+    }
 }
 
 /// The Object values a primitive inherits from the prims above it, the
@@ -641,6 +686,37 @@ mod tests {
         let out = prims(set_attributes(&EvalResult::Named(shapes()), &off, &locs(&["/root/asset"])));
         assert_eq!(out.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), vec!["/root/other/cube3"]);
         assert_eq!(parents("/a/b/c"), vec!["/a".to_string(), "/a/b".to_string()]);
+    }
+
+    #[test]
+    fn a_purpose_set_above_beats_one_only_inherited_from_the_file() {
+        // /car authors `render` in the file; its meshes inherit it.
+        let mut input = car();
+        let tree = {
+            let mut t = (**input[0].stage.as_ref().unwrap()).clone();
+            t.nodes[0].authored = vec![("purpose".into(), Value::Token("render".into()))];
+            Arc::new(t)
+        };
+        for p in input.iter_mut() {
+            p.stage = Some(tree.clone());
+            p.purpose = Purpose::Render { has_proxy: false };
+            p.source = Some(Arc::new(crate::types::Source { geo: p.geo.clone().unwrap(), place: p.place.clone(), material: None, purpose: p.purpose }));
+        }
+        assert_eq!(purpose_from(&input[1]), PurposeFrom::Above("/car".into(), false));
+        // Guide on /car/wheels, nearer than /car: the wheel is a guide, the body still render.
+        let guide = [row(SetContext::Property, "purpose", Value::Token("guide".into()))];
+        let out = prims(set_attributes(&EvalResult::Named(input.clone()), &guide, &locs(&["/car/wheels"])));
+        assert_eq!((purpose_of(&out[0]), purpose_of(&out[1])), (Purpose::Render { has_proxy: false }, Purpose::Guide));
+        assert_eq!(purpose_from(&out[1]), PurposeFrom::Above("/car/wheels".into(), true));
+        // On /car itself, where the file authors render: Set Attribute's opinion is the stronger.
+        let out = prims(set_attributes(&EvalResult::Named(input.clone()), &guide, &locs(&["/car"])));
+        assert_eq!(purpose_of(&out[1]), Purpose::Guide);
+        // A purpose the file authors on the mesh itself wins over the group's.
+        let mut t = (**out[1].stage.as_ref().unwrap()).clone();
+        t.nodes[3].authored = vec![("purpose".into(), Value::Token("render".into()))];
+        let mut w1 = out[1].clone();
+        w1.stage = Some(Arc::new(t));
+        assert_eq!((purpose_from(&w1), purpose_of(&w1)), (PurposeFrom::File, Purpose::Render { has_proxy: false }));
     }
 
     #[test]

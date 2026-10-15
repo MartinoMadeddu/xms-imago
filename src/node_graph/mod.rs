@@ -722,6 +722,8 @@ impl NodeGraphState {
         } else {
             evaluate_node_type(&node.node_type, &inputs, eval_subnet, output)
         };
+        // A point instancer's copies follow its points, whatever moved them.
+        let result = result.map(crate::core::instancing::sync);
         cache.insert((id, output), result.clone());
         result
     }

@@ -582,6 +582,8 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
         purpose: Default::default(),
         props: Default::default(),
         above: Default::default(),
+        instancing: None,
+        instanced_by: None,
     })
 }
 

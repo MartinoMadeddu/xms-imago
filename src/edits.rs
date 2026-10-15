@@ -83,7 +83,9 @@ impl EditSet {
 pub fn prim_edit(p: &Prim) -> Option<PrimEdit> {
     let src = p.source.as_ref()?;
     let mut e = PrimEdit { path: p.path.clone(), ..Default::default() };
-    if !p.place.same(&src.place) { e.place = Some(p.place.clone()); }
+    // A point instancer's prototype is placed by the instancer's points:
+    // where its copies are is the instancer's edit, not its own.
+    if p.instanced_by.is_none() && !p.place.same(&src.place) { e.place = Some(p.place.clone()); }
     if p.material != src.material { e.material = Some(p.material.clone()); }
     if p.purpose != src.purpose { e.purpose = Some(p.purpose); }
     // Nothing is read as a property when loading: every one is an edit.

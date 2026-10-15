@@ -254,6 +254,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 .filter(|p| { let purpose = crate::core::props::purpose_of(p); purpose == Purpose::Default || input.hierarchy.draws_purpose(purpose) })
                 // Set invisible, on itself or on a prim above it.
                 .filter(|p| !crate::core::props::invisible(p))
+                // A point instancer is drawn by its prototypes, at its points.
+                .filter(|p| p.instancing.is_none())
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {

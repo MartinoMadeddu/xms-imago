@@ -271,9 +271,13 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
     }
     let Some(geo) = &p.geo else { return };
     if e.topology { topology(spec, &geo.topology, true); }
+    // A point instancer: its points and their attributes are its arrays.
+    let instancer = p.instancing.is_some();
     for (ctx, name) in &e.attrs {
-        if let Some(attr) = geo.attr(*ctx, name) { attribute(spec, *ctx, name, attr); }
-        if &**name == POINTS { extent(spec, geo); }
+        if let Some(attr) = geo.attr(*ctx, name) {
+            if instancer { instancer_array(spec, *ctx, name, attr); } else { attribute(spec, *ctx, name, attr); }
+        }
+        if &**name == POINTS && !instancer { extent(spec, geo); }
     }
     for (ctx, name) in &e.removed {
         if let Some(attr) = src.geo.attr(*ctx, name) { block(spec, name, attr); }
@@ -379,6 +383,22 @@ fn attribute(spec: &mut Spec, ctx: Context, name: &str, attr: &Attr) {
     if let Some(ix) = &attr.indices {
         spec.lines.push(format!("int[] {usd}:indices = {}", list(ix.iter(), |i| i.to_string())));
     }
+}
+
+/// A point instancer's attribute as the instancer's own array: `points`
+/// as `positions`, `orient` as `orientations`, `scale` as `scales`,
+/// `protoIndex` as `protoIndices`, `id` as `ids`. Others as primvars.
+fn instancer_array(spec: &mut Spec, ctx: Context, name: &str, attr: &Attr) {
+    let (usd, ty) = match name {
+        POINTS => ("positions", "point3f"),
+        "orient" => ("orientations", "quath"),
+        "scale" => ("scales", "float3"),
+        "protoIndex" => ("protoIndices", "int"),
+        "id" => ("ids", "int64"),
+        _ => return attribute(spec, ctx, name, attr),
+    };
+    let Some((_, values)) = typed_values(&attr.column, attr.role) else { return };
+    spec.lines.push(format!("{ty}[] {usd} = {values}"));
 }
 
 /// An attribute the prim no longer has: blocked, so the weaker opinion is
@@ -675,6 +695,59 @@ def Xform "set" {{
         let back = crate::usd_scene::load(&out).unwrap();
         let paths: Vec<&str> = back.meshes.iter().map(|m| m.path.as_str()).collect();
         assert_eq!(paths, vec!["/root/other"], "{text}");
+    }
+
+    /// A point instancer whose points moved: its positions are written, its
+    /// prototypes' copies are not edits of their own, and read back the
+    /// instances are where they were moved.
+    #[test]
+    fn a_point_instancer_writes_its_arrays() {
+        use crate::types::EvalResult;
+        let text = format!(r#"#usda 1.0
+def PointInstancer "inst" {{
+    rel prototypes = [</inst/protos/box>]
+    int[] protoIndices = [0, 0]
+    point3f[] positions = [(0, 0, 0), (5, 0, 0)]
+    def Scope "protos" {{
+        def Mesh "box" {{{QUAD}    }}
+    }}
+}}
+"#);
+        let path = std::env::temp_dir().join("xms_usd_write_test/instancer.usda");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let scene = crate::usd_scene::load(&path).unwrap();
+        assert_eq!(scene.instancers.len(), 1);
+        // As Load USD gives it: the prototype mesh, and the instancer.
+        let inst = &scene.instancers[0];
+        let mut prims = prims_of(&path);
+        prims.iter_mut().for_each(|p| {
+            p.instanced_by = inst.members.iter().find(|(m, _, _)| *m == p.path).map(|(_, index, inside)| Arc::new(crate::types::InstancedBy {
+                instancer: inst.path.clone(), index: *index, inside: *inside, hidden: inst.hidden.clone(), geo: inst.geo.clone(), place: inst.place.clone(),
+            }));
+        });
+        let mut moved = (*inst.geo).clone();
+        moved.points_mut()[1] = [7.0, 0.0, 0.0];
+        prims.push(Prim {
+            // The same stage as the prototype mesh, as Load USD gives them.
+            geo: Some(Arc::new(moved)), place: inst.place.clone(), stage: prims[0].stage.clone(), instancing: Some(inst.prototypes.clone()),
+            source: Some(Arc::new(Source { geo: inst.geo.clone(), place: inst.place.clone(), material: None, purpose: inst.purpose })),
+            ..Prim::new(inst.path.clone(), (*inst.mesh).clone())
+        });
+        let EvalResult::Named(prims) = crate::core::instancing::sync(EvalResult::Named(prims)) else { panic!() };
+        let box_ = prims.iter().find(|p| p.path.ends_with("box")).unwrap();
+        assert_eq!(box_.place.matrices()[1].w_axis.x, 7.0, "the copies follow the points");
+
+        let out = std::env::temp_dir().join("xms_usd_write_test/instancer_over.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert!(text.contains("point3f[] positions = [(0, 0, 0), (7, 0, 0)]"), "{text}");
+        assert_eq!(text.matches("instancer.usda@").count(), 1, "one stage, one sublayer: {text}");
+        assert!(report.skipped.is_empty() && report.changed == 1, "only the instancer: {report:?}\n{text}");
+        std::fs::write(&out, &text).unwrap();
+        let back = crate::usd_scene::load(&out).unwrap();
+        let b = back.meshes.iter().find(|m| m.path.ends_with("box")).expect("the prototype is read back");
+        assert_eq!(b.place.matrices().len(), 2);
+        assert!((b.place.matrices()[1].w_axis.x - 7.0).abs() < 1e-4);
     }
 
     #[test]

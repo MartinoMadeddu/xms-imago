@@ -671,16 +671,29 @@ fn draw_spreadsheet(
         }
 
         // ── Vertical scroll bar (manual) ──────────────────────────────────────
+        // At the right edge of what is in view, not of the whole table (which
+        // may be wider and scrolled sideways), and dragged or clicked to move.
         if row_count > visible_rows {
-            let sb_w    = 8.0;
+            let sb_w    = 10.0;
+            let right   = ui.clip_rect().max.x.min(outer_rect.max.x);
             let sb_rect = egui::Rect::from_min_size(
-                egui::pos2(outer_rect.max.x - sb_w, outer_rect.min.y + HEADER_H),
+                egui::pos2(right - sb_w, outer_rect.min.y + HEADER_H),
                 egui::vec2(sb_w, avail_h - HEADER_H),
             );
             painter.rect_filled(sb_rect, 4.0, egui::Color32::from_gray(50));
 
             let ratio    = visible_rows as f32 / row_count as f32;
             let thumb_h  = (sb_rect.height() * ratio).max(20.0);
+            // Dragging the thumb, or clicking the bar, puts the thumb's middle
+            // under the pointer.
+            let bar = ui.interact(sb_rect, ui.id().with("prim_inspector_vscroll"), egui::Sense::click_and_drag());
+            if bar.dragged() || bar.clicked() {
+                if let Some(at) = bar.interact_pointer_pos() {
+                    let travel = (sb_rect.height() - thumb_h).max(1.0);
+                    let t = ((at.y - sb_rect.min.y - thumb_h * 0.5) / travel).clamp(0.0, 1.0);
+                    state.row_offset = (t * (row_count - visible_rows) as f32).round() as usize;
+                }
+            }
             let thumb_y  = sb_rect.min.y
                 + (sb_rect.height() - thumb_h)
                 * (state.row_offset as f32 / (row_count - visible_rows) as f32);

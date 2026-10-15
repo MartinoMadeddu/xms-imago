@@ -58,10 +58,12 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
         walk.prim(child, child.as_str().to_string(), root, None, Purpose::Default, 1, false, false);
     }
     let Walk { nodes, counts, .. } = walk;
+    let nodes_index = nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
     scene.tree = Arc::new(StageTree {
         nodes, root: root.as_mat4(), source: layer.to_path_buf(),
         up_axis: scene.up_axis.clone(), meters_per_unit: scene.meters_per_unit,
         opinions: Default::default(),
+        index: nodes_index,
     });
     scene.notes = counts.notes();
     // The translator's own notes, minus timings and empty reports.
@@ -131,6 +133,7 @@ impl Walk<'_> {
         self.nodes.push(StageNode {
             path: shown.clone(), name, type_name: type_name.clone(), depth, hidden, local,
             reset_xform: prim.reset_xform_stack, proxy: under_instance, prototype: self.listing > 0,
+            authored: authored(prim),
         });
 
         let world = if prim.reset_xform_stack { self.root * local } else { parent * local };
@@ -228,6 +231,8 @@ impl Walk<'_> {
         let scales = i.scales.as_ref().and_then(|s| s.at(t)).unwrap_or_default();
         let orients = i.orientations.as_ref().and_then(|o| o.at(t)).unwrap_or_default();
         let invisible: HashSet<i64> = i.invisible_ids.iter().copied().collect();
+        // The instancer itself: one point per instance, its arrays as attributes.
+        let mut instancer = self.instancer_prim(src, shown, i, world, purpose, &positions, &orients, &scales);
         // Each point's placement, by prototype: scaled, then turned, then moved.
         let mut points: Vec<Vec<DMat4>> = vec![vec![]; i.prototypes.len()];
         for (k, &proto) in i.proto_indices.iter().enumerate() {
@@ -241,7 +246,7 @@ impl Walk<'_> {
             list.push(world * DMat4::from_scale_rotation_translation(
                 DVec3::new(s[0] as f64, s[1] as f64, s[2] as f64), q, DVec3::new(p[0] as f64, p[1] as f64, p[2] as f64)));
         }
-        for (proto, at) in i.prototypes.iter().zip(&points) {
+        for (index, (proto, at)) in i.prototypes.iter().zip(&points).enumerate() {
             if at.is_empty() { continue; }
             // Listed under the instancer when it lives there, as the hierarchy shows it.
             let proto_shown = match proto.as_str().strip_prefix(src.as_str()).filter(|r| r.starts_with('/')) {
@@ -255,8 +260,51 @@ impl Walk<'_> {
                 let Some((geo, shared)) = self.shared_geometry(&mesh_src, kind) else { self.counts.invalid += 1; continue };
                 if let rs::PrimKind::Mesh(m) = kind { if !m.subsets.is_empty() { self.counts.subsets += 1; } }
                 let place: Arc<[Mat4]> = at.iter().map(|p| (*p * inside).as_mat4()).collect();
+                instancer.members.push((mesh_shown.clone(), index as u32, inside.as_mat4()));
                 self.scene.meshes.push(UsdMesh { path: mesh_shown, mesh: shared, geo: Some(geo), material, place: Placement::Many(place), purpose });
             }
+        }
+        self.scene.instancers.push(instancer);
+    }
+
+    /// A point instancer as a points primitive, in its own space: `points`
+    /// from its positions, and `orient`, `scale`, `protoIndex` and `id` per
+    /// point where it has them. Its prototypes' paths are kept by index.
+    #[allow(clippy::too_many_arguments)]
+    fn instancer_prim(&self, src: &rs::Path, shown: &str, i: &rs::Instancer, world: DMat4, purpose: Purpose,
+                      positions: &[[f32; 3]], orients: &[[f32; 4]], scales: &[[f32; 3]]) -> crate::usd_scene::UsdInstancer {
+        use crate::core::geo::{Attr, Column, Context, Geo, Role};
+        let n = i.proto_indices.len().max(positions.len());
+        let mut points = positions.to_vec();
+        points.resize(n, [0.0; 3]);
+        let mut geo = Geo::from_points(points);
+        if !orients.is_empty() {
+            let mut q = orients.to_vec();
+            q.resize(n, [0.0, 0.0, 0.0, 1.0]);
+            geo.set(Context::Point, "orient", Attr::new(Column::Quat(Arc::new(q)), Role::None));
+        }
+        if !scales.is_empty() {
+            let mut s = scales.to_vec();
+            s.resize(n, [1.0; 3]);
+            geo.set(Context::Point, "scale", Attr::new(Column::Vec3(Arc::new(s)), Role::None));
+        }
+        let mut index: Vec<i32> = i.proto_indices.iter().map(|&k| k as i32).collect();
+        index.resize(n, 0);
+        geo.set(Context::Point, "protoIndex", Attr::new(Column::Int(Arc::new(index)), Role::None));
+        if let Some(ids) = &i.ids {
+            let mut id: Vec<i32> = ids.iter().map(|&k| k as i32).collect();
+            id.resize(n, -1);
+            geo.set(Context::Point, "id", Attr::new(Column::Int(Arc::new(id)), Role::None));
+        }
+        let prototypes: Vec<String> = i.prototypes.iter().map(|proto| match proto.as_str().strip_prefix(src.as_str()).filter(|r| r.starts_with('/')) {
+            Some(rest) => format!("{shown}{rest}"),
+            None => format!("{shown}/{}", proto.name()),
+        }).collect();
+        let mesh = Arc::new(geo.to_mesh());
+        crate::usd_scene::UsdInstancer {
+            path: shown.to_string(), geo: Arc::new(geo), mesh, place: Placement::One(world.as_mat4()), purpose,
+            prototypes: Arc::new(prototypes), members: vec![],
+            hidden: Arc::new(i.invisible_ids.clone()),
         }
     }
 
@@ -282,6 +330,24 @@ impl Walk<'_> {
             self.gather(c, format!("{shown}/{}", c.name()), inside, binding.clone(), purpose, out);
         }
     }
+}
+
+/// What a prim authors beyond what the scene layer's fields carry, as Imago
+/// values: tokens and strings as tokens, assets as assets, numbers and
+/// small vectors as they are.
+fn authored(prim: &rs::Prim) -> Vec<(String, crate::core::props::Value)> {
+    use crate::core::props::Value;
+    prim.authored.iter().map(|(name, v)| (name.clone(), match v {
+        rs::ShaderValue::Float(x) => Value::Float(*x),
+        rs::ShaderValue::Int(i) => Value::Int(*i),
+        rs::ShaderValue::Bool(b) => Value::Bool(*b),
+        rs::ShaderValue::Vec2(a) => Value::Float2(*a),
+        rs::ShaderValue::Vec3(a) => Value::Float3(*a),
+        rs::ShaderValue::Vec4(a) => Value::Float4(*a),
+        rs::ShaderValue::String(s) => Value::Token(s.clone()),
+        rs::ShaderValue::Asset(s) => Value::Asset(s.clone()),
+        rs::ShaderValue::Connection { node, output } => Value::String(format!("{}.{output}", node.as_str())),
+    })).collect()
 }
 
 /// A prim's purpose: its own when authored, else its parent's. Render

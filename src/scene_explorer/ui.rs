@@ -216,6 +216,17 @@ pub fn draw_scene_explorer(
                             chevron(painter, exp_rect.center(), obj.expanded, xsi::TYPE_LABEL());
                         }
 
+                        // ── Type, in a column at the right, before the
+                        // geometry square ─────────────────────────────────
+                        let type_right = row_rect.max.x - 24.0;
+                        let type_left = if obj.type_name.is_empty() { type_right } else {
+                            painter.text(egui::pos2(type_right, mid_y), egui::Align2::RIGHT_CENTER, &obj.type_name,
+                                egui::FontId::proportional(10.5), xsi::TYPE_LABEL()).min.x
+                        };
+                        // The name stops short of it.
+                        let painter = painter.with_clip_rect(
+                            egui::Rect::from_min_max(row_rect.min, egui::pos2(type_left - 8.0, row_rect.max.y)).intersect(painter.clip_rect()));
+
                         // ── Icon + label ──────────────────────────────────────
                         let text_x   = indent_x + EXPANDER_W + 4.0;
                         let text_col = if is_sel { xsi::SEL_NAME() } else { xsi::NAME() };
