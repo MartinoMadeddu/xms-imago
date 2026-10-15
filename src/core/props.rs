@@ -168,6 +168,10 @@ impl Value {
         }
     }
 
+    /// The value as the Primitive Inspector shows it: text as it is,
+    /// numbers as `.usda` writes them.
+    pub fn display(&self) -> String { self.text() }
+
     /// Its numbers, for the types that are numbers.
     pub fn numbers(&self) -> Option<Vec<f32>> {
         match self {

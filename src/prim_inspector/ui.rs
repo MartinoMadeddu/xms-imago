@@ -49,6 +49,8 @@ pub fn draw_prim_inspector(
     time:     f64,
     get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<MeshData>>,
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
+    // The Properties tab: the selected prims themselves.
+    get_props: &dyn Fn(&NodeGraphState) -> Vec<super::PropRow>,
 ) {
     egui::Frame::NONE
         .fill(xsi::BG())
@@ -57,7 +59,8 @@ pub fn draw_prim_inspector(
             if !state.is_cache_valid(source.node, paths, revision) {
                 let clip = get_clip(graph);
                 let parts = if clip.is_none() { get_parts(graph).unwrap_or_default() } else { vec![] };
-                state.update_cache(source.node, paths, parts, clip, revision);
+                let props = if clip.is_none() { get_props(graph) } else { vec![] };
+                state.update_cache(source.node, paths, parts, clip, props, revision);
             }
 
             // ── Path breadcrumb ───────────────────────────────────────────────
@@ -86,7 +89,8 @@ pub fn draw_prim_inspector(
 
             let clip = state.cached_clip();
             let mesh = state.cached_parts().filter(|parts| parts.iter().any(|m| m.point_count() > 0));
-            if clip.is_none() && mesh.is_none() {
+            let props = state.cached_props();
+            if clip.is_none() && mesh.is_none() && props.is_empty() {
                 ui.add_space(12.0);
                 ui.centered_and_justified(|ui| {
                     ui.label(egui::RichText::new("No mesh or clip in the scene at the view flag.")
@@ -101,6 +105,8 @@ pub fn draw_prim_inspector(
             let clip_tab = matches!(state.active_tab, Tab::Joint | Tab::Bone);
             if clip.is_some() && !clip_tab { state.set_active_tab(Tab::Joint); }
             if clip.is_none() && clip_tab { state.set_active_tab(Tab::Vertex); }
+            // A group, a camera or a light alone: only its properties.
+            if clip.is_none() && mesh.is_none() { state.set_active_tab(Tab::Properties); }
 
             egui::Frame::NONE
                 .fill(xsi::TAB_BG())
@@ -118,6 +124,10 @@ pub fn draw_prim_inspector(
                             tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", sum(&|m: &MeshData| m.corner_count())));
                             tab_btn(ui, state, Tab::Constant, &format!("Object ({})", object_rows(parts)));
                         }
+                        if clip.is_none() && !props.is_empty() {
+                            let prims = props.iter().fold(Vec::<&str>::new(), |mut v, r| { if v.last() != Some(&r.path.as_str()) { v.push(&r.path); } v }).len();
+                            tab_btn(ui, state, Tab::Properties, &format!("Properties ({prims})"));
+                        }
                     });
                 });
 
@@ -127,6 +137,10 @@ pub fn draw_prim_inspector(
             // The open tab is built once and kept until the data, the tab or
             // (for a clip) the frame changes. Each frame draws the visible rows.
             let tab = state.active_tab.clone();
+            if tab == Tab::Properties {
+                draw_properties(ui, &props);
+                return;
+            }
             let frame = clip.as_ref().map(|c| c.index_at(time)).unwrap_or(0);
             if !state.table_is_for(&tab, frame) {
                 let table = match (&clip, &mesh) {
@@ -150,6 +164,34 @@ pub fn draw_prim_inspector(
             }
             state.put_table(table);
         });
+}
+
+/// The Properties tab: one row per property of each prim listed, its value,
+/// and where the value comes from. Several prims: a Path column first.
+fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) {
+    let several = rows.first().is_some_and(|f| rows.iter().any(|r| r.path != f.path));
+    let cell = |ui: &mut egui::Ui, text: &str, colour: egui::Color32| {
+        ui.label(egui::RichText::new(text).monospace().size(10.5).color(colour));
+    };
+    egui::ScrollArea::both().id_salt("prim_inspector_props").auto_shrink([false, false]).show(ui, |ui| {
+        egui::Grid::new("prim_inspector_props_grid").striped(true).spacing([16.0, 4.0]).min_col_width(60.0).show(ui, |ui| {
+            if several { cell(ui, "Path", xsi::TEXT_IDX()); }
+            for h in ["Name", "Value", "From"] { cell(ui, h, xsi::TEXT_IDX()); }
+            ui.end_row();
+            let mut last = "";
+            for r in rows {
+                if several {
+                    // The path once, on the first row of each prim.
+                    cell(ui, if r.path != last { r.path.as_str() } else { "" }, xsi::TEXT_DIM());
+                    last = r.path.as_str();
+                }
+                cell(ui, &r.name, xsi::TEXT());
+                cell(ui, &r.value, xsi::TEXT());
+                cell(ui, &r.from, xsi::TEXT_DIM());
+                ui.end_row();
+            }
+        });
+    });
 }
 
 /// Bones of a skeleton: one from each joint to each bone joint below it.

@@ -43,7 +43,7 @@ The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 | Node Graph | **Node Graph** (unchanged) | The pane shows the root scene graph or an ICE graph, so "Scene Graph" would be wrong half the time. |
 | Scene Explorer | **Scene Explorer** (unchanged) | The stage's primitives as a hierarchy. |
 | Properties | **Parameters** | The selected node's parameters, matching the term above. |
-| Primitive Inspector | **Primitive Inspector** (unchanged) | Click a primitive in the Scene Explorer and inspect its contents. Tabs: Object, Point, Edge, Face, Corner (and Joint, Bone for clips). |
+| Primitive Inspector | **Primitive Inspector** (unchanged) | Click a primitive in the Scene Explorer and inspect its contents. Tabs: Object, Point, Edge, Face, Corner, Properties (and Joint, Bone for clips). Properties is USD's sense of the word: a prim's attributes and metadata, not an operator's parameters. |
 | Operator Stack | **Operator Stack** (unchanged) | The chain of operators feeding the viewed one. |
 | Timeline | Timeline (unchanged) | |
 | UV Editor | UV Editor (unchanged) | |

@@ -1041,6 +1041,9 @@ pub enum PrimInspectorTab {
     Uniform,
     FaceVarying,
     Constant,
+    /// The selected prims themselves: their properties, by name, with where
+    /// each comes from.
+    Properties,
     /// Joints of a clip, at the playhead.
     Joint,
     /// Bones of a clip: each runs from one joint to another.
@@ -1080,6 +1083,8 @@ pub struct PrimInspectorState {
     cached_node_id: Option<NodeId>,
     cached_paths:   Vec<String>,
     cached_rev:     Option<u64>,
+    /// The Properties tab's rows.
+    cached_props:   std::sync::Arc<Vec<crate::prim_inspector::PropRow>>,
     /// Number of edges of the cached primitives: polygon edges and curve segments.
     pub edge_count: usize,
     // The open tab, built once per cached data (and per frame for a clip).
@@ -1100,8 +1105,10 @@ impl PrimInspectorState {
         paths:    &[String],
         parts:    Vec<MeshData>,
         clip:     Option<std::sync::Arc<crate::core::anim::AnimData>>,
+        props:    Vec<crate::prim_inspector::PropRow>,
         revision: u64,
     ) {
+        self.cached_props   = std::sync::Arc::new(props);
         self.edge_count = parts.iter()
             .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
             .sum();
@@ -1117,6 +1124,8 @@ impl PrimInspectorState {
     /// The primitives shown, each where it is drawn.
     pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> { self.cached_parts.clone() }
     pub fn cached_clip(&self) -> Option<std::sync::Arc<crate::core::anim::AnimData>> { self.cached_clip.clone() }
+    /// The Properties tab's rows.
+    pub fn cached_props(&self) -> std::sync::Arc<Vec<crate::prim_inspector::PropRow>> { self.cached_props.clone() }
 
     /// True when the stored table is this tab at this frame.
     pub fn table_is_for(&self, tab: &PrimInspectorTab, frame: usize) -> bool {

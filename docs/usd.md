@@ -80,7 +80,7 @@ In Imago:
 - `visibility` invisible hides the prim and everything below it in the Viewer.
 - The rest is kept on the prim and written by Write USD.
 
-What is set on a group is inherited by the primitives below it, as USD does: `visibility` invisible and `active` off reach everything below; `purpose` is theirs where they have none of their own; an Object value reaches each primitive below that has no attribute of that name, the nearest group winning. The Primitive Inspector's Object tab lists inherited values with the primitive's own. ICE reads only a primitive's own attributes. Write USD writes each value once, on the group.
+What is set on a group is inherited by the primitives below it, as USD does: `visibility` invisible and `active` off reach everything below; `purpose` is theirs where they have none of their own; an Object value reaches each primitive below that has no attribute of that name, the nearest group winning. The Primitive Inspector's Object tab lists inherited values with the primitive's own; its Properties tab lists a prim's properties and says, for each, whether it comes from the file, from Imago, from which Set Attribute operator, or from which group above it. ICE reads only a primitive's own attributes. Write USD writes each value once, on the group.
 
 Values per point, per face or per corner are not set here: changing them rewrites the primitive's arrays, and that is ICE's.
 
@@ -179,7 +179,9 @@ Values are written at the current frame, as single values.
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Nested point instancers
 - Nodes to edit materials, cameras or the hierarchy
-- Set Attribute: time samples (values are default values), arrays, Property values in the Primitive Inspector, inherited Object values read by ICE
+- Set Attribute: time samples (values are default values), arrays, inherited Object values read by ICE
+- The Properties tab lists what Imago knows of a prim: what the file authors beyond type, purpose, visibility and material binding (`kind`, `doubleSided`, custom attributes) is not read yet
+- A purpose inherited from the file counts as the prim's own, so a purpose set with Set Attribute on a group above a loaded mesh does not reach it
 - Write USD writes nothing for a stage none of whose primitives is left (all pruned, or all below a deactivated group)
 
 ## Example file
