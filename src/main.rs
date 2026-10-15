@@ -638,7 +638,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                     node: self.graph.display_source(),
                     paths: self.hierarchy.selected_paths().to_vec(),
                 };
-                draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip, &get_props);
+                let go_to = draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip, &get_props);
+                // "Go to Operator" on a Properties row: select the operator the value comes from.
+                if let Some(id) = go_to {
+                    self.graph.selected_node = Some(id);
+                    self.graph.selected_nodes = vec![id];
+                }
             }
 
             Pane::NodeGraph => match self.nav.current_subnet {

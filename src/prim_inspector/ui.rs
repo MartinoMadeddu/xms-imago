@@ -51,7 +51,9 @@ pub fn draw_prim_inspector(
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
     // The Properties tab: the selected prims themselves.
     get_props: &dyn Fn(&NodeGraphState) -> Vec<super::PropRow>,
-) {
+) -> Option<crate::types::NodeId> {
+    // The operator a Properties row's "Go to Operator" asked for.
+    let mut go_to = None;
     egui::Frame::NONE
         .fill(xsi::BG())
         .show(ui, |ui| {
@@ -138,7 +140,7 @@ pub fn draw_prim_inspector(
             // (for a clip) the frame changes. Each frame draws the visible rows.
             let tab = state.active_tab.clone();
             if tab == Tab::Properties {
-                draw_properties(ui, &props);
+                go_to = draw_properties(ui, &props);
                 return;
             }
             let frame = clip.as_ref().map(|c| c.index_at(time)).unwrap_or(0);
@@ -164,34 +166,86 @@ pub fn draw_prim_inspector(
             }
             state.put_table(table);
         });
+    go_to
 }
 
 /// The Properties tab: one row per property of each prim listed, its value,
 /// and where the value comes from. Several prims: a Path column first.
-fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) {
+/// A row is selected by clicking it; right-click it for "Go to Operator",
+/// which gives the operator the value comes from.
+fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) -> Option<crate::types::NodeId> {
+    // Rows are painted, not laid out as widgets: each column is as wide as
+    // its widest cell, and hovering or selecting a row changes its colour
+    // only, never a size, so no column edge moves.
+    const ROW: f32 = 18.0;
+    const PAD: f32 = 8.0;
+    let font = egui::FontId::monospace(10.5);
     let several = rows.first().is_some_and(|f| rows.iter().any(|r| r.path != f.path));
-    let cell = |ui: &mut egui::Ui, text: &str, colour: egui::Color32| {
-        ui.label(egui::RichText::new(text).monospace().size(10.5).color(colour));
-    };
+    let sel_id = egui::Id::new("prim_inspector_props_selected");
+    let mut selected: Option<usize> = ui.data(|d| d.get_temp::<Option<usize>>(sel_id)).flatten();
+    let mut go_to = None;
+
+    // The cells: the path once per prim, then name, value and where from.
+    let mut heads: Vec<&str> = if several { vec!["Path"] } else { vec![] };
+    heads.extend(["Name", "Value", "From"]);
+    let mut last = "";
+    let cells: Vec<Vec<(String, egui::Color32)>> = rows.iter().map(|r| {
+        let mut c = vec![];
+        if several {
+            c.push((if r.path != last { r.path.clone() } else { String::new() }, xsi::TEXT_DIM()));
+            last = r.path.as_str();
+        }
+        c.push((r.name.clone(), xsi::TEXT()));
+        c.push((r.value.clone(), xsi::TEXT()));
+        c.push((r.from.clone(), xsi::TEXT_DIM()));
+        c
+    }).collect();
+    let measure = |t: &str| ui.painter().layout_no_wrap(t.to_string(), font.clone(), egui::Color32::WHITE).size().x;
+    let mut widths: Vec<f32> = heads.iter().map(|h| measure(h)).collect();
+    for row in &cells {
+        for (w, (text, _)) in widths.iter_mut().zip(row) { *w = w.max(measure(text)); }
+    }
+    let widths: Vec<f32> = widths.into_iter().map(|w| w + 2.0 * PAD).collect();
+    let total: f32 = widths.iter().sum();
+
     egui::ScrollArea::both().id_salt("prim_inspector_props").auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("prim_inspector_props_grid").striped(true).spacing([16.0, 4.0]).min_col_width(60.0).show(ui, |ui| {
-            if several { cell(ui, "Path", xsi::TEXT_IDX()); }
-            for h in ["Name", "Value", "From"] { cell(ui, h, xsi::TEXT_IDX()); }
-            ui.end_row();
-            let mut last = "";
-            for r in rows {
-                if several {
-                    // The path once, on the first row of each prim.
-                    cell(ui, if r.path != last { r.path.as_str() } else { "" }, xsi::TEXT_DIM());
-                    last = r.path.as_str();
-                }
-                cell(ui, &r.name, xsi::TEXT());
-                cell(ui, &r.value, xsi::TEXT());
-                cell(ui, &r.from, xsi::TEXT_DIM());
-                ui.end_row();
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let w = total.max(ui.available_width());
+        let line = |painter: &egui::Painter, rect: egui::Rect, texts: &[(String, egui::Color32)]| {
+            let mut x = rect.left();
+            for ((text, colour), cw) in texts.iter().zip(&widths) {
+                painter.text(egui::pos2(x + PAD, rect.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), *colour);
+                x += cw;
             }
-        });
+        };
+        // Header.
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(w, ROW + 4.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, xsi::HEADER_BG());
+        let head_cells: Vec<(String, egui::Color32)> = heads.iter().map(|h| (h.to_string(), xsi::TEXT_IDX())).collect();
+        line(ui.painter(), rect, &head_cells);
+        // Rows.
+        for (k, (r, texts)) in rows.iter().zip(&cells).enumerate() {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, ROW), egui::Sense::click());
+            let bg = if selected == Some(k) { xsi::TAB_ACTIVE() }
+                else if resp.hovered() { xsi::HEADER_BG() }
+                else if k % 2 == 0 { xsi::ROW_EVEN() } else { xsi::ROW_ODD() };
+            ui.painter().rect_filled(rect, 0.0, bg);
+            line(ui.painter(), rect, texts);
+            if resp.clicked() || resp.secondary_clicked() { selected = Some(k); }
+            resp.context_menu(|ui| {
+                let tip = match r.node {
+                    Some(_) => format!("Select the operator the value comes from ({})", r.from),
+                    None => "No operator to go to: the value was not made by one".to_string(),
+                };
+                if ui.add_enabled(r.node.is_some(), egui::Button::new("Go to Operator")).on_hover_text(tip).clicked() {
+                    go_to = r.node;
+                    ui.close();
+                }
+            });
+        }
     });
+    ui.data_mut(|d| d.insert_temp(sel_id, selected));
+    go_to
 }
 
 /// Bones of a skeleton: one from each joint to each bone joint below it.
