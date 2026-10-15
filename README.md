@@ -166,7 +166,7 @@ On Ubuntu or Debian, first:
 
 ## Contributing
 
-XMS | Imago is Martino Madeddu's project: other work builds on his and does not overwrite it. Read [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) first: how the program should work and why. Add to it when a decision is made, and update the README and the pages in `docs/` with every change.
+XMS | Imago is Martino Madeddu's project: other work builds on his and does not overwrite it. Read [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) first: how the program should work and why. Add to it when a decision is made, and update the README and the pages in `docs/` with every change. The operators Imago has and plans are in [XMS_CORE_OPS_SPEC.md](XMS_CORE_OPS_SPEC.md).
 
 Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists what it should check (workspace, build, GitHub access, settings) and the loop changes go through: the assistant sends a patch made on top of `main`, you download it and run one block of commands that applies, commits and pushes it, then runs the program.
 

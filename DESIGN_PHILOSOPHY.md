@@ -19,19 +19,18 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - When a change would rewrite or remove something of his, say which part and why before making it, and ask.
 - Where his work and another change touch the same lines, his version is kept, and the change is redone on top of it.
 - His decisions are written here as they are read from his code, so everyone works from the same file.
+- `XMS_CORE_OPS_SPEC.md` (Martino, 15/10/2026) is the operator set Imago aims for, each with its status today. A new operator is checked against it.
 - `ARCHITECTURE.md` (Martino, 11/10/2026) records the decisions that shape the data and its evaluation: the geometry model, copy on demand, primitives, edits and USD out, the Viewer, the ICE engine to come, and where it is all going. Read it before changing any of those. It is to be merged with this file once Martino and Simon have talked.
 
 ## The graph is the program
 
-- Everything is a node. A graph describes a result; changing a number upstream changes everything below it.
-- One node per idea. A node that moves things moves anything: Transform takes a mesh, primitives or a clip. What a node shows in the Viewer is a setting on that node, not another node (Body Collide's Skin, Pieces and Hulls display, which replaced the separate Calamari node).
-- Opening a file or a template asks every time whether to add it to the scene or open it as new. Added nodes land beside what is there. (One question replaced the + buttons first tried, the same day.)
-- Copied nodes are text, kept after the program closes: they paste in another window, in a later session, or from a message.
-- Every area of the program has templates: working graphs that load laid out and framed, with a line saying what to look at. Templates are grouped by whose work they show.
-- A feature comes with its template and the demo files it needs, packaged in `examples/`. A model too big for the repository (the Moana Island scene, say) is not packaged: its template asks whether to download it from where it is published, and says where from.
-- A node that does not exist yet is sketched in the graph: a Placeholder with named inputs and outputs and a description of what it should do, data going through unchanged. The saved graph is how a new node is asked for.
-- An ICE node runs its ICE graph on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
-- Where a known tool already has a convention, follow it: ICE graphs drawn and navigated after Softimage ICE (loosely modelled after Softimage ICE and Houdini VOPs), edits between two nodes as stacked layers as in Solaris. The Viewer drawing what the Scene Explorer opens is Imago's own, not credited to another program (Martino).
+- Everything is a node. A graph describes a result; a change upstream flows down.
+- One node per idea: Transform moves a mesh, primitives or a clip. What a node displays is a setting on it, not another node.
+- One operator has the view flag: it says what the scene is. Each operator lists the primitives it works on. The edits between two operators are a layer. ICE graphs are per-element graphs inside a node.
+- Opening a file or a template asks whether to add it to the scene or open it as new.
+- Nodes copy as text, so they paste across windows and sessions.
+- Each feature comes with a template and its demo files in `examples/`; a model too big for the repository is downloaded when asked.
+- A node not built yet is a Placeholder: named inputs and outputs, a description, data passing through. A saved graph is how a new node is asked for.
 
 ## One geometry model
 
@@ -43,10 +42,10 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Curves are shown in the same contexts: their control points are points, the segments between them edges, and each curve one face (Face context), its control points its corners. The Primitive Inspector lists them so, by their control points as authored, alongside polygons and free points (Martino).
 - The points of a face or an edge are one attribute, an array as long as it has corners, not a column per point: the Primitive Inspector shows them in one cell, `ptIndices = [0, 3, 2, 1]` (Martino).
 - A corner's number is counted across the whole mesh, as USD counts faceVarying values and as arrays are indexed, so an ICE graph or a deformer writes `values[corner]` with no lookup. Its place within its face is a value beside it, `localCornerIndex`, with `faceIndex`; a face gives `firstCorner` (Martino).
-- No Output node: the view flag says what the scene is, as Houdini's display flag. One operator always has it; on an operator with several outputs, clicking it again moves on to the next output (Martino).
-- Each operator says which primitives it works on, in its Prims Location tab, as a Solaris LOP does: paths that take everything below them, with wildcards. An empty list means everything. The list stays with its operator and does not reach the ones after it. Pick Primitives stays for older graphs (Martino).
-- The Scene Explorer is the scene's own tree at the view flag, as usdview shows it, not a list per operator. The Primitive Inspector shows that scene: the prim or group picked in the explorer, or all of it. Selecting in the explorer does not select an operator (Martino).
-- The scene is always USD: everything an operator makes is a primitive at a path. Shapes have a Primitive Location (`/cube` by default, any path typed, parents as Xforms, as in Solaris), written as a `def` and the layer's `defaultPrim` (Martino).
+- No Output node: the view flag says what the scene is. One operator always has it; on an operator with several outputs, clicking it again moves on to the next output (Martino).
+- Each operator says which primitives it works on, in its Prims Location tab: paths that take everything below them, with wildcards. An empty list means everything. The list stays with its operator and does not reach the ones after it. Pick Primitives stays for older graphs (Martino).
+- The Scene Explorer is the scene's own tree at the view flag, not a list per operator. The Primitive Inspector shows that scene: the prim or group picked in the explorer, or all of it. Selecting in the explorer does not select an operator (Martino).
+- The scene is always USD: everything an operator makes is a primitive at a path. Shapes have a Primitive Location (`/cube` by default, any path typed, parents as Xforms), written as a `def` and the layer's `defaultPrim` (Martino).
 - Merge goes by the data coming into its first input: primitives are merged as primitives, a plain mesh or a clip into one mesh. A Mode overrides it. On the same path the second input is stronger, as an `over` (Martino).
 - Scattering and copying to points belong to ICE graphs: the Scatter Points and Copy to Points operators are gone, and old graphs open with Placeholders in their place (Martino).
 - A corner is listed with the point it belongs to, `ptIndex` (several corners share a point), not with its own number again: the spreadsheet's row number is the corner. Corners are those of the polygons, as `Geo` stores them, not of the triangles drawn (Martino).
@@ -87,10 +86,10 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Write only what was changed; everything else keeps its values.
 - A file is read for everything it holds. What is not used yet is listed, not dropped: Load FBX gives the clip, every mesh and the rest skeleton, and lists cameras, lights, materials and blend shapes, as Load USD lists what it does not draw.
 - A character is taken in the pose its skin was bound in, not in the first frame of a take.
-- Skin weights live on the geometry and go by joint name (after Houdini's KineFX): the same weights fit any skeleton with those names, and the rest pose is a skeleton of its own.
+- Skin weights live on the geometry and go by joint name: the same weights fit any skeleton with those names, and the rest pose is a skeleton of its own.
 - The rest pose is the skeleton. Moving a clip moves its animation, never its rest pose, so the move carries through every node after it (Retarget, Reach).
 - Meshes, characters and takes come in as FBX (or USD). The program has no mesh or clip format of its own: one way in is clearer than two. Example data too big for GitHub is cut or written lighter, still as FBX.
-- A USD file is read composed, as usdview shows it. Nothing is baked into the points: up axis and unit become a correction on the placement.
+- A USD file is read composed. Nothing is baked into the points: up axis and unit become a correction on the placement.
 - Changes go back to USD as opinions: an override layer over the file the stage came from, holding only what changed. A stage nothing touched gives a layer with its header alone.
 - What changed is what no longer shares with what was loaded, compared by pointer, not by value.
 - What cannot be written is listed with the reason, not dropped.
@@ -109,7 +108,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Moving instances moves matrices. Many copies of one mesh are one draw call.
 - Only the rows in view are laid out. The window draws a frame when something happens, not all the time.
 - Long work runs in the background, in chunks, written to disk as it goes, and is found again by the content it was made from.
-- An operator's result is kept until the operator or something above it changes, as in Houdini. Selecting, redrawing, playing and scrubbing cook nothing again; a change cooks only what is below it. What only the Viewer shows (the polygons being picked in Edit Poly) is not part of a result (Simon).
+- An operator's result is kept until the operator or something above it changes. Selecting, redrawing, playing and scrubbing cook nothing again; a change cooks only what is below it. What only the Viewer shows (the polygons being picked in Edit Poly) is not part of a result (Simon).
 - An operator that is heavy to cook does it once per change, on every core where its frames do not depend on each other. Body Collide solves only when Solve is pressed or Write FBX asks (Simon).
 
 ## One shell
@@ -164,3 +163,4 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 14/10/2026: the diagram of a primitive's parts (`docs/imago_geo_parts_v3`) shown in the README, ARCHITECTURE and VOCABULARY, its labels brought to `ptIndices` (Martino).
 - 14/10/2026: Primitive Locations in a Prims Location tab on Transform, Edit Poly and Prune: paths with `*`, `?` and `**`, a count per row, filled from the Scene Explorer by + Add Location or by dragging prims onto the operator (Martino).
 - 14/10/2026: several rows selected in the Scene Explorer (Ctrl/Cmd, Shift), dragged onto operators together and shown together in the Primitive Inspector; Primitive Location fields grey, in the code font (Martino).
+- 15/10/2026: `XMS_CORE_OPS_SPEC.md` (v0.3) added at the root, pointed to under "Martino's project": the operator set Imago aims for, with Set Attribute (Object and Property rows) the one operator that sets values on primitives. "The graph is the program" in fewer words, and the principles without the names of other programs (Martino).

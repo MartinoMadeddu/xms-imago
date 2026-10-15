@@ -1,6 +1,6 @@
 # Imago architecture
 
-The decisions that shape Imago's data and evaluation, and why. Read this before changing the geometry model, a node that touches geometry, the USD path, or ICE. Details live in `docs/geometry.md`, `docs/usd.md` and the code.
+The decisions that shape Imago's data and evaluation, and why. Read this before changing the geometry model, a node that touches geometry, the USD path, or ICE. Details live in `docs/geometry.md`, `docs/usd.md` and the code; the operators Imago has and plans are in `XMS_CORE_OPS_SPEC.md`.
 
 ## 1. Shape of the program
 
@@ -149,10 +149,12 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `src/usd_stage.rs` | scene layer → `Geo` + placements + `StageTree` |
 | `src/usd_scene.rs` | `UsdScene`, loading and caching, root-layer fallback |
 | `src/core/geo.rs` | `Geo`, `Column`, `Attr`, `Topology`, `Context` |
+| `src/core/locations.rs` | Primitive Locations: matching paths, picking by a list, pruning |
 | `src/types.rs` | `Prim`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |
 | `src/edits.rs` | edits against the source, edit sets, layers between nodes |
 | `src/usd_write.rs` | override layer writer |
 | `src/node_graph/` | scene graph: nodes, evaluation, UI |
+| `src/scene_explorer/` | the Scene Explorer: the scene at the view flag as a tree |
 | `src/ice/` | ICE graphs: graph, execution, editor |
 | `src/viewport/` | the Viewer's 3D view: bounds and boxes, GPU instancing, camera |
 | `src/strands.rs` | curves and points as lines |

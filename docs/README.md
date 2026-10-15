@@ -12,6 +12,6 @@
 - [Body Collide](body-collide.md): keeping a captured character out of a set and out of itself
 - [Builds and releases](releases.md): where the binaries come from
 
-How the program should work and why is in [DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md), at the root of the repository. How to work on it with an AI assistant is in [LLM_instructions.md](../LLM_instructions.md).
+How the program should work and why is in [DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md), at the root of the repository; the operators it has and plans in [XMS_CORE_OPS_SPEC.md](../XMS_CORE_OPS_SPEC.md). How to work on it with an AI assistant is in [LLM_instructions.md](../LLM_instructions.md).
 
 These pages describe [MartinoMadeddu/xms-imago](https://github.com/MartinoMadeddu/xms-imago). They are updated with every change.
