@@ -28,7 +28,11 @@ pub fn evaluate_node_type(
                 Ok(scene) if scene.meshes.is_empty() => None,
                 Ok(scene) => {
                     let looks = scene.looks();
-                    Some(EvalResult::Named(scene.meshes.iter().map(|m| Prim {
+                    // The meshes point instancers draw at their points.
+                    let members: std::collections::HashMap<&str, (&crate::usd_scene::UsdInstancer, u32, glam::Mat4)> = scene.instancers.iter()
+                        .flat_map(|i| i.members.iter().map(move |(path, k, inside)| (path.as_str(), (i, *k, *inside))))
+                        .collect();
+                    let mut prims: Vec<Prim> = scene.meshes.iter().map(|m| Prim {
                         path: m.path.clone(), mesh: m.mesh.clone(), picked: false, material: m.material.clone(),
                         look: m.material.as_ref().and_then(|p| looks.get(p).cloned()),
                         stage: Some(scene.tree.clone()),
@@ -41,7 +45,21 @@ pub fn evaluate_node_type(
                         purpose: m.purpose,
                         props: Default::default(),
                         above: Default::default(),
-                    }).collect()))
+                        instancing: None,
+                        instanced_by: members.get(m.path.as_str()).map(|(i, index, inside)| Arc::new(crate::types::InstancedBy {
+                            instancer: i.path.clone(), index: *index, inside: *inside, hidden: i.hidden.clone(),
+                            geo: i.geo.clone(), place: i.place.clone(),
+                        })),
+                    }).collect();
+                    // Each point instancer, a points primitive of its own.
+                    prims.extend(scene.instancers.iter().map(|i| Prim {
+                        path: i.path.clone(), mesh: i.mesh.clone(), picked: false, material: None, look: None,
+                        stage: Some(scene.tree.clone()), geo: Some(i.geo.clone()),
+                        source: Some(Arc::new(crate::types::Source { geo: i.geo.clone(), place: i.place.clone(), material: None, purpose: i.purpose })),
+                        place: i.place.clone(), purpose: i.purpose,
+                        props: Default::default(), above: Default::default(), instancing: Some(i.prototypes.clone()), instanced_by: None,
+                    }));
+                    Some(EvalResult::Named(prims))
                 }
                 Err(_) => None,
             }
@@ -266,7 +284,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(),
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None,
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>

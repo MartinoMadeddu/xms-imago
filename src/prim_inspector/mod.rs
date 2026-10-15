@@ -14,24 +14,62 @@ pub struct Source {
 /// The primitives of a scene at or below any of `paths` (all of them with
 /// none), each where it is drawn. `/set` takes `/set` and `/set/a`, not
 /// `/settle`.
+///
+/// Instanced geometry is listed once, in its own space, not once per copy:
+/// a point instancer's prototypes (placed at its points), and the meshes of
+/// native instances (shared by every instance of a prototype). A point
+/// instancer itself is listed as its points, one per instance. So what is
+/// listed grows with the geometry there is, not with the copies drawn.
 pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
     match scene {
         EvalResult::Named(prims) => {
-            let under = |q: &str| paths.is_empty() || paths.iter().any(|p| {
-                let p = p.trim_end_matches('/');
-                q == p || q.strip_prefix(p).is_some_and(|rest| rest.starts_with('/'))
-            });
-            prims.iter().filter(|x| under(&x.path)).map(part).collect()
+            // A point instancer is listed as its instances, one point each.
+            // Its prototypes are listed only when they are selected
+            // themselves (a row below the instancer): selecting the
+            // instancer, a group above it or nothing lists its points, not
+            // the geometry drawn at them.
+            let instancers: Vec<&str> = prims.iter().filter(|p| p.instancing.is_some()).map(|p| p.path.as_str()).collect();
+            let below = |q: &str, p: &str| q.strip_prefix(p.trim_end_matches('/')).is_some_and(|rest| rest.starts_with('/'));
+            let at_or_below = |q: &str, p: &str| q == p.trim_end_matches('/') || below(q, p);
+            let wanted = |x: &Prim| {
+                let instancer = x.instanced_by.as_ref().map(|b| b.instancer.as_str())
+                    .or_else(|| instancers.iter().copied().find(|i| below(&x.path, i)));
+                match instancer {
+                    Some(i) => paths.iter().any(|p| at_or_below(&x.path, p) && below(p.trim_end_matches('/'), i)),
+                    None => paths.is_empty() || paths.iter().any(|p| at_or_below(&x.path, p)),
+                }
+            };
+            let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
+            prims.iter().filter(|x| wanted(x)).filter_map(|p| {
+                if !instanced(p) { return Some(part(p, true)); }
+                seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then(|| part(p, false))
+            }).collect()
         }
         scene => scene.into_parts(),
     }
 }
 
-/// One primitive where it is drawn, with the Object values it inherits
-/// from the prims above it (Set Attribute on a group) among its Object
-/// attributes.
-fn part(p: &Prim) -> MeshData {
-    let mut m = p.world().into_owned();
+/// Whether a primitive is instanced geometry, or a point instancer: listed
+/// once, in its own space.
+pub fn instanced(p: &Prim) -> bool {
+    matches!(p.place, crate::types::Placement::Many(_)) || p.instancing.is_some()
+        || p.stage.as_ref().is_some_and(|t| t.node(&p.path).is_some_and(|n| n.proxy))
+}
+
+/// How many copies of a primitive's geometry the scene draws: a prototype's
+/// points, or the instances sharing a native instance's mesh.
+pub fn copies(p: &Prim, scene: &[Prim]) -> usize {
+    match &p.place {
+        crate::types::Placement::Many(m) => m.len(),
+        _ => scene.iter().filter(|q| std::sync::Arc::ptr_eq(&q.mesh, &p.mesh)).count(),
+    }
+}
+
+/// One primitive, where it is drawn (`placed`) or in its own space, with
+/// the Object values it inherits from the prims above it (Set Attribute on
+/// a group) among its Object attributes.
+fn part(p: &Prim, placed: bool) -> MeshData {
+    let mut m = if placed { p.world().into_owned() } else { (*p.mesh).clone() };
     for (name, value) in crate::core::props::inherited_primvars(p) {
         if let Some(n) = value.numbers() {
             m.primvars.push(PrimVar { name, interp: PrimVarInterp::Constant, values: vec![n] });
@@ -164,6 +202,14 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                     props::PurposeFrom::Unset => made_here(),
                 };
                 row("purpose", purpose(props::purpose_of(p)).into(), from);
+                // Instancing: a point instancer's instances and prototypes, a
+                // prototype's or a native instance's copies.
+                if let Some(protos) = &p.instancing {
+                    row("instances", p.mesh.point_count().to_string(), made_here());
+                    row("prototypes", protos.join(", "), made_here());
+                } else if instanced(p) {
+                    row("copies", copies(p, prims).to_string(), made_here());
+                }
                 let bound = p.material.clone().unwrap_or_else(|| "none".into());
                 let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
                 row("material:binding", bound, if rebound { ("Imago".into(), None) } else { made_here() });
@@ -279,6 +325,39 @@ mod tests {
 
     /// The Properties tab of a group Imago made, and of a cube below it:
     /// what each has, and where it comes from.
+    /// Instanced geometry is listed once, in its own space; a point
+    /// instancer as its points.
+    #[test]
+    fn instanced_geometry_is_listed_once() {
+        use crate::types::Placement;
+        use std::sync::Arc;
+        let cube = crate::node_graph::nodes::create_cube(1.0);
+        let shared = Arc::new(cube.clone());
+        let at = |x: f32| glam::Mat4::from_translation(glam::Vec3::new(x, 0.0, 0.0));
+        // A prototype at 1000 points, and a point instancer of 1000 points.
+        let proto = Prim { mesh: shared.clone(), place: Placement::Many((0..1000).map(|k| at(k as f32)).collect()), ..Prim::new("/inst/proto".into(), Default::default()) };
+        let points = crate::types::MeshData { points: (0..1000).map(|k| [k as f32, 0.0, 0.0]).collect(), ..Default::default() };
+        let instancer = Prim { instancing: Some(Arc::new(vec!["/inst/proto".into()])), place: Placement::One(at(0.0)), ..Prim::new("/inst".into(), points) };
+        let scene = || EvalResult::Named(vec![instancer.clone(), proto.clone()]);
+        let parts = scene_parts(scene(), &["/inst".to_string()]);
+        assert_eq!(parts.len(), 1, "the instancer selected: its instances alone");
+        assert_eq!(parts[0].points.len(), 1000, "one point per instance");
+        let parts = scene_parts(scene(), &["/inst/proto".to_string()]);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].vertices.len(), cube.vertices.len(), "the prototype once, not 1000 times");
+        assert_eq!(scene_parts(scene(), &[]).len(), 1, "nothing selected: the instancer as its points");
+        let parts = scene_parts(EvalResult::Named(vec![instancer.clone(), proto.clone()]), &["/".to_string()]);
+        assert_eq!((parts.len(), parts[0].points.len()), (1, 1000), "a group above it: the instancer as its points");
+        assert_eq!(copies(&proto, &[]), 1000);
+        // Two prims sharing one mesh (native instances' proxies): listed once.
+        let tree = Arc::new(crate::usd_scene::StageTree { nodes: ["/a", "/a/m", "/b", "/b/m"].iter().map(|p| crate::usd_scene::StageNode {
+            path: p.to_string(), proxy: p.ends_with("/m"), ..Default::default() }).collect(), ..Default::default() });
+        let proxy = |p: &str| Prim { mesh: shared.clone(), stage: Some(tree.clone()), place: Placement::One(at(3.0)), ..Prim::new(p.into(), Default::default()) };
+        let prims = vec![proxy("/a/m"), proxy("/b/m")];
+        assert_eq!(scene_parts(EvalResult::Named(prims.clone()), &[]).len(), 1);
+        assert_eq!(copies(&prims[0], &prims), 2);
+    }
+
     #[test]
     fn properties_say_what_a_prim_has_and_where_from() {
         use crate::core::props::{SetContext, SetRow, Value};

@@ -353,7 +353,9 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
     // Geometry primitives.
     let mut out: Vec<Prim> = Vec::with_capacity(prims.len());
     for p in prims {
-        if !targeted(p) { out.push(p.clone()); continue; }
+        // A point instancer is set as the stage prim it is (below), so what
+        // is set on it reaches its prototypes as on any group.
+        if !targeted(p) || p.instancing.is_some() { out.push(p.clone()); continue; }
         if let Some(q) = set_on_prim(p, &rows) { out.push(q); }
     }
     if !named { return EvalResult::Named(out); }
@@ -363,7 +365,7 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
 
     // Prims of a stage without geometry: opinions in its tree. Each stage
     // once; every primitive of it then shares the new tree.
-    let present: std::collections::HashSet<String> = prims.iter().map(|p| p.path.clone()).collect();
+    let present: std::collections::HashSet<String> = prims.iter().filter(|p| p.instancing.is_none()).map(|p| p.path.clone()).collect();
     let mut trees: Vec<Arc<crate::usd_scene::StageTree>> = vec![];
     for p in &out {
         if let Some(t) = &p.stage { if !trees.iter().any(|x| Arc::ptr_eq(x, t)) { trees.push(t.clone()); } }

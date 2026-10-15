@@ -413,6 +413,14 @@ mod tests {
         assert_eq!(copies("Trunk") + copies("Rock"), FOREST_SIDE * FOREST_SIDE);
         assert_eq!(copies("Crown"), copies("Trunk"));
         assert!(forest.meshes.iter().filter(|m| !m.path.ends_with("Ground")).all(|m| matches!(m.place, Placement::Many(_))));
+        // The instancer itself: one point per tree or rock, its arrays as attributes.
+        assert_eq!(forest.instancers.len(), 1);
+        let inst = &forest.instancers[0];
+        assert_eq!(inst.geo.point_count(), FOREST_SIDE * FOREST_SIDE);
+        let index = inst.geo.attr(crate::core::geo::Context::Point, "protoIndex").and_then(|a| a.column.ints()).expect("protoIndex per point");
+        assert_eq!(index.len(), FOREST_SIDE * FOREST_SIDE);
+        assert!(index.iter().all(|&k| (k as usize) < inst.prototypes.len()));
+        assert_eq!(inst.mesh.points.len(), FOREST_SIDE * FOREST_SIDE, "listed as points");
 
         // The hall: every table is the same five meshes, placed.
         let hall = read(TABLES);

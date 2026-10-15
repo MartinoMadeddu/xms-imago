@@ -36,6 +36,27 @@ pub struct UsdMesh {
     pub purpose:  crate::types::Purpose,
 }
 
+/// A point instancer, as a points primitive: one point per instance, with
+/// the instancer's arrays as Point attributes (`points` from `positions`,
+/// `orient`, `scale`, `protoIndex`, `id`), in its own space, placed where
+/// the instancer is. Its prototypes are primitives of their own, drawn at
+/// its points; it is not drawn itself.
+#[derive(Clone, Debug)]
+pub struct UsdInstancer {
+    pub path:       String,
+    pub geo:        Arc<crate::core::geo::Geo>,
+    pub mesh:       Arc<MeshData>,
+    pub place:      crate::types::Placement,
+    pub purpose:    crate::types::Purpose,
+    /// Its prototypes' paths as listed, by `protoIndex`.
+    pub prototypes: Arc<Vec<String>>,
+    /// The meshes drawn at its points (in `UsdScene::meshes`): each one's
+    /// path, the `protoIndex` of its prototype, and its transform inside it.
+    pub members:    Vec<(String, u32, glam::Mat4)>,
+    /// Instances not drawn (`invisibleIds`).
+    pub hidden:     Arc<Vec<i64>>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct UsdCamera {
     pub path:         String,
@@ -140,6 +161,9 @@ pub struct UsdScene {
     /// The composed stage's hierarchy. Empty when only the root layer was read.
     pub tree:            Arc<StageTree>,
     pub meshes:          Vec<UsdMesh>,
+    /// Point instancers, each a points primitive (its prototypes' meshes
+    /// are in `meshes`, placed at its points).
+    pub instancers:      Vec<UsdInstancer>,
     pub cameras:         Vec<UsdCamera>,
     pub materials:       Vec<UsdMaterial>,
     pub skeletons:       Vec<UsdSkeleton>,

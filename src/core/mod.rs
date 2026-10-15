@@ -18,6 +18,8 @@ pub mod pattern;
 pub mod locations;
 /// Set Attribute: one value per primitive, set by the scene graph.
 pub mod props;
+/// Point instancers: their prototypes' copies made from their points.
+pub mod instancing;
 pub mod uv;
 pub mod manip;
 pub mod xform;

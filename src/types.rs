@@ -751,6 +751,31 @@ pub struct Prim {
     /// Xforms of its Primitive Location), by path. Every primitive below
     /// such a prim carries them; Write USD writes them once, on the Xform.
     pub above:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Opinions>>,
+    /// A point instancer: its points are its instances, and these are its
+    /// prototypes' paths by `protoIndex`. It is not drawn, nor merged into a
+    /// mesh: its prototypes are drawn at its points. `None` for the rest.
+    pub instancing: Option<std::sync::Arc<Vec<String>>>,
+    /// A point instancer's prototype mesh: its placements are made from the
+    /// instancer's points that use its prototype (`core::instancing::sync`),
+    /// so what moves the points moves the copies. `None` for the rest.
+    pub instanced_by: Option<std::sync::Arc<InstancedBy>>,
+}
+
+/// Which instancer a prototype mesh is drawn by, and what its placements
+/// were last made from.
+#[derive(Clone, Debug)]
+pub struct InstancedBy {
+    /// The instancer's path.
+    pub instancer: String,
+    /// The `protoIndex` of the mesh's prototype.
+    pub index:     u32,
+    /// The mesh's transform inside its prototype.
+    pub inside:    glam::Mat4,
+    /// Instances not drawn (`invisibleIds`).
+    pub hidden:    std::sync::Arc<Vec<i64>>,
+    /// The instancer's points and placement the placements were made from.
+    pub geo:       std::sync::Arc<crate::core::geo::Geo>,
+    pub place:     Placement,
 }
 
 /// A packed primitive as it was loaded from its stage.
@@ -848,7 +873,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default() }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -895,7 +920,8 @@ fn edit_in_place(p: &Prim, op: impl FnOnce(MeshData) -> MeshData) -> Prim {
 
 /// The world meshes of some packed primitives, merged into one.
 fn merge_world(prims: &[&Prim]) -> MeshData {
-    let worlds: Vec<std::borrow::Cow<'_, MeshData>> = prims.iter().map(|p| p.world()).collect();
+    // A point instancer's points are where its prototypes are drawn, not geometry.
+    let worlds: Vec<std::borrow::Cow<'_, MeshData>> = prims.iter().filter(|p| p.instancing.is_none()).map(|p| p.world()).collect();
     let parts: Vec<&MeshData> = worlds.iter().map(|w| &**w).collect();
     crate::node_graph::nodes::merge_all(&parts)
 }
@@ -1009,7 +1035,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone() });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone() });
                     }
                 }
                 EvalResult::Named(out)
@@ -1341,8 +1367,9 @@ impl SceneHierarchy {
         for (k, &i) in rows.iter().enumerate() {
             let n = &nodes[i];
             let has_children = rows.get(k + 1).is_some_and(|&j| nodes[j].depth > n.depth);
-            let mesh = is_mesh(i);
-            if mesh { listed.insert(n.path.clone()); }
+            // Listed here, so not listed again by its path below: geometry,
+            // and a point instancer (a primitive of its own).
+            listed.insert(n.path.clone());
             let id = self.next_id();
             let expanded = self.is_expanded(&n.path);
             self.objects.push(SceneObject {

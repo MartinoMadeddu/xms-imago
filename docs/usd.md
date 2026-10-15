@@ -111,6 +111,12 @@ Native instances and point instancers keep their instancing. The geometry of a p
 - A node that changes geometry (Edit Poly, the UV nodes) on one instance makes that instance a mesh of its own. The other copies stay shared.
 - The Viewer draws a mesh with many copies in one draw call (GPU instancing), in its material's colour. A mesh with 64 copies or fewer is drawn copy by copy with its full material and textures.
 
+A point instancer is also a primitive of its own, at its path: a points primitive with one point per instance and the instancer's arrays as Point attributes (`points` from `positions`, `orient`, `scale`, `protoIndex`, `id`), in its own space. It is not drawn (its prototypes are, at its points) and not merged into a mesh. Selecting it in the Scene Explorer lists its instances in the Primitive Inspector's Point tab, one row per instance, and nothing else. A group above it, or the whole scene, lists it the same way: its prototypes' geometry is listed only when a prototype (a row below the instancer) is selected; its Properties tab gives the number of instances and its prototypes.
+
+Its points are where the copies are: whatever changes them (an ICE graph moving `P`, a Transform on the instancer alone, through its Prims Location tab or a Pick) moves the copies, which are made again from the points after every operator, only when the instancer changed. Write USD writes what changed as the instancer's own arrays (`positions`, `orientations`, `scales`, `protoIndices`, `ids`), and an instancer moved as a whole gets its own transform; its prototypes' copies are not edits of their own.
+
+The Primitive Inspector lists instanced geometry once, in its own space, not once per copy: a point instancer's prototypes, and the meshes of native instances. Their Properties tab gives the number of copies. What it lists grows with the geometry there is, not with what is drawn, so a stage of millions of instanced points opens in it at once.
+
 ## The Scene Explorer and the Viewer
 
 The Scene Explorer lists a stage as its hierarchy: groups, meshes, curves, points, materials, cameras, lights and skeletons, each with its icon. Pruned primitives leave the list, and so do groups left empty.
@@ -156,6 +162,7 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | Several prims merged into one | The whole geometry, in the prim's own space |
 | A prim pruned | `active = false` |
 | Material binding or purpose changed | `material:binding`, `purpose` |
+| A point instancer's points or their attributes | `positions`, `orientations`, `scales`, `protoIndices`, `ids` |
 | Set Attribute values | Object: `primvars:name` with `interpolation = "constant"`. Property: an attribute (`token visibility`, `uniform bool doubleSided`, `uniform token subdivisionScheme`, any other name with its type) or metadata (`active`, `kind`, `instanceable`). On any prim of the stage: a group, a camera, a light |
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
 
@@ -183,6 +190,7 @@ Values are written at the current frame, as single values.
 - Set Attribute: time samples (values are default values), arrays, inherited Object values read by ICE
 - Arrays, dictionaries (`customData`) and relationships other than the material binding are not listed in the Properties tab
 - Write USD writes nothing for a stage none of whose primitives is left (all pruned, or all below a deactivated group)
+- A point instancer's `invisibleIds` are kept (those instances are not drawn) but not listed; `velocities` and `accelerations` are not read; a Transform moves an instancer by its placement, not its points
 
 ## Example file
 
