@@ -1230,6 +1230,9 @@ pub struct SceneObject {
     /// stage or made in Imago. Selecting the row shows what is at or below
     /// it in the Primitive Inspector. None for joints and a plain mesh.
     pub path:         Option<String>,
+    /// Its USD type (`Xform`, `Mesh`, `PointInstancer`…), shown in the
+    /// Scene Explorer's type column. Empty for rows that are not prims.
+    pub type_name:    String,
 }
 
 #[derive(Default)]
@@ -1382,6 +1385,7 @@ impl SceneHierarchy {
                 key:          n.path.clone(),
                 stage_path:   Some(n.path.clone()),
                 path:         Some(n.path.clone()),
+                type_name:    n.type_name.clone(),
             });
         }
     }
@@ -1472,6 +1476,7 @@ impl SceneHierarchy {
                         key:          node_key,
                         stage_path:   None,
                         path:         None,
+                        type_name:    String::new(),
                     });
                 }
 
@@ -1488,6 +1493,7 @@ impl SceneHierarchy {
                         key:          node_key,
                         stage_path:   None,
                         path:         None,
+                        type_name:    String::new(),
                     });
                     let depths = anim.joint_depths();
                     let mut is_parent = vec![false; anim.joints.len()];
@@ -1515,6 +1521,7 @@ impl SceneHierarchy {
                             key,
                             stage_path:   None,
                             path:         None,
+                            type_name:    String::new(),
                         });
                         todo.extend(kids[i].iter().copied());
                     }
@@ -1532,6 +1539,7 @@ impl SceneHierarchy {
                         key:          node_key,
                         stage_path:   None,
                         path:         None,
+                        type_name:    String::new(),
                     });
 
                     // Primitives from a composed stage are listed in the stage's
@@ -1578,6 +1586,7 @@ impl SceneHierarchy {
                                     key,
                                     stage_path:   None,
                                     path:         Some(format!("/{parent_key}")),
+                                    type_name:    "Xform".into(),
                                 });
                             }
                         }
@@ -1596,6 +1605,12 @@ impl SceneHierarchy {
                             key:          format!("seg:{}", prim.path),
                             stage_path:   None,
                             path:         Some(prim.path.clone()),
+                            type_name:    match prim.geo.as_ref().map(|g| &g.topology) {
+                                _ if prim.instancing.is_some() => "PointInstancer".into(),
+                                Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
+                                Some(crate::core::geo::Topology::Points) => "Points".into(),
+                                _ => "Mesh".into(),
+                            },
                         });
                     }
                 }

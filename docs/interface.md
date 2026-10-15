@@ -261,6 +261,8 @@ The Scene Explorer lists the scene at the operator with the view flag as its own
 
 Clicking a row shows that prim, or that group and everything below it, in the Primitive Inspector. Ctrl+click (Cmd+click on macOS) adds a row to the selection or takes it out; Shift+click selects every row from the last one clicked. Rows dragged out go together when the one dragged is selected (see [Parameters](#parameters)). Clicking the only selected row again shows the whole scene there again, and so does a selected prim leaving the scene (moving the view flag, or a Prune). Selecting a row does not select an operator. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
 
+Each prim's type (`Xform`, `Mesh`, `PointInstancer`, `Material`, `Camera`…) is shown in a column at the right of its row, before the geometry square; a name too long for the row stops short of it.
+
 ## Operator Stack
 
 One row per node, from the viewed operator down to the sources. A chain of single inputs stays in one column however long it is. Only a node with several inputs, such as a Merge, steps its branches in. The triangle at the left of a row folds what is under it: it shows at branch points, on folded rows, and under the cursor. The type of the node is at the right when there is room. A bypassed node is struck through.
@@ -292,7 +294,7 @@ Nodes that give geometry show the first six tabs, clip nodes the last two. A sel
 
 Each primitive is listed where it is drawn, one after the other, and points are numbered across all of them, so the point numbers in the Edge and Face tabs are rows of the Point tab. An edge's or a face's points are one value, an array as long as it has corners, shown in one cell as `[0, 3, 2, 1]`; the column is as wide as its widest cell, up to a limit past which longer arrays are cut off at the cell's edge. A column one primitive does not have (a normal on a curve point, the area of a curve) shows `-` on its rows. Curves are listed by their control points as authored, whatever their basis, not by the lines they are drawn as. With the Strands template, Point lists 3430 points (3030 control points, then the spiral's 400), Edge 2427 segments, Face 604 curves.
 
-The mesh is cooked and the table built only when the graph changes or another node is selected. Moving the camera, or anything else in the Viewer that leaves the graph alone, does not refresh it. Each frame draws only the rows in view.
+The scroll bar at the right of the rows in view is dragged, or clicked, to move through a long table; the mouse wheel moves it row by row. The mesh is cooked and the table built only when the graph changes or another node is selected. Moving the camera, or anything else in the Viewer that leaves the graph alone, does not refresh it. Each frame draws only the rows in view.
 
 ## When the graph is cooked
 
