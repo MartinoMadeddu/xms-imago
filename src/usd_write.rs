@@ -31,6 +31,7 @@ use std::sync::Arc;
 use glam::{DMat4, Mat4};
 
 use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, POINTS, WIDTHS};
+use crate::core::props::{written, Opinions, Value, Written};
 use crate::edits::{edit_set, PrimEdit};
 use crate::types::{CurveBasis, CurveWrap, Prim, Placement, Purpose};
 use crate::usd_scene::{StageNode, StageTree};
@@ -113,6 +114,15 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
                 report.added += 1;
             }
         }
+        // Values set on prims without geometry (groups, cameras, lights).
+        for (path, o) in &set.opinions {
+            if let Some(why) = nodes.get(path.as_str()).and_then(|n| read_only(n)) {
+                report.skipped.push(format!("{path}: {why}"));
+                continue;
+            }
+            opinions(root.at(path), o);
+            report.changed += 1;
+        }
     }
     // Prims that came from no stage at all (shapes, meshes made by nodes),
     // in the layer's axes and unit: those of the first stage when there is
@@ -120,6 +130,8 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // except where a stage already has a prim on that path.
     let layer_root = trees.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
     let in_a_stage = |path: &str| trees.iter().any(|t| t.nodes.iter().any(|n| n.path == path));
+    // Values set on those Xforms, carried by each primitive below them.
+    let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
     for p in prims.iter().filter(|p| p.stage.is_none()) {
         if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
             report.skipped.push(format!("{}: not a primitive path", if p.path.is_empty() { "(no path)" } else { p.path.as_str() }));
@@ -133,6 +145,11 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
             let spec = root.at(&parent);
             if spec.def.is_none() && !in_a_stage(&parent) { spec.def = Some("Xform"); }
         }
+        for (path, o) in p.above.iter() { above.entry(path.clone()).or_default().merge(o); }
+    }
+    for (path, o) in &above {
+        opinions(root.at(path), o);
+        report.changed += 1;
     }
 
     // The prim a reference to this layer gets when it names none: the first
@@ -235,6 +252,7 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
     if let Some(purpose) = e.purpose {
         spec.lines.push(format!("uniform token purpose = \"{}\"", purpose_token(purpose)));
     }
+    for (name, value) in &e.props { property(spec, name, value); }
 
     if e.replaced {
         // The whole geometry, from the mesh as drawn, back in the prim's own space.
@@ -281,7 +299,27 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
     if p.purpose != Purpose::Default {
         spec.lines.push(format!("uniform token purpose = \"{}\"", purpose_token(p.purpose)));
     }
+    for (name, value) in p.props.iter() { property(spec, name, value); }
     geometry(spec, &geo, false);
+}
+
+/// A Property set by Set Attribute: the prim's attribute (`uniform` where
+/// the schema has it so) or its metadata, by name.
+fn property(spec: &mut Spec, name: &str, value: &Value) {
+    match written(name) {
+        Written::Metadata => spec.meta.push(format!("{name} = {}", value.usda())),
+        Written::Uniform => spec.lines.push(format!("uniform {} {name} = {}", value.kind().usd(), value.usda())),
+        Written::Attribute => spec.lines.push(format!("{} {name} = {}", value.kind().usd(), value.usda())),
+    }
+}
+
+/// The values set on a prim without geometry: Object ones as constant
+/// primvars, Property ones as they are written on any prim.
+fn opinions(spec: &mut Spec, o: &Opinions) {
+    for (name, value) in &o.primvars {
+        spec.lines.push(format!("{} primvars:{name} = {} (\n    interpolation = \"constant\"\n)", value.kind().usd(), value.usda()));
+    }
+    for (name, value) in &o.props { property(spec, name, value); }
 }
 
 /// Every attribute and the topology of a geometry.
@@ -565,6 +603,91 @@ def Xform "set" {{
         let out = std::env::temp_dir().join("xms_usd_write_test/no_path_over.usda");
         let (_, report) = override_layer(&[cube_at("")], &out).unwrap();
         assert_eq!((report.added, report.skipped.len()), (0, 1), "{report:?}");
+    }
+
+    #[test]
+    fn set_attribute_values_are_written_on_their_prims() {
+        use crate::core::props::{set_attributes, SetContext, SetRow};
+        use crate::types::EvalResult;
+        let (_, prims) = load("set_attribute.usda", &stage_text());
+        let row = |context, name: &str, value| SetRow { context, name: name.into(), value };
+        let at = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let set = |input: Vec<Prim>, rows: &[SetRow], l: &[&str]| match set_attributes(&EvalResult::Named(input), rows, &at(l)) {
+            EvalResult::Named(p) => p, _ => panic!("primitives"),
+        };
+        // On a mesh: a constant primvar and properties. On the group: kind.
+        let prims = set(prims, &[
+            row(SetContext::Object, "displayColor", Value::Color3f([1.0, 0.0, 0.0])),
+            row(SetContext::Property, "doubleSided", Value::Bool(true)),
+            row(SetContext::Property, "userProperties:assetId", Value::String("a-1".into())),
+        ], &["/set/a"]);
+        let prims = set(prims, &[row(SetContext::Property, "kind", Value::Token("assembly".into()))], &["/set"]);
+        let prims = set(prims, &[row(SetContext::Property, "visibility", Value::Token("invisible".into()))], &["/set/b"]);
+
+        let out = std::env::temp_dir().join("xms_usd_write_test/set_attribute_over.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!((report.changed, report.deactivated, report.added), (3, 0, 0), "{report:?}\n{text}");
+        for line in [
+            "over \"set\" (\n    kind = \"assembly\"\n)",
+            "color3f[] primvars:displayColor = [(1, 0, 0)] (\n    interpolation = \"constant\"",
+            "uniform bool doubleSided = true",
+            "string userProperties:assetId = \"a-1\"",
+            "token visibility = \"invisible\"",
+        ] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        // Read back: b is invisible, so not drawn; a carries its colour.
+        std::fs::write(&out, &text).unwrap();
+        let back = crate::usd_scene::load(&out).unwrap();
+        assert!(back.meshes.iter().all(|m| m.path != "/set/b"), "b is invisible");
+        let a = back.meshes.iter().find(|m| m.path == "/set/a").expect("a is there");
+        assert!(a.geo.as_ref().unwrap().attr(Context::Object, "displayColor").is_some());
+
+        // A group deactivated: one opinion on it, nothing below it written.
+        let two = format!("#usda 1.0\ndef Xform \"set\" {{\n    def Mesh \"a\" {{{QUAD}    }}\n}}\ndef Xform \"props\" {{\n    def Mesh \"b\" {{{QUAD}    }}\n}}\n");
+        let (_, prims) = load("set_attribute_off.usda", &two);
+        let prims = set(prims, &[row(SetContext::Property, "active", Value::Bool(false))], &["/props"]);
+        assert_eq!(prims.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), vec!["/set/a"], "what is below /props left the scene");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!((report.changed, report.deactivated), (1, 0), "{report:?}\n{text}");
+        assert!(text.contains("over \"props\" (\n    active = false\n)") && !text.contains("\"b\""), "{text}");
+    }
+
+    #[test]
+    fn values_on_the_xforms_above_a_shape_are_written_there() {
+        use crate::core::props::{set_attributes, SetContext, SetRow};
+        use crate::types::EvalResult;
+        let rows = [
+            SetRow { context: SetContext::Object, name: "displayColor".into(), value: Value::Color3f([0.0, 1.0, 0.0]) },
+            SetRow { context: SetContext::Property, name: "visibility".into(), value: Value::Token("invisible".into()) },
+        ];
+        let shapes = vec![cube_at("/root/asset/geo/cube1"), cube_at("/root/asset/geo/cube2"), cube_at("/root/other")];
+        let EvalResult::Named(prims) = set_attributes(&EvalResult::Named(shapes), &rows, &["/root/asset/geo".to_string()]) else { panic!() };
+        let out = std::env::temp_dir().join("xms_usd_write_test/above_over.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!((report.added, report.changed), (3, 1), "once, on the Xform: {report:?}");
+        assert_eq!(text.matches("primvars:displayColor").count(), 1, "{text}");
+        for line in ["def Xform \"geo\"", "color3f primvars:displayColor = (0, 1, 0) (\n    interpolation = \"constant\"", "token visibility = \"invisible\""] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        // Read back: what is below the invisible Xform is not drawn.
+        std::fs::write(&out, &text).unwrap();
+        let back = crate::usd_scene::load(&out).unwrap();
+        let paths: Vec<&str> = back.meshes.iter().map(|m| m.path.as_str()).collect();
+        assert_eq!(paths, vec!["/root/other"], "{text}");
+    }
+
+    #[test]
+    fn opinions_on_a_prim_without_geometry() {
+        let mut spec = Spec::default();
+        let mut o = Opinions::default();
+        o.primvars.insert("variant".into(), Value::Int(3));
+        o.props.insert("active".into(), Value::Bool(false));
+        o.props.insert("purpose".into(), Value::Token("guide".into()));
+        opinions(&mut spec, &o);
+        assert_eq!(spec.lines[0], "int primvars:variant = 3 (\n    interpolation = \"constant\"\n)");
+        assert_eq!(spec.lines[1], "uniform token purpose = \"guide\"");
+        assert_eq!(spec.meta, vec!["active = false".to_string()]);
     }
 
     #[test]

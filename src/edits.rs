@@ -20,6 +20,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::core::geo::{Context, Geo};
+use crate::core::props::{Opinions, Value};
 use crate::types::{Prim, Placement, Purpose};
 use crate::usd_scene::StageTree;
 
@@ -41,6 +42,8 @@ pub struct PrimEdit {
     pub material: Option<Option<String>>,
     /// The new purpose, when it changed.
     pub purpose: Option<Purpose>,
+    /// Properties set on it (Set Attribute), by name.
+    pub props: Vec<(String, Value)>,
     /// The geometry can no longer be traced to the source (several
     /// primitives merged into one): everything is to be written, from the
     /// primitive's mesh, where it is drawn.
@@ -50,7 +53,7 @@ pub struct PrimEdit {
 impl PrimEdit {
     pub fn is_empty(&self) -> bool {
         self.place.is_none() && !self.topology && self.attrs.is_empty() && self.removed.is_empty()
-            && self.material.is_none() && self.purpose.is_none() && !self.replaced
+            && self.material.is_none() && self.purpose.is_none() && self.props.is_empty() && !self.replaced
     }
 }
 
@@ -65,11 +68,14 @@ pub struct EditSet {
     /// Primitives that did not come from the stage (made by nodes): to be
     /// added.
     pub added: Vec<String>,
+    /// Values set on prims of the stage that are not geometry primitives
+    /// (`StageTree::opinions`), by path.
+    pub opinions: Vec<(String, Opinions)>,
 }
 
 impl EditSet {
     pub fn is_empty(&self) -> bool {
-        self.prims.is_empty() && self.removed.is_empty() && self.added.is_empty()
+        self.prims.is_empty() && self.removed.is_empty() && self.added.is_empty() && self.opinions.is_empty()
     }
 }
 
@@ -80,6 +86,8 @@ pub fn prim_edit(p: &Prim) -> Option<PrimEdit> {
     if !p.place.same(&src.place) { e.place = Some(p.place.clone()); }
     if p.material != src.material { e.material = Some(p.material.clone()); }
     if p.purpose != src.purpose { e.purpose = Some(p.purpose); }
+    // Nothing is read as a property when loading: every one is an edit.
+    e.props = p.props.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     match &p.geo {
         None => e.replaced = true,
         Some(geo) if Arc::ptr_eq(geo, &src.geo) => {}
@@ -116,13 +124,21 @@ pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
             None => set.added.push(p.path.clone()),
         }
     }
+    // Prims deactivated by an opinion: what is below them goes with them,
+    // and needs no opinion of its own.
+    let off: Vec<&str> = tree.opinions.iter()
+        .filter(|(_, o)| o.props.get("active") == Some(&Value::Bool(false)))
+        .map(|(path, _)| path.as_str()).collect();
+    let below_off = |path: &str| off.iter().any(|g| path.strip_prefix(g).is_some_and(|rest| rest.starts_with('/')));
     // Geometry the stage has (and that was drawn: hidden prims never arrive)
     // which no longer arrives.
     let geometry = ["Mesh", "BasisCurves", "NurbsCurves", "HermiteCurves", "Points"];
     set.removed = tree.nodes.iter()
         .filter(|n| !n.hidden && geometry.contains(&n.type_name.as_str()) && !present.contains(n.path.as_str()))
+        .filter(|n| !below_off(&n.path))
         .map(|n| n.path.clone())
         .collect();
+    set.opinions = tree.opinions.iter().filter(|(_, o)| !o.is_empty()).map(|(k, v)| (k.clone(), v.clone())).collect();
     set
 }
 
@@ -141,7 +157,12 @@ pub fn edits_between(before: &[Prim], after: &[Prim]) -> EditSet {
             })),
             ..p.clone()
         };
-        match prim_edit(&base) {
+        // Properties: those set or changed since `before`.
+        let edit = prim_edit(&base).map(|mut e| {
+            e.props.retain(|(k, v)| b.props.get(k) != Some(v));
+            e
+        });
+        match edit {
             Some(e) if !e.is_empty() => set.prims.push(e),
             Some(_) => {}
             None => set.prims.push(PrimEdit { path: p.path.clone(), replaced: true, ..Default::default() }),

@@ -742,6 +742,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("📦", "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),
             (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove primitives, or keep only some"),
+            (NodeType::SetAttribute { rows: vec![] }, "Set values on prims: a primvar for rendering, or a property such as visibility, purpose, kind or active"),
             (NodeType::UnpackPrims, "Merge primitives into one mesh"),
         ]),
         ("🗺", "UV", vec![

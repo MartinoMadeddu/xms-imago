@@ -1,6 +1,6 @@
 pub mod ui;
 
-use crate::types::{EvalResult, MeshData, NodeId};
+use crate::types::{EvalResult, MeshData, NodeId, Prim, PrimVar, PrimVarInterp};
 
 /// What the Primitive Inspector shows: the scene at the operator with the
 /// view flag, all of it, or the rows selected in the Scene Explorer and what
@@ -16,15 +16,227 @@ pub struct Source {
 /// `/settle`.
 pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
     match scene {
-        EvalResult::Named(prims) if !paths.is_empty() => {
-            let under = |q: &str| paths.iter().any(|p| {
+        EvalResult::Named(prims) => {
+            let under = |q: &str| paths.is_empty() || paths.iter().any(|p| {
                 let p = p.trim_end_matches('/');
                 q == p || q.strip_prefix(p).is_some_and(|rest| rest.starts_with('/'))
             });
-            EvalResult::Named(prims.into_iter().filter(|x| under(&x.path)).collect()).into_parts()
+            prims.iter().filter(|x| under(&x.path)).map(part).collect()
         }
         scene => scene.into_parts(),
     }
+}
+
+/// One primitive where it is drawn, with the Object values it inherits
+/// from the prims above it (Set Attribute on a group) among its Object
+/// attributes.
+fn part(p: &Prim) -> MeshData {
+    let mut m = p.world().into_owned();
+    for (name, value) in crate::core::props::inherited_primvars(p) {
+        if let Some(n) = value.numbers() {
+            m.primvars.push(PrimVar { name, interp: PrimVarInterp::Constant, values: vec![n] });
+        }
+    }
+    m
+}
+
+// ── Properties ──────────────────────────────────────────────────────────────
+
+/// One row of the Properties tab.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PropRow {
+    pub path:  String,
+    pub name:  String,
+    pub value: String,
+    /// Where the value comes from: `file`, `Imago`, the Set Attribute
+    /// operator that set it, or `inherited: /path` from a prim above.
+    pub from:  String,
+    /// The operator it comes from, for "Go to Operator": the Load USD that
+    /// read the file, the shape that made the prim, or the Set Attribute
+    /// that set the value (on the prim, or on the group it is inherited from).
+    pub node:  Option<NodeId>,
+}
+
+/// The Properties tab: the selected prims themselves (a group, a camera or
+/// a light as well as a mesh), or the root prims with nothing selected.
+/// `view`: the operator with the view flag, whose upstream operators are
+/// searched for the Set Attribute that set a value.
+pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId, scene: &EvalResult, paths: &[String]) -> Vec<PropRow> {
+    use crate::core::props::{self, Opinions, SetContext};
+    let EvalResult::Named(prims) = scene else { return vec![] };
+    let mut trees: Vec<&std::sync::Arc<crate::usd_scene::StageTree>> = vec![];
+    for p in prims {
+        if let Some(t) = &p.stage { if !trees.iter().any(|x| std::sync::Arc::ptr_eq(x, t)) { trees.push(t); } }
+    }
+    let node_of = |path: &str| trees.iter().copied()
+        .find_map(|t| t.nodes.iter().find(|n| n.path == path).map(|n| (n, &**t)));
+    // The Xforms Imago makes above its own primitives.
+    let made: Vec<String> = {
+        let mut v: Vec<String> = vec![];
+        for p in prims.iter().filter(|p| p.stage.is_none()) {
+            for a in props::parents(&p.path) { if !v.contains(&a) && node_of(&a).is_none() { v.push(a); } }
+        }
+        v
+    };
+    // What to list: the selection, or the root prims.
+    let listed: Vec<String> = if !paths.is_empty() { paths.to_vec() } else {
+        let mut roots: Vec<String> = trees.iter().flat_map(|t| t.nodes.iter().filter(|n| n.depth == 1).map(|n| n.path.clone())).collect();
+        for p in prims {
+            let root = props::parents(&p.path).into_iter().next().unwrap_or_else(|| p.path.clone());
+            if !roots.contains(&root) { roots.push(root); }
+        }
+        roots
+    };
+    // The Set Attribute that set a value, by name, and its operator.
+    let setter = |path: &str, name: &str, context: SetContext| match set_by(graph, view, path, name, context) {
+        Some((id, n)) => (n, Some(id)),
+        None => ("Set Attribute".to_string(), None),
+    };
+    // The group a value is inherited from: the operator that set it there.
+    let inherited_from = |from: &str, name: &str| from.strip_prefix("inherited: ")
+        .and_then(|group| set_by(graph, view, group, name, SetContext::Property).map(|(id, _)| id));
+
+    let mut rows = vec![];
+    for path in &listed {
+        let node = node_of(path);
+        // The operator a value read from the file, or made in Imago, comes from.
+        let maker = match node {
+            Some((_, tree)) => load_of(graph, view, tree),
+            None => shape_of(graph, view, path),
+        };
+        let mut row = |name: &str, value: String, (from, op): (String, Option<NodeId>)| {
+            rows.push(PropRow { path: path.clone(), name: name.into(), value, from, node: op });
+        };
+        let prim = prims.iter().find(|p| &p.path == path);
+        let imago_xform = made.contains(path);
+        if prim.is_none() && node.is_none() && !imago_xform { continue; }
+        let origin = (if node.is_some() { "file" } else { "Imago" }).to_string();
+        let made_here = || (origin.clone(), maker);
+
+        // What the prim is.
+        let ty = match (node, prim) {
+            (Some((n, _)), _) => n.type_name.clone(),
+            (None, Some(p)) => match p.geo.as_ref().map(|g| &g.topology) {
+                Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
+                Some(crate::core::geo::Topology::Points) => "Points".into(),
+                _ => "Mesh".into(),
+            },
+            (None, None) => "Xform".into(),
+        };
+        row("type", ty, made_here());
+
+        // Its own values: those of a primitive, of a stage prim, of an Xform Imago made.
+        let own: Opinions = match (prim, node) {
+            (Some(p), _) => Opinions { primvars: Default::default(), props: (*p.props).clone() },
+            (None, Some((_, tree))) => tree.opinions.get(path).cloned().unwrap_or_default(),
+            (None, None) => prims.iter().find_map(|p| p.above.get(path).cloned()).unwrap_or_default(),
+        };
+        // What the prims above it set, nearest winning.
+        let mut inherited: std::collections::BTreeMap<String, (String, String)> = Default::default();
+        let mut above: Vec<(String, Opinions)> = vec![];
+        if let Some((_, tree)) = node {
+            above.extend(tree.opinions.iter().filter(|(k, _)| *k != path && path.starts_with(&format!("{k}/"))).map(|(k, o)| (k.clone(), o.clone())));
+        }
+        if let Some(p) = prims.iter().find(|p| p.stage.is_none() && (p.path == *path || p.path.starts_with(&format!("{path}/")))) {
+            above.extend(p.above.iter().filter(|(k, _)| *k != path && path.starts_with(&format!("{k}/"))).map(|(k, o)| (k.clone(), o.clone())));
+        }
+        above.sort_by_key(|(k, _)| k.matches('/').count());
+        for (k, o) in &above {
+            for (name, v) in &o.props { inherited.insert(name.clone(), (v.display(), format!("inherited: {k}"))); }
+        }
+
+        // The basics every prim has.
+        match prim {
+            Some(p) => {
+                let purpose = |x: crate::types::Purpose| match x {
+                    crate::types::Purpose::Default => "default", crate::types::Purpose::Render { .. } => "render",
+                    crate::types::Purpose::Proxy => "proxy", crate::types::Purpose::Guide => "guide",
+                };
+                let set = p.source.as_ref().map_or(p.purpose != crate::types::Purpose::Default, |s| s.purpose != p.purpose);
+                match (p.purpose, inherited.get("purpose")) {
+                    (crate::types::Purpose::Default, Some((v, from))) => row("purpose", v.clone(), (from.clone(), inherited_from(from, "purpose"))),
+                    (x, _) => row("purpose", purpose(x).into(), if set { setter(path, "purpose", SetContext::Property) } else { made_here() }),
+                }
+                let bound = p.material.clone().unwrap_or_else(|| "none".into());
+                let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
+                row("material:binding", bound, if rebound { ("Imago".into(), None) } else { made_here() });
+            }
+            None => if let Some((v, from)) = inherited.get("purpose") { row("purpose", v.clone(), (from.clone(), inherited_from(from, "purpose"))); },
+        }
+        match (own.props.get("visibility"), inherited.get("visibility"), node) {
+            (Some(v), _, _) => row("visibility", v.display(), setter(path, "visibility", SetContext::Property)),
+            (None, Some((v, from)), _) if v == "invisible" => row("visibility", v.clone(), (from.clone(), inherited_from(from, "visibility"))),
+            (None, _, Some((n, _))) if n.hidden => row("visibility", "invisible".into(), ("file".into(), maker)),
+            _ => row("visibility", "inherited".into(), made_here()),
+        }
+        if !own.props.contains_key("active") { row("active", "true".into(), made_here()); }
+
+        // Values Set Attribute set on it, then those it inherits.
+        for (name, v) in &own.props {
+            if name == "visibility" { continue; }
+            row(name, v.display(), setter(path, name, SetContext::Property));
+        }
+        for (name, v) in &own.primvars {
+            row(&format!("primvars:{name}"), v.display(), setter(path, name, SetContext::Object));
+        }
+        for (name, (v, from)) in &inherited {
+            if matches!(name.as_str(), "visibility" | "purpose" | "active") || own.props.contains_key(name) { continue; }
+            row(name, v.clone(), (from.clone(), inherited_from(from, name)));
+        }
+    }
+    rows
+}
+
+/// The operator nearest upstream of `view` (itself first) that `is` says
+/// is the one. Bypassed operators do nothing, so they are not it.
+fn upstream<'a>(graph: &'a crate::node_graph::NodeGraphState, view: NodeId, is: impl Fn(&crate::node_graph::GraphNode) -> bool) -> Option<&'a crate::node_graph::GraphNode> {
+    let mut queue = std::collections::VecDeque::from([view]);
+    let mut seen = std::collections::HashSet::new();
+    while let Some(id) = queue.pop_front() {
+        if !seen.insert(id) { continue; }
+        let Some(n) = graph.nodes.iter().find(|n| n.id == id) else { continue };
+        if !n.bypassed && is(n) { return Some(n); }
+        queue.extend(n.inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)));
+    }
+    None
+}
+
+/// The Set Attribute operator nearest upstream of `view` with a row setting
+/// `name` in this context on `path`: one with no Primitive Locations, or
+/// with one naming the path. Its id and name.
+pub fn set_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str, name: &str, context: crate::core::props::SetContext) -> Option<(NodeId, String)> {
+    use crate::types::NodeType;
+    upstream(graph, view, |n| match &n.node_type {
+        NodeType::SetAttribute { rows } => {
+            rows.iter().any(|r| r.context == context && r.name.trim() == name && r.is_usable())
+                && (!crate::core::locations::is_set(&n.locations) || crate::core::locations::any_names(&n.locations, path))
+        }
+        _ => false,
+    }).map(|n| (n.id, n.name.clone()))
+}
+
+/// The Load USD operator upstream of `view` that read this stage: the one
+/// whose file gives a stage from the same layer, else the nearest one.
+fn load_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, tree: &crate::usd_scene::StageTree) -> Option<NodeId> {
+    use crate::types::NodeType;
+    let reads = |n: &crate::node_graph::GraphNode| matches!(&n.node_type, NodeType::LoadUsd { path }
+        if crate::usd_scene::load_cached(path).is_ok_and(|s| s.tree.source == tree.source));
+    upstream(graph, view, reads)
+        .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))
+        .map(|n| n.id)
+}
+
+/// The shape operator upstream of `view` that made the primitive at `path`,
+/// or one below it (for an Xform Imago made above a shape).
+fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str) -> Option<NodeId> {
+    use crate::types::{prim_location, NodeType};
+    let at = |n: &crate::node_graph::GraphNode| match &n.node_type {
+        NodeType::CreateCube { location, .. } => Some(prim_location(location, "/cube")),
+        NodeType::CreateSphere { location, .. } => Some(prim_location(location, "/sphere")),
+        NodeType::CreateGrid { location, .. } => Some(prim_location(location, "/grid")),
+        _ => None,
+    };
+    upstream(graph, view, |n| at(n).is_some_and(|p| p == path || p.starts_with(&format!("{path}/")))).map(|n| n.id)
 }
 
 #[cfg(test)]
@@ -45,5 +257,44 @@ mod tests {
         assert!(scene_parts(scene(), &sel(&["/gone"])).is_empty());
         // A plain mesh has no path: always all of it.
         assert_eq!(scene_parts(EvalResult::Single(cube()), &sel(&["/set"])).len(), 1);
+    }
+
+    /// The Properties tab of a group Imago made, and of a cube below it:
+    /// what each has, and where it comes from.
+    #[test]
+    fn properties_say_what_a_prim_has_and_where_from() {
+        use crate::core::props::{SetContext, SetRow, Value};
+        use crate::types::NodeType;
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let mut g = crate::node_graph::NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/root/geo/cube".into() }, egui::pos2(0.0, 0.0));
+        let set = g.add_node("Hide".into(), NodeType::SetAttribute { rows: vec![
+            SetRow { context: SetContext::Property, name: "visibility".into(), value: Value::Token("invisible".into()) },
+            SetRow { context: SetContext::Property, name: "kind".into(), value: Value::Token("group".into()) },
+        ] }, egui::pos2(0.0, 100.0));
+        g.add_connection(cube, 0, set, 0);
+        g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/root/geo".into()];
+        g.set_view_flag(set);
+        let (view, _, scene) = g.evaluate_scene(&pass).unwrap();
+        let find = |rows: &[PropRow], name: &str| rows.iter().find(|r| r.name == name).map(|r| (r.value.clone(), r.from.clone()));
+
+        let group = scene_properties(&g, view, &scene, &["/root/geo".to_string()]);
+        assert_eq!(find(&group, "type"), Some(("Xform".into(), "Imago".into())));
+        assert_eq!(find(&group, "visibility"), Some(("invisible".into(), "Hide".into())));
+        // Go to Operator: the shape that made the Xform, the Set Attribute that set a value.
+        let op = |rows: &[PropRow], name: &str| rows.iter().find(|r| r.name == name).and_then(|r| r.node);
+        assert_eq!((op(&group, "type"), op(&group, "visibility")), (Some(cube), Some(set)));
+        assert_eq!(find(&group, "kind"), Some(("group".into(), "Hide".into())));
+
+        let cube_rows = scene_properties(&g, view, &scene, &["/root/geo/cube".to_string()]);
+        assert_eq!(find(&cube_rows, "type"), Some(("Mesh".into(), "Imago".into())));
+        assert_eq!(find(&cube_rows, "visibility"), Some(("invisible".into(), "inherited: /root/geo".into())));
+        assert_eq!(find(&cube_rows, "kind"), Some(("group".into(), "inherited: /root/geo".into())));
+        assert_eq!(find(&cube_rows, "purpose"), Some(("default".into(), "Imago".into())));
+        assert_eq!((op(&cube_rows, "purpose"), op(&cube_rows, "kind")), (Some(cube), Some(set)), "inherited: the operator that set it on the group");
+
+        // Nothing selected: the root prims.
+        let roots = scene_properties(&g, view, &scene, &[]);
+        assert!(roots.iter().all(|r| r.path == "/root") && !roots.is_empty());
     }
 }

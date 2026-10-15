@@ -625,11 +625,25 @@ impl egui_dock::TabViewer for Panes<'_> {
                     Some(prim_inspector::scene_parts(scene, &paths))
                 };
                 let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim_out(id, g.viewed_output()));
+                let get_props = |g: &NodeGraphState| -> Vec<prim_inspector::PropRow> {
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                        subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                    };
+                    match g.evaluate_scene(&eval) {
+                        Some((view, _, scene)) => prim_inspector::scene_properties(g, view, &scene, &paths),
+                        None => vec![],
+                    }
+                };
                 let source = prim_inspector::Source {
                     node: self.graph.display_source(),
                     paths: self.hierarchy.selected_paths().to_vec(),
                 };
-                draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip);
+                let go_to = draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip, &get_props);
+                // "Go to Operator" on a Properties row: select the operator the value comes from.
+                if let Some(id) = go_to {
+                    self.graph.selected_node = Some(id);
+                    self.graph.selected_nodes = vec![id];
+                }
             }
 
             Pane::NodeGraph => match self.nav.current_subnet {

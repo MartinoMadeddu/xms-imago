@@ -125,7 +125,7 @@ Seven categories, each a submenu, each item a node. A node has one name, the sam
 | Create | Cube, Sphere, Grid, Test Clip |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
-| Primitives | Pick Primitives, Prune Primitives, Unpack |
+| Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
 | UV | UV Unwrap, UV Transform, UV Edit |
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |
 | Mocap | Split Characters, Characterize, Retarget, Reach, Human Limits, Capture, Skin, Auto T-Pose, Fix Pose, Proxy Skin, Body Collide |
@@ -162,7 +162,7 @@ Every node's parameters are laid out the same way. The first group is the node's
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 
-Operators that work on primitives (Transform, Edit Poly, Prune Primitives) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
+Operators that work on primitives (Transform, Edit Poly, Prune Primitives, Set Attribute) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
 
 - A path takes that primitive and everything below it: `/DeLorean/wheels` takes every wheel. `*` stands for any run of characters in a name, `?` for one, `**` for any number of levels: `/set/**/lamp*`. `/` takes everything.
 - Each row says how many of the primitives coming in it matches, in red when none: a typo shows at once. The tab's title counts the rows.
@@ -171,6 +171,7 @@ Operators that work on primitives (Transform, Edit Poly, Prune Primitives) have 
 - Rows of the Scene Explorer can be dragged and dropped on an operator in the Node Graph, on its Prims Location tab or on + Add Location: every selected row when the one dragged is selected, else that one. Their paths join the list, and the operator is selected with the tab open.
 - An empty list means every primitive: the operator works as it did without one, on what an earlier Pick Primitives chose, or on everything. For Prune Primitives an empty list prunes nothing.
 - The list is the operator's own: the operators after it see the primitives as they came in, not its list. It is saved with the graph and copied with the operator.
+- Set Attribute's paths **name** prims instead: a path is that prim alone, a group, a camera or a light as well as a mesh, and each row counts the prims of the scene it names. `/set/*` names the children of `/set`, `/set/**` `/set` and everything below it (see [USD](usd.md#set-attribute)).
 
 The same words mean the same thing everywhere: Translate, Rotate and Scale on every transform (Transform, UV Transform, UV Edit, Fix Pose, Edit Poly's Transform); Path for every file; In and Out for what passes through. Units are in the value: m, cm, °, cm/s.
 
@@ -282,11 +283,12 @@ The attributes of the scene at the view flag, as a spreadsheet: the row selected
 | Edge | Polygon edges, then curve segments (between control points that follow each other, and the last back to the first on a periodic curve): `ptIndices`, its two points as one array, and the length |
 | Face | Polygons, then curves, one row each: the number of corners (a curve's control points), `ptIndices`, every point of the face as one array, and the normal and area of a polygon or the length of a curve. A polygon's `firstCorner` is the Corner row its corners start at. A curve's root point is the first number of its `ptIndices` |
 | Corner | Polygon corners, polygon after polygon (24 on a cube, not the 36 corners of the triangles it is drawn with): `ptIndex`, the point each corner belongs to (several corners share a point), `faceIndex`, the face it is a corner of, `localCornerIndex`, its place in that face (0 for the first, as Houdini's vertex `0:0, 0:1…`), and the UV when the mesh has them. The row number is the corner's own number, counted across the whole mesh as USD counts faceVarying values. Curves have none |
-| Object | One row per primitive, with its Object attributes |
+| Object | One row per primitive, with its Object attributes, those it inherits from a group above it (Set Attribute) among them |
+| Properties | The selected prims themselves, not what is below them: a group, a camera or a light as well as a mesh, or the root prims with nothing selected. One row per property, `Name`, `Value` and `From`: `type`, `purpose`, `material:binding`, `visibility`, `active`, then what Set Attribute set on the prim (`kind`, `doubleSided`, `primvars:` on a group…) and what it inherits. `From` says where the value comes from: `file`, `Imago` (made in Imago), the Set Attribute operator that set it, or `inherited: /path`. Click a row to select it; right-click it for **Go to Operator**, which selects the operator the value comes from: the Load USD that read the file, the shape that made the prim, or the Set Attribute that set the value, on the prim or on the group it is inherited from. Several prims selected: a Path column first |
 | Joint | Joints of a clip: name, parent, position and rotation at the current frame |
 | Bone | Bones of a clip: from one joint to another, with length |
 
-Nodes that give geometry show the first five tabs, clip nodes the last two.
+Nodes that give geometry show the first six tabs, clip nodes the last two. A selected prim with no geometry below it (a camera, an empty group) shows the Properties tab alone.
 
 Each primitive is listed where it is drawn, one after the other, and points are numbered across all of them, so the point numbers in the Edge and Face tabs are rows of the Point tab. An edge's or a face's points are one value, an array as long as it has corners, shown in one cell as `[0, 3, 2, 1]`; the column is as wide as its widest cell, up to a limit past which longer arrays are cut off at the cell's edge. A column one primitive does not have (a normal on a curve point, the area of a curve) shows `-` on its rows. Curves are listed by their control points as authored, whatever their basis, not by the lines they are drawn as. With the Strands template, Point lists 3430 points (3030 control points, then the spiral's 400), Edge 2427 segments, Face 604 curves.
 

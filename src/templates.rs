@@ -71,6 +71,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "One wheel picked out of the model and moved. Only the picked primitive goes through the Transform and Edit Poly nodes" },
     Template { by: SIMON, group: "USD", name: "USD: prune", build: usd_prune,
         hint: "The model cut down to its wheels and callipers with a path pattern" },
+    Template { by: MARTINO, group: "USD stages", name: "USD: set attribute", build: usd_set_attribute,
+        hint: "Values set on prims: the wheels made invisible, the model's root made a component asset. Add a Write USD node to see them written" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Clip basics", build: clip_basics,
         hint: "Test clip renamed, trimmed, retimed and given a start timecode. Select each node to see the timeline follow" },
     Template { by: SIMON, group: "Animation & Mocap", name: "FBX import", build: fbx_import,
@@ -403,6 +405,26 @@ fn usd_prune(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(load, 0, prune, 0);
     finish(g, prune, prune);
     format!("USD prune: only the primitives its Prims Location tab lists are kept. Switch Matches to \"Remove\" for the car without its wheels.{}", missing_examples())
+}
+
+fn usd_set_attribute(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::props::{SetContext, SetRow, Value};
+    let load = load_delorean(g);
+    // Every prim with Wheel in its name, at any depth: invisible.
+    let hide = g.add_node("HideWheels".into(), NodeType::SetAttribute { rows: vec![
+        SetRow { context: SetContext::Property, name: "visibility".into(), value: Value::Token("invisible".into()) },
+    ] }, p(180.0, 110.0));
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == hide) { n.locations = vec!["/**/*Wheel*".into()]; }
+    // The root prim, a group with no geometry: one opinion on it.
+    let asset = g.add_node("Asset".into(), NodeType::SetAttribute { rows: vec![
+        SetRow { context: SetContext::Property, name: "kind".into(), value: Value::Token("component".into()) },
+        SetRow { context: SetContext::Object, name: "displayColor".into(), value: Value::Color3f([0.75, 0.75, 0.78]) },
+    ] }, p(180.0, 200.0));
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == asset) { n.locations = vec!["/*".into()]; }
+    g.add_connection(load, 0, hide, 0);
+    g.add_connection(hide, 0, asset, 0);
+    finish(g, asset, asset);
+    format!("USD set attribute: HideWheels makes every prim with Wheel in its name invisible; Asset sets kind and a displayColor on the root prim, a group: one opinion each, on the group. Add a Write USD node after Asset to see them written.{}", missing_examples())
 }
 
 // ── UV ───────────────────────────────────────────────────────────────────────

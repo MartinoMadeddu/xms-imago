@@ -580,6 +580,8 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
         source: None,
         place: crate::types::Placement::One(to_world),
         purpose: Default::default(),
+        props: Default::default(),
+        above: Default::default(),
     })
 }
 

@@ -17,6 +17,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | Cube, sphere, grid | primitives | **shapes** | Frees "primitive" for stage objects. |
 | Where an operator puts the primitive it makes | path / prim path | **Primitive Location** (a parameter) | As in Solaris: a USD path such as `/cube` or `/set/props/box1`. The parents on it are Xforms. |
 | The primitives an operator works on | Pick Primitives upstream | **Primitive Locations**, in the operator's **Prims Location** tab | As Solaris' Primitives parameter on a LOP: each operator says what it works on. Paths with `*`, `?` and `**`; a path takes everything below it; empty means everything. |
+| What a Set Attribute row's value is in USD | Set Primvar, Set Metadata, Set Active, Set Kind… (separate operators) | **Object** (a constant primvar) or **Property** (the prim's own attribute or metadata) | One operator sets every value on a prim; the context says how it is written. Object is the context of the same name, one value per primitive; per point, face and corner values are ICE's. |
 | How a Merge joins its inputs | (none: always one mesh) | **Auto**, **Primitives**, **Flatten** (Merge's Mode) | Auto goes by the first input. "Flatten" is what Unpack does: everything as one plain mesh. |
 | What the Viewer and the Scene Explorer show | Output node | **view flag** | One operator always has it. |
 | ICE graph input and output nodes | SubnetInput / SubnetOutput | **GraphInput / GraphOutput** | Follows "ICE graph". "Graph" also fits ICE compounds (graphs inside an ICE graph), which will use the same terminals. |
@@ -42,7 +43,7 @@ The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 | Node Graph | **Node Graph** (unchanged) | The pane shows the root scene graph or an ICE graph, so "Scene Graph" would be wrong half the time. |
 | Scene Explorer | **Scene Explorer** (unchanged) | The stage's primitives as a hierarchy. |
 | Properties | **Parameters** | The selected node's parameters, matching the term above. |
-| Primitive Inspector | **Primitive Inspector** (unchanged) | Click a primitive in the Scene Explorer and inspect its contents. Tabs: Object, Point, Edge, Face, Corner (and Joint, Bone for clips). |
+| Primitive Inspector | **Primitive Inspector** (unchanged) | Click a primitive in the Scene Explorer and inspect its contents. Tabs: Object, Point, Edge, Face, Corner, Properties (and Joint, Bone for clips). Properties is USD's sense of the word: a prim's attributes and metadata, not an operator's parameters. |
 | Operator Stack | **Operator Stack** (unchanged) | The chain of operators feeding the viewed one. |
 | Timeline | Timeline (unchanged) | |
 | UV Editor | UV Editor (unchanged) | |

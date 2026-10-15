@@ -16,6 +16,8 @@ pub mod skin;
 pub mod pattern;
 /// Primitive Locations: the paths an operator works on.
 pub mod locations;
+/// Set Attribute: one value per primitive, set by the scene graph.
+pub mod props;
 pub mod uv;
 pub mod manip;
 pub mod xform;

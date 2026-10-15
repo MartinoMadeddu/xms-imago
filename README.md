@@ -49,6 +49,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the Viewer draws thousands of copies in one call
 - **Light by default:** the Scene Explorer drives the Viewer with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
 - **Each operator says what it works on:** Transform, Edit Poly and Prune list their Primitive Locations in a Prims Location tab, as paths with wildcards, filled by dragging prims from the Scene Explorer. The pieces listed are edited, each staying itself, and the rest pass through. Pick Primitives does it for the operators after it
+- **Set values on any prim:** Set Attribute sets primvars for rendering and properties such as visibility, purpose, kind and active, on meshes, groups, cameras or lights, one row per value
 - **Write it back:** Write USD saves what the scene graph changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
 - **Materials and textures in the Viewer**, straight from the `.usdz`
 - **What is in the file:** materials, cameras, skeletons and lights are listed on the node, along with what is not read yet
@@ -145,7 +146,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 
 - Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of primitives or into one mesh
 - ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). A tree runs on each primitive in its own space
-- Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip
+- Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip, and a Properties tab for the selected prims themselves (groups, cameras and lights too): each property's value and where it comes from
 - Graphs saved and loaded as JSON
 
 ## Get it

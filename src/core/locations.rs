@@ -17,7 +17,13 @@ use crate::types::{EvalResult, NodeType};
 
 /// Whether an operator has a Prims Location tab.
 pub fn takes_locations(t: &NodeType) -> bool {
-    matches!(t, NodeType::Transform { .. } | NodeType::EditPoly { .. } | NodeType::PrunePrims { .. })
+    matches!(t, NodeType::Transform { .. } | NodeType::EditPoly { .. } | NodeType::PrunePrims { .. } | NodeType::SetAttribute { .. })
+}
+
+/// Whether an operator's locations name prims rather than take what is
+/// below them too (see `names`).
+pub fn names_prims(t: &NodeType) -> bool {
+    matches!(t, NodeType::SetAttribute { .. })
 }
 
 /// The rows that say something: trimmed, blank ones left out.
@@ -39,6 +45,30 @@ pub fn matches(location: &str, path: &str) -> bool {
 /// Whether any location of the list matches the path.
 pub fn any_matches(list: &[String], path: &str) -> bool {
     rows(list).any(|l| matches(l, path))
+}
+
+/// Whether one location names the prim at a path itself, not what is below
+/// it: for an operator that sets a value on a prim (Set Attribute), where a
+/// value on a group is not a value on each prim below. `/set/*` names the
+/// children of `/set`, `/set/**` `/set` and everything below it.
+pub fn names(location: &str, path: &str) -> bool {
+    let pattern: Vec<&str> = location.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    !segments.is_empty() && whole(&pattern, &segments)
+}
+
+/// Whether any location of the list names the path.
+pub fn any_names(list: &[String], path: &str) -> bool {
+    rows(list).any(|l| names(l, path))
+}
+
+/// The pattern consumes the whole path.
+fn whole(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern.split_first() {
+        None => path.is_empty(),
+        Some((&"**", rest)) => (0..=path.len()).any(|k| whole(rest, &path[k..])),
+        Some((first, rest)) => !path.is_empty() && glob(first, path[0]) && whole(rest, &path[1..]),
+    }
 }
 
 /// The pattern consumes a leading part of the path: what is left of the path
@@ -135,6 +165,16 @@ mod tests {
         assert!(!matches("/**/lamp?", "/street/lamp12"));
         assert!(matches("/set/*", "/set/a"));
         assert!(!matches("/set/*", "/set"), "* is one name: nothing to match at /set itself");
+    }
+
+    #[test]
+    fn a_location_can_name_its_prim_alone() {
+        assert!(names("/car", "/car") && !names("/car", "/car/body"));
+        assert!(names("/car/*", "/car/body") && !names("/car/*", "/car") && !names("/car/*", "/car/wheels/w1"));
+        assert!(names("/car/**", "/car") && names("/car/**", "/car/wheels/w1"));
+        assert!(names("/**/w?", "/car/wheels/w1"));
+        assert!(!names("/", "/car"), "the root names no prim");
+        assert!(any_names(&[" ".into(), "/cam".into()], "/cam"));
     }
 
     #[test]

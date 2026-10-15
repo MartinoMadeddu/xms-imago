@@ -49,7 +49,11 @@ pub fn draw_prim_inspector(
     time:     f64,
     get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<MeshData>>,
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
-) {
+    // The Properties tab: the selected prims themselves.
+    get_props: &dyn Fn(&NodeGraphState) -> Vec<super::PropRow>,
+) -> Option<crate::types::NodeId> {
+    // The operator a Properties row's "Go to Operator" asked for.
+    let mut go_to = None;
     egui::Frame::NONE
         .fill(xsi::BG())
         .show(ui, |ui| {
@@ -57,7 +61,8 @@ pub fn draw_prim_inspector(
             if !state.is_cache_valid(source.node, paths, revision) {
                 let clip = get_clip(graph);
                 let parts = if clip.is_none() { get_parts(graph).unwrap_or_default() } else { vec![] };
-                state.update_cache(source.node, paths, parts, clip, revision);
+                let props = if clip.is_none() { get_props(graph) } else { vec![] };
+                state.update_cache(source.node, paths, parts, clip, props, revision);
             }
 
             // ── Path breadcrumb ───────────────────────────────────────────────
@@ -86,7 +91,8 @@ pub fn draw_prim_inspector(
 
             let clip = state.cached_clip();
             let mesh = state.cached_parts().filter(|parts| parts.iter().any(|m| m.point_count() > 0));
-            if clip.is_none() && mesh.is_none() {
+            let props = state.cached_props();
+            if clip.is_none() && mesh.is_none() && props.is_empty() {
                 ui.add_space(12.0);
                 ui.centered_and_justified(|ui| {
                     ui.label(egui::RichText::new("No mesh or clip in the scene at the view flag.")
@@ -101,6 +107,8 @@ pub fn draw_prim_inspector(
             let clip_tab = matches!(state.active_tab, Tab::Joint | Tab::Bone);
             if clip.is_some() && !clip_tab { state.set_active_tab(Tab::Joint); }
             if clip.is_none() && clip_tab { state.set_active_tab(Tab::Vertex); }
+            // A group, a camera or a light alone: only its properties.
+            if clip.is_none() && mesh.is_none() { state.set_active_tab(Tab::Properties); }
 
             egui::Frame::NONE
                 .fill(xsi::TAB_BG())
@@ -118,6 +126,10 @@ pub fn draw_prim_inspector(
                             tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", sum(&|m: &MeshData| m.corner_count())));
                             tab_btn(ui, state, Tab::Constant, &format!("Object ({})", object_rows(parts)));
                         }
+                        if clip.is_none() && !props.is_empty() {
+                            let prims = props.iter().fold(Vec::<&str>::new(), |mut v, r| { if v.last() != Some(&r.path.as_str()) { v.push(&r.path); } v }).len();
+                            tab_btn(ui, state, Tab::Properties, &format!("Properties ({prims})"));
+                        }
                     });
                 });
 
@@ -127,6 +139,10 @@ pub fn draw_prim_inspector(
             // The open tab is built once and kept until the data, the tab or
             // (for a clip) the frame changes. Each frame draws the visible rows.
             let tab = state.active_tab.clone();
+            if tab == Tab::Properties {
+                go_to = draw_properties(ui, &props);
+                return;
+            }
             let frame = clip.as_ref().map(|c| c.index_at(time)).unwrap_or(0);
             if !state.table_is_for(&tab, frame) {
                 let table = match (&clip, &mesh) {
@@ -150,6 +166,86 @@ pub fn draw_prim_inspector(
             }
             state.put_table(table);
         });
+    go_to
+}
+
+/// The Properties tab: one row per property of each prim listed, its value,
+/// and where the value comes from. Several prims: a Path column first.
+/// A row is selected by clicking it; right-click it for "Go to Operator",
+/// which gives the operator the value comes from.
+fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) -> Option<crate::types::NodeId> {
+    // Rows are painted, not laid out as widgets: each column is as wide as
+    // its widest cell, and hovering or selecting a row changes its colour
+    // only, never a size, so no column edge moves.
+    const ROW: f32 = 18.0;
+    const PAD: f32 = 8.0;
+    let font = egui::FontId::monospace(10.5);
+    let several = rows.first().is_some_and(|f| rows.iter().any(|r| r.path != f.path));
+    let sel_id = egui::Id::new("prim_inspector_props_selected");
+    let mut selected: Option<usize> = ui.data(|d| d.get_temp::<Option<usize>>(sel_id)).flatten();
+    let mut go_to = None;
+
+    // The cells: the path once per prim, then name, value and where from.
+    let mut heads: Vec<&str> = if several { vec!["Path"] } else { vec![] };
+    heads.extend(["Name", "Value", "From"]);
+    let mut last = "";
+    let cells: Vec<Vec<(String, egui::Color32)>> = rows.iter().map(|r| {
+        let mut c = vec![];
+        if several {
+            c.push((if r.path != last { r.path.clone() } else { String::new() }, xsi::TEXT_DIM()));
+            last = r.path.as_str();
+        }
+        c.push((r.name.clone(), xsi::TEXT()));
+        c.push((r.value.clone(), xsi::TEXT()));
+        c.push((r.from.clone(), xsi::TEXT_DIM()));
+        c
+    }).collect();
+    let measure = |t: &str| ui.painter().layout_no_wrap(t.to_string(), font.clone(), egui::Color32::WHITE).size().x;
+    let mut widths: Vec<f32> = heads.iter().map(|h| measure(h)).collect();
+    for row in &cells {
+        for (w, (text, _)) in widths.iter_mut().zip(row) { *w = w.max(measure(text)); }
+    }
+    let widths: Vec<f32> = widths.into_iter().map(|w| w + 2.0 * PAD).collect();
+    let total: f32 = widths.iter().sum();
+
+    egui::ScrollArea::both().id_salt("prim_inspector_props").auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let w = total.max(ui.available_width());
+        let line = |painter: &egui::Painter, rect: egui::Rect, texts: &[(String, egui::Color32)]| {
+            let mut x = rect.left();
+            for ((text, colour), cw) in texts.iter().zip(&widths) {
+                painter.text(egui::pos2(x + PAD, rect.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), *colour);
+                x += cw;
+            }
+        };
+        // Header.
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(w, ROW + 4.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 0.0, xsi::HEADER_BG());
+        let head_cells: Vec<(String, egui::Color32)> = heads.iter().map(|h| (h.to_string(), xsi::TEXT_IDX())).collect();
+        line(ui.painter(), rect, &head_cells);
+        // Rows.
+        for (k, (r, texts)) in rows.iter().zip(&cells).enumerate() {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, ROW), egui::Sense::click());
+            let bg = if selected == Some(k) { xsi::TAB_ACTIVE() }
+                else if resp.hovered() { xsi::HEADER_BG() }
+                else if k % 2 == 0 { xsi::ROW_EVEN() } else { xsi::ROW_ODD() };
+            ui.painter().rect_filled(rect, 0.0, bg);
+            line(ui.painter(), rect, texts);
+            if resp.clicked() || resp.secondary_clicked() { selected = Some(k); }
+            resp.context_menu(|ui| {
+                let tip = match r.node {
+                    Some(_) => format!("Select the operator the value comes from ({})", r.from),
+                    None => "No operator to go to: the value was not made by one".to_string(),
+                };
+                if ui.add_enabled(r.node.is_some(), egui::Button::new("Go to Operator")).on_hover_text(tip).clicked() {
+                    go_to = r.node;
+                    ui.close();
+                }
+            });
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(sel_id, selected));
+    go_to
 }
 
 /// Bones of a skeleton: one from each joint to each bone joint below it.

@@ -55,6 +55,10 @@ pub enum NodeType {
     PickPrims    { pattern: String },
     /// Remove packed primitives whose path matches a pattern, or keep only those.
     PrunePrims   { pattern: String, keep: bool },
+    /// One value per primitive, set on the prims its Prims Location tab
+    /// names: a constant primvar (Object) or the prim's own attribute or
+    /// metadata (Property), one per row. See `core::props`.
+    SetAttribute { rows: Vec<crate::core::props::SetRow> },
     /// Merge packed primitives into one mesh.
     UnpackPrims,
     /// Moves whatever comes in: a mesh, packed primitives (the picked ones,
@@ -291,6 +295,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::WriteUsd { .. }      => "📤",
         NodeType::PickPrims { .. }     => "👆",
         NodeType::PrunePrims { .. }    => "🚫",
+        NodeType::SetAttribute { .. }  => "🏷",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
@@ -342,6 +347,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::WriteUsd { .. }      => "Write USD",
         NodeType::PickPrims { .. }     => "Pick Primitives",
         NodeType::PrunePrims { .. }    => "Prune Primitives",
+        NodeType::SetAttribute { .. }  => "Set Attribute",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",
@@ -737,6 +743,14 @@ pub struct Prim {
     pub place:    Placement,
     /// Its USD purpose, which the scene explorer's purpose toggles filter by.
     pub purpose:  Purpose,
+    /// Properties set on it by Set Attribute (attributes and metadata by
+    /// name: `visibility`, `kind`, `doubleSided`…), written by Write USD.
+    /// Empty as loaded. Shared, as the mesh is.
+    pub props:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Value>>,
+    /// Values Set Attribute set on the prims Imago made above it (the
+    /// Xforms of its Primitive Location), by path. Every primitive below
+    /// such a prim carries them; Write USD writes them once, on the Xform.
+    pub above:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Opinions>>,
 }
 
 /// A packed primitive as it was loaded from its stage.
@@ -834,7 +848,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default() }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -995,7 +1009,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone() });
                     }
                 }
                 EvalResult::Named(out)
@@ -1027,6 +1041,9 @@ pub enum PrimInspectorTab {
     Uniform,
     FaceVarying,
     Constant,
+    /// The selected prims themselves: their properties, by name, with where
+    /// each comes from.
+    Properties,
     /// Joints of a clip, at the playhead.
     Joint,
     /// Bones of a clip: each runs from one joint to another.
@@ -1066,6 +1083,8 @@ pub struct PrimInspectorState {
     cached_node_id: Option<NodeId>,
     cached_paths:   Vec<String>,
     cached_rev:     Option<u64>,
+    /// The Properties tab's rows.
+    cached_props:   std::sync::Arc<Vec<crate::prim_inspector::PropRow>>,
     /// Number of edges of the cached primitives: polygon edges and curve segments.
     pub edge_count: usize,
     // The open tab, built once per cached data (and per frame for a clip).
@@ -1086,8 +1105,10 @@ impl PrimInspectorState {
         paths:    &[String],
         parts:    Vec<MeshData>,
         clip:     Option<std::sync::Arc<crate::core::anim::AnimData>>,
+        props:    Vec<crate::prim_inspector::PropRow>,
         revision: u64,
     ) {
+        self.cached_props   = std::sync::Arc::new(props);
         self.edge_count = parts.iter()
             .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
             .sum();
@@ -1103,6 +1124,8 @@ impl PrimInspectorState {
     /// The primitives shown, each where it is drawn.
     pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> { self.cached_parts.clone() }
     pub fn cached_clip(&self) -> Option<std::sync::Arc<crate::core::anim::AnimData>> { self.cached_clip.clone() }
+    /// The Properties tab's rows.
+    pub fn cached_props(&self) -> std::sync::Arc<Vec<crate::prim_inspector::PropRow>> { self.cached_props.clone() }
 
     /// True when the stored table is this tab at this frame.
     pub fn table_is_for(&self, tab: &PrimInspectorTab, frame: usize) -> bool {
