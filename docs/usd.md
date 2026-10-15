@@ -32,7 +32,8 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 | Points | `Points`, with their widths |
 | Primvars | Every numeric primvar, normals and widths included, with its interpolation and indices |
 | Instancing | Native instances and point instancers: each prototype's geometry is held once and shared by every copy |
-| Purpose | `render`, `proxy` and `guide`, inherited down the hierarchy |
+| Purpose | `render`, `proxy` and `guide`, inherited down the hierarchy. Which prim authors it is kept, so a purpose set nearer with Set Attribute wins over one a mesh only inherits |
+| Other authored values | `kind` and `instanceable`, and every attribute a prim authors with one value (`doubleSided`, `subdivisionScheme`, a light's `inputs:intensity`, `userProperties:*`…), listed in the Primitive Inspector's Properties tab as coming from the file |
 | Materials | Listed in the node's Parameters: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface |
 | Cameras | Listed: projection, focal length, aperture, clipping range, position |
 | Skeletons, lights | Listed by name |
@@ -80,7 +81,7 @@ In Imago:
 - `visibility` invisible hides the prim and everything below it in the Viewer.
 - The rest is kept on the prim and written by Write USD.
 
-What is set on a group is inherited by the primitives below it, as USD does: `visibility` invisible and `active` off reach everything below; `purpose` is theirs where they have none of their own; an Object value reaches each primitive below that has no attribute of that name, the nearest group winning. The Primitive Inspector's Object tab lists inherited values with the primitive's own; its Properties tab lists a prim's properties and says, for each, whether it comes from the file, from Imago, from which Set Attribute operator, or from which group above it. ICE reads only a primitive's own attributes. Write USD writes each value once, on the group.
+What is set on a group is inherited by the primitives below it, as USD does: `visibility` invisible and `active` off reach everything below; `purpose` comes from the nearest prim that has one, the primitive itself first, whether the file authors it there or Set Attribute set it there (on the same prim, Set Attribute's wins); `kind`, `doubleSided` and the other Properties are not inherited; an Object value reaches each primitive below that has no attribute of that name, the nearest group winning. The Primitive Inspector's Object tab lists inherited values with the primitive's own; its Properties tab lists a prim's properties and says, for each, whether it comes from the file, from Imago, from which Set Attribute operator, or from which group above it. ICE reads only a primitive's own attributes. Write USD writes each value once, on the group.
 
 Values per point, per face or per corner are not set here: changing them rewrites the primitive's arrays, and that is ICE's.
 
@@ -180,8 +181,7 @@ Values are written at the current frame, as single values.
 - Nested point instancers
 - Nodes to edit materials, cameras or the hierarchy
 - Set Attribute: time samples (values are default values), arrays, inherited Object values read by ICE
-- The Properties tab lists what Imago knows of a prim: what the file authors beyond type, purpose, visibility and material binding (`kind`, `doubleSided`, custom attributes) is not read yet
-- A purpose inherited from the file counts as the prim's own, so a purpose set with Set Attribute on a group above a loaded mesh does not reach it
+- Arrays, dictionaries (`customData`) and relationships other than the material binding are not listed in the Properties tab
 - Write USD writes nothing for a stage none of whose primitives is left (all pruned, or all below a deactivated group)
 
 ## Example file

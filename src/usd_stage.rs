@@ -58,10 +58,12 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
         walk.prim(child, child.as_str().to_string(), root, None, Purpose::Default, 1, false, false);
     }
     let Walk { nodes, counts, .. } = walk;
+    let nodes_index = nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
     scene.tree = Arc::new(StageTree {
         nodes, root: root.as_mat4(), source: layer.to_path_buf(),
         up_axis: scene.up_axis.clone(), meters_per_unit: scene.meters_per_unit,
         opinions: Default::default(),
+        index: nodes_index,
     });
     scene.notes = counts.notes();
     // The translator's own notes, minus timings and empty reports.
@@ -131,6 +133,7 @@ impl Walk<'_> {
         self.nodes.push(StageNode {
             path: shown.clone(), name, type_name: type_name.clone(), depth, hidden, local,
             reset_xform: prim.reset_xform_stack, proxy: under_instance, prototype: self.listing > 0,
+            authored: authored(prim),
         });
 
         let world = if prim.reset_xform_stack { self.root * local } else { parent * local };
@@ -282,6 +285,24 @@ impl Walk<'_> {
             self.gather(c, format!("{shown}/{}", c.name()), inside, binding.clone(), purpose, out);
         }
     }
+}
+
+/// What a prim authors beyond what the scene layer's fields carry, as Imago
+/// values: tokens and strings as tokens, assets as assets, numbers and
+/// small vectors as they are.
+fn authored(prim: &rs::Prim) -> Vec<(String, crate::core::props::Value)> {
+    use crate::core::props::Value;
+    prim.authored.iter().map(|(name, v)| (name.clone(), match v {
+        rs::ShaderValue::Float(x) => Value::Float(*x),
+        rs::ShaderValue::Int(i) => Value::Int(*i),
+        rs::ShaderValue::Bool(b) => Value::Bool(*b),
+        rs::ShaderValue::Vec2(a) => Value::Float2(*a),
+        rs::ShaderValue::Vec3(a) => Value::Float3(*a),
+        rs::ShaderValue::Vec4(a) => Value::Float4(*a),
+        rs::ShaderValue::String(s) => Value::Token(s.clone()),
+        rs::ShaderValue::Asset(s) => Value::Asset(s.clone()),
+        rs::ShaderValue::Connection { node, output } => Value::String(format!("{}.{output}", node.as_str())),
+    })).collect()
 }
 
 /// A prim's purpose: its own when authored, else its parent's. Render

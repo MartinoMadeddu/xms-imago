@@ -355,6 +355,13 @@ pub struct Prim {
     pub opaque: Option<bool>,
     /// Primvars of prims whose kind has no list of its own (gprims: `displayColor`, …)
     pub primvars: Vec<Primvar>,
+    /// What the prim authors that the fields above do not carry, by name,
+    /// for listing it: its `kind` and `instanceable` metadata, and its
+    /// attributes with one value (`purpose` and `visibility` among them when
+    /// authored on this prim, `doubleSided`, `subdivisionScheme`, a light's
+    /// `inputs:intensity`, `userProperties:*`). Arrays, primvars, transforms
+    /// and relationships are not listed here.
+    pub authored: Vec<(String, ShaderValue)>,
 }
 
 impl Prim {
@@ -370,6 +377,7 @@ impl Prim {
             material_binding: None,
             opaque: None,
             primvars: Vec::new(),
+            authored: Vec::new(),
         }
     }
 

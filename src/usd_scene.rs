@@ -83,6 +83,10 @@ pub struct StageNode {
     pub proxy:     bool,
     /// A point instancer's prototype: drawn through the instancer.
     pub prototype: bool,
+    /// What the file authors on it beyond the fields above, by name: `kind`,
+    /// `instanceable`, `purpose` when authored here (not inherited),
+    /// `doubleSided`, custom attributes. Single values only.
+    pub authored:  Vec<(String, crate::core::props::Value)>,
 }
 
 /// The stage hierarchy, depth first (parents before their children).
@@ -102,6 +106,25 @@ pub struct StageTree {
     /// primitives (Xforms, cameras, lights, materials), by path. Empty as
     /// loaded: everything in it is an edit, written by Write USD as `over`s.
     pub opinions:        std::collections::BTreeMap<String, crate::core::props::Opinions>,
+    /// Where each path is in `nodes`. Empty in trees made by hand (tests),
+    /// where `node` looks through the list instead.
+    pub index:           std::collections::HashMap<String, usize>,
+}
+
+impl StageTree {
+    /// The prim at a path.
+    pub fn node(&self, path: &str) -> Option<&StageNode> {
+        match self.index.get(path) {
+            Some(&i) => self.nodes.get(i),
+            None if self.index.is_empty() => self.nodes.iter().find(|n| n.path == path),
+            None => None,
+        }
+    }
+
+    /// A value the file authors on the prim at a path.
+    pub fn authored(&self, path: &str, name: &str) -> Option<&crate::core::props::Value> {
+        self.node(path)?.authored.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+    }
 }
 
 impl std::fmt::Debug for StageTree {
@@ -881,6 +904,54 @@ def Xform "groom" {
         assert_eq!(dust.widths, vec![0.5, 0.25]);
         // Listed in the hierarchy as geometry, like meshes.
         assert!(scene.tree.nodes.iter().any(|n| n.path == "/groom/hair" && n.type_name == "BasisCurves"));
+    }
+
+    /// What a file authors beyond geometry is read for listing: kind,
+    /// instanceable, purpose where authored, single-valued attributes.
+    #[test]
+    fn what_the_file_authors_is_read() {
+        use crate::core::props::{purpose_from, PurposeFrom, Value};
+        let path = write("authored.usda", r#"#usda 1.0
+def Xform "set" (
+    kind = "assembly"
+)
+{
+    uniform token purpose = "proxy"
+    def Mesh "a" {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        uniform bool doubleSided = 1
+        uniform token subdivisionScheme = "none"
+        custom string userProperties:assetId = "car-01"
+        custom float userProperties:weight = 2.5
+        custom float[] userProperties:samples = [1, 2, 3]
+    }
+}
+"#);
+        let scene = load(&path).unwrap();
+        let tree = &scene.tree;
+        assert_eq!(tree.authored("/set", "kind"), Some(&Value::Token("assembly".into())));
+        assert_eq!(tree.authored("/set", "purpose"), Some(&Value::Token("proxy".into())));
+        assert_eq!(tree.authored("/set/a", "doubleSided"), Some(&Value::Bool(true)));
+        assert_eq!(tree.authored("/set/a", "subdivisionScheme"), Some(&Value::Token("none".into())));
+        assert_eq!(tree.authored("/set/a", "userProperties:assetId"), Some(&Value::Token("car-01".into())));
+        assert_eq!(tree.authored("/set/a", "userProperties:weight"), Some(&Value::Float(2.5)));
+        // Arrays and geometry are not listed; purpose is authored on /set, not on /set/a.
+        for name in ["userProperties:samples", "points", "faceVertexIndices", "purpose"] {
+            assert!(tree.authored("/set/a", name).is_none(), "{name}");
+        }
+        assert!(tree.node("/set/a").is_some() && tree.index.len() == tree.nodes.len());
+
+        // The mesh inherits proxy from /set, and says so.
+        let m = &scene.meshes[0];
+        let prim = crate::types::Prim {
+            stage: Some(scene.tree.clone()), purpose: m.purpose,
+            source: m.geo.clone().map(|geo| Arc::new(crate::types::Source { geo, place: m.place.clone(), material: None, purpose: m.purpose })),
+            ..crate::types::Prim::new(m.path.clone(), (*m.mesh).clone())
+        };
+        assert_eq!(prim.purpose, crate::types::Purpose::Proxy);
+        assert_eq!(purpose_from(&prim), PurposeFrom::Above("/set".into(), false));
     }
 
     #[test]

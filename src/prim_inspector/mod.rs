@@ -131,6 +131,8 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
             (None, Some((_, tree))) => tree.opinions.get(path).cloned().unwrap_or_default(),
             (None, None) => prims.iter().find_map(|p| p.above.get(path).cloned()).unwrap_or_default(),
         };
+        // What the file authors on it.
+        let file_values: Vec<(String, crate::core::props::Value)> = node.map(|(n, _)| n.authored.clone()).unwrap_or_default();
         // What the prims above it set, nearest winning.
         let mut inherited: std::collections::BTreeMap<String, (String, String)> = Default::default();
         let mut above: Vec<(String, Opinions)> = vec![];
@@ -152,16 +154,28 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                     crate::types::Purpose::Default => "default", crate::types::Purpose::Render { .. } => "render",
                     crate::types::Purpose::Proxy => "proxy", crate::types::Purpose::Guide => "guide",
                 };
-                let set = p.source.as_ref().map_or(p.purpose != crate::types::Purpose::Default, |s| s.purpose != p.purpose);
-                match (p.purpose, inherited.get("purpose")) {
-                    (crate::types::Purpose::Default, Some((v, from))) => row("purpose", v.clone(), (from.clone(), inherited_from(from, "purpose"))),
-                    (x, _) => row("purpose", purpose(x).into(), if set { setter(path, "purpose", SetContext::Property) } else { made_here() }),
-                }
+                // Its own, or the nearest above it: authored in the file or set by Set Attribute.
+                let from = match props::purpose_from(p) {
+                    props::PurposeFrom::Set => setter(path, "purpose", SetContext::Property),
+                    props::PurposeFrom::File => ("file".into(), maker),
+                    props::PurposeFrom::Above(group, true) => (format!("inherited: {group}"),
+                        set_by(graph, view, &group, "purpose", SetContext::Property).map(|(id, _)| id)),
+                    props::PurposeFrom::Above(group, false) => (format!("inherited: {group}"), maker),
+                    props::PurposeFrom::Unset => made_here(),
+                };
+                row("purpose", purpose(props::purpose_of(p)).into(), from);
                 let bound = p.material.clone().unwrap_or_else(|| "none".into());
                 let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
                 row("material:binding", bound, if rebound { ("Imago".into(), None) } else { made_here() });
             }
-            None => if let Some((v, from)) = inherited.get("purpose") { row("purpose", v.clone(), (from.clone(), inherited_from(from, "purpose"))); },
+            // A group: its purpose as its file authors it or Set Attribute set it
+            // (listed below), else what it inherits from a group above.
+            None => {
+                let says = own.props.contains_key("purpose") || file_values.iter().any(|(k, _)| k == "purpose");
+                if let (false, Some((v, from))) = (says, inherited.get("purpose")) {
+                    row("purpose", v.clone(), (from.clone(), inherited_from(from, "purpose")));
+                }
+            }
         }
         match (own.props.get("visibility"), inherited.get("visibility"), node) {
             (Some(v), _, _) => row("visibility", v.display(), setter(path, "visibility", SetContext::Property)),
@@ -171,17 +185,21 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
         }
         if !own.props.contains_key("active") { row("active", "true".into(), made_here()); }
 
-        // Values Set Attribute set on it, then those it inherits.
+        // What the file authors on it (`kind`, `doubleSided`, custom
+        // attributes), unless Set Attribute set it since.
+        for (name, v) in &file_values {
+            if name == "visibility" || (prim.is_some() && name == "purpose") || own.props.contains_key(name) { continue; }
+            row(name, v.display(), ("file".into(), maker));
+        }
+        // Values Set Attribute set on it. Only visibility and purpose are
+        // inherited in USD (and Object values, in the Object tab): `kind` or
+        // `doubleSided` on a group say nothing about what is below it.
         for (name, v) in &own.props {
             if name == "visibility" { continue; }
             row(name, v.display(), setter(path, name, SetContext::Property));
         }
         for (name, v) in &own.primvars {
             row(&format!("primvars:{name}"), v.display(), setter(path, name, SetContext::Object));
-        }
-        for (name, (v, from)) in &inherited {
-            if matches!(name.as_str(), "visibility" | "purpose" | "active") || own.props.contains_key(name) { continue; }
-            row(name, v.clone(), (from.clone(), inherited_from(from, name)));
         }
     }
     rows
@@ -289,9 +307,9 @@ mod tests {
         let cube_rows = scene_properties(&g, view, &scene, &["/root/geo/cube".to_string()]);
         assert_eq!(find(&cube_rows, "type"), Some(("Mesh".into(), "Imago".into())));
         assert_eq!(find(&cube_rows, "visibility"), Some(("invisible".into(), "inherited: /root/geo".into())));
-        assert_eq!(find(&cube_rows, "kind"), Some(("group".into(), "inherited: /root/geo".into())));
+        assert_eq!(find(&cube_rows, "kind"), None, "kind is not inherited");
         assert_eq!(find(&cube_rows, "purpose"), Some(("default".into(), "Imago".into())));
-        assert_eq!((op(&cube_rows, "purpose"), op(&cube_rows, "kind")), (Some(cube), Some(set)), "inherited: the operator that set it on the group");
+        assert_eq!((op(&cube_rows, "purpose"), op(&cube_rows, "visibility")), (Some(cube), Some(set)), "inherited: the operator that set it on the group");
 
         // Nothing selected: the root prims.
         let roots = scene_properties(&g, view, &scene, &[]);
