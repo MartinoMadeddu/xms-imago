@@ -34,6 +34,26 @@ The node solves nothing by itself. Until Solve has run for exactly the clip, col
 
 Both are FBX, read by Load FBX: the take is `split/into_the_car_.fbx`, frames 1200 to 9199 of the capture (8,000 frames, 4 minutes 27 at 30 fps); the car is `car.fbx`, 1,743,007 triangles, 25 MB, written without normals to stay small. The car has the same triangles in the same order as the `.xmsmesh` it replaced, so polygons picked on it in Edit Poly are the same polygons. Graphs saved with the old `.xmsclip` and `.xmsmesh` paths open on the FBX files.
 
+
+### Obstacle course
+
+**Body Collide: obstacle course** puts the first 20 seconds of the same take (frames 1200 to 1799: a walk, a step up, sitting down) on a course of boxes made in the graph (Cube, Transform, Merge), each one a case the solver handles, met one after another:
+
+| Box | Frames | What it shows |
+|---|---|---|
+| kerb | 1200-1245 | Standing on a kerb the capture did not have: the knees bend, the feet stay flat on top |
+| pole | 1240-1275 | A thin pole the left arm swings into: the arm is carried round it |
+| wall | 1275-1300 | A wall at a turn the right arm swings into: the arm is folded in, clear of the wall and of the body |
+| door | 1290-1325 | A closed door the capture walks straight through: there is no way round, so collisions fade out before it, he passes as captured (frames 1296 to 1318), and they fade back in after. Nothing is thrown |
+| seat | 1380-1799 | A block higher than the car seat of the capture: stood on, then sat on; feet and hips stay on top |
+| ledge | 1500-1799 | A ledge where the seated leg comes to rest: the leg lies on top of it |
+
+Bypass the node to see the capture go through the boxes. The solved result ships with the examples, so the template opens solved. Move a box, and Solve again.
+
+![Capture and Body Collide, case by case](xms_body_collide_course.png)
+
+How deep the skin goes into each box, worst frame, in the capture and after the solve (`cargo test --release solve_the_course -- --ignored --nocapture`): kerb 4.5 cm to 1.6 cm; pole 2.4 to 1.0; wall 10.0 to 3.2, on the first frame of contact; door 2.0 to 2.0, passed through on purpose; seat 7.7 to 4.7, on the step up; ledge 3.4 to 0. The solve takes 5 to 9 seconds on 2 cores. The body mesh has no head, so the head is a capsule to the solver and is not counted here.
+
 ## What it does
 
 **Bodies.** One rigid body per main bone: hips, each joint of the spine and the neck, head, upper arm, forearm, hand, thigh, calf, foot. Which joint is which comes from the skeleton's characterization: read from the joint names and the hierarchy for some twenty conventions (Unreal, MetaHuman, Mixamo, HumanIK, Biped, Rigify, Unity, VRM, VRoid, Character Creator, Daz, SMPL, Xsens, OptiTrack and more, listed in [Skeletons](mocap.md#skeletons-and-characterize)), or set by hand on a Characterize node. Skin on fingers, toes, collar bones, twist and helper joints goes to the body above. A part that comes out far lighter than the rest is not a body either.

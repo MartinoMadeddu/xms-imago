@@ -551,7 +551,7 @@ fn cache_dir() -> Option<PathBuf> {
     Some(base.join("xms").join("ragdoll"))
 }
 
-fn file_of(key: u64) -> Option<PathBuf> { cache_dir().map(|d| d.join(format!("{key:016x}.rag"))) }
+pub fn file_of(key: u64) -> Option<PathBuf> { cache_dir().map(|d| d.join(format!("{key:016x}.rag"))) }
 
 const MAGIC: &[u8; 8] = b"XMSRAG03";
 
@@ -991,7 +991,9 @@ mod shipped {
         println!("{}", job.notes.lock().unwrap());
         println!("{} frames in {:.0} s: {:?}", solved.frames, solved.seconds, solved.report);
         let to = crate::examples::dir().unwrap().join(crate::examples::RAGDOLL_SOLVED);
-        for e in std::fs::read_dir(&to).unwrap().flatten() { if e.path().extension().map(|x| x == "rag").unwrap_or(false) { std::fs::remove_file(e.path()).unwrap(); } }
+        // Other templates ship their results here too: the one this replaced
+        // is listed, to be removed by hand.
+        for e in std::fs::read_dir(&to).unwrap().flatten() { println!("shipped: {}", e.path().display()); }
         std::fs::copy(super::file_of(key).unwrap(), to.join(format!("{key:016x}.rag"))).unwrap();
     }
 

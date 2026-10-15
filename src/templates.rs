@@ -83,6 +83,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A character of the example take driving the test skeleton, which rests in another pose" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Body Collide: into the car", build: body_collide,
         hint: "A captured actor walks through a car and sits in it for six minutes, kept out of the seat, the floor and himself. Opens solved" },
+    Template { by: SIMON, group: "Animation & Mocap", name: "Body Collide: obstacle course", build: body_collide_course,
+        hint: "The first 20 seconds of the car take on a course of boxes, each one a case the solver handles: a kerb, a pole, a wall, a door walked through, a seat and a ledge. Opens solved" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Mocap split (example takes)", build: mocap_example,
         hint: "The mocap split graph, pointed at the example folder with a two-character take" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Mocap split", build: mocap_blank,
@@ -573,6 +575,53 @@ fn body_collide(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     format!("Body Collide: the actor walks through the car at frame 1341 and is seated by 1473. Scrub to frame 3000: hips on the seat, feet in the footwell. Bypass the node to see the capture. Display: Hulls shows the shapes that collide. Characterize shows which joint is which part.{}", missing_examples())
 }
 
+/// The obstacles of the Body Collide course: name, centre and size in
+/// metres, turn about the vertical in degrees, the frames of the take it
+/// meets, and the case it shows.
+pub const COURSE: &[(&str, [f32; 3], [f32; 3], f32, (usize, usize), &str)] = &[
+    ("kerb",    [1.56, 0.045,  0.45], [0.50, 0.09, 0.45],   0.0, (0, 45),    "standing on a kerb the capture did not have: knees bend, feet stay flat on it"),
+    ("pole",    [2.03, 1.10,  -0.02], [0.05, 2.20, 0.05],   0.0, (40, 75),   "a thin pole the left arm swings into: the arm is carried round it"),
+    ("wall",    [2.66, 1.00,  -0.55], [0.20, 2.00, 1.00],   0.0, (75, 100),  "a wall at a turn the right arm swings into: the arm is folded in, clear of the wall and of the body"),
+    ("door",    [2.07, 1.00,  -1.25], [0.04, 2.00, 1.00], 113.0, (90, 125),  "a closed door the capture walks straight through: no way round it, so collisions fade out before it, he passes as captured, and they fade back in after, with nothing thrown"),
+    ("seat",    [0.50, 0.20,  -1.15], [0.60, 0.40, 0.60],   0.0, (180, 600), "a block higher than the car seat in the capture: stood on, then sat on; feet and hips stay on top"),
+    ("ledge",   [0.95, 0.66,  -1.20], [0.20, 0.08, 0.50],   0.0, (300, 600), "a ledge where the seated leg comes to rest: the leg lies on top of it instead of through it"),
+];
+
+/// Body Collide on a course of boxes, each one a case the solver handles,
+/// met one after the other along the first 20 seconds of the car take.
+fn body_collide_course(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    let take = g.add_node("Take".into(), NodeType::LoadFbx { path: examples::path(examples::RAGDOLL_TAKE), take: 0 }, p(40.0, 20.0));
+    // The walk, the climb and the first minutes seated: 600 frames.
+    let trim = g.add_node("First20s".into(), NodeType::TrimClip { head: 0, tail: COURSE_TAIL }, p(40.0, 100.0));
+    g.add_connection(take, 0, trim, 0);
+    let mut set: Option<NodeId> = None;
+    for (k, (name, centre, size, turn, _, _)) in COURSE.iter().enumerate() {
+        let x = 300.0 + k as f32 * 150.0;
+        let cube = g.add_node(name.to_string(), NodeType::CreateCube { size: 1.0, location: format!("/course/{name}") }, p(x, 20.0));
+        let place = g.add_node(format!("Place_{name}"), transform(*centre, [0.0, turn.to_radians(), 0.0], *size), p(x, 100.0));
+        g.add_connection(cube, 0, place, 0);
+        set = Some(match set {
+            None => place,
+            Some(prev) => {
+                let merge = g.add_node(format!("Course{k}"), NodeType::merge(), p(x, 180.0));
+                g.add_connection(prev, 0, merge, 0);
+                g.add_connection(place, 0, merge, 1);
+                merge
+            }
+        });
+    }
+    let body = g.add_node("BodyCollide".into(), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(170.0, 260.0));
+    g.add_connection(trim, 0, body, 0);
+    if let Some(set) = set { g.add_connection(set, 0, body, 1); }
+    view(g, body);
+    let cases: Vec<String> = COURSE.iter().map(|(n, _, _, _, (a, b), what)| format!("{n} ({}-{}): {what}", 1200 + a, 1200 + b)).collect();
+    format!("Body Collide on an obstacle course. Bypass the node to see the capture go through the boxes; Display: Hulls shows the shapes that collide. Frame by frame: {}.{}", cases.join("; "), missing_examples())
+}
+
+/// Frames cut from the end of the car take for the course: 600 remain.
+const COURSE_TAIL: u32 = 8000 - 600;
+
 // ── FBX and characters ───────────────────────────────────────────────────────
 
 fn fbx_studio(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
@@ -763,6 +812,117 @@ fn mocap_blank(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// How deep the skin goes into each box of the course, in the capture
+    /// and after Body Collide, and over which frames: (frames touched, worst depth).
+    fn course_depths(clip: &crate::core::anim::AnimData) -> Vec<(usize, f32, usize)> {
+        let skin = clip.skin.as_ref().unwrap();
+        COURSE.iter().map(|(_, c, s, turn, _, _)| {
+            let (c, h) = (Vec3::from_array(*c), Vec3::from_array(*s) * 0.5);
+            let back = glam::Quat::from_rotation_y(-turn.to_radians());
+            let (mut frames, mut worst, mut worst_at) = (0, 0.0f32, 0);
+            let head = crate::core::human::Human::of(clip).get(crate::core::human::Slot::Head);
+            for f in 0..clip.frames {
+                let w = clip.world_pose(f);
+                let (mut pos, _) = skin.deformed(&w);
+                // The body mesh has no head: its crown, about 12 cm above the head joint.
+                if let Some(j) = head { pos.push(w[j].transform_point3(Vec3::ZERO) + Vec3::Y * 0.12); }
+                let mut deepest = 0.0f32;
+                for p in pos.iter().rev().step_by(3) {
+                    let d = (back * (*p - c)).abs();
+                    if d.x < h.x && d.y < h.y && d.z < h.z { deepest = deepest.max((h - d).min_element()); }
+                }
+                if deepest > 0.005 { frames += 1; }
+                if deepest > worst { worst = deepest; worst_at = f; }
+            }
+            (frames, worst, worst_at)
+        }).collect()
+    }
+
+    /// The course is built from its table, and finds the result shipped
+    /// with the examples: it opens solved.
+    #[test]
+    fn the_course_opens_solved() {
+        let t = TEMPLATES.iter().find(|t| t.name.ends_with("obstacle course")).unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        (t.build)(&mut g, &mut store);
+        let cubes = g.nodes.iter().filter(|n| matches!(n.node_type, NodeType::CreateCube { .. })).count();
+        assert_eq!(cubes, COURSE.len());
+        if examples::existing(examples::RAGDOLL_TAKE).is_none() { return; }
+        let body = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Ragdoll { .. })).unwrap().id;
+        let (clip, set) = g.ragdoll_inputs(body);
+        let (clip, set) = (clip.unwrap(), set.unwrap());
+        assert_eq!(clip.frames, 600);
+        assert_eq!(set.indices.len() / 3, 12 * COURSE.len());
+        let key = crate::ragdoll::key(&clip, Some(&set), &Default::default());
+        assert!(crate::ragdoll::solved(key).is_some(), "no shipped result for {key:016x}");
+    }
+
+    /// Solves the course, prints what each box does, and with XMS_SHIP set
+    /// puts the result with the examples:
+    /// `cargo test --release course -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn solve_the_course() {
+        let t = TEMPLATES.iter().find(|t| t.name.ends_with("obstacle course")).unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        (t.build)(&mut g, &mut store);
+        let body = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Ragdoll { .. })).unwrap().id;
+        let (clip, set) = g.ragdoll_inputs(body);
+        let (clip, set) = (clip.unwrap(), set.unwrap());
+        println!("clip {} frames, set {} triangles", clip.frames, set.indices.len() / 3);
+        let t0 = std::time::Instant::now();
+        crate::ragdoll::solve_now(clip.clone(), Some(set.clone()), Default::default()).unwrap();
+        let key = crate::ragdoll::key(&clip, Some(&set), &Default::default());
+        let solved = crate::ragdoll::solved(key).unwrap();
+        println!("solved in {:.0} s: {:?}", t0.elapsed().as_secs_f32(), solved.report);
+        let out = g.eval_anim(body).unwrap();
+        if std::env::var("XMS_PROBE").is_ok() {
+            let skin = clip.skin.as_ref().unwrap();
+            for f in [0usize, 120, 125, 130, 135, 140] {
+                let (pos, _) = skin.deformed(&clip.world_pose(f));
+                let top = pos.iter().fold(Vec3::splat(f32::MIN), |a, p| if p.y > a.y { *p } else { a });
+                println!("PROBE f{f} top of head {top:?}");
+            }
+        }
+        let (before, after) = (course_depths(&clip), course_depths(&out));
+        for (k, (name, _, _, _, range, _)) in COURSE.iter().enumerate() {
+            println!("{name:<8} {range:?}  capture: {} frames, {:.1} cm deep at {}  solved: {} frames, {:.1} cm deep at {}",
+                before[k].0, before[k].1 * 100.0, before[k].2, after[k].0, after[k].1 * 100.0, after[k].2);
+        }
+        // Poses for pictures: the capture and the result at the deepest frame
+        // of the capture in each box, as raw little-endian floats.
+        if let Ok(dir) = std::env::var("XMS_DUMP") {
+            let dir = std::path::PathBuf::from(dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let skin = clip.skin.as_ref().unwrap();
+            let faces: Vec<u8> = skin.faces.iter().flat_map(|f| {
+                let tri = crate::core::anim::SkinMesh::is_tri(f);
+                let mut v = vec![f[0], f[1], f[2]];
+                if !tri { v.extend([f[0], f[2], f[3]]); }
+                v
+            }).flat_map(|i| (i as u32).to_le_bytes()).collect();
+            std::fs::write(dir.join("faces.bin"), faces).unwrap();
+            let head = crate::core::human::Human::of(&clip).get(crate::core::human::Slot::Head);
+            let mut index = String::new();
+            for f in (0..clip.frames).step_by(5) {
+                for (tag, c) in [("capture", &clip), ("solved", &out)] {
+                    let w = c.world_pose(f);
+                    let (pos, _) = c.skin.as_ref().unwrap().deformed(&w);
+                    let bytes: Vec<u8> = pos.iter().flat_map(|p| p.to_array()).flat_map(|x| x.to_le_bytes()).collect();
+                    std::fs::write(dir.join(format!("{tag}_{f}.bin")), bytes).unwrap();
+                    let h = head.map(|j| w[j].transform_point3(Vec3::ZERO)).unwrap_or_default();
+                    index.push_str(&format!("{tag} {f} {} {} {}\n", h.x, h.y, h.z));
+                }
+            }
+            std::fs::write(dir.join("index.txt"), index).unwrap();
+        }
+        if std::env::var("XMS_SHIP").is_ok() {
+            let to = examples::dir().unwrap().join(examples::RAGDOLL_SOLVED);
+            std::fs::copy(crate::ragdoll::file_of(key).unwrap(), to.join(format!("{key:016x}.rag"))).unwrap();
+        }
+    }
+
     use super::*;
     use crate::types::IceGraphId;
 

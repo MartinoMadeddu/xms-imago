@@ -70,6 +70,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 | T-pose and export | Auto T-Pose, Fix Pose lowering the arms, Proxy Skin and Write FBX |
 | Mocap tools | A character of the example take through the clip tool nodes |
 | Retarget | A character of the example take driving the test skeleton, which rests in another pose |
+| Body Collide: obstacle course | The first 20 seconds of the car take on a course of boxes, one case each: a kerb stood on, a pole and a wall the arms swing into, a door walked through, a block stood and sat on, a ledge the leg rests on. Opens solved. See [Body Collide](body-collide.md#obstacle-course) |
 | Body Collide: into the car | A captured actor walks through a car and sits in it, kept out of the seat, the floor and himself, within what a human body can do. A Characterize node shows which joint is which part. Opens solved. See [Body Collide](body-collide.md) |
 | Mocap split (example takes) | The mocap split graph on the example folder: one take of two characters |
 | Mocap split | The same graph with no folder set |
