@@ -125,7 +125,7 @@ Seven categories, each a submenu, each item a node. A node has one name, the sam
 | Create | Cube, Sphere, Grid, Test Clip |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
-| Primitives | Pick Primitives, Prune Primitives, Unpack |
+| Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
 | UV | UV Unwrap, UV Transform, UV Edit |
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |
 | Mocap | Split Characters, Characterize, Retarget, Reach, Human Limits, Capture, Skin, Auto T-Pose, Fix Pose, Proxy Skin, Body Collide |
@@ -162,7 +162,7 @@ Every node's parameters are laid out the same way. The first group is the node's
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 
-Operators that work on primitives (Transform, Edit Poly, Prune Primitives) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
+Operators that work on primitives (Transform, Edit Poly, Prune Primitives, Set Attribute) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
 
 - A path takes that primitive and everything below it: `/DeLorean/wheels` takes every wheel. `*` stands for any run of characters in a name, `?` for one, `**` for any number of levels: `/set/**/lamp*`. `/` takes everything.
 - Each row says how many of the primitives coming in it matches, in red when none: a typo shows at once. The tab's title counts the rows.
@@ -171,6 +171,7 @@ Operators that work on primitives (Transform, Edit Poly, Prune Primitives) have 
 - Rows of the Scene Explorer can be dragged and dropped on an operator in the Node Graph, on its Prims Location tab or on + Add Location: every selected row when the one dragged is selected, else that one. Their paths join the list, and the operator is selected with the tab open.
 - An empty list means every primitive: the operator works as it did without one, on what an earlier Pick Primitives chose, or on everything. For Prune Primitives an empty list prunes nothing.
 - The list is the operator's own: the operators after it see the primitives as they came in, not its list. It is saved with the graph and copied with the operator.
+- Set Attribute's paths **name** prims instead: a path is that prim alone, a group, a camera or a light as well as a mesh, and each row counts the prims of the scene it names. `/set/*` names the children of `/set`, `/set/**` `/set` and everything below it (see [USD](usd.md#set-attribute)).
 
 The same words mean the same thing everywhere: Translate, Rotate and Scale on every transform (Transform, UV Transform, UV Edit, Fix Pose, Edit Poly's Transform); Path for every file; In and Out for what passes through. Units are in the value: m, cm, °, cm/s.
 

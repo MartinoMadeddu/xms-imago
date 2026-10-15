@@ -1,6 +1,6 @@
 # USD
 
-Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Prune and Unpack are in "Primitives".
+Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Prune, Set Attribute and Unpack are in "Primitives".
 
 ## Nodes
 
@@ -11,6 +11,7 @@ Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Pr
 | Merge | Two inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
+| Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -55,6 +56,29 @@ Transform, Edit Poly and Prune Primitives say which pieces they work on in their
 Without a pick, Transform moves each primitive, and Edit Poly and the UV nodes edit a lone primitive where it is drawn, keeping it itself. Several primitives with none picked go through those nodes merged into one mesh.
 
 An ICE node runs its graph on each primitive (or each picked one) in the primitive's own space, as an ICE tree runs on an object in Softimage.
+
+## Set Attribute
+
+Set Attribute is the scene graph's one operator for setting values on prims. It holds rows; each row sets one value:
+
+| Context | Written as | For |
+|---|---|---|
+| **Object** | `primvars:name`, `interpolation = "constant"` | Data for rendering: shaders read it by name, and the prims below a group inherit it. `displayColor`, `displayOpacity`, a shader variation |
+| **Property** | The prim's own attribute or metadata, by name | What the prim is and how it is used: `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, a camera's `focalLength`, `userProperties:*` |
+
+Each row has a context, a name, a type and a value. **Pick** next to the name offers the common names, each with its type and, where USD fixes them, its values (`visibility` is `inherited` or `invisible`). Any other name can be typed, with its type chosen: `bool`, `int`, `float`, `double`, `string`, `token`, `float2`, `float3`, `float4`, `color3f`, `asset`. An Object value takes the types a primvar column holds (no `double`, `string` or `asset`). Where two rows set the same name, the later one wins.
+
+The Prims Location tab says where. Here a path **names** that prim alone, of any type: a group, a camera or a light as well as a mesh, so `kind` on `/DeLorean` is one opinion on `/DeLorean`, not one on each of its meshes. `/set/*` names the children of `/set`, `/set/**` `/set` and everything below it. With no location, the rows are set on every primitive coming in (or the picked ones).
+
+In Imago:
+
+- An Object value on a primitive is an Object attribute of it: the Primitive Inspector's Object tab shows it, ICE reads it.
+- `purpose` is the primitive's purpose: the Scene Explorer's purpose toggles show or hide it.
+- `active` off takes the prim and everything below it out of the scene.
+- `visibility` invisible hides the prim and everything below it in the Viewer.
+- The rest is kept on the prim and written by Write USD.
+
+Values per point, per face or per corner are not set here: changing them rewrites the primitive's arrays, and that is ICE's.
 
 ## Shapes are primitives
 
@@ -127,6 +151,7 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | Several prims merged into one | The whole geometry, in the prim's own space |
 | A prim pruned | `active = false` |
 | Material binding or purpose changed | `material:binding`, `purpose` |
+| Set Attribute values | Object: `primvars:name` with `interpolation = "constant"`. Property: an attribute (`token visibility`, `uniform bool doubleSided`, `uniform token subdivisionScheme`, any other name with its type) or metadata (`active`, `kind`, `instanceable`). On any prim of the stage: a group, a camera, a light |
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
 
 The layer's `defaultPrim` is the first root prim of the first stage, or, with no stage, the first prim made in Imago (`cube` for a lone Cube). A layer with no stage is Y up in metres, as Imago is; next to a stage, prims made in Imago are written in the stage's axes and unit.
@@ -150,6 +175,8 @@ Values are written at the current frame, as single values.
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Nested point instancers
 - Nodes to edit materials, cameras or the hierarchy
+- Set Attribute: time samples (values are default values), arrays, Property values in the Primitive Inspector, values on the Xforms Imago makes above a shape, an Object value on a group seen by the primitives below it inside Imago (USD inherits it once written)
+- Write USD writes nothing for a stage none of whose primitives is left (all pruned, or all below a deactivated group)
 
 ## Example file
 

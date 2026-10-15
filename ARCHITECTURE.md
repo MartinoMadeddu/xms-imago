@@ -68,6 +68,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 - **Primitive Locations:** an operator that takes them (`core::locations::takes_locations`: Transform, Edit Poly, Prune) holds a list on its `GraphNode` (`locations`), saved with it and part of its cook key. When the list says something, `cook` picks what it matches (`locations::target`), runs the operator, and puts the incoming picks back (`restore_picks`), so the list never reaches the operators after it. Prune prunes by the list. An empty list leaves the operator as it was.
 - **Pick, then edit:** nodes work on picked primitives and pass the rest through. A single placed prim is edited where it's drawn and returned to its own space and placement (`map_mesh`). Several picked prims are merged (`geo: None`). With no pick, a lone primitive is edited the same way, so a shape stays a primitive through Edit Poly and the UV nodes.
 - **Shapes are primitives:** Cube, Sphere and Grid give `EvalResult::Named` with one `Prim` at their Primitive Location (`types::prim_location` makes the typed text a valid USD path). `EvalResult::Single` is left for the plain meshes of Unpack, a flattening Merge and ICE on a plain mesh.
+- **Set Attribute** (`core::props`): rows of one value each, set on the prims its locations **name** (`locations::names`: that prim alone, of any type, not what is below it). On a primitive, an Object value is an Object attribute of its `Geo`, `purpose` is its `purpose`, `active` off drops it, and other Property values go in `Prim::props`. On a stage prim without geometry (group, camera, light) the values are opinions in a new copy of its `StageTree` (`opinions`), shared by every primitive of the stage; `active` off there drops what is below it, `visibility` invisible hides it in the Viewer (`props::invisible`).
 - **Merge by data type:** `MergeMode::Auto` merges primitives when the first input is primitives (`nodes::merge_prims`), else flattens; Primitives and Flatten force it. On the same path the second input is the stronger, its unset material, stage, source and purpose read from the first, like an `over`.
 
 ## 6. Edits and USD out
@@ -81,6 +82,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
   - Changed attributes are written with type, interpolation and indices; lost ones are blocked with `= None`.
   - Pruned prims are deactivated; new prims are written as `def`s, their parents as `def Xform` unless a stage has them, in the first stage's axes and unit (Y up, metres without one). `defaultPrim` is the first stage's first root, or the first prim made in Imago.
   - **Not written yet, but reported:** edits inside native instances (instance proxies are read-only in USD) and on point-instancer prototypes.
+  - Set Attribute's values: `Prim::props` and `StageTree::opinions` are empty as loaded, so all they hold is written, as attributes or metadata by name (`props::written`), Object values on prims without geometry as constant primvars.
   - Values are written at the current frame.
 
 ## 7. Viewer
@@ -149,6 +151,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `src/usd_stage.rs` | scene layer → `Geo` + placements + `StageTree` |
 | `src/usd_scene.rs` | `UsdScene`, loading and caching, root-layer fallback |
 | `src/core/geo.rs` | `Geo`, `Column`, `Attr`, `Topology`, `Context` |
+| `src/core/props.rs` | Set Attribute: values, rows, presets, opinions on prims without geometry |
 | `src/core/locations.rs` | Primitive Locations: matching paths, picking by a list, pruning |
 | `src/types.rs` | `Prim`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |
 | `src/edits.rs` | edits against the source, edit sets, layers between nodes |

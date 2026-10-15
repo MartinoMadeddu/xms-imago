@@ -67,6 +67,7 @@ Rules:
 - The list belongs to its operator. The operators after it see the primitives as they came in, not the list.
 - Pick Primitives, the older way of choosing prims for the operators below it, stays for older graphs. An operator with an empty list still works on what an upstream Pick chose.
 - The operators that have the Prims Location tab are listed by `core::locations::takes_locations`. Each subset-aware operator in this spec adds itself there.
+- An operator that sets a value on a prim **names** prims instead (`core::locations::names_prims`, Set Attribute): a path is that prim alone, of any type (a group, a camera, a light as well as a mesh), so a value on a group is one opinion on the group. `/set/*` names the children of `/set`, `/set/**` `/set` and everything below it. **Done**
 
 > One convention covers Prune, Material Assign, Set Attribute, Variant Select and every other subset-aware operator.
 
@@ -178,7 +179,7 @@ All operators in this section take **Primitive Locations**.
 | **Duplicate** | Copy prims | count; naming pattern; per-copy transform | Not yet |
 | **Prune / Delete** | Remove prims | Matches: Remove / Keep only (the invert) | **Done** (Prune Primitives; written as `active = false`) |
 | **Isolate** | Keep only the selected subtree | include ancestors on/off | Covered by Prune set to Keep only |
-| **Set Active**, **Set Kind**, **Set Purpose**, **Set Visibility** | Activate prims; assign kind, purpose, visibility | | Not separate operators: each is a **Property** row of Set Attribute (6.1): `active`, `kind`, `purpose`, `visibility`. Not yet (purpose is read, filtered in the Scene Explorer and written back when changed; invisible prims are read and listed, not drawn; Prune deactivates) |
+| **Set Active**, **Set Kind**, **Set Purpose**, **Set Visibility** | Activate prims; assign kind, purpose, visibility | | Not separate operators: each is a **Property** row of Set Attribute (6.1): `active`, `kind`, `purpose`, `visibility`. **Done** through Set Attribute |
 
 Imago operators not in the original list:
 
@@ -243,11 +244,11 @@ Attribute contexts in Imago map to USD interpolations: Object = `constant`, Poin
 - **Value types:** `bool`, `int`, `float`, `double`, `string`, `token`, `float2`/`float3`/`float4`, `color3f`, `asset`; arrays later.
 - **USD mapping:** `UsdGeomPrimvarsAPI::CreatePrimvar` (Object); `UsdAttribute::Set` or `UsdPrim::SetMetadata` (Property, chosen by the name)
 - **Notes:**
-  - Object values show in the Primitive Inspector's Object tab, as Object attributes do now. Property values need a place there too (a Property tab, or rows under Object).
-  - Both contexts need to reach prims without geometry (an Xform, a camera, a light, a material). Today only geometry prims carry attributes (`Geo`), so Set Attribute needs a place in the scene for opinions on any path, written by Write USD like the other edits. It is the first operator to need it.
+  - Object values show in the Primitive Inspector's Object tab, as Object attributes do. Property values need a place there too (a Property tab, or rows under Object): not yet.
+  - Both contexts reach prims without geometry (an Xform, a camera, a light, a material): their values are opinions in the stage's tree (`StageTree::opinions`), written by Write USD as `over`s on their path. Prims Imago makes without geometry (the Xform parents of a shape's Primitive Location) cannot take values yet.
   - Values per point, face or corner are not offered: they are ICE's (see above).
   - Arbitrary metadata beyond the presets (`customData`, `documentation`) can come later as more Property names.
-- **Status:** **Not yet.** Primvars of every interpolation are read with their indices and written back with them.
+- **Status:** **Partial.** Rows of Object and Property values, the presets above, every value type, on the prims its Prims Location tab names (any prim of a stage) or, with none, on every primitive coming in (or the picked ones). In Imago: an Object value is an Object attribute of the primitive's `Geo`; `purpose` is the primitive's purpose; `active` off takes the prim, and what is below it, out of the scene; `visibility` invisible hides it, and what is below it, in the Viewer. Write USD writes them all (`primvars:name` constant, attributes, `uniform` where the schema has it, metadata). Not yet: time samples (values are default values), arrays, `customData` and `documentation`, Property values in the Primitive Inspector, values on Imago's own Xform parents, Object values on a group inherited by the primitives below it inside Imago (they are written, and inherited by USD).
 
 ### 6.2 Set Relationship
 - **Parameters:** relationship name; target list; list-edit op
@@ -353,7 +354,7 @@ All take **Primitive Locations** where they edit prims.
 | **Boolean** | Mesh booleans | operation; inputs A/B | Not yet |
 | **Smooth** | Relax geometry | iterations; strength | Partial: Edit Poly's Relax |
 | **Mesh to Points** / **Points to Mesh** | Convert representation | per-vertex or per-face | Not yet (ICE graphs can scatter and copy to points) |
-| **Subdivision Scheme** | Set scheme on meshes | `catmullClark`, `loop`, `bilinear`, `none` | Not a separate operator: Set Attribute's `subdivisionScheme` (6.1). The scheme is read and kept |
+| **Subdivision Scheme** | Set scheme on meshes | `catmullClark`, `loop`, `bilinear`, `none` | Not a separate operator: Set Attribute's `subdivisionScheme` (6.1), written for the renderer. The scheme is read and kept |
 | **Crease / Corner** | Author crease and corner data | indices; sharpness | Not yet (creases and holes in files are kept, not shown) |
 
 ---
@@ -406,7 +407,7 @@ Enough for a complete load, edit, bind, render loop:
 | 2 | Create Prim | Not yet (Cube, Sphere, Grid exist) |
 | 3 | Merge | Done |
 | 4 | Transform | Partial (no pivot or rotation order) |
-| 5 | Set Attribute (Object, Property) | Not yet |
+| 5 | Set Attribute (Object, Property) | Partial (no time samples or arrays) |
 | 6 | Prune | Done |
 | 7 | Reference | Not yet (read only) |
 | 8 | Variant Select | Not yet (read only) |

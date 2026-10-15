@@ -171,13 +171,24 @@ pub fn draw_properties(
     // Packed primitives coming into the node: their paths, and which are picked.
     // Asked only for the nodes that list them: it cooks what is upstream.
     let packed_in: Vec<(String, bool)> = graph.nodes.iter().find(|n| n.id == sel_id)
-        .filter(|n| on_locations || matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims))
+        .filter(|n| on_locations || matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::SetAttribute { .. }))
         .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
             let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
             graph.eval_packed(src, out, &pass)
         }).unwrap_or_default();
     let prim_paths: Vec<String> = packed_in.iter().map(|p| p.0.clone()).collect();
+    // An operator whose locations name prims (Set Attribute) can name any
+    // prim of the scene coming in: groups, cameras and lights too.
+    let names = graph.nodes.iter().find(|n| n.id == sel_id).is_some_and(|n| crate::core::locations::names_prims(&n.node_type));
+    let scene_in: Vec<String> = if on_locations && names {
+        graph.nodes.iter().find(|n| n.id == sel_id)
+            .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
+            .and_then(|(src, out)| {
+                let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+                graph.eval_scene_paths(src, out, &pass)
+            }).unwrap_or_default()
+    } else { vec![] };
     // What reaches a Body Collide node: its clip and its collider.
     let collide_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::Ragdoll { .. }) => graph.ragdoll_inputs(sel_id),
@@ -206,11 +217,17 @@ pub fn draw_properties(
         });
         ui.data_mut(|d| d.insert_temp(tab_id, on_locations));
         if on_locations {
-            let prune = matches!(node.node_type, NodeType::PrunePrims { .. });
-            locations_tab(ui, &mut node.locations, &prim_paths, &io.scene_paths, prune);
+            let kind = match node.node_type {
+                NodeType::PrunePrims { .. } => TabKind::Prune,
+                _ if names => TabKind::Names,
+                _ => TabKind::Takes,
+            };
+            let paths = if names { &scene_in } else { &prim_paths };
+            locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind);
             return;
         }
     }
+    let located = crate::core::locations::is_set(&node.locations);
 
     match &mut node.node_type {
         // ── Create ───────────────────────────────────────────────────────────
@@ -401,6 +418,7 @@ pub fn draw_properties(
             }
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
+        NodeType::SetAttribute { rows } => set_attribute_rows(ui, rows, located, prim_paths.len()),
         NodeType::UnpackPrims => group(ui, "Unpack", Some("Nodes that need one mesh do this on their own. Unpack makes it explicit, or drops a pick"), |f| {
             f.value("In", format!("{} primitives", prim_paths.len()));
             f.value("Out", "One mesh");
@@ -1378,11 +1396,140 @@ fn add_location(list: &mut Vec<String>, path: &str) {
     if !list.iter().any(|l| l.trim() == path) { list.push(path.to_string()); }
 }
 
+/// Set Attribute's rows: each a context, a name (the common ones offered),
+/// a type and a value. `located`: the Prims Location tab names prims.
+fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::props::SetRow>, located: bool, coming_in: usize) {
+    use crate::core::props::{self, SetContext, SetRow, ValueType};
+    let hint = "One value per prim, on the prims the Prims Location tab names: a group, a camera or a light as well as a mesh. Without locations, on every primitive coming in (or those an earlier Pick Primitives chose). Values per point, face or corner are ICE's";
+    group(ui, "Set Attribute", Some(hint), |f| {
+        if located { f.status(Status::Info, "On the prims the Prims Location tab names"); }
+        else if coming_in == 0 { f.status(Status::Info, "No primitives coming in"); }
+        else { f.status(Status::Info, format!("No Prims Location: on the {coming_in} primitives coming in (or the picked ones). Groups, cameras and lights need a location")); }
+        if rows.is_empty() { f.status(Status::Info, "No rows: nothing is set"); }
+    });
+    let context_hint = "Object: a constant primvar (primvars:name), data for rendering that shaders read and the prims below a group inherit. Property: the prim's own attribute or metadata (visibility, purpose, kind, active…), not seen by shaders, not inherited";
+    let mut remove = None;
+    let mut up = None;
+    for (k, row) in rows.iter_mut().enumerate() {
+        let title = format!("{}  {}", k + 1, if row.name.trim().is_empty() { "(no name)" } else { row.name.trim() });
+        group_with(ui, &title, Some("Where two rows set the same name, the later one wins"), |ui| {
+            if ui.small_button("🗑").on_hover_text("Remove this row").clicked() { remove = Some(k); }
+            if k > 0 && ui.small_button("⏶").on_hover_text("Move up").clicked() { up = Some(k); }
+        }, |f| {
+            let was = row.context;
+            f.choice("Context", Some(context_hint), &mut row.context, &[(SetContext::Object, "Object"), (SetContext::Property, "Property")]);
+            // An Object value is a column of a Geo: only the types it holds.
+            if row.context != was && row.context == SetContext::Object && !ValueType::OBJECT.contains(&row.value.kind()) {
+                row.value = ValueType::Float.convert(&row.value);
+            }
+            let offered = match row.context { SetContext::Object => props::OBJECT_PRESETS, SetContext::Property => props::PROPERTY_PRESETS };
+            let name_hint = match row.context {
+                SetContext::Object => "Written as primvars:name. Pick a common one, or type any name",
+                SetContext::Property => "The attribute or metadata to set. Pick a common one, or type any name (userProperties:assetId, focalLength)",
+            };
+            f.row("Name", Some(name_hint), |ui| {
+                ui.horizontal(|ui| {
+                    let w = (ui.available_width() - 48.0).max(60.0);
+                    ui.add(egui::TextEdit::singleline(&mut row.name).desired_width(w).hint_text("name")
+                        .font(egui::TextStyle::Monospace));
+                    crate::menus::menu(ui, "Pick", |ui| {
+                        for p in offered {
+                            if ui.selectable_label(row.name.trim() == p.name, p.name).on_hover_text(p.hint).clicked() {
+                                *row = SetRow::from_preset(row.context, p);
+                            }
+                        }
+                    });
+                });
+            });
+            let preset = props::preset(row.context, &row.name);
+            match preset {
+                // A common name has its type.
+                Some(p) => {
+                    if row.value.kind() != p.ty { row.value = p.ty.convert(&row.value); }
+                    f.value("Type", p.ty.usd());
+                }
+                None => {
+                    let types: &[ValueType] = match row.context { SetContext::Object => &ValueType::OBJECT, SetContext::Property => &ValueType::ALL };
+                    let options: Vec<(ValueType, &str)> = types.iter().map(|t| (*t, t.usd())).collect();
+                    let mut ty = row.value.kind();
+                    if f.choice("Type", None, &mut ty, &options) { row.value = ty.convert(&row.value); }
+                }
+            }
+            value_row(f, &mut row.value, preset.map(|p| p.tokens).unwrap_or(&[]));
+            if row.name.trim().is_empty() { f.status(Status::Info, "No name: this row sets nothing"); }
+            else if let Some(p) = preset { f.status(Status::Info, p.hint); }
+        });
+    }
+    if let Some(k) = remove { rows.remove(k); }
+    if let Some(k) = up { rows.swap(k, k - 1); }
+    group(ui, "Rows", None, |f| {
+        f.buttons("Add", Some("Object: a primvar, displayColor to start. Property: an attribute or metadata, visibility to start. Either can be renamed"), |ui| {
+            if ui.button("+ Object").clicked() { rows.push(SetRow::from_preset(SetContext::Object, &props::OBJECT_PRESETS[0])); }
+            if ui.button("+ Property").clicked() { rows.push(SetRow::from_preset(SetContext::Property, &props::PROPERTY_PRESETS[0])); }
+        });
+    });
+}
+
+/// A value's field, for its type. Tokens with fixed values are a choice.
+fn value_row(f: &mut Rows, v: &mut crate::core::props::Value, tokens: &[&str]) {
+    use crate::core::props::Value;
+    let fields = |ui: &mut egui::Ui, v: &mut [f32]| {
+        ui.horizontal(|ui| {
+            let gap = ui.spacing().item_spacing.x;
+            let n = v.len() as f32;
+            let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
+            let h = ui.spacing().interact_size.y;
+            for x in v.iter_mut() { ui.add_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4)); }
+        });
+    };
+    match v {
+        Value::Bool(b) => { f.toggle("Value", None, b); }
+        Value::Int(i) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.add_sized([ui.available_width(), h], egui::DragValue::new(i).speed(0.1)); }); }
+        Value::Float(x) => { f.drag("Value", None, x, 0.01, ""); }
+        Value::Double(x) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.add_sized([ui.available_width(), h], egui::DragValue::new(x).speed(0.01)); }); }
+        Value::Token(s) if !tokens.is_empty() => {
+            let options: Vec<(String, &str)> = tokens.iter().map(|t| (t.to_string(), *t)).collect();
+            f.choice("Value", None, s, &options);
+        }
+        Value::String(s) | Value::Token(s) => { f.text("Value", None, s, ""); }
+        Value::Asset(s) => { f.text("Value", Some("A file path, written as @path@"), s, "/path/to/file"); }
+        Value::Float2(a) => { f.row("Value", None, |ui| fields(ui, a)); }
+        Value::Float3(a) => { f.row("Value", None, |ui| fields(ui, a)); }
+        Value::Float4(a) => { f.row("Value", None, |ui| fields(ui, a)); }
+        Value::Color3f(c) => {
+            f.row("Value", None, |ui| {
+                ui.horizontal(|ui| {
+                    ui.color_edit_button_rgb(c);
+                    fields(ui, c);
+                });
+            });
+        }
+    }
+}
+
+/// What an operator's Prims Location tab does with its paths.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TabKind {
+    /// The operator works on what a path matches and everything below it.
+    Takes,
+    /// As Takes, for removing: empty prunes nothing.
+    Prune,
+    /// A path names that prim alone, of any kind (Set Attribute).
+    Names,
+}
+
 /// The Prims Location tab: the Primitive Locations an operator works on, one
 /// per row, each with how many of the primitives coming in it matches.
-fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], prune: bool) {
+fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], kind: TabKind) {
     use crate::core::locations;
-    let hint = "A path takes that primitive and everything below it. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/**/lamp*";
+    let names = kind == TabKind::Names;
+    let prune = kind == TabKind::Prune;
+    let hits = |row: &str, p: &str| if names { locations::names(row, p) } else { locations::matches(row, p) };
+    let hint = if names {
+        "A path names that prim alone: a group, a camera or a light as well as a mesh. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/* names the children of /set, /set/** /set and everything below it"
+    } else {
+        "A path takes that primitive and everything below it. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/**/lamp*"
+    };
     group(ui, "Primitive Locations", Some(hint), |f| {
         let mut remove = None;
         for (k, row) in list.iter_mut().enumerate() {
@@ -1395,7 +1542,7 @@ fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], se
                         .font(egui::TextStyle::Monospace).background_color(location_bg()));
                     // How many of the primitives coming in this row matches.
                     if !row.trim().is_empty() && !paths.is_empty() {
-                        let n = paths.iter().filter(|p| locations::matches(row, p)).count();
+                        let n = paths.iter().filter(|p| hits(row, p)).count();
                         let text = egui::RichText::new(format!("{n}")).monospace();
                         let label = if n == 0 { ui.colored_label(ink::BAD(), text) } else { ui.label(text) };
                         label.on_hover_text(if n == 0 { "Matches no primitive coming in".to_string() } else { format!("Matches {n} of the primitives coming in") });
@@ -1431,11 +1578,12 @@ fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], se
             });
         });
         let set = locations::is_set(list);
-        let taken = paths.iter().filter(|p| locations::any_matches(list, p)).count();
+        let taken = paths.iter().filter(|p| list.iter().any(|row| !row.trim().is_empty() && hits(row, p))).count();
         match (set, prune) {
             (false, false) => f.status(Status::Info, "Empty: every primitive coming in (or those an earlier Pick Primitives chose)"),
             (false, true) => f.status(Status::Info, "Empty: nothing is pruned"),
             (true, _) if paths.is_empty() => f.status(Status::Info, "No primitives coming in"),
+            (true, _) if names => f.status(Status::Info, format!("Names {taken} of the {} prims of the scene coming in", paths.len())),
             (true, _) => f.status(Status::Info, format!("Takes {taken} of the {} primitives coming in", paths.len())),
         }
     });

@@ -874,4 +874,44 @@ mod tests {
         let placed = paste(&mut h, &mut IceGraphStore::default(), Fragment::from_text(&text).unwrap(), None);
         assert_eq!(h.nodes.iter().find(|n| n.id == placed[&lift.0]).unwrap().locations, vec!["/set/b".to_string()]);
     }
+
+    /// Set Attribute: its rows set values on the prims its list names, and
+    /// are saved with the graph.
+    #[test]
+    fn set_attribute_sets_its_rows_on_the_prims_it_names() {
+        use crate::core::props::{SetContext, SetRow, Value};
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let mut g = NodeGraphState::default();
+        let a = g.add_node("A".into(), NodeType::CreateCube { size: 1.0, location: "/set/a".into() }, egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), NodeType::CreateCube { size: 1.0, location: "/set/b".into() }, egui::pos2(200.0, 0.0));
+        let merge = g.add_node("Merge".into(), NodeType::merge(), egui::pos2(100.0, 100.0));
+        let rows = vec![
+            SetRow { context: SetContext::Object, name: "displayColor".into(), value: Value::Color3f([0.0, 1.0, 0.0]) },
+            SetRow { context: SetContext::Property, name: "purpose".into(), value: Value::Token("proxy".into()) },
+        ];
+        let set = g.add_node("Set".into(), NodeType::SetAttribute { rows }, egui::pos2(100.0, 200.0));
+        g.add_connection(a, 0, merge, 0);
+        g.add_connection(b, 0, merge, 1);
+        g.add_connection(merge, 0, set, 0);
+        let prims = |g: &NodeGraphState| match g.eval_node(set, &mut Default::default(), &pass).unwrap() {
+            crate::types::EvalResult::Named(p) => p, _ => panic!("primitives"),
+        };
+        let coloured = |p: &crate::types::Prim| p.geo.as_ref().is_some_and(|g| g.attr(crate::core::geo::Context::Object, "displayColor").is_some());
+        // No list: every primitive.
+        assert!(prims(&g).iter().all(|p| coloured(p) && p.purpose == crate::types::Purpose::Proxy));
+        // `/set` names the group, which is no primitive here: neither cube.
+        g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/set".into()];
+        assert!(prims(&g).iter().all(|p| !coloured(p)));
+        g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/set/b".into()];
+        let out = prims(&g);
+        assert!(!coloured(&out[0]) && coloured(&out[1]));
+
+        // Saved and opened: the rows and the list are there.
+        let mut h = NodeGraphState::default();
+        from_json(&mut h, &to_json(&g)).unwrap();
+        let node = h.nodes.iter().find(|n| n.id == set).unwrap();
+        assert_eq!(node.locations, vec!["/set/b".to_string()]);
+        let NodeType::SetAttribute { rows } = &node.node_type else { panic!("Set Attribute") };
+        assert_eq!((rows.len(), rows[1].value.clone()), (2, Value::Token("proxy".into())));
+    }
 }

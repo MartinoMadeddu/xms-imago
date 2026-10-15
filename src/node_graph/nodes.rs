@@ -39,6 +39,7 @@ pub fn evaluate_node_type(
                         })),
                         place: m.place.clone(),
                         purpose: m.purpose,
+                        props: Default::default(),
                     }).collect()))
                 }
                 Err(_) => None,
@@ -61,6 +62,8 @@ pub fn evaluate_node_type(
             other => other.clone(),
         }),
         NodeType::UnpackPrims => inputs.first().map(|r| EvalResult::Single(r.as_mesh())),
+        // Without Primitive Locations: on the picked primitives, or every one.
+        NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::props::set_attributes(r, rows, &[])),
 
         NodeType::Transform { translation, rotation, scale } => inputs.first().and_then(|r| match r {
             // A clip moves by its top joints; its skin follows when posed.
@@ -262,7 +265,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(),
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(),
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>
@@ -362,6 +365,12 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
         stage:    if from_stage { strong.stage.clone() } else { weak.stage.clone() },
         source:   if from_stage { strong.source.clone() } else { weak.source.clone() },
         purpose:  if strong.purpose == crate::types::Purpose::Default { weak.purpose } else { strong.purpose },
+        // Properties set on both: the stronger value of each.
+        props:    if weak.props.is_empty() { strong.props.clone() } else if strong.props.is_empty() { weak.props.clone() } else {
+            let mut both = (*weak.props).clone();
+            both.extend(strong.props.iter().map(|(k, v)| (k.clone(), v.clone())));
+            Arc::new(both)
+        },
         ..strong.clone()
     }
 }

@@ -98,6 +98,10 @@ pub struct StageTree {
     pub source:          std::path::PathBuf,
     pub up_axis:         String,
     pub meters_per_unit: Option<f64>,
+    /// Values Set Attribute set on prims of the stage that are not geometry
+    /// primitives (Xforms, cameras, lights, materials), by path. Empty as
+    /// loaded: everything in it is an edit, written by Write USD as `over`s.
+    pub opinions:        std::collections::BTreeMap<String, crate::core::props::Opinions>,
 }
 
 impl std::fmt::Debug for StageTree {

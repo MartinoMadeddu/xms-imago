@@ -55,6 +55,10 @@ pub enum NodeType {
     PickPrims    { pattern: String },
     /// Remove packed primitives whose path matches a pattern, or keep only those.
     PrunePrims   { pattern: String, keep: bool },
+    /// One value per primitive, set on the prims its Prims Location tab
+    /// names: a constant primvar (Object) or the prim's own attribute or
+    /// metadata (Property), one per row. See `core::props`.
+    SetAttribute { rows: Vec<crate::core::props::SetRow> },
     /// Merge packed primitives into one mesh.
     UnpackPrims,
     /// Moves whatever comes in: a mesh, packed primitives (the picked ones,
@@ -291,6 +295,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::WriteUsd { .. }      => "📤",
         NodeType::PickPrims { .. }     => "👆",
         NodeType::PrunePrims { .. }    => "🚫",
+        NodeType::SetAttribute { .. }  => "🏷",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
@@ -342,6 +347,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::WriteUsd { .. }      => "Write USD",
         NodeType::PickPrims { .. }     => "Pick Primitives",
         NodeType::PrunePrims { .. }    => "Prune Primitives",
+        NodeType::SetAttribute { .. }  => "Set Attribute",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",
@@ -737,6 +743,10 @@ pub struct Prim {
     pub place:    Placement,
     /// Its USD purpose, which the scene explorer's purpose toggles filter by.
     pub purpose:  Purpose,
+    /// Properties set on it by Set Attribute (attributes and metadata by
+    /// name: `visibility`, `kind`, `doubleSided`…), written by Write USD.
+    /// Empty as loaded. Shared, as the mesh is.
+    pub props:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Value>>,
 }
 
 /// A packed primitive as it was loaded from its stage.
@@ -834,7 +844,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default() }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -995,7 +1005,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone() });
                     }
                 }
                 EvalResult::Named(out)

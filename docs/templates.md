@@ -19,6 +19,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 | Point instancer: a forest | 4,900 pines and stones from one PointInstancer, each turned and scaled, drawn by GPU instancing. A Transform after it turns the forest by moving the placements; the three shared meshes are not copied |
 | Native instances: a hall of tables | 64 instanceable references to `table.usda`: five meshes read once and placed 64 times |
 | Purposes: street lamps | Three lamps, each with render geometry, a proxy of blocks and a guide (its cone of light as lines). The render, proxy and guide toggles of the Scene Explorer switch them |
+| USD: set attribute | The DeLorean with two Set Attribute nodes: `visibility` invisible on `/**/*Wheel*`, and `kind` and a `displayColor` on `/*`, the root prim, which is a group: one opinion on it, not one per mesh. A Write USD node after them shows them written |
 
 ## Martino: ICE
 

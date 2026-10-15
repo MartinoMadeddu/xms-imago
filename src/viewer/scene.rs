@@ -251,6 +251,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             // Purposes the Scene Explorer's toggles leave out are not drawn.
             let prims: Vec<Prim> = prims.into_iter()
                 .filter(|p| p.purpose == Purpose::Default || input.hierarchy.draws_purpose(p.purpose))
+                // Set invisible, on itself or on a prim above it.
+                .filter(|p| !crate::core::props::invisible(p))
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {

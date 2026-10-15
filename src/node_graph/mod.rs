@@ -242,6 +242,7 @@ impl NodeGraphState {
             | NodeType::LoadUsd { .. }      => (vec![], vec![o("Mesh")]),
             NodeType::LoadFbx { .. }        => (vec![], vec![o("Clip"), o("Geometry"), o("Rest")]),
             NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::WriteUsd { .. }
+            | NodeType::SetAttribute { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
             NodeType::Merge { .. }          => (vec![i("A"), i("B")], vec![o("Result")]),
@@ -480,6 +481,42 @@ impl NodeGraphState {
         value
     }
 
+    /// Every prim path of the scene an output puts out: the prims of its
+    /// stages (groups, cameras and lights among them), in stage order, then
+    /// the primitives made outside a stage. What an operator whose locations
+    /// name prims of any kind (Set Attribute) can name.
+    pub fn eval_scene_paths(
+        &self, id: NodeId, output: usize,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    ) -> Option<Vec<String>> {
+        type Kept = (u64, usize, usize, Option<Vec<String>>);
+        static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+        let key = self.content_hash();
+        if let Ok(last) = LAST.lock() {
+            if let Some((k, i, o, value)) = &*last { if *k == key && *i == id.0 && *o == output { return value.clone(); } }
+        }
+        let value = match self.eval_node_out(id, output, &mut HashMap::new(), eval_subnet) {
+            Some(EvalResult::Named(prims)) => {
+                let mut trees: Vec<&std::sync::Arc<crate::usd_scene::StageTree>> = vec![];
+                for p in &prims {
+                    if let Some(t) = &p.stage { if !trees.iter().any(|x| std::sync::Arc::ptr_eq(x, t)) { trees.push(t); } }
+                }
+                let mut seen = std::collections::HashSet::new();
+                let mut paths = vec![];
+                for n in trees.iter().flat_map(|t| t.nodes.iter()) {
+                    if seen.insert(n.path.clone()) { paths.push(n.path.clone()); }
+                }
+                for p in &prims {
+                    if seen.insert(p.path.clone()) { paths.push(p.path.clone()); }
+                }
+                Some(paths)
+            }
+            _ => None,
+        };
+        if let Ok(mut last) = LAST.lock() { *last = Some((key, id.0, output, value.clone())); }
+        value
+    }
+
     pub fn toggle_bypass(&mut self, node_id: NodeId) {
         if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
             n.bypassed = !n.bypassed;
@@ -667,6 +704,9 @@ impl NodeGraphState {
             let first = inputs.first()?;
             match &node.node_type {
                 NodeType::PrunePrims { keep, .. } => Some(locations::prune(first, &node.locations, *keep)),
+                // Set Attribute names prims, groups and other prims without
+                // geometry among them: it reads the list itself.
+                NodeType::SetAttribute { rows } => Some(crate::core::props::set_attributes(first, rows, &node.locations)),
                 t => {
                     let mut targeted = inputs.clone();
                     targeted[0] = locations::target(first, &node.locations);

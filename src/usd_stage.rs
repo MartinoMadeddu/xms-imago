@@ -61,6 +61,7 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
     scene.tree = Arc::new(StageTree {
         nodes, root: root.as_mat4(), source: layer.to_path_buf(),
         up_axis: scene.up_axis.clone(), meters_per_unit: scene.meters_per_unit,
+        opinions: Default::default(),
     });
     scene.notes = counts.notes();
     // The translator's own notes, minus timings and empty reports.
