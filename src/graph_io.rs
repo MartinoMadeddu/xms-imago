@@ -899,9 +899,11 @@ mod tests {
         let coloured = |p: &crate::types::Prim| p.geo.as_ref().is_some_and(|g| g.attr(crate::core::geo::Context::Object, "displayColor").is_some());
         // No list: every primitive.
         assert!(prims(&g).iter().all(|p| coloured(p) && p.purpose == crate::types::Purpose::Proxy));
-        // `/set` names the group, which is no primitive here: neither cube.
+        // `/set` names the Xform above both cubes: set there, inherited by both.
         g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/set".into()];
-        assert!(prims(&g).iter().all(|p| !coloured(p)));
+        let out = prims(&g);
+        assert!(out.iter().all(|p| !coloured(p) && p.above.contains_key("/set")));
+        assert!(out.iter().all(|p| crate::core::props::inherited_primvars(p).len() == 1 && crate::core::props::purpose_of(p) == crate::types::Purpose::Proxy));
         g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/set/b".into()];
         let out = prims(&g);
         assert!(!coloured(&out[0]) && coloured(&out[1]));

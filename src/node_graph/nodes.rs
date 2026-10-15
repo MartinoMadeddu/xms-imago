@@ -40,6 +40,7 @@ pub fn evaluate_node_type(
                         place: m.place.clone(),
                         purpose: m.purpose,
                         props: Default::default(),
+                        above: Default::default(),
                     }).collect()))
                 }
                 Err(_) => None,
@@ -265,7 +266,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(),
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(),
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>
@@ -369,6 +370,12 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
         props:    if weak.props.is_empty() { strong.props.clone() } else if strong.props.is_empty() { weak.props.clone() } else {
             let mut both = (*weak.props).clone();
             both.extend(strong.props.iter().map(|(k, v)| (k.clone(), v.clone())));
+            Arc::new(both)
+        },
+        // Values on the Xforms above: the stronger where both set one.
+        above:    if weak.above.is_empty() { strong.above.clone() } else if strong.above.is_empty() { weak.above.clone() } else {
+            let mut both = (*weak.above).clone();
+            for (path, o) in strong.above.iter() { both.entry(path.clone()).or_default().merge(o); }
             Arc::new(both)
         },
         ..strong.clone()

@@ -70,6 +70,8 @@ Each row has a context, a name, a type and a value. **Pick** next to the name of
 
 The Prims Location tab says where. Here a path **names** that prim alone, of any type: a group, a camera or a light as well as a mesh, so `kind` on `/DeLorean` is one opinion on `/DeLorean`, not one on each of its meshes. `/set/*` names the children of `/set`, `/set/**` `/set` and everything below it. With no location, the rows are set on every primitive coming in (or the picked ones).
 
+Any prim can be named: a mesh, a group or camera of a loaded stage, or one of the Xforms Imago makes above a shape's Primitive Location (`/root/asset/geo` above `/root/asset/geo/cube`).
+
 In Imago:
 
 - An Object value on a primitive is an Object attribute of it: the Primitive Inspector's Object tab shows it, ICE reads it.
@@ -77,6 +79,8 @@ In Imago:
 - `active` off takes the prim and everything below it out of the scene.
 - `visibility` invisible hides the prim and everything below it in the Viewer.
 - The rest is kept on the prim and written by Write USD.
+
+What is set on a group is inherited by the primitives below it, as USD does: `visibility` invisible and `active` off reach everything below; `purpose` is theirs where they have none of their own; an Object value reaches each primitive below that has no attribute of that name, the nearest group winning. The Primitive Inspector's Object tab lists inherited values with the primitive's own. ICE reads only a primitive's own attributes. Write USD writes each value once, on the group.
 
 Values per point, per face or per corner are not set here: changing them rewrites the primitive's arrays, and that is ICE's.
 
@@ -175,7 +179,7 @@ Values are written at the current frame, as single values.
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Nested point instancers
 - Nodes to edit materials, cameras or the hierarchy
-- Set Attribute: time samples (values are default values), arrays, Property values in the Primitive Inspector, values on the Xforms Imago makes above a shape, an Object value on a group seen by the primitives below it inside Imago (USD inherits it once written)
+- Set Attribute: time samples (values are default values), arrays, Property values in the Primitive Inspector, inherited Object values read by ICE
 - Write USD writes nothing for a stage none of whose primitives is left (all pruned, or all below a deactivated group)
 
 ## Example file

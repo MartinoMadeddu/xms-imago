@@ -1,6 +1,6 @@
 pub mod ui;
 
-use crate::types::{EvalResult, MeshData, NodeId};
+use crate::types::{EvalResult, MeshData, NodeId, Prim, PrimVar, PrimVarInterp};
 
 /// What the Primitive Inspector shows: the scene at the operator with the
 /// view flag, all of it, or the rows selected in the Scene Explorer and what
@@ -16,15 +16,28 @@ pub struct Source {
 /// `/settle`.
 pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
     match scene {
-        EvalResult::Named(prims) if !paths.is_empty() => {
-            let under = |q: &str| paths.iter().any(|p| {
+        EvalResult::Named(prims) => {
+            let under = |q: &str| paths.is_empty() || paths.iter().any(|p| {
                 let p = p.trim_end_matches('/');
                 q == p || q.strip_prefix(p).is_some_and(|rest| rest.starts_with('/'))
             });
-            EvalResult::Named(prims.into_iter().filter(|x| under(&x.path)).collect()).into_parts()
+            prims.iter().filter(|x| under(&x.path)).map(part).collect()
         }
         scene => scene.into_parts(),
     }
+}
+
+/// One primitive where it is drawn, with the Object values it inherits
+/// from the prims above it (Set Attribute on a group) among its Object
+/// attributes.
+fn part(p: &Prim) -> MeshData {
+    let mut m = p.world().into_owned();
+    for (name, value) in crate::core::props::inherited_primvars(p) {
+        if let Some(n) = value.numbers() {
+            m.primvars.push(PrimVar { name, interp: PrimVarInterp::Constant, values: vec![n] });
+        }
+    }
+    m
 }
 
 #[cfg(test)]

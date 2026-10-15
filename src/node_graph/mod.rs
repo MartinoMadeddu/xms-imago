@@ -506,6 +506,12 @@ impl NodeGraphState {
                 for n in trees.iter().flat_map(|t| t.nodes.iter()) {
                     if seen.insert(n.path.clone()) { paths.push(n.path.clone()); }
                 }
+                // Primitives made outside a stage, with the Xforms Imago makes above them.
+                for p in prims.iter().filter(|p| p.stage.is_none()) {
+                    for path in crate::core::props::parents(&p.path).into_iter().chain([p.path.clone()]) {
+                        if seen.insert(path.clone()) { paths.push(path); }
+                    }
+                }
                 for p in &prims {
                     if seen.insert(p.path.clone()) { paths.push(p.path.clone()); }
                 }

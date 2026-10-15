@@ -21,6 +21,17 @@
 //!   written as `over`s on that path. `active = off` there takes what is
 //!   below it out of the scene too, and `visibility = invisible` hides it in
 //!   the Viewer, as USD inherits them.
+//! - On a prim Imago made above its primitives (the Xforms of a Primitive
+//!   Location, `/root/asset` above `/root/asset/geo/cube`), values are
+//!   opinions each primitive below carries (`Prim::above`), written by Write
+//!   USD on that Xform.
+//!
+//! What is set on a prim is inherited by the primitives below it, in Imago
+//! as in USD: `visibility` invisible hides them, `purpose` is theirs where
+//! they have none of their own, `active` off takes them out, and Object
+//! values reach them where they have no attribute of that name (`above`,
+//! `purpose_of`, `inherited_primvars`). The Primitive Inspector shows the
+//! inherited Object values; ICE reads only a primitive's own.
 //!
 //! Unlike the other operators' Primitive Locations, a location here names
 //! the prim at that path, not everything below it (`locations::names`): a
@@ -154,6 +165,14 @@ impl Value {
             Value::Float3(v) | Value::Color3f(v) => tuple(v),
             Value::Float4(v) => tuple(v),
             Value::Asset(s) => format!("@{}@", s.replace('@', "")),
+        }
+    }
+
+    /// Its numbers, for the types that are numbers.
+    pub fn numbers(&self) -> Option<Vec<f32>> {
+        match self {
+            Value::String(_) | Value::Token(_) | Value::Asset(_) => None,
+            other => Some(other.floats()),
         }
     }
 
@@ -294,6 +313,22 @@ pub struct Opinions {
 
 impl Opinions {
     pub fn is_empty(&self) -> bool { self.primvars.is_empty() && self.props.is_empty() }
+
+    /// The values of some rows.
+    fn of(rows: &[&SetRow]) -> Opinions {
+        let mut o = Opinions::default();
+        for r in rows {
+            let map = match r.context { SetContext::Object => &mut o.primvars, SetContext::Property => &mut o.props };
+            map.insert(r.name().to_string(), r.value.clone());
+        }
+        o
+    }
+
+    /// `other` over these: its values win.
+    pub fn merge(&mut self, other: &Opinions) {
+        self.primvars.extend(other.primvars.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.props.extend(other.props.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
 }
 
 // ── The operator ────────────────────────────────────────────────────────────
@@ -318,6 +353,9 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
     }
     if !named { return EvalResult::Named(out); }
 
+    let values = Opinions::of(&rows);
+    let deactivates = rows.iter().any(|r| r.deactivates());
+
     // Prims of a stage without geometry: opinions in its tree. Each stage
     // once; every primitive of it then shares the new tree.
     let present: std::collections::HashSet<String> = prims.iter().map(|p| p.path.clone()).collect();
@@ -325,26 +363,33 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
     for p in &out {
         if let Some(t) = &p.stage { if !trees.iter().any(|x| Arc::ptr_eq(x, t)) { trees.push(t.clone()); } }
     }
+    let mut staged: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut gone: Vec<String> = vec![];
     for old in trees {
+        staged.extend(old.nodes.iter().map(|n| n.path.clone()));
         let mut tree = (*old).clone();
         let mut changed = false;
         for node in &old.nodes {
             if present.contains(&node.path) || !locations::any_names(locations, &node.path) { continue; }
-            let o = tree.opinions.entry(node.path.clone()).or_default();
-            for r in &rows {
-                match r.context {
-                    SetContext::Object => { o.primvars.insert(r.name().to_string(), r.value.clone()); }
-                    SetContext::Property => { o.props.insert(r.name().to_string(), r.value.clone()); }
-                }
-                if r.deactivates() { gone.push(node.path.clone()); }
-            }
+            tree.opinions.entry(node.path.clone()).or_default().merge(&values);
+            if deactivates { gone.push(node.path.clone()); }
             changed = true;
         }
         if !changed { continue; }
         let new = Arc::new(tree);
         for p in out.iter_mut() {
             if p.stage.as_ref().is_some_and(|t| Arc::ptr_eq(t, &old)) { p.stage = Some(new.clone()); }
+        }
+    }
+
+    // Prims Imago made above its own primitives (the Xforms of a Primitive
+    // Location) where no stage has a prim: each primitive below carries the
+    // opinions on them.
+    for p in out.iter_mut().filter(|p| p.stage.is_none()) {
+        for parent in parents(&p.path) {
+            if present.contains(&parent) || staged.contains(&parent) || !locations::any_names(locations, &parent) { continue; }
+            if deactivates && !gone.contains(&parent) { gone.push(parent.clone()); }
+            Arc::make_mut(&mut p.above).entry(parent).or_default().merge(&values);
         }
     }
     // What is below a deactivated prim is not part of the scene.
@@ -398,13 +443,50 @@ fn is_below(path: &str, parent: &str) -> bool {
     path == parent || path.strip_prefix(parent).is_some_and(|rest| rest.starts_with('/'))
 }
 
+/// The prims above a path, the root first: `/a/b/c` has `/a` and `/a/b`.
+pub fn parents(path: &str) -> Vec<String> {
+    let names: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    (1..names.len()).map(|n| format!("/{}", names[..n].join("/"))).collect()
+}
+
+/// The values set on the prims above a primitive, the furthest first: on
+/// prims of its stage, and on the Xforms Imago made above it.
+pub fn above(p: &Prim) -> Vec<(&str, &Opinions)> {
+    let mut v: Vec<(&str, &Opinions)> = p.above.iter().map(|(k, o)| (k.as_str(), o)).collect();
+    if let Some(t) = &p.stage {
+        v.extend(t.opinions.iter()
+            .filter(|(path, _)| **path != p.path && is_below(&p.path, path))
+            .map(|(k, o)| (k.as_str(), o)));
+    }
+    v.sort_by_key(|(k, _)| k.matches('/').count());
+    v
+}
+
 /// Whether a primitive is invisible: set so on itself, or on a prim above
-/// it in its stage (USD inherits `invisible`).
+/// it (USD inherits `invisible`).
 pub fn invisible(p: &Prim) -> bool {
     let off = |v: Option<&Value>| v.and_then(Value::token) == Some("invisible");
-    if off(p.props.get("visibility")) { return true; }
-    p.stage.as_ref().is_some_and(|t| t.opinions.iter()
-        .any(|(path, o)| path != &p.path && is_below(&p.path, path) && off(o.props.get("visibility"))))
+    off(p.props.get("visibility")) || above(p).iter().any(|(_, o)| off(o.props.get("visibility")))
+}
+
+/// The purpose a primitive is drawn with: its own, or, with none, that of
+/// the nearest prim above it set to one (USD inherits purpose).
+pub fn purpose_of(p: &Prim) -> Purpose {
+    if p.purpose != Purpose::Default { return p.purpose; }
+    above(p).iter().rev()
+        .find_map(|(_, o)| o.props.get("purpose").and_then(Value::token).map(|t| purpose(t, Purpose::Default)))
+        .unwrap_or(Purpose::Default)
+}
+
+/// The Object values a primitive inherits from the prims above it, the
+/// nearest winning, where it has no attribute of that name itself.
+pub fn inherited_primvars(p: &Prim) -> Vec<(String, Value)> {
+    let mut values: BTreeMap<String, Value> = BTreeMap::new();
+    for (_, o) in above(p) {
+        for (k, v) in &o.primvars { values.insert(k.clone(), v.clone()); }
+    }
+    let own = |name: &str| p.geo.as_ref().map_or(false, |g| g.find(name).is_some()) || p.mesh.primvars.iter().any(|v| v.name == name);
+    values.into_iter().filter(|(k, _)| !own(k)).collect()
 }
 
 #[cfg(test)]
@@ -515,6 +597,46 @@ mod tests {
 
     fn car_geo(r: &EvalResult) -> &Arc<Geo> {
         match r { EvalResult::Named(p) => p[0].geo.as_ref().unwrap(), _ => panic!() }
+    }
+
+    /// Shapes made in Imago, under Xforms no stage has.
+    fn shapes() -> Vec<Prim> {
+        ["/root/asset/geo/cube1", "/root/asset/geo/cube2", "/root/other/cube3"].iter()
+            .map(|p| Prim::new(p.to_string(), crate::node_graph::nodes::create_cube(1.0))).collect()
+    }
+
+    #[test]
+    fn values_on_the_xforms_above_shapes_are_inherited() {
+        let rows = [
+            row(SetContext::Object, "displayColor", Value::Color3f([0.0, 1.0, 0.0])),
+            row(SetContext::Property, "visibility", Value::Token("invisible".into())),
+        ];
+        let out = prims(set_attributes(&EvalResult::Named(shapes()), &rows, &locs(&["/root/asset/geo"])));
+        // Carried by each primitive below, on the Xform's path; not set on the cubes themselves.
+        assert!(out[0].above.contains_key("/root/asset/geo") && out[1].above.contains_key("/root/asset/geo"));
+        assert!(out[2].above.is_empty() && out.iter().all(|p| p.props.is_empty() && p.geo.is_none()));
+        // Inherited.
+        assert!(invisible(&out[0]) && invisible(&out[1]) && !invisible(&out[2]));
+        assert_eq!(inherited_primvars(&out[0]), vec![("displayColor".to_string(), Value::Color3f([0.0, 1.0, 0.0]))]);
+        assert!(inherited_primvars(&out[2]).is_empty());
+        // The nearest wins; a primitive's own attribute wins over both.
+        let blue = [row(SetContext::Object, "displayColor", Value::Color3f([0.0, 0.0, 1.0]))];
+        let out = prims(set_attributes(&EvalResult::Named(out), &blue, &locs(&["/root"])));
+        assert_eq!(inherited_primvars(&out[0])[0].1, Value::Color3f([0.0, 1.0, 0.0]));
+        assert_eq!(inherited_primvars(&out[2])[0].1, Value::Color3f([0.0, 0.0, 1.0]));
+        let red = [row(SetContext::Object, "displayColor", Value::Color3f([1.0, 0.0, 0.0]))];
+        let out = prims(set_attributes(&EvalResult::Named(out), &red, &locs(&["/root/asset/geo/cube1"])));
+        assert!(inherited_primvars(&out[0]).is_empty());
+        // Purpose, from the nearest prim above that has one.
+        let guide = [row(SetContext::Property, "purpose", Value::Token("guide".into()))];
+        let out = prims(set_attributes(&EvalResult::Named(shapes()), &guide, &locs(&["/root/asset"])));
+        assert_eq!((purpose_of(&out[0]), purpose_of(&out[2])), (Purpose::Guide, Purpose::Default));
+        assert_eq!(out[0].purpose, Purpose::Default, "the cube's own purpose is unset");
+        // Active off: what is below the Xform leaves the scene.
+        let off = [row(SetContext::Property, "active", Value::Bool(false))];
+        let out = prims(set_attributes(&EvalResult::Named(shapes()), &off, &locs(&["/root/asset"])));
+        assert_eq!(out.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), vec!["/root/other/cube3"]);
+        assert_eq!(parents("/a/b/c"), vec!["/a".to_string(), "/a/b".to_string()]);
     }
 
     #[test]

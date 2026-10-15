@@ -250,7 +250,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         Some(EvalResult::Named(prims)) => {
             // Purposes the Scene Explorer's toggles leave out are not drawn.
             let prims: Vec<Prim> = prims.into_iter()
-                .filter(|p| p.purpose == Purpose::Default || input.hierarchy.draws_purpose(p.purpose))
+                // Its purpose, or the one it inherits from a prim above it.
+                .filter(|p| { let purpose = crate::core::props::purpose_of(p); purpose == Purpose::Default || input.hierarchy.draws_purpose(purpose) })
                 // Set invisible, on itself or on a prim above it.
                 .filter(|p| !crate::core::props::invisible(p))
                 .collect();

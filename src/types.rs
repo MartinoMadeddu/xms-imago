@@ -747,6 +747,10 @@ pub struct Prim {
     /// name: `visibility`, `kind`, `doubleSided`…), written by Write USD.
     /// Empty as loaded. Shared, as the mesh is.
     pub props:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Value>>,
+    /// Values Set Attribute set on the prims Imago made above it (the
+    /// Xforms of its Primitive Location), by path. Every primitive below
+    /// such a prim carries them; Write USD writes them once, on the Xform.
+    pub above:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Opinions>>,
 }
 
 /// A packed primitive as it was loaded from its stage.
@@ -844,7 +848,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default() }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default() }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -1005,7 +1009,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone() });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone() });
                     }
                 }
                 EvalResult::Named(out)

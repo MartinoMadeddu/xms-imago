@@ -130,6 +130,8 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // except where a stage already has a prim on that path.
     let layer_root = trees.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
     let in_a_stage = |path: &str| trees.iter().any(|t| t.nodes.iter().any(|n| n.path == path));
+    // Values set on those Xforms, carried by each primitive below them.
+    let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
     for p in prims.iter().filter(|p| p.stage.is_none()) {
         if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
             report.skipped.push(format!("{}: not a primitive path", if p.path.is_empty() { "(no path)" } else { p.path.as_str() }));
@@ -143,6 +145,11 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
             let spec = root.at(&parent);
             if spec.def.is_none() && !in_a_stage(&parent) { spec.def = Some("Xform"); }
         }
+        for (path, o) in p.above.iter() { above.entry(path.clone()).or_default().merge(o); }
+    }
+    for (path, o) in &above {
+        opinions(root.at(path), o);
+        report.changed += 1;
     }
 
     // The prim a reference to this layer gets when it names none: the first
@@ -644,6 +651,30 @@ def Xform "set" {{
         let (text, report) = override_layer(&prims, &out).unwrap();
         assert_eq!((report.changed, report.deactivated), (1, 0), "{report:?}\n{text}");
         assert!(text.contains("over \"props\" (\n    active = false\n)") && !text.contains("\"b\""), "{text}");
+    }
+
+    #[test]
+    fn values_on_the_xforms_above_a_shape_are_written_there() {
+        use crate::core::props::{set_attributes, SetContext, SetRow};
+        use crate::types::EvalResult;
+        let rows = [
+            SetRow { context: SetContext::Object, name: "displayColor".into(), value: Value::Color3f([0.0, 1.0, 0.0]) },
+            SetRow { context: SetContext::Property, name: "visibility".into(), value: Value::Token("invisible".into()) },
+        ];
+        let shapes = vec![cube_at("/root/asset/geo/cube1"), cube_at("/root/asset/geo/cube2"), cube_at("/root/other")];
+        let EvalResult::Named(prims) = set_attributes(&EvalResult::Named(shapes), &rows, &["/root/asset/geo".to_string()]) else { panic!() };
+        let out = std::env::temp_dir().join("xms_usd_write_test/above_over.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!((report.added, report.changed), (3, 1), "once, on the Xform: {report:?}");
+        assert_eq!(text.matches("primvars:displayColor").count(), 1, "{text}");
+        for line in ["def Xform \"geo\"", "color3f primvars:displayColor = (0, 1, 0) (\n    interpolation = \"constant\"", "token visibility = \"invisible\""] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        // Read back: what is below the invisible Xform is not drawn.
+        std::fs::write(&out, &text).unwrap();
+        let back = crate::usd_scene::load(&out).unwrap();
+        let paths: Vec<&str> = back.meshes.iter().map(|m| m.path.as_str()).collect();
+        assert_eq!(paths, vec!["/root/other"], "{text}");
     }
 
     #[test]
