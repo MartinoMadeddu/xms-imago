@@ -20,6 +20,8 @@ pub mod locations;
 pub mod props;
 /// Point instancers: their prototypes' copies made from their points.
 pub mod instancing;
+/// Materials: a UsdPreviewSurface, as the Material operator makes it.
+pub mod material;
 pub mod uv;
 pub mod manip;
 pub mod xform;

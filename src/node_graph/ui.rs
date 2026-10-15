@@ -37,6 +37,10 @@ mod xsi {
     pub fn BYPASS() -> Color32 { crate::theme::c(235, 170, 60) }
     pub fn BYPASS_VEIL() -> Color32 { Color32::from_rgba_unmultiplied(128, 128, 128, 120) }
     pub fn VIEW_FLAG_HOV() -> Color32 { crate::theme::c(150, 210, 255) } // 👁️ NEW - Lighter blue on hover
+    // Sockets carrying a material: purple.
+    pub fn SOCK_MAT() -> Color32 { Color32::from_rgb(140, 95, 190) }
+    pub fn SOCK_MAT_CONN() -> Color32 { Color32::from_rgb(175, 130, 225) }
+    pub fn SOCK_MAT_HOV() -> Color32 { Color32::from_rgb(205, 170, 245) }
 }
 
 // ============================================================================
@@ -44,12 +48,55 @@ mod xsi {
 // ============================================================================
 
 pub fn output_socket_pos(node: &GraphNode, out_idx: usize) -> egui::Pos2 {
+    // A material comes out on the right, to go into a Material Binding's side.
+    if side_output(node) {
+        let t = (out_idx + 1) as f32 / (node.outputs.len() + 1) as f32;
+        return egui::pos2(node.position.x + NODE_WIDTH, node.position.y + node_height(node) * t);
+    }
     let t = (out_idx + 1) as f32 / (node.outputs.len() + 1) as f32;
-    egui::pos2(node.position.x + NODE_WIDTH * t, node.position.y + NODE_HEIGHT)
+    egui::pos2(node.position.x + NODE_WIDTH * t, node.position.y + node_height(node))
+}
+
+/// Where the first input on a node's side is, from its top, and the step
+/// to the next.
+const SIDE_TOP:  f32 = 36.0;
+const SIDE_STEP: f32 = 16.0;
+
+/// Inputs on the node's left side rather than on top: Material Binding's
+/// material inputs, the scene coming in on top.
+pub fn side_input(node: &GraphNode, in_idx: usize) -> bool {
+    in_idx > 0 && matches!(node.node_type, NodeType::MaterialBinding { .. })
+}
+
+/// Outputs on the node's right side rather than below it: a material's.
+pub fn side_output(node: &GraphNode) -> bool {
+    matches!(node.node_type, NodeType::Material { .. })
+}
+
+/// Sockets that carry a material, drawn purple: a Material's output and a
+/// Material Binding's material inputs.
+fn material_socket(node: &GraphNode, input: Option<usize>) -> bool {
+    match input {
+        Some(k) => side_input(node, k),
+        None => side_output(node),
+    }
+}
+
+/// A node's height: taller when its side inputs need the room.
+pub fn node_height(node: &GraphNode) -> f32 {
+    let side = (0..node.inputs.len()).filter(|&k| side_input(node, k)).count();
+    if side == 0 { return NODE_HEIGHT; }
+    (SIDE_TOP + SIDE_STEP * (side - 1) as f32 + 14.0).max(NODE_HEIGHT)
 }
 
 pub fn input_socket_pos(node: &GraphNode, in_idx: usize) -> egui::Pos2 {
-    let t = (in_idx + 1) as f32 / (node.inputs.len() + 1) as f32;
+    if side_input(node, in_idx) {
+        let k = (0..in_idx).filter(|&k| side_input(node, k)).count();
+        return egui::pos2(node.position.x, node.position.y + SIDE_TOP + SIDE_STEP * k as f32);
+    }
+    let top = (0..node.inputs.len()).filter(|&k| !side_input(node, k)).count();
+    let at = (0..in_idx).filter(|&k| !side_input(node, k)).count();
+    let t = (at + 1) as f32 / (top + 1) as f32;
     egui::pos2(node.position.x + NODE_WIDTH * t, node.position.y)
 }
 
@@ -85,7 +132,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.frame_request = false;
         let mut bounds = egui::Rect::NOTHING;
         for node in &graph.nodes {
-            bounds = bounds.union(egui::Rect::from_min_size(node.position, egui::vec2(NODE_WIDTH, NODE_HEIGHT)));
+            bounds = bounds.union(egui::Rect::from_min_size(node.position, egui::vec2(NODE_WIDTH, node_height(node))));
         }
         let room = canvas_rect.size() - egui::vec2(60.0, 70.0);
         // Not so small that the names cannot be read: a graph too large
@@ -215,11 +262,12 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         ) {
             let fp  = to_screen(output_socket_pos(fn_, conn.from_output));
             let tp  = to_screen(input_socket_pos(tn,   conn.to_input));
+            let side = (side_output(fn_), side_input(tn, conn.to_input));
             let is_sel = graph.selected_connection == Some(conn.id);
             if let Some(ptr) = response.hover_pos() {
-                if is_near_bezier(ptr, fp, tp, 10.0) { hovered_conn = Some(conn.id); }
+                if is_near_bezier(ptr, fp, tp, side, 10.0) { hovered_conn = Some(conn.id); }
             }
-            draw_wire(&painter, fp, tp,
+            draw_wire_to(&painter, fp, tp, side,
                 hovered_conn == Some(conn.id),
                 is_sel);
         }
@@ -240,7 +288,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         if let Some(fn_) = graph.nodes.iter().find(|n| n.id == fid) {
             let fp  = to_screen(output_socket_pos(fn_, fo));
             let ptr = ui.input(|i| i.pointer.hover_pos());
-            if let Some(ptr) = ptr { draw_wire(&painter, fp, ptr, false, false); }
+            if let Some(ptr) = ptr { draw_wire_to(&painter, fp, ptr, (side_output(fn_), false), false, false); }
         }
     }
 
@@ -300,7 +348,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
             let newly_selected: Vec<NodeId> = graph.nodes.iter()
                 .filter(|n| {
                     let node_rect = egui::Rect::from_min_size(
-                        n.position, egui::vec2(NODE_WIDTH, NODE_HEIGHT));
+                        n.position, egui::vec2(NODE_WIDTH, node_height(n)));
                     r.intersects(node_rect)
                 })
                 .map(|n| n.id)
@@ -384,7 +432,8 @@ fn draw_node(
     let mut dive: Option<IceGraphId> = None;
     let zoom   = graph.zoom;
     let np     = to_screen(node.position);
-    let rect   = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, NODE_HEIGHT * zoom));
+    let height = node_height(node);
+    let rect   = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, height * zoom));
     let id     = node.id;
     let is_sel = graph.selected_node == Some(id) || graph.selected_nodes.contains(&id);
     let is_sub = matches!(node.node_type, NodeType::Ice { .. });
@@ -505,8 +554,8 @@ fn draw_node(
 
     // ── Output sockets ────────────────────────────────────────────────────────
     for (i, out) in node.outputs.iter().enumerate() {
-        let t  = (i + 1) as f32 / (node.outputs.len() + 1) as f32;
-        let sp = egui::pos2(np.x + NODE_WIDTH * zoom * t, np.y + NODE_HEIGHT * zoom);
+        let sp = to_screen(output_socket_pos(node, i));
+        let purple = material_socket(node, None);
         let hit = egui::Rect::from_center_size(sp, egui::vec2(SOCKET_HIT, SOCKET_HIT));
         let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag());
 
@@ -515,11 +564,18 @@ fn draw_node(
         painter.circle_filled(sp, r + 1.0, egui::Color32::from_rgb(30, 30, 30));
         painter.circle_filled(sp, r,
             if is_wiring         { xsi::SOCK_OUT_DRAG() }
-            else if sr.hovered() { xsi::SOCK_OUT_HOV()  }
+            else if sr.hovered() { if purple { xsi::SOCK_MAT_HOV() } else { xsi::SOCK_OUT_HOV() } }
+            else if purple       { xsi::SOCK_MAT() }
             else                 { xsi::SOCK_OUT()       });
-        painter.text(egui::pos2(sp.x, sp.y + SOCKET_RADIUS * zoom + 3.0),
-            egui::Align2::CENTER_TOP, &out.name,
-            egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
+        if side_output(node) {
+            painter.text(egui::pos2(sp.x + SOCKET_RADIUS * zoom + 4.0, sp.y),
+                egui::Align2::LEFT_CENTER, &out.name,
+                egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
+        } else {
+            painter.text(egui::pos2(sp.x, sp.y + SOCKET_RADIUS * zoom + 3.0),
+                egui::Align2::CENTER_TOP, &out.name,
+                egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
+        }
 
         // The left button draws a wire. The right button opens the add-node
         // menu for this socket, handled with the canvas.
@@ -531,33 +587,45 @@ fn draw_node(
 
     // ── Input sockets ─────────────────────────────────────────────────────────
     for (i, inp) in node.inputs.iter().enumerate() {
-        let t  = (i + 1) as f32 / (node.inputs.len() + 1) as f32;
-        let sp = egui::pos2(np.x + NODE_WIDTH * zoom * t, np.y);
+        let sp = to_screen(input_socket_pos(node, i));
+        let side = side_input(node, i);
         let hit = egui::Rect::from_center_size(sp, egui::vec2(SOCKET_HIT, SOCKET_HIT));
         let sr  = ui.allocate_rect(hit, egui::Sense::drag());
 
         let r = SOCKET_RADIUS * zoom * if sr.hovered() { 1.3 } else { 1.0 };
         painter.circle_filled(sp, r + 1.0, egui::Color32::from_rgb(30, 30, 30));
+        let purple = material_socket(node, Some(i));
         painter.circle_filled(sp, r,
-            if sr.hovered()                        { xsi::SOCK_IN_HOV()  }
-            else if inp.connected_output.is_some() { xsi::SOCK_IN_CONN() }
+            if sr.hovered()                        { if purple { xsi::SOCK_MAT_HOV() } else { xsi::SOCK_IN_HOV() } }
+            else if inp.connected_output.is_some() { if purple { xsi::SOCK_MAT_CONN() } else { xsi::SOCK_IN_CONN() } }
+            else if purple                         { xsi::SOCK_MAT() }
             else                                   { xsi::SOCK_IN()      });
-        painter.text(egui::pos2(sp.x, sp.y - SOCKET_RADIUS * zoom - 3.0),
-            egui::Align2::CENTER_BOTTOM, &inp.name,
-            egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
+        if side {
+            painter.text(egui::pos2(sp.x - SOCKET_RADIUS * zoom - 4.0, sp.y),
+                egui::Align2::RIGHT_CENTER, &inp.name,
+                egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
+        } else {
+            painter.text(egui::pos2(sp.x, sp.y - SOCKET_RADIUS * zoom - 3.0),
+                egui::Align2::CENTER_BOTTOM, &inp.name,
+                egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
+        }
 
         if sr.hovered() && ui.input(|inp| inp.pointer.primary_released()) {
             if let Some((fn_, fo)) = graph.connecting_from {
-                if fn_ != id { graph.add_connection(fn_, fo, id, i); }
+                if fn_ != id {
+                    graph.add_connection(fn_, fo, id, i);
+                    graph.keep_an_input_free(id);
+                }
                 graph.connecting_from = None;
             }
         }
     }
 
     // ── Body double-click → rename ────────────────────────────────────────────
+    // Clear of the inputs on the left side, so a wire is dropped on them.
     let body_rect = egui::Rect::from_min_size(
-        egui::pos2(np.x, np.y + title_h),
-        egui::vec2(NODE_WIDTH * zoom, (NODE_HEIGHT - 32.0) * zoom));
+        egui::pos2(np.x + SOCKET_HIT * 0.5, np.y + title_h),
+        egui::vec2(NODE_WIDTH * zoom - SOCKET_HIT * 0.5, (height - 32.0) * zoom));
     let body_sense = ui.allocate_rect(body_rect, egui::Sense::click());
     if body_sense.double_clicked() {
         graph.renaming_node = Some(id);
@@ -657,7 +725,7 @@ fn draw_node(
 }
 
 /// The palette node bodies take, by add-menu category.
-const CATEGORY_COLOURS: [(&str, [u8; 3]); 7] = [
+const CATEGORY_COLOURS: [(&str, [u8; 3]); 8] = [
     // The pastel palette at 80%, one colour per category.
     ("Create",     [0xAE, 0xC0, 0x96]),   // light green   (#DAF0BB)
     ("Modify",     [0x96, 0xA2, 0xC0]),   // light blue    (#BCCAF0)
@@ -666,6 +734,7 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 7] = [
     ("Primitives", [0x55, 0x5F, 0x7C]),   // slate blue    (#6A779B)
     ("Animation",  [0x96, 0xA2, 0xC0]),   // light blue    (#BCCAF0)
     ("Mocap",      [0xAB, 0x98, 0xBA]),   // mauve         (#D6BEE8)
+    ("Materials",  [0xC0, 0x96, 0xA8]),   // rose          (#F0BCD2)
 ];
 
 /// The ICE node's own colour, whatever its category: the teal of
@@ -736,7 +805,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("🔨", "Modify", vec![
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
-            (NodeType::merge(), "Two inputs as one: primitives side by side, or one mesh"),
+            (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
             (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICE".into() }, "A graph inside a node"),
         ]),
         ("📦", "Primitives", vec![
@@ -744,6 +813,10 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove primitives, or keep only some"),
             (NodeType::SetAttribute { rows: vec![] }, "Set values on prims: a primvar for rendering, or a property such as visibility, purpose, kind or active"),
             (NodeType::UnpackPrims, "Merge primitives into one mesh"),
+        ]),
+        ("🎨", "Materials", vec![
+            (NodeType::Material { surface: Default::default() }, "A UsdPreviewSurface material: colour, roughness, metallic, opacity and textures. Named by the node"),
+            (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
         ]),
         ("🗺", "UV", vec![
             (NodeType::UvUnwrap { method: crate::core::uv::UvMethod::Conformal, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, "Make texture coordinates"),
@@ -820,10 +893,25 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2) 
 // BEZIER HELPERS
 // ============================================================================
 
+#[allow(dead_code)]
 pub fn draw_wire(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, hovered: bool, selected: bool) {
+    draw_wire_to(painter, from, to, (false, false), hovered, selected);
+}
+
+/// The curve's handles: down out of an output below the node or right out
+/// of one on its right side, and down into an input on top or right into
+/// one on the left side. `side`: (the output is on the side, the input is).
+fn handles(from: egui::Pos2, to: egui::Pos2, side: (bool, bool)) -> (egui::Pos2, egui::Pos2) {
     let off = (to.y - from.y).abs().max(60.0) * 0.5;
-    let c1  = egui::pos2(from.x, from.y + off);
-    let c2  = egui::pos2(to.x,   to.y   - off);
+    let across = (to.x - from.x).abs().max(60.0) * 0.5;
+    let c1 = if side.0 { egui::pos2(from.x + across, from.y) } else { egui::pos2(from.x, from.y + off) };
+    let c2 = if side.1 { egui::pos2(to.x - across, to.y) } else { egui::pos2(to.x, to.y - off) };
+    (c1, c2)
+}
+
+/// A wire between an output and an input, either of them on a side.
+pub fn draw_wire_to(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, side: (bool, bool), hovered: bool, selected: bool) {
+    let (c1, c2) = handles(from, to, side);
     let pts: Vec<egui::Pos2> =
         (0..=20).map(|i| bezier(from, c1, c2, to, i as f32 / 20.0)).collect();
     let (width, color) = if selected {
@@ -836,10 +924,8 @@ pub fn draw_wire(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, hove
     painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
 }
 
-fn is_near_bezier(p: egui::Pos2, from: egui::Pos2, to: egui::Pos2, thresh: f32) -> bool {
-    let off = (to.y - from.y).abs().max(60.0) * 0.5;
-    let c1  = egui::pos2(from.x, from.y + off);
-    let c2  = egui::pos2(to.x,   to.y   - off);
+fn is_near_bezier(p: egui::Pos2, from: egui::Pos2, to: egui::Pos2, side: (bool, bool), thresh: f32) -> bool {
+    let (c1, c2) = handles(from, to, side);
     (0..=20).any(|i| {
         let q = bezier(from, c1, c2, to, i as f32 / 20.0);
         ((q.x - p.x).powi(2) + (q.y - p.y).powi(2)).sqrt() < thresh

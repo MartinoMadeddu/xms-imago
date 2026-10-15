@@ -242,6 +242,11 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
     }
 
     let packed = if stage.is_none() { graph.evaluate_for_viewport_packed(&eval_subnet) } else { None };
+    // A material viewed on its own: a sphere wearing it.
+    let packed = match packed {
+        Some(EvalResult::Material(m)) => Some(crate::core::material::preview(&m)),
+        other => other,
+    };
     let surface_grey = { let c = linear_f([0.6, 0.6, 0.6]); [c[0], c[1], c[2], 1.0] };
     let wire_ink = { let c = ink(crate::theme::c(225, 225, 225)); [c[0], c[1], c[2], 1.0] };
     let bg_lin = { let c = linear(bg); [c[0], c[1], c[2], 1.0] };
@@ -256,6 +261,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 .filter(|p| !crate::core::props::invisible(p))
                 // A point instancer is drawn by its prototypes, at its points.
                 .filter(|p| p.instancing.is_none())
+                // A material is worn, not drawn.
+                .filter(|p| p.shading.is_none())
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {

@@ -59,6 +59,21 @@ pub enum NodeType {
     /// names: a constant primvar (Object) or the prim's own attribute or
     /// metadata (Property), one per row. See `core::props`.
     SetAttribute { rows: Vec<crate::core::props::SetRow> },
+    /// A UsdPreviewSurface material with fixed inputs, named by the
+    /// operator. Material Binding puts it in the scene. See `core::material`.
+    Material     { #[serde(default)] surface: crate::core::material::PreviewSurface },
+    /// Materials put in the scene and bound to prims. Input 0 is the scene;
+    /// inputs 1 and on, on the node's left, one material each. Each row of
+    /// its Prims Location tab binds what its `bindings` entry says: the
+    /// material input of the row's number unless chosen. `library`: the
+    /// Material Library Location the materials go under. `inputs`: how many
+    /// material inputs (one more is added when the last is wired). See
+    /// `core::material::bind`.
+    MaterialBinding {
+        #[serde(default = "material_library")] library: String,
+        #[serde(default = "one_input")] inputs: u32,
+        #[serde(default)] bindings: Vec<crate::core::material::BindTo>,
+    },
     /// Merge packed primitives into one mesh.
     UnpackPrims,
     /// Moves whatever comes in: a mesh, packed primitives (the picked ones,
@@ -70,9 +85,12 @@ pub enum NodeType {
         #[serde(with = "vec3_array")] rotation:    Vec3,
         #[serde(with = "vec3_array")] scale:       Vec3,
     },
-    /// Two inputs as one. What it does follows `mode`: see `MergeMode`.
-    /// Graphs saved before the mode existed get Auto (`graph_io`).
-    Merge        { #[serde(default)] mode: MergeMode },
+    /// Its inputs as one, in order: on the same path the later input is the
+    /// stronger. What it does follows `mode`: see `MergeMode`. Graphs saved
+    /// before the mode existed get Auto (`graph_io`). `inputs`: how many
+    /// (one more is added when the last is wired); two in graphs saved
+    /// before.
+    Merge        { #[serde(default)] mode: MergeMode, #[serde(default = "two_inputs")] inputs: u32 },
     /// An ICE node: an ICE graph run on what comes in. Saved as "Subnet" by
     /// earlier versions.
     #[serde(alias = "Subnet")]
@@ -252,6 +270,9 @@ pub fn prim_location(text: &str, fallback: &str) -> String {
 }
 
 pub fn cube_location()   -> String { "/cube".into() }
+pub fn material_library() -> String { "/materials".into() }
+fn one_input() -> u32 { 1 }
+fn two_inputs() -> u32 { 2 }
 pub fn sphere_location() -> String { "/sphere".into() }
 pub fn grid_location()   -> String { "/grid".into() }
 
@@ -263,7 +284,7 @@ impl NodeType {
     /// A grid at its default Primitive Location.
     pub fn grid(rows: u32, cols: u32, size: f32) -> Self { NodeType::CreateGrid { rows, cols, size, location: grid_location() } }
     /// A Merge that goes by its first input.
-    pub fn merge() -> Self { NodeType::Merge { mode: MergeMode::Auto } }
+    pub fn merge() -> Self { NodeType::Merge { mode: MergeMode::Auto, inputs: 2 } }
 
     /// Nodes that create animation data with no input.
     pub fn is_anim_generator(&self) -> bool {
@@ -296,6 +317,8 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PickPrims { .. }     => "👆",
         NodeType::PrunePrims { .. }    => "🚫",
         NodeType::SetAttribute { .. }  => "🏷",
+        NodeType::Material { .. }      => "🎨",
+        NodeType::MaterialBinding { .. } => "🔗",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
@@ -348,6 +371,8 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PickPrims { .. }     => "Pick Primitives",
         NodeType::PrunePrims { .. }    => "Prune Primitives",
         NodeType::SetAttribute { .. }  => "Set Attribute",
+        NodeType::Material { .. }      => "Material",
+        NodeType::MaterialBinding { .. } => "Material Binding",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",
@@ -759,6 +784,9 @@ pub struct Prim {
     /// instancer's points that use its prototype (`core::instancing::sync`),
     /// so what moves the points moves the copies. `None` for the rest.
     pub instanced_by: Option<std::sync::Arc<InstancedBy>>,
+    /// A material Material Binding put in the scene: this prim is it (a USD
+    /// `Material`), with no geometry. `None` for the rest.
+    pub shading: Option<std::sync::Arc<crate::core::material::Material>>,
 }
 
 /// Which instancer a prototype mesh is drawn by, and what its placements
@@ -873,7 +901,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -932,6 +960,8 @@ pub enum EvalResult {
     Named(Vec<Prim>),
     /// Skeleton + clip. Shared, so passing it along the graph is cheap.
     Anim(std::sync::Arc<crate::core::anim::AnimData>),
+    /// A material, for Material Binding to put in the scene. Shared.
+    Material(std::sync::Arc<crate::core::material::Material>),
 }
 
 impl EvalResult {
@@ -939,7 +969,7 @@ impl EvalResult {
         match self {
             EvalResult::Single(m) => m,
             EvalResult::Named(prims) => merge_world(&prims.iter().collect::<Vec<_>>()),
-            EvalResult::Anim(_) => MeshData::default(),
+            EvalResult::Anim(_) | EvalResult::Material(_) => MeshData::default(),
         }
     }
 
@@ -950,7 +980,7 @@ impl EvalResult {
         match self {
             EvalResult::Single(m) => vec![m],
             EvalResult::Named(prims) => prims.iter().map(|p| p.world().into_owned()).collect(),
-            EvalResult::Anim(_) => vec![],
+            EvalResult::Anim(_) | EvalResult::Material(_) => vec![],
         }
     }
 
@@ -1035,7 +1065,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone() });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone() });
                     }
                 }
                 EvalResult::Named(out)
@@ -1398,7 +1428,7 @@ impl SceneHierarchy {
     /// once it is gone nothing is selected, and the Primitive Inspector shows
     /// the whole scene again.
     pub fn rebuild_scene(&mut self, scene: Option<(NodeId, String, EvalResult)>) {
-        let plain = matches!(scene, Some((_, _, EvalResult::Single(_))));
+        let plain = matches!(scene, Some((_, _, EvalResult::Single(_) | EvalResult::Material(_))));
         self.rebuild(scene.into_iter().collect());
         if !plain && self.objects.first().is_some_and(|o| o.key.starts_with("node:")) {
             self.objects.remove(0);
@@ -1477,6 +1507,23 @@ impl SceneHierarchy {
                         stage_path:   None,
                         path:         None,
                         type_name:    String::new(),
+                    });
+                }
+
+                // A material on its own: one row, by its name.
+                EvalResult::Material(m) => {
+                    let id = self.next_id();
+                    self.objects.push(SceneObject {
+                        id,
+                        name:         m.name.clone(),
+                        icon:         "🎨",
+                        depth:        0,
+                        has_children: false,
+                        expanded:     true,
+                        key:          node_key,
+                        stage_path:   None,
+                        path:         None,
+                        type_name:    "Material".into(),
                     });
                 }
 
@@ -1560,6 +1607,13 @@ impl SceneHierarchy {
                     // Everything else by the segments of its path.
                     let mut seen_parents: std::collections::HashSet<String> =
                         std::collections::HashSet::new();
+                    // Groups with geometry below them are Xforms; those with
+                    // materials alone (the Material Library Location) Scopes.
+                    let holds_geometry: std::collections::HashSet<String> = prims.iter()
+                        .filter(|p| p.shading.is_none())
+                        .flat_map(|p| { let segs: Vec<&str> = p.path.trim_start_matches('/').split('/').collect();
+                            (1..segs.len()).map(move |n| segs[..n].join("/")).collect::<Vec<_>>() })
+                        .collect();
 
                     for prim in prims.iter().filter(|p| !listed.contains(&p.path)) {
                         let segs: Vec<&str> = prim.path
@@ -1586,7 +1640,7 @@ impl SceneHierarchy {
                                     key,
                                     stage_path:   None,
                                     path:         Some(format!("/{parent_key}")),
-                                    type_name:    "Xform".into(),
+                                    type_name:    if holds_geometry.contains(&parent_key) { "Xform".into() } else { "Scope".into() },
                                 });
                             }
                         }
@@ -1598,7 +1652,7 @@ impl SceneHierarchy {
                         self.objects.push(SceneObject {
                             id,
                             name:         leaf_name.clone(),
-                            icon:         prim_icon(&leaf_name, false),
+                            icon:         if prim.shading.is_some() { "🎨" } else { prim_icon(&leaf_name, false) },
                             depth:        leaf_depth,
                             has_children: false,
                             expanded:     true,
@@ -1607,6 +1661,7 @@ impl SceneHierarchy {
                             path:         Some(prim.path.clone()),
                             type_name:    match prim.geo.as_ref().map(|g| &g.topology) {
                                 _ if prim.instancing.is_some() => "PointInstancer".into(),
+                                _ if prim.shading.is_some() => "Material".into(),
                                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                                 _ => "Mesh".into(),

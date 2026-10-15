@@ -189,6 +189,16 @@ pub fn draw_properties(
                 graph.eval_scene_paths(src, out, &pass)
             }).unwrap_or_default()
     } else { vec![] };
+    // What reaches a Material Binding: the material on each input, and the
+    // materials of the scene coming in.
+    let (binding_ports, scene_materials) = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
+        Some(NodeType::MaterialBinding { .. }) => {
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+            graph.binding_inputs(sel_id, &pass)
+        }
+        _ => (vec![], vec![]),
+    };
+    let port_names: Vec<Option<String>> = binding_ports.iter().map(|m| m.as_ref().map(|m| m.name.clone())).collect();
     // What reaches a Body Collide node: its clip and its collider.
     let collide_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::Ragdoll { .. }) => graph.ragdoll_inputs(sel_id),
@@ -205,7 +215,9 @@ pub fn draw_properties(
         let set = crate::core::locations::rows(&node.locations).count();
         ui.horizontal(|ui| {
             if ui.selectable_label(!on_locations, "Parameters").clicked() { on_locations = false; }
-            let label = if set == 0 { "Prims Location".to_string() } else { format!("Prims Location ({set})") };
+            // Material Binding's rows are its bindings: a location and a material each.
+            let tab_name = if matches!(node.node_type, NodeType::MaterialBinding { .. }) { "Bindings" } else { "Prims Location" };
+            let label = if set == 0 { tab_name.to_string() } else { format!("{tab_name} ({set})") };
             let tab = ui.selectable_label(on_locations, label)
                 .on_hover_text("The primitives this operator works on. Drop prims from the Scene Explorer here");
             if tab.clicked() { on_locations = true; }
@@ -219,11 +231,16 @@ pub fn draw_properties(
         if on_locations {
             let kind = match node.node_type {
                 NodeType::PrunePrims { .. } => TabKind::Prune,
+                NodeType::MaterialBinding { .. } => TabKind::Binds,
                 _ if names => TabKind::Names,
                 _ => TabKind::Takes,
             };
             let paths = if names { &scene_in } else { &prim_paths };
-            locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind);
+            let binds = match &mut node.node_type {
+                NodeType::MaterialBinding { bindings, .. } => Some(BindColumn { to: bindings, inputs: &port_names, scene: &scene_materials }),
+                _ => None,
+            };
+            locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind, binds);
             return;
         }
     }
@@ -390,13 +407,14 @@ pub fn draw_properties(
             if reset { *translation = Vec3::ZERO; *rotation = Vec3::ZERO; *scale = Vec3::ONE; }
             if clip { clip_summary(ui, anim, true); }
         }
-        NodeType::Merge { mode } => group(ui, "Merge", None, |f| {
+        NodeType::Merge { mode, inputs } => group(ui, "Merge", Some("Its inputs, in order: on the same path the later is the stronger. Wiring the last input adds another"), |f| {
+            if f.drag_u32("Inputs", Some("How many inputs. Fewer drops the wires on the ones taken away"), inputs, 2..=64).changed() { resync = true; }
             f.choice("Mode", Some("Auto goes by the first input: primitives are merged as primitives, a plain mesh or a clip becomes one mesh. Primitives and Flatten force one or the other"),
                 mode, &[(MergeMode::Auto, "Auto"), (MergeMode::Primitives, "Primitives"), (MergeMode::Flatten, "Flatten")]);
             match mode {
                 MergeMode::Auto => f.status(Status::Info, "Primitives when A brings primitives, else one mesh"),
-                MergeMode::Primitives => f.status(Status::Info, "A and B side by side; on the same path, B is the stronger"),
-                MergeMode::Flatten => f.status(Status::Info, "A and B as one mesh"),
+                MergeMode::Primitives => f.status(Status::Info, "The inputs side by side; on the same path, the later is the stronger"),
+                MergeMode::Flatten => f.status(Status::Info, "All the inputs as one mesh"),
             }
         }),
         NodeType::Ice { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
@@ -419,6 +437,10 @@ pub fn draw_properties(
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
         NodeType::SetAttribute { rows } => set_attribute_rows(ui, rows, located, prim_paths.len()),
+        NodeType::Material { surface } => material_rows(ui, surface, &node.name, io, sel_id),
+        NodeType::MaterialBinding { library, inputs, .. } => {
+            resync |= binding_rows(ui, library, inputs, &binding_ports, crate::core::locations::rows(&node.locations).count());
+        }
         NodeType::UnpackPrims => group(ui, "Unpack", Some("Nodes that need one mesh do this on their own. Unpack makes it explicit, or drops a pick"), |f| {
             f.value("In", format!("{} primitives", prim_paths.len()));
             f.value("Out", "One mesh");
@@ -1274,6 +1296,160 @@ fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>
 
 // ── Shared rows ───────────────────────────────────────────────────────────────
 
+/// A Material node: the name it goes into the scene by, the surface's
+/// inputs, and the texture files feeding them. An input fed by a texture
+/// is greyed out: its value comes from the texture.
+fn material_rows(ui: &mut egui::Ui, s: &mut crate::core::material::PreviewSurface, name: &str, io: &mut PanelIo, node: NodeId) {
+    use crate::core::material::{prim_name, TEXTURED};
+    group(ui, "Material", Some("Material Binding puts it in the scene under its Material Library Location (/materials by default), by this name. Rename the node to rename it"), |f| {
+        f.value("Prim name", prim_name(name));
+    });
+    let fed = |input: &str| s.texture(input).is_some();
+    let (diffuse, emissive, metallic, roughness, opacity) = (fed("diffuseColor"), fed("emissiveColor"), fed("metallic"), fed("roughness"), fed("opacity"));
+    group(ui, "Surface", Some("A UsdPreviewSurface. Values in linear colour, as USD has them"), |f| {
+        f.enabled(!diffuse, |f| { f.row("Diffuse", None, |ui| colour_fields(ui, &mut s.diffuse_color)); });
+        f.enabled(!metallic, |f| { f.slider("Metallic", None, &mut s.metallic, 0.0..=1.0, ""); });
+        f.enabled(!roughness, |f| { f.slider("Roughness", None, &mut s.roughness, 0.0..=1.0, ""); });
+        f.enabled(!opacity, |f| { f.slider("Opacity", None, &mut s.opacity, 0.0..=1.0, ""); });
+        f.slider("Opacity threshold", Some("Below this opacity the surface is cut out. 0: see-through instead"), &mut s.opacity_threshold, 0.0..=1.0, "");
+        f.slider("IOR", Some("Index of refraction"), &mut s.ior, 1.0..=3.0, "");
+        f.slider("Clearcoat", None, &mut s.clearcoat, 0.0..=1.0, "");
+        f.slider("Coat roughness", None, &mut s.clearcoat_roughness, 0.0..=1.0, "");
+        f.enabled(!emissive, |f| { f.row("Emissive", None, |ui| colour_fields(ui, &mut s.emissive_color)); });
+    });
+    group(ui, "Textures", Some("Image files feeding the inputs, read through the `st` texture coordinates. Colours are read as sRGB, the rest as they are. An opacity file that is the diffuse file reads its alpha"), |f| {
+        for (input, label) in TEXTURED {
+            let mut file = s.textures.get(input).cloned().unwrap_or_default();
+            let mut clear = false;
+            f.row(label, None, |ui| {
+                ui.horizontal(|ui| {
+                    let w = ui.available_width() - if file.is_empty() { 34.0 } else { 62.0 };
+                    ui.add(egui::TextEdit::singleline(&mut file).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
+                    if ui.button("📂").on_hover_text("Browse").clicked() {
+                        io.browser.open(BrowseTarget::Texture(node, input), BrowseMode::File, &format!("Texture for {label}"), &["png", "jpg", "jpeg", "exr", "tif", "tiff", "tga", "hdr"], "");
+                    }
+                    if !file.is_empty() && ui.button("✕").on_hover_text("No texture").clicked() { clear = true; }
+                });
+            });
+            if clear || file.trim().is_empty() { s.textures.remove(input); } else { s.textures.insert(input.to_string(), file.clone()); }
+            if !clear && !file.trim().is_empty() && !std::path::Path::new(file.trim()).exists() {
+                f.status(Status::Bad, format!("{label}: file not found"));
+            }
+        }
+    });
+}
+
+/// A colour: its swatch, which opens a picker, and its three values.
+fn colour_fields(ui: &mut egui::Ui, c: &mut [f32; 3]) {
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(c);
+        let gap = ui.spacing().item_spacing.x;
+        let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(30.0);
+        let h = ui.spacing().interact_size.y;
+        for x in c.iter_mut() { ui.add_sized([w, h], egui::DragValue::new(x).speed(0.01).range(0.0..=f32::MAX).max_decimals(3)); }
+    });
+}
+
+/// A row's Material column: the input of its number by default, another
+/// input with a material wired in, or Location: a material already in the
+/// scene, by its path, typed on a line of its own under the row.
+fn bind_choice(ui: &mut egui::Ui, row: usize, col: &mut BindColumn) {
+    use crate::core::material::BindTo;
+    let input = |n: usize| match col.inputs.get(n.wrapping_sub(1)) {
+        Some(Some(name)) => format!("{n}: {name}"),
+        _ => format!("{n}: none"),
+    };
+    let current = col.to.get(row).cloned().unwrap_or_default();
+    let text = match &current {
+        BindTo::Same => input(row + 1),
+        BindTo::Input(n) => input(*n as usize),
+        BindTo::Path(_) => "Location".to_string(),
+    };
+    let mut picked = None;
+    egui::ComboBox::from_id_salt(("bind_to", row)).width(96.0).selected_text(text).show_ui(ui, |ui| {
+        // The materials wired into this operator, by input.
+        for (k, name) in col.inputs.iter().enumerate() {
+            let n = k + 1;
+            if name.is_none() && n != row + 1 { continue; }
+            let choice = if n == row + 1 { BindTo::Same } else { BindTo::Input(n as u32) };
+            let label = if n == row + 1 { format!("{} (this row's)", input(n)) } else { input(n) };
+            if ui.selectable_label(current == choice, label).clicked() { picked = Some(choice); }
+        }
+        ui.separator();
+        let at = matches!(current, BindTo::Path(_));
+        if ui.selectable_label(at, "Location").on_hover_text("A material already in the scene, by its path: typed, picked or dropped from the Scene Explorer on the line under the row").clicked() && !at {
+            picked = Some(BindTo::Path(String::new()));
+        }
+    }).response.on_hover_text("The material this row binds: one wired into this operator, or Location, a material already in the scene");
+    if let Some(choice) = picked {
+        while col.to.len() <= row { col.to.push(BindTo::Same); }
+        col.to[row] = choice;
+    }
+}
+
+/// Under a row bound by Location: the material's path, typed, picked from
+/// the materials of the scene coming in, or dropped from the Scene Explorer.
+fn material_location_row(f: &mut Rows, row: usize, col: &mut BindColumn) {
+    use crate::core::material::BindTo;
+    let scene = col.scene;
+    let Some(BindTo::Path(path)) = col.to.get_mut(row) else { return };
+    f.row("", Some("The material's path in the scene"), |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("↳ 🎨").color(ink::DIM()));
+            let w = (ui.available_width() - 52.0).max(60.0);
+            let field = ui.add(egui::TextEdit::singleline(path).desired_width(w).hint_text("/materials/name")
+                .font(egui::TextStyle::Monospace).background_color(location_bg()));
+            if let Some(p) = field.dnd_release_payload::<crate::types::DraggedPrims>() {
+                if let Some(first) = p.0.first() { *path = first.clone(); }
+            }
+            ui.add_enabled_ui(!scene.is_empty(), |ui| {
+                crate::menus::menu(ui, "Pick", |ui| {
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        for m in scene {
+                            if ui.selectable_label(path.trim() == m, m).clicked() { *path = m.clone(); ui.close(); }
+                        }
+                    });
+                }).response.on_hover_text("A material of the scene coming in");
+            });
+        });
+    });
+    let p = path.trim();
+    if p.is_empty() { f.status(Status::Info, "No material location: the row binds nothing"); }
+    else if !scene.iter().any(|m| m == p) { f.status(Status::Bad, format!("{p}: no material there in the scene coming in")); }
+}
+
+/// Material Binding's parameters: where the materials go, and what is on
+/// each input. True when the number of inputs changed.
+fn binding_rows(ui: &mut egui::Ui, library: &mut String, inputs: &mut u32, ports: &[Option<std::sync::Arc<crate::core::material::Material>>], rows: usize) -> bool {
+    use crate::core::material::{library_path, placed};
+    group(ui, "Material Library", Some("Where the materials wired into this operator go in the scene, each by its operator's name"), |f| {
+        f.row("Location", Some("A USD path. Its parents are Scopes"), |ui| {
+            ui.add(egui::TextEdit::singleline(library).hint_text("/materials").desired_width(ui.available_width())
+                .font(egui::TextStyle::Monospace).background_color(location_bg()))
+        });
+        let path = library_path(library);
+        if path != library.trim() { f.status(Status::Info, format!("Used as {path}")); }
+    });
+    let mut changed = false;
+    group(ui, "Materials", Some("One input per material, on the node's left side. Wiring the last one adds another"), |f| {
+        let places = placed(library, ports);
+        for (k, m) in ports.iter().enumerate() {
+            let label = format!("Input {}", k + 1);
+            match (m, places.get(k).cloned().flatten()) {
+                (None, _) => f.value(&label, "No material"),
+                (Some(_), Some(path)) => f.value(&label, path),
+                (Some(m), None) => f.status(Status::Bad, format!("{label}: an earlier input's material is also named {}. That one is used", m.name)),
+            }
+        }
+        changed = f.drag_u32("Inputs", Some("How many material inputs. Fewer drops the wires on the ones taken away"), inputs, 1..=64).changed();
+    });
+    group(ui, "Bindings", Some("The rows are on the Bindings tab"), |f| {
+        if rows == 0 { f.status(Status::Info, "No rows yet: nothing is bound. On the Bindings tab, row 1 binds the material on input 1, row 2 the one on input 2…"); }
+        else { f.status(Status::Info, format!("{rows} rows on the Bindings tab. On a primitive two rows take, the later wins")); }
+    });
+    changed
+}
+
 /// Path field with a button that opens the file browser.
 fn path_row(f: &mut Rows, value: &mut String, hint: &str, io: &mut PanelIo, node: NodeId, mode: BrowseMode, title: &str, exts: &[&str]) {
     f.row("Path", None, |ui| {
@@ -1516,26 +1692,39 @@ enum TabKind {
     Prune,
     /// A path names that prim alone, of any kind (Set Attribute).
     Names,
+    /// As Takes, each row with the material it binds: empty binds nothing.
+    Binds,
+}
+
+/// Material Binding's Material column: what each row binds, the material
+/// on each input (its name), and the materials of the scene coming in.
+struct BindColumn<'a> {
+    to:     &'a mut Vec<crate::core::material::BindTo>,
+    inputs: &'a [Option<String>],
+    scene:  &'a [String],
 }
 
 /// The Prims Location tab: the Primitive Locations an operator works on, one
 /// per row, each with how many of the primitives coming in it matches.
-fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], kind: TabKind) {
+fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], kind: TabKind, mut binds: Option<BindColumn>) {
     use crate::core::locations;
     let names = kind == TabKind::Names;
     let prune = kind == TabKind::Prune;
+    let binding = kind == TabKind::Binds;
     let hits = |row: &str, p: &str| if names { locations::names(row, p) } else { locations::matches(row, p) };
-    let hint = if names {
+    let hint = if binding {
+        "Each row binds a material to the primitive at its path and every one below it: the material input of the row's number, unless another input is chosen in its Material column, or Location, a material already in the scene by its path. On a primitive two rows take, the later row wins"
+    } else if names {
         "A path names that prim alone: a group, a camera or a light as well as a mesh. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/* names the children of /set, /set/** /set and everything below it"
     } else {
         "A path takes that primitive and everything below it. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/**/lamp*"
     };
-    group(ui, "Primitive Locations", Some(hint), |f| {
+    group(ui, if binding { "Bindings" } else { "Primitive Locations" }, Some(hint), |f| {
         let mut remove = None;
         for (k, row) in list.iter_mut().enumerate() {
             f.row(&format!("{}", k + 1), None, |ui| {
                 ui.horizontal(|ui| {
-                    let w = (ui.available_width() - 74.0).max(60.0);
+                    let w = (ui.available_width() - if binds.is_some() { 180.0 } else { 74.0 }).max(60.0);
                     // A path, not text: grey, in the code font, so a location
                     // is told apart from the other text fields at a glance.
                     ui.add(egui::TextEdit::singleline(row).desired_width(w).hint_text("/path/to/prim")
@@ -1547,11 +1736,18 @@ fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], se
                         let label = if n == 0 { ui.colored_label(ink::BAD(), text) } else { ui.label(text) };
                         label.on_hover_text(if n == 0 { "Matches no primitive coming in".to_string() } else { format!("Matches {n} of the primitives coming in") });
                     }
+                    if let Some(col) = binds.as_mut() { bind_choice(ui, k, col); }
                     if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
                 });
             });
+            // Bound to a material of the scene by its path: the path, under the row.
+            if let Some(col) = binds.as_mut() { material_location_row(f, k, col); }
         }
-        if let Some(k) = remove { list.remove(k); }
+        if let Some(k) = remove {
+            list.remove(k);
+            // Its material goes with it.
+            if let Some(col) = binds.as_mut() { if k < col.to.len() { col.to.remove(k); } }
+        }
         f.row("", None, |ui| {
             ui.horizontal(|ui| {
                 let tip = match selected {
@@ -1580,6 +1776,7 @@ fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], se
         let set = locations::is_set(list);
         let taken = paths.iter().filter(|p| list.iter().any(|row| !row.trim().is_empty() && hits(row, p))).count();
         match (set, prune) {
+            (false, _) if binding => f.status(Status::Info, "Empty: nothing is bound. Add a row per material: row 1 binds the material on input 1"),
             (false, false) => f.status(Status::Info, "Empty: every primitive coming in (or those an earlier Pick Primitives chose)"),
             (false, true) => f.status(Status::Info, "Empty: nothing is pruned"),
             (true, _) if paths.is_empty() => f.status(Status::Info, "No primitives coming in"),

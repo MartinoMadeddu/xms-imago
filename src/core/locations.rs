@@ -17,7 +17,8 @@ use crate::types::{EvalResult, NodeType};
 
 /// Whether an operator has a Prims Location tab.
 pub fn takes_locations(t: &NodeType) -> bool {
-    matches!(t, NodeType::Transform { .. } | NodeType::EditPoly { .. } | NodeType::PrunePrims { .. } | NodeType::SetAttribute { .. })
+    matches!(t, NodeType::Transform { .. } | NodeType::EditPoly { .. } | NodeType::PrunePrims { .. } | NodeType::SetAttribute { .. }
+        | NodeType::MaterialBinding { .. })
 }
 
 /// Whether an operator's locations name prims rather than take what is

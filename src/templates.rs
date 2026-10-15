@@ -73,6 +73,10 @@ pub const TEMPLATES: &[Template] = &[
         hint: "The model cut down to its wheels and callipers with a path pattern" },
     Template { by: MARTINO, group: "USD stages", name: "USD: set attribute", build: usd_set_attribute,
         hint: "Values set on prims: the wheels made invisible, the model's root made a component asset. Add a Write USD node to see them written" },
+    Template { by: MARTINO, group: "USD stages", name: "Material bindings", build: material_bindings,
+        hint: "Four shapes in one Merge, three materials bound to them by row under /root/materials, and a second Material Binding giving a fourth shape the textured ground material by Location. Write USD is viewed" },
+    Template { by: MARTINO, group: "USD stages", name: "USD: material binding", build: usd_material_binding,
+        hint: "Two Material operators wired into a Material Binding: car paint on the whole model, chrome on the wheels (the later row wins). Textured mode shows them" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Clip basics", build: clip_basics,
         hint: "Test clip renamed, trimmed, retimed and given a start timecode. Select each node to see the timeline follow" },
     Template { by: SIMON, group: "Animation & Mocap", name: "FBX import", build: fbx_import,
@@ -121,6 +125,9 @@ fn p(x: f32, y: f32) -> egui::Pos2 { egui::pos2(x, y) }
 
 /// View the last operator: its output is the scene. Select `focus`.
 fn finish(graph: &mut NodeGraphState, last: NodeId, focus: NodeId) {
+    // Merge and Material Binding keep an input free, as when wired by hand.
+    let ids: Vec<NodeId> = graph.nodes.iter().map(|n| n.id).collect();
+    for id in ids { graph.keep_an_input_free(id); }
     graph.view_flag      = Some(last);
     graph.view_output    = 0;
     graph.selected_node  = Some(focus);
@@ -185,7 +192,7 @@ fn subnet(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     let node   = g.add_node("ScatterCopy".into(), NodeType::Ice { id, name: "ScatterCopy".into() }, p(180.0, 140.0));
     // Both inputs come from the same grid, so they have the same path: as
     // primitives the ground would replace the copies. Flatten keeps both.
-    let merge  = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Flatten }, p(180.0, 260.0));
+    let merge  = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Flatten, inputs: 2 }, p(180.0, 260.0));
     g.add_connection(grid, 0, node, 0);
     g.add_connection(sphere, 0, node, 1);
     g.add_connection(node, 0, merge, 0);
@@ -427,6 +434,85 @@ fn usd_set_attribute(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     format!("USD set attribute: HideWheels makes every prim with Wheel in its name invisible; Asset sets kind and a displayColor on the root prim, a group: one opinion each, on the group. Add a Write USD node after Asset to see them written.{}", missing_examples())
 }
 
+fn usd_material_binding(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::material::PreviewSurface;
+    let load = load_delorean(g);
+    let paint = g.add_node("CarPaint".into(), NodeType::Material { surface: PreviewSurface {
+        diffuse_color: [0.45, 0.02, 0.02], metallic: 0.6, roughness: 0.3, clearcoat: 1.0, ..Default::default() } }, p(-60.0, 90.0));
+    let chrome = g.add_node("Chrome".into(), NodeType::Material { surface: PreviewSurface {
+        diffuse_color: [0.9, 0.9, 0.9], metallic: 1.0, roughness: 0.08, ..Default::default() } }, p(-60.0, 170.0));
+    let looks = g.add_node("Looks".into(), NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 3, bindings: vec![] }, p(180.0, 110.0));
+    // Row 1, the whole model, gets input 1; row 2, the wheels, input 2.
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == looks) { n.locations = vec!["/*".into(), "/**/*Wheel*".into()]; }
+    g.add_connection(load, 0, looks, 0);
+    g.add_connection(paint, 0, looks, 1);
+    g.add_connection(chrome, 0, looks, 2);
+    finish(g, looks, looks);
+    format!("USD material binding: CarPaint and Chrome go under /materials; row 1 of the Bindings tab binds input 1 to the whole model, row 2 input 2 to the wheels, the later row winning. Switch the Viewer to Textured to see them, and add a Write USD node to write them.{}", missing_examples())
+}
+
+/// Martino's material bindings graph: shapes at Primitive Locations under
+/// /root/asset, one Merge, Transforms by location, and two Material
+/// Bindings: the first puts four materials under /root/materials and binds
+/// three by row, the second binds the first one's ground material by
+/// Location.
+fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::material::{BindTo, PreviewSurface};
+    use crate::core::uv::UvMethod;
+    crate::graph_io::clear(g);
+    let colour = |c: [f32; 3]| NodeType::Material { surface: PreviewSurface { diffuse_color: c, ..Default::default() } };
+    let locate = |g: &mut NodeGraphState, id: NodeId, rows: &[&str]| {
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) { n.locations = rows.iter().map(|r| r.to_string()).collect(); }
+    };
+    let transform = |t: [f32; 3], r: [f32; 3], s: [f32; 3]| NodeType::Transform { translation: Vec3::from(t), rotation: Vec3::from(r), scale: Vec3::from(s) };
+
+    // The shapes.
+    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/root/asset/cube".into() }, p(80.0, -620.0));
+    let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 0.5, segments: 32, location: "/root/asset/sphere".into() }, p(310.0, -620.0));
+    let grid = g.add_node("Grid".into(), NodeType::CreateGrid { rows: 10, cols: 10, size: 2.0, location: "/root/asset/grid".into() }, p(545.0, -620.0));
+    let grid_uv = g.add_node("UVUnwrap".into(), NodeType::UvUnwrap { method: UvMethod::Conformal, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, p(545.0, -530.0));
+    let sphere2 = g.add_node("Sphere2".into(), NodeType::CreateSphere { radius: 0.5, segments: 32, location: "/root/asset/sphere_2".into() }, p(760.0, -620.0));
+    let turn = g.add_node("Transform".into(), transform([-2.65, 0.0, 1.97], [0.0, -1.5009831, 0.0], [1.0; 3]), p(760.0, -530.0));
+    let sphere2_uv = g.add_node("UVUnwrap2".into(), NodeType::UvUnwrap { method: UvMethod::Box, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, p(760.0, -440.0));
+    // One Merge for all four, where chaining Merges was needed before.
+    let merge = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Auto, inputs: 4 }, p(395.0, -340.0));
+    // Each Transform moves the primitive its Prims Location tab names.
+    let move_sphere = g.add_node("MoveSphere".into(), transform([-2.32, 0.0, 0.0], [0.0; 3], [1.0; 3]), p(395.0, -230.0));
+    locate(g, move_sphere, &["/root/asset/sphere"]);
+    let move_grid = g.add_node("MoveGrid".into(), transform([0.0, 0.0, 3.0], [0.0; 3], [1.0, 1.0, 1.35]), p(395.0, -130.0));
+    locate(g, move_grid, &["/root/asset/grid"]);
+
+    // The materials, on the first Material Binding's side.
+    let plastic = g.add_node("basePlastic".into(), colour([0.55, 0.18, 0.18]), p(60.0, 35.0));
+    let metal = g.add_node("baseMetal".into(), colour([0.0, 0.18, 0.18]), p(60.0, 130.0));
+    let ground = g.add_node("ground".into(), NodeType::Material { surface: PreviewSurface {
+        textures: [("diffuseColor".to_string(), concat!(env!("CARGO_MANIFEST_DIR"), "/assets/splash.png").to_string())].into(),
+        ..Default::default() } }, p(60.0, 225.0));
+    let spare = g.add_node("test_placeHolder".into(), colour([0.207, 0.307, 0.097]), p(60.0, 320.0));
+    // Rows 1 to 3 bind inputs 1 to 3; input 4 goes into the library unbound.
+    let bind = g.add_node("MaterialBinding".into(), NodeType::MaterialBinding { library: "/root/materials".into(), inputs: 5, bindings: vec![] }, p(395.0, 115.0));
+    locate(g, bind, &["/root/asset/cube", "/root/asset/sphere", "/root/asset/grid"]);
+    // A material already in the scene, bound by Location.
+    let bind_ground = g.add_node("MaterialBinding2".into(), NodeType::MaterialBinding {
+        library: crate::types::material_library(), inputs: 1, bindings: vec![BindTo::Path("/root/materials/ground".into())] }, p(395.0, 300.0));
+    locate(g, bind_ground, &["/root/asset/sphere_2"]);
+    let write = g.add_node("WriteUSD".into(), NodeType::WriteUsd {
+        path: std::env::temp_dir().join("xms_material_bindings.usda").to_string_lossy().to_string() }, p(395.0, 420.0));
+
+    g.add_connection(grid, 0, grid_uv, 0);
+    g.add_connection(sphere2, 0, turn, 0);
+    g.add_connection(turn, 0, sphere2_uv, 0);
+    for (k, src) in [cube, sphere, grid_uv, sphere2_uv].into_iter().enumerate() { g.add_connection(src, 0, merge, k); }
+    g.add_connection(merge, 0, move_sphere, 0);
+    g.add_connection(move_sphere, 0, move_grid, 0);
+    g.add_connection(move_grid, 0, bind, 0);
+    for (k, m) in [plastic, metal, ground, spare].into_iter().enumerate() { g.add_connection(m, 0, bind, k + 1); }
+    g.add_connection(bind, 0, bind_ground, 0);
+    g.add_connection(bind_ground, 0, write, 0);
+    finish(g, write, bind);
+    "Material bindings: four shapes in one Merge; MaterialBinding puts basePlastic, baseMetal, ground and test_placeHolder under /root/materials and binds the first three to the cube, the sphere and the grid by row; MaterialBinding2 binds ground to the second sphere by Location. Switch the Viewer to Textured to see them; Write USD writes them to the temporary folder.".into()
+}
+
 // ── UV ───────────────────────────────────────────────────────────────────────
 
 fn uv_mine(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
@@ -457,13 +543,13 @@ fn uv_udim(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             let row = 200.0 + f as f32 * 90.0;
             let finger = g.add_node(format!("Finger{}_{}", h + 1, f + 1),
                 transform([x - 0.3 + f as f32 * 0.3, 2.35, 0.0], [0.0; 3], [0.2, 0.7, 0.2]), p(col + 110.0, row));
-            let merge = g.add_node(format!("Hand{}_{}", h + 1, f + 1), NodeType::Merge { mode: MergeMode::Flatten }, p(col, row + 45.0));
+            let merge = g.add_node(format!("Hand{}_{}", h + 1, f + 1), NodeType::Merge { mode: MergeMode::Flatten, inputs: 2 }, p(col, row + 45.0));
             g.add_connection(cube, 0, finger, 0);
             g.add_connection(hand, 0, merge, 0);
             g.add_connection(finger, 0, merge, 1);
             hand = merge;
         }
-        let join = g.add_node(format!("Join{}", h + 1), NodeType::Merge { mode: MergeMode::Flatten }, p(480.0, 300.0 + h as f32 * 100.0));
+        let join = g.add_node(format!("Join{}", h + 1), NodeType::Merge { mode: MergeMode::Flatten, inputs: 2 }, p(480.0, 300.0 + h as f32 * 100.0));
         g.add_connection(last, 0, join, 0);
         g.add_connection(hand, 0, join, 1);
         last = join;
@@ -1040,7 +1126,8 @@ mod tests {
             for n in &g.nodes {
                 // The blank mocap template has no folder yet.
                 if t.name == "Mocap split" { break; }
-                if matches!(n.node_type, NodeType::WriteFbx { .. }) { continue; }
+                // A material is not geometry: Material Binding puts it on some.
+                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. }) { continue; }
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1)).map(|o| g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
                     .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0)).max().unwrap_or(0);

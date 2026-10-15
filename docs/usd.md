@@ -8,7 +8,7 @@ Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Pr
 |---|---|
 | Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one primitive per mesh, curves or points prim |
 | Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
-| Merge | Two inputs as one: primitives side by side, or one mesh (its Mode) |
+| Merge | Any number of inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
@@ -89,15 +89,15 @@ Values per point, per face or per corner are not set here: changing them rewrite
 
 Everything in the scene is a primitive, so Cube, Sphere and Grid each make one, at their **Primitive Location**: `/cube`, `/sphere` or `/grid`, or any path typed there, such as `/root/asset/cube1`. The parents on the path are Xforms, as in Solaris. What is typed is made a valid USD path: empty segments are dropped, and characters a USD name cannot hold become `_` ("Used as …" under the field says so).
 
-Merge joins two inputs by its **Mode**:
+Merge joins its inputs, in order, by its **Mode**. It takes any number: wiring its last input adds another, so one is always free (Inputs, in its Parameters, sets how many). One Merge does what a chain of them did.
 
 | Mode | What it does |
 |---|---|
 | Auto | Goes by the first input: primitives are merged as primitives, a plain mesh or a clip is flattened |
-| Primitives | The primitives of both inputs side by side, each keeping its path. A plain mesh among them becomes a primitive at `/mesh` |
+| Primitives | The primitives of every input side by side, each keeping its path. A plain mesh among them becomes a primitive at `/mesh` |
 | Flatten | Everything as one plain mesh, as before primitives were merged, and as Unpack does |
 
-On a path both inputs have, the second input is the stronger, as an `over` on the same path in USD: its primitive takes the first one's place. What it does not say is read from the first one: a shape put on the path of a prim loaded from a file keeps that prim's material and stage, and is written as a change to it.
+On a path two inputs have, the later input is the stronger, as an `over` on the same path in USD: its primitive takes the first one's place. What it does not say is read from the first one: a shape put on the path of a prim loaded from a file keeps that prim's material and stage, and is written as a change to it.
 
 The pattern is a name pattern as described in [Interface](interface.md#name-patterns): comma-separated regular expressions matched against the full prim path, with a "Pick" list of the paths coming in.
 
@@ -146,6 +146,25 @@ Primitives are drawn with their materials: colour, roughness, metallic, opacity,
 - A material with opacity below one is blended. A material whose opacity comes from its colour texture is cut out by that texture's alpha.
 - "Textures" in the Viewer menu turns all of this off and shows plain grey.
 
+## Making materials
+
+The **Material** operator (Add menu, Materials) makes a UsdPreviewSurface material. Its parameters are the surface's inputs: diffuse and emissive colour, metallic, roughness, opacity, opacity threshold, IOR, clearcoat and its roughness, with UsdPreviewSurface's defaults. A Textures group takes an image file for diffuse, emissive, metallic, roughness, opacity, normal and occlusion; an input fed by a texture is greyed out, its value coming from the texture. An opacity file that is the diffuse file reads that texture's alpha.
+
+The material is named by its operator: rename the node to rename it (spaces and other characters USD does not take become `_`). Viewed on its own, it is shown on a sphere, with its colour, opacity and textures in Textured mode, and the Scene Explorer lists it as one row.
+
+It puts out a material, not a scene: Material Binding puts it in the scene and binds it. In USD it is a `Material` holding a `UsdPreviewSurface` shader, a `UsdUVTexture` per file (colours read as sRGB, the rest raw, normal maps scaled to -1..1) and a `UsdPrimvarReader_float2` reading `st`.
+
+## Binding materials
+
+**Material Binding** (Add menu, Materials) takes the scene on its top input and materials on its left side, one per input, numbered. A Material's output is on its right side; sockets carrying a material are purple. Wiring the last material input adds another, so one is always free; Inputs, in its Parameters, sets how many.
+
+- **Material Library Location** (`/materials` by default): every material wired in goes there, by its operator's name (`/materials/CarPaint`), as a `Material` prim with no geometry. Its parents are Scopes. A material already on that path is replaced. Two inputs whose materials have one name: the first is used, and the Parameters say so.
+- **Rows** are on its **Bindings** tab (the Prims Location tab of the other operators): each row takes the primitive at its path and every one below it, as on Transform's tab, and binds its material to them. A row's Material column says which: the input of the row's number unless another input with a material wired in is chosen, or **Location**: a material already in the scene (read from a file, or put there by an earlier Material Binding), by its path. Location opens a line under the row for that path: type it, pick it from the materials of the scene coming in, or drop the material from the Scene Explorer. On a primitive two rows take, the later row wins. No rows: nothing is bound.
+- A row on a group binds each primitive below it, written on each one: what the file bound below it is replaced. A point instancer is not bound itself; its prototypes, below it, are.
+- In the Viewer, Textured mode shows each primitive in its new material. A material of the file that no primitive wore before is shown grey for now.
+- The Scene Explorer lists the materials under the library, of type Material. Selected, the Primitive Inspector's Properties tab lists the surface's inputs, from the Material operator that made it; a bound primitive's `material:binding` row comes from the Material Binding that bound it, and Go to Operator selects either.
+- Write USD writes the materials as `def Material`s with their shaders, under `def Scope` parents, and each binding as `rel material:binding` (with `MaterialBindingAPI`) on the primitive.
+
 ## Write USD
 
 Write USD writes what the scene graph changed as a `.usda` override layer. The layer sublayers the file each stage was read from and holds only opinions over it, so opened on its own (in usdview, rray, or Imago) it gives what Imago shows. It repeats the file's `upAxis` and `metersPerUnit`, which USD reads from the layer that is opened.
@@ -162,6 +181,7 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | Several prims merged into one | The whole geometry, in the prim's own space |
 | A prim pruned | `active = false` |
 | Material binding or purpose changed | `material:binding`, `purpose` |
+| A material Material Binding put in the scene | `def Material` with its `UsdPreviewSurface`, `UsdUVTexture` and `UsdPrimvarReader_float2` shaders, under `def Scope` parents |
 | A point instancer's points or their attributes | `positions`, `orientations`, `scales`, `protoIndices`, `ids` |
 | Set Attribute values | Object: `primvars:name` with `interpolation = "constant"`. Property: an attribute (`token visibility`, `uniform bool doubleSided`, `uniform token subdivisionScheme`, any other name with its type) or metadata (`active`, `kind`, `instanceable`). On any prim of the stage: a group, a camera, a light |
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
@@ -186,7 +206,8 @@ Values are written at the current frame, as single values.
 - Animation: time samples beyond the start time, skeletal animation, skinning, blend shapes
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Nested point instancers
-- Nodes to edit materials, cameras or the hierarchy
+- Materials with a graph inside (compounds); nodes to edit materials read from a file, cameras or the hierarchy
+- Material Binding: binding a group as a group (one `material:binding` on it, inherited below, with `bindMaterialAs` strength), binding purposes (`preview`, `full`), collections; the colour of a file's material no primitive wore before
 - Set Attribute: time samples (values are default values), arrays, inherited Object values read by ICE
 - Arrays, dictionaries (`customData`) and relationships other than the material binding are not listed in the Properties tab
 - Write USD writes nothing for a stage none of whose primitives is left (all pruned, or all below a deactivated group)

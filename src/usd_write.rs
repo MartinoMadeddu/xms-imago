@@ -15,7 +15,9 @@
 //!   merged into one) is written whole, in the prim's own space.
 //! - Pruned prims are deactivated (`active = false`).
 //! - Prims that did not come from a stage are written as new prims (`def`).
-//! - Material binding and purpose changes are written as such.
+//! - Material binding and purpose changes are written as such. Materials
+//!   Material Binding put in the scene are written as `def Material`s with
+//!   their shaders, under `def Scope` parents.
 //!
 //! Prims inside a native instance cannot carry opinions in USD (instance
 //! proxies are read-only), and point-instancer prototypes are changed
@@ -124,15 +126,19 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
             report.changed += 1;
         }
     }
-    // Prims that came from no stage at all (shapes, meshes made by nodes),
-    // in the layer's axes and unit: those of the first stage when there is
-    // one, Imago's (Y up, metres) when not. Their parents are Xforms,
-    // except where a stage already has a prim on that path.
+    // Prims that came from no stage at all (shapes, meshes made by nodes,
+    // materials), in the layer's axes and unit: those of the first stage
+    // when there is one, Imago's (Y up, metres) when not. Their parents are
+    // Xforms, except where a stage already has a prim on that path; those
+    // with materials alone below them (the Material Library Location) are
+    // Scopes.
     let layer_root = trees.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
     let in_a_stage = |path: &str| trees.iter().any(|t| t.nodes.iter().any(|n| n.path == path));
     // Values set on those Xforms, carried by each primitive below them.
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
-    for p in prims.iter().filter(|p| p.stage.is_none()) {
+    let mut made: Vec<&Prim> = prims.iter().filter(|p| p.stage.is_none()).collect();
+    made.sort_by_key(|p| p.shading.is_some());
+    for p in made {
         if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
             report.skipped.push(format!("{}: not a primitive path", if p.path.is_empty() { "(no path)" } else { p.path.as_str() }));
             continue;
@@ -143,7 +149,7 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
         for n in 1..segments.len() {
             let parent = format!("/{}", segments[..n].join("/"));
             let spec = root.at(&parent);
-            if spec.def.is_none() && !in_a_stage(&parent) { spec.def = Some("Xform"); }
+            if spec.def.is_none() && !in_a_stage(&parent) { spec.def = Some(if p.shading.is_some() { "Scope" } else { "Xform" }); }
         }
         for (path, o) in p.above.iter() { above.entry(path.clone()).or_default().merge(o); }
     }
@@ -287,6 +293,19 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
 
 /// A prim that is not in the stage (or not in any): written whole, as new.
 fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
+    // A material: its shaders below it, and no place of its own.
+    if let Some(m) = &p.shading {
+        spec.def = Some("Material");
+        let (lines, shaders) = crate::core::material::network(m, &p.path);
+        spec.lines.extend(lines);
+        for s in shaders {
+            let child = spec.children.entry(s.name).or_default();
+            child.def = Some("Shader");
+            child.lines = s.lines;
+        }
+        for (name, value) in p.props.iter() { property(spec, name, value); }
+        return;
+    }
     let geo = p.geo.as_deref().cloned().unwrap_or_else(|| Geo::from_mesh(&p.mesh));
     spec.def = Some(match geo.topology {
         Topology::Mesh { .. } => "Mesh",
@@ -491,7 +510,7 @@ fn relative(path: &Path, dir: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{MeshData, Source};
+    use crate::types::{EvalResult, MeshData, Source};
 
     /// A stage on disk, loaded as Load USD gives it: packed primitives with
     /// their sources.
@@ -596,6 +615,38 @@ def Xform "set" {{
         // On its own at the default location, the cube is the default prim.
         let (text, _) = override_layer(&[cube_at("/cube")], &out).unwrap();
         assert!(text.contains("defaultPrim = \"cube\"") && text.contains("def Mesh \"cube\""), "{text}");
+    }
+
+    /// Material Binding's result written: the materials as `def Material`s
+    /// under a Scope, the bindings as `material:binding`, and read back by
+    /// the USD reader Imago loads stages with.
+    #[test]
+    fn bound_materials_are_written_and_read_back() {
+        use crate::core::material::{bind, BindTo, Material, PreviewSurface};
+        let (_, mut prims) = load("bound.usda", &stage_text());
+        prims.push(cube_at("/root/cube"));
+        let mut paint = PreviewSurface { roughness: 0.25, metallic: 1.0, ..Default::default() };
+        paint.textures.insert("diffuseColor".into(), "textures/paint.png".into());
+        paint.textures.insert("normal".into(), "textures/paint_n.png".into());
+        let materials = [Some(Arc::new(Material::new("paint", &paint))), Some(Arc::new(Material::new("chrome", &PreviewSurface::default())))];
+        let rows = vec!["/set".to_string(), "/root".to_string()];
+        let EvalResult::Named(bound) = bind(Some(&EvalResult::Named(prims)), &materials, "/materials", &rows, &[BindTo::Same, BindTo::Same]) else { panic!() };
+
+        let out = std::env::temp_dir().join("xms_usd_write_test/bound_over.usda");
+        let report = write_override(&bound, &out).unwrap();
+        assert_eq!((report.changed, report.added), (3, 3), "a, b and c bound; the cube and two materials added: {report:?}");
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in ["def Scope \"materials\"", "def Material \"paint\"", "def Shader \"PreviewSurface\"", "def Shader \"diffuseColorTexture\"",
+                     "rel material:binding = </materials/paint>", "rel material:binding = </materials/chrome>", "def Xform \"root\""] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        let back = crate::usd_scene::load(&out).unwrap();
+        let material = |p: &str| back.meshes.iter().find(|m| m.path == p).and_then(|m| m.material.clone());
+        assert_eq!(material("/set/a").as_deref(), Some("/materials/paint"));
+        assert_eq!(material("/root/cube").as_deref(), Some("/materials/chrome"));
+        let read = back.materials.iter().find(|m| m.path == "/materials/paint").expect("paint is read back");
+        assert_eq!((read.roughness, read.metallic), (Some(0.25), Some(1.0)));
+        assert!(read.textures.contains(&("diffuseColor".to_string(), "textures/paint.png".to_string())), "{:?}", read.textures);
     }
 
     #[test]
