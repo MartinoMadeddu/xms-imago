@@ -20,6 +20,9 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | What a Set Attribute row's value is in USD | Set Primvar, Set Metadata, Set Active, Set Kind… (separate operators) | **Object** (a constant primvar) or **Property** (the prim's own attribute or metadata) | One operator sets every value on a prim; the context says how it is written. Object is the context of the same name, one value per primitive; per point, face and corner values are ICE's. |
 | How a Merge joins its inputs | (none: always one mesh) | **Auto**, **Primitives**, **Flatten** (Merge's Mode) | Auto goes by the first input. "Flatten" is what Unpack does: everything as one plain mesh. |
 | What the Viewer and the Scene Explorer show | Output node | **view flag** | One operator always has it. |
+| An operator making a material | Create Material | **Material** (the operator), its output a **material** | It puts out a material, not a scene; named by the operator. The compound form, with a graph inside, will be a Material too. |
+| The operator binding materials | Material Assign, Mat Bindings | **Material Binding** | USD's word (`material:binding`). Its rows are Primitive Locations, each with a Material column, on its **Bindings** tab. A row bound by **Location** names a material of the scene by its path. |
+| Where Material Binding puts the materials plugged into it | material library | **Material Library Location** (a parameter, `/materials` by default) | A Primitive Location for materials: each goes under it by its operator's name. |
 | ICE graph input and output nodes | SubnetInput / SubnetOutput | **GraphInput / GraphOutput** | Follows "ICE graph". "Graph" also fits ICE compounds (graphs inside an ICE graph), which will use the same terminals. |
 
 ### Contexts and USD

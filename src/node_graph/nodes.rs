@@ -50,6 +50,7 @@ pub fn evaluate_node_type(
                             instancer: i.path.clone(), index: *index, inside: *inside, hidden: i.hidden.clone(),
                             geo: i.geo.clone(), place: i.place.clone(),
                         })),
+                        shading: None,
                     }).collect();
                     // Each point instancer, a points primitive of its own.
                     prims.extend(scene.instancers.iter().map(|i| Prim {
@@ -57,7 +58,7 @@ pub fn evaluate_node_type(
                         stage: Some(scene.tree.clone()), geo: Some(i.geo.clone()),
                         source: Some(Arc::new(crate::types::Source { geo: i.geo.clone(), place: i.place.clone(), material: None, purpose: i.purpose })),
                         place: i.place.clone(), purpose: i.purpose,
-                        props: Default::default(), above: Default::default(), instancing: Some(i.prototypes.clone()), instanced_by: None,
+                        props: Default::default(), above: Default::default(), instancing: Some(i.prototypes.clone()), instanced_by: None, shading: None,
                     }));
                     Some(EvalResult::Named(prims))
                 }
@@ -81,6 +82,15 @@ pub fn evaluate_node_type(
             other => other.clone(),
         }),
         NodeType::UnpackPrims => inputs.first().map(|r| EvalResult::Single(r.as_mesh())),
+        // Named by its operator when cooked in a graph (`NodeGraphState::cook`).
+        NodeType::Material { surface } => Some(EvalResult::Material(Arc::new(crate::core::material::Material::new("Material", surface)))),
+        // In a graph, cooked by input number (`NodeGraphState::cook`). Here,
+        // without the numbers: the scene first, then the materials in order.
+        NodeType::MaterialBinding { library, bindings, .. } => {
+            let scene = inputs.iter().find(|r| !matches!(r, EvalResult::Material(_)));
+            let materials: Vec<_> = inputs.iter().filter_map(|r| match r { EvalResult::Material(m) => Some(Some(m.clone())), _ => None }).collect();
+            Some(crate::core::material::bind(scene, &materials, library, &[], bindings))
+        }
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::props::set_attributes(r, rows, &[])),
 
@@ -107,7 +117,7 @@ pub fn evaluate_node_type(
             other => Some(other.map_mesh(|m| transform(&m, *translation, *rotation, *scale))),
         }),
 
-        NodeType::Merge { mode } => {
+        NodeType::Merge { mode, .. } => {
             let first = inputs.first()?;
             if merges_primitives(*mode, first) {
                 // Primitives side by side; on the same path the later input
@@ -118,12 +128,11 @@ pub fn evaluate_node_type(
                 }
                 Some(EvalResult::Named(prims))
             } else {
+                // Every input as one mesh.
                 let meshes: Vec<MeshData> = inputs.iter().map(|r| r.as_mesh()).collect();
-                if meshes.len() >= 2 {
-                    Some(EvalResult::Single(merge(&meshes[0], &meshes[1])))
-                } else {
-                    meshes.into_iter().next().map(EvalResult::Single)
-                }
+                let mut all = meshes.into_iter();
+                let first = all.next()?;
+                Some(EvalResult::Single(all.fold(first, |a, b| merge(&a, &b))))
             }
         }
 
@@ -284,7 +293,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None,
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None,
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>
@@ -405,7 +414,7 @@ fn prims_of(r: &EvalResult) -> EvalResult {
     match r {
         EvalResult::Named(p) => EvalResult::Named(p.clone()),
         EvalResult::Single(m) => EvalResult::Named(vec![Prim::new("/mesh".into(), m.clone())]),
-        EvalResult::Anim(_) => EvalResult::Named(vec![]),
+        EvalResult::Anim(_) | EvalResult::Material(_) => EvalResult::Named(vec![]),
     }
 }
 
@@ -831,8 +840,8 @@ mod packed_tests {
         let flat = eval(auto(), &[EvalResult::Single(create_cube(1.0)), sphere.clone()]);
         assert!(matches!(&flat, EvalResult::Single(m) if m.vertices.len() == create_cube(1.0).vertices.len() + create_sphere(0.5, 8).vertices.len()));
         // The mode overrides the input.
-        assert!(matches!(eval(NodeType::Merge { mode: MergeMode::Flatten }, &[cube.clone(), sphere.clone()]), EvalResult::Single(_)));
-        let forced = eval(NodeType::Merge { mode: MergeMode::Primitives }, &[EvalResult::Single(create_cube(1.0)), sphere]);
+        assert!(matches!(eval(NodeType::Merge { mode: MergeMode::Flatten, inputs: 2 }, &[cube.clone(), sphere.clone()]), EvalResult::Single(_)));
+        let forced = eval(NodeType::Merge { mode: MergeMode::Primitives, inputs: 2 }, &[EvalResult::Single(create_cube(1.0)), sphere]);
         assert_eq!(forced.prim_paths(), vec!["/mesh", "/sphere"]);
     }
 

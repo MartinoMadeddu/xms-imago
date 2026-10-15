@@ -52,6 +52,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Set values on any prim:** Set Attribute sets primvars for rendering and properties such as visibility, purpose, kind and active, on meshes, groups, cameras or lights, one row per value
 - **Write it back:** Write USD saves what the scene graph changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
 - **Materials and textures in the Viewer**, straight from the `.usdz`
+- **Make and bind materials:** the Material operator is a UsdPreviewSurface (colour, metallic, roughness, opacity, emissive, clearcoat, a texture file per input), named by the operator. Material Binding takes any number of them, puts them under `/materials` and binds each to the prims its rows list; Write USD writes them
 - **What is in the file:** materials, cameras, skeletons and lights are listed on the node, along with what is not read yet
 - **UVs from the file**, shown in a UV editor that draws a million edges
 
@@ -126,7 +127,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Fast:** each operator's result is kept until it or something above it changes, as in Houdini: selecting, redrawing and playing cook nothing again, and a change cooks only what is below it
 - **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange for whatever is selected or active). A colour editor changes any of them
 - **Layouts as files:** save a layout, load it back, pass it to someone else
-- **One add menu:** seven categories, each a submenu; every node has one name, the same in the menu, on the node and in its parameters
+- **One add menu:** nine categories, each a submenu; every node has one name, the same in the menu, on the node and in its parameters
 - **Parameters that line up:** every node laid out the same way, labels in one column, values filling the other, explanations in tooltips
 - **Placeholder node:** sketch a node that does not exist yet: name it, give it named inputs and outputs, describe what it should do. Data goes through unchanged, and the description travels in the saved graph for whoever builds it
 - **A tidy graph:** templates load laid out and framed, "Tidy" does the same to your own graph, and a right-click on an output adds the next node under it, already wired
@@ -144,7 +145,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 
 ## Also in the box
 
-- Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of primitives or into one mesh
+- Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of any number of inputs, as primitives or into one mesh
 - ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). A tree runs on each primitive in its own space
 - Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip, and a Properties tab for the selected prims themselves (groups, cameras and lights too): each property's value and where it comes from
 - Graphs saved and loaded as JSON

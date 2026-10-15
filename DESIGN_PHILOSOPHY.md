@@ -123,6 +123,10 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - Each feature comes with tests; each change says what was tested and what was not.
 - Credit: XMS was created by Martino Madeddu. Additional development by Simon Legrand.
 
+## Materials are placed where they are bound
+
+A material is made by one operator and put in the scene by another. The Material operator puts out a material, not a scene: it has no place in the stage until Material Binding gives it one, under its Material Library Location (`/materials` by default), by its operator's name. The material and what wears it are then set in one place, as they are drawn on paper. The Material operator is the simple form, a UsdPreviewSurface with fixed inputs; material compounds, with a graph inside, will put out the same material, so Material Binding takes either. In the scene a material is a prim with no geometry, so it is listed, inspected, pruned and written as any other prim. Rows pair with inputs by number, as on paper; a row can name another input, or a material already in the scene.
+
 ## Log
 
 - 10/10/2026: file created, from the decisions taken so far.
@@ -174,3 +178,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 - 15/10/2026: point instancers read as points primitives (one point per instance, `orient`, `scale`, `protoIndex`, `id`); the Primitive Inspector lists instanced geometry once, in its own space, with its copies counted (Martino).
 - 15/10/2026: a point instancer's points are the source of its copies: what moves them moves the copies, and Write USD writes its arrays (`positions`, `orientations`, `scales`, `protoIndices`, `ids`). The Scene Explorer lists an instancer once (Martino).
 - 15/10/2026: the Scene Explorer shows each prim's type in a column at the right; the Primitive Inspector's scroll bar is dragged (Martino).
+- 15/10/2026: the Material operator, on branch `core/usd-scene`: a UsdPreviewSurface with fixed inputs and a texture file per input, named by the operator, drawn on a sphere when viewed; its output a material for Material Binding, which puts it under `/materials` (Martino).
+- 15/10/2026: Material Binding: materials on numbered inputs on its left, put under its Material Library Location as Material prims; each Prims Location row binds the input of its number or a chosen one, the later row winning; written as `def Material`s under Scopes and `material:binding` (Martino).
+- 15/10/2026: a Material's output on its right, material sockets purple; Material Binding's rows on a Bindings tab, its Material column listing the materials wired in and Location, a material of the scene by its path on a line under the row (Martino).
+- 15/10/2026: Merge takes any number of inputs, one always free, as Material Binding; the Material output in the middle of its right side; the "Material bindings" template, from Martino's graph (Martino).

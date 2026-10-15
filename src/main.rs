@@ -110,6 +110,12 @@ pub(crate) fn draw_ui(
                     }
                 }
             }
+            // A texture file for one input of a Material node.
+            BrowseTarget::Texture(id, input) => {
+                if let Some(NodeType::Material { surface }) = graph.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type) {
+                    surface.textures.insert(input.to_string(), text);
+                }
+            }
             BrowseTarget::OpenGraph => save_first.load(Source::File(path.clone())),
             BrowseTarget::OpenLayout => {
                 graph_file.message = match layout.load_from(&path) {
@@ -1390,6 +1396,7 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         match graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval) {
             Some(types::EvalResult::Named(prims)) => usd_write::write_override(&prims, std::path::Path::new(path.trim())),
             Some(types::EvalResult::Single(_)) => Err("The input is one plain mesh, with no primitive path (after Unpack, or a Merge set to Flatten)".to_string()),
+            Some(types::EvalResult::Material(_)) => Err("The input is a material, not primitives: plug it into Material Binding".to_string()),
             Some(_) => Err("The input is a clip, not primitives".to_string()),
             None => Err("The input did not cook".to_string()),
         }

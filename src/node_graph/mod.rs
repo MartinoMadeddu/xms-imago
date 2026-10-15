@@ -67,6 +67,7 @@ fn approx_bytes(r: &EvalResult) -> usize {
         EvalResult::Named(prims) => prims.iter().map(|p| mesh(&p.mesh)).sum::<usize>() + prims.len() * 256,
         EvalResult::Anim(a) => a.tracks.iter().map(|t| t.len()).sum::<usize>() * 48
             + a.skin.as_ref().map(|s| s.positions.len() * 64).unwrap_or(0),
+        EvalResult::Material(_) => 1024,
     }
 }
 
@@ -244,8 +245,20 @@ impl NodeGraphState {
             NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
+            NodeType::Material { .. }       => (vec![], vec![o("Material")]),
+            NodeType::MaterialBinding { inputs, .. } => (
+                std::iter::once(i("Scene")).chain((1..=(*inputs).max(1)).map(|k| InputSocket { name: format!("Material {k}"), connected_output: None })).collect(),
+                vec![o("Scene")],
+            ),
             NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
-            NodeType::Merge { .. }          => (vec![i("A"), i("B")], vec![o("Result")]),
+            // A, B, C… then numbers past Z.
+            NodeType::Merge { inputs, .. }  => (
+                (0..(*inputs).max(2) as usize).map(|k| InputSocket {
+                    name: if k < 26 { ((b'A' + k as u8) as char).to_string() } else { (k + 1).to_string() },
+                    connected_output: None,
+                }).collect(),
+                vec![o("Result")],
+            ),
             NodeType::Placeholder { inputs, outputs, .. } => (
                 inputs.iter().map(|n| InputSocket { name: n.clone(), connected_output: None }).collect(),
                 outputs.iter().map(|n| OutputSocket { name: n.clone() }).collect(),
@@ -645,6 +658,8 @@ impl NodeGraphState {
                 file.hash(&mut h);
             }
             NodeType::Ragdoll { .. } => crate::ragdoll::generation().hash(&mut h),
+            // A material is named by its operator.
+            NodeType::Material { .. } => node.name.hash(&mut h),
             _ => {}
         }
         for input in &node.inputs {
@@ -703,6 +718,15 @@ impl NodeGraphState {
             node.inputs.first()
                 .and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet))
+        } else if let NodeType::MaterialBinding { library, bindings, .. } = &node.node_type {
+            // Each input by its number: the scene, then one material each.
+            let mut ports: Vec<Option<EvalResult>> = vec![];
+            for s in &node.inputs {
+                ports.push(s.connected_output.and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet)));
+            }
+            let materials: Vec<_> = ports.iter().skip(1)
+                .map(|r| match r { Some(EvalResult::Material(m)) => Some(m.clone()), _ => None }).collect();
+            Some(crate::core::material::bind(ports.first().and_then(|r| r.as_ref()), &materials, library, &node.locations, bindings))
         } else if crate::core::locations::takes_locations(&node.node_type) && crate::core::locations::is_set(&node.locations) {
             // The operator works on the primitives its Prims Location tab
             // lists; what comes after it sees the picks that came in.
@@ -721,6 +745,12 @@ impl NodeGraphState {
             }
         } else {
             evaluate_node_type(&node.node_type, &inputs, eval_subnet, output)
+        };
+        // A material is named by its operator.
+        let result = match (&node.node_type, result) {
+            (NodeType::Material { surface }, Some(EvalResult::Material(_))) =>
+                Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::new(&node.name, surface)))),
+            (_, r) => r,
         };
         // A point instancer's copies follow its points, whatever moved them.
         let result = result.map(crate::core::instancing::sync);
@@ -808,6 +838,37 @@ impl NodeGraphState {
         (clip, collider)
     }
 
+    /// Merge and Material Binding keep an input free: wiring the last one
+    /// adds another.
+    pub fn keep_an_input_free(&mut self, id: NodeId) {
+        let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
+        let full = node.inputs.last().is_some_and(|s| s.connected_output.is_some());
+        let n = node.inputs.len() as u32;
+        match &mut node.node_type {
+            // Its inputs after the scene are materials.
+            NodeType::MaterialBinding { inputs, .. } if full && n > 1 => *inputs = n,
+            NodeType::Merge { inputs, .. } if full => *inputs = n + 1,
+            _ => return,
+        }
+        self.sync_sockets(id);
+    }
+
+    /// The materials coming into a Material Binding, by input (its name, if
+    /// a material is wired there), and those of the scene coming in, by
+    /// path: what its rows can bind.
+    pub fn binding_inputs(
+        &self, id: NodeId,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    ) -> (Vec<Option<std::sync::Arc<crate::core::material::Material>>>, Vec<String>) {
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return (vec![], vec![]) };
+        let mut cache = HashMap::new();
+        let mut eval = |k: usize| node.inputs.get(k).and_then(|s| s.connected_output)
+            .and_then(|(src, out)| self.eval_node_out(src, out, &mut cache, eval_subnet));
+        let scene = eval(0).map(|r| crate::core::material::scene_materials(&r)).unwrap_or_default();
+        let materials = (1..node.inputs.len()).map(|k| match eval(k) { Some(EvalResult::Material(m)) => Some(m), _ => None }).collect();
+        (materials, scene)
+    }
+
     /// Make a node's sockets match its type again after its parameters
     /// changed the socket count, and drop wires to sockets that are gone.
     pub fn sync_sockets(&mut self, id: NodeId) {
@@ -879,6 +940,69 @@ mod cook_tests {
         // A copy of the graph (an undo step, a batch) finds the same results.
         let copy = g.clone();
         assert!(Arc::ptr_eq(&walk_before, &copy.eval_anim(walk).unwrap()));
+    }
+
+    /// Merge takes any number of inputs, keeping one free, and merges them
+    /// all, the later stronger.
+    #[test]
+    fn merge_takes_any_number_of_inputs() {
+        let mut g = NodeGraphState::default();
+        let p = |x: f32| egui::pos2(x, 0.0);
+        let shapes: Vec<NodeId> = ["/a", "/b", "/c"].iter().enumerate()
+            .map(|(k, at)| g.add_node(format!("S{k}"), NodeType::CreateCube { size: 1.0, location: at.to_string() }, p(k as f32 * 200.0))).collect();
+        let merge = g.add_node("Merge".into(), NodeType::merge(), egui::pos2(0.0, 200.0));
+        for (k, s) in shapes.iter().enumerate() {
+            g.add_connection(*s, 0, merge, k);
+            g.keep_an_input_free(merge);
+        }
+        let node = g.nodes.iter().find(|n| n.id == merge).unwrap();
+        let names: Vec<&str> = node.inputs.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["A", "B", "C", "D"], "one input kept free");
+        let Some(EvalResult::Named(prims)) = g.eval_node(merge, &mut Default::default(), &pass) else { panic!("primitives") };
+        let paths: Vec<&str> = prims.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, vec!["/a", "/b", "/c"]);
+    }
+
+    /// Material Binding takes the scene on input 0 and one material per input
+    /// after it, by number; wiring the last material input adds another.
+    #[test]
+    fn material_binding_binds_by_input_number() {
+        let mut g = NodeGraphState::default();
+        let p = |y: f32| egui::pos2(0.0, y);
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(0.0));
+        let red = g.add_node("Red".into(), NodeType::Material { surface: Default::default() }, p(100.0));
+        let blue = g.add_node("Blue".into(), NodeType::Material { surface: Default::default() }, p(200.0));
+        let bind = g.add_node("Bind".into(), NodeType::MaterialBinding { library: "/looks".into(), inputs: 1, bindings: vec![] }, p(300.0));
+        assert_eq!(g.nodes.iter().find(|n| n.id == bind).unwrap().inputs.len(), 2, "the scene and one material");
+        g.add_connection(cube, 0, bind, 0);
+        g.add_connection(red, 0, bind, 1);
+        g.keep_an_input_free(bind);
+        g.add_connection(blue, 0, bind, 2);
+        g.keep_an_input_free(bind);
+        assert_eq!(g.nodes.iter().find(|n| n.id == bind).unwrap().inputs.len(), 4, "one material input kept free");
+        // Row 2 binds input 2: blue on the cube; red is put in the scene too.
+        g.nodes.iter_mut().find(|n| n.id == bind).unwrap().locations = vec![String::new(), "/cube".into()];
+        let Some(EvalResult::Named(prims)) = g.eval_node(bind, &mut Default::default(), &pass) else { panic!("primitives") };
+        assert_eq!(prims[0].material.as_deref(), Some("/looks/Blue"));
+        let made: Vec<&str> = prims.iter().filter(|p| p.shading.is_some()).map(|p| p.path.as_str()).collect();
+        assert_eq!(made, vec!["/looks/Red", "/looks/Blue"]);
+    }
+
+    /// A material's name is its operator's: renaming the node cooks it again.
+    #[test]
+    fn a_material_is_named_by_its_operator() {
+        let mut g = NodeGraphState::default();
+        let id = g.add_node("car paint".into(), NodeType::Material { surface: Default::default() }, egui::pos2(0.0, 0.0));
+        let name = |g: &NodeGraphState| match g.eval_node(id, &mut Default::default(), &pass) {
+            Some(EvalResult::Material(m)) => m.name.clone(),
+            _ => panic!("a material"),
+        };
+        assert_eq!(name(&g), "car_paint");
+        // Renamed: cooked again under the new name.
+        let key = g.cook_key(id, 0);
+        g.nodes.iter_mut().find(|n| n.id == id).unwrap().name = "Chrome".into();
+        assert_ne!(key, g.cook_key(id, 0));
+        assert_eq!(name(&g), "Chrome");
     }
 
     /// Picking polygons in Edit Poly changes what the Viewer shows, not the

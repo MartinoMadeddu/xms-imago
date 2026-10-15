@@ -33,15 +33,13 @@ The scene is what the operator with the **view flag** puts out (the viewed outpu
 
 ### 1.2 Merge rule
 
-Status: **Done** (two inputs).
+Status: **Done** (any number of inputs, one kept free).
 
 The **first input drives** the result. Merge has a **Mode**: Auto (by the first input), Primitives, Flatten.
 
 - First input **primitives** (Auto): the inputs are merged as primitives, each keeping its path. A plain mesh among them becomes a primitive at `/mesh`.
 - First input a **plain mesh or a clip** (Auto): everything is flattened into one plain mesh, as Unpack does.
-- On a path both inputs have, the **later input is stronger**, as an `over` on the same path: its prim takes the first one's place, and what it leaves unset (material, stage, purpose) is read from the first. A shape put on the path of a file's prim is written as a change to that prim.
-
-Not yet: more than two inputs.
+- On a path two inputs have, the **later input is stronger**, as an `over` on the same path: its prim takes the first one's place, and what it leaves unset (material, stage, purpose) is read from the first. A shape put on the path of a file's prim is written as a change to that prim.
 
 ### 1.3 Targeting model
 
@@ -173,7 +171,7 @@ All operators in this section take **Primitive Locations**.
 
 | Operator | Purpose | Key parameters | Status |
 |---|---|---|---|
-| **Merge** | Combine scenes (rule in 1.2) | Mode (Auto, Primitives, Flatten); later input stronger on the same path | **Done** (two inputs; number of inputs and conflict rule not yet parameters) |
+| **Merge** | Combine scenes (rule in 1.2) | Mode (Auto, Primitives, Flatten); later input stronger on the same path | **Done** (any number of inputs; the conflict rule not yet a parameter) |
 | **Reparent / Graft** | Move prims under a new parent | destination path (Primitive Location); keep world transform | Not yet |
 | **Rename** | Rename prims | find/replace; pattern; prefix/suffix | Not yet |
 | **Duplicate** | Copy prims | count; naming pattern; per-copy transform | Not yet |
@@ -303,17 +301,19 @@ Status for the whole section: **Not yet.** Collections would also be the third k
 
 ## 9. Materials
 
-Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with the texture behind each input, listed in Load USD's parameters and drawn in the Viewer (colour, emissive, opacity textures). Bindings stay with their prims and are written back when changed. No operator authors or binds a material yet.
+Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with the texture behind each input, listed in Load USD's parameters and drawn in the Viewer (colour, emissive, opacity textures). Bindings stay with their prims and are written back when changed. The Material operator makes a UsdPreviewSurface (9.1); Material Binding puts materials in the scene and binds them (9.2).
 
 ### 9.1 Create Material
 - A **compound operator**: contains other operators, and you can dive into the graph inside.
 - Nested compounds are supported.
 - **Outputs:** surface, displacement, volume
 - **USD mapping:** `UsdShadeMaterial`, with a shading network underneath
-- **Status:** **Not yet** (needs compounds, 1.4).
+- **Status:** **Partial.** The **Material** operator is the simple form: a UsdPreviewSurface with fixed inputs (diffuse and emissive colour, metallic, roughness, opacity, opacity threshold, IOR, clearcoat) and a texture file per input (diffuse, emissive, metallic, roughness, opacity, normal, occlusion). Its output is one material, named by the operator; viewed, it is drawn on a sphere. Written as a `Material` with a `UsdPreviewSurface`, a `UsdUVTexture` per file and a `UsdPrimvarReader_float2` for `st`. The compound form (a graph inside, nested; needs compounds, 1.4) puts out the same material.
 
 ### 9.2 Material Assign (Mat Bindings)
-- **Inputs:** one per material (the materials feed into the operator)
+In Imago: **Material Binding**.
+- **Inputs:** the scene, on top; one port per material, on the left, numbered (the materials feed into the operator)
+- **Material Library Location:** where the plugged materials go in the scene, `/materials` by default, each by its operator's name. Two materials with one name are reported.
 - **Parameters:** an ordered **binding list**. Each row is a numbered entry holding a location pattern, as in a Prims Location tab:
 
   ```
@@ -322,9 +322,9 @@ Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with th
   3  /root/*/*/glass
   4  (empty row for the next entry)
   ```
-- **Per-row options:** material input; strength (`strongerThanDescendants` / `weakerThanDescendants`); purpose (`allPurpose`, `preview`, `full`)
+- **Per-row options:** material: the input of the same number by default, any input with a material, or Location: a material already in the scene, by path, on a line under the row (typed, picked or dropped); strength (`strongerThanDescendants` / `weakerThanDescendants`); purpose (`allPurpose`, `preview`, `full`)
 - **USD mapping:** `UsdShadeMaterialBindingAPI`
-- **Status:** **Not yet.** Each row should be a Primitive Locations row as on the Prims Location tab: same matching rules, a count per row, drag and drop from the Scene Explorer.
+- **Status:** **Partial.** Material Binding: the scene on top, a material input per number on the left (one always free), the Material Library Location, and its rows on its Bindings tab (same matching rules, a count per row, drag and drop from the Scene Explorer), each with a Material column. The later row wins. Written as `def Material`s under Scopes and `material:binding` on each primitive. Not yet: a binding on a group kept as one inherited opinion, strength, purpose, collections.
 
 > **Rule (recommended):** when two rows match the same prim, the **later row wins**, as the later input wins in Merge.
 
@@ -411,7 +411,7 @@ Enough for a complete load, edit, bind, render loop:
 | 6 | Prune | Done |
 | 7 | Reference | Not yet (read only) |
 | 8 | Variant Select | Not yet (read only) |
-| 9 | Material Assign | Not yet |
+| 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
 | 10 | Light | Not yet (read only) |
 | 11 | Camera | Not yet (read only) |
 | 12 | Render Settings | Not yet |

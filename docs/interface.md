@@ -117,7 +117,7 @@ When a graph needs a node the program does not have, put a **Placeholder** in it
 
 ### The add menu
 
-Seven categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does.
+Nine categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does.
 
 | Category | Nodes |
 |---|---|
@@ -126,15 +126,18 @@ Seven categories, each a submenu, each item a node. A node has one name, the sam
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
+| Materials | Material, Material Binding |
 | UV | UV Unwrap, UV Transform, UV Edit |
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |
 | Mocap | Split Characters, Characterize, Retarget, Reach, Human Limits, Capture, Skin, Auto T-Pose, Fix Pose, Proxy Skin, Body Collide |
 
 Transform moves anything: a mesh, primitives (the picked ones, or each of them), or a clip. A clip moves by its top joints, so a skinned mesh follows its skeleton once and is not moved a second time.
 
+Material Binding has its material inputs on its left side, numbered, and grows taller as they are added; its scene input stays on top. A Material's output is in the middle of its right side, so it wires straight across. Sockets carrying a material are purple. Material Binding's second tab is called Bindings: its rows are Primitive Locations with a material each.
+
 Cube, Sphere and Grid each make a primitive at their **Primitive Location**, `/cube`, `/sphere` and `/grid` unless another path is typed (see [USD](usd.md#shapes-are-primitives)).
 
-Merge joins its two inputs by its **Mode**. Auto goes by the first input: primitives are merged as primitives, each keeping its path, and on a path both inputs have the second is the stronger; a plain mesh or a clip is flattened into one mesh. Primitives and Flatten force one or the other.
+Merge joins any number of inputs, A, B, C… across its top: wiring the last one adds another, so one is always free. Its **Mode** says how. Auto goes by the first input: primitives are merged as primitives, each keeping its path, and on a path two inputs have the later is the stronger; a plain mesh or a clip is flattened into one mesh. Primitives and Flatten force one or the other.
 
 Scatter Points and Copy to Points are done in an ICE graph. A graph saved with them opens with a Placeholder in their place, wires kept.
 

@@ -80,6 +80,9 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
               && graph.nodes.iter().any(|n| n.id.0 == to && input < n.inputs.len());
         if ok { graph.add_connection(NodeId(from), out, NodeId(to), input); }
     }
+    // Merge and Material Binding keep an input free.
+    let ids: Vec<NodeId> = graph.nodes.iter().map(|n| n.id).collect();
+    for id in ids { graph.keep_an_input_free(id); }
     graph.view_flag = saved.view_flag.map(NodeId).filter(|v| graph.nodes.iter().any(|n| n.id == *v));
     graph.view_output = saved.view_output;
     // A graph saved with nothing viewed views the end of its last chain.
@@ -322,6 +325,7 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: 
               && graph.nodes.iter().any(|n| n.id == b && input < n.inputs.len());
         if ok { graph.add_connection(a, out, b, input); }
     }
+    for id in placed.values().copied().collect::<Vec<_>>() { graph.keep_an_input_free(id); }
     let mut new: Vec<NodeId> = placed.values().copied().collect();
     new.sort_by_key(|id| id.0);
     graph.selected_node = new.first().copied();
@@ -796,7 +800,7 @@ mod tests {
         assert_eq!(g.view_flag, Some(NodeId(5)), "what reached Output is viewed");
         assert!(matches!(&node(3).node_type, NodeType::CreateCube { location, .. } if location == "/cube"));
         assert!(matches!(&node(1).node_type, NodeType::CreateGrid { location, .. } if location == "/grid"));
-        assert!(matches!(node(5).node_type, NodeType::Merge { mode: crate::types::MergeMode::Auto }));
+        assert!(matches!(node(5).node_type, NodeType::Merge { mode: crate::types::MergeMode::Auto, .. }));
         assert!(matches!(&node(2).node_type, NodeType::Placeholder { inputs, outputs, description }
             if inputs == &["Surface"] && outputs == &["Points"] && description.contains("Scatter Points")));
         assert!(matches!(&node(4).node_type, NodeType::Placeholder { inputs, .. } if inputs.len() == 2));

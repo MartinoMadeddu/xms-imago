@@ -40,7 +40,8 @@ pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
                 }
             };
             let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
-            prims.iter().filter(|x| wanted(x)).filter_map(|p| {
+            // A material has no geometry: its inputs are in the Properties tab.
+            prims.iter().filter(|x| x.shading.is_none() && wanted(x)).filter_map(|p| {
                 if !instanced(p) { return Some(part(p, true)); }
                 seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then(|| part(p, false))
             }).collect()
@@ -155,6 +156,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
         let ty = match (node, prim) {
             (Some((n, _)), _) => n.type_name.clone(),
             (None, Some(p)) => match p.geo.as_ref().map(|g| &g.topology) {
+                _ if p.shading.is_some() => "Material".into(),
                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                 _ => "Mesh".into(),
@@ -162,6 +164,13 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
             (None, None) => "Xform".into(),
         };
         row("type", ty, made_here());
+        // A material Material Binding put in the scene: its surface's inputs,
+        // from the Material operator that made it.
+        if let Some(m) = prim.and_then(|p| p.shading.as_ref()) {
+            let from = match material_of(graph, view, &m.name) { Some((id, n)) => (n, Some(id)), None => ("Imago".into(), None) };
+            for (name, value) in crate::core::material::inputs(m) { row(&name, value, from.clone()); }
+            continue;
+        }
 
         // Its own values: those of a primitive, of a stage prim, of an Xform Imago made.
         let own: Opinions = match (prim, node) {
@@ -212,7 +221,12 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                 }
                 let bound = p.material.clone().unwrap_or_else(|| "none".into());
                 let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
-                row("material:binding", bound, if rebound { ("Imago".into(), None) } else { made_here() });
+                let from = match bound_by(graph, view, path).filter(|_| p.material.is_some()) {
+                    Some((id, n)) => (n, Some(id)),
+                    None if rebound => ("Imago".into(), None),
+                    None => made_here(),
+                };
+                row("material:binding", bound, from);
             }
             // A group: its purpose as its file authors it or Set Attribute set it
             // (listed below), else what it inherits from a group above.
@@ -277,6 +291,22 @@ pub fn set_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &st
         }
         _ => false,
     }).map(|n| (n.id, n.name.clone()))
+}
+
+/// The Material Binding nearest upstream of `view` with a row taking `path`:
+/// the one its material binding comes from. Its id and name.
+pub fn bound_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str) -> Option<(NodeId, String)> {
+    use crate::types::NodeType;
+    upstream(graph, view, |n| matches!(n.node_type, NodeType::MaterialBinding { .. }) && crate::core::locations::any_matches(&n.locations, path))
+        .map(|n| (n.id, n.name.clone()))
+}
+
+/// The Material operator upstream of `view` that made the material of this
+/// name. Its id and name.
+fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
+    use crate::types::NodeType;
+    upstream(graph, view, |n| matches!(n.node_type, NodeType::Material { .. }) && crate::core::material::prim_name(&n.name) == name)
+        .map(|n| (n.id, n.name.clone()))
 }
 
 /// The Load USD operator upstream of `view` that read this stage: the one

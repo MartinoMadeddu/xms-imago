@@ -23,6 +23,8 @@ pub enum BrowseMode {
 pub enum BrowseTarget {
     /// The path parameter of a node.
     Node(NodeId),
+    /// The texture file feeding one input of a Material node.
+    Texture(NodeId, &'static str),
     OpenGraph,
     SaveGraph,
     OpenLayout,
