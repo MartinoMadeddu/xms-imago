@@ -12,7 +12,7 @@ The menus, from the left, as in other programs:
 
 | Menu | Holds |
 |---|---|
-| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD...), Quit (Ctrl+Q). See [Files](#files) |
+| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q). See [Files](#files) |
 | Edit | Undo, Redo, Copy, Paste, Delete, Select All, for the operators of the root scene graph |
 | Templates | The ready-made graphs, by author, then by area. See [Templates](templates.md) |
 | Window | The panes (tick to show), Dock floating panes, Reset layout, Save layout..., Load layout..., Theme |
@@ -64,6 +64,7 @@ The graph is saved as a JSON file. The top bar shows its name, and "(unsaved)" w
 | Save to a new file | File > Save As... (Ctrl+Shift+S) |
 | Add a saved graph to this one | File > Import > Graph... |
 | Add a node reading a file | File > Import > FBX... or USD...: a Load FBX or Load USD node with the file set, right of the nodes there, selected |
+| Add the materials of a MaterialX file | File > Import > MaterialX...: a MaterialX operator for each material of the `.mtlx` file (see [MaterialX](materialx.md#materialx-files)) |
 | Close | File > Quit (Ctrl+Q), or the window's close button. Asks to save unsaved changes first |
 
 ### Replacing files
@@ -119,6 +120,10 @@ When a graph needs a node the program does not have, put a **Placeholder** in it
 
 Nine categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does. A node is coloured by its category, but for the ICE node (teal) and the Camera (dark grey), which stand apart.
 
+The menu opens with a search line, ready to type in: what is typed finds the nodes whose name, category or description has every word (`mat` finds Material, MaterialX and Material Binding; `usd write` finds Write USD), ↓ and ↑ move the highlight through what is found, and Enter adds the highlighted node (the first, until an arrow is pressed).
+
+A node with a graph inside, the ICE node and the MaterialX operator, always wears a light grey band as wide as the selection's, as if selected in another colour, and has a small arrow at its bottom right: double-click it, or select it and press ↓, to go in. Selected, the selection's blue goes around the band.
+
 | Category | Nodes |
 |---|---|
 | Placeholder | Placeholder |
@@ -145,7 +150,7 @@ Scatter Points and Copy to Points are done in an ICE graph. A graph saved with t
 
 ### MaterialX graphs
 
-A MaterialX operator holds a graph of MaterialX nodes, opened like an ICE graph: double-click it, or select it and press ↓; ↑ or the path at the top goes back up. It is drawn the same way, nodes coloured by kind (shaders and the material purple, textures blue, procedurals orange, maths green, geometry teal), ports and wires coloured by type. Right-click or Tab adds a node: the surface shaders, the material and the image nodes first, then every node of the library by group, or by a search. Drag an output onto an input to connect them; onto a node's body, to choose among the inputs that take it. A wire right-clicked is taken off; a wire between types that do not join (after a node was changed) is red. Nodes with many inputs, the surface shaders, show their connected inputs only: the box at the right of the title shows them all. The Parameters pane shows the selected node's inputs (see [MaterialX](materialx.md)).
+A MaterialX operator holds a graph of MaterialX nodes, opened like an ICE graph: double-click it, or select it and press ↓; ↑ or the path at the top goes back up. It is drawn the same way, nodes coloured by kind (shaders purple, textures blue, procedurals orange, geometry teal, maths and the rest a neutral grey, the `surfacematerial` where the graph ends dark grey), the same whatever types a node takes: only its ports and wires are coloured by type. Right-click or Tab adds a node: the surface shaders, the material and the image nodes first, then every node of the library by group, or by a search. Drag an output onto an input to connect them; onto a node's body, to choose among the inputs that take it. A wire clicked is selected, and Delete or Backspace takes it off; right-clicked, it is taken off at once; a wire between types that do not join (after a node was changed) is red. Nodes with many inputs, the surface shaders, show their connected inputs only: the box at the right of the title shows them all. The Parameters pane shows the selected node's inputs (see [MaterialX](materialx.md)).
 
 ### ICE graphs
 

@@ -13,8 +13,11 @@
 //! node selected in it. What the canvas shows (pan, zoom, which node is
 //! selected) is view state, kept with the pane, not in the graph.
 
+pub mod from_usd;
 pub mod params;
 pub mod ui;
+
+pub use from_usd::from_usd;
 
 use xms_matx::{Graph, Library};
 
@@ -76,6 +79,8 @@ pub struct View {
     pub zoom: f32,
     /// The node selected in the graph: its parameters are shown.
     pub selected: Option<u32>,
+    /// The wire selected: the node and input it goes into. Delete takes it off.
+    pub selected_wire: Option<(u32, String)>,
     /// A wire being drawn from this node's output.
     pub wiring: Option<(u32, String)>,
     pub dragging: Option<u32>,
@@ -102,7 +107,7 @@ pub struct Drop {
 
 impl Default for View {
     fn default() -> Self {
-        View { pan: egui::vec2(60.0, 60.0), zoom: 1.0, selected: None, wiring: None, dragging: None,
+        View { pan: egui::vec2(60.0, 60.0), zoom: 1.0, selected: None, selected_wire: None, wiring: None, dragging: None,
                drag_offset: egui::Vec2::ZERO, drop: None, message: String::new(), framed: false, toggled: vec![] }
     }
 }

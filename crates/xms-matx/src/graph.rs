@@ -115,8 +115,9 @@ impl Graph {
         Some(id)
     }
 
-    /// Add a node as read from a document: its definition given.
-    pub(crate) fn push(&mut self, name: String, node: String, def: String, pos: [f32; 2]) -> u32 {
+    /// Add a node as read from a file: its node and definition given as
+    /// they are, its name kept (the reader makes it unique).
+    pub fn push(&mut self, name: String, node: String, def: String, pos: [f32; 2]) -> u32 {
         let id = self.next;
         self.next += 1;
         self.nodes.push(Node { id, name, node, def, pos, inputs: vec![] });
@@ -152,6 +153,14 @@ impl Graph {
             Some(Binding::Value(v)) => Some(v),
             Some(Binding::Connect { .. }) => None,
             None => lib.def(&node.def)?.input(input)?.value.as_ref(),
+        }
+    }
+
+    /// Set an input as read from a file: a value, or a connection, kept as
+    /// it is, with no check of its types (`wire_ok` tells).
+    pub fn bind(&mut self, id: u32, input: &str, b: Binding) {
+        if let Some(n) = self.node_mut(id) {
+            n.set(input, b);
         }
     }
 
@@ -370,6 +379,63 @@ impl Graph {
 
     /// The node feeding a material's surface: its `surfaceshader` input.
     pub fn surface_shader(&self) -> Option<u32> { self.source(self.material()?, "surfaceshader").map(|(n, _)| n) }
+
+    /// Lay the nodes out from right to left: the nodes nothing reads (the
+    /// material) in the right column, each node one column left of the
+    /// leftmost node it feeds, down each column in the order they are
+    /// read. For graphs read from files, which say nothing of where nodes go.
+    pub fn arrange(&mut self) {
+        const COLUMN: f32 = 300.0;
+        const GAP: f32 = 34.0;
+        let ids: Vec<u32> = self.nodes.iter().map(|n| n.id).collect();
+        let reads = |g: &Graph, id: u32| -> Vec<u32> {
+            g.node(id).map(|n| n.inputs.iter().filter_map(|(_, b)| match b {
+                Binding::Connect { node, .. } => Some(*node),
+                Binding::Value(_) => None,
+            }).collect()).unwrap_or_default()
+        };
+        // Columns: 0 for what nothing reads, then one more than the
+        // furthest node read from, until nothing moves.
+        let mut column: std::collections::HashMap<u32, usize> = ids.iter().map(|&i| (i, 0)).collect();
+        for _ in 0..ids.len().max(1) {
+            let mut moved = false;
+            for &id in &ids {
+                let c = column[&id];
+                for src in reads(self, id) {
+                    if column.get(&src).is_some_and(|&s| s < c + 1) {
+                        column.insert(src, c + 1);
+                        moved = true;
+                    }
+                }
+            }
+            if !moved { break; }
+        }
+        // The order down each column: as found from the nodes nothing
+        // reads, inputs in order.
+        let mut order: Vec<u32> = vec![];
+        let sinks: Vec<u32> = ids.iter().copied().filter(|id| !ids.iter().any(|o| reads(self, *o).contains(id))).collect();
+        let mut todo: Vec<u32> = sinks.into_iter().rev().collect();
+        while let Some(id) = todo.pop() {
+            if order.contains(&id) { continue; }
+            order.push(id);
+            for src in reads(self, id).into_iter().rev() { todo.push(src); }
+        }
+        for id in &ids { if !order.contains(id) { order.push(*id); } }
+        // A node's height: its title, and a row for each output and
+        // connected input (nodes with many inputs show those only).
+        let height = |g: &Graph, id: u32| -> f32 {
+            let rows = g.node(id).map(|n| 1 + n.inputs.iter().filter(|(_, b)| matches!(b, Binding::Connect { .. })).count()).unwrap_or(1);
+            32.0 + rows as f32 * 15.0 + 8.0
+        };
+        let mut next_y: std::collections::HashMap<usize, f32> = Default::default();
+        for id in order {
+            let c = column[&id];
+            let y = next_y.entry(c).or_insert(0.0);
+            let at = [-(c as f32) * COLUMN, *y];
+            *y += height(self, id) + GAP;
+            if let Some(n) = self.node_mut(id) { n.pos = at; }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -124,6 +124,54 @@ pub(crate) fn draw_ui(
                     if let Some(name) = name { g.set_value(node, &name, xms_matx::Value::String(text)); }
                 }
             }
+            // A MaterialX operator's graph from a .mtlx file: the material of
+            // the operator's name, else the first.
+            BrowseTarget::MatxLoad(op) => {
+                graph_file.message = match std::fs::read_to_string(&path).map_err(|e| e.to_string())
+                    .and_then(|t| xms_matx::import::import(&t, materialx::lib(), path.parent()))
+                {
+                    Err(e) => format!("Could not read {}: {e}", path.display()),
+                    Ok(mut got) => match graph.nodes.iter_mut().find(|n| n.id == op) {
+                        Some(node) if !got.materials.is_empty() => {
+                            let own = crate::core::material::prim_name(&node.name);
+                            let k = got.materials.iter().position(|(n, _)| crate::core::material::prim_name(n) == own).unwrap_or(0);
+                            let (name, g) = got.materials.swap_remove(k);
+                            if let NodeType::MaterialX { graph } = &mut node.node_type { *graph = g; }
+                            materialx::set_view(ctx, op, materialx::View::default());
+                            let mut m = format!("{name} read from {}", path.display());
+                            if !got.materials.is_empty() { m.push_str(&format!(" ({} other materials in the file: File > Import > MaterialX adds them all)", got.materials.len())); }
+                            if !got.notes.is_empty() { m.push_str(&format!(". {}", got.notes.join(". "))); }
+                            m
+                        }
+                        _ => format!("No material read from {}. {}", path.display(), got.notes.join(". ")),
+                    },
+                };
+            }
+            // A MaterialX operator's graph written as a .mtlx file.
+            BrowseTarget::MatxSave(op) => {
+                let path = if path.extension().is_some_and(|e| e == "mtlx") { path.clone() } else { path.with_extension("mtlx") };
+                if let Some(NodeType::MaterialX { graph: g }) = graph.nodes.iter().find(|n| n.id == op).map(|n| &n.node_type) {
+                    graph_file.message = match std::fs::write(&path, xms_matx::document::write(g, materialx::lib())) {
+                        Ok(()) => format!("Wrote {}", path.display()),
+                        Err(e) => format!("Could not write {}: {e}", path.display()),
+                    };
+                }
+            }
+            // A MaterialX operator for each material of a .mtlx file.
+            BrowseTarget::ImportMtlx => {
+                graph_file.message = match std::fs::read_to_string(&path).map_err(|e| e.to_string())
+                    .and_then(|t| xms_matx::import::import(&t, materialx::lib(), path.parent()))
+                {
+                    Err(e) => format!("Could not read {}: {e}", path.display()),
+                    Ok(got) => {
+                        let n = got.materials.len();
+                        for (name, g) in got.materials { import_node(&mut *graph, name, NodeType::MaterialX { graph: g }); }
+                        let mut m = format!("Imported {n} material{} from {}", if n == 1 { "" } else { "s" }, path.display());
+                        if !got.notes.is_empty() { m.push_str(&format!(". {}", got.notes.join(". "))); }
+                        m
+                    }
+                };
+            }
             BrowseTarget::OpenGraph => save_first.load(Source::File(path.clone())),
             BrowseTarget::OpenLayout => {
                 graph_file.message = match layout.load_from(&path) {
@@ -251,6 +299,7 @@ pub(crate) fn draw_ui(
             FileCommand::ImportGraph => browser.open(BrowseTarget::ImportGraph, BrowseMode::File, "Import graph", &["json"], ""),
             FileCommand::ImportFbx => browser.open(BrowseTarget::ImportFbx, BrowseMode::File, "Import FBX", &["fbx"], ""),
             FileCommand::ImportUsd => browser.open(BrowseTarget::ImportUsd, BrowseMode::File, "Import USD", &["usd", "usda", "usdc", "usdz"], ""),
+            FileCommand::ImportMtlx => browser.open(BrowseTarget::ImportMtlx, BrowseMode::File, "Import MaterialX", &["mtlx"], ""),
             FileCommand::Quit => save_first.quit = true,
         }
     }
@@ -608,8 +657,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                     });
                     let mut tool = self.poly_tool.tool;
                     let scene_paths = self.hierarchy.selected_paths().to_vec();
-                    let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool, scene_paths };
+                    let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool, scene_paths, add: vec![] };
                     draw_properties_panel(ui, self.graph, &*self.stack, self.subnets, self.nav, self.anim_ctx, &mut io);
+                    // Operators the panel asked for: a MaterialX operator from a stage's material.
+                    for (name, t) in std::mem::take(&mut io.add) { import_node(self.graph, name, t); }
                     // Writing over files that exist asks first.
                     if let Some(action) = io.action {
                         let existing = existing_outputs(self.graph, &action);
@@ -885,6 +936,7 @@ enum FileCommand {
     ImportGraph,
     ImportFbx,
     ImportUsd,
+    ImportMtlx,
     Quit,
 }
 
@@ -932,6 +984,7 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
             if ui.button("Graph...").on_hover_text("Add the nodes of a saved graph beside these").clicked() { c = Some(FileCommand::ImportGraph); ui.close(); }
             if ui.button("FBX...").on_hover_text("Add a Load FBX node reading the file").clicked() { c = Some(FileCommand::ImportFbx); ui.close(); }
             if ui.button("USD...").on_hover_text("Add a Load USD node reading the file").clicked() { c = Some(FileCommand::ImportUsd); ui.close(); }
+            if ui.button("MaterialX...").on_hover_text("Add a MaterialX operator for each material of a .mtlx file").clicked() { c = Some(FileCommand::ImportMtlx); ui.close(); }
         });
         ui.separator();
         if menu_item(ui, "Quit", &format!("{CMD}+Q")) { c = Some(FileCommand::Quit); }

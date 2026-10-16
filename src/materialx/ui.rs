@@ -51,19 +51,29 @@ mod pal {
     pub fn MESSAGE() -> Color32 { Color32::from_rgb(120, 10, 10) }
 }
 
-/// A node's colour, by its group in the library.
+/// A node's colour, by the group of its node in the library: the same
+/// whatever types it takes, only its ports change.
 fn tint(group: &str) -> egui::Color32 {
     let (r, g, b) = match group {
-        // Shaders and the material: the purple of material sockets.
+        // Shaders: the purple of material sockets.
         "pbr" | "shader" | "light" | "npr" => (176, 146, 214),
-        "material" => (150, 112, 196),
+        // The material, where the graph ends: dark grey.
+        "material" => (52, 52, 52),
         "texture2d" | "texture3d" => (102, 150, 204),
         "procedural" | "procedural2d" | "procedural3d" => (214, 170, 104),
         "geometric" | "application" => (112, 186, 154),
-        "math" | "adjustment" | "channel" | "conditional" | "compositing" | "convolution2d" => (152, 196, 98),
-        _ => (178, 178, 170),
+        // Maths, channels, conditions and the rest: a neutral grey.
+        _ => (182, 182, 182),
     };
     egui::Color32::from_rgb(r, g, b)
+}
+
+/// The text colours that read on a node's colour: black on light ones,
+/// white on dark ones. The name's, then the type line's.
+fn inks(body: egui::Color32) -> (egui::Color32, egui::Color32) {
+    let lum = 0.299 * body.r() as f32 + 0.587 * body.g() as f32 + 0.114 * body.b() as f32;
+    if lum > 110.0 { (pal::INK(), pal::INK_TYPE()) }
+    else { (egui::Color32::from_rgb(240, 240, 240), egui::Color32::from_rgba_unmultiplied(240, 240, 240, 160)) }
 }
 
 /// A data type's colour, on its ports and wires.
@@ -76,7 +86,9 @@ pub fn type_colour(t: Type) -> egui::Color32 {
         Type::Matrix33 | Type::Matrix44 => (140, 150, 40),
         Type::String | Type::Filename | Type::Geomname | Type::StringArray | Type::GeomnameArray => (200, 210, 225),
         Type::Bsdf | Type::Edf | Type::Vdf => (225, 120, 205),
-        Type::SurfaceShader | Type::DisplacementShader | Type::VolumeShader | Type::LightShader | Type::Material => (140, 95, 190),
+        Type::SurfaceShader | Type::DisplacementShader | Type::VolumeShader | Type::LightShader => (140, 95, 190),
+        // The material: dark grey, as its node.
+        Type::Material => (70, 70, 70),
         Type::None => (85, 85, 85),
     };
     egui::Color32::from_rgb(r, g, b)
@@ -165,11 +177,16 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
         super::set_view(ui.ctx(), op, view);
         return true;
     }
-    // Delete or Backspace: the selected node. Not while text is typed.
+    // Delete or Backspace: the selected wire, else the selected node. Not
+    // while text is typed.
     if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input()
         && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
     {
-        if let Some(id) = view.selected.take() { graph.remove(id); }
+        if let Some((to, input)) = view.selected_wire.take() {
+            graph.disconnect(to, &input);
+        } else if let Some(id) = view.selected.take() {
+            graph.remove(id);
+        }
     }
     // Frame every node: F or A, and once when the graph is first opened.
     let frame = !view.framed || keys_free && ui.input(|i| i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::A));
@@ -218,12 +235,24 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
             if response.hover_pos().is_some_and(|p| is_near_bezier_h(p, fp, tp, 10.0)) { hovered_wire = Some((n.id, input.clone())); }
             let ok = graph.wire_ok(lib, n.id, input);
             let colour = if ok { graph.output_type(lib, *src, output).map(type_colour).unwrap_or(pal::RIM()) } else { pal::WRONG() };
-            draw_wire_h(&painter, fp, tp, colour, hovered_wire.as_ref() == Some(&(n.id, input.clone())), z);
+            let this = Some((n.id, input.clone()));
+            if view.selected_wire == this {
+                // Selected: wide, in the selection colour, under the wire.
+                draw_selected_wire(&painter, fp, tp, z);
+            }
+            draw_wire_h(&painter, fp, tp, colour, hovered_wire == this, z);
         }
     }
-    // Right-click a wire: take it off.
+    // Click a wire: select it (Delete takes it off). Right-click: take it off.
     if let Some((to, input)) = &hovered_wire {
-        if response.secondary_clicked() { graph.disconnect(*to, input); }
+        if response.clicked() {
+            view.selected_wire = Some((*to, input.clone()));
+            view.selected = None;
+        }
+        if response.secondary_clicked() {
+            graph.disconnect(*to, input);
+            view.selected_wire = None;
+        }
     }
     // The wire being drawn.
     if let Some((from, output)) = view.wiring.clone() {
@@ -246,8 +275,11 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
     if response.dragged() && (ui.input(|i| i.modifiers.shift) || ui.input(|i| i.pointer.middle_down())) {
         view.pan += response.drag_delta();
     }
-    // A click on the canvas: nothing selected.
-    if response.clicked() { view.selected = None; }
+    // A click on the canvas, off the wires: nothing selected.
+    if response.clicked() && hovered_wire.is_none() { view.selected = None; view.selected_wire = None; }
+    // A wire taken off elsewhere: not selected.
+    let gone = view.selected_wire.as_ref().is_some_and(|(to, input)| graph.source(*to, input).is_none());
+    if gone { view.selected_wire = None; }
 
     // ── The inputs a dropped wire can go into ────────────────────────────────
     if let Some(drop) = view.drop.clone() {
@@ -327,6 +359,22 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
     false
 }
 
+/// The band under a selected wire: the wire's curve, wide, in the
+/// selection colour.
+fn draw_selected_wire(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, z: f32) {
+    // The same curve as `draw_wire_h`.
+    let off = (to.x - from.x).abs().max(60.0 * z) * 0.5;
+    let (c1, c2) = (egui::pos2(from.x + off, from.y), egui::pos2(to.x - off, to.y));
+    let pts: Vec<egui::Pos2> = (0..=24).map(|i| {
+        let t = i as f32 / 24.0;
+        let mt = 1.0 - t;
+        let w = [mt * mt * mt, 3.0 * mt * mt * t, 3.0 * mt * t * t, t * t * t];
+        egui::pos2(w[0] * from.x + w[1] * c1.x + w[2] * c2.x + w[3] * to.x,
+                   w[0] * from.y + w[1] * c1.y + w[2] * c2.y + w[3] * to.y)
+    }).collect();
+    painter.add(egui::Shape::line(pts, egui::Stroke::new(6.0 * z.clamp(0.7, 1.5), crate::theme::selection())));
+}
+
 /// The add menu: a search line, then the library's nodes by group. The
 /// node chosen, if one was.
 fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<String> {
@@ -346,16 +394,19 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<String> {
     };
     let s = search.trim().to_lowercase();
     if !s.is_empty() {
-        let found: Vec<&String> = lib.nodes().iter().filter(|n| n.to_lowercase().contains(&s)).collect();
+        let found: Vec<&String> = lib.nodes().iter().filter(|n| n.to_lowercase().contains(&s)).take(60).collect();
+        // ↓ and ↑ move through what is found, Enter takes it.
+        let (hi, moved, enter) = crate::menus::search_keys(ui, egui::Id::new("materialx_pick"), &s, found.len(), opened_now);
         egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-            for node in found.iter().take(60) {
+            for (k, node) in found.iter().enumerate() {
                 let group = lib.group(node).unwrap_or("");
-                if ui.button(format!("{}   {group}", label(node.as_str()))).clicked() { chosen = Some(node.to_string()); }
+                let r = ui.selectable_label(k == hi, format!("{}   {group}", label(node.as_str())));
+                if moved && k == hi { r.scroll_to_me(None); }
+                if r.clicked() { chosen = Some(node.to_string()); }
             }
             if found.is_empty() { ui.label("No node by that name"); }
         });
-        // Enter takes the first.
-        if ui.input(|i| i.key_pressed(egui::Key::Enter)) { chosen = found.first().map(|n| n.to_string()); }
+        if enter { chosen = found.get(hi).map(|n| n.to_string()); }
         return chosen;
     }
     // The surface shaders and the material first: what a material needs.
@@ -428,7 +479,8 @@ fn draw_node(
     let rect = egui::Rect::from_min_size(np, lay.size * z);
     let font = |pt: f32| egui::FontId::proportional(pt * z);
     let selected = view.selected == Some(id);
-    let body = tint(def.map(|d| d.group.as_str()).unwrap_or(""));
+    let body = tint(lib.group(&node.node).unwrap_or(""));
+    let (ink, ink_type) = inks(body);
 
     let w = crate::node_graph::ui::ring_width(z, selected);
     painter.rect_filled(rect.expand(w), ROUNDING * z + w, if selected { crate::theme::selection() } else { pal::FRAME() });
@@ -436,10 +488,10 @@ fn draw_node(
     painter.rect_stroke(rect, ROUNDING * z, egui::Stroke::new(1.0_f32, pal::RIM()), egui::StrokeKind::Middle);
 
     for dx in [0.0, 0.6] {
-        painter.text(egui::pos2(np.x + (7.0 + dx) * z, np.y + 12.0 * z), egui::Align2::LEFT_CENTER, &node.name, font(TITLE_PT), pal::INK());
+        painter.text(egui::pos2(np.x + (7.0 + dx) * z, np.y + 12.0 * z), egui::Align2::LEFT_CENTER, &node.name, font(TITLE_PT), ink);
     }
     if let Some(d) = def {
-        painter.text(egui::pos2(np.x + 7.0 * z, np.y + 25.0 * z), egui::Align2::LEFT_CENTER, subtitle(&node, d), font(TYPE_PT), pal::INK_TYPE());
+        painter.text(egui::pos2(np.x + 7.0 * z, np.y + 25.0 * z), egui::Align2::LEFT_CENTER, subtitle(&node, d), font(TYPE_PT), ink_type);
     } else {
         painter.text(egui::pos2(np.x + 7.0 * z, np.y + 25.0 * z), egui::Align2::LEFT_CENTER, format!("{} not in the library", node.def),
             font(TYPE_PT), pal::WRONG());
@@ -465,7 +517,7 @@ fn draw_node(
     }
     if lay.hidden > 0 {
         let y = rect.max.y - (PAD_B + ROW_H * 0.5) * z;
-        painter.text(egui::pos2(np.x + 9.0 * z, y), egui::Align2::LEFT_CENTER, format!("{} more", lay.hidden), font(LABEL_PT), pal::INK_TYPE());
+        painter.text(egui::pos2(np.x + 9.0 * z, y), egui::Align2::LEFT_CENTER, format!("{} more", lay.hidden), font(LABEL_PT), ink_type);
     }
 
     // Outputs, on the right.
@@ -474,7 +526,7 @@ fn draw_node(
         let sr = ui.allocate_rect(egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0))), egui::Sense::click_and_drag());
         let wiring = view.wiring.as_ref() == Some(&(id, name.clone()));
         draw_port(painter, sp, type_colour(*ty), sr.hovered() || wiring, z);
-        painter.text(egui::pos2(sp.x - 7.0 * z, sp.y), egui::Align2::RIGHT_CENTER, name, font(LABEL_PT), pal::INK());
+        painter.text(egui::pos2(sp.x - 7.0 * z, sp.y), egui::Align2::RIGHT_CENTER, name, font(LABEL_PT), ink);
         if sr.drag_started() || (sr.is_pointer_button_down_on() && view.wiring.is_none()) {
             view.wiring = Some((id, name.clone()));
             view.message.clear();
@@ -488,7 +540,7 @@ fn draw_node(
         // wire's drag holds the hover.
         let target = sr.contains_pointer() && view.wiring.is_some();
         draw_port(painter, sp, type_colour(*ty), target, z);
-        painter.text(egui::pos2(sp.x + 7.0 * z, sp.y), egui::Align2::LEFT_CENTER, name, font(LABEL_PT), pal::INK());
+        painter.text(egui::pos2(sp.x + 7.0 * z, sp.y), egui::Align2::LEFT_CENTER, name, font(LABEL_PT), ink);
         if sr.contains_pointer() && ui.input(|i| i.pointer.primary_released()) {
             if let Some((from, output)) = view.wiring.take() {
                 if from != id {
@@ -509,7 +561,7 @@ fn draw_node(
         }
     }
 
-    if dr.clicked() || rows.clicked() { view.selected = Some(id); }
+    if dr.clicked() || rows.clicked() { view.selected = Some(id); view.selected_wire = None; }
     dr.context_menu(|ui| {
         if ui.button("Delete").clicked() {
             graph.remove(id);
@@ -521,6 +573,7 @@ fn draw_node(
         view.dragging = Some(id);
         view.drag_offset = dr.interact_pointer_pos().unwrap_or_default() - np;
         view.selected = Some(id);
+        view.selected_wire = None;
     }
     if dr.dragged() && view.dragging == Some(id) {
         if let Some(ptr) = dr.interact_pointer_pos() {

@@ -50,6 +50,9 @@ pub struct PanelIo<'a> {
     pub tool: &'a mut Tool,
     /// The rows selected in the Scene Explorer: what "+ Add Location" adds.
     pub scene_paths: Vec<String>,
+    /// Operators to add to the graph after the panel: a name and a type
+    /// (a MaterialX operator made from a stage's material).
+    pub add: Vec<(String, NodeType)>,
 }
 
 pub fn draw_properties_panel(
@@ -291,7 +294,7 @@ pub fn draw_properties(
                 else { f.status(Status::Bad, "Not found"); }
             });
             load_mode_rows(ui, path, mode, location, prim);
-            if !path.is_empty() { usd_summary(ui, path); }
+            if !path.is_empty() { usd_summary(ui, path, io); }
         }
         NodeType::WriteUsd { path } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
@@ -450,7 +453,7 @@ pub fn draw_properties(
         }),
         NodeType::SetAttribute { rows } => set_attribute_rows(ui, rows, located, prim_paths.len()),
         NodeType::Material { surface } => material_rows(ui, surface, &node.name, io, sel_id),
-        NodeType::MaterialX { graph } => crate::materialx::params::operator(ui, &node.name, graph),
+        NodeType::MaterialX { graph } => crate::materialx::params::operator(ui, sel_id, &node.name, graph, io),
         NodeType::MaterialBinding { library, inputs, .. } => {
             resync |= binding_rows(ui, library, inputs, &binding_ports, crate::core::locations::rows(&node.locations).count());
         }
@@ -1644,7 +1647,7 @@ fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
 }
 
 /// What a USD file holds, from the cached stage.
-fn usd_summary(ui: &mut egui::Ui, path: &str) {
+fn usd_summary(ui: &mut egui::Ui, path: &str, io: &mut PanelIo) {
     let scene = match crate::usd_scene::load_cached(path) {
         Ok(s) => s,
         Err(e) => { group(ui, "Stage", None, |f| f.status(Status::Bad, format!("Could not read the file: {e}"))); return; }
@@ -1669,15 +1672,36 @@ fn usd_summary(ui: &mut egui::Ui, path: &str) {
             });
         });
     };
-    list(ui, format!("Materials ({})", scene.materials.len()), scene.materials.iter().map(|m| {
-        let mut parts = vec![];
-        if let Some(c) = m.diffuse { parts.push(format!("colour {:.2} {:.2} {:.2}", c[0], c[1], c[2])); }
-        if let Some(v) = m.roughness { parts.push(format!("roughness {v:.2}")); }
-        if let Some(v) = m.metallic { parts.push(format!("metallic {v:.2}")); }
-        if let Some(v) = m.opacity { parts.push(format!("opacity {v:.2}")); }
-        for (role, file) in &m.textures { parts.push(format!("{role}: {file}")); }
-        (leaf(&m.path), parts.join("\n"))
-    }).collect());
+    // Materials: what each is, and a MaterialX operator made from its network.
+    if !scene.materials.is_empty() {
+        egui::CollapsingHeader::new(format!("Materials ({})", scene.materials.len())).default_open(false).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt(ui.id().with("usd_materials")).max_height(240.0).show(ui, |ui| {
+                for m in &scene.materials {
+                    let mut parts = vec![];
+                    if let Some(c) = m.diffuse { parts.push(format!("colour {:.2} {:.2} {:.2}", c[0], c[1], c[2])); }
+                    if let Some(v) = m.roughness { parts.push(format!("roughness {v:.2}")); }
+                    if let Some(v) = m.metallic { parts.push(format!("metallic {v:.2}")); }
+                    if let Some(v) = m.opacity { parts.push(format!("opacity {v:.2}")); }
+                    for (role, file) in &m.textures { parts.push(format!("{role}: {file}")); }
+                    ui.horizontal(|ui| {
+                        ui.colored_label(ink::LABEL(), leaf(&m.path));
+                        if let Some(g) = &m.graph {
+                            if ui.small_button("→ MaterialX").on_hover_text(format!(
+                                "Add a MaterialX operator with this material's network ({} nodes), named after it. Bound by a Material Binding whose library is {}, it takes the place of this one",
+                                g.nodes.len(), m.path.rsplit_once('/').map(|(p, _)| if p.is_empty() { "/" } else { p }).unwrap_or("/"))).clicked()
+                            {
+                                io.add.push((leaf(&m.path), NodeType::MaterialX { graph: (**g).clone() }));
+                            }
+                        }
+                    });
+                    if !parts.is_empty() { ui.colored_label(ink::DIM(), egui::RichText::new(parts.join("\n")).small()); }
+                    for n in m.graph_notes.iter().take(3) {
+                        ui.colored_label(ink::DIM(), egui::RichText::new(format!("MaterialX: {n}")).small());
+                    }
+                }
+            });
+        });
+    }
     list(ui, format!("Cameras ({})", scene.cameras.len()), scene.cameras.iter().map(|c| {
         let (k, at) = (&c.camera, c.position());
         (leaf(&c.path), format!("{} {} mm, aperture {} x {}, clip {} to {}, at {:.2} {:.2} {:.2}",

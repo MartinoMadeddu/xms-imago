@@ -15,7 +15,10 @@
 //!   connecting picks the definitions (`Graph::connect`).
 //! * [`document`]: a graph as a `.mtlx` document, and back: how a graph is
 //!   saved, and written out.
-//! * [`usd`]: a graph's material as a USD MaterialX shading network.
+//! * [`import`]: the materials of any `.mtlx` file, node graphs laid out
+//!   flat (tested on every MaterialX example, `tests/examples`).
+//! * [`usd`]: a graph's material as a USD MaterialX shading network, and a
+//!   USD material's network read back into a graph.
 //! * [`preview`]: what the Viewer shows of a graph's material.
 //! * [`xml`]: the small XML reader the documents are read with.
 //!
@@ -23,6 +26,7 @@
 
 pub mod document;
 pub mod graph;
+pub mod import;
 pub mod library;
 pub mod preview;
 pub mod types;
