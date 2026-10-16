@@ -1,7 +1,8 @@
 //! Writing what a scene network changed as a USD override layer.
 //!
-//! The layer sublayers the file each stage was read from and holds only
-//! opinions over it: `over` prims with the attributes that changed. Opened on
+//! The layer sublayers the file each stage was read from (or, for a stage
+//! Load USD referenced or payloaded, writes that arc on its prim) and holds
+//! only opinions over it: `over` prims with the attributes that changed. Opened on
 //! its own (in usdview, rray, Imago), it composes to what Imago shows. What
 //! changed comes from `crate::edits`: attributes no longer shared with the
 //! loaded source.
@@ -60,6 +61,8 @@ pub struct WriteReport {
     pub deactivated: usize,
     /// Prims written as new.
     pub added:       usize,
+    /// Stages written as a reference or a payload on a prim.
+    pub referenced:  usize,
     /// Edits that could not be written, and why.
     pub skipped:     Vec<String>,
 }
@@ -84,8 +87,21 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     }
     let mut root = Spec::default();
     let mut report = WriteReport::default();
+    // The stages the layer sublayers: their files at their own paths. The
+    // others come in by a reference or a payload on a prim.
+    let sublayered: Vec<&Arc<StageTree>> = trees.iter().filter(|t| t.arc.is_none()).collect();
+    // The layer's axes and unit: those of the first sublayered stage, since
+    // stage metadata only comes from the root layer; Imago's (Y up, metres)
+    // when there is none.
+    let layer_root = sublayered.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
+    let in_a_sublayer = |path: &str| sublayered.iter().any(|t| t.node(path).is_some());
+    let dir = out.parent().unwrap_or(Path::new("."));
 
     for tree in &trees {
+        if let Some(arc) = &tree.arc {
+            arc_prim(&mut root, tree, arc, layer_root, dir, &in_a_sublayer);
+            report.referenced += 1;
+        }
         let nodes: BTreeMap<&str, &StageNode> = tree.nodes.iter().map(|n| (n.path.as_str(), n)).collect();
         let set = edit_set(prims, tree);
         let by_path: BTreeMap<&str, &Prim> = prims.iter()
@@ -132,7 +148,6 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // Xforms, except where a stage already has a prim on that path; those
     // with materials alone below them (the Material Library Location) are
     // Scopes.
-    let layer_root = trees.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
     let in_a_stage = |path: &str| trees.iter().any(|t| t.nodes.iter().any(|n| n.path == path));
     // Values set on those Xforms, carried by each primitive below them.
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
@@ -161,7 +176,8 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // The prim a reference to this layer gets when it names none: the first
     // stage's first root prim, else the first prim made here (Imago does not
     // read the stage's own defaultPrim yet).
-    let default_prim = trees.iter().flat_map(|t| t.nodes.iter()).find(|n| n.depth == 1).map(|n| n.name.clone())
+    let default_prim = sublayered.iter().flat_map(|t| t.nodes.iter()).find(|n| n.depth == 1).map(|n| n.name.clone())
+        .or_else(|| trees.iter().find_map(|t| t.arc.as_ref()).and_then(|a| a.at.split('/').find(|s| !s.is_empty()).map(str::to_string)))
         .or_else(|| prims.iter().filter(|p| p.stage.is_none())
             .find_map(|p| p.path.split('/').find(|s| !s.is_empty()).map(str::to_string)));
 
@@ -169,7 +185,7 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // metadata only comes from the root layer), then the opinions.
     let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
     if let Some(name) = &default_prim { let _ = writeln!(text, "    defaultPrim = \"{name}\""); }
-    match trees.first() {
+    match sublayered.first() {
         Some(t) => {
             if let Some(mpu) = t.meters_per_unit { let _ = writeln!(text, "    metersPerUnit = {}", num64(mpu)); }
             if !t.up_axis.is_empty() { let _ = writeln!(text, "    upAxis = \"{}\"", t.up_axis); }
@@ -178,9 +194,8 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
         None if !root.children.is_empty() => text.push_str("    metersPerUnit = 1\n    upAxis = \"Y\"\n"),
         None => {}
     }
-    if !trees.is_empty() {
-        let dir = out.parent().unwrap_or(Path::new("."));
-        let layers: Vec<String> = trees.iter().map(|t| format!("@{}@", relative(&t.source, dir).display())).collect();
+    if !sublayered.is_empty() {
+        let layers: Vec<String> = sublayered.iter().map(|t| format!("@{}@", relative(&t.source, dir).display())).collect();
         let _ = writeln!(text, "    subLayers = [\n        {}\n    ]", layers.join(",\n        "));
     }
     text.push_str(")\n");
@@ -189,6 +204,31 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
         child.write(&mut text, name, 0);
     }
     Ok((text, report))
+}
+
+/// The prim a referenced or payloaded stage is at: `def` with no type (the
+/// file's prim gives it one), the arc to the file's prim, and, where the
+/// file's axes or unit differ from the layer's, the transform that turns
+/// one into the other, on top of the prim's own (which it replaces). Its
+/// parents are Xforms, unless a sublayered stage has them.
+fn arc_prim(root: &mut Spec, tree: &StageTree, arc: &crate::usd_scene::StageArc, layer_root: Mat4, dir: &Path, in_a_sublayer: &dyn Fn(&str) -> bool) {
+    let segments: Vec<&str> = arc.at.split('/').filter(|s| !s.is_empty()).collect();
+    for n in 1..segments.len() {
+        let parent = format!("/{}", segments[..n].join("/"));
+        let spec = root.at(&parent);
+        if spec.def.is_none() && !in_a_sublayer(&parent) { spec.def = Some("Xform"); }
+    }
+    let spec = root.at(&arc.at);
+    if spec.def.is_none() && !in_a_sublayer(&arc.at) { spec.def = Some(""); }
+    let file = relative(&tree.source, dir);
+    spec.meta.push(format!("prepend {} = @{}@<{}>", if arc.payload { "payload" } else { "references" }, file.display(), arc.prim));
+    let fix = layer_root.as_dmat4().inverse() * tree.root.as_dmat4();
+    if !fix.abs_diff_eq(DMat4::IDENTITY, 1e-9) {
+        let (own, reset) = tree.node(&arc.at).map(|n| (n.local, n.reset_xform)).unwrap_or((DMat4::IDENTITY, false));
+        spec.lines.insert(0, format!("matrix4d xformOp:transform = {}", matrix(&(fix * own))));
+        let order = if reset { "[\"!resetXformStack!\", \"xformOp:transform\"]" } else { "[\"xformOp:transform\"]" };
+        spec.lines.insert(1, format!("uniform token[] xformOpOrder = {order}"));
+    }
 }
 
 /// Why a prim cannot carry opinions, if it cannot.
@@ -223,6 +263,8 @@ impl Spec {
     fn write(&self, out: &mut String, name: &str, depth: usize) {
         let pad = "    ".repeat(depth);
         match self.def {
+            // No type: what the prim references gives it one.
+            Some("") => { let _ = write!(out, "{pad}def \"{name}\""); }
             Some(ty) => { let _ = write!(out, "{pad}def {ty} \"{name}\""); }
             None => { let _ = write!(out, "{pad}over \"{name}\""); }
         }
@@ -303,6 +345,21 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
             child.def = Some("Shader");
             child.lines = s.lines;
         }
+        for (name, value) in p.props.iter() { property(spec, name, value); }
+        return;
+    }
+    // A camera: where it is, and its lens.
+    if let Some(c) = &p.camera {
+        spec.def = Some("Camera");
+        let place = match &p.place { Placement::One(m) => root.as_dmat4().inverse() * m.as_dmat4(), _ => root.as_dmat4().inverse() };
+        if place != DMat4::IDENTITY {
+            spec.lines.push(format!("matrix4d xformOp:transform = {}", matrix(&place)));
+            spec.lines.push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
+        }
+        if p.purpose != Purpose::Default {
+            spec.lines.push(format!("uniform token purpose = \"{}\"", purpose_token(p.purpose)));
+        }
+        spec.lines.extend(c.usda_lines());
         for (name, value) in p.props.iter() { property(spec, name, value); }
         return;
     }
@@ -647,6 +704,88 @@ def Xform "set" {{
         let read = back.materials.iter().find(|m| m.path == "/materials/paint").expect("paint is read back");
         assert_eq!((read.roughness, read.metallic), (Some(0.25), Some(1.0)));
         assert!(read.textures.contains(&("diffuseColor".to_string(), "textures/paint.png".to_string())), "{:?}", read.textures);
+    }
+
+    /// Load USD in Reference mode: the file's prim at /root, its paths
+    /// rebased; written as a reference on /root (with the transform from the
+    /// file's axes and unit to the layer's) and edits under it, which,
+    /// opened, give the prims where Imago showed them.
+    #[test]
+    fn a_referenced_stage_is_written_as_a_reference_and_composes_back() {
+        use crate::usd_scene::LoadMode;
+        let (path, _) = load("referenced.usda", &stage_text());
+        let scene = crate::usd_scene::load(&path).unwrap();
+        let mut prims = crate::node_graph::nodes::stage_prims(&scene, LoadMode::Reference, "/root", "").unwrap();
+        let paths: Vec<&str> = prims.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, vec!["/root/a", "/root/b", "/root/c"], "the file names no default prim: its first root prim, /set");
+        let b = prims.iter().position(|p| p.path == "/root/b").unwrap();
+        prims[b].place = prims[b].place.moved(Mat4::from_translation(glam::Vec3::new(2.0, 0.0, 0.0)));
+        let shown: Vec<(String, Placement)> = prims.iter().map(|p| (p.path.clone(), p.place.clone())).collect();
+
+        let out = std::env::temp_dir().join("xms_usd_write_test/referencing.usda");
+        let report = write_override(&prims, &out).unwrap();
+        assert_eq!((report.referenced, report.changed), (1, 1), "{report:?}");
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in ["def \"root\"", "prepend references = @./referenced.usda@</set>", "matrix4d xformOp:transform", "upAxis = \"Y\"", "defaultPrim = \"root\"", "over \"b\""] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        assert!(!text.contains("subLayers"), "{text}");
+        // Read back: every prim where Imago showed it.
+        let back = crate::usd_scene::load(&out).unwrap();
+        for (path, place) in shown {
+            let m = back.meshes.iter().find(|m| m.path == path).unwrap_or_else(|| panic!("{path} is read back"));
+            let (Placement::One(now), Placement::One(was)) = (&m.place, &place) else { panic!("placed") };
+            assert!(now.abs_diff_eq(*was, 1e-3), "{path}: {now} vs {was}");
+        }
+
+        // Payload: the same, written as a payload.
+        let prims = crate::node_graph::nodes::stage_prims(&scene, LoadMode::Payload, "/shot/set", "").unwrap();
+        let (text, _) = override_layer(&prims, &out).unwrap();
+        assert!(text.contains("prepend payload = @./referenced.usda@</set>") && text.contains("def Xform \"shot\""), "{text}");
+    }
+
+    /// A camera made by the Camera operator is written as a `def Camera`
+    /// with its lens; a file's camera moved by a Transform as its new
+    /// transform. Read back, both are where Imago showed them.
+    #[test]
+    fn cameras_are_written_and_read_back() {
+        let pass = |_: crate::types::IceGraphId, g: &Geo, _: Option<&Geo>| g.clone();
+        let Some(EvalResult::Named(made)) = crate::node_graph::nodes::evaluate_node_type(&crate::types::NodeType::camera(), &[], &pass, 0) else { panic!() };
+        let out = std::env::temp_dir().join("xms_usd_write_test/camera_over.usda");
+        let report = write_override(&made, &out).unwrap();
+        assert_eq!(report.added, 1);
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in ["def Camera \"camera\"", "token projection = \"perspective\"", "float focalLength = 50", "matrix4d xformOp:transform"] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        let back = crate::usd_scene::load(&out).unwrap();
+        let cam = back.cameras.iter().find(|c| c.path == "/camera").expect("the camera is read back");
+        assert_eq!(cam.camera.focal_length, 50.0);
+        let shown = made[0].place.matrices()[0].w_axis.truncate().to_array();
+        assert!(cam.position().iter().zip(shown).all(|(a, b)| (a - b).abs() < 1e-4), "{:?} vs {shown:?}", cam.position());
+
+        // A file's camera, moved.
+        let (path, _) = load("with_camera.usda", &format!(r#"#usda 1.0
+def Xform "shot" {{
+    def Mesh "card" {{{QUAD}    }}
+    def Camera "cam" {{
+        float focalLength = 35
+        double3 xformOp:translate = (0, 1, 8)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }}
+}}
+"#));
+        let scene = crate::usd_scene::load(&path).unwrap();
+        let mut prims = crate::node_graph::nodes::stage_prims(&scene, crate::usd_scene::LoadMode::Sublayer, "", "").unwrap();
+        let k = prims.iter().position(|p| p.path == "/shot/cam").expect("the file's camera is a primitive");
+        assert_eq!(prims[k].camera.as_ref().map(|c| c.focal_length), Some(35.0));
+        prims[k].place = prims[k].place.moved(Mat4::from_translation(glam::Vec3::new(3.0, 0.0, 0.0)));
+        let out = std::env::temp_dir().join("xms_usd_write_test/camera_moved.usda");
+        let report = write_override(&prims, &out).unwrap();
+        assert_eq!((report.changed, report.added), (1, 0), "only its transform: {report:?}");
+        let back = crate::usd_scene::load(&out).unwrap();
+        let moved = back.cameras.iter().find(|c| c.path == "/shot/cam").unwrap();
+        assert!((moved.position()[0] - 3.0).abs() < 1e-4 && (moved.position()[2] - 8.0).abs() < 1e-4, "{:?}", moved.position());
     }
 
     #[test]

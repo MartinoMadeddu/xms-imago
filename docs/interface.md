@@ -122,7 +122,7 @@ Nine categories, each a submenu, each item a node. A node has one name, the same
 | Category | Nodes |
 |---|---|
 | Placeholder | Placeholder |
-| Create | Cube, Sphere, Grid, Test Clip |
+| Create | Cube, Sphere, Grid, Camera, Test Clip |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
@@ -206,6 +206,10 @@ Fields that choose things by name take patterns instead of exact names:
 - Under the field: how many names match
 
 Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
+
+## Looking through a camera
+
+The 🎥 menu at the top of the Viewer, next to the display mode, lists the cameras of the scene at the view flag. Choose one to look through it: the whole gate is shown, what is outside it darkened, the camera's name at the top, in the middle. Perspective goes back to the Viewer's own camera, where it was. Orbiting, panning, zooming or framing while looking through a camera leaves it, the view staying where it is (see [USD](usd.md#cameras)).
 
 ## Framing
 

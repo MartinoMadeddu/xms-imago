@@ -20,48 +20,20 @@ pub fn evaluate_node_type(
         NodeType::CreateCube   { size, location }             => Some(shape(location, "/cube", create_cube(*size))),
         NodeType::CreateSphere { radius, segments, location } => Some(shape(location, "/sphere", create_sphere(*radius, *segments))),
         NodeType::CreateGrid   { rows, cols, size, location } => Some(shape(location, "/grid", create_grid(*rows, *cols, *size))),
+        // A camera: a primitive with no geometry, placed.
+        NodeType::Camera { location, translate, rotate, camera } => Some(EvalResult::Named(vec![Prim {
+            place: Placement::One(transform_matrix(Vec3::from(*translate), Vec3::from(rotate.map(f32::to_radians)), Vec3::ONE)),
+            camera: Some(Arc::new(camera.clone())),
+            ..Prim::new(crate::types::prim_location(location, &crate::types::camera_location()), MeshData::default())
+        }])),
 
-        NodeType::LoadUsd { path } => {
+        NodeType::LoadUsd { path, mode, location, prim } => {
             if path.is_empty() { return None; }
             // Packed primitives: one per mesh prim, shared with the cached stage.
             match crate::usd_scene::load_cached(path) {
-                Ok(scene) if scene.meshes.is_empty() => None,
-                Ok(scene) => {
-                    let looks = scene.looks();
-                    // The meshes point instancers draw at their points.
-                    let members: std::collections::HashMap<&str, (&crate::usd_scene::UsdInstancer, u32, glam::Mat4)> = scene.instancers.iter()
-                        .flat_map(|i| i.members.iter().map(move |(path, k, inside)| (path.as_str(), (i, *k, *inside))))
-                        .collect();
-                    let mut prims: Vec<Prim> = scene.meshes.iter().map(|m| Prim {
-                        path: m.path.clone(), mesh: m.mesh.clone(), picked: false, material: m.material.clone(),
-                        look: m.material.as_ref().and_then(|p| looks.get(p).cloned()),
-                        stage: Some(scene.tree.clone()),
-                        geo: m.geo.clone(),
-                        // As loaded: what its edits are measured against.
-                        source: m.geo.clone().map(|geo| Arc::new(crate::types::Source {
-                            geo, place: m.place.clone(), material: m.material.clone(), purpose: m.purpose,
-                        })),
-                        place: m.place.clone(),
-                        purpose: m.purpose,
-                        props: Default::default(),
-                        above: Default::default(),
-                        instancing: None,
-                        instanced_by: members.get(m.path.as_str()).map(|(i, index, inside)| Arc::new(crate::types::InstancedBy {
-                            instancer: i.path.clone(), index: *index, inside: *inside, hidden: i.hidden.clone(),
-                            geo: i.geo.clone(), place: i.place.clone(),
-                        })),
-                        shading: None,
-                    }).collect();
-                    // Each point instancer, a points primitive of its own.
-                    prims.extend(scene.instancers.iter().map(|i| Prim {
-                        path: i.path.clone(), mesh: i.mesh.clone(), picked: false, material: None, look: None,
-                        stage: Some(scene.tree.clone()), geo: Some(i.geo.clone()),
-                        source: Some(Arc::new(crate::types::Source { geo: i.geo.clone(), place: i.place.clone(), material: None, purpose: i.purpose })),
-                        place: i.place.clone(), purpose: i.purpose,
-                        props: Default::default(), above: Default::default(), instancing: Some(i.prototypes.clone()), instanced_by: None, shading: None,
-                    }));
-                    Some(EvalResult::Named(prims))
-                }
+                // Nothing to show: no geometry, instancer or camera.
+                Ok(scene) if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() => None,
+                Ok(scene) => stage_prims(&scene, *mode, location, prim).map(EvalResult::Named),
                 Err(_) => None,
             }
         }
@@ -293,7 +265,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None,
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None,
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>
@@ -407,6 +379,87 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
         },
         ..strong.clone()
     }
+}
+
+/// A loaded stage as primitives, as Load USD gives them: sublayered at the
+/// file's own paths, or, referenced or payloaded, the referenced prim and
+/// what is below it at `location`, every path rebased there (bindings and
+/// prototypes too) and the stage's tree with them. `None` when a reference
+/// finds no prim to bring in.
+pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::LoadMode, location: &str, prim: &str) -> Option<Vec<Prim>> {
+    use crate::usd_scene::{LoadMode, StageArc};
+    let arc = match mode {
+        LoadMode::Sublayer => None,
+        LoadMode::Reference | LoadMode::Payload => Some(StageArc {
+            payload: mode == LoadMode::Payload,
+            prim: crate::usd_scene::referenced_prim(scene, prim)?,
+            at: crate::types::prim_location(location, &crate::types::reference_location()),
+        }),
+    };
+    // Where a path of the file is in the scene; what an arc leaves out is not.
+    let place = |p: &str| match &arc { None => Some(p.to_string()), Some(a) => a.place(p) };
+    // A path pointing elsewhere in the file (a binding outside the referenced
+    // prim) stays as it is.
+    let point = |p: &String| place(p).unwrap_or_else(|| p.clone());
+    let tree = match &arc { None => scene.tree.clone(), Some(a) => Arc::new(crate::usd_scene::rebased(&scene.tree, a)) };
+    let looks = scene.looks();
+    // The meshes point instancers draw at their points.
+    let members: std::collections::HashMap<&str, (&crate::usd_scene::UsdInstancer, u32, glam::Mat4)> = scene.instancers.iter()
+        .flat_map(|i| i.members.iter().map(move |(path, k, inside)| (path.as_str(), (i, *k, *inside))))
+        .collect();
+    let mut prims: Vec<Prim> = scene.meshes.iter().filter_map(|m| {
+        let path = place(&m.path)?;
+        let material = m.material.as_ref().map(point);
+        Some(Prim {
+            path, mesh: m.mesh.clone(), picked: false,
+            look: m.material.as_ref().and_then(|p| looks.get(p).cloned()),
+            stage: Some(tree.clone()),
+            geo: m.geo.clone(),
+            // As loaded: what its edits are measured against.
+            source: m.geo.clone().map(|geo| Arc::new(crate::types::Source {
+                geo, place: m.place.clone(), material: material.clone(), purpose: m.purpose,
+            })),
+            material,
+            place: m.place.clone(),
+            purpose: m.purpose,
+            props: Default::default(),
+            above: Default::default(),
+            instancing: None,
+            instanced_by: members.get(m.path.as_str()).map(|(i, index, inside)| Arc::new(crate::types::InstancedBy {
+                instancer: point(&i.path), index: *index, inside: *inside, hidden: i.hidden.clone(),
+                geo: i.geo.clone(), place: i.place.clone(),
+            })),
+            shading: None,
+            camera: None,
+        })
+    }).collect();
+    // Each point instancer, a points primitive of its own.
+    prims.extend(scene.instancers.iter().filter_map(|i| Some(Prim {
+        path: place(&i.path)?, mesh: i.mesh.clone(), picked: false, material: None, look: None,
+        stage: Some(tree.clone()), geo: Some(i.geo.clone()),
+        source: Some(Arc::new(crate::types::Source { geo: i.geo.clone(), place: i.place.clone(), material: None, purpose: i.purpose })),
+        place: i.place.clone(), purpose: i.purpose,
+        props: Default::default(), above: Default::default(),
+        instancing: Some(match &arc { None => i.prototypes.clone(), Some(_) => Arc::new(i.prototypes.iter().map(point).collect()) }),
+        instanced_by: None, shading: None, camera: None,
+    })));
+    // Each camera, a primitive with no geometry. Its geometry is the same
+    // empty one as when loaded, so only its placement can be an edit.
+    let empty = no_geometry();
+    prims.extend(scene.cameras.iter().filter_map(|c| Some(Prim {
+        path: place(&c.path)?, stage: Some(tree.clone()), geo: Some(empty.clone()),
+        source: Some(Arc::new(crate::types::Source { geo: empty.clone(), place: c.place.clone(), material: None, purpose: c.purpose })),
+        place: c.place.clone(), purpose: c.purpose,
+        camera: Some(Arc::new(c.camera.clone())),
+        ..Prim::new(String::new(), MeshData::default())
+    })));
+    Some(prims)
+}
+
+/// The geometry of a primitive that has none (a camera): one, shared.
+pub fn no_geometry() -> Arc<crate::core::geo::Geo> {
+    static EMPTY: std::sync::OnceLock<Arc<crate::core::geo::Geo>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(|| Arc::new(crate::core::geo::Geo::from_points(vec![]))).clone()
 }
 
 /// Packed primitives from whatever comes in: a mesh is one primitive.

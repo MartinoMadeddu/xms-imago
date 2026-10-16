@@ -22,6 +22,8 @@ pub mod props;
 pub mod instancing;
 /// Materials: a UsdPreviewSurface, as the Material operator makes it.
 pub mod material;
+/// Cameras: a UsdGeomCamera's values, looked through by the Viewer.
+pub mod camera;
 pub mod uv;
 pub mod manip;
 pub mod xform;

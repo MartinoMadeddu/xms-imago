@@ -90,11 +90,13 @@ pub struct StageInfo {
     pub time_range: Option<(f64, f64)>,
     /// Source file, for resolving relative asset paths and diagnostics
     pub source: Option<String>,
+    /// `defaultPrim`: the root prim a reference to the file brings in
+    pub default_prim: Option<String>,
 }
 
 impl Default for StageInfo {
     fn default() -> Self {
-        StageInfo { z_up: false, meters_per_unit: None, time_range: None, source: None }
+        StageInfo { z_up: false, meters_per_unit: None, time_range: None, source: None, default_prim: None }
     }
 }
 

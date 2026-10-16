@@ -790,13 +790,14 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::cube(1.0), "A cube"),
             (NodeType::sphere(0.5, 32), "A sphere"),
             (NodeType::grid(10, 10, 2.0), "A flat grid of quads"),
+            (NodeType::camera(), "A camera at a Primitive Location, with its lens, gate and clipping as USD has them. Look through it from the Viewer's camera menu"),
             (NodeType::TestClip { seconds: 4.0, fps_num: 30, fps_den: 1 }, "A walk on the spot, to try the animation nodes"),
         ]),
         ("📝", "Placeholder", vec![
             (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new() }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
         ]),
         ("📂", "File", vec![
-            (NodeType::LoadUsd { path: String::new() }, "A USD file, as primitives"),
+            (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
             (NodeType::WriteUsd { path: String::new() }, "What the scene graph changed in its USD stages, as an override layer"),
             (NodeType::LoadFbx { path: String::new(), take: 0 }, "Everything in an FBX file: the clip, every mesh with its weights and materials, the rest skeleton"),
             (NodeType::LoadFbxDir { dir: String::new(), index: 0, take: 0 }, "One FBX of a folder at a time; Write FBX can run over all of them"),

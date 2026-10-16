@@ -94,7 +94,7 @@ Each operator below is described with: **Purpose**, **Inputs**, **Parameters**, 
 - **Parameters:** file path; load mode (`open`, `reference`, `payload`, `sublayer`); population mask (optional); load payloads on/off
 - **Targeting:** Primitive Location (mount location when loaded as reference or payload)
 - **USD mapping:** `UsdStage::Open`, references, payloads, sublayers
-- **Status:** **Partial.** Opens `.usda`, `.usdc` and `.usdz` composed (sublayers, references, payloads, inherits, specializes, variants), one primitive per mesh, curves or points prim, with materials, purposes and instancing; cameras, lights and skeletons are listed. Not yet: load modes, mount location, population mask, payload control.
+- **Status:** **Partial.** Opens `.usda`, `.usdc` and `.usdz` composed (sublayers, references, payloads, inherits, specializes, variants), one primitive per mesh, curves or points prim, with materials, purposes and instancing; cameras, lights and skeletons are listed. **Modes:** Sublayer (the whole stage at its paths, written as a sublayer), Reference and Payload (the file's default prim, or a named one, at a Primitive Location, `/root` by default, its paths rebased; written as `references` or `payload` on that prim, with the axis and unit transform where the file's differ from the layer's). Not yet: `open` as its own mode, population mask, payload control, layer offsets.
 
 ### 2.2 Write USD (Save / Export Layer)
 - **Purpose:** Write the authored result to disk.
@@ -150,7 +150,7 @@ Cube, Sphere, Cylinder, Cone, Capsule, Plane.
 ### 3.5 Camera
 - **Parameters:** projection; focal length; horizontal/vertical aperture; clipping range; focus distance; f-stop; shutter open/close
 - **USD mapping:** `UsdGeomCamera`
-- **Status:** **Read only** (listed in Load USD's parameters; the Viewer cannot look through it yet).
+- **Status:** **Partial.** Cameras are primitives with no geometry (`Prim::camera`): a file's, read with every value above but the shutter, and the **Camera** operator's, at a Primitive Location with Translate and Rotate. Transform moves them; Write USD writes the operator's as `def Camera` and a file's moved camera as its transform; a pruned one is deactivated. The Viewer draws them and looks through any of them (its camera menu), showing the whole gate. Not yet: shutter, gate offsets and depth of field in the Viewer, animated cameras, editing a file camera's lens.
 
 ### 3.6 Lights
 Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
@@ -192,7 +192,7 @@ Imago operators not in the original list:
 
 All take **Primitive Locations** (targets) unless noted. Arc strength follows USD's LIVRPS ordering: Local, Inherits, VariantSets, References, Payloads, Specializes.
 
-Status for the whole section: **Read only.** Every arc is resolved when a file is loaded (what usdview shows, Imago shows); no operator authors an arc yet.
+Status for the whole section: **Read only**, but for references and payloads to a file. Every arc is resolved when a file is loaded (what usdview shows, Imago shows). Load USD's Reference and Payload modes author one reference or payload to its file's prim (2.1); there is no operator yet adding an arc to a prim already in the scene.
 
 | Operator | Purpose | Key parameters |
 |---|---|---|
@@ -403,17 +403,17 @@ Enough for a complete load, edit, bind, render loop:
 
 | # | Operator | Status |
 |---|---|---|
-| 1 | Load USD | Partial (no load modes or mount location) |
+| 1 | Load USD | Partial (Sublayer, Reference, Payload; no population mask) |
 | 2 | Create Prim | Not yet (Cube, Sphere, Grid exist) |
 | 3 | Merge | Done |
 | 4 | Transform | Partial (no pivot or rotation order) |
 | 5 | Set Attribute (Object, Property) | Partial (no time samples or arrays) |
 | 6 | Prune | Done |
-| 7 | Reference | Not yet (read only) |
+| 7 | Reference | Partial (Load USD's Reference and Payload modes) |
 | 8 | Variant Select | Not yet (read only) |
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
 | 10 | Light | Not yet (read only) |
-| 11 | Camera | Not yet (read only) |
+| 11 | Camera | Partial (Camera operator, file cameras, looked through in the Viewer) |
 | 12 | Render Settings | Not yet |
 | 13 | Render | Not yet |
 | 14 | Write USD (Save) | Partial (override layer in `usda`) |

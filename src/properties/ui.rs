@@ -267,19 +267,21 @@ pub fn draw_properties(
                 f.slider("Size", None, size, 0.1..=20.0, " m");
             });
         }
+        NodeType::Camera { location, translate, rotate, camera } => camera_rows(ui, location, translate, rotate, camera),
         NodeType::TestClip { seconds, fps_num, fps_den } => group(ui, "Clip", Some("A procedural walk on the spot, starting at 01:00:00:00"), |f| {
             f.slider("Length", None, seconds, 0.5..=60.0, " s");
             rate_row(f, fps_num, fps_den);
         }),
 
         // ── Files ────────────────────────────────────────────────────────────
-        NodeType::LoadUsd { path } => {
+        NodeType::LoadUsd { path, mode, location, prim } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
                 if path.is_empty() { f.status(Status::Info, "No file set"); }
                 else if std::path::Path::new(path).exists() { f.status(Status::Ok, "Found"); }
                 else { f.status(Status::Bad, "Not found"); }
             });
+            load_mode_rows(ui, path, mode, location, prim);
             if !path.is_empty() { usd_summary(ui, path); }
         }
         NodeType::WriteUsd { path } => {
@@ -296,7 +298,8 @@ pub fn draw_properties(
                     None => {}
                     Some(Err(e)) => f.status(Status::Bad, e),
                     Some(Ok(r)) => {
-                        f.status(Status::Ok, format!("Written: {} changed, {} deactivated, {} added", r.changed, r.deactivated, r.added));
+                        let arcs = if r.referenced > 0 { format!(", {} referenced", r.referenced) } else { String::new() };
+                        f.status(Status::Ok, format!("Written: {} changed, {} deactivated, {} added{arcs}", r.changed, r.deactivated, r.added));
                         for s in r.skipped.iter().take(8) { f.status(Status::Info, format!("Not written: {s}")); }
                         if r.skipped.len() > 8 { f.status(Status::Info, format!("… and {} more not written", r.skipped.len() - 8)); }
                     }
@@ -1450,6 +1453,125 @@ fn binding_rows(ui: &mut egui::Ui, library: &mut String, inputs: &mut u32, ports
     changed
 }
 
+/// How Load USD brings its file in: sublayered, or one prim of it referenced
+/// or payloaded at a Primitive Location.
+fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::LoadMode, location: &mut String, prim: &mut String) {
+    use crate::usd_scene::LoadMode;
+    let hint = "Sublayer: the whole stage at its own paths; Write USD sublayers the file. Reference: one prim of the file (its default prim) at the Primitive Location, its paths rebased there; Write USD writes a reference on that prim. Payload: as Reference, written as a payload, which other programs load on demand";
+    group(ui, "Mode", Some(hint), |f| {
+        f.choice("Mode", None, mode, &[(LoadMode::Sublayer, "Sublayer"), (LoadMode::Reference, "Reference"), (LoadMode::Payload, "Payload")]);
+        if *mode == LoadMode::Sublayer { return; }
+        f.row("Primitive Location", Some("Where the file's prim goes in the scene. Its parents are Xforms"), |ui| {
+            ui.add(egui::TextEdit::singleline(location).hint_text("/root").desired_width(ui.available_width())
+                .font(egui::TextStyle::Monospace).background_color(location_bg()))
+        });
+        let at = crate::types::prim_location(location, &crate::types::reference_location());
+        if at != location.trim() { f.status(Status::Info, format!("Used as {at}")); }
+        let scene = if path.trim().is_empty() { None } else { crate::usd_scene::load_cached(path.trim()).ok() };
+        let roots: Vec<String> = scene.as_ref().map(|s| s.tree.nodes.iter().filter(|n| n.depth == 1).map(|n| n.path.clone()).collect()).unwrap_or_default();
+        f.row("Prim", Some("The prim of the file it brings in, with everything below it. Empty: the file's default prim"), |ui| {
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 48.0).max(60.0);
+                ui.add(egui::TextEdit::singleline(prim).hint_text("default prim").desired_width(w)
+                    .font(egui::TextStyle::Monospace).background_color(location_bg()));
+                ui.add_enabled_ui(!roots.is_empty(), |ui| {
+                    crate::menus::menu(ui, "Pick", |ui| {
+                        if ui.selectable_label(prim.trim().is_empty(), "Default prim").clicked() { prim.clear(); ui.close(); }
+                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                            for r in &roots {
+                                if ui.selectable_label(prim.trim() == r, r).clicked() { *prim = r.clone(); ui.close(); }
+                            }
+                        });
+                    }).response.on_hover_text("The file's root prims");
+                });
+            });
+        });
+        if let Some(scene) = &scene {
+            match crate::usd_scene::referenced_prim(scene, prim) {
+                Some(p) => {
+                    let named = crate::types::prim_location(prim, "");
+                    if !named.is_empty() && named != p { f.status(Status::Bad, format!("The file has no {named}: its default prim is used")); }
+                    else if named.is_empty() && scene.default_prim.is_none() { f.status(Status::Info, "The file names no default prim: its first root prim is used"); }
+                    let word = if *mode == LoadMode::Payload { "Payloads" } else { "References" };
+                    f.status(Status::Ok, format!("{word} {p} at {at}"));
+                }
+                None => f.status(Status::Bad, "The file has no prims to bring in"),
+            }
+        }
+    });
+}
+
+/// The Camera operator: where it is, where it looks, its lens and gate,
+/// and a button to look through it.
+fn camera_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3], rotate: &mut [f32; 3], c: &mut crate::core::camera::Camera) {
+    use crate::core::camera::Projection;
+    let path = crate::types::prim_location(location, &crate::types::camera_location());
+    group(ui, "Primitive", Some("Where the camera is in the scene. Its parents are Xforms"), |f| {
+        f.text("Primitive Location", Some("A USD path, such as /camera or /shot/cam_main"), location, "/camera");
+        if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
+    });
+    group(ui, "Transform", Some("It looks down its -Z axis, with +Y up. A Transform after it moves it too"), |f| {
+        f.xyz("Translate", None, translate, 0.05, "");
+        f.xyz("Rotate", Some("Degrees, X then Y then Z"), rotate, 0.5, "°");
+    });
+    group(ui, "Lens", Some("As USD has them: focal length and gate in tenths of a scene unit, which is millimetres in a centimetre scene. The field of view comes from their ratio"), |f| {
+        f.choice("Projection", None, &mut c.projection, &[(Projection::Perspective, "Perspective"), (Projection::Orthographic, "Orthographic")]);
+        f.slider("Focal length", None, &mut c.focal_length, 4.0..=300.0, "");
+        f.row("Filmback Presets", Some("Cameras' filmbacks (gates), width by height in millimetres"), |ui| {
+            let current = crate::core::camera::filmback_name(c.horizontal_aperture, c.vertical_aperture).unwrap_or("Custom");
+            egui::ComboBox::from_id_salt("filmback_presets").width(ui.available_width() - 8.0).selected_text(current).show_ui(ui, |ui| {
+                for (name, w, h) in crate::core::camera::FILMBACKS {
+                    if ui.selectable_label(current == *name, format!("{name}   {w} × {h} mm")).clicked() {
+                        c.horizontal_aperture = *w;
+                        c.vertical_aperture = *h;
+                    }
+                }
+            });
+        });
+        f.row("Filmback", Some("Horizontal and vertical aperture: the gate"), |ui| {
+            ui.horizontal(|ui| {
+                let h = ui.spacing().interact_size.y;
+                let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
+                ui.add_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture).speed(0.05).range(0.01..=1000.0).prefix("H "));
+                ui.add_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture).speed(0.05).range(0.01..=1000.0).prefix("V "));
+            });
+        });
+        f.row("Filmback offset", Some("Shift of the gate, horizontal and vertical. Written, not shown in the Viewer yet"), |ui| {
+            ui.horizontal(|ui| {
+                let h = ui.spacing().interact_size.y;
+                let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
+                ui.add_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture_offset).speed(0.05).prefix("H "));
+                ui.add_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture_offset).speed(0.05).prefix("V "));
+            });
+        });
+        f.row("Clipping", Some("Near and far, in scene units"), |ui| {
+            ui.horizontal(|ui| {
+                let h = ui.spacing().interact_size.y;
+                let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
+                ui.add_sized([w, h], egui::DragValue::new(&mut c.clipping_range[0]).speed(0.01).range(0.0001..=f32::MAX).prefix("near "));
+                ui.add_sized([w, h], egui::DragValue::new(&mut c.clipping_range[1]).speed(10.0).range(0.001..=f32::MAX).prefix("far "));
+            });
+        });
+        f.drag("f-stop", Some("0: no depth of field. Written for renderers, not shown in the Viewer"), &mut c.f_stop, 0.05, "");
+        f.drag("Focus distance", Some("In scene units. Written for renderers; leaving the camera in the Viewer keeps this far a point to orbit about"), &mut c.focus_distance, 0.05, "");
+        if c.projection == Projection::Perspective {
+            f.value("Field of view", format!("{:.1}° wide, {:.1}° high", 2.0 * (c.horizontal_aperture * 0.5 / c.focal_length.max(1e-6)).atan().to_degrees(),
+                c.fov(c.gate_aspect()).to_degrees()));
+        }
+    });
+    group(ui, "View", None, |f| {
+        let looking = crate::viewer::camera::looking_through().as_deref() == Some(path.as_str());
+        f.buttons("Viewer", Some("The Viewer's camera menu does the same, for every camera of the scene"), |ui| {
+            if looking {
+                if ui.button("Back to Perspective").clicked() { crate::viewer::camera::look_through(None); }
+            } else if ui.button("Look through").clicked() {
+                crate::viewer::camera::look_through(Some(path.clone()));
+            }
+        });
+        if looking { f.status(Status::Ok, "The Viewer looks through it. Navigating leaves it, where it was"); }
+    });
+}
+
 /// Path field with a button that opens the file browser.
 fn path_row(f: &mut Rows, value: &mut String, hint: &str, io: &mut PanelIo, node: NodeId, mode: BrowseMode, title: &str, exts: &[&str]) {
     f.row("Path", None, |ui| {
@@ -1547,8 +1669,9 @@ fn usd_summary(ui: &mut egui::Ui, path: &str) {
         (leaf(&m.path), parts.join("\n"))
     }).collect());
     list(ui, format!("Cameras ({})", scene.cameras.len()), scene.cameras.iter().map(|c| {
+        let (k, at) = (&c.camera, c.position());
         (leaf(&c.path), format!("{} {} mm, aperture {} x {}, clip {} to {}, at {:.2} {:.2} {:.2}",
-            c.projection, c.focal_length, c.aperture[0], c.aperture[1], c.clip[0], c.clip[1], c.position[0], c.position[1], c.position[2]))
+            k.projection.token(), k.focal_length, k.horizontal_aperture, k.vertical_aperture, k.clipping_range[0], k.clipping_range[1], at[0], at[1], at[2]))
     }).collect());
     list(ui, format!("Skeletons ({})", scene.skeletons.len()), scene.skeletons.iter().map(|s| (leaf(&s.path), format!("{} joints", s.joints.len()))).collect());
     list(ui, format!("Lights ({})", scene.lights.len()), scene.lights.iter().map(|(p, k)| (leaf(p), k.clone())).collect());
