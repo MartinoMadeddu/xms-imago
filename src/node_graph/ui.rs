@@ -741,6 +741,9 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 8] = [
 /// Softimage's ICETree, at the same 80% as the palette.
 const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B];   // teal          (#70BA9A)
 
+/// Cameras stand apart from the shapes they are listed with: dark grey.
+const CAMERA_NODE_COLOUR: [u8; 3] = [0x3C, 0x3C, 0x3C];
+
 /// A node's body colour, and the text colours that read on it: black on
 /// the light colours, white on the dark ones. The ICE node has its own
 /// colour; nodes in no category keep the theme's node grey.
@@ -748,6 +751,10 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     // The ICE node stands apart from its category.
     if matches!(t, NodeType::Ice { .. }) {
         let [r, g, b] = ICE_NODE_COLOUR;
+        return colours_on(r, g, b);
+    }
+    if matches!(t, NodeType::Camera { .. }) {
+        let [r, g, b] = CAMERA_NODE_COLOUR;
         return colours_on(r, g, b);
     }
     use std::sync::OnceLock;
