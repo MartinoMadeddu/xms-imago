@@ -550,6 +550,10 @@ fn add_primvar(g: &mut Geo, pv: &rs::Primvar, t: f64) {
 /// names of the UsdPreviewSurface inputs they stand for.
 fn material(path: &str, m: &rs::Material) -> UsdMaterial {
     let mut out = UsdMaterial { path: path.to_string(), ..Default::default() };
+    match crate::materialx::from_usd(m) {
+        Ok((g, notes)) => { out.graph = Some(Arc::new(g)); out.graph_notes = notes; }
+        Err(why) => out.graph_notes = vec![why],
+    }
     let node = |p: &rs::Path| m.nodes.iter().find(|n| n.path == *p);
     let Some(shader) = m.surface.as_ref().and_then(|(p, _)| node(p)) else { return out };
     let roles: &[(&str, &str)] = if shader.id.contains("open_pbr_surface") {

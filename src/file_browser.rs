@@ -28,6 +28,12 @@ pub enum BrowseTarget {
     /// A file name input of a node in a MaterialX operator's graph: the
     /// operator, the node, the input's place in its definition.
     MatxFile(NodeId, u32, u16),
+    /// A MaterialX operator's graph, read from a `.mtlx` file.
+    MatxLoad(NodeId),
+    /// A MaterialX operator's graph, written as a `.mtlx` file.
+    MatxSave(NodeId),
+    /// File > Import: a MaterialX operator for each material of a `.mtlx` file.
+    ImportMtlx,
     OpenGraph,
     SaveGraph,
     OpenLayout,

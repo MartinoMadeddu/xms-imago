@@ -87,6 +87,12 @@ pub struct UsdMaterial {
     pub opacity:   Option<f32>,
     /// Texture files, with the surface input each one feeds.
     pub textures:  Vec<(String, String)>,
+    /// Its network as a MaterialX graph, when every shader it reads is a
+    /// MaterialX or UsdPreviewSurface one: what a MaterialX operator made
+    /// from it starts with (see `materialx::from_usd`).
+    pub graph:     Option<std::sync::Arc<xms_matx::Graph>>,
+    /// Why it has no graph, or what of it was left out.
+    pub graph_notes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]

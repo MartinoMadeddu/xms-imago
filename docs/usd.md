@@ -34,7 +34,7 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 | Instancing | Native instances and point instancers: each prototype's geometry is held once and shared by every copy |
 | Purpose | `render`, `proxy` and `guide`, inherited down the hierarchy. Which prim authors it is kept, so a purpose set nearer with Set Attribute wins over one a mesh only inherits |
 | Other authored values | `kind` and `instanceable`, and every attribute a prim authors with one value (`doubleSided`, `subdivisionScheme`, a light's `inputs:intensity`, `userProperties:*`…), listed in the Primitive Inspector's Properties tab as coming from the file |
-| Materials | Listed in the node's Parameters: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface |
+| Materials | Listed in the node's Parameters: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface. A material whose shaders are MaterialX or UsdPreviewSurface ones has **→ MaterialX**: a MaterialX operator with its network, to edit and bind in its place (see [MaterialX](materialx.md#from-a-usd-stage)) |
 | Cameras | Primitives with no geometry: projection, focal length, aperture and offsets, clipping range, f-stop, focus distance, where they are. Moved by Transform, looked through in the Viewer |
 | Skeletons, lights | Listed by name |
 | Time samples | Read at the stage's start time |

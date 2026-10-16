@@ -17,11 +17,19 @@ use crate::properties::form::{group, group_with, FieldExt, Status};
 use crate::properties::ui::PanelIo;
 use crate::types::NodeId;
 
-/// The operator, selected in the scene graph: what it makes, and how to
-/// open its graph.
-pub fn operator(ui: &mut egui::Ui, name: &str, graph: &Graph) {
+/// The operator, selected in the scene graph: what it makes, how to open
+/// its graph, and its graph read from or written to a `.mtlx` file.
+pub fn operator(ui: &mut egui::Ui, op: NodeId, name: &str, graph: &Graph, io: &mut PanelIo) {
     group(ui, "Material", Some("Material Binding puts it in the scene under its Material Library Location (/materials by default), by this name. Rename the node to rename it"), |f| {
         f.value("Prim name", crate::core::material::prim_name(name));
+        f.buttons("MaterialX file", None, |ui| {
+            if ui.button("Load .mtlx...").on_hover_text("Replace the graph with a material of a MaterialX file: the one of this operator's name, else the first").clicked() {
+                io.browser.open(BrowseTarget::MatxLoad(op), BrowseMode::File, "Load a MaterialX material", &["mtlx"], "");
+            }
+            if ui.button("Save .mtlx...").on_hover_text("Write the graph as a MaterialX document").clicked() {
+                io.browser.open(BrowseTarget::MatxSave(op), BrowseMode::Save, "Save as MaterialX", &["mtlx"], &format!("{}.mtlx", crate::core::material::prim_name(name)));
+            }
+        });
     });
     summary(ui, graph);
     group(ui, "Graph", None, |f| {
@@ -67,7 +75,7 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
     let lib = lib();
     let view = super::view(ui.ctx(), op);
     let Some(id) = view.selected.filter(|s| graph.node(*s).is_some()) else {
-        operator(ui, op_name, graph);
+        operator(ui, op, op_name, graph, io);
         group(ui, "Node", None, |f| f.status(Status::Info, "Select a node in the graph to see its parameters"));
         return;
     };

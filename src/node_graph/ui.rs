@@ -7,6 +7,9 @@ pub const NODE_HEIGHT: f32 = 50.0;
 const SOCKET_RADIUS:   f32 = 4.5;
 const SOCKET_HIT:      f32 = 22.0;
 const NODE_ROUNDING:   f32 = 5.0;
+/// The band around a node with a graph inside: a light grey, the same in
+/// every theme.
+fn dive_band() -> egui::Color32 { egui::Color32::from_rgb(200, 200, 200) }
 
 #[allow(dead_code)]
 mod xsi {
@@ -202,7 +205,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
                             ui.separator();
                         }
                     }
-                    if add_node_menu(ui, graph, canvas_pos) { close = true; }
+                    if add_node_menu(ui, graph, canvas_pos, opened_now) { close = true; }
                 });
             });
         // Where the new node goes: under the socket it was asked from and
@@ -465,10 +468,35 @@ fn draw_node(
     let (body, ink, ink_dim) = node_colours(&node.node_type);
     let _ = is_sub;
     let w = ring_width(zoom, is_sel);
-    let ring = rect.expand(w);
-    painter.rect_filled(ring, NODE_ROUNDING * zoom + w,
-        if is_sel { crate::theme::selection() } else { egui::Color32::from_rgb(105, 105, 105) });
+    // A node with a graph inside (ICE, MaterialX) always wears a band as
+    // wide as the selection's, in a light grey: it looks selected in
+    // another colour. Selected, the selection goes around the band.
+    let dives = dive_of(node).is_some();
+    if dives {
+        let band = ring_width(zoom, true);
+        let r = NODE_ROUNDING * zoom;
+        if is_sel {
+            painter.rect_filled(rect.expand(band + w), r + band + w, crate::theme::selection());
+        } else {
+            // A hair of dark outside the band, so it reads on the canvas.
+            painter.rect_filled(rect.expand(band + 1.0), r + band + 1.0, egui::Color32::from_rgb(70, 70, 70));
+        }
+        painter.rect_filled(rect.expand(band), r + band, dive_band());
+    } else {
+        let ring = rect.expand(w);
+        painter.rect_filled(ring, NODE_ROUNDING * zoom + w,
+            if is_sel { crate::theme::selection() } else { egui::Color32::from_rgb(105, 105, 105) });
+    }
     painter.rect_filled(rect, NODE_ROUNDING * zoom, body);
+    // And a small arrow into it, at the bottom right.
+    if dives {
+        let c = egui::pos2(rect.max.x - 10.0 * zoom, rect.max.y - 9.0 * zoom);
+        let s = 3.5 * zoom;
+        painter.add(egui::Shape::convex_polygon(
+            vec![egui::pos2(c.x - s, c.y - s * 0.6), egui::pos2(c.x + s, c.y - s * 0.6), egui::pos2(c.x, c.y + s * 0.8)],
+            ink_dim, egui::Stroke::NONE));
+        painter.line_segment([egui::pos2(c.x - s, c.y + s * 1.3), egui::pos2(c.x + s, c.y + s * 1.3)], egui::Stroke::new(1.2 * zoom, ink_dim));
+    }
 
     let title_h    = 32.0 * zoom;
     let title_rect = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, title_h));
@@ -893,9 +921,43 @@ pub fn ring_width(zoom: f32, selected: bool) -> f32 {
     if selected { (4.0 * zoom).clamp(3.0, 6.0) } else { 2.0 * zoom.max(0.5) }
 }
 
-fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2) -> bool {
+fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, opened_now: bool) -> bool {
     let mut added = false;
     ui.set_min_width(150.0);
+    // Type to find a node: by its name, its category or what it does.
+    let search_id = egui::Id::new("scene_add_search");
+    let mut search: String = if opened_now { String::new() } else { ui.data(|d| d.get_temp(search_id)).unwrap_or_default() };
+    let field = ui.add(egui::TextEdit::singleline(&mut search).hint_text("Search nodes").desired_width(170.0));
+    if opened_now { field.request_focus(); }
+    ui.data_mut(|d| d.insert_temp(search_id, search.clone()));
+    let words = search.trim().to_lowercase();
+    if !words.is_empty() {
+        ui.separator();
+        let found: Vec<(NodeType, &'static str, &'static str)> = catalog().into_iter()
+            .flat_map(|(_, category, nodes)| nodes.into_iter().map(move |(t, hint)| (t, hint, category)))
+            .filter(|(t, hint, category)| {
+                let text = format!("{} {} {}", node_type_label(t), category, hint).to_lowercase();
+                words.split_whitespace().all(|w| text.contains(w))
+            })
+            .collect();
+        // ↓ and ↑ move through what is found, Enter takes it.
+        let (hi, moved, enter) = crate::menus::search_keys(ui, egui::Id::new("scene_add_pick"), &words, found.len(), opened_now);
+        let mut chosen = if enter { found.get(hi).map(|(t, _, _)| t.clone()) } else { None };
+        for (k, (t, hint, category)) in found.iter().enumerate() {
+            let label = format!("{}  {}   {category}", node_type_icon(t), node_type_label(t));
+            let r = ui.selectable_label(k == hi, label).on_hover_text(*hint);
+            if moved && k == hi { r.scroll_to_me(None); }
+            if r.clicked() { chosen = Some(t.clone()); }
+        }
+        if found.is_empty() { ui.label("No node by that name"); }
+        if let Some(t) = chosen {
+            let name = default_name(&t);
+            graph.add_node(name, t, cp);
+            added = true;
+        }
+        return added;
+    }
+    ui.separator();
     // Categories look like the items in them: menu rows, not buttons.
     ui.visuals_mut().button_frame = false;
     for (icon, category, nodes) in catalog() {
