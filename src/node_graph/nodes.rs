@@ -433,7 +433,9 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
             camera: None,
         })
     }).collect();
-    // Each point instancer, a points primitive of its own.
+    // Each point instancer, a points primitive of its own. One nested in
+    // another's prototype is placed by that one's points, as a mesh is.
+    let by_path: std::collections::HashMap<&str, &crate::usd_scene::UsdInstancer> = scene.instancers.iter().map(|i| (i.path.as_str(), i)).collect();
     prims.extend(scene.instancers.iter().filter_map(|i| Some(Prim {
         path: place(&i.path)?, mesh: i.mesh.clone(), picked: false, material: None, look: None,
         stage: Some(tree.clone()), geo: Some(i.geo.clone()),
@@ -441,7 +443,10 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
         place: i.place.clone(), purpose: i.purpose,
         props: Default::default(), above: Default::default(),
         instancing: Some(match &arc { None => i.prototypes.clone(), Some(_) => Arc::new(i.prototypes.iter().map(point).collect()) }),
-        instanced_by: None, shading: None, camera: None,
+        instanced_by: i.by.as_ref().and_then(|(outer, index, inside)| by_path.get(outer.as_str()).map(|o| Arc::new(crate::types::InstancedBy {
+            instancer: point(&o.path), index: *index, inside: *inside, hidden: o.hidden.clone(), geo: o.geo.clone(), place: o.place.clone(),
+        }))),
+        shading: None, camera: None,
     })));
     // Each camera, a primitive with no geometry. Its geometry is the same
     // empty one as when loaded, so only its placement can be an edit.

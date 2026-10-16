@@ -19,36 +19,44 @@ use crate::core::geo::{Context, Geo};
 use crate::types::{EvalResult, InstancedBy, Placement, Prim};
 
 /// The scene with each prototype's placements made again where its
-/// instancer changed since they were made.
+/// instancer changed since they were made. An instancer nested in another's
+/// prototype is itself placed this way, so a change to the outer one goes
+/// down to the inner one's prototypes: one pass per level.
 pub fn sync(r: EvalResult) -> EvalResult {
     let EvalResult::Named(mut prims) = r else { return r };
     if !prims.iter().any(|p| p.instanced_by.is_some()) { return EvalResult::Named(prims); }
-    let instancers: HashMap<String, (Arc<Geo>, Placement)> = prims.iter()
-        .filter(|p| p.instancing.is_some())
-        .filter_map(|p| p.geo.clone().map(|g| (p.path.clone(), (g, p.place.clone()))))
-        .collect();
-    for p in prims.iter_mut() {
-        let Some(by) = p.instanced_by.clone() else { continue };
-        let Some((geo, place)) = instancers.get(&by.instancer) else { continue };
-        if Arc::ptr_eq(&by.geo, geo) && by.place.same(place) { continue; }
-        p.place = Placement::Many(copies(geo, place, &by).into());
-        p.instanced_by = Some(Arc::new(InstancedBy { geo: geo.clone(), place: place.clone(), ..(*by).clone() }));
+    for _ in 0..5 {
+        let instancers: HashMap<String, (Arc<Geo>, Placement)> = prims.iter()
+            .filter(|p| p.instancing.is_some())
+            .filter_map(|p| p.geo.clone().map(|g| (p.path.clone(), (g, p.place.clone()))))
+            .collect();
+        let mut changed = false;
+        for p in prims.iter_mut() {
+            let Some(by) = p.instanced_by.clone() else { continue };
+            let Some((geo, place)) = instancers.get(&by.instancer) else { continue };
+            if Arc::ptr_eq(&by.geo, geo) && by.place.same(place) { continue; }
+            p.place = Placement::Many(copies(geo, place, &by).into());
+            p.instanced_by = Some(Arc::new(InstancedBy { geo: geo.clone(), place: place.clone(), ..(*by).clone() }));
+            changed = true;
+        }
+        if !changed { break; }
     }
     EvalResult::Named(prims)
 }
 
 /// Where a prototype mesh is drawn: at each of the instancer's points that
 /// use its prototype and are not hidden, scaled, then turned, then moved,
-/// then placed where the instancer is.
+/// then placed where the instancer is: at each of its copies, for one
+/// nested in another instancer's prototype.
 pub fn copies(geo: &Geo, place: &Placement, by: &InstancedBy) -> Vec<Mat4> {
-    let at = match place { Placement::One(m) => *m, _ => Mat4::IDENTITY };
+    let at: Vec<Mat4> = match place { Placement::InPlace => vec![Mat4::IDENTITY], placed => placed.matrices().to_vec() };
     let points = geo.points();
     let attr = |name: &str| geo.attr(Context::Point, name);
     let index = attr("protoIndex").and_then(|a| a.column.ints());
     let orient = attr("orient").and_then(|a| a.column.quats());
     let scale = attr("scale").and_then(|a| a.column.vec3s());
     let ids = attr("id").and_then(|a| a.column.ints());
-    (0..points.len())
+    let local: Vec<Mat4> = (0..points.len())
         .filter(|&k| index.map_or(by.index == 0, |ix| ix.get(k).copied() == Some(by.index as i32)))
         .filter(|&k| {
             let id = ids.and_then(|i| i.get(k).copied()).map_or(k as i64, |i| i as i64);
@@ -58,9 +66,11 @@ pub fn copies(geo: &Geo, place: &Placement, by: &InstancedBy) -> Vec<Mat4> {
             let s = scale.and_then(|s| s.get(k)).copied().unwrap_or([1.0; 3]);
             // Stored (i, j, k, real).
             let q = orient.and_then(|o| o.get(k)).map(|q| Quat::from_xyzw(q[0], q[1], q[2], q[3]).normalize()).unwrap_or(Quat::IDENTITY);
-            at * Mat4::from_scale_rotation_translation(Vec3::from(s), q, Vec3::from(points[k])) * by.inside
+            Mat4::from_scale_rotation_translation(Vec3::from(s), q, Vec3::from(points[k])) * by.inside
         })
-        .collect()
+        .collect();
+    // Every copy of the instancer, then every point in it.
+    at.iter().flat_map(|a| local.iter().map(move |p| *a * *p)).collect()
 }
 
 #[cfg(test)]
@@ -94,6 +104,35 @@ mod tests {
         // Unchanged: nothing is made again, the placements are the very same.
         let EvalResult::Named(same) = sync(EvalResult::Named(prims.clone())) else { panic!() };
         assert!(same[1].place.same(&prims[1].place));
+    }
+
+    /// An instancer in a prototype of another: placed at its points, and
+    /// its own prototype at its points in every one of its copies. Moving
+    /// the outer one moves them all.
+    #[test]
+    fn a_nested_instancer_follows_the_one_it_is_in() {
+        let mut prims = scene();
+        // /inst/proto/inner: two points, drawn at both copies of prototype 0.
+        let inner_geo = Arc::new(Geo::from_points(vec![[0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]));
+        let outer = &prims[0];
+        let by = InstancedBy { instancer: "/inst".into(), index: 0, inside: Mat4::IDENTITY, hidden: Arc::new(vec![11]),
+            geo: outer.geo.clone().unwrap(), place: outer.place.clone() };
+        let inner_place = Placement::Many(copies(outer.geo.as_ref().unwrap(), &outer.place, &by).into());
+        let inner = Prim { geo: Some(inner_geo.clone()), place: inner_place.clone(), instancing: Some(Arc::new(vec!["/inst/proto/inner/leaf".into()])),
+            instanced_by: Some(Arc::new(by)), ..Prim::new("/inst/proto/inner".into(), inner_geo.to_mesh()) };
+        let leaf_by = InstancedBy { instancer: "/inst/proto/inner".into(), index: 0, inside: Mat4::IDENTITY, hidden: Arc::new(vec![]),
+            geo: inner_geo.clone(), place: inner_place.clone() };
+        let leaf = Prim { place: Placement::Many(copies(&inner_geo, &inner_place, &leaf_by).into()), instanced_by: Some(Arc::new(leaf_by)),
+            ..Prim::new("/inst/proto/inner/leaf/box".into(), MeshData::default()) };
+        prims.extend([inner, leaf]);
+        // Two copies of the inner instancer (x 0 and 9), two points each.
+        let at = |p: &Prim| p.place.matrices().iter().map(|m| (m.w_axis.x, m.w_axis.y)).collect::<Vec<_>>();
+        assert_eq!(at(&prims[3]), vec![(0.0, 1.0), (0.0, 2.0), (9.0, 1.0), (9.0, 2.0)]);
+        // The outer instancer placed elsewhere: the leaf follows, two levels down.
+        prims[0].place = prims[0].place.moved(Mat4::from_translation(Vec3::new(0.0, 0.0, 3.0)));
+        let EvalResult::Named(out) = sync(EvalResult::Named(prims)) else { panic!() };
+        assert_eq!(out[3].place.copies(), 4);
+        assert!(out[3].place.matrices().iter().all(|m| m.w_axis.z == 3.0), "the leaf moved with the outer instancer");
     }
 
     #[test]

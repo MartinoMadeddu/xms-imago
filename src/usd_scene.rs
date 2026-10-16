@@ -55,6 +55,11 @@ pub struct UsdInstancer {
     pub members:    Vec<(String, u32, glam::Mat4)>,
     /// Instances not drawn (`invisibleIds`).
     pub hidden:     Arc<Vec<i64>>,
+    /// Inside a prototype of another point instancer (nested): that
+    /// instancer's path, the `protoIndex` of the prototype, and this one's
+    /// transform inside it. Its `place` is then one copy per point of that
+    /// instancer using the prototype.
+    pub by:         Option<(String, u32, glam::Mat4)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1020,6 +1025,46 @@ def Xform "groom" {
 
     /// What a file authors beyond geometry is read for listing: kind,
     /// instanceable, purpose where authored, single-valued attributes.
+    /// A point instancer in another's prototype: a points primitive at each
+    /// copy of that prototype, its own prototype's mesh at each of its
+    /// points in every copy.
+    #[test]
+    fn nested_point_instancers_are_drawn_through_the_outer_one() {
+        let path = write("nested_instancers.usda", r#"#usda 1.0
+def PointInstancer "field" {
+    point3f[] positions = [(0, 0, 0), (10, 0, 0)]
+    int[] protoIndices = [0, 0]
+    rel prototypes = [</field/Protos/tuft>]
+    def Scope "Protos" {
+        def Xform "tuft" {
+            def PointInstancer "blades" {
+                point3f[] positions = [(0, 1, 0), (0, 2, 0), (0, 3, 0)]
+                int[] protoIndices = [0, 0, 0]
+                rel prototypes = [</field/Protos/tuft/blades/Protos/blade>]
+                def Scope "Protos" {
+                    def Mesh "blade" {
+                        int[] faceVertexCounts = [3]
+                        int[] faceVertexIndices = [0, 1, 2]
+                        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+                    }
+                }
+            }
+        }
+    }
+}
+"#);
+        let scene = load(&path).unwrap();
+        assert_eq!(scene.instancers.len(), 2, "{:?}", scene.notes);
+        let inner = scene.instancers.iter().find(|i| i.path == "/field/Protos/tuft/blades").expect("the nested instancer");
+        assert_eq!(inner.by.as_ref().map(|(o, k, _)| (o.as_str(), *k)), Some(("/field", 0)));
+        assert_eq!(inner.place.copies(), 2, "one copy per point of the outer instancer");
+        let blade = scene.meshes.iter().find(|m| m.path.ends_with("/blade")).expect("the blade is drawn");
+        let mut at: Vec<(i32, i32)> = blade.place.matrices().iter().map(|m| (m.w_axis.x.round() as i32, m.w_axis.y.round() as i32)).collect();
+        at.sort();
+        assert_eq!(at, vec![(0, 1), (0, 2), (0, 3), (10, 1), (10, 2), (10, 3)]);
+        assert!(!scene.notes.iter().any(|n| n.contains("not expanded")), "{:?}", scene.notes);
+    }
+
     /// A reference brings in the default prim (or the one named) and what
     /// is below it, at the Primitive Location, with Xforms above it.
     #[test]

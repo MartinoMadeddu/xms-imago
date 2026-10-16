@@ -59,7 +59,15 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
         walk.prim(child, child.as_str().to_string(), root, None, Purpose::Default, 1, false, false);
     }
     let Walk { nodes, counts, .. } = walk;
-    let nodes_index = nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
+    let nodes_index: HashMap<String, usize> = nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
+    // Drawn, but not where the hierarchy has a prim: the Scene Explorer
+    // would list them a second time, by their paths. Said, to be fixed.
+    let unplaced: Vec<&str> = scene.meshes.iter().map(|m| m.path.as_str())
+        .chain(scene.instancers.iter().map(|i| i.path.as_str()))
+        .filter(|p| !nodes_index.contains_key(*p)).collect();
+    if let Some(first) = unplaced.first() {
+        scene.notes.push(format!("{} drawn prims are not where the hierarchy lists them (first: {first})", unplaced.len()));
+    }
     scene.tree = Arc::new(StageTree {
         nodes, root: root.as_mat4(), source: layer.to_path_buf(),
         up_axis: scene.up_axis.clone(), meters_per_unit: scene.meters_per_unit,
@@ -90,7 +98,7 @@ impl Counts {
         let mut notes = vec![];
         let mut say = |n: usize, text: &str| if n > 0 { notes.push(format!("{n} {text}")) };
         say(self.invalid, "meshes, curves or points have inconsistent topology or primvars and are left out");
-        say(self.nested, "point instancers inside the prototypes of another point instancer are not expanded");
+        say(self.nested, "point instancers nested more than four deep in other point instancers' prototypes are not expanded");
         say(self.gprims, "implicit shapes (sphere, cube, cylinder…) are not read yet");
         say(self.subsets, "meshes have face subsets (per-face materials): the mesh's own material is used");
         say(self.hidden, "invisible meshes are listed but not drawn");
@@ -199,9 +207,9 @@ impl Walk<'_> {
             }),
             rs::PrimKind::Light(_) if !under_instance => self.scene.lights.push((shown.clone(), type_name.clone())),
             rs::PrimKind::Instancer(i) => {
-                if self.listing > 0 {
-                    self.counts.nested += 1;
-                } else if !hidden {
+                // Nested in another instancer's prototype: drawn through it
+                // (`instancer_at`), at each of its copies.
+                if self.listing == 0 && !hidden {
                     self.point_instancer(src, &shown, i, world, binding.clone(), purpose);
                 }
                 // Its prototypes usually sit below it: listed, not drawn as they are.
@@ -236,14 +244,32 @@ impl Walk<'_> {
     /// A point instancer: one packed primitive per mesh of each prototype,
     /// placed at every point that uses that prototype.
     fn point_instancer(&mut self, src: &rs::Path, shown: &str, i: &rs::Instancer, world: DMat4, binding: Option<String>, purpose: Purpose) {
+        self.instancer_at(src, shown, i, &[world], None, binding, purpose, 0);
+    }
+
+    /// A point instancer placed at `at`: once for one in the hierarchy, once
+    /// per copy for one nested in another instancer's prototype (`by`: that
+    /// instancer, the prototype's index, this one's transform inside it).
+    /// Its prototypes' meshes are placed at every one of its points in every
+    /// one of its copies; an instancer in one of its prototypes is nested in
+    /// it, the same way, down to four deep.
+    #[allow(clippy::too_many_arguments)]
+    fn instancer_at(&mut self, src: &rs::Path, shown: &str, i: &rs::Instancer, at: &[DMat4], by: Option<(String, u32, Mat4)>,
+                    binding: Option<String>, purpose: Purpose, depth: usize) {
         let (sc, t) = (self.sc, self.t);
         let positions = i.positions.at(t).unwrap_or_default();
         let scales = i.scales.as_ref().and_then(|s| s.at(t)).unwrap_or_default();
         let orients = i.orientations.as_ref().and_then(|o| o.at(t)).unwrap_or_default();
         let invisible: HashSet<i64> = i.invisible_ids.iter().copied().collect();
         // The instancer itself: one point per instance, its arrays as attributes.
-        let mut instancer = self.instancer_prim(src, shown, i, world, purpose, &positions, &orients, &scales);
-        // Each point's placement, by prototype: scaled, then turned, then moved.
+        let place = match (&by, at) {
+            (None, [one]) => Placement::One(one.as_mat4()),
+            _ => Placement::Many(at.iter().map(|m| m.as_mat4()).collect()),
+        };
+        let mut instancer = self.instancer_prim(src, shown, i, place, purpose, &positions, &orients, &scales);
+        instancer.by = by;
+        // Each point in the instancer's space, by prototype: scaled, then
+        // turned, then moved.
         let mut points: Vec<Vec<DMat4>> = vec![vec![]; i.prototypes.len()];
         for (k, &proto) in i.proto_indices.iter().enumerate() {
             let id = i.ids.as_ref().and_then(|ids| ids.get(k).copied()).unwrap_or(k as i64);
@@ -253,25 +279,34 @@ impl Walk<'_> {
             let s = scales.get(k).copied().unwrap_or([1.0; 3]);
             // Stored (i, j, k, real).
             let q = orients.get(k).map(|q| DQuat::from_xyzw(q[0] as f64, q[1] as f64, q[2] as f64, q[3] as f64).normalize()).unwrap_or(DQuat::IDENTITY);
-            list.push(world * DMat4::from_scale_rotation_translation(
+            list.push(DMat4::from_scale_rotation_translation(
                 DVec3::new(s[0] as f64, s[1] as f64, s[2] as f64), q, DVec3::new(p[0] as f64, p[1] as f64, p[2] as f64)));
         }
-        for (index, (proto, at)) in i.prototypes.iter().zip(&points).enumerate() {
-            if at.is_empty() { continue; }
-            // Listed under the instancer when it lives there, as the hierarchy shows it.
-            let proto_shown = match proto.as_str().strip_prefix(src.as_str()).filter(|r| r.starts_with('/')) {
-                Some(rest) => format!("{shown}{rest}"),
-                None => format!("{shown}/{}", proto.name()),
-            };
+        // Every copy of the instancer, then every point in it: where a
+        // prototype is drawn.
+        let copies = |local: &[DMat4], inside: DMat4| -> Vec<DMat4> {
+            at.iter().flat_map(|a| local.iter().map(move |p| *a * *p * inside)).collect()
+        };
+        for (index, (proto, local)) in i.prototypes.iter().zip(&points).enumerate() {
+            if local.is_empty() { continue; }
+            // Where the hierarchy lists it.
+            let proto_shown = shown_path(src.as_str(), shown, proto.as_str());
             let mut found = vec![];
-            self.gather(proto, proto_shown, DMat4::IDENTITY, binding.clone(), purpose, &mut found);
+            let mut nested = vec![];
+            self.gather(proto, proto_shown, DMat4::IDENTITY, binding.clone(), purpose, &mut found, &mut nested);
             for (mesh_src, mesh_shown, inside, material, purpose) in found {
                 let Some(kind) = sc.get(&mesh_src).map(|p| &p.kind) else { continue };
                 let Some((geo, shared)) = self.shared_geometry(&mesh_src, kind) else { self.counts.invalid += 1; continue };
                 if let rs::PrimKind::Mesh(m) = kind { if !m.subsets.is_empty() { self.counts.subsets += 1; } }
-                let place: Arc<[Mat4]> = at.iter().map(|p| (*p * inside).as_mat4()).collect();
+                let place: Arc<[Mat4]> = copies(local, inside).iter().map(|m| m.as_mat4()).collect();
                 instancer.members.push((mesh_shown.clone(), index as u32, inside.as_mat4()));
                 self.scene.meshes.push(UsdMesh { path: mesh_shown, mesh: shared, geo: Some(geo), material, place: Placement::Many(place), purpose });
+            }
+            for (inner_src, inner_shown, inside, material, purpose) in nested {
+                let Some(rs::PrimKind::Instancer(inner)) = sc.get(&inner_src).map(|p| &p.kind) else { continue };
+                if depth >= 3 { self.counts.nested += 1; continue; }
+                let inner_at = copies(local, inside);
+                self.instancer_at(&inner_src, &inner_shown, inner, &inner_at, Some((shown.to_string(), index as u32, inside.as_mat4())), material, purpose, depth + 1);
             }
         }
         self.scene.instancers.push(instancer);
@@ -281,7 +316,7 @@ impl Walk<'_> {
     /// from its positions, and `orient`, `scale`, `protoIndex` and `id` per
     /// point where it has them. Its prototypes' paths are kept by index.
     #[allow(clippy::too_many_arguments)]
-    fn instancer_prim(&self, src: &rs::Path, shown: &str, i: &rs::Instancer, world: DMat4, purpose: Purpose,
+    fn instancer_prim(&self, src: &rs::Path, shown: &str, i: &rs::Instancer, place: Placement, purpose: Purpose,
                       positions: &[[f32; 3]], orients: &[[f32; 4]], scales: &[[f32; 3]]) -> crate::usd_scene::UsdInstancer {
         use crate::core::geo::{Attr, Column, Context, Geo, Role};
         let n = i.proto_indices.len().max(positions.len());
@@ -306,22 +341,21 @@ impl Walk<'_> {
             id.resize(n, -1);
             geo.set(Context::Point, "id", Attr::new(Column::Int(Arc::new(id)), Role::None));
         }
-        let prototypes: Vec<String> = i.prototypes.iter().map(|proto| match proto.as_str().strip_prefix(src.as_str()).filter(|r| r.starts_with('/')) {
-            Some(rest) => format!("{shown}{rest}"),
-            None => format!("{shown}/{}", proto.name()),
-        }).collect();
+        let prototypes: Vec<String> = i.prototypes.iter().map(|proto| shown_path(src.as_str(), shown, proto.as_str())).collect();
         let mesh = Arc::new(geo.to_mesh());
         crate::usd_scene::UsdInstancer {
-            path: shown.to_string(), geo: Arc::new(geo), mesh, place: Placement::One(world.as_mat4()), purpose,
+            path: shown.to_string(), geo: Arc::new(geo), mesh, place, purpose,
             prototypes: Arc::new(prototypes), members: vec![],
-            hidden: Arc::new(i.invisible_ids.clone()),
+            hidden: Arc::new(i.invisible_ids.clone()), by: None,
         }
     }
 
     /// The meshes of a prototype, with their transform inside it (its own
-    /// root's included), their path as listed, and their material.
+    /// root's included), their path as listed, and their material; and, in
+    /// `nested`, the point instancers in it, the same way.
     #[allow(clippy::type_complexity)]
-    fn gather(&mut self, src: &rs::Path, shown: String, parent: DMat4, binding: Option<String>, purpose: Purpose, out: &mut Vec<(rs::Path, String, DMat4, Option<String>, Purpose)>) {
+    fn gather(&mut self, src: &rs::Path, shown: String, parent: DMat4, binding: Option<String>, purpose: Purpose,
+              out: &mut Vec<(rs::Path, String, DMat4, Option<String>, Purpose)>, nested: &mut Vec<(rs::Path, String, DMat4, Option<String>, Purpose)>) {
         let (sc, t) = (self.sc, self.t);
         let Some(prim) = sc.get(src) else { return };
         if !prim.visible_at(t) { return; }
@@ -332,14 +366,34 @@ impl Walk<'_> {
         let below: &[rs::Path] = match &prim.kind {
             rs::PrimKind::Mesh(_) | rs::PrimKind::Curves(_) | rs::PrimKind::Points(_) => { out.push((src.clone(), shown.clone(), inside, binding.clone(), purpose)); sc.children(src) }
             rs::PrimKind::Instance { prototype } => sc.children(prototype),
-            rs::PrimKind::Instancer(_) => { self.counts.nested += 1; return; }
+            // Its own prototypes are below it: reached through it, not as they are.
+            rs::PrimKind::Instancer(_) => { nested.push((src.clone(), shown.clone(), inside, binding.clone(), purpose)); return; }
             rs::PrimKind::Material(_) => return,
             _ => sc.children(src),
         };
         for c in below {
-            self.gather(c, format!("{shown}/{}", c.name()), inside, binding.clone(), purpose, out);
+            self.gather(c, format!("{shown}/{}", c.name()), inside, binding.clone(), purpose, out, nested);
         }
     }
+}
+
+/// Where the hierarchy lists a prim the scene layer holds at `target`, seen
+/// from a prim it holds at `src` and lists at `shown`: the walk lists a
+/// native instance's prims under the instance (`/island/isCoral5/geometry`)
+/// though the scene layer holds them under its prototype
+/// (`/__Prototype_22/geometry`). What `src` and `target` share is where
+/// both are; the rest of `target` goes below the same place in `shown`. A
+/// target sharing nothing with `src` is at its own path.
+fn shown_path(src: &str, shown: &str, target: &str) -> String {
+    let segs = |p: &str| p.split('/').filter(|s| !s.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let (s, sh, t) = (segs(src), segs(shown), segs(target));
+    let common = s.iter().zip(&t).take_while(|(a, b)| a == b).count();
+    if common == 0 { return target.to_string(); }
+    let up = s.len() - common;
+    if up > sh.len() { return target.to_string(); }
+    let mut out = sh[..sh.len() - up].to_vec();
+    out.extend(t[common..].iter().cloned());
+    format!("/{}", out.join("/"))
 }
 
 /// What a prim authors beyond what the scene layer's fields carry, as Imago
@@ -549,5 +603,24 @@ fn color(v: &rs::ShaderValue) -> Option<[f32; 3]> {
         rs::ShaderValue::Vec4(c) => Some([c[0], c[1], c[2]]),
         rs::ShaderValue::Float(f) => Some([*f; 3]),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shown_path;
+
+    #[test]
+    fn prototype_paths_are_listed_where_the_hierarchy_has_them() {
+        // Below the instancer.
+        assert_eq!(shown_path("/a/inst", "/a/inst", "/a/inst/Protos/x"), "/a/inst/Protos/x");
+        // Inside a native instance: the scene layer's prototype path, listed under the instance.
+        assert_eq!(shown_path("/__Prototype_22/geometry/xgCabbage", "/island/isCoral5/geometry/xgCabbage", "/__Prototype_22/geometry/xgCabbage/Prototypes/leaf"),
+            "/island/isCoral5/geometry/xgCabbage/Prototypes/leaf");
+        // Beside the instancer, in the same prototype.
+        assert_eq!(shown_path("/__Prototype_22/geometry/xgCabbage", "/island/isCoral5/geometry/xgCabbage", "/__Prototype_22/geometry/Protos/leaf"),
+            "/island/isCoral5/geometry/Protos/leaf");
+        // Elsewhere in the file: at its own path.
+        assert_eq!(shown_path("/__Prototype_22/geometry/xgCabbage", "/island/isCoral5/geometry/xgCabbage", "/library/leaf"), "/library/leaf");
     }
 }
