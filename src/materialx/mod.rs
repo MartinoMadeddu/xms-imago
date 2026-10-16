@@ -1,0 +1,145 @@
+//! The MaterialX operator: a material made from a graph of MaterialX nodes.
+//!
+//! The graph lives in the operator (`NodeType::MaterialX`), so saving,
+//! copying, pasting and undo take it with the operator; it is saved as a
+//! MaterialX document (`saved`). The nodes, their definitions and how
+//! connecting picks them are `xms_matx`'s. The operator puts out a
+//! `Material` like the Material operator's, named by the operator, holding
+//! its graph: Write USD writes the graph as a MaterialX shading network,
+//! the Viewer shows what it can of it (`xms_matx::preview`).
+//!
+//! The graph is opened in the Node Graph pane (double-click the operator,
+//! or ↓): `ui` draws and edits it, `params` lays out the parameters of the
+//! node selected in it. What the canvas shows (pan, zoom, which node is
+//! selected) is view state, kept with the pane, not in the graph.
+
+pub mod params;
+pub mod ui;
+
+use xms_matx::{Graph, Library};
+
+use crate::core::material::PreviewSurface;
+use crate::types::NodeId;
+
+/// MaterialX's node library, read once.
+pub fn lib() -> &'static Library { Library::standard() }
+
+/// A new graph: a `standard_surface` into a `surfacematerial`.
+pub fn new_graph() -> Graph { Graph::standard_surface(lib()) }
+
+/// A graph saved in a graph file: as the MaterialX document it is.
+pub mod saved {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use xms_matx::Graph;
+
+    pub fn serialize<S: Serializer>(g: &Graph, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&xms_matx::document::write(g, super::lib()))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Graph, D::Error> {
+        let text = String::deserialize(d)?;
+        xms_matx::document::read(&text, super::lib()).map_err(serde::de::Error::custom)
+    }
+}
+
+/// What the Viewer shows of a graph's material, as the Material operator's
+/// surface: the values and texture files of its surface shader.
+pub fn surface_of(graph: &Graph) -> PreviewSurface {
+    let p = xms_matx::preview(graph, lib());
+    let mut s = PreviewSurface {
+        diffuse_color: p.color.value,
+        emissive_color: p.emission.value,
+        metallic: p.metallic.value,
+        roughness: p.roughness.value,
+        opacity: p.opacity.value,
+        clearcoat: p.clearcoat,
+        ..Default::default()
+    };
+    for (input, file) in [
+        ("diffuseColor", p.color.file),
+        ("emissiveColor", p.emission.file),
+        ("metallic", p.metallic.file),
+        ("roughness", p.roughness.file),
+        ("opacity", p.opacity.file),
+        ("normal", p.normal),
+    ] {
+        if let Some(f) = file { s.textures.insert(input.to_string(), f); }
+    }
+    s
+}
+
+/// The canvas of an open MaterialX graph: where it is looked at from, what
+/// is selected and what is being done. Kept per operator, for the session.
+#[derive(Clone, Debug)]
+pub struct View {
+    pub pan: egui::Vec2,
+    pub zoom: f32,
+    /// The node selected in the graph: its parameters are shown.
+    pub selected: Option<u32>,
+    /// A wire being drawn from this node's output.
+    pub wiring: Option<(u32, String)>,
+    pub dragging: Option<u32>,
+    pub drag_offset: egui::Vec2,
+    /// A wire dropped on a node: the menu of the inputs that take it.
+    pub drop: Option<Drop>,
+    /// Why the last connection was refused, shown until the next one.
+    pub message: String,
+    /// Framed once when first opened.
+    pub framed: bool,
+    /// Nodes folded the other way from their default: a node with a few
+    /// inputs shows them all unless toggled, one with many shows the
+    /// connected ones only unless toggled.
+    pub toggled: Vec<u32>,
+}
+
+/// A wire dropped on a node's body.
+#[derive(Clone, Debug)]
+pub struct Drop {
+    pub from: (u32, String),
+    pub to: u32,
+    pub at: egui::Pos2,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        View { pan: egui::vec2(60.0, 60.0), zoom: 1.0, selected: None, wiring: None, dragging: None,
+               drag_offset: egui::Vec2::ZERO, drop: None, message: String::new(), framed: false, toggled: vec![] }
+    }
+}
+
+fn view_id(op: NodeId) -> egui::Id { egui::Id::new(("materialx_view", op.0)) }
+
+/// The view of an operator's graph.
+pub fn view(ctx: &egui::Context, op: NodeId) -> View { ctx.data(|d| d.get_temp(view_id(op))).unwrap_or_default() }
+
+pub fn set_view(ctx: &egui::Context, op: NodeId, v: View) { ctx.data_mut(|d| d.insert_temp(view_id(op), v)); }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_graph_is_saved_as_its_document() {
+        let mut g = new_graph();
+        let s = g.surface_shader().unwrap();
+        g.set_value(s, "base_color", xms_matx::Value::Floats(vec![0.9, 0.1, 0.1]));
+        let t = crate::types::NodeType::MaterialX { graph: g.clone() };
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(json.contains("standard_surface"), "{json}");
+        let back: crate::types::NodeType = serde_json::from_str(&json).unwrap();
+        let crate::types::NodeType::MaterialX { graph } = back else { panic!() };
+        assert_eq!(graph, g);
+    }
+
+    #[test]
+    fn the_viewer_shows_its_surface() {
+        let mut g = new_graph();
+        let s = g.surface_shader().unwrap();
+        g.set_value(s, "base_color", xms_matx::Value::Floats(vec![0.5, 0.25, 1.0]));
+        g.set_value(s, "specular_roughness", xms_matx::Value::Floats(vec![0.7]));
+        let surface = surface_of(&g);
+        assert_eq!(surface.diffuse_color, [0.5, 0.25, 1.0]);
+        assert_eq!(surface.roughness, 0.7);
+        assert!(surface.textures.is_empty());
+    }
+}

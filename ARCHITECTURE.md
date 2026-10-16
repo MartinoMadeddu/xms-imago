@@ -157,6 +157,8 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `src/viewer/` | the Viewer's 3D view on wgpu (eframe shell): camera and navigation, the scene from the graph's output (materials and textures, skeletons), Edit Poly's picking and manipulators (`edit.rs`), the GPU picture laid into the pane |
 | `src/core/xform.rs` | `Transform` (translation, rotation, scale) for clips, on glam |
 | `crates/xms-scene`, `crates/xms-usd` | scene layer, USD → scene layer translation (forked from rray) |
+| `crates/xms-matx` | MaterialX: its node libraries (vendored, MaterialX 1.39) read into typed node definitions (`Library`, `NodeDef`, `Input`), and which definition a node is from the types connected to it (`Library::resolve`); a graph of them (`Graph`: connecting picks the definitions, up the graph where it must); the graph as a `.mtlx` document and back (`document`), as a USD MaterialX network (`usd`), and what the Viewer shows of it (`preview`); a small XML reader. Dependency-free |
+| `src/materialx/` | The MaterialX operator: its graph in the operator (`NodeType::MaterialX`, saved as its document), the canvas it is edited in (`ui`, as the ICE graph's), the Parameters of its nodes laid out from their definitions (`params`), its material's surface for the Viewer (`surface_of`) |
 | `src/usd_stage.rs` | scene layer → `Geo` + placements + `StageTree` |
 | `src/usd_scene.rs` | `UsdScene`, loading and caching, root-layer fallback |
 | `src/core/geo.rs` | `Geo`, `Column`, `Attr`, `Topology`, `Context` |

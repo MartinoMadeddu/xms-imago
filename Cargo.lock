@@ -3850,10 +3850,15 @@ dependencies = [
  "serde",
  "serde_json",
  "ufbx",
+ "xms-matx",
  "xms-scene",
  "xms-usd",
  "xms_ragdoll",
 ]
+
+[[package]]
+name = "xms-matx"
+version = "0.1.0"
 
 [[package]]
 name = "xms-scene"

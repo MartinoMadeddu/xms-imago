@@ -77,6 +77,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Three shapes and two cameras, one perspective, one orthographic from above. Choose one in the Viewer's camera menu to look through it" },
     Template { by: MARTINO, group: "USD stages", name: "Material bindings", build: material_bindings,
         hint: "Four shapes in one Merge, three materials bound to them by row under /root/materials, and a second Material Binding giving a fourth shape the textured ground material by Location. Write USD is viewed" },
+    Template { by: MARTINO, group: "USD stages", name: "MaterialX: three shaders", build: materialx_shaders,
+        hint: "Three spheres with MaterialX materials: a gold standard_surface, a red open_pbr_surface, and a standard_surface reading a texture through an image node. Double-click a MaterialX node to open its graph. Write USD is viewed" },
     Template { by: MARTINO, group: "USD stages", name: "USD: material binding", build: usd_material_binding,
         hint: "Two Material operators wired into a Material Binding: car paint on the whole model, chrome on the wheels (the later row wins). Textured mode shows them" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Clip basics", build: clip_basics,
@@ -543,6 +545,67 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(bind_ground, 0, write, 0);
     finish(g, write, bind);
     "Material bindings: four shapes in one Merge; MaterialBinding puts basePlastic, baseMetal, ground and test_placeHolder under /root/materials and binds the first three to the cube, the sphere and the grid by row; MaterialBinding2 binds ground to the second sphere by Location. Switch the Viewer to Textured to see them; Write USD writes them to the temporary folder.".into()
+}
+
+/// Three MaterialX operators bound to three spheres: a metal
+/// standard_surface, an OpenPBR plastic, and a standard_surface whose
+/// colour is an image.
+fn materialx_shaders(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use xms_matx::{Graph, Value};
+    let lib = crate::materialx::lib();
+    crate::graph_io::clear(g);
+    let f = |x: f32| Value::Floats(vec![x]);
+    let rgb = |r: f32, gr: f32, b: f32| Value::Floats(vec![r, gr, b]);
+
+    // Gold: a metal standard_surface.
+    let mut gold = Graph::standard_surface(lib);
+    let s = gold.surface_shader().expect("a new graph has its surface");
+    gold.set_value(s, "base_color", rgb(1.0, 0.766, 0.336));
+    gold.set_value(s, "metalness", f(1.0));
+    gold.set_value(s, "specular_roughness", f(0.25));
+    // Red plastic: an OpenPBR surface.
+    let mut red = Graph::new();
+    let o = red.add(lib, "open_pbr_surface", [0.0, 0.0]).expect("open_pbr_surface is in the library");
+    let m = red.add(lib, "surfacematerial", [320.0, 0.0]).expect("surfacematerial is in the library");
+    red.connect(lib, o, "out", m, "surfaceshader").expect("a surface shader goes into a material");
+    red.set_value(o, "base_color", rgb(0.6, 0.05, 0.05));
+    red.set_value(o, "specular_roughness", f(0.4));
+    // Textured: an image into a standard_surface's colour.
+    let mut textured = Graph::standard_surface(lib);
+    let s = textured.surface_shader().expect("a new graph has its surface");
+    let img = textured.add(lib, "image", [-320.0, 0.0]).expect("image is in the library");
+    textured.set_value(img, "file", Value::String(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/splash.png").into()));
+    textured.connect(lib, img, "out", s, "base_color").expect("an image goes into a colour");
+    textured.set_value(s, "specular_roughness", f(0.5));
+
+    let sphere = |name: &str| NodeType::CreateSphere { radius: 0.5, segments: 48, location: format!("/root/{name}") };
+    let shift = |x: f32| NodeType::Transform { translation: Vec3::new(x, 0.0, 0.0), rotation: Vec3::ZERO, scale: Vec3::ONE };
+    let a = g.add_node("GoldSphere".into(), sphere("gold"), p(60.0, -420.0));
+    let a_at = g.add_node("Left".into(), shift(-1.3), p(60.0, -330.0));
+    let b = g.add_node("RedSphere".into(), sphere("red"), p(290.0, -420.0));
+    let c = g.add_node("TexturedSphere".into(), sphere("textured"), p(520.0, -420.0));
+    let c_uv = g.add_node("UVUnwrap".into(), NodeType::UvUnwrap { method: crate::core::uv::UvMethod::Box, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, p(520.0, -330.0));
+    let c_at = g.add_node("Right".into(), shift(1.3), p(520.0, -240.0));
+    let merge = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Auto, inputs: 3 }, p(290.0, -140.0));
+    let gold = g.add_node("Gold".into(), NodeType::MaterialX { graph: gold }, p(60.0, 35.0));
+    let red = g.add_node("RedPlastic".into(), NodeType::MaterialX { graph: red }, p(60.0, 130.0));
+    let textured = g.add_node("Textured".into(), NodeType::MaterialX { graph: textured }, p(60.0, 225.0));
+    let bind = g.add_node("MaterialBinding".into(), NodeType::MaterialBinding { library: "/root/materials".into(), inputs: 4, bindings: vec![] }, p(290.0, 80.0));
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == bind) {
+        n.locations = vec!["/root/gold".into(), "/root/red".into(), "/root/textured".into()];
+    }
+    let write = g.add_node("WriteUSD".into(), NodeType::WriteUsd {
+        path: std::env::temp_dir().join("xms_materialx.usda").to_string_lossy().to_string() }, p(290.0, 300.0));
+
+    g.add_connection(a, 0, a_at, 0);
+    g.add_connection(c, 0, c_uv, 0);
+    g.add_connection(c_uv, 0, c_at, 0);
+    for (k, src) in [a_at, b, c_at].into_iter().enumerate() { g.add_connection(src, 0, merge, k); }
+    g.add_connection(merge, 0, bind, 0);
+    for (k, m) in [gold, red, textured].into_iter().enumerate() { g.add_connection(m, 0, bind, k + 1); }
+    g.add_connection(bind, 0, write, 0);
+    finish(g, write, gold);
+    "MaterialX: Gold (standard_surface, metal), RedPlastic (open_pbr_surface) and Textured (an image into a standard_surface) bound to three spheres under /root/materials. Double-click a MaterialX node, or select it and press ↓, to open its graph; the Viewer shows what it can of each shader. Write USD writes them as MaterialX networks to the temporary folder.".into()
 }
 
 // ── UV ───────────────────────────────────────────────────────────────────────
@@ -1160,7 +1223,7 @@ mod tests {
                 if t.name == "Mocap split" { break; }
                 // A material is not geometry: Material Binding puts it on some.
                 // Nor is a camera: a primitive with no geometry.
-                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::Camera { .. }) { continue; }
+                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::MaterialX { .. } | NodeType::Camera { .. }) { continue; }
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1)).map(|o| g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
                     .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0)).max().unwrap_or(0);

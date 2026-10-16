@@ -25,6 +25,9 @@ pub enum BrowseTarget {
     Node(NodeId),
     /// The texture file feeding one input of a Material node.
     Texture(NodeId, &'static str),
+    /// A file name input of a node in a MaterialX operator's graph: the
+    /// operator, the node, the input's place in its definition.
+    MatxFile(NodeId, u32, u16),
     OpenGraph,
     SaveGraph,
     OpenLayout,

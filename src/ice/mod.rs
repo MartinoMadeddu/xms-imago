@@ -18,6 +18,8 @@ use ice_nodes::*;
 #[derive(Default)]
 pub struct GraphNavigation {
     pub current_subnet: Option<IceGraphId>,
+    /// The MaterialX operator whose graph the Node Graph pane shows.
+    pub materialx: Option<NodeId>,
 }
 
 // ============================================================================

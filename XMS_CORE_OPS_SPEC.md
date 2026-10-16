@@ -308,7 +308,7 @@ Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with th
 - Nested compounds are supported.
 - **Outputs:** surface, displacement, volume
 - **USD mapping:** `UsdShadeMaterial`, with a shading network underneath
-- **Status:** **Partial.** The **Material** operator is the simple form: a UsdPreviewSurface with fixed inputs (diffuse and emissive colour, metallic, roughness, opacity, opacity threshold, IOR, clearcoat) and a texture file per input (diffuse, emissive, metallic, roughness, opacity, normal, occlusion). Its output is one material, named by the operator; viewed, it is drawn on a sphere. Written as a `Material` with a `UsdPreviewSurface`, a `UsdUVTexture` per file and a `UsdPrimvarReader_float2` for `st`. The compound form (a graph inside, nested; needs compounds, 1.4) puts out the same material.
+- **Status:** **Partial.** The **Material** operator is the simple form: a UsdPreviewSurface with fixed inputs (diffuse and emissive colour, metallic, roughness, opacity, opacity threshold, IOR, clearcoat) and a texture file per input (diffuse, emissive, metallic, roughness, opacity, normal, occlusion). Its output is one material, named by the operator; viewed, it is drawn on a sphere. Written as a `Material` with a `UsdPreviewSurface`, a `UsdUVTexture` per file and a `UsdPrimvarReader_float2` for `st`. The graph form is the **MaterialX** operator (9.4), which puts out the same material; the Material operator stays as the quick form.
 
 ### 9.2 Material Assign (Mat Bindings)
 In Imago: **Material Binding**.
@@ -337,7 +337,7 @@ In Imago: **Material Binding**.
 - Studio OSL-backed nodes (wrapped as nodedefs)
 - OpenPBR surface
 - **Output nodes:** Surface, Displacement, Volume
-- **Status:** **Not yet** (OpenPBR is read and shown).
+- **Status:** **Partial.** The **MaterialX** operator holds a graph of these, a graph kind of its own (see [MaterialX](docs/materialx.md)): MaterialX 1.39's libraries (stdlib, pbrlib, bxdf with standard_surface, open_pbr_surface, UsdPreviewSurface and gltf_pbr, cmlib, nprlib, lights), 824 definitions of 226 nodes, each node's definition chosen from the types connected to it. Edited in the Node Graph pane, its nodes' parameters laid out from their definitions; saved as its MaterialX document; written by Write USD as a MaterialX shading network (`outputs:mtlx:surface`, each shader's `info:id` its definition); shown in the Viewer by its surface shader's values and textures. Not yet: reading MaterialX from files into a graph, the whole graph as a Viewer shader. OpenPBR is read and shown.
 
 ---
 

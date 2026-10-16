@@ -70,7 +70,24 @@ pub fn side_input(node: &GraphNode, in_idx: usize) -> bool {
 
 /// Outputs on the node's right side rather than below it: a material's.
 pub fn side_output(node: &GraphNode) -> bool {
-    matches!(node.node_type, NodeType::Material { .. })
+    matches!(node.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. })
+}
+
+/// A graph inside an operator, to open in the pane: an ICE node's ICE
+/// graph, or a MaterialX operator's graph.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Dive {
+    Ice(IceGraphId),
+    MaterialX(NodeId),
+}
+
+/// The graph an operator holds, if it holds one.
+pub fn dive_of(node: &GraphNode) -> Option<Dive> {
+    match &node.node_type {
+        NodeType::Ice { id, .. } => Some(Dive::Ice(*id)),
+        NodeType::MaterialX { .. } => Some(Dive::MaterialX(node.id)),
+        _ => None,
+    }
 }
 
 /// Sockets that carry a material, drawn purple: a Material's output and a
@@ -104,8 +121,8 @@ pub fn input_socket_pos(node: &GraphNode, in_idx: usize) -> egui::Pos2 {
 // GRAPH CANVAS
 // ============================================================================
 
-pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<IceGraphId> {
-    let mut dive_into: Option<IceGraphId> = None;
+pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<Dive> {
+    let mut dive_into: Option<Dive> = None;
 
     let (response, painter) = ui.allocate_painter(
         egui::Vec2::new(ui.available_width(), ui.available_height()),
@@ -310,11 +327,11 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.delete_selected();
     }
 
-    // ── Down arrow: into the selected ICE node, as a double-click does ───────
+    // ── Down arrow: into the selected ICE or MaterialX node, as a double-click does
     if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
         let selected = graph.selected_node.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
-        if let Some(NodeType::Ice { id: sid, .. }) = selected.map(|n| &n.node_type) {
-            dive_into = Some(*sid);
+        if let Some(d) = selected.and_then(dive_of) {
+            dive_into = Some(d);
         }
     }
 
@@ -430,8 +447,8 @@ fn draw_node(
     to_screen:   &impl Fn(egui::Pos2) -> egui::Pos2,
     to_canvas:   &impl Fn(egui::Pos2) -> egui::Pos2,
     _canvas_rect: egui::Rect,
-) -> Option<IceGraphId> {
-    let mut dive: Option<IceGraphId> = None;
+) -> Option<Dive> {
+    let mut dive: Option<Dive> = None;
     let zoom   = graph.zoom;
     let np     = to_screen(node.position);
     let height = node_height(node);
@@ -665,7 +682,7 @@ fn draw_node(
         }
     }
     if dr.double_clicked() {
-        if let NodeType::Ice { id: sid, .. } = &node.node_type { dive = Some(*sid); }
+        if let Some(d) = dive_of(node) { dive = Some(d); }
     }
     if dr.drag_started() && graph.connecting_from.is_none() {
         // If dragging a node not in the current selection, replace selection
@@ -826,6 +843,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ]),
         ("🎨", "Materials", vec![
             (NodeType::Material { surface: Default::default() }, "A UsdPreviewSurface material: colour, roughness, metallic, opacity and textures. Named by the node"),
+            (NodeType::materialx(), "A material made from a graph of MaterialX nodes: standard_surface, open_pbr_surface, textures, maths. Double-click it to open its graph. Named by the node"),
             (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
         ]),
         ("🗺", "UV", vec![

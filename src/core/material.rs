@@ -14,8 +14,10 @@
 //! no geometry whose `Prim::shading` is the material: listed, inspected and
 //! written as any other prim (`bind`).
 //!
-//! Materials with a graph inside (compounds) come later; they put out the
-//! same `Material`, so Material Binding takes either.
+//! The MaterialX operator puts out the same `Material`, holding its graph
+//! (`graph`): written as a MaterialX network, shown by what the Viewer can
+//! read of its surface shader (`materialx::surface_of`). Material Binding
+//! takes either.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, OnceLock};
@@ -80,15 +82,25 @@ impl PreviewSurface {
 pub struct Material {
     /// Its prim name: the operator's name, as USD allows it (`prim_name`).
     pub name:    String,
+    /// The UsdPreviewSurface; for a MaterialX material, what the Viewer
+    /// shows of its graph.
     pub surface: PreviewSurface,
     /// How the viewport shows it.
     pub look:    Arc<Look>,
+    /// A MaterialX operator's graph: what is written, in place of `surface`.
+    pub graph:   Option<Arc<xms_matx::Graph>>,
 }
 
 impl Material {
     pub fn new(name: &str, surface: &PreviewSurface) -> Self {
         let name = prim_name(name);
-        Self { look: Arc::new(look(&name, surface)), name, surface: surface.clone() }
+        Self { look: Arc::new(look(&name, surface)), name, surface: surface.clone(), graph: None }
+    }
+
+    /// A MaterialX operator's material: its graph, shown as its surface.
+    pub fn from_graph(name: &str, graph: &xms_matx::Graph) -> Self {
+        let surface = crate::materialx::surface_of(graph);
+        Self { graph: Some(Arc::new(graph.clone())), ..Material::new(name, &surface) }
     }
 }
 
@@ -154,6 +166,13 @@ pub struct Shader {
 /// by a texture is connected, with no value of its own. Opacity from the
 /// diffuse file reads that texture's alpha.
 pub fn network(m: &Material, path: &str) -> (Vec<String>, Vec<Shader>) {
+    // A MaterialX graph: its own network. One with nothing going into its
+    // material is written as the grey it shows.
+    if let Some(g) = &m.graph {
+        if let Some((lines, shaders)) = xms_matx::usd::network(g, crate::materialx::lib(), path) {
+            return (lines, shaders.into_iter().map(|s| Shader { name: s.name, lines: s.lines }).collect());
+        }
+    }
     let s = &m.surface;
     let surface = format!("{path}/PreviewSurface");
     let texture = |input: &str| format!("{path}/{input}Texture");
@@ -228,6 +247,24 @@ pub fn network(m: &Material, path: &str) -> (Vec<String>, Vec<Shader>) {
 /// The surface's inputs as the Primitive Inspector lists them: a value, or
 /// the texture file feeding it.
 pub fn inputs(m: &Material) -> Vec<(String, String)> {
+    // A MaterialX graph: its surface shader's definition, and what is set
+    // or connected on it.
+    if let Some(g) = &m.graph {
+        if let Some(node) = g.surface_shader().and_then(|s| g.node(s)) {
+            let mut out = vec![("info:id".to_string(), node.def.clone())];
+            for (input, b) in &node.inputs {
+                let value = match b {
+                    xms_matx::Binding::Value(v) => v.to_text(),
+                    xms_matx::Binding::Connect { node: src, output } => {
+                        format!("← {}.{output}", g.node(*src).map(|n| n.name.as_str()).unwrap_or("?"))
+                    }
+                };
+                out.push((format!("inputs:{input}"), value));
+            }
+            out.push(("MaterialX graph".into(), format!("{} nodes", g.nodes.len())));
+            return out;
+        }
+    }
     let s = &m.surface;
     let colour = |c: [f32; 3]| format!("({}, {}, {})", num(c[0]), num(c[1]), num(c[2]));
     let mut out = vec![("info:id".to_string(), "UsdPreviewSurface".to_string())];
@@ -357,6 +394,29 @@ mod tests {
         assert_eq!(prim_name("car paint 2"), "car_paint_2");
         assert_eq!(prim_name("2tone"), "_2tone");
         assert_eq!(prim_name("  "), "material");
+    }
+
+    /// A MaterialX operator's material is written as its MaterialX
+    /// network, and shown by its surface shader's values.
+    #[test]
+    fn a_materialx_material_is_its_network() {
+        let mut g = crate::materialx::new_graph();
+        let sh = g.surface_shader().unwrap();
+        g.set_value(sh, "base_color", xms_matx::Value::Floats(vec![0.1, 0.2, 0.9]));
+        let m = Material::from_graph("blue glass", &g);
+        assert_eq!(m.name, "blue_glass");
+        assert_eq!(m.look.color, [0.1, 0.2, 0.9]);
+        let (lines, shaders) = network(&m, "/materials/blue_glass");
+        assert_eq!(lines, ["token outputs:mtlx:surface.connect = </materials/blue_glass/standard_surface1.outputs:out>"]);
+        assert_eq!(shaders.len(), 1);
+        assert!(shaders[0].lines.contains(&"color3f inputs:base_color = (0.1, 0.2, 0.9)".to_string()), "{:?}", shaders[0].lines);
+        let listed = inputs(&m);
+        assert_eq!(listed[0], ("info:id".to_string(), "ND_standard_surface_surfaceshader".to_string()));
+        // Nothing into its material: written as the grey it shows.
+        g.remove(sh);
+        let (lines, shaders) = network(&Material::from_graph("empty", &g), "/m");
+        assert!(lines[0].contains("PreviewSurface"), "{lines:?}");
+        assert_eq!(shaders[0].name, "PreviewSurface");
     }
 
     #[test]

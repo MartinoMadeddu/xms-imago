@@ -34,6 +34,7 @@ mod ragdoll;
 mod history;
 mod recent;
 mod menus;
+mod materialx;
 
 
 use app::{AppState, ViewportRect};
@@ -114,6 +115,13 @@ pub(crate) fn draw_ui(
             BrowseTarget::Texture(id, input) => {
                 if let Some(NodeType::Material { surface }) = graph.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type) {
                     surface.textures.insert(input.to_string(), text);
+                }
+            }
+            // A file name input of a node in a MaterialX graph.
+            BrowseTarget::MatxFile(op, node, input) => {
+                if let Some(NodeType::MaterialX { graph: g }) = graph.nodes.iter_mut().find(|n| n.id == op).map(|n| &mut n.node_type) {
+                    let name = g.def(materialx::lib(), node).and_then(|d| d.inputs.get(input as usize)).map(|i| i.name.clone());
+                    if let Some(name) = name { g.set_value(node, &name, xms_matx::Value::String(text)); }
                 }
             }
             BrowseTarget::OpenGraph => save_first.load(Source::File(path.clone())),
@@ -672,6 +680,29 @@ impl egui_dock::TabViewer for Panes<'_> {
                 }
             }
 
+            // A MaterialX operator's graph.
+            Pane::NodeGraph if self.nav.materialx.is_some() => {
+                let op = self.nav.materialx.unwrap_or(types::NodeId(usize::MAX));
+                let found = self.graph.nodes.iter_mut().find(|n| n.id == op)
+                    .and_then(|n| match &mut n.node_type { NodeType::MaterialX { graph } => Some((n.name.clone(), graph)), _ => None });
+                match found {
+                    Some((name, g)) => {
+                        if draw_breadcrumb(ui, &name) {
+                            self.nav.materialx = None;
+                        } else {
+                            ui.label("Right-click or Tab: add  |  Drag an output to an input, or onto a node  |  Right-click a wire: take it off  |  Del: delete  |  Shift/middle-drag: pan  |  F: frame  |  ↑: back to the scene graph");
+                            ui.separator();
+                            let rect = ui.available_rect_before_wrap();
+                            let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
+                            canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
+                            let up = materialx::ui::draw(&mut canvas, op, g);
+                            ui.allocate_rect(rect, egui::Sense::hover());
+                            if up { self.nav.materialx = None; }
+                        }
+                    }
+                    None => self.nav.materialx = None,
+                }
+            }
             Pane::NodeGraph => match self.nav.current_subnet {
                 Some(sid) => {
                     if let Some(sg) = self.subnets.get_mut(sid) {
@@ -750,10 +781,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                             }
                         }
                     }
-                    if let Some(sid) = dive {
-                        if sid != IceGraphId(usize::MAX) {
-                            self.nav.current_subnet = Some(sid);
-                        }
+                    match dive {
+                        Some(node_graph::ui::Dive::Ice(sid)) if sid != IceGraphId(usize::MAX) => self.nav.current_subnet = Some(sid),
+                        Some(node_graph::ui::Dive::MaterialX(op)) => self.nav.materialx = Some(op),
+                        _ => {}
                     }
                 }
             },
@@ -786,6 +817,11 @@ pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
         if let Some(sid) = nav.current_subnet {
             let there = graph.nodes.iter().any(|n| matches!(&n.node_type, NodeType::Ice { id, .. } if *id == sid));
             if !there { nav.current_subnet = None; }
+        }
+        // And a MaterialX graph whose operator is gone.
+        if let Some(op) = nav.materialx {
+            let there = graph.nodes.iter().any(|n| n.id == op && matches!(n.node_type, NodeType::MaterialX { .. }));
+            if !there { nav.materialx = None; }
         }
     }
 }
@@ -1229,6 +1265,7 @@ fn carry_out(after: After, graph: &mut NodeGraphState, subnets: &mut IceGraphSto
         }
     }
     nav.current_subnet = None;
+    nav.materialx = None;
 }
 
 /// Dim the window behind a question, and take the clicks meant for it.

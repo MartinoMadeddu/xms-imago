@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.95"
 
 [workspace]
-members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd"]
+members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx"]
 resolver = "2"
 
 
@@ -17,6 +17,7 @@ edition = "2021"
 [dependencies]
 xms-scene = { path = "crates/xms-scene" }
 xms-usd   = { path = "crates/xms-usd" }
+xms-matx  = { path = "crates/xms-matx" }
 
 glam = { version = "0.27", features = ["serde"] }
 egui = "0.36"
