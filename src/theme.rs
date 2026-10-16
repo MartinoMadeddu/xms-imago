@@ -51,6 +51,12 @@ pub struct Scheme {
     /// `text_gamma`. Schemes saved without it take their preset's.
     #[serde(default = "unset_text_weight")]
     pub text_weight: u8,
+    /// Fields you type in (text, numbers) dark grey with light text, in
+    /// the Parameters pane. Off by default; not a colour, so it is kept
+    /// across presets and Reset, and does not make a scheme "edited".
+    /// `DARK_FIELD_BG` overrides it: see `dark_fields`.
+    #[serde(default)]
+    pub dark_fields: bool,
 }
 
 /// Text weight at which `text_gamma` is 1.3: the Light preset's.
@@ -66,14 +72,17 @@ impl Scheme {
     pub const fn preset(preset: Preset) -> Scheme {
         match preset {
             Preset::Light => Scheme { preset, low: [112, 112, 110], high: [206, 206, 202], text: [10, 10, 10],
-                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT },
+                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT, dark_fields: false },
             Preset::Dark  => Scheme { preset, low: [12, 12, 12], high: [64, 64, 64], text: [234, 234, 234],
-                                      dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96], text_weight: DARK_TEXT_WEIGHT },
+                                      dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96], text_weight: DARK_TEXT_WEIGHT, dark_fields: false },
             Preset::Adhd  => Scheme { preset, low: [6, 12, 28], high: [36, 56, 96], text: [246, 238, 224],
-                                      dim: [170, 184, 210], accent: [255, 140, 40], outline: [80, 108, 160], text_weight: DARK_TEXT_WEIGHT },
+                                      dim: [170, 184, 210], accent: [255, 140, 40], outline: [80, 108, 160], text_weight: DARK_TEXT_WEIGHT, dark_fields: false },
         }
     }
-    pub fn is_edited(&self) -> bool { *self != Scheme::preset(self.preset) }
+    /// Its colours or text weight differ from its preset's.
+    pub fn is_edited(&self) -> bool { Scheme { dark_fields: false, ..*self } != Scheme::preset(self.preset) }
+    /// Its preset, keeping its dark fields setting.
+    fn reset(&self) -> Scheme { Scheme { dark_fields: self.dark_fields, ..Scheme::preset(self.preset) } }
     /// A text weight not set in the file becomes the preset's.
     fn settled(mut self) -> Scheme {
         if self.text_weight > 100 { self.text_weight = Scheme::preset(self.preset).text_weight; }
@@ -97,6 +106,21 @@ pub fn revision() -> u64 { REVISION.load(Ordering::Relaxed) }
 /// True for every scheme that is not based on Light.
 pub fn is_dark() -> bool { scheme().preset != Preset::Light }
 
+/// `DARK_FIELD_BG` as set when Imago started: `Some(true)` for 1,
+/// `Some(false)` for 0, `None` when unset (the scheme's setting decides).
+pub fn dark_fields_env() -> Option<bool> {
+    static ENV: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *ENV.get_or_init(|| match std::env::var("DARK_FIELD_BG").ok()?.trim() {
+        "1" | "true" | "on" | "yes" => Some(true),
+        "0" | "false" | "off" | "no" => Some(false),
+        _ => None,
+    })
+}
+
+/// Fields you type in drawn dark grey with light text: `DARK_FIELD_BG` if
+/// set, else the colour editor's "Dark fields" box (off by default).
+pub fn dark_fields() -> bool { dark_fields_env().unwrap_or(scheme().dark_fields) }
+
 /// The viewport's background: XSI's mid grey in Light (black wires and
 /// boxes read on it), Bevy's dark grey otherwise.
 pub fn viewport_bg() -> [u8; 3] {
@@ -106,7 +130,7 @@ pub fn viewport_bg() -> [u8; 3] {
 /// The Light scheme of earlier versions (dark greys, white text), as saved
 /// by them: read back as today's Light.
 const OLD_LIGHT: Scheme = Scheme { preset: Preset::Light, low: [40, 40, 40], high: [150, 150, 150], text: [230, 230, 230],
-                                   dim: [190, 190, 190], accent: [100, 130, 160], outline: [70, 70, 70], text_weight: TEXT_WEIGHT };
+                                   dim: [190, 190, 190], accent: [100, 130, 160], outline: [70, 70, 70], text_weight: TEXT_WEIGHT, dark_fields: false };
 
 fn store(s: Scheme) {
     *SCHEME.write().unwrap_or_else(|e| e.into_inner()) = s;
@@ -353,7 +377,7 @@ pub fn menu(ui: &mut egui::Ui) {
     for p in Preset::ALL {
         let label = if now.preset == p && now.is_edited() { format!("{} (edited)", p.label()) } else { p.label().to_string() };
         if ui.radio(now.preset == p, label).on_hover_text(p.hint()).clicked() {
-            if now.preset != p { set_scheme(ui.ctx(), Scheme::preset(p)); }
+            if now.preset != p { set_scheme(ui.ctx(), Scheme { dark_fields: now.dark_fields, ..Scheme::preset(p) }); }
             ui.close();
         }
     }
@@ -375,7 +399,7 @@ pub fn editor(ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.label("Start from:");
             for p in Preset::ALL {
-                if ui.selectable_label(s.preset == p, p.label()).on_hover_text(p.hint()).clicked() { s = Scheme::preset(p); }
+                if ui.selectable_label(s.preset == p, p.label()).on_hover_text(p.hint()).clicked() { s = Scheme { dark_fields: s.dark_fields, ..Scheme::preset(p) }; }
             }
         });
         ui.separator();
@@ -396,11 +420,23 @@ pub fn editor(ctx: &egui::Context) {
             ui.add(egui::Slider::new(&mut s.text_weight, 0..=100).show_value(true));
             ui.label(egui::RichText::new("thinner or heavier text").small());
             ui.end_row();
+            ui.label("Dark fields");
+            match dark_fields_env() {
+                // Set from outside: shown, not changed here.
+                Some(on) => {
+                    let mut shown = on;
+                    ui.add_enabled(false, egui::Checkbox::without_text(&mut shown))
+                        .on_disabled_hover_text(format!("Set by DARK_FIELD_BG={}", if on { 1 } else { 0 }));
+                }
+                None => { ui.checkbox(&mut s.dark_fields, ""); }
+            }
+            ui.label(egui::RichText::new("text and number fields dark grey, light text").small());
+            ui.end_row();
         });
         ui.separator();
         ui.horizontal(|ui| {
             if ui.add_enabled(s.is_edited(), egui::Button::new(format!("Reset to {}", s.preset.label()))).clicked() {
-                s = Scheme::preset(s.preset);
+                s = s.reset();
             }
             ui.label(egui::RichText::new("Saved as you edit.").small());
         });
@@ -442,6 +478,20 @@ mod tests {
         assert!(lum(body) > lum(canvas) && contrast(body, canvas) > 1.3);
         // A Light scheme saved by an earlier version comes back as today's.
         assert_ne!(OLD_LIGHT, s);
+    }
+
+    /// Dark fields: off in every preset, read as off from a file saved
+    /// without it, kept by Reset and not counted as an edit.
+    #[test]
+    fn dark_fields_are_a_switch_not_a_colour() {
+        for p in Preset::ALL { assert!(!Scheme::preset(p).dark_fields); }
+        let old = r#"{"preset":"Dark","low":[12,12,12],"high":[64,64,64],"text":[234,234,234],"dim":[182,182,182],"accent":[60,110,170],"outline":[96,96,96],"text_weight":80}"#;
+        let read: Scheme = serde_json::from_str(old).unwrap();
+        assert!(!read.dark_fields && !read.is_edited());
+        let on = Scheme { dark_fields: true, ..Scheme::preset(Preset::Light) };
+        assert!(!on.is_edited());
+        let edited = Scheme { text_weight: 20, ..on };
+        assert!(edited.is_edited() && edited.reset().dark_fields && !edited.reset().is_edited());
     }
 
     /// Light starts at 50, the dark presets at 80; a heavier weight gives a

@@ -23,6 +23,18 @@ pub mod ink {
     pub fn DIM() -> Color32 { crate::theme::c(200, 200, 200) }
     /// The rail of a slider, so it shows on a group.
     pub fn RAIL() -> Color32 { crate::theme::c(146, 146, 146) }
+    /// Fields you type in (text, numbers), with dark fields on (see
+    /// `theme::dark_fields`): dark grey, in every theme, with light text.
+    /// Buttons, drop-downs and checkboxes keep the theme's.
+    pub fn FIELD() -> Color32 { Color32::from_gray(52) }
+    pub fn FIELD_HOVER() -> Color32 { Color32::from_gray(66) }
+    pub fn FIELD_TEXT() -> Color32 { Color32::from_gray(232) }
+    /// A Primitive Location field's background, in the code font: its own
+    /// grey between the panel and the other fields; with dark fields on, a
+    /// dark field a step lighter.
+    pub fn LOCATION() -> Color32 {
+        if crate::theme::dark_fields() { Color32::from_gray(70) } else { crate::theme::c(140, 140, 140) }
+    }
     pub fn OK() -> Color32 { Color32::from_rgb(150, 210, 150) }
     pub fn BAD() -> Color32 { Color32::from_rgb(235, 140, 120) }
 }
@@ -121,7 +133,7 @@ impl<'a> Rows<'a> {
     pub fn drag(&mut self, label: &str, hint: Option<&str>, v: &mut f32, speed: f64, unit: &str) -> egui::Response {
         self.row(label, hint, |ui| {
             let h = ui.spacing().interact_size.y;
-            ui.add_sized([ui.available_width(), h], egui::DragValue::new(v).speed(speed).max_decimals(3).suffix(unit))
+            ui.field_sized([ui.available_width(), h], egui::DragValue::new(v).speed(speed).max_decimals(3).suffix(unit))
         })
     }
 
@@ -129,7 +141,7 @@ impl<'a> Rows<'a> {
     pub fn drag_u32(&mut self, label: &str, hint: Option<&str>, v: &mut u32, range: std::ops::RangeInclusive<u32>) -> egui::Response {
         self.row(label, hint, |ui| {
             let h = ui.spacing().interact_size.y;
-            ui.add_sized([ui.available_width(), h], egui::DragValue::new(v).range(range).speed(0.1))
+            ui.field_sized([ui.available_width(), h], egui::DragValue::new(v).range(range).speed(0.1))
         })
     }
 
@@ -147,7 +159,7 @@ impl<'a> Rows<'a> {
                 let h = ui.spacing().interact_size.y;
                 let mut changed = false;
                 for (a, p) in v.iter_mut().zip(["U ", "V "]) {
-                    changed |= ui.add_sized([w, h], egui::DragValue::new(a).speed(speed).max_decimals(4).prefix(p)).changed();
+                    changed |= ui.field_sized([w, h], egui::DragValue::new(a).speed(speed).max_decimals(4).prefix(p)).changed();
                 }
                 changed
             }).inner
@@ -166,7 +178,7 @@ impl<'a> Rows<'a> {
 
     pub fn text(&mut self, label: &str, hint: Option<&str>, v: &mut String, placeholder: &str) -> egui::Response {
         self.row(label, hint, |ui| {
-            ui.add(egui::TextEdit::singleline(v).hint_text(placeholder).desired_width(ui.available_width()))
+            ui.field(egui::TextEdit::singleline(v).hint_text(placeholder).desired_width(ui.available_width()))
         })
     }
 
@@ -186,6 +198,48 @@ impl<'a> Rows<'a> {
     pub fn buttons<R>(&mut self, label: &str, hint: Option<&str>, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
         self.row(label, hint, |ui| ui.horizontal_wrapped(add).inner)
     }
+}
+
+/// A field you type in (a `TextEdit` or `DragValue`): `ui.field(..)` where
+/// `ui.add(..)` would be. With dark fields on, dark grey with light text;
+/// off (the default), as any field of the theme. Only the field itself:
+/// buttons, drop-downs and checkboxes beside it keep the theme's look.
+pub trait FieldExt {
+    fn field(&mut self, widget: impl egui::Widget) -> egui::Response;
+    /// `field`, at a given size.
+    fn field_sized(&mut self, size: impl Into<egui::Vec2>, widget: impl egui::Widget) -> egui::Response;
+}
+
+impl FieldExt for egui::Ui {
+    fn field(&mut self, widget: impl egui::Widget) -> egui::Response {
+        if !crate::theme::dark_fields() { return self.add(widget); }
+        self.scope(|ui| { field_look(ui); ui.add(widget) }).inner
+    }
+    fn field_sized(&mut self, size: impl Into<egui::Vec2>, widget: impl egui::Widget) -> egui::Response {
+        if !crate::theme::dark_fields() { return self.add_sized(size, widget); }
+        self.scope(|ui| { field_look(ui); ui.add_sized(size, widget) }).inner
+    }
+}
+
+/// The look of a field you type in: dark grey with light text, a light
+/// text cursor, lighter when hovered or being edited. Used by `field`, in a
+/// scope of its own, so nothing else drawn after it takes it.
+fn field_look(ui: &mut egui::Ui) {
+    let v = ui.visuals_mut();
+    v.extreme_bg_color = ink::FIELD();
+    v.text_cursor.stroke.color = ink::FIELD_TEXT();
+    for w in [&mut v.widgets.inactive, &mut v.widgets.open] {
+        w.bg_fill = ink::FIELD();
+        w.weak_bg_fill = ink::FIELD();
+        w.fg_stroke.color = ink::FIELD_TEXT();
+    }
+    for w in [&mut v.widgets.hovered, &mut v.widgets.active] {
+        w.bg_fill = ink::FIELD_HOVER();
+        w.weak_bg_fill = ink::FIELD_HOVER();
+        w.fg_stroke.color = egui::Color32::WHITE;
+    }
+    // Hints inside the field, light too.
+    v.widgets.noninteractive.fg_stroke.color = ink::FIELD_TEXT();
 }
 
 /// A checkbox whose box shows on the group's background in every theme.
@@ -217,7 +271,7 @@ pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -
         let h = ui.spacing().interact_size.y;
         let mut changed = false;
         for (a, p) in v.iter_mut().zip(["X ", "Y ", "Z "]) {
-            changed |= ui.add_sized([w, h], egui::DragValue::new(a).speed(speed).max_decimals(3).prefix(p).suffix(unit)).changed();
+            changed |= ui.field_sized([w, h], egui::DragValue::new(a).speed(speed).max_decimals(3).prefix(p).suffix(unit)).changed();
         }
         changed
     }).inner

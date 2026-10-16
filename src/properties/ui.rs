@@ -20,7 +20,7 @@ use crate::scene_explorer::OperatorStack;
 use crate::ice::{IceGraphStore, GraphNavigation};
 use crate::ice::ui::draw_subnet_node_properties;
 
-use super::form::{self, group, group_with, ink, Rows, Status};
+use super::form::{self, group, group_with, ink, FieldExt, Rows, Status};
 
 /// Clips around the selected node and the playhead, so animation nodes can
 /// show what they receive and set parameters from the current frame.
@@ -544,13 +544,13 @@ pub fn draw_properties(
                 let tb = anim.input.as_ref().map(|i| i.rate.timebase() as u32).unwrap_or(120);
                 f.row("Start", Some("Hours : minutes : seconds : frames"), |ui| {
                     ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(hours).range(0..=23));
+                        ui.field(egui::DragValue::new(hours).range(0..=23));
                         ui.label(":");
-                        ui.add(egui::DragValue::new(minutes).range(0..=59));
+                        ui.field(egui::DragValue::new(minutes).range(0..=59));
                         ui.label(":");
-                        ui.add(egui::DragValue::new(seconds).range(0..=59));
+                        ui.field(egui::DragValue::new(seconds).range(0..=59));
                         ui.label(":");
-                        ui.add(egui::DragValue::new(frames).range(0..=tb.saturating_sub(1)));
+                        ui.field(egui::DragValue::new(frames).range(0..=tb.saturating_sub(1)));
                     });
                 });
                 let can_drop = anim.input.as_ref().map(|i| i.rate.supports_drop_frame()).unwrap_or(true);
@@ -696,7 +696,7 @@ pub fn draw_properties(
                     for (k, name) in list.iter_mut().enumerate() {
                         f.row(&format!("{}", k + 1), None, |ui| {
                             ui.horizontal(|ui| {
-                                if ui.add(egui::TextEdit::singleline(name).desired_width(ui.available_width() - 30.0)).changed() { resync = true; }
+                                if ui.field(egui::TextEdit::singleline(name).desired_width(ui.available_width() - 30.0)).changed() { resync = true; }
                                 if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
                             });
                         });
@@ -713,7 +713,7 @@ pub fn draw_properties(
             group(ui, "Description of node functionality for LLM", Some("What the node should do, for whoever builds it: what comes in on each input, what goes out on each output, the parameters it needs"), |f| {
                 f.wide(|ui| {
                     let w = ui.available_width();
-                    ui.add(egui::TextEdit::multiline(description).desired_rows(10).desired_width(w)
+                    ui.field(egui::TextEdit::multiline(description).desired_rows(10).desired_width(w)
                         .hint_text("What this node should do with its inputs, what each output gives, the parameters it needs"));
                 });
             });
@@ -767,7 +767,7 @@ pub fn draw_properties(
                 f.row("Hip height", None, |ui| {
                     ui.add_enabled_ui(*set_hip_height, |ui| {
                         ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(hip_height).speed(0.1).range(0.0..=300.0).suffix(" cm"));
+                            ui.field(egui::DragValue::new(hip_height).speed(0.1).range(0.0..=300.0).suffix(" cm"));
                             if let Some((_, h)) = &rest { if ui.small_button("From file").clicked() { *hip_height = *h; } }
                         });
                     });
@@ -1327,7 +1327,7 @@ fn material_rows(ui: &mut egui::Ui, s: &mut crate::core::material::PreviewSurfac
             f.row(label, None, |ui| {
                 ui.horizontal(|ui| {
                     let w = ui.available_width() - if file.is_empty() { 34.0 } else { 62.0 };
-                    ui.add(egui::TextEdit::singleline(&mut file).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
+                    ui.field(egui::TextEdit::singleline(&mut file).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
                     if ui.button("📂").on_hover_text("Browse").clicked() {
                         io.browser.open(BrowseTarget::Texture(node, input), BrowseMode::File, &format!("Texture for {label}"), &["png", "jpg", "jpeg", "exr", "tif", "tiff", "tga", "hdr"], "");
                     }
@@ -1349,7 +1349,7 @@ fn colour_fields(ui: &mut egui::Ui, c: &mut [f32; 3]) {
         let gap = ui.spacing().item_spacing.x;
         let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(30.0);
         let h = ui.spacing().interact_size.y;
-        for x in c.iter_mut() { ui.add_sized([w, h], egui::DragValue::new(x).speed(0.01).range(0.0..=f32::MAX).max_decimals(3)); }
+        for x in c.iter_mut() { ui.field_sized([w, h], egui::DragValue::new(x).speed(0.01).range(0.0..=f32::MAX).max_decimals(3)); }
     });
 }
 
@@ -1400,7 +1400,7 @@ fn material_location_row(f: &mut Rows, row: usize, col: &mut BindColumn) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("↳ 🎨").color(ink::DIM()));
             let w = (ui.available_width() - 52.0).max(60.0);
-            let field = ui.add(egui::TextEdit::singleline(path).desired_width(w).hint_text("/materials/name")
+            let field = ui.field(egui::TextEdit::singleline(path).desired_width(w).hint_text("/materials/name")
                 .font(egui::TextStyle::Monospace).background_color(location_bg()));
             if let Some(p) = field.dnd_release_payload::<crate::types::DraggedPrims>() {
                 if let Some(first) = p.0.first() { *path = first.clone(); }
@@ -1427,7 +1427,7 @@ fn binding_rows(ui: &mut egui::Ui, library: &mut String, inputs: &mut u32, ports
     use crate::core::material::{library_path, placed};
     group(ui, "Material Library", Some("Where the materials wired into this operator go in the scene, each by its operator's name"), |f| {
         f.row("Location", Some("A USD path. Its parents are Scopes"), |ui| {
-            ui.add(egui::TextEdit::singleline(library).hint_text("/materials").desired_width(ui.available_width())
+            ui.field(egui::TextEdit::singleline(library).hint_text("/materials").desired_width(ui.available_width())
                 .font(egui::TextStyle::Monospace).background_color(location_bg()))
         });
         let path = library_path(library);
@@ -1462,7 +1462,7 @@ fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::Lo
         f.choice("Mode", None, mode, &[(LoadMode::Sublayer, "Sublayer"), (LoadMode::Reference, "Reference"), (LoadMode::Payload, "Payload")]);
         if *mode == LoadMode::Sublayer { return; }
         f.row("Primitive Location", Some("Where the file's prim goes in the scene. Its parents are Xforms"), |ui| {
-            ui.add(egui::TextEdit::singleline(location).hint_text("/root").desired_width(ui.available_width())
+            ui.field(egui::TextEdit::singleline(location).hint_text("/root").desired_width(ui.available_width())
                 .font(egui::TextStyle::Monospace).background_color(location_bg()))
         });
         let at = crate::types::prim_location(location, &crate::types::reference_location());
@@ -1472,7 +1472,7 @@ fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::Lo
         f.row("Prim", Some("The prim of the file it brings in, with everything below it. Empty: the file's default prim"), |ui| {
             ui.horizontal(|ui| {
                 let w = (ui.available_width() - 48.0).max(60.0);
-                ui.add(egui::TextEdit::singleline(prim).hint_text("default prim").desired_width(w)
+                ui.field(egui::TextEdit::singleline(prim).hint_text("default prim").desired_width(w)
                     .font(egui::TextStyle::Monospace).background_color(location_bg()));
                 ui.add_enabled_ui(!roots.is_empty(), |ui| {
                     crate::menus::menu(ui, "Pick", |ui| {
@@ -1532,24 +1532,24 @@ fn camera_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3
             ui.horizontal(|ui| {
                 let h = ui.spacing().interact_size.y;
                 let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                ui.add_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture).speed(0.05).range(0.01..=1000.0).prefix("H "));
-                ui.add_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture).speed(0.05).range(0.01..=1000.0).prefix("V "));
+                ui.field_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture).speed(0.05).range(0.01..=1000.0).prefix("H "));
+                ui.field_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture).speed(0.05).range(0.01..=1000.0).prefix("V "));
             });
         });
         f.row("Filmback offset", Some("Shift of the gate, horizontal and vertical. Written, not shown in the Viewer yet"), |ui| {
             ui.horizontal(|ui| {
                 let h = ui.spacing().interact_size.y;
                 let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                ui.add_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture_offset).speed(0.05).prefix("H "));
-                ui.add_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture_offset).speed(0.05).prefix("V "));
+                ui.field_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture_offset).speed(0.05).prefix("H "));
+                ui.field_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture_offset).speed(0.05).prefix("V "));
             });
         });
         f.row("Clipping", Some("Near and far, in scene units"), |ui| {
             ui.horizontal(|ui| {
                 let h = ui.spacing().interact_size.y;
                 let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                ui.add_sized([w, h], egui::DragValue::new(&mut c.clipping_range[0]).speed(0.01).range(0.0001..=f32::MAX).prefix("near "));
-                ui.add_sized([w, h], egui::DragValue::new(&mut c.clipping_range[1]).speed(10.0).range(0.001..=f32::MAX).prefix("far "));
+                ui.field_sized([w, h], egui::DragValue::new(&mut c.clipping_range[0]).speed(0.01).range(0.0001..=f32::MAX).prefix("near "));
+                ui.field_sized([w, h], egui::DragValue::new(&mut c.clipping_range[1]).speed(10.0).range(0.001..=f32::MAX).prefix("far "));
             });
         });
         f.drag("f-stop", Some("0: no depth of field. Written for renderers, not shown in the Viewer"), &mut c.f_stop, 0.05, "");
@@ -1577,7 +1577,7 @@ fn path_row(f: &mut Rows, value: &mut String, hint: &str, io: &mut PanelIo, node
     f.row("Path", None, |ui| {
         ui.horizontal(|ui| {
             let w = ui.available_width() - 34.0;
-            ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(w.max(40.0)));
+            ui.field(egui::TextEdit::singleline(value).hint_text(hint).desired_width(w.max(40.0)));
             if ui.button("📂").on_hover_text("Browse").clicked() { io.browser.open(BrowseTarget::Node(node), mode, title, exts, ""); }
         });
     });
@@ -1686,7 +1686,7 @@ fn usd_summary(ui: &mut egui::Ui, path: &str) {
 /// With `single`, the field holds one expression and picking replaces it.
 /// The background of a Primitive Location field: a grey of its own, between
 /// the panel and the other fields, in light and dark schemes alike.
-fn location_bg() -> egui::Color32 { crate::theme::c(140, 140, 140) }
+fn location_bg() -> egui::Color32 { ink::LOCATION() }
 
 /// Add a path to a list of Primitive Locations, unless it is there already.
 fn add_location(list: &mut Vec<String>, path: &str) {
@@ -1730,7 +1730,7 @@ fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::set_attribu
             f.row("Name", Some(name_hint), |ui| {
                 ui.horizontal(|ui| {
                     let w = (ui.available_width() - 48.0).max(60.0);
-                    ui.add(egui::TextEdit::singleline(&mut row.name).desired_width(w).hint_text("name")
+                    ui.field(egui::TextEdit::singleline(&mut row.name).desired_width(w).hint_text("name")
                         .font(egui::TextStyle::Monospace));
                     crate::menus::menu(ui, "Pick", |ui| {
                         for p in offered {
@@ -1779,14 +1779,14 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
             let n = v.len() as f32;
             let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
             let h = ui.spacing().interact_size.y;
-            for x in v.iter_mut() { ui.add_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4)); }
+            for x in v.iter_mut() { ui.field_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4)); }
         });
     };
     match v {
         Value::Bool(b) => { f.toggle("Value", None, b); }
-        Value::Int(i) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.add_sized([ui.available_width(), h], egui::DragValue::new(i).speed(0.1)); }); }
+        Value::Int(i) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.field_sized([ui.available_width(), h], egui::DragValue::new(i).speed(0.1)); }); }
         Value::Float(x) => { f.drag("Value", None, x, 0.01, ""); }
-        Value::Double(x) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.add_sized([ui.available_width(), h], egui::DragValue::new(x).speed(0.01)); }); }
+        Value::Double(x) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.field_sized([ui.available_width(), h], egui::DragValue::new(x).speed(0.01)); }); }
         Value::Token(s) if !tokens.is_empty() => {
             let options: Vec<(String, &str)> = tokens.iter().map(|t| (t.to_string(), *t)).collect();
             f.choice("Value", None, s, &options);
@@ -1851,7 +1851,7 @@ fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], se
                     let w = (ui.available_width() - if binds.is_some() { 180.0 } else { 74.0 }).max(60.0);
                     // A path, not text: grey, in the code font, so a location
                     // is told apart from the other text fields at a glance.
-                    ui.add(egui::TextEdit::singleline(row).desired_width(w).hint_text("/path/to/prim")
+                    ui.field(egui::TextEdit::singleline(row).desired_width(w).hint_text("/path/to/prim")
                         .font(egui::TextStyle::Monospace).background_color(location_bg()));
                     // How many of the primitives coming in this row matches.
                     if !row.trim().is_empty() && !paths.is_empty() {
@@ -1917,12 +1917,12 @@ fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &
     f.row(label, Some(hint), |ui| {
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 48.0).max(60.0);
-            ui.add(egui::TextEdit::singleline(text).desired_width(w).hint_text("regex, regex"));
+            ui.field(egui::TextEdit::singleline(text).desired_width(w).hint_text("regex, regex"));
             ui.add_enabled_ui(!names.is_empty(), |ui| {
                 crate::menus::menu(ui, "Pick", |ui| {
                     let filter_id = ui.id().with(id).with("filter");
                     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-                    ui.add(egui::TextEdit::singleline(&mut filter).desired_width(200.0).hint_text("filter the list"));
+                    ui.field(egui::TextEdit::singleline(&mut filter).desired_width(200.0).hint_text("filter the list"));
                     let shown = pattern::NamePattern::new(&filter);
                     let current = pattern::NamePattern::new(text);
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
