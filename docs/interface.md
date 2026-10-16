@@ -117,7 +117,7 @@ When a graph needs a node the program does not have, put a **Placeholder** in it
 
 ### The add menu
 
-Nine categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does.
+Nine categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does. A node is coloured by its category, but for the ICE node (teal) and the Camera (dark grey), which stand apart.
 
 | Category | Nodes |
 |---|---|
