@@ -50,9 +50,11 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Light by default:** the Scene Explorer drives the Viewer with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
 - **Each operator says what it works on:** Transform, Edit Poly and Prune list their Primitive Locations in a Prims Location tab, as paths with wildcards, filled by dragging prims from the Scene Explorer. The pieces listed are edited, each staying itself, and the rest pass through. Pick Primitives does it for the operators after it
 - **Set values on any prim:** Set Attribute sets primvars for rendering and properties such as visibility, purpose, kind and active, on meshes, groups, cameras or lights, one row per value
+- **Sublayer, reference or payload:** Load USD brings a file in whole at its own paths, or its default prim at a Primitive Location (`/root` by default), written back as a sublayer, a reference or a payload
 - **Write it back:** Write USD saves what the scene graph changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
 - **Materials and textures in the Viewer**, straight from the `.usdz`
 - **Make and bind materials:** the Material operator is a UsdPreviewSurface (colour, metallic, roughness, opacity, emissive, clearcoat, a texture file per input), named by the operator. Material Binding takes any number of them, puts them under `/materials` and binds each to the prims its rows list; Write USD writes them
+- **Cameras:** a file's cameras and those the Camera operator makes, with their lens and gate as USD has them, moved by Transform, written back by Write USD, and looked through from the Viewer's camera menu
 - **What is in the file:** materials, cameras, skeletons and lights are listed on the node, along with what is not read yet
 - **UVs from the file**, shown in a UV editor that draws a million edges
 
@@ -176,7 +178,7 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 
 - Undo inside ICE graphs, and history saved with the graph
 - Edit Poly: interactive cut and quickslice, extrude along spline, target weld, attach, smoothing groups, material IDs, paint deformation, constraints
-- USD: normal and roughness maps in the Viewer, cameras, animation and skinning, per-face material subsets, writing time samples and edits inside instances
+- USD: normal and roughness maps in the Viewer, depth of field and gate offsets when looking through a camera, animation and skinning, per-face material subsets, writing time samples and edits inside instances
 - UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept through Edit Poly, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
 - Mocap: contact detection and foot locking (Reach follows the source's feet); FBX blend shapes applied, cameras and lights drawn
 - Timeline zoom and pan

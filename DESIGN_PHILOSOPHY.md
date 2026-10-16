@@ -127,6 +127,10 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 A material is made by one operator and put in the scene by another. The Material operator puts out a material, not a scene: it has no place in the stage until Material Binding gives it one, under its Material Library Location (`/materials` by default), by its operator's name. The material and what wears it are then set in one place, as they are drawn on paper. The Material operator is the simple form, a UsdPreviewSurface with fixed inputs; material compounds, with a graph inside, will put out the same material, so Material Binding takes either. In the scene a material is a prim with no geometry, so it is listed, inspected, pruned and written as any other prim. Rows pair with inputs by number, as on paper; a row can name another input, or a material already in the scene.
 
+## A reference is a reference
+
+Load USD brings a file in as USD would: sublayered, at its own paths, or its default prim referenced or payloaded at a Primitive Location. What Imago shows and what Write USD writes are the same composition: a reference is written as a reference, so the layer stays a layout over its assets, not a copy of them. Where USD would not convert a file's axes and unit through a reference, Imago, which shows everything Y up in metres, writes the transform that does it.
+
 ## Log
 
 - 10/10/2026: file created, from the decisions taken so far.
@@ -182,3 +186,6 @@ A material is made by one operator and put in the scene by another. The Material
 - 15/10/2026: Material Binding: materials on numbered inputs on its left, put under its Material Library Location as Material prims; each Prims Location row binds the input of its number or a chosen one, the later row winning; written as `def Material`s under Scopes and `material:binding` (Martino).
 - 15/10/2026: a Material's output on its right, material sockets purple; Material Binding's rows on a Bindings tab, its Material column listing the materials wired in and Location, a material of the scene by its path on a line under the row (Martino).
 - 15/10/2026: Merge takes any number of inputs, one always free, as Material Binding; the Material output in the middle of its right side; the "Material bindings" template, from Martino's graph (Martino).
+- 16/10/2026: Load USD modes, on branch `core/usd-scene`: Sublayer, Reference and Payload; the file's default prim (or a named one) at a Primitive Location, `/root` by default, its paths rebased; Write USD writes the reference or payload on that prim with the axis and unit transform where needed (Martino).
+- 16/10/2026: cameras: a camera is a primitive with no geometry holding a UsdGeomCamera's values; Load USD gives a file's, the Camera operator makes one, Transform moves them, Write USD writes them; the Viewer draws them and looks through one from its 🎥 menu, the whole gate shown; navigating leaves the camera where it was (Martino).
+- 16/10/2026: the camera's name larger, at the top of the gate; Filmback Presets a drop-down, with the ALEXA Mini 16:9, Mini Open Gate and Mini LF Open Gate filmbacks (Martino).

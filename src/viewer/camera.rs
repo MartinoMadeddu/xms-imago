@@ -3,6 +3,17 @@
 
 use glam::{Mat4, Quat, Vec2, Vec3};
 
+/// The camera of the scene the Viewer looks through, by path: `None`, its
+/// own (Perspective). Chosen in the Viewer's camera menu or by a Camera
+/// operator's Look through.
+static LOOK: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn looking_through() -> Option<String> { LOOK.lock().ok().and_then(|l| l.clone()) }
+
+pub fn look_through(path: Option<String>) {
+    if let Ok(mut l) = LOOK.lock() { *l = path; }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
     pub eye:    Vec3,

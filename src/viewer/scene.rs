@@ -92,6 +92,8 @@ pub struct Scene {
     pub lines:      Vec<f32>,
     /// Lines drawn over everything: the skeletons of clips.
     pub top:        Vec<f32>,
+    /// The cameras of the scene, to look through: path, placement, lens.
+    pub cameras:    Vec<(String, Mat4, crate::core::camera::Camera)>,
     /// Changes whenever the scene does: the GPU uploads again only then.
     pub generation: u64,
 }
@@ -253,6 +255,19 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 
     match packed {
         Some(EvalResult::Named(prims)) => {
+            // Cameras: kept to be looked through, drawn as a pyramid to their
+            // gate, but for the one looked through.
+            let looked = super::camera::looking_through();
+            let cam_ink = { let c = ink(crate::theme::c(225, 215, 140)); [c[0], c[1], c[2], 1.0] };
+            for p in prims.iter().filter(|p| !crate::core::props::invisible(p)) {
+                let (Some(c), Some(world)) = (&p.camera, p.place.matrices().first()) else { continue };
+                s.cameras.push((p.path.clone(), *world, (**c).clone()));
+                if looked.as_deref() == Some(p.path.as_str()) { continue; }
+                for [a, b] in c.glyph(*world) {
+                    s.lines.extend_from_slice(&a.to_array()); s.lines.extend_from_slice(&cam_ink);
+                    s.lines.extend_from_slice(&b.to_array()); s.lines.extend_from_slice(&cam_ink);
+                }
+            }
             // Purposes the Scene Explorer's toggles leave out are not drawn.
             let prims: Vec<Prim> = prims.into_iter()
                 // Its purpose, or the one it inherits from a prim above it.
@@ -261,8 +276,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 .filter(|p| !crate::core::props::invisible(p))
                 // A point instancer is drawn by its prototypes, at its points.
                 .filter(|p| p.instancing.is_none())
-                // A material is worn, not drawn.
-                .filter(|p| p.shading.is_none())
+                // A material is worn, not drawn; a camera is drawn above.
+                .filter(|p| p.shading.is_none() && p.camera.is_none())
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {

@@ -134,7 +134,8 @@ pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
     let below_off = |path: &str| off.iter().any(|g| path.strip_prefix(g).is_some_and(|rest| rest.starts_with('/')));
     // Geometry the stage has (and that was drawn: hidden prims never arrive)
     // which no longer arrives.
-    let geometry = ["Mesh", "BasisCurves", "NurbsCurves", "HermiteCurves", "Points"];
+    // Cameras are primitives too: a pruned one is deactivated.
+    let geometry = ["Mesh", "BasisCurves", "NurbsCurves", "HermiteCurves", "Points", "Camera"];
     set.removed = tree.nodes.iter()
         .filter(|n| !n.hidden && geometry.contains(&n.type_name.as_str()) && !present.contains(n.path.as_str()))
         .filter(|n| !below_off(&n.path))

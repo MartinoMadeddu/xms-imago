@@ -6,7 +6,7 @@ Load USD and Write USD are in the "File" sub-menu of the add-node menu. Pick, Pr
 
 | Node | What it does |
 |---|---|
-| Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one primitive per mesh, curves or points prim |
+| Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one primitive per mesh, curves or points prim. Its Mode: sublayered at the file's paths, or the file's default prim referenced or payloaded at a Primitive Location |
 | Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
 | Merge | Any number of inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
@@ -35,11 +35,26 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 | Purpose | `render`, `proxy` and `guide`, inherited down the hierarchy. Which prim authors it is kept, so a purpose set nearer with Set Attribute wins over one a mesh only inherits |
 | Other authored values | `kind` and `instanceable`, and every attribute a prim authors with one value (`doubleSided`, `subdivisionScheme`, a light's `inputs:intensity`, `userProperties:*`…), listed in the Primitive Inspector's Properties tab as coming from the file |
 | Materials | Listed in the node's Parameters: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface |
-| Cameras | Listed: projection, focal length, aperture, clipping range, position |
+| Cameras | Primitives with no geometry: projection, focal length, aperture and offsets, clipping range, f-stop, focus distance, where they are. Moved by Transform, looked through in the Viewer |
 | Skeletons, lights | Listed by name |
 | Time samples | Read at the stage's start time |
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked beside itself so its textures are files the Viewer can read.
+
+## Sublayer, Reference, Payload
+
+Load USD's **Mode** says how the file comes into the scene, as in USD:
+
+| Mode | In Imago | Written by Write USD |
+|---|---|---|
+| Sublayer | The whole stage, at the file's own paths | The file in the layer's `subLayers` |
+| Reference | One prim of the file, with everything below it, at the **Primitive Location** (`/root` by default): `/Asset/geo/body` is `/root/geo/body`. The prim is the file's `defaultPrim`, or the one named in **Prim** (Pick lists the root prims). A file naming no default prim gives its first root prim, and the panel says so | `def "root" (prepend references = @file@</Asset>)`, with the edits under it as `over`s |
+| Payload | As Reference: Imago always loads it | `prepend payload = @file@</Asset>`: other programs load it on demand |
+
+- The prims above the Primitive Location are Xforms, made by Imago (`/shot/set` puts `shot` above). What the file has outside the referenced prim is left out, as USD leaves it out.
+- Bindings and point-instancer prototypes inside the referenced prim follow it to its new paths. A binding to a material outside it keeps its path.
+- A file's axes and unit are not converted by a reference in USD. Imago shows every stage Y up in metres, so where the file's differ from the layer's, Write USD puts the transform from one to the other on the referenced prim, on top of the prim's own: opened, the layer gives what Imago shows.
+- The Scene Explorer lists the stage at its new paths; Set Attribute, Material Binding and every Prims Location tab name it by them.
 
 The Parameters of a Load USD node show the stage: primitive and triangle counts (every instanced copy counted), up axis and unit, a count of prims by type, the materials with their textures, the cameras, skeletons and lights, and a "Not read in full" list for whatever the file holds that is not handled yet.
 
@@ -165,9 +180,19 @@ It puts out a material, not a scene: Material Binding puts it in the scene and b
 - The Scene Explorer lists the materials under the library, of type Material. Selected, the Primitive Inspector's Properties tab lists the surface's inputs, from the Material operator that made it; a bound primitive's `material:binding` row comes from the Material Binding that bound it, and Go to Operator selects either.
 - Write USD writes the materials as `def Material`s with their shaders, under `def Scope` parents, and each binding as `rel material:binding` (with `MaterialBindingAPI`) on the primitive.
 
+## Cameras
+
+A camera is a primitive with no geometry: its lens and gate as USD has them, and its placement, looking down its -Z axis with +Y up. Load USD gives a file's cameras; the **Camera** operator (Add menu, Create) makes one at its Primitive Location (`/camera` by default), with Translate and Rotate, Projection, Focal length, Filmback (the gate; Filmback Presets: USD default, full frame, Super 35, ALEXA Mini 16:9, ALEXA Mini Open Gate, ALEXA Mini LF Open Gate), Filmback offset, Clipping, f-stop and Focus distance. Focal length and gate are in tenths of a scene unit, as in USD: millimetres in a centimetre scene. The field of view comes from their ratio and is shown under them.
+
+- Transform moves a camera, as any primitive; Merge joins it to a scene; Set Attribute sets its attributes.
+- The Viewer draws each camera as a pyramid from its eye to its gate, as long as its lens.
+- **Looking through:** the Viewer's camera menu (🎥 Perspective, next to the display mode) lists the cameras of the scene; choose one to look through it, Perspective to go back to the Viewer's own camera as it was. A Camera operator's **Look through** does the same. The whole gate is shown, what lies outside it darkened, the camera's name at the top, in the middle. Orbiting, panning, zooming or framing leaves the camera: the Viewer's own takes its place, where it was, with its field of view, turning about its focus distance (or 5 m).
+- The Primitive Inspector's Properties tab lists a camera's values; Go to Operator selects the Camera operator that made it.
+- Write USD writes a camera made in Imago as `def Camera` with its transform and lens (`projection`, `focalLength`, `horizontalAperture`, `verticalAperture` and `clippingRange` always, the rest when set), and a file's camera that moved as its new transform. A pruned camera is deactivated.
+
 ## Write USD
 
-Write USD writes what the scene graph changed as a `.usda` override layer. The layer sublayers the file each stage was read from and holds only opinions over it, so opened on its own (in usdview, rray, or Imago) it gives what Imago shows. It repeats the file's `upAxis` and `metersPerUnit`, which USD reads from the layer that is opened.
+Write USD writes what the scene graph changed as a `.usda` override layer. The layer sublayers the file each sublayered stage was read from, references or payloads each stage loaded that way on its prim, and holds only opinions over them, so opened on its own (in usdview, rray, or Imago) it gives what Imago shows. It repeats the first sublayered file's `upAxis` and `metersPerUnit`, which USD reads from the layer that is opened; with none, it is Y up in metres.
 
 Set a path and press **Write**. The panel then says what was written, and lists what could not be, with the reason.
 
@@ -180,10 +205,12 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | Attributes lost | Blocked (`= None`), so the file's value is not seen through |
 | Several prims merged into one | The whole geometry, in the prim's own space |
 | A prim pruned | `active = false` |
+| A stage loaded as Reference or Payload | `def "root"` (its Primitive Location) with `prepend references` or `prepend payload` to the file's prim, and the axis and unit transform where needed; its parents `def Xform` |
 | Material binding or purpose changed | `material:binding`, `purpose` |
 | A material Material Binding put in the scene | `def Material` with its `UsdPreviewSurface`, `UsdUVTexture` and `UsdPrimvarReader_float2` shaders, under `def Scope` parents |
 | A point instancer's points or their attributes | `positions`, `orientations`, `scales`, `protoIndices`, `ids` |
 | Set Attribute values | Object: `primvars:name` with `interpolation = "constant"`. Property: an attribute (`token visibility`, `uniform bool doubleSided`, `uniform token subdivisionScheme`, any other name with its type) or metadata (`active`, `kind`, `instanceable`). On any prim of the stage: a group, a camera, a light |
+| A camera made by the Camera operator | `def Camera` with `xformOp:transform`, `projection`, `focalLength`, the apertures, `clippingRange`, and `fStop`, `focusDistance` and the offsets when set |
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
 
 The layer's `defaultPrim` is the first root prim of the first stage, or, with no stage, the first prim made in Imago (`cube` for a lone Cube). A layer with no stage is Y up in metres, as Imago is; next to a stage, prims made in Imago are written in the stage's axes and unit.
@@ -199,10 +226,12 @@ Values are written at the current frame, as single values.
 
 ## Not done yet
 
+- Load USD: a layer offset on a reference, several references on one prim, population masks, payloads left unloaded; moving the referenced prim itself when it is a mesh is written without the axis and unit transform
+
 - Write USD: time samples over a frame range, editing inside instances, a flattened single file; the stage's own `defaultPrim` (the first root prim is used)
 - A Primitive Location for the other operators that make geometry (ICE, Unpack, Merge set to Flatten); until then their plain mesh has no path, and Write USD says so
 - Normal, roughness, metallic and occlusion maps in the Viewer
-- Looking through a USD camera
+- Cameras: gate offsets and depth of field in the Viewer, cameras inside native instances, animated cameras, editing a file's camera's lens
 - Animation: time samples beyond the start time, skeletal animation, skinning, blend shapes
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Nested point instancers

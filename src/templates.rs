@@ -73,6 +73,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "The model cut down to its wheels and callipers with a path pattern" },
     Template { by: MARTINO, group: "USD stages", name: "USD: set attribute", build: usd_set_attribute,
         hint: "Values set on prims: the wheels made invisible, the model's root made a component asset. Add a Write USD node to see them written" },
+    Template { by: MARTINO, group: "USD stages", name: "Cameras", build: cameras,
+        hint: "Three shapes and two cameras, one perspective, one orthographic from above. Choose one in the Viewer's camera menu to look through it" },
     Template { by: MARTINO, group: "USD stages", name: "Material bindings", build: material_bindings,
         hint: "Four shapes in one Merge, three materials bound to them by row under /root/materials, and a second Material Binding giving a fourth shape the textured ground material by Location. Write USD is viewed" },
     Template { by: MARTINO, group: "USD stages", name: "USD: material binding", build: usd_material_binding,
@@ -203,8 +205,8 @@ fn subnet(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
 
 fn usd(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
-    let shapes = g.add_node("Shapes".into(), NodeType::LoadUsd { path: examples::path(examples::SHAPES_USD) }, p(40.0, 20.0));
-    let table  = g.add_node("Table".into(), NodeType::LoadUsd { path: examples::path(examples::TABLE_USD) }, p(300.0, 20.0));
+    let shapes = g.add_node("Shapes".into(), NodeType::load_usd(examples::path(examples::SHAPES_USD)), p(40.0, 20.0));
+    let table  = g.add_node("Table".into(), NodeType::load_usd(examples::path(examples::TABLE_USD)), p(300.0, 20.0));
     let lift   = g.add_node("OnTable".into(), transform([0.0, 0.77, 0.0], [0.0, 0.0, 0.0], [0.35, 0.35, 0.35]), p(40.0, 120.0));
     let merge  = g.add_node("Merge".into(), NodeType::merge(), p(170.0, 220.0));
     g.add_connection(shapes, 0, lift, 0);
@@ -382,7 +384,7 @@ fn bolt(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 
 fn load_delorean(g: &mut NodeGraphState) -> NodeId {
     crate::graph_io::clear(g);
-    g.add_node("DeLorean".into(), NodeType::LoadUsd { path: examples::path(examples::DELOREAN_USD) }, p(180.0, 20.0))
+    g.add_node("DeLorean".into(), NodeType::load_usd(examples::path(examples::DELOREAN_USD)), p(180.0, 20.0))
 }
 
 fn usd_heavy(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
@@ -449,6 +451,35 @@ fn usd_material_binding(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String
     g.add_connection(chrome, 0, looks, 2);
     finish(g, looks, looks);
     format!("USD material binding: CarPaint and Chrome go under /materials; row 1 of the Bindings tab binds input 1 to the whole model, row 2 input 2 to the wheels, the later row winning. Switch the Viewer to Textured to see them, and add a Write USD node to write them.{}", missing_examples())
+}
+
+/// Shapes and two cameras: a perspective one at the front, an orthographic
+/// one above, all in one Merge.
+fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::camera::{Camera, Projection};
+    crate::graph_io::clear(g);
+    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/set/cube".into() }, p(40.0, 20.0));
+    let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 0.5, segments: 32, location: "/set/sphere".into() }, p(260.0, 20.0));
+    let grid = g.add_node("Grid".into(), NodeType::CreateGrid { rows: 10, cols: 10, size: 6.0, location: "/set/ground".into() }, p(480.0, 20.0));
+    let place = |g: &mut NodeGraphState, id: NodeId, t: [f32; 3]| {
+        let move_it = g.add_node(format!("Place{}", id.0), NodeType::Transform { translation: Vec3::from(t), rotation: Vec3::ZERO, scale: Vec3::ONE }, p(0.0, 0.0));
+        g.add_connection(id, 0, move_it, 0);
+        move_it
+    };
+    let cube_at = place(g, cube, [-1.0, 0.5, 0.0]);
+    let sphere_at = place(g, sphere, [1.0, 0.5, 0.0]);
+    for (id, x) in [(cube_at, 40.0), (sphere_at, 260.0)] {
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) { n.position = p(x, 110.0); }
+    }
+    let front = g.add_node("Front".into(), NodeType::Camera { location: "/cameras/front".into(), translate: [0.0, 1.6, 5.5], rotate: [-12.0, 0.0, 0.0],
+        camera: Camera { focal_length: 35.0, horizontal_aperture: 36.0, vertical_aperture: 24.0, ..Default::default() } }, p(700.0, 20.0));
+    // Orthographic: its gate, in tenths of a scene unit, is what it sees (8 m across).
+    let top = g.add_node("Top".into(), NodeType::Camera { location: "/cameras/top".into(), translate: [0.0, 10.0, 0.0], rotate: [-90.0, 0.0, 0.0],
+        camera: Camera { projection: Projection::Orthographic, horizontal_aperture: 80.0, vertical_aperture: 60.0, ..Default::default() } }, p(920.0, 20.0));
+    let merge = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Auto, inputs: 5 }, p(480.0, 220.0));
+    for (k, src) in [cube_at, sphere_at, grid, front, top].into_iter().enumerate() { g.add_connection(src, 0, merge, k); }
+    finish(g, merge, front);
+    "Cameras: Front, a 35 mm lens on a full-frame gate, and Top, orthographic, 8 m across. Choose one in the Viewer's camera menu (🎥 Perspective) or press Look through on the operator; navigating leaves it.".into()
 }
 
 /// Martino's material bindings graph: shapes at Primitive Locations under
@@ -847,7 +878,7 @@ fn human_limits(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 /// One Load USD node on a stage example, viewed and selected.
 fn stage(g: &mut NodeGraphState, name: &str, file: &str) -> NodeId {
     crate::graph_io::clear(g);
-    let load = g.add_node(name.into(), NodeType::LoadUsd { path: examples::path(file) }, p(180.0, 20.0));
+    let load = g.add_node(name.into(), NodeType::load_usd(examples::path(file)), p(180.0, 20.0));
     finish(g, load, load);
     load
 }
@@ -866,7 +897,7 @@ fn strands(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 
 fn forest(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
-    let load = g.add_node("Forest".into(), NodeType::LoadUsd { path: examples::path(crate::examples_stage::FOREST) }, p(180.0, 20.0));
+    let load = g.add_node("Forest".into(), NodeType::load_usd(examples::path(crate::examples_stage::FOREST)), p(180.0, 20.0));
     let turn = g.add_node("Turn".into(), transform([0.0; 3], [0.0, 0.35, 0.0], [1.0; 3]), p(180.0, 130.0));
     g.add_connection(load, 0, turn, 0);
     finish(g, turn, load);
@@ -1127,7 +1158,8 @@ mod tests {
                 // The blank mocap template has no folder yet.
                 if t.name == "Mocap split" { break; }
                 // A material is not geometry: Material Binding puts it on some.
-                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. }) { continue; }
+                // Nor is a camera: a primitive with no geometry.
+                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::Camera { .. }) { continue; }
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1)).map(|o| g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
                     .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0)).max().unwrap_or(0);

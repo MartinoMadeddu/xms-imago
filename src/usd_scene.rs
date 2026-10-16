@@ -59,12 +59,18 @@ pub struct UsdInstancer {
 
 #[derive(Clone, Debug, Default)]
 pub struct UsdCamera {
-    pub path:         String,
-    pub projection:   String,
-    pub focal_length: f32,
-    pub aperture:     [f32; 2],
-    pub clip:         [f32; 2],
-    pub position:     [f32; 3],
+    pub path:    String,
+    pub camera:  crate::core::camera::Camera,
+    /// Its world placement (root correction included).
+    pub place:   crate::types::Placement,
+    pub purpose: crate::types::Purpose,
+}
+
+impl UsdCamera {
+    /// Where it is, in the Viewer's space.
+    pub fn position(&self) -> [f32; 3] {
+        self.place.matrices().first().map(|m| m.w_axis.truncate().to_array()).unwrap_or([0.0; 3])
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -130,6 +136,80 @@ pub struct StageTree {
     /// Where each path is in `nodes`. Empty in trees made by hand (tests),
     /// where `node` looks through the list instead.
     pub index:           std::collections::HashMap<String, usize>,
+    /// Brought in by a reference or a payload (Load USD's mode): one prim of
+    /// the file at a Primitive Location, its paths rebased there. `None`:
+    /// sublayered, at the file's own paths.
+    pub arc:             Option<StageArc>,
+}
+
+/// How Load USD brings its file in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum LoadMode {
+    /// The whole stage, at its own paths: Write USD sublayers the file.
+    #[default]
+    Sublayer,
+    /// One prim of the file (its default prim) at a Primitive Location:
+    /// Write USD writes `references` on that prim.
+    Reference,
+    /// As Reference, written as `payload`: loaded on demand elsewhere,
+    /// always loaded in Imago.
+    Payload,
+}
+
+/// A stage brought in by a reference or a payload: the file's prim `prim`,
+/// and everything below it, at `at`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StageArc {
+    pub payload: bool,
+    /// Its path in the file (`/Asset`).
+    pub prim:    String,
+    /// Where it is in the scene (`/root`).
+    pub at:      String,
+}
+
+impl StageArc {
+    /// A path of the file where the arc puts it: `None` for what is not at
+    /// or below its prim, which the arc leaves out.
+    pub fn place(&self, path: &str) -> Option<String> {
+        if path == self.prim { return Some(self.at.clone()); }
+        let rest = path.strip_prefix(&self.prim).filter(|r| r.starts_with('/'))?;
+        Some(format!("{}{rest}", self.at))
+    }
+}
+
+/// The root prim a reference to the file brings in: the one `named` (any
+/// prim of the file, by path) if it has it, else its `defaultPrim`, else its
+/// first root prim, as Imago has no other way to choose. `None` for a file
+/// with no prims.
+pub fn referenced_prim(scene: &UsdScene, named: &str) -> Option<String> {
+    let tree = &scene.tree;
+    let named = crate::types::prim_location(named, "");
+    if !named.is_empty() && tree.node(&named).is_some() { return Some(named); }
+    let default = scene.default_prim.as_deref().map(|n| format!("/{}", n.trim_start_matches('/')));
+    if let Some(d) = default.filter(|d| tree.node(d).is_some()) { return Some(d); }
+    tree.nodes.iter().find(|n| n.depth == 1).map(|n| n.path.clone())
+}
+
+/// The stage as a reference or a payload brings it in: its prim and what is
+/// below it, at the arc's location, the rest left out. The prims above the
+/// location are Xforms, made by Imago.
+pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
+    let from = arc.prim.split('/').filter(|s| !s.is_empty()).count();
+    let at: Vec<&str> = arc.at.split('/').filter(|s| !s.is_empty()).collect();
+    let mut nodes: Vec<StageNode> = (1..at.len()).map(|k| StageNode {
+        path: format!("/{}", at[..k].join("/")), name: at[k - 1].to_string(), type_name: "Xform".into(), depth: k,
+        ..Default::default()
+    }).collect();
+    for n in &tree.nodes {
+        let Some(path) = arc.place(&n.path) else { continue };
+        let name = path.rsplit('/').next().unwrap_or("").to_string();
+        nodes.push(StageNode { path, name, depth: at.len() + n.depth - from, ..n.clone() });
+    }
+    let index = nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
+    StageTree {
+        nodes, index, arc: Some(arc.clone()), opinions: Default::default(),
+        root: tree.root, source: tree.source.clone(), up_axis: tree.up_axis.clone(), meters_per_unit: tree.meters_per_unit,
+    }
 }
 
 impl StageTree {
@@ -171,6 +251,8 @@ pub struct UsdScene {
     pub lights:          Vec<(String, String)>,
     pub up_axis:         String,
     pub meters_per_unit: Option<f64>,
+    /// The `defaultPrim` the file names, if it names one.
+    pub default_prim:    Option<String>,
     /// Start, end and time codes per second, when authored.
     pub time:            Option<(f64, f64, f64)>,
     /// How many prims of each type the layer holds.
@@ -452,6 +534,7 @@ fn read_scene(data: Layer) -> UsdScene {
     let mut scene = UsdScene::default();
     scene.up_axis = r.field("/", "upAxis").and_then(|v| token(&v)).unwrap_or_else(|| "Y".into());
     scene.meters_per_unit = r.field("/", "metersPerUnit").and_then(|v| floats(&v)).and_then(|v| v.first().copied());
+    scene.default_prim = r.field("/", "defaultPrim").and_then(|v| token(&v)).filter(|s| !s.is_empty());
     let number = |r: &mut Reader, name: &str| r.field("/", name).and_then(|v| floats(&v)).and_then(|v| v.first().copied());
     if let (Some(start), Some(end)) = (number(&mut r, "startTimeCode"), number(&mut r, "endTimeCode")) {
         scene.time = Some((start, end, number(&mut r, "timeCodesPerSecond").unwrap_or(24.0)));
@@ -488,14 +571,19 @@ fn read_scene(data: Layer) -> UsdScene {
                 "Camera" => {
                     let one = |r: &mut Reader, n: &str, d: f32| r.attr(&prim, n).and_then(|v| floats(&v)).and_then(|v| v.first().copied()).map(|v| v as f32).unwrap_or(d);
                     let clip = r.attr(&prim, "clippingRange").and_then(|v| floats(&v)).filter(|v| v.len() >= 2).map(|v| [v[0] as f32, v[1] as f32]).unwrap_or([1.0, 1.0e6]);
-                    scene.cameras.push(UsdCamera {
-                        path: prim.clone(),
-                        projection: r.attr(&prim, "projection").and_then(|v| token(&v)).unwrap_or_else(|| "perspective".into()),
+                    let ortho = r.attr(&prim, "projection").and_then(|v| token(&v)).is_some_and(|p| p == "orthographic");
+                    let camera = crate::core::camera::Camera {
+                        projection: if ortho { crate::core::camera::Projection::Orthographic } else { crate::core::camera::Projection::Perspective },
                         focal_length: one(&mut r, "focalLength", 50.0),
-                        aperture: [one(&mut r, "horizontalAperture", 20.955), one(&mut r, "verticalAperture", 15.2908)],
-                        clip,
-                        position: world.transform_point3(Vec3::ZERO).to_array(),
-                    });
+                        horizontal_aperture: one(&mut r, "horizontalAperture", 20.955),
+                        vertical_aperture: one(&mut r, "verticalAperture", 15.2908),
+                        horizontal_aperture_offset: one(&mut r, "horizontalApertureOffset", 0.0),
+                        vertical_aperture_offset: one(&mut r, "verticalApertureOffset", 0.0),
+                        clipping_range: clip,
+                        f_stop: one(&mut r, "fStop", 0.0),
+                        focus_distance: one(&mut r, "focusDistance", 0.0),
+                    };
+                    scene.cameras.push(UsdCamera { path: prim.clone(), camera, place: crate::types::Placement::One(world), purpose: Default::default() });
                 }
                 "Material" => {
                     let (m, shaders) = read_material(&mut r, &prim);
@@ -791,7 +879,7 @@ def Xform "world" {
             assert_eq!([p[0], p[1]], *uv);
         }
         assert_eq!(scene.cameras.len(), 1);
-        assert_eq!((scene.cameras[0].focal_length, scene.cameras[0].position), (35.0, [0.0, 1.0, 8.0]));
+        assert_eq!((scene.cameras[0].camera.focal_length, scene.cameras[0].position()), (35.0, [0.0, 1.0, 8.0]));
         assert_eq!(scene.materials.len(), 1);
         assert_eq!(scene.materials[0].roughness, Some(0.4));
         assert_eq!(scene.materials[0].textures, vec![("diffuseColor".to_string(), "textures/red.png".to_string())]);
@@ -932,6 +1020,39 @@ def Xform "groom" {
 
     /// What a file authors beyond geometry is read for listing: kind,
     /// instanceable, purpose where authored, single-valued attributes.
+    /// A reference brings in the default prim (or the one named) and what
+    /// is below it, at the Primitive Location, with Xforms above it.
+    #[test]
+    fn a_reference_rebases_the_default_prim() {
+        let path = write("two_roots.usda", r#"#usda 1.0
+(
+    defaultPrim = "asset"
+)
+def Xform "other" {
+}
+def Xform "asset" {
+    def Xform "geo" {
+        def Mesh "body" {
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        }
+    }
+}
+"#);
+        let scene = load(&path).unwrap();
+        assert_eq!(scene.default_prim.as_deref(), Some("asset"));
+        assert_eq!(referenced_prim(&scene, "").as_deref(), Some("/asset"));
+        assert_eq!(referenced_prim(&scene, "other").as_deref(), Some("/other"), "a prim named by the node");
+        assert_eq!(referenced_prim(&scene, "/missing").as_deref(), Some("/asset"));
+        let arc = StageArc { payload: false, prim: "/asset".into(), at: "/shot/root".into() };
+        let tree = rebased(&scene.tree, &arc);
+        let listed: Vec<(&str, usize)> = tree.nodes.iter().map(|n| (n.path.as_str(), n.depth)).collect();
+        assert_eq!(listed, vec![("/shot", 1), ("/shot/root", 2), ("/shot/root/geo", 3), ("/shot/root/geo/body", 4)]);
+        assert_eq!(tree.node("/shot/root/geo/body").map(|n| n.type_name.as_str()), Some("Mesh"));
+        assert_eq!(arc.place("/other"), None, "what the reference leaves out");
+    }
+
     #[test]
     fn what_the_file_authors_is_read() {
         use crate::core::props::{purpose_from, PurposeFrom, Value};

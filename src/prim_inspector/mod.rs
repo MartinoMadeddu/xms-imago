@@ -41,7 +41,7 @@ pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
             };
             let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
             // A material has no geometry: its inputs are in the Properties tab.
-            prims.iter().filter(|x| x.shading.is_none() && wanted(x)).filter_map(|p| {
+            prims.iter().filter(|x| x.shading.is_none() && x.camera.is_none() && wanted(x)).filter_map(|p| {
                 if !instanced(p) { return Some(part(p, true)); }
                 seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then(|| part(p, false))
             }).collect()
@@ -157,6 +157,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
             (Some((n, _)), _) => n.type_name.clone(),
             (None, Some(p)) => match p.geo.as_ref().map(|g| &g.topology) {
                 _ if p.shading.is_some() => "Material".into(),
+                _ if p.camera.is_some() => "Camera".into(),
                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                 _ => "Mesh".into(),
@@ -219,6 +220,10 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                 } else if instanced(p) {
                     row("copies", copies(p, prims).to_string(), made_here());
                 }
+                // A camera: its lens and gate, where it came from.
+                if let Some(c) = &p.camera {
+                    for (name, value) in c.properties() { row(&name, value, made_here()); }
+                }
                 let bound = p.material.clone().unwrap_or_else(|| "none".into());
                 let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
                 let from = match bound_by(graph, view, path).filter(|_| p.material.is_some()) {
@@ -226,7 +231,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                     None if rebound => ("Imago".into(), None),
                     None => made_here(),
                 };
-                row("material:binding", bound, from);
+                if p.camera.is_none() { row("material:binding", bound, from); }
             }
             // A group: its purpose as its file authors it or Set Attribute set it
             // (listed below), else what it inherits from a group above.
@@ -313,7 +318,7 @@ fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &s
 /// whose file gives a stage from the same layer, else the nearest one.
 fn load_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, tree: &crate::usd_scene::StageTree) -> Option<NodeId> {
     use crate::types::NodeType;
-    let reads = |n: &crate::node_graph::GraphNode| matches!(&n.node_type, NodeType::LoadUsd { path }
+    let reads = |n: &crate::node_graph::GraphNode| matches!(&n.node_type, NodeType::LoadUsd { path, .. }
         if crate::usd_scene::load_cached(path).is_ok_and(|s| s.tree.source == tree.source));
     upstream(graph, view, reads)
         .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))
@@ -328,6 +333,7 @@ fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str)
         NodeType::CreateCube { location, .. } => Some(prim_location(location, "/cube")),
         NodeType::CreateSphere { location, .. } => Some(prim_location(location, "/sphere")),
         NodeType::CreateGrid { location, .. } => Some(prim_location(location, "/grid")),
+        NodeType::Camera { location, .. } => Some(prim_location(location, "/camera")),
         _ => None,
     };
     upstream(graph, view, |n| at(n).is_some_and(|p| p == path || p.starts_with(&format!("{path}/")))).map(|n| n.id)

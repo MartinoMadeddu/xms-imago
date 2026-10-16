@@ -39,6 +39,7 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
     let mut scene = UsdScene {
         up_axis: if info.z_up { "Z".into() } else { "Y".into() },
         meters_per_unit: info.meters_per_unit,
+        default_prim: info.default_prim.clone(),
         // The scene layer does not carry timeCodesPerSecond yet.
         time: info.time_range.map(|(start, end)| (start, end, 24.0)),
         ..Default::default()
@@ -64,6 +65,7 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
         up_axis: scene.up_axis.clone(), meters_per_unit: scene.meters_per_unit,
         opinions: Default::default(),
         index: nodes_index,
+        arc: None,
     });
     scene.notes = counts.notes();
     // The translator's own notes, minus timings and empty reports.
@@ -180,12 +182,20 @@ impl Walk<'_> {
                 }
             }
             rs::PrimKind::Camera(c) if !under_instance => self.scene.cameras.push(UsdCamera {
-                path:         shown.clone(),
-                projection:   if c.projection_orthographic { "orthographic".into() } else { "perspective".into() },
-                focal_length: c.focal_length.at(t).unwrap_or(50.0) as f32,
-                aperture:     [c.horizontal_aperture as f32, c.vertical_aperture as f32],
-                clip:         [c.clipping_range[0] as f32, c.clipping_range[1] as f32],
-                position:     world.transform_point3(DVec3::ZERO).as_vec3().to_array(),
+                path:    shown.clone(),
+                camera:  crate::core::camera::Camera {
+                    projection: if c.projection_orthographic { crate::core::camera::Projection::Orthographic } else { crate::core::camera::Projection::Perspective },
+                    focal_length: c.focal_length.at(t).unwrap_or(50.0) as f32,
+                    horizontal_aperture: c.horizontal_aperture as f32,
+                    vertical_aperture: c.vertical_aperture as f32,
+                    horizontal_aperture_offset: c.horizontal_aperture_offset as f32,
+                    vertical_aperture_offset: c.vertical_aperture_offset as f32,
+                    clipping_range: [c.clipping_range[0] as f32, c.clipping_range[1] as f32],
+                    f_stop: c.f_stop.at(t).unwrap_or(0.0) as f32,
+                    focus_distance: c.focus_distance.at(t).unwrap_or(0.0) as f32,
+                },
+                place:   Placement::One(world.as_mat4()),
+                purpose,
             }),
             rs::PrimKind::Light(_) if !under_instance => self.scene.lights.push((shown.clone(), type_name.clone())),
             rs::PrimKind::Instancer(i) => {

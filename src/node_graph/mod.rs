@@ -246,6 +246,7 @@ impl NodeGraphState {
             | NodeType::SetAttribute { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Material { .. }       => (vec![], vec![o("Material")]),
+            NodeType::Camera { .. }         => (vec![], vec![o("Scene")]),
             NodeType::MaterialBinding { inputs, .. } => (
                 std::iter::once(i("Scene")).chain((1..=(*inputs).max(1)).map(|k| InputSocket { name: format!("Material {k}"), connected_output: None })).collect(),
                 vec![o("Scene")],
@@ -651,7 +652,7 @@ impl NodeGraphState {
         (node.bypassed, output).hash(&mut h);
         node.locations.hash(&mut h);
         match &node.node_type {
-            NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } | NodeType::LoadUsd { path } => file_stamp(path).hash(&mut h),
+            NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } | NodeType::LoadUsd { path, .. } => file_stamp(path).hash(&mut h),
             NodeType::LoadFbxDir { dir, index, .. } => {
                 let file = crate::fbx_loader::list_fbx(dir).get(*index as usize).cloned();
                 file.as_ref().and_then(|f| file_stamp(&f.to_string_lossy())).hash(&mut h);

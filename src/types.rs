@@ -48,7 +48,24 @@ pub enum NodeType {
     CreateCube   { size: f32, #[serde(default = "cube_location")] location: String },
     CreateSphere { radius: f32, segments: u32, #[serde(default = "sphere_location")] location: String },
     CreateGrid   { rows: u32, cols: u32, size: f32, #[serde(default = "grid_location")] location: String },
-    LoadUsd      { path: String },
+    /// A camera at its Primitive Location (`/camera` by default), placed by
+    /// `translate` and `rotate` (degrees, X then Y then Z), looking down its
+    /// -Z. Its lens, gate and clipping as USD has them. See `core::camera`.
+    Camera {
+        #[serde(default = "camera_location")] location: String,
+        #[serde(default)] translate: [f32; 3],
+        #[serde(default)] rotate: [f32; 3],
+        #[serde(default)] camera: crate::core::camera::Camera,
+    },
+    /// A USD file. `mode`: sublayered at its own paths, or one prim of it
+    /// (`prim`, else its default prim) referenced or payloaded at `location`
+    /// (`/root` by default). Graphs saved before the modes sublayer.
+    LoadUsd      {
+        path: String,
+        #[serde(default)] mode: crate::usd_scene::LoadMode,
+        #[serde(default = "reference_location")] location: String,
+        #[serde(default)] prim: String,
+    },
     /// Write what the network changed in its stages as a USD override layer.
     WriteUsd     { path: String },
     /// Mark packed primitives whose path matches a pattern as picked.
@@ -271,10 +288,12 @@ pub fn prim_location(text: &str, fallback: &str) -> String {
 
 pub fn cube_location()   -> String { "/cube".into() }
 pub fn material_library() -> String { "/materials".into() }
+pub fn reference_location() -> String { "/root".into() }
 fn one_input() -> u32 { 1 }
 fn two_inputs() -> u32 { 2 }
 pub fn sphere_location() -> String { "/sphere".into() }
 pub fn grid_location()   -> String { "/grid".into() }
+pub fn camera_location() -> String { "/camera".into() }
 
 impl NodeType {
     /// A cube at its default Primitive Location.
@@ -284,6 +303,17 @@ impl NodeType {
     /// A grid at its default Primitive Location.
     pub fn grid(rows: u32, cols: u32, size: f32) -> Self { NodeType::CreateGrid { rows, cols, size, location: grid_location() } }
     /// A Merge that goes by its first input.
+    /// A camera at its default Primitive Location, back from the origin and
+    /// looking a little down at it.
+    pub fn camera() -> Self {
+        NodeType::Camera { location: camera_location(), translate: [0.0, 1.5, 6.0], rotate: [-12.0, 0.0, 0.0], camera: Default::default() }
+    }
+
+    /// Load USD on a file, sublayered.
+    pub fn load_usd(path: String) -> Self {
+        NodeType::LoadUsd { path, mode: Default::default(), location: reference_location(), prim: String::new() }
+    }
+
     pub fn merge() -> Self { NodeType::Merge { mode: MergeMode::Auto, inputs: 2 } }
 
     /// Nodes that create animation data with no input.
@@ -312,6 +342,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::CreateCube { .. }    => "◼",
         NodeType::CreateSphere { .. }  => "⚪",
         NodeType::CreateGrid { .. }    => "⊞",
+        NodeType::Camera { .. }        => "🎥",
         NodeType::LoadUsd { .. }       => "📂",
         NodeType::WriteUsd { .. }      => "📤",
         NodeType::PickPrims { .. }     => "👆",
@@ -366,6 +397,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::CreateCube { .. }    => "Cube",
         NodeType::CreateSphere { .. }  => "Sphere",
         NodeType::CreateGrid { .. }    => "Grid",
+        NodeType::Camera { .. }        => "Camera",
         NodeType::LoadUsd { .. }       => "Load USD",
         NodeType::WriteUsd { .. }      => "Write USD",
         NodeType::PickPrims { .. }     => "Pick Primitives",
@@ -787,6 +819,9 @@ pub struct Prim {
     /// A material Material Binding put in the scene: this prim is it (a USD
     /// `Material`), with no geometry. `None` for the rest.
     pub shading: Option<std::sync::Arc<crate::core::material::Material>>,
+    /// A camera: this prim is one (a USD `Camera`), with no geometry; where
+    /// it is and looks is its placement. `None` for the rest.
+    pub camera: Option<std::sync::Arc<crate::core::camera::Camera>>,
 }
 
 /// Which instancer a prototype mesh is drawn by, and what its placements
@@ -901,7 +936,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -1065,7 +1100,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone() });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone(), camera: p.camera.clone() });
                     }
                 }
                 EvalResult::Named(out)
@@ -1652,7 +1687,7 @@ impl SceneHierarchy {
                         self.objects.push(SceneObject {
                             id,
                             name:         leaf_name.clone(),
-                            icon:         if prim.shading.is_some() { "🎨" } else { prim_icon(&leaf_name, false) },
+                            icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" } else { prim_icon(&leaf_name, false) },
                             depth:        leaf_depth,
                             has_children: false,
                             expanded:     true,
@@ -1662,6 +1697,7 @@ impl SceneHierarchy {
                             type_name:    match prim.geo.as_ref().map(|g| &g.topology) {
                                 _ if prim.instancing.is_some() => "PointInstancer".into(),
                                 _ if prim.shading.is_some() => "Material".into(),
+                                _ if prim.camera.is_some() => "Camera".into(),
                                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                                 _ => "Mesh".into(),

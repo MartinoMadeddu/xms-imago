@@ -76,6 +76,7 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
     let z_up = stage.stage_metadata("upAxis").ok().flatten().and_then(|v| tok(&v)).is_some_and(|a| a.eq_ignore_ascii_case("Z"));
     let meters_per_unit = stage.stage_metadata("metersPerUnit").ok().flatten().and_then(scalar);
+    let default_prim = stage.stage_metadata("defaultPrim").ok().flatten().and_then(|v| tok(&v)).filter(|s| !s.is_empty());
     let time_range = stage.has_authored_time_code_range().then(|| (stage.start_time_code(), stage.end_time_code()));
     let time = opts.time.or(time_range.map(|r| r.0));
     let t = time.unwrap_or(0.0);
@@ -99,7 +100,7 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         curve_primvars: opts.curve_primvars.clone(),
         profile: std::cell::RefCell::new(Profile::default()),
     };
-    tr.scene.info = rs::StageInfo { z_up, meters_per_unit, time_range, source: Some(path_str.to_string()) };
+    tr.scene.info = rs::StageInfo { z_up, meters_per_unit, time_range, source: Some(path_str.to_string()), default_prim };
     tr.scene.set_time(rs::SceneTime { time: t, shutter_open: opts.shutter.0, shutter_close: opts.shutter.1 });
     let roots = stage.root_prims().map_err(|e| format!("Can't list root prims: {e}"))?;
     // Root prims come back as names

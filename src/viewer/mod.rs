@@ -69,12 +69,19 @@ pub struct Viewer {
     /// What the scene was last built for.
     built:      Option<(u64, u64, u64, u64, u64)>,
     generation: u64,
+    /// The scene camera looked through last frame.
+    looked:     Option<String>,
+    /// The Viewer's own camera from before it looked through one: back to
+    /// it when Perspective is chosen again.
+    saved:      Option<camera::Camera>,
 }
 
 impl Viewer {
     pub fn show(&mut self, ui: &mut egui::Ui, input: ViewerInput) {
         let rect = ui.max_rect();
         ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let aspect = rect.width() / rect.height().max(1.0);
+        self.follow_look_through();
         self.navigate(ui.ctx(), rect, &input.nav, input.playback);
         self.frame_keys(ui.ctx(), rect, &input);
 
@@ -84,7 +91,8 @@ impl Viewer {
             input.playback.time.to_bits(),
             crate::theme::revision() ^ crate::viewport::textures::generation().rotate_left(32),
             input.hierarchy.display_revision,
-            crate::viewport::display::mode() as u64,
+            // The camera looked through is not drawn.
+            crate::viewport::display::mode() as u64 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
         );
         if self.built != Some(key) {
             self.built = Some(key);
@@ -95,32 +103,71 @@ impl Viewer {
             self.scene = Arc::new(scene::build(&inputs, &mut self.cache, self.generation));
         }
 
+        // Through a camera of the scene, or the Viewer's own.
+        let looking = self.looking();
+        let (view_proj, eye) = match &looking {
+            Some((_, world, cam)) => (cam.view_proj(*world, aspect), world.w_axis.truncate()),
+            None => (self.camera.view_proj(aspect), self.camera.eye),
+        };
+
         // Edit Poly: picking, manipulators, and the lines they draw.
-        let aspect = rect.width() / rect.height().max(1.0);
         let view = crate::core::poly::PickView {
-            view_proj: self.camera.view_proj(aspect),
+            view_proj,
             size:      glam::Vec2::new(rect.width(), rect.height()),
-            eye:       self.camera.eye,
+            eye,
         };
         let overlay = edit::run(ui.ctx(), rect, &view, input.graph, input.subnets, &input.nav, input.tool, &mut self.edit_drag);
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
         let frame = gpu::Frame {
-            view_proj: self.camera.view_proj(rect.width() / rect.height().max(1.0)),
-            eye:       self.camera.eye,
+            view_proj,
+            eye,
             size,
             clear:     scene::linear(crate::theme::viewport_bg()),
             scene:     self.scene.clone(),
             overlay,
         };
         ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(rect, gpu::ViewerPaint(frame)));
-        self.origin_label(ui, rect);
+        self.origin_label(ui, rect, view_proj);
+        if let Some((path, _, cam)) = &looking { gate(ui, rect, &path, cam); }
+    }
+
+    /// The camera of the scene looked through, as the scene has it now.
+    fn looking(&self) -> Option<(String, glam::Mat4, crate::core::camera::Camera)> {
+        let path = camera::looking_through()?;
+        self.scene.cameras.iter().find(|c| c.0 == path).cloned()
+    }
+
+    /// Choosing a camera keeps the Viewer's own; choosing Perspective again
+    /// gives it back as it was.
+    fn follow_look_through(&mut self) {
+        let now = camera::looking_through();
+        if now == self.looked { return; }
+        match (&self.looked, &now) {
+            (None, Some(_)) => self.saved = Some(self.camera),
+            (Some(_), None) => if let Some(c) = self.saved.take() { self.camera = c; },
+            _ => {}
+        }
+        self.looked = now;
+    }
+
+    /// Navigating or framing leaves the camera looked through: the Viewer's
+    /// own takes its place, where it was, its field of view and its focus
+    /// distance (or five metres) to turn about.
+    fn leave_camera(&mut self, aspect: f32) {
+        let Some((_, world, cam)) = self.looking() else { return };
+        let (at, forward, _, unit) = crate::core::camera::frame(world);
+        let dist = if cam.focus_distance > 0.0 { cam.focus_distance * unit } else { 5.0 };
+        self.camera = camera::Camera { eye: at, target: at + forward * dist, fov: cam.fov(aspect) };
+        camera::look_through(None);
+        self.looked = None;
+        self.saved = None;
     }
 
     /// "0,0,0" at the origin, while it is inside the Viewer.
-    fn origin_label(&self, ui: &egui::Ui, rect: egui::Rect) {
-        let p = self.camera.view_proj(rect.width() / rect.height().max(1.0)) * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
+    fn origin_label(&self, ui: &egui::Ui, rect: egui::Rect, view_proj: glam::Mat4) {
+        let p = view_proj * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
         if p.w <= 0.0 { return; }
         let at = egui::pos2(rect.min.x + (p.x / p.w * 0.5 + 0.5) * rect.width(), rect.min.y + (0.5 - p.y / p.w * 0.5) * rect.height());
         if !rect.shrink(12.0).contains(at) { return; }
@@ -186,6 +233,7 @@ impl Viewer {
             target = camera::bounds_of(points.into_iter());
         }
         let Some((centre, radius)) = target else { return };
+        self.leave_camera(rect.width() / rect.height().max(1.0));
         let dir = self.camera.eye - self.camera.target;
         self.camera.eye = camera::frame_position(centre, radius, dir, self.camera.fov, rect.width() / rect.height().max(1.0));
         self.camera.target = centre;
@@ -220,6 +268,7 @@ impl Viewer {
         // A jump this size is the cursor being placed, not dragged.
         if d.length() > 400.0 { d = Vec2::ZERO; }
         let action = if self.drag.active { nav.style.action(h) } else { None };
+        if action.is_some() || (wheel != 0.0 && over) { self.leave_camera(rect.width() / rect.height().max(1.0)); }
         match action {
             Some(NavAction::Orbit) => self.camera.orbit(d),
             Some(NavAction::Pan) => self.camera.pan(d, nav.style.pan_sign()),
@@ -230,6 +279,34 @@ impl Viewer {
         if wheel != 0.0 && over { self.camera.zoom(wheel / 50.0 * 0.12); }
         if action.is_some() { ctx.request_repaint(); }
     }
+}
+
+fn hash_of(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish()
+}
+
+/// Looking through a camera: what is outside its gate darkened, the gate's
+/// edge, and the camera's name at the top, in the middle.
+fn gate(ui: &egui::Ui, rect: egui::Rect, path: &str, cam: &crate::core::camera::Camera) {
+    let (w, h) = cam.gate_in_view(rect.width() / rect.height().max(1.0));
+    let g = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width() * w, rect.height() * h));
+    let painter = ui.painter_at(rect);
+    let shade = egui::Color32::from_black_alpha(120);
+    if g.left() > rect.left() + 0.5 {
+        painter.rect_filled(egui::Rect::from_min_max(rect.min, egui::pos2(g.left(), rect.bottom())), 0.0, shade);
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(g.right(), rect.top()), rect.max), 0.0, shade);
+    }
+    if g.top() > rect.top() + 0.5 {
+        painter.rect_filled(egui::Rect::from_min_max(rect.min, egui::pos2(rect.right(), g.top())), 0.0, shade);
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), g.bottom()), rect.max), 0.0, shade);
+    }
+    painter.rect_stroke(g.shrink(0.5), 0.0, egui::Stroke::new(1.0, egui::Color32::from_gray(190)), egui::StrokeKind::Inside);
+    let name = path.rsplit('/').next().unwrap_or(path);
+    painter.text(g.center_top() + egui::vec2(0.0, 10.0), egui::Align2::CENTER_TOP, format!("🎥 {name}"),
+        egui::FontId::proportional(15.0), egui::Color32::from_gray(230));
 }
 
 /// The wheel this frame, in points as egui counted them before 0.33 (50 a

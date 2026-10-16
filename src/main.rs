@@ -98,7 +98,7 @@ pub(crate) fn draw_ui(
             BrowseTarget::Node(id) => {
                 if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) {
                     match &mut node.node_type {
-                        NodeType::LoadUsd { path } | NodeType::WriteUsd { path } | NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } => *path = text,
+                        NodeType::LoadUsd { path, .. } | NodeType::WriteUsd { path } | NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } => *path = text,
                         NodeType::LoadFbxDir { dir, index, .. } => { *dir = text; *index = 0; }
                         // A folder was picked: keep the file name pattern.
                         NodeType::WriteFbx { path, .. } => {
@@ -142,7 +142,7 @@ pub(crate) fn draw_ui(
             }
             BrowseTarget::ImportUsd => {
                 let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Load USD".into());
-                import_node(&mut *graph, name, NodeType::LoadUsd { path: text });
+                import_node(&mut *graph, name, NodeType::load_usd(text));
                 graph_file.message = format!("Imported {}", path.display());
             }
         }
@@ -411,6 +411,26 @@ pub(crate) fn draw_ui(
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
                         }).response.on_hover_text("How meshes are drawn");
+                        // Through a camera of the scene, or the Viewer's own.
+                        let looking = viewer::camera::looking_through();
+                        let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());
+                        crate::menus::menu(ui, format!("🎥 {name} ⏷"), |ui| {
+                            if ui.radio(looking.is_none(), "Perspective").clicked() { viewer::camera::look_through(None); ui.close(); }
+                            // The scene's cameras, looked for only while the menu is open.
+                            let subnets_ref = &*subnets;
+                            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                                subnets_ref.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                            };
+                            let cameras: Vec<String> = match graph.evaluate_for_viewport_packed(&eval) {
+                                Some(types::EvalResult::Named(prims)) => prims.iter().filter(|p| p.camera.is_some()).map(|p| p.path.clone()).collect(),
+                                _ => vec![],
+                            };
+                            ui.separator();
+                            if cameras.is_empty() { ui.weak("No cameras in the scene"); }
+                            for c in cameras {
+                                if ui.radio(looking.as_deref() == Some(c.as_str()), c.as_str()).clicked() { viewer::camera::look_through(Some(c)); ui.close(); }
+                            }
+                        }).response.on_hover_text("Look through a camera of the scene, or the Viewer's own (Perspective). Navigating leaves the camera, where it was");
                         let loading = viewport::textures::pending();
                         if loading > 0 {
                             ui.label(egui::RichText::new(format!("loading {loading}")).small());
