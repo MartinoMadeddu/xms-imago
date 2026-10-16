@@ -522,7 +522,7 @@ impl NodeGraphState {
                 }
                 // Primitives made outside a stage, with the Xforms Imago makes above them.
                 for p in prims.iter().filter(|p| p.stage.is_none()) {
-                    for path in crate::core::props::parents(&p.path).into_iter().chain([p.path.clone()]) {
+                    for path in crate::core::properties::parents(&p.path).into_iter().chain([p.path.clone()]) {
                         if seen.insert(path.clone()) { paths.push(path); }
                     }
                 }
@@ -737,7 +737,7 @@ impl NodeGraphState {
                 NodeType::PrunePrims { keep, .. } => Some(locations::prune(first, &node.locations, *keep)),
                 // Set Attribute names prims, groups and other prims without
                 // geometry among them: it reads the list itself.
-                NodeType::SetAttribute { rows } => Some(crate::core::props::set_attributes(first, rows, &node.locations)),
+                NodeType::SetAttribute { rows } => Some(crate::core::set_attribute::set_attributes(first, rows, &node.locations)),
                 t => {
                     let mut targeted = inputs.clone();
                     targeted[0] = locations::target(first, &node.locations);

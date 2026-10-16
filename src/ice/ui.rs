@@ -218,7 +218,9 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
 
     // ── Delete or Backspace: delete the selected node ────────────────────────
     // Pointer anywhere over the canvas, nodes included, as in the main network.
-    let ptr_in_canvas = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| canvas_rect.contains(p));
+    // Not with the pointer over a window above the graph (the file browser).
+    let ptr_in_canvas = ui.input(|i| i.pointer.hover_pos())
+        .is_some_and(|p| canvas_rect.contains(p) && ui.ctx().layer_id_at(p).is_none_or(|l| l == ui.layer_id()));
     if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input()
         && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
     {

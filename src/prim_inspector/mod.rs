@@ -71,7 +71,7 @@ pub fn copies(p: &Prim, scene: &[Prim]) -> usize {
 /// a group) among its Object attributes.
 fn part(p: &Prim, placed: bool) -> MeshData {
     let mut m = if placed { p.world().into_owned() } else { (*p.mesh).clone() };
-    for (name, value) in crate::core::props::inherited_primvars(p) {
+    for (name, value) in crate::core::properties::inherited_primvars(p) {
         if let Some(n) = value.numbers() {
             m.primvars.push(PrimVar { name, interp: PrimVarInterp::Constant, values: vec![n] });
         }
@@ -101,7 +101,7 @@ pub struct PropRow {
 /// `view`: the operator with the view flag, whose upstream operators are
 /// searched for the Set Attribute that set a value.
 pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId, scene: &EvalResult, paths: &[String]) -> Vec<PropRow> {
-    use crate::core::props::{self, Opinions, SetContext};
+    use crate::core::properties::{parents, purpose_from, purpose_of, Opinions, PurposeFrom, SetContext};
     let EvalResult::Named(prims) = scene else { return vec![] };
     let mut trees: Vec<&std::sync::Arc<crate::usd_scene::StageTree>> = vec![];
     for p in prims {
@@ -113,7 +113,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
     let made: Vec<String> = {
         let mut v: Vec<String> = vec![];
         for p in prims.iter().filter(|p| p.stage.is_none()) {
-            for a in props::parents(&p.path) { if !v.contains(&a) && node_of(&a).is_none() { v.push(a); } }
+            for a in parents(&p.path) { if !v.contains(&a) && node_of(&a).is_none() { v.push(a); } }
         }
         v
     };
@@ -121,7 +121,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
     let listed: Vec<String> = if !paths.is_empty() { paths.to_vec() } else {
         let mut roots: Vec<String> = trees.iter().flat_map(|t| t.nodes.iter().filter(|n| n.depth == 1).map(|n| n.path.clone())).collect();
         for p in prims {
-            let root = props::parents(&p.path).into_iter().next().unwrap_or_else(|| p.path.clone());
+            let root = parents(&p.path).into_iter().next().unwrap_or_else(|| p.path.clone());
             if !roots.contains(&root) { roots.push(root); }
         }
         roots
@@ -180,7 +180,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
             (None, None) => prims.iter().find_map(|p| p.above.get(path).cloned()).unwrap_or_default(),
         };
         // What the file authors on it.
-        let file_values: Vec<(String, crate::core::props::Value)> = node.map(|(n, _)| n.authored.clone()).unwrap_or_default();
+        let file_values: Vec<(String, crate::core::properties::Value)> = node.map(|(n, _)| n.authored.clone()).unwrap_or_default();
         // What the prims above it set, nearest winning.
         let mut inherited: std::collections::BTreeMap<String, (String, String)> = Default::default();
         let mut above: Vec<(String, Opinions)> = vec![];
@@ -203,15 +203,15 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                     crate::types::Purpose::Proxy => "proxy", crate::types::Purpose::Guide => "guide",
                 };
                 // Its own, or the nearest above it: authored in the file or set by Set Attribute.
-                let from = match props::purpose_from(p) {
-                    props::PurposeFrom::Set => setter(path, "purpose", SetContext::Property),
-                    props::PurposeFrom::File => ("file".into(), maker),
-                    props::PurposeFrom::Above(group, true) => (format!("inherited: {group}"),
+                let from = match purpose_from(p) {
+                    PurposeFrom::Set => setter(path, "purpose", SetContext::Property),
+                    PurposeFrom::File => ("file".into(), maker),
+                    PurposeFrom::Above(group, true) => (format!("inherited: {group}"),
                         set_by(graph, view, &group, "purpose", SetContext::Property).map(|(id, _)| id)),
-                    props::PurposeFrom::Above(group, false) => (format!("inherited: {group}"), maker),
-                    props::PurposeFrom::Unset => made_here(),
+                    PurposeFrom::Above(group, false) => (format!("inherited: {group}"), maker),
+                    PurposeFrom::Unset => made_here(),
                 };
-                row("purpose", purpose(props::purpose_of(p)).into(), from);
+                row("purpose", purpose(purpose_of(p)).into(), from);
                 // Instancing: a point instancer's instances and prototypes, a
                 // prototype's or a native instance's copies.
                 if let Some(protos) = &p.instancing {
@@ -287,7 +287,7 @@ fn upstream<'a>(graph: &'a crate::node_graph::NodeGraphState, view: NodeId, is: 
 /// The Set Attribute operator nearest upstream of `view` with a row setting
 /// `name` in this context on `path`: one with no Primitive Locations, or
 /// with one naming the path. Its id and name.
-pub fn set_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str, name: &str, context: crate::core::props::SetContext) -> Option<(NodeId, String)> {
+pub fn set_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str, name: &str, context: crate::core::properties::SetContext) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
     upstream(graph, view, |n| match &n.node_type {
         NodeType::SetAttribute { rows } => {
@@ -396,7 +396,8 @@ mod tests {
 
     #[test]
     fn properties_say_what_a_prim_has_and_where_from() {
-        use crate::core::props::{SetContext, SetRow, Value};
+        use crate::core::properties::{SetContext, Value};
+        use crate::core::set_attribute::SetRow;
         use crate::types::NodeType;
         let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
         let mut g = crate::node_graph::NodeGraphState::default();

@@ -417,7 +417,8 @@ fn usd_prune(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 }
 
 fn usd_set_attribute(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
-    use crate::core::props::{SetContext, SetRow, Value};
+    use crate::core::properties::{SetContext, Value};
+    use crate::core::set_attribute::SetRow;
     let load = load_delorean(g);
     // Every prim with Wheel in its name, at any depth: invisible.
     let hide = g.add_node("HideWheels".into(), NodeType::SetAttribute { rows: vec![

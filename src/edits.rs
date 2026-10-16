@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::core::geo::{Context, Geo};
-use crate::core::props::{Opinions, Value};
+use crate::core::properties::{Opinions, Value};
 use crate::types::{Prim, Placement, Purpose};
 use crate::usd_scene::StageTree;
 
