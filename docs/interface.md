@@ -161,7 +161,7 @@ A graph runs on each primitive coming in, in the primitive's own space, as an IC
 
 ## Parameters
 
-Every node's parameters are laid out the same way. The first group is the node's type and its name. Then its parameters, in titled groups. In every group a row is a label, right-aligned in a column of one width, and its value, which fills the rest: sliders, fields and lists line up down the pane. Clip nodes end with a Clip group: what comes In and what goes Out.
+Every node's parameters are laid out the same way. The first group is the node's type and its name. Then its parameters, in titled groups. In every group a row is a label, right-aligned in a column of one width, and its value, which fills the rest: sliders, fields and lists line up down the pane. Primitive Location fields have a grey of their own, in the code font. With **Dark fields** on (see [Colour editor](#colour-editor)), fields you type in (text, numbers, the X Y Z of a transform) are dark grey with light text, in every theme, Primitive Location fields a step lighter; buttons, drop-downs, checkboxes and sliders keep the theme's look. Clip nodes end with a Clip group: what comes In and what goes Out.
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 
@@ -247,6 +247,9 @@ The Theme menu in the top bar has three schemes. The choice is kept.
 | Accent | Selection, active flags, highlights |
 | Outline | Node borders, window edges |
 | Text weight | How heavy all text is drawn |
+| Dark fields | Fields you type in, in the Parameters pane, dark grey with light text. Off by default |
+
+Dark fields is a switch, not a colour: it stays as it is when you start from another preset or Reset. The environment variable `DARK_FIELD_BG` overrides it for a run: `DARK_FIELD_BG=1` turns it on, `DARK_FIELD_BG=0` off (the box is then greyed out, showing which). Unset, the box decides.
 
 Changes show at once and are saved as you edit, in `theme.json` in the config folder. "Start from" loads a preset, "Reset" undoes the edits to the current one. Colours that carry meaning (axes, wires, warnings) are the same in every scheme. The Viewer's background follows the scheme: mid grey in Light, dark grey in Dark and ADHD.
 
