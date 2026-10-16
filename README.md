@@ -54,6 +54,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Write it back:** Write USD saves what the scene graph changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
 - **Materials and textures in the Viewer**, straight from the `.usdz`
 - **Make and bind materials:** the Material operator is a UsdPreviewSurface (colour, metallic, roughness, opacity, emissive, clearcoat, a texture file per input), named by the operator. Material Binding takes any number of them, puts them under `/materials` and binds each to the prims its rows list; Write USD writes them
+- **MaterialX:** the MaterialX operator makes a material from a graph of MaterialX nodes (MaterialX 1.39's libraries: standard_surface, open_pbr_surface, UsdPreviewSurface, gltf_pbr, textures, procedurals, maths, every node by its MaterialX name). Connecting picks the nodes' types. Write USD writes it as a MaterialX shading network; the Viewer shows its surface shader's values and textures (see [MaterialX](docs/materialx.md))
 - **Cameras:** a file's cameras and those the Camera operator makes, with their lens and gate as USD has them, moved by Transform, written back by Write USD, and looked through from the Viewer's camera menu
 - **What is in the file:** materials, cameras, skeletons and lights are listed on the node, along with what is not read yet
 - **UVs from the file**, shown in a UV editor that draws a million edges

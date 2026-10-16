@@ -71,6 +71,15 @@ pub fn draw_properties_panel(
                     return;
                 }
             }
+            // A MaterialX graph open: the node selected in it.
+            if let Some(op) = nav.materialx {
+                let found = graph.nodes.iter_mut().find(|n| n.id == op)
+                    .and_then(|n| match &mut n.node_type { NodeType::MaterialX { graph } => Some((n.name.clone(), graph)), _ => None });
+                if let Some((name, g)) = found {
+                    crate::materialx::params::inner(ui, op, &name, g, io);
+                    return;
+                }
+            }
             draw_properties(ui, graph, scene, anim, io);
         });
 }
@@ -441,6 +450,7 @@ pub fn draw_properties(
         }),
         NodeType::SetAttribute { rows } => set_attribute_rows(ui, rows, located, prim_paths.len()),
         NodeType::Material { surface } => material_rows(ui, surface, &node.name, io, sel_id),
+        NodeType::MaterialX { graph } => crate::materialx::params::operator(ui, &node.name, graph),
         NodeType::MaterialBinding { library, inputs, .. } => {
             resync |= binding_rows(ui, library, inputs, &binding_ports, crate::core::locations::rows(&node.locations).count());
         }

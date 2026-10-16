@@ -1,0 +1,8 @@
+[package]
+name = "xms-matx"
+version.workspace = true
+edition.workspace = true
+description = "MaterialX for XMS | Imago: the MaterialX node libraries, read into typed node definitions"
+license = "Apache-2.0"
+
+[dependencies]

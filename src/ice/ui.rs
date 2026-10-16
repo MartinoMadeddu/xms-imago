@@ -534,14 +534,14 @@ fn draw_subnet_node(
 
 /// A port: a small dot in its type's colour on the node's edge, larger
 /// under the pointer.
-fn draw_port(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32, hot: bool, z: f32) {
+pub(crate) fn draw_port(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32, hot: bool, z: f32) {
     let r = (if hot { PORT_R + 1.5 } else { PORT_R }) * z.max(0.6);
     painter.circle_filled(at, r + 1.0, pal::PORT_RIM());
     painter.circle_filled(at, r, colour);
 }
 
 /// The collapse box: a small grey box with three lines in it.
-fn draw_fold_box(painter: &egui::Painter, r: egui::Rect) {
+pub(crate) fn draw_fold_box(painter: &egui::Painter, r: egui::Rect) {
     painter.rect_filled(r, 1.5, egui::Color32::from_rgb(200, 200, 200));
     painter.rect_stroke(r, 1.5, egui::Stroke::new(1.0_f32, pal::RIM()), egui::StrokeKind::Middle);
     for k in 1..=3 {
@@ -579,7 +579,7 @@ pub fn draw_wire_h(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, co
         if hovered { egui::Color32::WHITE } else { colour })));
 }
 
-fn is_near_bezier_h(p: egui::Pos2, from: egui::Pos2, to: egui::Pos2, thresh: f32) -> bool {
+pub(crate) fn is_near_bezier_h(p: egui::Pos2, from: egui::Pos2, to: egui::Pos2, thresh: f32) -> bool {
     let off = (to.x - from.x).abs().max(60.0) * 0.5;
     let c1  = egui::pos2(from.x + off, from.y);
     let c2  = egui::pos2(to.x   - off, to.y);

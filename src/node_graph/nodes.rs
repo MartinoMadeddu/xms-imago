@@ -56,6 +56,7 @@ pub fn evaluate_node_type(
         NodeType::UnpackPrims => inputs.first().map(|r| EvalResult::Single(r.as_mesh())),
         // Named by its operator when cooked in a graph (`NodeGraphState::cook`).
         NodeType::Material { surface } => Some(EvalResult::Material(Arc::new(crate::core::material::Material::new("Material", surface)))),
+        NodeType::MaterialX { graph } => Some(EvalResult::Material(Arc::new(crate::core::material::Material::from_graph("MaterialX", graph)))),
         // In a graph, cooked by input number (`NodeGraphState::cook`). Here,
         // without the numbers: the scene first, then the materials in order.
         NodeType::MaterialBinding { library, bindings, .. } => {

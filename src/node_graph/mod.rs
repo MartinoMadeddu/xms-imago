@@ -245,7 +245,7 @@ impl NodeGraphState {
             NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
-            NodeType::Material { .. }       => (vec![], vec![o("Material")]),
+            NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. }         => (vec![], vec![o("Scene")]),
             NodeType::MaterialBinding { inputs, .. } => (
                 std::iter::once(i("Scene")).chain((1..=(*inputs).max(1)).map(|k| InputSocket { name: format!("Material {k}"), connected_output: None })).collect(),
@@ -660,7 +660,7 @@ impl NodeGraphState {
             }
             NodeType::Ragdoll { .. } => crate::ragdoll::generation().hash(&mut h),
             // A material is named by its operator.
-            NodeType::Material { .. } => node.name.hash(&mut h),
+            NodeType::Material { .. } | NodeType::MaterialX { .. } => node.name.hash(&mut h),
             _ => {}
         }
         for input in &node.inputs {
@@ -751,6 +751,8 @@ impl NodeGraphState {
         let result = match (&node.node_type, result) {
             (NodeType::Material { surface }, Some(EvalResult::Material(_))) =>
                 Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::new(&node.name, surface)))),
+            (NodeType::MaterialX { graph }, Some(EvalResult::Material(_))) =>
+                Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::from_graph(&node.name, graph)))),
             (_, r) => r,
         };
         // A point instancer's copies follow its points, whatever moved them.

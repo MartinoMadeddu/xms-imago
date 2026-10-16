@@ -143,6 +143,10 @@ Scatter Points and Copy to Points are done in an ICE graph. A graph saved with t
 
 ![The add menu, Animation open](xms_add_menu.png)
 
+### MaterialX graphs
+
+A MaterialX operator holds a graph of MaterialX nodes, opened like an ICE graph: double-click it, or select it and press ↓; ↑ or the path at the top goes back up. It is drawn the same way, nodes coloured by kind (shaders and the material purple, textures blue, procedurals orange, maths green, geometry teal), ports and wires coloured by type. Right-click or Tab adds a node: the surface shaders, the material and the image nodes first, then every node of the library by group, or by a search. Drag an output onto an input to connect them; onto a node's body, to choose among the inputs that take it. A wire right-clicked is taken off; a wire between types that do not join (after a node was changed) is red. Nodes with many inputs, the surface shaders, show their connected inputs only: the box at the right of the title shows them all. The Parameters pane shows the selected node's inputs (see [MaterialX](materialx.md)).
+
 ### ICE graphs
 
 An ICE node holds a graph of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene graph. Inside, the graph is drawn after Softimage ICE: nodes coloured by kind, each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.

@@ -6,6 +6,7 @@
 - [Edit Poly](edit-poly.md): polygon modelling in one node
 - [UV](uv.md): unwrapping, island editing, the UV Editor pane
 - [USD](usd.md): composed stages, primitives and instancing, the Scene Explorer and the Viewer, Write USD
+- [MaterialX](materialx.md): the MaterialX node library and the MaterialX operator
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and how edits are found. For anyone writing a node
 - [Viewer navigation](navigation.md): the seven navigation styles, framing keys
 - [Animation and mocap](mocap.md): clips, the timeline, batch export to FBX

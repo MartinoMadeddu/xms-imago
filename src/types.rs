@@ -79,6 +79,10 @@ pub enum NodeType {
     /// A UsdPreviewSurface material with fixed inputs, named by the
     /// operator. Material Binding puts it in the scene. See `core::material`.
     Material     { #[serde(default)] surface: crate::core::material::PreviewSurface },
+    /// A material made from a graph of MaterialX nodes, named by the
+    /// operator, as Material is. The graph is saved as the MaterialX
+    /// document it is. See `materialx`.
+    MaterialX    { #[serde(with = "crate::materialx::saved")] graph: xms_matx::Graph },
     /// Materials put in the scene and bound to prims. Input 0 is the scene;
     /// inputs 1 and on, on the node's left, one material each. Each row of
     /// its Prims Location tab binds what its `bindings` entry says: the
@@ -316,6 +320,10 @@ impl NodeType {
 
     pub fn merge() -> Self { NodeType::Merge { mode: MergeMode::Auto, inputs: 2 } }
 
+    /// A MaterialX operator with a new graph: a standard_surface into a
+    /// surfacematerial.
+    pub fn materialx() -> Self { NodeType::MaterialX { graph: crate::materialx::new_graph() } }
+
     /// Nodes that create animation data with no input.
     pub fn is_anim_generator(&self) -> bool {
         matches!(self, NodeType::LoadFbx { .. } | NodeType::LoadFbxDir { .. } | NodeType::TestClip { .. })
@@ -349,6 +357,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. }    => "🚫",
         NodeType::SetAttribute { .. }  => "🏷",
         NodeType::Material { .. }      => "🎨",
+        NodeType::MaterialX { .. }     => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
@@ -404,6 +413,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. }    => "Prune Primitives",
         NodeType::SetAttribute { .. }  => "Set Attribute",
         NodeType::Material { .. }      => "Material",
+        NodeType::MaterialX { .. }     => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",

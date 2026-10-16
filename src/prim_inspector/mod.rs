@@ -310,7 +310,7 @@ pub fn bound_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &
 /// name. Its id and name.
 fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
-    upstream(graph, view, |n| matches!(n.node_type, NodeType::Material { .. }) && crate::core::material::prim_name(&n.name) == name)
+    upstream(graph, view, |n| matches!(n.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. }) && crate::core::material::prim_name(&n.name) == name)
         .map(|n| (n.id, n.name.clone()))
 }
 
