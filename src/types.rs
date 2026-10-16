@@ -1417,19 +1417,25 @@ impl SceneHierarchy {
         let nodes = &tree.nodes;
         // Prims that become packed geometry: meshes, curves, points.
         let is_mesh = |i: usize| matches!(nodes[i].type_name.as_str(), "Mesh" | "BasisCurves" | "NurbsCurves" | "HermiteCurves" | "Points");
-        // Which prims hold meshes below them, and which hold ones still present.
+        // A prim of the scene coming in: geometry, a point instancer, a camera.
+        let here = |i: usize| present.contains(nodes[i].path.as_str());
+        // Which prims hold meshes below them, and which hold prims still
+        // present (geometry, or an instancer whose prototypes are not drawn).
         let (mut holds, mut holds_present) = (vec![false; nodes.len()], vec![false; nodes.len()]);
         let mut parents: Vec<usize> = vec![];
         for i in 0..nodes.len() {
             while parents.last().is_some_and(|&p| nodes[p].depth >= nodes[i].depth) { parents.pop(); }
-            if is_mesh(i) {
-                let here = present.contains(nodes[i].path.as_str());
-                for &p in &parents { holds[p] = true; holds_present[p] |= here; }
+            let (mesh, now) = (is_mesh(i), here(i));
+            for &p in &parents {
+                holds[p] |= mesh;
+                holds_present[p] |= now;
             }
             parents.push(i);
         }
+        // A prim present is always listed here, and the groups above it: never
+        // a second time below by its path.
         let shown: Vec<bool> = (0..nodes.len()).map(|i| {
-            if is_mesh(i) { present.contains(nodes[i].path.as_str()) } else { holds_present[i] || !holds[i] }
+            here(i) || (!is_mesh(i) && (holds_present[i] || !holds[i]))
         }).collect();
         let rows: Vec<usize> = (0..nodes.len()).filter(|&i| shown[i]).collect();
         for (k, &i) in rows.iter().enumerate() {
@@ -1782,6 +1788,25 @@ mod location_tests {
         // No scene at all: no rows.
         h.rebuild_scene(None);
         assert!(h.objects.is_empty());
+    }
+
+    /// A point instancer whose prototype meshes are not drawn (the file
+    /// deactivates them) is still in the scene: listed in the stage's tree,
+    /// with the groups above it, and not a second time by its path.
+    #[test]
+    fn a_present_prim_is_listed_once_in_its_stage() {
+        use crate::usd_scene::{StageNode, StageTree};
+        let node = |path: &str, ty: &str, depth: usize| StageNode { path: path.into(), name: path.rsplit('/').next().unwrap().into(), type_name: ty.into(), depth, ..Default::default() };
+        let tree = std::sync::Arc::new(StageTree { nodes: vec![
+            node("/island", "Xform", 1), node("/island/geo", "Xform", 2), node("/island/geo/inst", "PointInstancer", 3),
+            node("/island/geo/inst/protos", "Scope", 4), node("/island/geo/inst/protos/leaf", "Mesh", 5),
+        ], ..Default::default() });
+        let inst = Prim { stage: Some(tree), instancing: Some(std::sync::Arc::new(vec!["/island/geo/inst/protos/leaf".into()])),
+            ..Prim::new("/island/geo/inst".into(), MeshData::default()) };
+        let mut h = SceneHierarchy::default();
+        h.rebuild_scene(Some((NodeId(1), "Load".into(), EvalResult::Named(vec![inst]))));
+        let rows: Vec<(&str, usize)> = h.objects.iter().map(|o| (o.name.as_str(), o.depth)).collect();
+        assert_eq!(rows, vec![("island", 0), ("geo", 1), ("inst", 2)], "once, in the stage's tree");
     }
 
     #[test]

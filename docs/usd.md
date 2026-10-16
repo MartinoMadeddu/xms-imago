@@ -130,6 +130,10 @@ A point instancer is also a primitive of its own, at its path: a points primitiv
 
 Its points are where the copies are: whatever changes them (an ICE graph moving `P`, a Transform on the instancer alone, through its Prims Location tab or a Pick) moves the copies, which are made again from the points after every operator, only when the instancer changed. Write USD writes what changed as the instancer's own arrays (`positions`, `orientations`, `scales`, `protoIndices`, `ids`), and an instancer moved as a whole gets its own transform; its prototypes' copies are not edits of their own.
 
+A prototype is listed where the stage's hierarchy has it, under the instance it is seen through when the instancer is inside a native instance (the corals of Moana's island), so the Scene Explorer lists each prim once. Should a drawn prim still not be where the hierarchy lists it, the node's "Not read in full" says how many and gives the first.
+
+**Nested point instancers**, a point instancer inside a prototype of another (grass tufts scattered by a field instancer, each tuft its own instancer of blades), are drawn through the outer one, as USD composes them, down to four deep. The inner instancer is a points primitive of its own, placed once per point of the outer instancer using its prototype; its prototypes' meshes are drawn at each of its points in every one of those copies. Changing the outer instancer's points moves the inner instancer's copies and, a level down, what they draw. Write USD lists edits of an inner instancer as not written, as for any prototype.
+
 The Primitive Inspector lists instanced geometry once, in its own space, not once per copy: a point instancer's prototypes, and the meshes of native instances. Their Properties tab gives the number of copies. What it lists grows with the geometry there is, not with what is drawn, so a stage of millions of instanced points opens in it at once.
 
 ## The Scene Explorer and the Viewer
@@ -234,7 +238,7 @@ Values are written at the current frame, as single values.
 - Cameras: gate offsets and depth of field in the Viewer, cameras inside native instances, animated cameras, editing a file's camera's lens
 - Animation: time samples beyond the start time, skeletal animation, skinning, blend shapes
 - Per-face material subsets, creases and holes (kept in the file, not shown), NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
-- Nested point instancers
+- Point instancers nested more than four deep (listed in the node's "Not read in full")
 - Materials with a graph inside (compounds); nodes to edit materials read from a file, cameras or the hierarchy
 - Material Binding: binding a group as a group (one `material:binding` on it, inherited below, with `bindMaterialAs` strength), binding purposes (`preview`, `full`), collections; the colour of a file's material no primitive wore before
 - Set Attribute: time samples (values are default values), arrays, inherited Object values read by ICE

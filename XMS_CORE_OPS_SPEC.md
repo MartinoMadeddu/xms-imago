@@ -161,7 +161,7 @@ Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
 ### 3.7 Point Instancer
 - **Parameters:** prototypes (relationship); proto indices; positions; orientations; scales; velocities; angular velocities; ids
 - **USD mapping:** `UsdGeomPointInstancer`
-- **Status:** **Read only.** Instancers and native instances are read and drawn by GPU instancing, and Transform moves their placements. Not yet: authoring them, editing their prototypes, nested instancers.
+- **Status:** **Read only.** Instancers and native instances are read and drawn by GPU instancing, and Transform moves their placements. Nested instancers (in another's prototype) are drawn through the outer one at each of its copies, down to four deep, and follow its points. Not yet: authoring them, editing their prototypes.
 
 ---
 
