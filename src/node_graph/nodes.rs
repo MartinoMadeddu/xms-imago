@@ -64,7 +64,7 @@ pub fn evaluate_node_type(
             Some(crate::core::material::bind(scene, &materials, library, &[], bindings))
         }
         // Without Primitive Locations: on the picked primitives, or every one.
-        NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::props::set_attributes(r, rows, &[])),
+        NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::set_attribute::set_attributes(r, rows, &[])),
 
         NodeType::Transform { translation, rotation, scale } => inputs.first().and_then(|r| match r {
             // A clip moves by its top joints; its skin follows when posed.

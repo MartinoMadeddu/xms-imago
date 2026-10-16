@@ -259,7 +259,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             // gate, but for the one looked through.
             let looked = super::camera::looking_through();
             let cam_ink = { let c = ink(crate::theme::c(225, 215, 140)); [c[0], c[1], c[2], 1.0] };
-            for p in prims.iter().filter(|p| !crate::core::props::invisible(p)) {
+            for p in prims.iter().filter(|p| !crate::core::properties::invisible(p)) {
                 let (Some(c), Some(world)) = (&p.camera, p.place.matrices().first()) else { continue };
                 s.cameras.push((p.path.clone(), *world, (**c).clone()));
                 if looked.as_deref() == Some(p.path.as_str()) { continue; }
@@ -271,9 +271,9 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             // Purposes the Scene Explorer's toggles leave out are not drawn.
             let prims: Vec<Prim> = prims.into_iter()
                 // Its purpose, or the one it inherits from a prim above it.
-                .filter(|p| { let purpose = crate::core::props::purpose_of(p); purpose == Purpose::Default || input.hierarchy.draws_purpose(purpose) })
+                .filter(|p| { let purpose = crate::core::properties::purpose_of(p); purpose == Purpose::Default || input.hierarchy.draws_purpose(purpose) })
                 // Set invisible, on itself or on a prim above it.
-                .filter(|p| !crate::core::props::invisible(p))
+                .filter(|p| !crate::core::properties::invisible(p))
                 // A point instancer is drawn by its prototypes, at its points.
                 .filter(|p| p.instancing.is_none())
                 // A material is worn, not drawn; a camera is drawn above.

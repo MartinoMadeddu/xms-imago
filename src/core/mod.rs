@@ -16,8 +16,11 @@ pub mod skin;
 pub mod pattern;
 /// Primitive Locations: the paths an operator works on.
 pub mod locations;
+/// Properties: the values a prim holds beyond its geometry, and how they
+/// are inherited below it.
+pub mod properties;
 /// Set Attribute: one value per primitive, set by the scene graph.
-pub mod props;
+pub mod set_attribute;
 /// Point instancers: their prototypes' copies made from their points.
 pub mod instancing;
 /// Materials: a UsdPreviewSurface, as the Material operator makes it.

@@ -399,8 +399,8 @@ fn shown_path(src: &str, shown: &str, target: &str) -> String {
 /// What a prim authors beyond what the scene layer's fields carry, as Imago
 /// values: tokens and strings as tokens, assets as assets, numbers and
 /// small vectors as they are.
-fn authored(prim: &rs::Prim) -> Vec<(String, crate::core::props::Value)> {
-    use crate::core::props::Value;
+fn authored(prim: &rs::Prim) -> Vec<(String, crate::core::properties::Value)> {
+    use crate::core::properties::Value;
     prim.authored.iter().map(|(name, v)| (name.clone(), match v {
         rs::ShaderValue::Float(x) => Value::Float(*x),
         rs::ShaderValue::Int(i) => Value::Int(*i),

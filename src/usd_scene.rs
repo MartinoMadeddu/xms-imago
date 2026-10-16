@@ -118,7 +118,7 @@ pub struct StageNode {
     /// What the file authors on it beyond the fields above, by name: `kind`,
     /// `instanceable`, `purpose` when authored here (not inherited),
     /// `doubleSided`, custom attributes. Single values only.
-    pub authored:  Vec<(String, crate::core::props::Value)>,
+    pub authored:  Vec<(String, crate::core::properties::Value)>,
 }
 
 /// The stage hierarchy, depth first (parents before their children).
@@ -137,7 +137,7 @@ pub struct StageTree {
     /// Values Set Attribute set on prims of the stage that are not geometry
     /// primitives (Xforms, cameras, lights, materials), by path. Empty as
     /// loaded: everything in it is an edit, written by Write USD as `over`s.
-    pub opinions:        std::collections::BTreeMap<String, crate::core::props::Opinions>,
+    pub opinions:        std::collections::BTreeMap<String, crate::core::properties::Opinions>,
     /// Where each path is in `nodes`. Empty in trees made by hand (tests),
     /// where `node` looks through the list instead.
     pub index:           std::collections::HashMap<String, usize>,
@@ -228,7 +228,7 @@ impl StageTree {
     }
 
     /// A value the file authors on the prim at a path.
-    pub fn authored(&self, path: &str, name: &str) -> Option<&crate::core::props::Value> {
+    pub fn authored(&self, path: &str, name: &str) -> Option<&crate::core::properties::Value> {
         self.node(path)?.authored.iter().find(|(k, _)| k == name).map(|(_, v)| v)
     }
 }
@@ -1100,7 +1100,7 @@ def Xform "asset" {
 
     #[test]
     fn what_the_file_authors_is_read() {
-        use crate::core::props::{purpose_from, PurposeFrom, Value};
+        use crate::core::properties::{purpose_from, PurposeFrom, Value};
         let path = write("authored.usda", r#"#usda 1.0
 def Xform "set" (
     kind = "assembly"

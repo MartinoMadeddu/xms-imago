@@ -883,7 +883,8 @@ mod tests {
     /// are saved with the graph.
     #[test]
     fn set_attribute_sets_its_rows_on_the_prims_it_names() {
-        use crate::core::props::{SetContext, SetRow, Value};
+        use crate::core::properties::{SetContext, Value};
+        use crate::core::set_attribute::SetRow;
         let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
         let mut g = NodeGraphState::default();
         let a = g.add_node("A".into(), NodeType::CreateCube { size: 1.0, location: "/set/a".into() }, egui::pos2(0.0, 0.0));
@@ -907,7 +908,7 @@ mod tests {
         g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/set".into()];
         let out = prims(&g);
         assert!(out.iter().all(|p| !coloured(p) && p.above.contains_key("/set")));
-        assert!(out.iter().all(|p| crate::core::props::inherited_primvars(p).len() == 1 && crate::core::props::purpose_of(p) == crate::types::Purpose::Proxy));
+        assert!(out.iter().all(|p| crate::core::properties::inherited_primvars(p).len() == 1 && crate::core::properties::purpose_of(p) == crate::types::Purpose::Proxy));
         g.nodes.iter_mut().find(|n| n.id == set).unwrap().locations = vec!["/set/b".into()];
         let out = prims(&g);
         assert!(!coloured(&out[0]) && coloured(&out[1]));

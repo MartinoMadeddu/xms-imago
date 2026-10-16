@@ -74,8 +74,8 @@ pub enum NodeType {
     PrunePrims   { pattern: String, keep: bool },
     /// One value per primitive, set on the prims its Prims Location tab
     /// names: a constant primvar (Object) or the prim's own attribute or
-    /// metadata (Property), one per row. See `core::props`.
-    SetAttribute { rows: Vec<crate::core::props::SetRow> },
+    /// metadata (Property), one per row. See `core::set_attribute`.
+    SetAttribute { rows: Vec<crate::core::set_attribute::SetRow> },
     /// A UsdPreviewSurface material with fixed inputs, named by the
     /// operator. Material Binding puts it in the scene. See `core::material`.
     Material     { #[serde(default)] surface: crate::core::material::PreviewSurface },
@@ -803,11 +803,11 @@ pub struct Prim {
     /// Properties set on it by Set Attribute (attributes and metadata by
     /// name: `visibility`, `kind`, `doubleSided`…), written by Write USD.
     /// Empty as loaded. Shared, as the mesh is.
-    pub props:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Value>>,
+    pub props:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::properties::Value>>,
     /// Values Set Attribute set on the prims Imago made above it (the
     /// Xforms of its Primitive Location), by path. Every primitive below
     /// such a prim carries them; Write USD writes them once, on the Xform.
-    pub above:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::props::Opinions>>,
+    pub above:    std::sync::Arc<std::collections::BTreeMap<String, crate::core::properties::Opinions>>,
     /// A point instancer: its points are its instances, and these are its
     /// prototypes' paths by `protoIndex`. It is not drawn, nor merged into a
     /// mesh: its prototypes are drawn at its points. `None` for the rest.

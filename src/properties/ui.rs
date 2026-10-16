@@ -1697,8 +1697,9 @@ fn add_location(list: &mut Vec<String>, path: &str) {
 
 /// Set Attribute's rows: each a context, a name (the common ones offered),
 /// a type and a value. `located`: the Prims Location tab names prims.
-fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::props::SetRow>, located: bool, coming_in: usize) {
-    use crate::core::props::{self, SetContext, SetRow, ValueType};
+fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::set_attribute::SetRow>, located: bool, coming_in: usize) {
+    use crate::core::properties::{preset, SetContext, ValueType, OBJECT_PRESETS, PROPERTY_PRESETS};
+    use crate::core::set_attribute::SetRow;
     let hint = "One value per prim, on the prims the Prims Location tab names: a group, a camera or a light as well as a mesh. Without locations, on every primitive coming in (or those an earlier Pick Primitives chose). Values per point, face or corner are ICE's";
     group(ui, "Set Attribute", Some(hint), |f| {
         if located { f.status(Status::Info, "On the prims the Prims Location tab names"); }
@@ -1721,7 +1722,7 @@ fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::props::SetR
             if row.context != was && row.context == SetContext::Object && !ValueType::OBJECT.contains(&row.value.kind()) {
                 row.value = ValueType::Float.convert(&row.value);
             }
-            let offered = match row.context { SetContext::Object => props::OBJECT_PRESETS, SetContext::Property => props::PROPERTY_PRESETS };
+            let offered = match row.context { SetContext::Object => OBJECT_PRESETS, SetContext::Property => PROPERTY_PRESETS };
             let name_hint = match row.context {
                 SetContext::Object => "Written as primvars:name. Pick a common one, or type any name",
                 SetContext::Property => "The attribute or metadata to set. Pick a common one, or type any name (userProperties:assetId, focalLength)",
@@ -1740,8 +1741,8 @@ fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::props::SetR
                     });
                 });
             });
-            let preset = props::preset(row.context, &row.name);
-            match preset {
+            let known = preset(row.context, &row.name);
+            match known {
                 // A common name has its type.
                 Some(p) => {
                     if row.value.kind() != p.ty { row.value = p.ty.convert(&row.value); }
@@ -1754,24 +1755,24 @@ fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::props::SetR
                     if f.choice("Type", None, &mut ty, &options) { row.value = ty.convert(&row.value); }
                 }
             }
-            value_row(f, &mut row.value, preset.map(|p| p.tokens).unwrap_or(&[]));
+            value_row(f, &mut row.value, known.map(|p| p.tokens).unwrap_or(&[]));
             if row.name.trim().is_empty() { f.status(Status::Info, "No name: this row sets nothing"); }
-            else if let Some(p) = preset { f.status(Status::Info, p.hint); }
+            else if let Some(p) = known { f.status(Status::Info, p.hint); }
         });
     }
     if let Some(k) = remove { rows.remove(k); }
     if let Some(k) = up { rows.swap(k, k - 1); }
     group(ui, "Rows", None, |f| {
         f.buttons("Add", Some("Object: a primvar, displayColor to start. Property: an attribute or metadata, visibility to start. Either can be renamed"), |ui| {
-            if ui.button("+ Object").clicked() { rows.push(SetRow::from_preset(SetContext::Object, &props::OBJECT_PRESETS[0])); }
-            if ui.button("+ Property").clicked() { rows.push(SetRow::from_preset(SetContext::Property, &props::PROPERTY_PRESETS[0])); }
+            if ui.button("+ Object").clicked() { rows.push(SetRow::from_preset(SetContext::Object, &OBJECT_PRESETS[0])); }
+            if ui.button("+ Property").clicked() { rows.push(SetRow::from_preset(SetContext::Property, &PROPERTY_PRESETS[0])); }
         });
     });
 }
 
 /// A value's field, for its type. Tokens with fixed values are a choice.
-fn value_row(f: &mut Rows, v: &mut crate::core::props::Value, tokens: &[&str]) {
-    use crate::core::props::Value;
+fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&str]) {
+    use crate::core::properties::Value;
     let fields = |ui: &mut egui::Ui, v: &mut [f32]| {
         ui.horizontal(|ui| {
             let gap = ui.spacing().item_spacing.x;

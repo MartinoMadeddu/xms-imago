@@ -34,7 +34,7 @@ use std::sync::Arc;
 use glam::{DMat4, Mat4};
 
 use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, POINTS, WIDTHS};
-use crate::core::props::{written, Opinions, Value, Written};
+use crate::core::properties::{written, Opinions, Value, Written};
 use crate::edits::{edit_set, PrimEdit};
 use crate::types::{CurveBasis, CurveWrap, Prim, Placement, Purpose};
 use crate::usd_scene::{StageNode, StageTree};
@@ -817,7 +817,8 @@ def Xform "shot" {{
 
     #[test]
     fn set_attribute_values_are_written_on_their_prims() {
-        use crate::core::props::{set_attributes, SetContext, SetRow};
+        use crate::core::properties::SetContext;
+        use crate::core::set_attribute::{set_attributes, SetRow};
         use crate::types::EvalResult;
         let (_, prims) = load("set_attribute.usda", &stage_text());
         let row = |context, name: &str, value| SetRow { context, name: name.into(), value };
@@ -865,7 +866,8 @@ def Xform "shot" {{
 
     #[test]
     fn values_on_the_xforms_above_a_shape_are_written_there() {
-        use crate::core::props::{set_attributes, SetContext, SetRow};
+        use crate::core::properties::SetContext;
+        use crate::core::set_attribute::{set_attributes, SetRow};
         use crate::types::EvalResult;
         let rows = [
             SetRow { context: SetContext::Object, name: "displayColor".into(), value: Value::Color3f([0.0, 1.0, 0.0]) },

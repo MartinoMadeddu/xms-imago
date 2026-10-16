@@ -298,12 +298,14 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
 
     // ── Delete selected nodes or wire ─────────────────────────────────────────
     // Use canvas_rect.contains(pointer) instead of response.hovered() so that
-    // the delete key fires even when the pointer is over a node widget.
+    // the delete key fires even when the pointer is over a node widget. Not
+    // while text is typed (a file name in the file browser, a parameter), and
+    // not with the pointer over a window above the graph: Backspace there is
+    // the text's.
     let ptr_in_canvas = ui.input(|i| i.pointer.hover_pos())
-        .map(|p| canvas_rect.contains(p))
-        .unwrap_or(false);
-    if ptr_in_canvas && ui.input(|i| i.key_pressed(egui::Key::Delete)
-        || i.key_pressed(egui::Key::Backspace))
+        .is_some_and(|p| canvas_rect.contains(p) && ui.ctx().layer_id_at(p).is_none_or(|l| l == ui.layer_id()));
+    if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
     {
         graph.delete_selected();
     }
