@@ -18,6 +18,7 @@
 //! gives one packed primitive per mesh under the instance's own path; a
 //! point instancer gives one per prototype mesh, holding all its points.
 
+use crate::core::geo_mesh::GeoMesh;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;

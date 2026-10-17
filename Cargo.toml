@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.95"
 
 [workspace]
-members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx"]
+members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx", "crates/xms-geo", "crates/xms-ice"]
 resolver = "2"
 
 
@@ -18,6 +18,9 @@ edition = "2021"
 xms-scene = { path = "crates/xms-scene" }
 xms-usd   = { path = "crates/xms-usd" }
 xms-matx  = { path = "crates/xms-matx" }
+# The geometry model, and the ICE engine on it.
+xms-geo   = { path = "crates/xms-geo" }
+xms-ice   = { path = "crates/xms-ice" }
 
 glam = { version = "0.27", features = ["serde"] }
 egui = "0.36"
@@ -54,4 +57,8 @@ opt-level = 3
 [profile.dev.package.xms-usd]
 opt-level = 3
 [profile.dev.package.xms-scene]
+opt-level = 3
+[profile.dev.package.xms-geo]
+opt-level = 3
+[profile.dev.package.xms-ice]
 opt-level = 3

@@ -179,6 +179,7 @@ pub fn edits_between(before: &[Prim], after: &[Prim]) -> EditSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::geo_mesh::GeoMesh;
     use crate::core::geo::{Attr, Column, Role, POINTS, ST};
     use crate::types::{MeshData, Source};
     use crate::usd_scene::StageNode;

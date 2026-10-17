@@ -76,6 +76,7 @@ pub fn copies(geo: &Geo, place: &Placement, by: &InstancedBy) -> Vec<Mat4> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::geo_mesh::GeoMesh;
     use crate::core::geo::{Attr, Column, Role};
     use crate::types::MeshData;
 

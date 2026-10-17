@@ -27,7 +27,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | What the Viewer shows when it looks through a camera | camera view | **looking through** a camera (the Viewer's 🎥 menu); **Perspective** is the Viewer's own camera | As usdview, Maya, Houdini. A camera's **filmback** (its gate: `horizontalAperture`, `verticalAperture`), picked from **Filmback Presets**. |
 | How Load USD brings its file in | (always sublayered) | **Sublayer**, **Reference**, **Payload** (Load USD's Mode) | USD's own words. Reference and Payload put the file's default prim at a Primitive Location. |
 | Where Material Binding puts the materials plugged into it | material library | **Material Library Location** (a parameter, `/materials` by default) | A Primitive Location for materials: each goes under it by its operator's name. |
-| ICE graph input and output nodes | SubnetInput / SubnetOutput | **GraphInput / GraphOutput** | Follows "ICE graph". "Graph" also fits ICE compounds (graphs inside an ICE graph), which will use the same terminals. |
+| An ICE graph's end node | SubnetInput / SubnetOutput, GraphInput / GraphOutput | **ICE Tree** | As in Softimage: one root with ordered Execute ports. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
 
 ### Contexts and USD
 
@@ -63,7 +63,7 @@ The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 | Pick Primitives, Prune Primitives, Unpack | unchanged | "Primitive" now means exactly what these act on. |
 | "Primitives" menu category | Primitives (unchanged) | As above. |
 | Cube, Sphere, Grid under "Create" | **Shapes** group under "Create" | "Primitive" is no longer used for shapes. |
-| SubnetInput, SubnetOutput (ICE) | **GraphInput, GraphOutput** | Follows "ICE graph". |
+| SubnetInput, SubnetOutput (ICE) | **ICE Tree** (root) | The new engine: Get Data and Set Data instead of a mesh going in and out. |
 
 ## Code renames
 

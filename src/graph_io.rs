@@ -1,9 +1,9 @@
 //! Saving and loading the node graph as JSON, copying and pasting nodes,
 //! adding one graph to another, and ready-made graphs.
 //!
-//! The contents of ICE subnets are not saved in a graph file: a loaded
-//! Subnet node starts with a fresh, empty subnet. Copied nodes carry their
-//! ICE trees.
+//! The contents of ICE graphs are not saved in a graph file yet: a loaded
+//! ICE node starts with a fresh, empty graph. Copied nodes carry their ICE
+//! graphs.
 
 use std::path::Path;
 
@@ -247,7 +247,12 @@ struct SavedTreeNode {
     id:        usize,
     name:      String,
     position:  [f32; 2],
-    node_type: crate::types::IceGraphNodeType,
+    /// Kept as JSON and read node by node, so a node of an older ICE (which
+    /// the new engine replaced) is left out instead of failing the paste.
+    node_type: serde_json::Value,
+    /// What each input holds while nothing is wired to it.
+    #[serde(default)]
+    values:    Vec<Option<xms_ice::Value>>,
 }
 
 /// What pasting placed: the new id of each node, by the id it was copied with.
@@ -278,7 +283,9 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
             node: n.id.0,
             name: sg.name.clone(),
             nodes: sg.nodes.iter().map(|t| SavedTreeNode {
-                id: t.id.0, name: t.name.clone(), position: [t.position.x, t.position.y], node_type: t.node_type.clone(),
+                id: t.id.0, name: t.name.clone(), position: [t.position.x, t.position.y],
+                node_type: serde_json::to_value(&t.node_type).unwrap_or_default(),
+                values: t.inputs.iter().map(|i| i.value).collect(),
             }).collect(),
             connections: sg.connections.iter().map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input]).collect(),
         }),
@@ -342,9 +349,24 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
     sg.connections.clear();
     sg.next_node_id = 0;
     for n in &t.nodes {
-        let id = sg.add_node(n.name.clone(), n.node_type.clone(), egui::pos2(n.position[0], n.position[1]));
-        if let Some(node) = sg.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); }
+        let Ok(node_type) = serde_json::from_value::<crate::types::IceGraphNodeType>(n.node_type.clone()) else { continue };
+        let id = sg.add_node(n.name.clone(), node_type, egui::pos2(n.position[0], n.position[1]));
+        if let Some(node) = sg.nodes.iter_mut().find(|x| x.id == id) {
+            node.id = NodeId(n.id);
+            for (input, value) in node.inputs.iter_mut().zip(&n.values) {
+                if value.is_some() { input.value = *value; }
+            }
+        }
         sg.next_node_id = sg.next_node_id.max(n.id + 1);
+    }
+    // A tree from before the new engine has no root: it gets an empty one.
+    if sg.root().is_none() {
+        sg.add_node("ICE Tree".into(), crate::types::IceGraphNodeType::Root { context: crate::core::geo::Context::Point }, egui::pos2(500.0, 200.0));
+    }
+    // The root's ports, as many as the wires into it need.
+    if let Some(root) = sg.nodes.iter_mut().find(|n| matches!(n.node_type, crate::types::IceGraphNodeType::Root { .. })) {
+        let wanted = t.connections.iter().filter(|c| c[2] == root.id.0).map(|c| c[3] + 1).max().unwrap_or(0);
+        while root.inputs.len() < wanted { let n = root.inputs.len() + 1; root.inputs.push(crate::ice::execute_port(n)); }
     }
     for &[from, out, to, input] in &t.connections {
         let ok = sg.nodes.iter().any(|n| n.id.0 == from && out < n.outputs.len())
@@ -566,11 +588,18 @@ mod tests {
         let cube = g.add_node("Cube".into(), NodeType::cube(2.0), egui::pos2(100.0, 0.0));
         let sid = subnets.create_subnet("Spherify".into());
         {
+            // Get P → Normalize → Multiply (by 1.5) → Set P → ICE Tree.
             let sg = subnets.get_mut(sid).unwrap();
-            let (input, output) = (sg.nodes[0].id, sg.nodes[1].id);
-            let norm = sg.add_node("Normalize".into(), IceGraphNodeType::Normalize, egui::pos2(200.0, 200.0));
-            sg.add_connection(input, 1, norm, 0);
-            sg.add_connection(norm, 0, output, 0);
+            let root = sg.root().unwrap();
+            let p = sg.add_node("P".into(), IceGraphNodeType::GetData { name: "P".into() }, egui::pos2(0.0, 200.0));
+            let norm = sg.add_node("Normalize".into(), IceGraphNodeType::Math { op: xms_ice::Math::Normalize }, egui::pos2(200.0, 200.0));
+            let grow = sg.add_node("Multiply".into(), IceGraphNodeType::Math { op: xms_ice::Math::Multiply }, egui::pos2(300.0, 200.0));
+            let set = sg.add_node("Set P".into(), IceGraphNodeType::SetData { name: "P".into() }, egui::pos2(400.0, 200.0));
+            sg.nodes.iter_mut().find(|n| n.id == grow).unwrap().inputs[1].value = Some(xms_ice::Value::Float(1.5));
+            sg.add_connection(p, 0, norm, 0);
+            sg.add_connection(norm, 0, grow, 0);
+            sg.add_connection(grow, 0, set, 0);
+            sg.add_connection(set, 0, root, 0);
         }
         let ice = g.add_node("ICE".into(), NodeType::Ice { id: sid, name: "Spherify".into() }, egui::pos2(100.0, 100.0));
         g.add_connection(cube, 0, ice, 0);
@@ -597,10 +626,14 @@ mod tests {
         let (a, b) = (subnets.get(sid).unwrap(), subnets.get(new_sid).unwrap());
         assert_eq!(a.nodes.len(), b.nodes.len());
         assert_eq!(a.connections.len(), b.connections.len());
-        let sub_out = b.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::SubOutput)).unwrap();
-        assert!(sub_out.inputs[0].connected_output.is_some());
-        subnets.get_mut(sid).unwrap().nodes.retain(|n| !matches!(n.node_type, IceGraphNodeType::Normalize));
-        assert_eq!(subnets.get(new_sid).unwrap().nodes.len(), 3, "editing one tree leaves the other");
+        let root = b.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::Root { .. })).unwrap();
+        assert!(root.inputs[0].connected_output.is_some());
+        assert_eq!(root.inputs.len(), 2, "its free port too");
+        // The value on Multiply's B came along.
+        let grow = b.nodes.iter().find(|n| n.node_type == IceGraphNodeType::Math { op: xms_ice::Math::Multiply }).unwrap();
+        assert_eq!(grow.inputs[1].value, Some(xms_ice::Value::Float(1.5)));
+        subnets.get_mut(sid).unwrap().nodes.retain(|n| n.node_type != IceGraphNodeType::Math { op: xms_ice::Math::Normalize });
+        assert_eq!(subnets.get(new_sid).unwrap().nodes.len(), 5, "editing one tree leaves the other");
     }
 
     #[test]

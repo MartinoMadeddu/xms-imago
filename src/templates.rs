@@ -43,8 +43,6 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A subdivided cube pushed onto a sphere by an ICE graph. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
         hint: "Cube, sphere and grid, each moved with a Transform and joined with Merge" },
-    Template { by: SIMON, group: "Basics", name: "ICE graph", build: subnet,
-        hint: "Points scattered on a grid and a small sphere copied onto each, inside an ICE graph. Double-click the ICE node, or select it and press ↓, to open it" },
     Template { by: SIMON, group: "Basics", name: "USD import", build: usd,
         hint: "Two example USD files loaded, moved and merged" },
     Template { by: SIMON, group: "Modelling", name: "Edit Poly: tower", build: tower,
@@ -176,33 +174,6 @@ fn primitives(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(grid, 0, m2, 1);
     finish(g, m2, cube_x);
     "Shapes: select a Transform node and change its values in Parameters.".into()
-}
-
-fn subnet(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
-    crate::graph_io::clear(g);
-    let id = store.create_subnet("ScatterCopy".into());
-    if let Some(sub) = store.get_mut(id) {
-        // SubInput and SubOutput are made with the subnet.
-        let (input, out) = (sub.nodes[0].id, sub.nodes[1].id);
-        let pts  = sub.add_node("Scatter".into(), IceGraphNodeType::ScatterPoints { count: 80, seed: 3 }, p(220.0, 140.0));
-        let copy = sub.add_node("Copy".into(), IceGraphNodeType::CopyToPoints, p(360.0, 220.0));
-        sub.add_connection(input, 0, pts, 0);      // Mesh -> Geometry
-        sub.add_connection(pts, 0, copy, 0);       // Points
-        sub.add_connection(input, 2, copy, 1);     // Template
-        sub.add_connection(copy, 0, out, 0);
-    }
-    let grid   = g.add_node("Ground".into(), NodeType::grid(6, 6, 5.0), p(60.0, 20.0));
-    let sphere = g.add_node("Ball".into(), NodeType::sphere(0.12, 10), p(300.0, 20.0));
-    let node   = g.add_node("ScatterCopy".into(), NodeType::Ice { id, name: "ScatterCopy".into() }, p(180.0, 140.0));
-    // Both inputs come from the same grid, so they have the same path: as
-    // primitives the ground would replace the copies. Flatten keeps both.
-    let merge  = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Flatten, inputs: 2 }, p(180.0, 260.0));
-    g.add_connection(grid, 0, node, 0);
-    g.add_connection(sphere, 0, node, 1);
-    g.add_connection(node, 0, merge, 0);
-    g.add_connection(grid, 0, merge, 1);
-    finish(g, merge, node);
-    "ICE graph: double-click the ScatterCopy node, or select it and press ↓, to see the graph inside it.".into()
 }
 
 fn usd(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
@@ -982,12 +953,18 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let id = store.create_subnet("Spherify".into());
     if let Some(sub) = store.get_mut(id) {
-        let (input, out) = (sub.nodes[0].id, sub.nodes[1].id);
-        let norm = sub.add_node("Normalize".into(), IceGraphNodeType::Normalize, p(220.0, 200.0));
-        let grow = sub.add_node("Scale".into(), IceGraphNodeType::MultiplyVec3 { scalar: 1.2 }, p(360.0, 200.0));
-        sub.add_connection(input, 0, norm, 0);
+        // Get P → Normalize → Multiply (by 1.2) → Set P → ICE Tree.
+        let root = sub.root().expect("every ICE graph has a root");
+        let get = sub.add_node("P".into(), IceGraphNodeType::GetData { name: "P".into() }, p(80.0, 200.0));
+        let norm = sub.add_node("Normalize".into(), IceGraphNodeType::Math { op: xms_ice::Math::Normalize }, p(220.0, 200.0));
+        let grow = sub.add_node("Scale".into(), IceGraphNodeType::Math { op: xms_ice::Math::Multiply }, p(360.0, 200.0));
+        let set = sub.add_node("Set P".into(), IceGraphNodeType::SetData { name: "P".into() }, p(500.0, 200.0));
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == grow) { n.inputs[1].value = Some(xms_ice::Value::Float(1.2)); }
+        sub.add_connection(get, 0, norm, 0);
         sub.add_connection(norm, 0, grow, 0);
-        sub.add_connection(grow, 0, out, 0);
+        sub.add_connection(grow, 0, set, 0);
+        sub.add_connection(set, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) { n.position = p(660.0, 200.0); }
     }
     let all = || PolySelection { source: SelSource::All, ..Default::default() };
     let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
@@ -996,7 +973,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(cube, 0, dense, 0);
     g.add_connection(dense, 0, tree, 0);
     finish(g, tree, tree);
-    "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change the Multiply value in its properties.".into()
+    "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply), and written back as P (Set Data, run by the ICE Tree). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change Multiply's B in its parameters.".into()
 }
 
 fn mocap_example(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {

@@ -5,6 +5,7 @@
 //! ufbx converts the file to right-handed Y-up, metres, and folds pre/post
 //! rotations and rotation orders into the local transform it evaluates.
 
+use crate::core::geo_mesh::GeoMesh;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;

@@ -32,4 +32,6 @@ pub mod manip;
 pub mod xform;
 /// The geometry model of packed primitives, the nodes and ICE: typed
 /// attribute columns per context.
-pub mod geo;
+pub use xms_geo as geo;
+/// `Geo` to and from `MeshData`.
+pub mod geo_mesh;

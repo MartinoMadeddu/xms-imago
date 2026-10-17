@@ -42,6 +42,7 @@
 //!
 //! Values per point, face or corner are not set here: they are ICE's.
 
+use crate::core::geo_mesh::GeoMesh;
 use std::sync::Arc;
 
 use crate::core::geo::{Context, Geo};
