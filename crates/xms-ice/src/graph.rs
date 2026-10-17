@@ -44,7 +44,7 @@ pub enum Op {
 
 /// Maths, on any type it makes sense for: `Add` adds floats or vectors,
 /// `Multiply` also scales a vector by a float.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Math {
     Add,
     Subtract,
@@ -65,6 +65,13 @@ pub enum Math {
 }
 
 impl Math {
+    /// Every operation, in the order the add menu lists them.
+    pub const ALL: [Math; 15] = [
+        Math::Add, Math::Subtract, Math::Multiply, Math::Divide, Math::Min, Math::Max, Math::Lerp,
+        Math::Negate, Math::Abs, Math::Sin, Math::Cos,
+        Math::Dot, Math::Cross, Math::Length, Math::Normalize,
+    ];
+
     pub fn arity(self) -> usize {
         match self {
             Math::Lerp => 3,

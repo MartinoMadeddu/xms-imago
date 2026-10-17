@@ -263,7 +263,7 @@ Attribute contexts in Imago map to USD interpolations: Object = `constant`, Poin
 
 ### 6.5 ICE (programmable operator)
 - **Purpose:** Programmable operator for deformers and primvar manipulation: where values per point, face and corner are written.
-- **Status:** **Partial.** The ICE operator holds an ICE graph that runs per primitive, in its own space, and writes attributes. A big refactor is planned.
+- **Status:** **Partial.** The ICE operator holds an ICE graph that runs per primitive, in its own space, on the ICE engine (`crates/xms-ice`): an ICE Tree runs Set Data nodes over every point, face, corner or the object; Get Data, constants and maths feed them (see `docs/ice.md`). Not yet: scatter and copy to points, reading other contexts, snippets, ICE graphs saved in graph files.
 
 ---
 

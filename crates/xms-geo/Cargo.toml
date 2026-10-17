@@ -5,3 +5,5 @@ edition = "2021"
 description = "XMS | Imago's geometry model: a topology and typed attribute columns per context, shared copy-on-write"
 
 [dependencies]
+# Contexts are saved with the graphs that name them (an ICE graph's root).
+serde = { version = "1", features = ["derive"] }

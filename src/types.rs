@@ -459,86 +459,66 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
 }
 
 // ============================================================================
-// SUBNET NODE TYPES
+// ICE GRAPH NODE TYPES
 // ============================================================================
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+/// The kinds of node in an ICE graph. Each is run by the ICE engine
+/// (`xms_ice::Op`); the editor adds names, positions and values.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum IceGraphNodeType {
-    SubInput,
-    SubOutput,
-    AddVec3,
-    SubtractVec3,
-    MultiplyVec3 { scalar: f32 },
-    CrossProduct,
-    Normalize,
-    DotProduct,
-    LerpVec3 { t: f32 },
-    ConstVec3  { value: Vec3 },
-    ConstFloat { value: f32  },
-    ConstInt   { value: i32  },
-
-    ScatterPoints { count: u32, seed: u32 },
-    GetTemplate,
-    CopyToPoints,
+    /// The graph's end: Execute ports, run in order, over every element of
+    /// `context`.
+    Root { context: crate::core::geo::Context },
+    /// An attribute of the geometry (`P` is the points).
+    GetData { name: String },
+    /// Set an attribute; its Execute goes into the root.
+    SetData { name: String },
+    Constant { value: xms_ice::Value },
+    Math { op: xms_ice::Math },
 }
 
 pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
+    use xms_ice::{Math, Value};
     match t {
-        IceGraphNodeType::SubInput            => "Graph Input",
-        IceGraphNodeType::SubOutput           => "Graph Output",
-        IceGraphNodeType::AddVec3             => "Add",
-        IceGraphNodeType::SubtractVec3        => "Subtract",
-        IceGraphNodeType::MultiplyVec3 { .. } => "Multiply",
-        IceGraphNodeType::CrossProduct        => "Cross Product",
-        IceGraphNodeType::Normalize           => "Normalize",
-        IceGraphNodeType::DotProduct          => "Dot Product",
-        IceGraphNodeType::LerpVec3 { .. }     => "Blend",
-        IceGraphNodeType::ConstVec3 { .. }    => "Vector",
-        IceGraphNodeType::ConstFloat { .. }   => "Number",
-        IceGraphNodeType::ConstInt { .. }     => "Integer",
-        IceGraphNodeType::ScatterPoints { .. } => "Scatter Points",
-        IceGraphNodeType::GetTemplate          => "Get Template",
-        IceGraphNodeType::CopyToPoints         => "Copy to Points",
+        IceGraphNodeType::Root { .. } => "ICE Tree",
+        IceGraphNodeType::GetData { .. } => "Get Data",
+        IceGraphNodeType::SetData { .. } => "Set Data",
+        IceGraphNodeType::Constant { value } => match value {
+            Value::Bool(_) => "Boolean",
+            Value::Int(_) => "Integer",
+            Value::Float(_) => "Scalar",
+            Value::Vec2(_) => "2D Vector",
+            Value::Vec3(_) => "3D Vector",
+            Value::Vec4(_) => "4D Vector",
+        },
+        IceGraphNodeType::Math { op } => match op {
+            Math::Add => "Add",
+            Math::Subtract => "Subtract",
+            Math::Multiply => "Multiply",
+            Math::Divide => "Divide",
+            Math::Min => "Minimum",
+            Math::Max => "Maximum",
+            Math::Lerp => "Linear Interpolate",
+            Math::Negate => "Negate",
+            Math::Abs => "Absolute Value",
+            Math::Sin => "Sine",
+            Math::Cos => "Cosine",
+            Math::Dot => "Dot Product",
+            Math::Cross => "Cross Product",
+            Math::Length => "Length",
+            Math::Normalize => "Normalize",
+        },
     }
 }
 
 pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
     match t {
-        IceGraphNodeType::SubInput            => "▶",
-        IceGraphNodeType::SubOutput           => "◀",
-        IceGraphNodeType::AddVec3             => "+",
-        IceGraphNodeType::SubtractVec3        => "-",
-        IceGraphNodeType::MultiplyVec3 { .. } => "×",
-        IceGraphNodeType::CrossProduct        => "×",
-        IceGraphNodeType::Normalize           => "|v|",
-        IceGraphNodeType::DotProduct          => "·",
-        IceGraphNodeType::LerpVec3 { .. }     => "≈",
-        IceGraphNodeType::ConstVec3 { .. }    => "→v",
-        IceGraphNodeType::ConstFloat { .. }   => "→f",
-        IceGraphNodeType::ConstInt { .. }     => "→i",
-        IceGraphNodeType::ScatterPoints { .. } => "✳",
-        IceGraphNodeType::GetTemplate          => "📄",
-        IceGraphNodeType::CopyToPoints         => "📦",
+        IceGraphNodeType::Root { .. } => "◀",
+        IceGraphNodeType::GetData { .. } => "▶",
+        IceGraphNodeType::SetData { .. } => "■",
+        IceGraphNodeType::Constant { .. } => "●",
+        IceGraphNodeType::Math { .. } => "±",
     }
-}
-
-// ============================================================================
-// SUBNET SOCKET VALUE
-// ============================================================================
-
-#[derive(Clone, Debug)]
-pub enum IceGraphValue {
-    Mesh(MeshData),
-    Vec3(Vec3),
-    Float(f32),
-    Int(i32),
-}
-
-impl IceGraphValue {
-    pub fn as_mesh(&self)  -> Option<&MeshData> { if let IceGraphValue::Mesh(m)  = self { Some(m)  } else { None } }
-    pub fn as_vec3(&self)  -> Option<Vec3>       { if let IceGraphValue::Vec3(v)  = self { Some(*v) } else { None } }
-    pub fn as_float(&self) -> Option<f32>        { if let IceGraphValue::Float(f) = self { Some(*f) } else { None } }
-    pub fn as_int(&self)   -> Option<i32>        { if let IceGraphValue::Int(i)   = self { Some(*i) } else { None } }
 }
 
 // ============================================================================

@@ -1,4 +1,3 @@
-use glam::Vec3;
 use std::collections::HashSet;
 use crate::types::{ConnectionId, NodeId, IceGraphNodeType};
 use super::{IceGraph, IceGraphNode};
@@ -55,7 +54,9 @@ mod pal {
     // Data types, as ICE colours their ports and wires.
     pub fn SCALAR() -> Color32  { Color32::from_rgb( 70, 230,  70) }   // Float: bright green
     pub fn INTEGER() -> Color32 { Color32::from_rgb( 20, 120,  40) }   // Int: dark green
-    pub fn VECTOR() -> Color32  { Color32::from_rgb(235, 225,  60) }   // Vec3: yellow
+    pub fn VECTOR() -> Color32  { Color32::from_rgb(235, 225,  60) }   // Vec2, Vec3, Vec4: yellow
+    pub fn BOOLEAN() -> Color32 { Color32::from_rgb(214,  64,  56) }   // Bool: red
+    pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
     pub fn GEO() -> Color32     { Color32::from_rgb(220,  40, 200) }   // Mesh / geometry: magenta
     pub fn OTHER() -> Color32   { Color32::from_rgb( 85,  85,  85) }   // execute and the rest: dark grey
 }
@@ -67,8 +68,8 @@ struct Layout {
     outputs: Vec<egui::Vec2>,
 }
 
-/// The title: the node type's full name in PascalCase (`ScatterPoints`,
-/// `CrossProduct`, `SubnetInput`).
+/// The title: the node type's full name in PascalCase (`GetData`,
+/// `CrossProduct`, `IceTree`).
 fn title_text(node: &IceGraphNode) -> String {
     crate::types::subnet_node_label(&node.node_type)
         .split_whitespace()
@@ -79,13 +80,23 @@ fn title_text(node: &IceGraphNode) -> String {
         .collect()
 }
 
-/// A constant's value, shown in a row of its own under the title.
+/// A constant's value, or the attribute a Get or Set Data names, shown in
+/// a row of its own under the title.
 fn value_text(node: &IceGraphNode) -> Option<String> {
+    use xms_ice::Value;
+    let list = |v: &[f32]| format!("<{}>", v.iter().map(|x| short(*x)).collect::<Vec<_>>().join(", "));
     match &node.node_type {
-        IceGraphNodeType::ConstVec3  { value } => Some(format!("<{}, {}, {}>", short(value.x), short(value.y), short(value.z))),
-        IceGraphNodeType::ConstFloat { value } => Some(short(*value)),
-        IceGraphNodeType::ConstInt   { value } => Some(value.to_string()),
-        _ => None,
+        IceGraphNodeType::Constant { value } => Some(match value {
+            Value::Bool(b) => b.to_string(),
+            Value::Int(i) => i.to_string(),
+            Value::Float(f) => short(*f),
+            Value::Vec2(v) => list(v),
+            Value::Vec3(v) => list(v),
+            Value::Vec4(v) => list(v),
+        }),
+        IceGraphNodeType::GetData { name } | IceGraphNodeType::SetData { name } => Some(format!("self.{name}")),
+        IceGraphNodeType::Root { context } => Some(format!("per {context:?}")),
+        IceGraphNodeType::Math { .. } => None,
     }
 }
 
@@ -137,9 +148,9 @@ fn output_socket_pos(node: &IceGraphNode, idx: usize, collapsed: &HashSet<NodeId
 /// A node's colour, by kind.
 fn tint(t: &IceGraphNodeType) -> egui::Color32 {
     match t {
-        IceGraphNodeType::SubInput | IceGraphNodeType::SubOutput => pal::TEAL(),
-        IceGraphNodeType::GetTemplate | IceGraphNodeType::CopyToPoints => pal::BLUE(),
-        _ => pal::GREEN(),
+        IceGraphNodeType::Root { .. } => pal::TEAL(),
+        IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
+        IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } => pal::GREEN(),
     }
 }
 
@@ -170,7 +181,9 @@ pub fn draw_breadcrumb(ui: &mut egui::Ui, subnet_name: &str) -> bool {
 /// The parameters of a node inside an ICE subnet, laid out like every
 /// other node's (see `properties::form`).
 pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
-    use crate::properties::form::{group, Status};
+    use crate::core::geo::Context;
+    use crate::properties::form::group;
+    use xms_ice::Value;
     let Some(node) = graph.selected_node.and_then(|s| graph.nodes.iter_mut().find(|n| n.id == s)) else {
         ui.label("Select a node to see its parameters.");
         return;
@@ -178,21 +191,53 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
     let title = format!("{}  {}", crate::types::subnet_node_icon(&node.node_type), crate::types::subnet_node_label(&node.node_type));
     group(ui, &title, None, |f| { f.text("Name", None, &mut node.name, ""); });
     match &mut node.node_type {
-        IceGraphNodeType::ConstVec3 { value } => group(ui, "Value", None, |f| {
-            let mut v = value.to_array();
-            if f.xyz("Value", None, &mut v, 0.01, "") { *value = glam::Vec3::from_array(v); }
+        IceGraphNodeType::Root { context } => group(ui, "Runs over", None, |f| {
+            f.choice("Context", Some("The elements every Execute port runs over"), context,
+                     &[(Context::Point, "Point"), (Context::Face, "Face"), (Context::Corner, "Corner"), (Context::Object, "Object")]);
         }),
-        IceGraphNodeType::ConstFloat { value } => group(ui, "Value", None, |f| { f.drag("Value", None, value, 0.01, ""); }),
-        IceGraphNodeType::ConstInt { value } => group(ui, "Value", None, |f| {
-            f.row("Value", None, |ui| ui.add(egui::DragValue::new(value).speed(1)));
+        IceGraphNodeType::GetData { name } | IceGraphNodeType::SetData { name } => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("P is the points; any other name is an attribute of the geometry"), name, "P");
         }),
-        IceGraphNodeType::MultiplyVec3 { scalar } => group(ui, "Multiply", None, |f| { f.drag("Scalar", None, scalar, 0.01, ""); }),
-        IceGraphNodeType::LerpVec3 { t } => group(ui, "Blend", None, |f| { f.slider("Amount", None, t, 0.0..=1.0, ""); }),
-        IceGraphNodeType::ScatterPoints { count, seed } => group(ui, "Points", None, |f| {
-            f.slider_u32("Count", None, count, 1..=10_000, "");
-            f.row("Seed", None, |ui| ui.add(egui::DragValue::new(seed).speed(1)));
-        }),
-        _ => group(ui, "Parameters", None, |f| f.status(Status::Info, "None")),
+        IceGraphNodeType::Constant { value } => group(ui, "Value", None, |f| { value_row(f, "Value", value); }),
+        IceGraphNodeType::Math { .. } => {}
+    }
+    // What each input holds while nothing is wired to it.
+    let free: Vec<usize> = node.inputs.iter().enumerate()
+        .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
+        .map(|(k, _)| k).collect();
+    if !free.is_empty() {
+        group(ui, "Inputs", Some("Used while nothing is wired in"), |f| {
+            for k in free {
+                let input = &mut node.inputs[k];
+                let Some(value) = input.value.as_mut() else { continue };
+                let mut kind = value.ty();
+                if f.choice(&format!("{} type", input.name), None, &mut kind,
+                            &[(xms_ice::Ty::Float, "Scalar"), (xms_ice::Ty::Int, "Integer"), (xms_ice::Ty::Vec3, "3D Vector"), (xms_ice::Ty::Bool, "Boolean")]) {
+                    *value = match kind {
+                        xms_ice::Ty::Int => Value::Int(0),
+                        xms_ice::Ty::Vec3 => value.convert(xms_ice::Ty::Vec3).unwrap_or(Value::Vec3([0.0; 3])),
+                        xms_ice::Ty::Bool => Value::Bool(false),
+                        _ => value.convert(xms_ice::Ty::Float).unwrap_or(Value::Float(0.0)),
+                    };
+                }
+                value_row(f, &input.name, value);
+            }
+        });
+    }
+}
+
+/// A row editing one value, by its type.
+fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms_ice::Value) {
+    use xms_ice::Value;
+    match value {
+        Value::Bool(b) => { f.toggle(label, None, b); }
+        Value::Int(i) => { f.row(label, None, |ui| ui.add(egui::DragValue::new(i).speed(1))); }
+        Value::Float(x) => { f.drag(label, None, x, 0.01, ""); }
+        Value::Vec2(v) => { f.uv(label, None, v, 0.01); }
+        Value::Vec3(v) => { f.xyz(label, None, v, 0.01, ""); }
+        Value::Vec4(v) => {
+            f.row(label, None, |ui| for c in v.iter_mut() { ui.add(egui::DragValue::new(c).speed(0.01)); });
+        }
     }
 }
 
@@ -314,6 +359,18 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     for node in &nodes_clone {
         draw_subnet_node(ui, &painter, graph, node, &to_screen, &to_canvas, z, &mut collapsed);
     }
+    // Where the graph broke, the last time it ran: a red ring on the node,
+    // and why, along the top of the canvas.
+    let broken = graph.error.lock().ok().and_then(|e| e.clone());
+    if let Some((id, message)) = broken {
+        if let Some(node) = graph.nodes.iter().find(|n| n.id == id) {
+            let size = layout(node, collapsed.contains(&id)).size * z;
+            let r = egui::Rect::from_min_size(to_screen(node.position), size).expand(3.0 * z);
+            painter.rect_stroke(r, ROUNDING * z, egui::Stroke::new(2.0_f32, pal::ERROR()), egui::StrokeKind::Outside);
+        }
+        painter.text(canvas_rect.left_top() + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, message,
+                     egui::FontId::proportional(12.0), pal::ERROR());
+    }
     ui.data_mut(|d| d.insert_temp(collapsed_id(), collapsed));
 
     // Cancel wire only if mouse released and no socket consumed it
@@ -333,69 +390,31 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         let ptr = ui.input(|i| i.pointer.hover_pos().unwrap_or_default());
         let cp  = to_canvas(ptr);
 
+        let mut add = |ui: &mut egui::Ui, label: &str, name: &str, t: IceGraphNodeType| {
+            if ui.button(label).clicked() {
+                let id = graph.add_node(name.into(), t, cp);
+                graph.selected_node = Some(id);
+                ui.close();
+            }
+        };
+        use xms_ice::{Math, Value};
+        ui.label(egui::RichText::new("Data Access").strong());
+        add(ui, "▶  Get Data", "Get P", IceGraphNodeType::GetData { name: "P".into() });
+        add(ui, "■  Set Data", "Set P", IceGraphNodeType::SetData { name: "P".into() });
+        ui.separator();
         ui.label(egui::RichText::new("Constants").strong());
-        if ui.button("→v  Const Vec3").clicked() {
-            graph.add_node("Vec3".into(), IceGraphNodeType::ConstVec3 { value: Vec3::ZERO }, cp);
-            ui.close();
-        }
-        if ui.button("→f  Const Float").clicked() {
-            graph.add_node("Float".into(), IceGraphNodeType::ConstFloat { value: 0.0 }, cp);
-            ui.close();
-        }
-        if ui.button("→i  Const Int").clicked() {
-            graph.add_node("Int".into(), IceGraphNodeType::ConstInt { value: 0 }, cp);
-            ui.close();
-        }
+        add(ui, "●  Scalar", "Scalar", IceGraphNodeType::Constant { value: Value::Float(0.0) });
+        add(ui, "●  Integer", "Integer", IceGraphNodeType::Constant { value: Value::Int(0) });
+        add(ui, "●  3D Vector", "Vector", IceGraphNodeType::Constant { value: Value::Vec3([0.0; 3]) });
+        add(ui, "●  Boolean", "Boolean", IceGraphNodeType::Constant { value: Value::Bool(false) });
         ui.separator();
-        ui.label(egui::RichText::new("Vec3 Math").strong());
-        if ui.button("+  Add").clicked() {
-            graph.add_node("Add".into(), IceGraphNodeType::AddVec3, cp);
-            ui.close();
-        }
-        if ui.button("-  Subtract").clicked() {
-            graph.add_node("Subtract".into(), IceGraphNodeType::SubtractVec3, cp);
-            ui.close();
-        }
-        if ui.button("×  Multiply").clicked() {
-            graph.add_node("Multiply".into(), IceGraphNodeType::MultiplyVec3 { scalar: 1.0 }, cp);
-            ui.close();
-        }
-        if ui.button("×  Cross Product").clicked() {
-            graph.add_node("Cross".into(), IceGraphNodeType::CrossProduct, cp);
-            ui.close();
-        }
-        if ui.button("|v|  Normalize").clicked() {
-            graph.add_node("Normalize".into(), IceGraphNodeType::Normalize, cp);
-            ui.close();
-        }
-        ui.separator();
-        ui.label(egui::RichText::new("Scalar").strong());
-        if ui.button("·  Dot Product").clicked() {
-            graph.add_node("Dot".into(), IceGraphNodeType::DotProduct, cp);
-            ui.close();
-        }
-        ui.separator();
-        ui.label(egui::RichText::new("Interpolate").strong());
-        if ui.button("≈  Lerp").clicked() {
-            graph.add_node("Lerp".into(), IceGraphNodeType::LerpVec3 { t: 0.5 }, cp);
-            ui.close();
-        }
-        ui.separator();
-        ui.label(egui::RichText::new("Points").strong());
-        if ui.button("→  Scatter Points").clicked() {
-            graph.add_node("Scatter".into(), IceGraphNodeType::ScatterPoints { count: 100, seed: 0 }, cp);
-            ui.close();
-        }
-        ui.separator();
-        ui.label(egui::RichText::new("Geometry").strong());
-        if ui.button("📦  Get Template").clicked() {
-            graph.add_node("GetTemplate".into(), IceGraphNodeType::GetTemplate, cp);
-            ui.close();
-        }
-        if ui.button("❇  Copy to Points").clicked() {
-            graph.add_node("CopyToPoints".into(), IceGraphNodeType::CopyToPoints, cp);
-            ui.close();
-        }
+        ui.menu_button("±  Math", |ui| {
+            for op in Math::ALL {
+                let t = IceGraphNodeType::Math { op };
+                let label = crate::types::subnet_node_label(&t);
+                add(ui, label, label, t);
+            }
+        });
     });
     false
 }
@@ -509,7 +528,7 @@ fn draw_subnet_node(
 
     // ── Title bar interactions (lowest priority — allocated first) ────────────
     if dr.clicked() { graph.selected_node = Some(id); }
-    let terminal = matches!(node.node_type, IceGraphNodeType::SubInput | IceGraphNodeType::SubOutput);
+    let terminal = matches!(node.node_type, IceGraphNodeType::Root { .. });
     if !terminal {
         dr.context_menu(|ui| {
             if ui.button("Delete").clicked() {
@@ -557,7 +576,8 @@ fn type_colour(hint: &str) -> egui::Color32 {
     match hint {
         "Float" => pal::SCALAR(),
         "Int"   => pal::INTEGER(),
-        "Vec3"  => pal::VECTOR(),
+        "Vec2" | "Vec3" | "Vec4" => pal::VECTOR(),
+        "Bool"  => pal::BOOLEAN(),
         "Mesh"  => pal::GEO(),
         _       => pal::OTHER(),
     }

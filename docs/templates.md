@@ -29,14 +29,13 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
-| ICE graph: spherify | A cube subdivided three times, then an ICE graph: Normalize sets every point to unit length, Multiply scales by 1.2. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
+| ICE graph: spherify | A cube subdivided three times, then an ICE graph: Get Data reads P, Normalize sets every point to unit length, Multiply scales by 1.2, Set Data writes P back, run by the ICE Tree. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
 
 ## Simon: Basics
 
 | Template | Shows |
 |---|---|
 | Shapes | Cube, sphere and grid, each moved with a Transform and joined with Merge |
-| ICE graph | Points scattered on a grid and a small sphere copied onto each, inside an ICE graph. Double-click the ICE node, or select it and press ↓, to open it. Its Merge is set to Flatten: both inputs come from the same grid, at the same path |
 | USD import | Two USD files loaded with Load USD, one moved onto the other, merged |
 
 ## Simon: Modelling
