@@ -591,10 +591,10 @@ mod tests {
             // Get P → Normalize → Multiply (by 1.5) → Set P → ICE Tree.
             let sg = subnets.get_mut(sid).unwrap();
             let root = sg.root().unwrap();
-            let p = sg.add_node("P".into(), IceGraphNodeType::GetData { name: "P".into() }, egui::pos2(0.0, 200.0));
+            let p = sg.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 200.0));
             let norm = sg.add_node("Normalize".into(), IceGraphNodeType::Math { op: xms_ice::Math::Normalize }, egui::pos2(200.0, 200.0));
             let grow = sg.add_node("Multiply".into(), IceGraphNodeType::Math { op: xms_ice::Math::Multiply }, egui::pos2(300.0, 200.0));
-            let set = sg.add_node("Set P".into(), IceGraphNodeType::SetData { name: "P".into() }, egui::pos2(400.0, 200.0));
+            let set = sg.add_node("Set P".into(), IceGraphNodeType::set("P"), egui::pos2(400.0, 200.0));
             sg.nodes.iter_mut().find(|n| n.id == grow).unwrap().inputs[1].value = Some(xms_ice::Value::Float(1.5));
             sg.add_connection(p, 0, norm, 0);
             sg.add_connection(norm, 0, grow, 0);

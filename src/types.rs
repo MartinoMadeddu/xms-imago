@@ -469,12 +469,33 @@ pub enum IceGraphNodeType {
     /// The graph's end: Execute ports, run in order, over every element of
     /// `context`.
     Root { context: crate::core::geo::Context },
-    /// An attribute of the geometry (`P` is the points).
-    GetData { name: String },
-    /// Set an attribute; its Execute goes into the root.
-    SetData { name: String },
+    /// An attribute of the geometry (`P` is the points), read in the
+    /// graph's own context, or from `context` across (see
+    /// `xms_ice::Op::GetData`), the values an element touches made one by
+    /// `reduce`.
+    GetData {
+        name: String,
+        #[serde(default)] context: Option<crate::core::geo::Context>,
+        #[serde(default)] reduce: xms_ice::Reduce,
+    },
+    /// Set an attribute; its Execute goes into the root. Written in the
+    /// graph's own context, or into `context` (see `xms_ice::Op::SetData`),
+    /// the values each element there touches made one by `reduce`.
+    SetData {
+        name: String,
+        #[serde(default)] context: Option<crate::core::geo::Context>,
+        #[serde(default)] reduce: xms_ice::Reduce,
+    },
     Constant { value: xms_ice::Value },
     Math { op: xms_ice::Math },
+}
+
+impl IceGraphNodeType {
+    /// Get Data of an attribute, in the graph's own context.
+    pub fn get(name: &str) -> Self { IceGraphNodeType::GetData { name: name.into(), context: None, reduce: Default::default() } }
+
+    /// Set Data of an attribute, in the graph's own context.
+    pub fn set(name: &str) -> Self { IceGraphNodeType::SetData { name: name.into(), context: None, reduce: Default::default() } }
 }
 
 pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
