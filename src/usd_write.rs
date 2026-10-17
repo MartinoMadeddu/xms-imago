@@ -26,6 +26,7 @@
 //!
 //! Values are written at the current frame, as single values.
 
+use crate::core::geo_mesh::GeoMesh;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

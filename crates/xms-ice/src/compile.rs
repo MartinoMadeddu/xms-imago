@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::core::geo::{Column, Context, Geo, Role, POINTS};
+use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::graph::{Graph, Input, Math, Op};
 use super::types::{Ty, Value};

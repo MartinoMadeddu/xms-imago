@@ -21,7 +21,7 @@ file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) 
 
 ## 3. Geometry: `Geo`
 
-One model for primitives, nodes and ICE (`core::geo`).
+One model for primitives, nodes and ICE: its own crate, `crates/xms-geo`, depending on nothing (the app reaches it as `core::geo`, and converts it to and from `MeshData` with `core::geo_mesh::GeoMesh`).
 
 | `Context` | values per | USD interpolation | ICE |
 |---|---|---|---|
@@ -108,7 +108,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 
 **Now:** a graph runs on each primitive, in the primitive's own space (object space), on its `Geo`. Nodes read and write whole per-point arrays (`P` = points). Writes replace only their column. The output is the primitive with its `geo` updated, so ICE results are edits like any other node's and are written to USD the same way. The node implementations are placeholders.
 
-**The engine (`src/ice/engine/`, being built on `core/ice-refactor`):** stage 1 is in: the graph (`Op`: Get Data, Set Data, Parameter, Constant, Math), the compiler (types, contexts, uniform hoisting, only what reaches the root, reads and writes listed) and the batched executor (4,096 elements a batch, Rayon, registers per thread). It reads only the columns the graph uses and gives new columns only to the attributes it sets; every other column of the result is the input's. The ICE operator moves onto it in stage 2.
+**The engine (its own crate, `crates/xms-ice`, on `xms-geo` only; being built on `core/ice-refactor`):** stage 1 is in: the graph (`Op`: Get Data, Set Data, Parameter, Constant, Math), the compiler (types, contexts, uniform hoisting, only what reaches the root, reads and writes listed) and the batched executor (4,096 elements a batch, Rayon, registers per thread). It reads only the columns the graph uses and gives new columns only to the attributes it sets; every other column of the result is the input's. The ICE operator moves onto it in stage 2.
 
 **Planned engine:** loosely modelled after Softimage ICE and Houdini VOPs: ICE's contexts and per-element arrays, with a compile step in the spirit of VOPs. Three layers.
 
@@ -163,7 +163,9 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `src/materialx/` | The MaterialX operator: its graph in the operator (`NodeType::MaterialX`, saved as its document), the canvas it is edited in (`ui`, as the ICE graph's), the Parameters of its nodes laid out from their definitions (`params`), its material's surface for the Viewer (`surface_of`), a stage's material as a graph (`from_usd`, from the scene layer's shader network) |
 | `src/usd_stage.rs` | scene layer → `Geo` + placements + `StageTree` |
 | `src/usd_scene.rs` | `UsdScene`, loading and caching, root-layer fallback |
-| `src/core/geo.rs` | `Geo`, `Column`, `Attr`, `Topology`, `Context` |
+| `crates/xms-geo` | `Geo`, `Column`, `Attr`, `Topology`, `Context`, `CurveBasis`, `CurveWrap` (in the app: `core::geo`) |
+| `src/core/geo_mesh.rs` | `GeoMesh`: `Geo` to and from `MeshData` |
+| `crates/xms-ice` | the ICE engine: graph, compiler, batched executor |
 | `src/core/properties.rs` | Properties: values and their types, Object and Property contexts, the properties Imago knows and how each is written, opinions on prims without geometry, inheritance (visibility, purpose, Object values) |
 | `src/core/set_attribute.rs` | The Set Attribute operator: its rows, and setting them on the prims its Prims Location tab names |
 | `src/core/locations.rs` | Primitive Locations: matching paths, picking by a list, pruning |

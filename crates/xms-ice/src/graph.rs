@@ -1,7 +1,7 @@
 //! The graph as the engine sees it. The editor's graph (positions, names,
 //! selection) is turned into this before compiling.
 
-use crate::core::geo::Context;
+use xms_geo::Context;
 
 use super::types::Value;
 

@@ -1,13 +1,10 @@
 pub mod ui;     // Keep as-is
 
-/// The new engine (graph, compiler, batched executor): see `engine/mod.rs`.
-/// Not used by the ICE operator until stage 2 of the refactor.
-#[allow(dead_code)]
-pub mod engine;
 // NEW - Array-based execution system
 pub mod ops;
 pub mod ice_nodes;
 
+use crate::core::geo_mesh::GeoMesh;
 use std::collections::HashMap;
 use glam::Vec3;
 use crate::types::{

@@ -1,0 +1,11 @@
+[package]
+name = "xms-ice"
+version.workspace = true
+edition = "2021"
+description = "XMS | Imago's ICE engine: graphs compiled into plans, run over a Geo's attributes in parallel batches"
+
+[dependencies]
+xms-geo = { path = "../xms-geo" }
+glam = "0.27"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }

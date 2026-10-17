@@ -12,7 +12,7 @@ use std::sync::Arc;
 use glam::{Vec2, Vec3, Vec4};
 use rayon::prelude::*;
 
-use crate::core::geo::{Attr, Column, Geo};
+use xms_geo::{Attr, Column, Geo};
 
 use super::compile::{Ins, Plan, Program};
 use super::graph::Math;

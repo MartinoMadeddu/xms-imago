@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::core::geo::{Attr, Column, Context, Geo, Role, POINTS};
+use xms_geo::{Attr, Column, Context, Geo, Role, POINTS};
 
 use super::graph::{wire, Graph, Input, Math, Op};
 use super::types::Value;
@@ -173,7 +173,7 @@ fn vector_maths() {
 }
 
 /// P += N × (heat × amount) over a million points.
-/// `cargo test --release ice_engine_speed -- --ignored --nocapture`
+/// `cargo test -p xms-ice --release ice_engine_speed -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn ice_engine_speed() {

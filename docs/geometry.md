@@ -4,7 +4,7 @@ How geometry is held and passed between nodes, for anyone writing a node. Three 
 
 ## `Geo`: attribute columns per context
 
-`core::geo::Geo` is the geometry of primitives, of the nodes and of ICE: a topology and, for each context, named attributes.
+`core::geo::Geo` is the geometry of primitives, of the nodes and of ICE: a topology and, for each context, named attributes. It is its own crate, `crates/xms-geo`, which depends on nothing; `core::geo` is that crate, and `core::geo_mesh::GeoMesh` converts it to and from the `MeshData` the Viewer and the modelling operators still use.
 
 | `Context` | values per | USD interpolation | ICE context |
 |---|---|---|---|
@@ -50,4 +50,4 @@ Write USD (`usd_write`) turns an edit set into an override layer. A render deleg
 
 ## Tests
 
-`cargo test core::geo` (the model), `cargo test edits` (finding edits), `cargo test usd_write` (writing, and reading the written layer back through the composed reader).
+`cargo test -p xms-geo` and `cargo test geo_mesh` (the model, and its `MeshData` view), `cargo test edits` (finding edits), `cargo test usd_write` (writing, and reading the written layer back through the composed reader).

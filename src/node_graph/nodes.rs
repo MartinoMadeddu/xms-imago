@@ -1,3 +1,4 @@
+use crate::core::geo_mesh::GeoMesh;
 use glam::{EulerRot, Quat, Vec3};
 use crate::types::{EvalResult, MeshData, MergeMode, Prim, NodeType, Placement, RetimeMode, IceGraphId};
 use crate::core::anim::{self, AnimData, FrameRate};

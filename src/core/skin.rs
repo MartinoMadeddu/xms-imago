@@ -9,6 +9,7 @@
 //! `skel:jointWeights`, the four weights. Load FBX puts them on the meshes it
 //! reads; Capture makes them by proximity to the bones.
 
+use crate::core::geo_mesh::GeoMesh;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 

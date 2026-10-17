@@ -1,3 +1,4 @@
+use crate::core::geo_mesh::GeoMesh;
 use glam::Vec3;
 
 // ============================================================================
@@ -588,25 +589,8 @@ pub struct MeshData {
     pub widths:       Vec<f32>,
 }
 
-/// How curves pass through their control points (USD `basis`, with `type`
-/// linear as `Linear`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CurveBasis {
-    #[default]
-    Linear,
-    Bezier,
-    Bspline,
-    CatmullRom,
-}
-
-/// How curves end (USD `wrap`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CurveWrap {
-    #[default]
-    Nonperiodic,
-    Periodic,
-    Pinned,
-}
+// The curve enums live with the geometry model (`xms-geo`).
+pub use xms_geo::{CurveBasis, CurveWrap};
 
 impl MeshData {
     pub fn from_triangles(vertices: Vec<[f32; 3]>, indices: Vec<u32>) -> Self {

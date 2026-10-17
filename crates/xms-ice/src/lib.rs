@@ -1,5 +1,9 @@
 //! The ICE engine: a graph of nodes compiled into a plan, and the plan run
-//! over a geometry's attributes in parallel batches.
+//! over a geometry's attributes (`xms_geo::Geo`) in parallel batches.
+//!
+//! Its own crate, depending on the geometry model and nothing of the app:
+//! no interface, no node editor. The app turns its ICE graphs into
+//! `graph::Graph` and runs the plan.
 //!
 //! Loosely modelled after Softimage ICE and Houdini VOPs: ICE's contexts and
 //! per-element attribute arrays, VOPs' compile step.
@@ -20,7 +24,7 @@ pub mod graph;
 pub mod types;
 
 pub use compile::{compile, CompileError, Plan};
-pub use exec::run;
+pub use exec::{run, BATCH};
 pub use graph::{Graph, Input, Math, Node, Op};
 pub use types::{Ty, Value};
 
