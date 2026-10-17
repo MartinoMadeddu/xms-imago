@@ -955,10 +955,10 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     if let Some(sub) = store.get_mut(id) {
         // Get P → Normalize → Multiply (by 1.2) → Set P → ICE Tree.
         let root = sub.root().expect("every ICE graph has a root");
-        let get = sub.add_node("P".into(), IceGraphNodeType::GetData { name: "P".into() }, p(80.0, 200.0));
+        let get = sub.add_node("P".into(), IceGraphNodeType::get("P"), p(80.0, 200.0));
         let norm = sub.add_node("Normalize".into(), IceGraphNodeType::Math { op: xms_ice::Math::Normalize }, p(220.0, 200.0));
         let grow = sub.add_node("Scale".into(), IceGraphNodeType::Math { op: xms_ice::Math::Multiply }, p(360.0, 200.0));
-        let set = sub.add_node("Set P".into(), IceGraphNodeType::SetData { name: "P".into() }, p(500.0, 200.0));
+        let set = sub.add_node("Set P".into(), IceGraphNodeType::set("P"), p(500.0, 200.0));
         if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == grow) { n.inputs[1].value = Some(xms_ice::Value::Float(1.2)); }
         sub.add_connection(get, 0, norm, 0);
         sub.add_connection(norm, 0, grow, 0);

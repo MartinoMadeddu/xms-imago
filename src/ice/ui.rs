@@ -57,7 +57,6 @@ mod pal {
     pub fn VECTOR() -> Color32  { Color32::from_rgb(235, 225,  60) }   // Vec2, Vec3, Vec4: yellow
     pub fn BOOLEAN() -> Color32 { Color32::from_rgb(214,  64,  56) }   // Bool: red
     pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
-    pub fn GEO() -> Color32     { Color32::from_rgb(220,  40, 200) }   // Mesh / geometry: magenta
     pub fn OTHER() -> Color32   { Color32::from_rgb( 85,  85,  85) }   // execute and the rest: dark grey
 }
 
@@ -94,10 +93,23 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             Value::Vec3(v) => list(v),
             Value::Vec4(v) => list(v),
         }),
-        IceGraphNodeType::GetData { name } | IceGraphNodeType::SetData { name } => Some(format!("self.{name}")),
+        // Across contexts: where from, and how the values become one.
+        IceGraphNodeType::GetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
+        IceGraphNodeType::SetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
+        IceGraphNodeType::GetData { name, .. } | IceGraphNodeType::SetData { name, .. } => Some(format!("self.{name}")),
         IceGraphNodeType::Root { context } => Some(format!("per {context:?}")),
         IceGraphNodeType::Math { .. } => None,
     }
+}
+
+/// A context as Get Data's line under the title names it.
+fn context_word(c: crate::core::geo::Context) -> &'static str {
+    use crate::core::geo::Context;
+    match c { Context::Point => "point", Context::Face => "face", Context::Corner => "corner", Context::Object => "object" }
+}
+
+fn reduce_word(r: xms_ice::Reduce) -> &'static str {
+    match r { xms_ice::Reduce::Average => "average", xms_ice::Reduce::Sum => "sum", xms_ice::Reduce::Min => "min", xms_ice::Reduce::Max => "max" }
 }
 
 /// A number as short as it reads: 1, 0.5, 0.125.
@@ -184,6 +196,13 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
     use crate::core::geo::Context;
     use crate::properties::form::group;
     use xms_ice::Value;
+    // The geometry the graph last ran on, for Get Data's list: listed only
+    // while the list is open.
+    let last_input = graph.last_input.clone();
+    // The context the graph runs over: Set Data's Several is for writing
+    // from it into another.
+    let runs_over = graph.nodes.iter().find_map(|n| match n.node_type { IceGraphNodeType::Root { context } => Some(context), _ => None })
+        .unwrap_or(Context::Point);
     let Some(node) = graph.selected_node.and_then(|s| graph.nodes.iter_mut().find(|n| n.id == s)) else {
         ui.label("Select a node to see its parameters.");
         return;
@@ -195,8 +214,41 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
             f.choice("Context", Some("The elements every Execute port runs over"), context,
                      &[(Context::Point, "Point"), (Context::Face, "Face"), (Context::Corner, "Corner"), (Context::Object, "Object")]);
         }),
-        IceGraphNodeType::GetData { name } | IceGraphNodeType::SetData { name } => group(ui, "Attribute", None, |f| {
-            f.text("Name", Some("P is the points; any other name is an attribute of the geometry"), name, "P");
+        IceGraphNodeType::GetData { name, context, reduce } => {
+            group(ui, "Attribute", None, |f| {
+                f.text("Name", Some("P is the points, N the normals, uv the first texture coordinates; any other name is an attribute of the geometry"), name, "P");
+                // Every attribute of the geometry the graph last ran on, as the
+                // Primitive Inspector lists them: choosing one sets the name
+                // and where it is read from. Listed when opened, not before.
+                if last_input.lock().is_ok_and(|g| g.is_some()) {
+                    f.row("Attributes", Some("The attributes of the geometry coming in: pick one to read it"), |ui| {
+                        egui::ComboBox::from_id_salt("ice_get_data_attrs").width(ui.available_width() - 8.0)
+                            .selected_text("Pick an attribute...").show_ui(ui, |ui| {
+                                for (c, n, kind) in &super::readable(&last_input) {
+                                    if ui.selectable_label(*n == *name, format!("{n}   {} {kind}", context_word(*c))).clicked() {
+                                        *name = if n == "points" { "P".into() } else { n.clone() };
+                                        *context = Some(*c);
+                                    }
+                                }
+                            });
+                    });
+                }
+                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it"),
+                         context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
+                if context.is_some_and(|c| c != Context::Object) {
+                    f.choice("Several", Some("When an element touches several of the context read (a face's points, the faces around a point), how they become one value"),
+                             reduce, &[(xms_ice::Reduce::Average, "Average"), (xms_ice::Reduce::Sum, "Sum"), (xms_ice::Reduce::Min, "Min"), (xms_ice::Reduce::Max, "Max")]);
+                }
+            })
+        }
+        IceGraphNodeType::SetData { name, context, reduce } => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("P is the points, N the normals; any other name makes or sets an attribute"), name, "P");
+            f.choice("Context", Some("Where the attribute is written. Auto: the graph's own context. Into another, each element there takes the values of the graph's elements it touches: a face its points, a point the faces around it, the object all of them"),
+                     context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
+            if context.is_some_and(|c| c != runs_over) && runs_over != Context::Object {
+                f.choice("Several", Some("When an element written touches several of the graph's (a face's points, the faces around a point), how their values become one"),
+                         reduce, &[(xms_ice::Reduce::Average, "Average"), (xms_ice::Reduce::Sum, "Sum"), (xms_ice::Reduce::Min, "Min"), (xms_ice::Reduce::Max, "Max")]);
+            }
         }),
         IceGraphNodeType::Constant { value } => group(ui, "Value", None, |f| { value_row(f, "Value", value); }),
         IceGraphNodeType::Math { .. } => {}
@@ -253,6 +305,8 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         egui::Sense::click_and_drag(),
     );
     let canvas_rect = response.rect;
+    // The types of the outputs, wired or not, for the ports and wires.
+    graph.refresh_types();
     let mut collapsed: HashSet<NodeId> = ui.data(|d| d.get_temp(collapsed_id())).unwrap_or_default();
     let keys_free = response.hovered() && !ui.ctx().egui_wants_keyboard_input();
 
@@ -333,7 +387,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
             if let Some(ptr) = response.hover_pos() {
                 if is_near_bezier_h(ptr, fp, tp, 10.0) { hovered = Some(conn.id); }
             }
-            let colour = type_colour(fn_.outputs.get(conn.from_output).map(|o| o.value_hint).unwrap_or(""));
+            let colour = out_colour(graph, fn_.id, conn.from_output);
             draw_wire_h(&painter, fp, tp, colour, hovered == Some(conn.id), z);
         }
     }
@@ -346,7 +400,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         if let Some(fn_) = graph.nodes.iter().find(|n| n.id == fid) {
             let fp  = to_screen(output_socket_pos(fn_, fo, &collapsed));
             let ptr = ui.input(|i| i.pointer.hover_pos());
-            let colour = type_colour(fn_.outputs.get(fo).map(|o| o.value_hint).unwrap_or(""));
+            let colour = out_colour(graph, fid, fo);
             if let Some(ptr) = ptr { draw_wire_h(&painter, fp, ptr, colour, false, z); }
         }
     }
@@ -385,38 +439,133 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         graph.pan_offset += response.drag_delta();
     }
 
-    // Context menu: new nodes land under the pointer, whatever the zoom.
-    response.context_menu(|ui| {
-        let ptr = ui.input(|i| i.pointer.hover_pos().unwrap_or_default());
-        let cp  = to_canvas(ptr);
+    // ── Add a node: Tab or right-click on the canvas, as in every graph ─────
+    // A menu with a search line: ↓ and ↑ through what is found, Enter adds.
+    let menu_id = egui::Id::new(("ice_add", graph.id.0));
+    let mut menu_at: Option<egui::Pos2> = ui.data(|d| d.get_temp::<Option<egui::Pos2>>(menu_id)).flatten();
+    let mut opened_now = false;
+    if response.hovered() && hovered.is_none() && (response.secondary_clicked() || ui.input(|i| i.key_pressed(egui::Key::Tab))) {
+        menu_at = ui.input(|i| i.pointer.hover_pos());
+        opened_now = true;
+    }
+    if let Some(at) = menu_at {
+        let mut close = false;
+        let area = egui::Area::new(menu_id.with("area"))
+            .fixed_pos(at)
+            .order(egui::Order::Foreground)
+            .constrain(true)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(190.0);
+                    if let Some(t) = add_menu(ui, opened_now) {
+                        let name = crate::types::subnet_node_label(&t).to_string();
+                        let id = graph.add_node(name, t, to_canvas(at));
+                        graph.selected_node = Some(id);
+                        close = true;
+                    }
+                });
+            });
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) { close = true; }
+        if !opened_now && ui.input(|i| i.pointer.any_click()) && !area.response.contains_pointer() && !ui.ctx().any_popup_open() {
+            close = true;
+        }
+        if close { menu_at = None; }
+    }
+    ui.data_mut(|d| d.insert_temp(menu_id, menu_at));
+    false
+}
 
-        let mut add = |ui: &mut egui::Ui, label: &str, name: &str, t: IceGraphNodeType| {
-            if ui.button(label).clicked() {
-                let id = graph.add_node(name.into(), t, cp);
-                graph.selected_node = Some(id);
-                ui.close();
-            }
-        };
-        use xms_ice::{Math, Value};
-        ui.label(egui::RichText::new("Data Access").strong());
-        add(ui, "▶  Get Data", "Get P", IceGraphNodeType::GetData { name: "P".into() });
-        add(ui, "■  Set Data", "Set P", IceGraphNodeType::SetData { name: "P".into() });
-        ui.separator();
-        ui.label(egui::RichText::new("Constants").strong());
-        add(ui, "●  Scalar", "Scalar", IceGraphNodeType::Constant { value: Value::Float(0.0) });
-        add(ui, "●  Integer", "Integer", IceGraphNodeType::Constant { value: Value::Int(0) });
-        add(ui, "●  3D Vector", "Vector", IceGraphNodeType::Constant { value: Value::Vec3([0.0; 3]) });
-        add(ui, "●  Boolean", "Boolean", IceGraphNodeType::Constant { value: Value::Bool(false) });
-        ui.separator();
-        ui.menu_button("±  Math", |ui| {
-            for op in Math::ALL {
-                let t = IceGraphNodeType::Math { op };
-                let label = crate::types::subnet_node_label(&t);
-                add(ui, label, label, t);
+/// Every node the add menu offers: its category, the node as it is made,
+/// and a line on what it does.
+fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
+    use xms_ice::{Math, Value};
+    let mut out = vec![
+        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points)"),
+        ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the ICE Tree"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Float(0.0) }, "A number"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Int(0) }, "A whole number"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Vec2([0.0; 2]) }, "Two numbers"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Vec3([0.0; 3]) }, "Three numbers: a position, a direction, a colour"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Vec4([0.0; 4]) }, "Four numbers"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Bool(false) }, "True or false"),
+    ];
+    for op in Math::ALL {
+        out.push(("Math", IceGraphNodeType::Math { op }, ""));
+    }
+    out
+}
+
+/// The add menu: a search line, then the nodes by category. The node
+/// chosen, if one was.
+fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<IceGraphNodeType> {
+    let search_id = egui::Id::new("ice_add_search");
+    let mut search: String = if opened_now { String::new() } else { ui.data(|d| d.get_temp(search_id)).unwrap_or_default() };
+    let field = ui.add(egui::TextEdit::singleline(&mut search).hint_text("Search nodes").desired_width(180.0));
+    if opened_now { field.request_focus(); }
+    ui.data_mut(|d| d.insert_temp(search_id, search.clone()));
+    ui.separator();
+    let label = |t: &IceGraphNodeType| format!("{}  {}", crate::types::subnet_node_icon(t), crate::types::subnet_node_label(t));
+    let words = search.trim().to_lowercase();
+    let mut chosen = None;
+    if !words.is_empty() {
+        let found: Vec<(&'static str, IceGraphNodeType, &'static str)> = catalog().into_iter()
+            .filter(|(category, t, hint)| {
+                let text = format!("{} {category} {hint}", crate::types::subnet_node_label(t)).to_lowercase();
+                words.split_whitespace().all(|w| text.contains(w))
+            })
+            .collect();
+        let (hi, moved, enter) = crate::menus::search_keys(ui, egui::Id::new("ice_add_pick"), &words, found.len(), opened_now);
+        for (k, (category, t, hint)) in found.iter().enumerate() {
+            let mut r = ui.selectable_label(k == hi, format!("{}   {category}", label(t)));
+            if !hint.is_empty() { r = r.on_hover_text(*hint); }
+            if moved && k == hi { r.scroll_to_me(None); }
+            if r.clicked() { chosen = Some(t.clone()); }
+        }
+        if found.is_empty() { ui.label("No node by that name"); }
+        if enter { chosen = found.get(hi).map(|(_, t, _)| t.clone()); }
+        return chosen;
+    }
+    // Categories, each a submenu, as in the scene graph's menu.
+    let mut categories: Vec<&'static str> = vec![];
+    for (c, _, _) in catalog() { if !categories.contains(&c) { categories.push(c); } }
+    for category in categories {
+        crate::menus::menu(ui, category, |ui| {
+            for (c, t, hint) in catalog() {
+                if c != category { continue; }
+                let mut r = ui.button(label(&t));
+                if !hint.is_empty() { r = r.on_hover_text(hint); }
+                if r.clicked() { chosen = Some(t); ui.close(); }
             }
         });
-    });
-    false
+    }
+    chosen
+}
+
+/// A type's colour on ports and wires; Execute and what is not known yet
+/// are dark grey.
+fn ty_colour(t: Option<xms_ice::Ty>) -> egui::Color32 {
+    use xms_ice::Ty;
+    match t {
+        Some(Ty::Float) => pal::SCALAR(),
+        Some(Ty::Int) => pal::INTEGER(),
+        Some(Ty::Bool) => pal::BOOLEAN(),
+        Some(Ty::Vec2 | Ty::Vec3 | Ty::Vec4) => pal::VECTOR(),
+        None => pal::OTHER(),
+    }
+}
+
+/// An output's colour: the type it gives, as the graph's last run found it.
+fn out_colour(graph: &IceGraph, node: NodeId, output: usize) -> egui::Color32 {
+    ty_colour(graph.output_type(node, output))
+}
+
+/// An input's colour: what is wired into it, or the value it holds.
+fn in_colour(graph: &IceGraph, input: &super::IceGraphInputSocket) -> egui::Color32 {
+    if input.value_hint == "Execute" { return pal::OTHER(); }
+    match input.connected_output {
+        Some((from, out)) => out_colour(graph, from, out),
+        None => ty_colour(input.value.map(|v| v.ty())),
+    }
 }
 
 // ── Single node ───────────────────────────────────────────────────────────────
@@ -491,7 +640,7 @@ fn draw_subnet_node(
         let hit = egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0)));
         let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag());
         let wiring = graph.connecting_from == Some((id, i));
-        draw_port(painter, sp, type_colour(out.value_hint), sr.hovered() || wiring, z);
+        draw_port(painter, sp, out_colour(graph, id, i), sr.hovered() || wiring, z);
         if !folded {
             painter.text(egui::pos2(sp.x - 7.0 * z, sp.y), egui::Align2::RIGHT_CENTER, &out.name,
                 font(LABEL_PT), pal::INK());
@@ -510,7 +659,7 @@ fn draw_subnet_node(
         let sr  = ui.allocate_rect(hit, egui::Sense::drag());
         // Hovered while a wire is being drawn: a target.
         let target = sr.hovered() && graph.connecting_from.is_some();
-        draw_port(painter, sp, type_colour(inp.value_hint), target, z);
+        draw_port(painter, sp, in_colour(graph, inp), target, z);
         if !folded {
             painter.text(egui::pos2(sp.x + 7.0 * z, sp.y), egui::Align2::LEFT_CENTER, &inp.name,
                 font(LABEL_PT), pal::INK());
@@ -566,20 +715,6 @@ pub(crate) fn draw_fold_box(painter: &egui::Painter, r: egui::Rect) {
     for k in 1..=3 {
         let y = r.min.y + r.height() * k as f32 / 4.0;
         painter.line_segment([egui::pos2(r.min.x + 2.0, y), egui::pos2(r.max.x - 2.0, y)], egui::Stroke::new(1.0_f32, pal::RIM()));
-    }
-}
-
-// ── Colour helpers ────────────────────────────────────────────────────────────
-
-/// A data type's colour, as ICE shows it on ports and wires.
-fn type_colour(hint: &str) -> egui::Color32 {
-    match hint {
-        "Float" => pal::SCALAR(),
-        "Int"   => pal::INTEGER(),
-        "Vec2" | "Vec3" | "Vec4" => pal::VECTOR(),
-        "Bool"  => pal::BOOLEAN(),
-        "Mesh"  => pal::GEO(),
-        _       => pal::OTHER(),
     }
 }
 

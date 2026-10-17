@@ -273,6 +273,8 @@ fn float_rows(a: &Attr, count: usize) -> Option<Vec<Vec<f32>>> {
     let rows: Vec<Vec<f32>> = match &a.column {
         Column::Float(v) => v.iter().map(|x| vec![*x]).collect(),
         Column::Int(v) => v.iter().map(|x| vec![*x as f32]).collect(),
+        // Shown and written as 0 and 1.
+        Column::Bool(v) => v.iter().map(|x| vec![if *x { 1.0 } else { 0.0 }]).collect(),
         Column::Vec2(v) => v.iter().map(|x| x.to_vec()).collect(),
         Column::Vec3(v) => v.iter().map(|x| x.to_vec()).collect(),
         Column::Vec4(v) | Column::Quat(v) => v.iter().map(|x| x.to_vec()).collect(),

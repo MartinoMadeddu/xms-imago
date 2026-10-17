@@ -158,7 +158,7 @@ An ICE node holds a graph of its own. Double-click it, or select it and press â†
 
 | | |
 |---|---|
-| Add | Right-click the canvas |
+| Add | Right-click or Tab on the canvas: a search line (â†“ and â†‘ through what is found, Enter adds), then the nodes by category, as in the scene graph |
 | Wire | Drag from an output to an input |
 | Delete | Delete or Backspace on the selected node, or right-click its title. The graph's input and output stay |
 | Collapse | The box at the right of a node's title |
@@ -166,7 +166,7 @@ An ICE node holds a graph of its own. Double-click it, or select it and press â†
 | Zoom | Mouse wheel, towards the pointer |
 | Frame | F or A |
 
-A graph runs on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage.
+A graph runs on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage: every one, or those the ICE operator's Prims Location tab lists. Ports and wires are coloured by the type they carry (Scalar green, Integer dark green, vectors yellow, Boolean red, Execute and what is not known yet dark grey), as the graph's last run found them.
 
 ## Parameters
 
@@ -174,7 +174,7 @@ Every node's parameters are laid out the same way. The first group is the node's
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 
-Operators that work on primitives (Transform, Edit Poly, Prune Primitives, Set Attribute) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
+Operators that work on primitives (Transform, Edit Poly, Prune Primitives, Set Attribute, ICE) have two tabs under their name: **Parameters**, and **Prims Location**, the primitives the operator works on. Its **Primitive Locations** are a list, one path per row:
 
 - A path takes that primitive and everything below it: `/DeLorean/wheels` takes every wheel. `*` stands for any run of characters in a name, `?` for one, `**` for any number of levels: `/set/**/lamp*`. `/` takes everything.
 - Each row says how many of the primitives coming in it matches, in red when none: a typo shows at once. The tab's title counts the rows.
@@ -331,7 +331,7 @@ Results are kept up to about 3 GB, the least recently used going first. Copies o
 
 Measured on the example take (728 frames, 342 joints) and the car (1.7 million triangles), on 2 cores: a Body Collide node with the car upstream took 2.3 to 6.6 seconds every time it was asked for (its panel, the timeline and the Viewer each ask on every frame); it now takes 1 to 2 ms after its first cook. Retarget takes 25 to 45 ms for the take, Reach 250 ms; both work on every core, so on a machine with more cores they take less. Edit Poly on the car takes 2.8 seconds when an operation changes, once.
 
-While an ICE graph is open, every click and key press counts as a change.
+What an ICE graph computes is part of what the scene is: changing a value or a wire in one cooks again; moving, panning, zooming or selecting in it does not.
 
 The window draws a new frame when something happens (input, a change in the graph, playback, a texture arriving), not all the time, so an idle window costs almost nothing and a heavy Viewer does not slow the panes down while nothing moves.
 

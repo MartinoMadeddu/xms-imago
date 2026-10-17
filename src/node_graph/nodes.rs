@@ -620,12 +620,22 @@ pub fn place_mesh(mesh: &MeshData, m: &glam::Mat4) -> MeshData {
         curve_basis:  mesh.curve_basis,
         curve_wrap:   mesh.curve_wrap,
         widths:       mesh.widths.clone(),
+        // What each element carries does not move with it: the same values,
+        // so the Primitive Inspector lists them where the prim is drawn.
+        primvars:     mesh.primvars.clone(),
         ..Default::default()
     };
     if m.determinant() < 0.0 {
         for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); }
         if out.uvs.len() == out.indices.len() { for tri in out.uvs.chunks_exact_mut(3) { tri.swap(1, 2); } }
         for poly in out.polys.iter_mut() { poly.reverse(); }
+        // Corner values follow their polygon's corners round.
+        let sizes: Vec<usize> = out.polys.iter().map(|p| p.len()).collect();
+        let corners: usize = sizes.iter().sum();
+        for pv in out.primvars.iter_mut().filter(|p| p.interp == crate::types::PrimVarInterp::FaceVarying && p.values.len() == corners) {
+            let mut at = 0;
+            for n in &sizes { pv.values[at..at + n].reverse(); at += n; }
+        }
     }
     if !mesh.normals.is_empty() { out.compute_normals(); }
     out
@@ -925,5 +935,31 @@ mod packed_tests {
         let p = &prims(&out)[0];
         assert!(max_y(&p.mesh) > 1.4 && p.material.as_deref() == Some("/looks/red"));
         assert!(Arc::ptr_eq(p.stage.as_ref().unwrap(), loaded.stage.as_ref().unwrap()));
+    }
+}
+
+#[cfg(test)]
+mod place_tests {
+    use super::place_mesh;
+    use crate::types::{MeshData, PrimVar, PrimVarInterp};
+
+    /// A placed primitive keeps what its elements carry: an attribute ICE
+    /// wrote shows in the Primitive Inspector wherever the prim is placed.
+    #[test]
+    fn placing_keeps_the_primvars() {
+        let mut m = MeshData::default();
+        m.vertices = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        m.polys = vec![vec![0, 1, 2]];
+        m.indices = vec![0, 1, 2];
+        m.face_count = 1;
+        m.primvars.push(PrimVar { name: "foo".into(), interp: PrimVarInterp::Vertex, values: vec![vec![1.0], vec![2.0], vec![3.0]] });
+        m.primvars.push(PrimVar { name: "c".into(), interp: PrimVarInterp::FaceVarying, values: vec![vec![1.0], vec![2.0], vec![3.0]] });
+        let moved = place_mesh(&m, &glam::Mat4::from_translation(glam::Vec3::X));
+        let rows = |m: &MeshData| m.primvars.iter().map(|p| (p.name.clone(), p.interp.clone(), p.values.clone())).collect::<Vec<_>>();
+        assert_eq!(rows(&moved), rows(&m));
+        // Mirrored: the polygon turns round, and its corner values with it.
+        let mirrored = place_mesh(&m, &glam::Mat4::from_scale(glam::Vec3::new(-1.0, 1.0, 1.0)));
+        assert_eq!(mirrored.primvars[0].values, m.primvars[0].values);
+        assert_eq!(mirrored.primvars[1].values, vec![vec![3.0], vec![2.0], vec![1.0]]);
     }
 }

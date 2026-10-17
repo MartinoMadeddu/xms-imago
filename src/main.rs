@@ -881,15 +881,18 @@ pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
 /// Move the graph's revision when its content changed. `last`: the content
 /// hash seen last time.
 pub(crate) fn track_revision_frame(ctx: &egui::Context, app: &mut AppState, last: &mut Option<u64>) {
-    let AppState { graph, nav, revision, .. } = app;
-    let hash = graph.content_hash();
-    // ICE graph contents are not part of the hash. While one is open, any
-    // click or key press counts as a change.
-    let in_subnet = nav.current_subnet.is_some()
-        && ctx.input(|i| i.pointer.any_down() || i.pointer.any_released()
-            || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. })));
+    let AppState { graph, subnets, revision, .. } = app;
+    // The scene graph and what its ICE graphs compute: moving, panning or
+    // selecting in an ICE graph changes neither, so nothing is cooked again.
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (graph.content_hash(), subnets.content_hash()).hash(&mut h);
+        h.finish()
+    };
+    let _ = ctx;
     // A solve that finished on its thread changes what its node puts out.
-    if *last != Some(hash) || in_subnet || ragdoll::take_changed() {
+    if *last != Some(hash) || ragdoll::take_changed() {
         *last = Some(hash);
         revision.0 = revision.0.wrapping_add(1);
     }

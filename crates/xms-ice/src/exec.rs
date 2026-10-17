@@ -12,10 +12,10 @@ use std::sync::Arc;
 use glam::{Vec2, Vec3, Vec4};
 use rayon::prelude::*;
 
-use xms_geo::{Attr, Column, Geo};
+use xms_geo::{Attr, Column, Context, Geo, Topology};
 
-use super::compile::{Ins, Plan, Program};
-use super::graph::Math;
+use super::compile::{Ins, Plan, Program, Write};
+use super::graph::{Math, Reduce};
 use super::types::{Ty, Value};
 
 /// Elements per batch: long enough that each instruction's loop does real
@@ -84,10 +84,90 @@ fn fill(reg: &mut Reg, value: Value, len: usize) {
     }
 }
 
-/// A column the plan reads, and its indices when it is indexed.
+/// A column the plan reads, its indices when it is indexed, and how the
+/// plan's elements reach it.
 struct Source<'a> {
     column:  Option<&'a Column>,
     indices: Option<&'a [u32]>,
+    map:     Arc<Map>,
+    reduce:  Reduce,
+}
+
+/// How an element of the plan's context reaches the elements of the
+/// context an attribute is in.
+pub(crate) enum Map {
+    /// The same element (or element 0 of an Object attribute).
+    Direct,
+    /// One element each: a corner's point, a corner's face.
+    One(Vec<u32>),
+    /// Several each, `items[offsets[e]..offsets[e + 1]]`: a face's corners
+    /// or points, the faces or corners around a point.
+    Many { offsets: Vec<u32>, items: Vec<u32> },
+}
+
+/// Offsets of a list of counts: 0, then each running total.
+fn offsets(counts: impl Iterator<Item = usize>) -> Vec<u32> {
+    let mut out = vec![0u32];
+    let mut total = 0u32;
+    for c in counts { total += c as u32; out.push(total); }
+    out
+}
+
+/// The corners of each face (a polygon, or a curve's control points) and
+/// the point of each corner.
+fn faces(geo: &Geo) -> (Vec<u32>, Vec<u32>) {
+    match &geo.topology {
+        Topology::Points => (vec![0], vec![]),
+        Topology::Mesh { counts, indices, .. } => (offsets(counts.iter().map(|&c| c as usize)), indices.to_vec()),
+        // A curve's control points are its points, in order.
+        Topology::Curves { counts, .. } => {
+            let off = offsets(counts.iter().map(|&c| c as usize));
+            let n = *off.last().unwrap_or(&0);
+            (off, (0..n).collect())
+        }
+    }
+}
+
+/// Lists by element of `count` elements, from (element, item) pairs.
+fn group(count: usize, pairs: impl Iterator<Item = (u32, u32)> + Clone) -> Map {
+    let mut counts = vec![0usize; count];
+    for (e, _) in pairs.clone() { if let Some(c) = counts.get_mut(e as usize) { *c += 1; } }
+    let offsets = offsets(counts.iter().copied());
+    let mut fill: Vec<u32> = offsets[..count].to_vec();
+    let mut items = vec![0u32; *offsets.last().unwrap_or(&0) as usize];
+    for (e, i) in pairs {
+        if let Some(f) = fill.get_mut(e as usize) { items[*f as usize] = i; *f += 1; }
+    }
+    Map::Many { offsets, items }
+}
+
+/// How the elements of `to` reach those of `from`, on `geo`.
+pub(crate) fn mapping(geo: &Geo, to: Context, from: Context) -> Map {
+    use Context::*;
+    if to == from || from == Object { return Map::Direct; }
+    // Everything, for the one Object element.
+    if to == Object {
+        return Map::Many { offsets: vec![0, geo.count(from) as u32], items: (0..geo.count(from) as u32).collect() };
+    }
+    let (face_off, corner_point) = faces(geo);
+    // The face of each corner: made only for the mappings that need it.
+    let corner_face = |face_off: &[u32]| -> Vec<u32> {
+        let n_faces = face_off.len().saturating_sub(1);
+        (0..n_faces).flat_map(|f| (face_off[f]..face_off[f + 1]).map(move |_| f as u32)).collect()
+    };
+    let n = geo.count(to);
+    match (to, from) {
+        (Corner, Point) => Map::One(corner_point),
+        (Corner, Face) => Map::One(corner_face(&face_off)),
+        (Face, Corner) => Map::Many { items: (0..*face_off.last().unwrap_or(&0)).collect(), offsets: face_off },
+        (Face, Point) => Map::Many { offsets: face_off, items: corner_point },
+        (Point, Corner) => group(n, corner_point.iter().enumerate().map(|(c, &p)| (p, c as u32))),
+        (Point, Face) => {
+            let corner_face = corner_face(&face_off);
+            group(n, corner_point.iter().zip(&corner_face).map(|(&p, &f)| (p, f)))
+        }
+        _ => Map::Direct,
+    }
 }
 
 /// Elements `start..start + len` of `src` (through `indices` when there are
@@ -104,15 +184,128 @@ fn gather<T: Copy, U: Copy>(src: &[T], indices: Option<&[u32]>, start: usize, le
 
 fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
     let ix = s.indices;
-    match (s.column, ty) {
-        (Some(Column::Bool(v)), _) => gather(v, ix, start, len, bools(reg), false, |x| x),
-        (Some(Column::Int(v)), _) => gather(v, ix, start, len, ints(reg), 0, |x| x),
-        (Some(Column::Float(v)), _) => gather(v, ix, start, len, floats(reg), 0.0, |x| x),
-        (Some(Column::Vec2(v)), _) => gather(v, ix, start, len, vec2s(reg), Vec2::ZERO, Vec2::from_array),
-        (Some(Column::Vec3(v)), _) => gather(v, ix, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
-        (Some(Column::Vec4(v)), _) => gather(v, ix, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
-        // Not there in this geometry (it was when compiled): zeros.
-        _ => fill(reg, zero(ty), len),
+    match &*s.map {
+        Map::Direct => match (s.column, ty) {
+            (Some(Column::Bool(v)), _) => gather(v, ix, start, len, bools(reg), false, |x| x),
+            (Some(Column::Int(v)), _) => gather(v, ix, start, len, ints(reg), 0, |x| x),
+            (Some(Column::Float(v)), _) => gather(v, ix, start, len, floats(reg), 0.0, |x| x),
+            (Some(Column::Vec2(v)), _) => gather(v, ix, start, len, vec2s(reg), Vec2::ZERO, Vec2::from_array),
+            (Some(Column::Vec3(v)), _) => gather(v, ix, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
+            (Some(Column::Vec4(v) | Column::Quat(v)), _) => gather(v, ix, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
+            // Not there in this geometry (it was when compiled): zeros.
+            _ => fill(reg, zero(ty), len),
+        },
+        Map::One(map) => match (s.column, ty) {
+            (Some(Column::Bool(v)), _) => through(v, ix, map, start, len, bools(reg), false, |x| x),
+            (Some(Column::Int(v)), _) => through(v, ix, map, start, len, ints(reg), 0, |x| x),
+            (Some(Column::Float(v)), _) => through(v, ix, map, start, len, floats(reg), 0.0, |x| x),
+            (Some(Column::Vec2(v)), _) => through(v, ix, map, start, len, vec2s(reg), Vec2::ZERO, Vec2::from_array),
+            (Some(Column::Vec3(v)), _) => through(v, ix, map, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
+            (Some(Column::Vec4(v) | Column::Quat(v)), _) => through(v, ix, map, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
+            _ => fill(reg, zero(ty), len),
+        },
+        Map::Many { offsets, items } => {
+            let lists = Lists { offsets, items, indices: ix, reduce: s.reduce };
+            match (s.column, ty) {
+                (Some(Column::Bool(v)), _) => {
+                    // Any of them, or (Min) all of them.
+                    let all = s.reduce == Reduce::Min;
+                    bools(reg).extend((start..start + len).map(|e| {
+                        let mut vals = lists.values(v, e);
+                        if all { vals.all(|b| b) } else { vals.any(|b| b) }
+                    }));
+                }
+                (Some(Column::Int(v)), _) => ints(reg).extend((start..start + len).map(|e| lists.reduce(v, e, 0, |x| x as f64, |x| x.round() as i32))),
+                (Some(Column::Float(v)), _) => floats(reg).extend((start..start + len).map(|e| lists.reduce(v, e, 0.0, |x| x as f64, |x| x as f32))),
+                (Some(Column::Vec2(v)), _) => vec2s(reg).extend((start..start + len).map(|e| Vec2::from_array(lists.reduce_n(v, e)))),
+                (Some(Column::Vec3(v)), _) => vec3s(reg).extend((start..start + len).map(|e| Vec3::from_array(lists.reduce_n(v, e)))),
+                (Some(Column::Vec4(v) | Column::Quat(v)), _) => vec4s(reg).extend((start..start + len).map(|e| Vec4::from_array(lists.reduce_n(v, e)))),
+                _ => fill(reg, zero(ty), len),
+            }
+        }
+    }
+}
+
+/// Elements `start..start + len` through a one-to-one `map`, then through
+/// the attribute's `indices`; missing values are `zero`.
+#[allow(clippy::too_many_arguments)]
+fn through<T: Copy, U: Copy>(src: &[T], indices: Option<&[u32]>, map: &[u32], start: usize, len: usize, out: &mut Vec<U>, zero: U, conv: impl Fn(T) -> U) {
+    out.extend((start..start + len).map(|e| {
+        map.get(e).and_then(|&m| value_index(indices, m as usize)).and_then(|i| src.get(i)).map_or(zero, |&v| conv(v))
+    }));
+}
+
+fn value_index(indices: Option<&[u32]>, element: usize) -> Option<usize> {
+    match indices {
+        Some(ix) => ix.get(element).map(|&i| i as usize),
+        None => Some(element),
+    }
+}
+
+/// The lists of a many-to-one map, and how each becomes one value.
+struct Lists<'a> {
+    offsets: &'a [u32],
+    items:   &'a [u32],
+    indices: Option<&'a [u32]>,
+    reduce:  Reduce,
+}
+
+impl Lists<'_> {
+    /// The values element `e` reaches.
+    fn values<'s, T: Copy>(&'s self, src: &'s [T], e: usize) -> impl Iterator<Item = T> + 's {
+        let (a, b) = (self.offsets.get(e).copied().unwrap_or(0) as usize, self.offsets.get(e + 1).copied().unwrap_or(0) as usize);
+        self.items.get(a..b).unwrap_or(&[]).iter()
+            .filter_map(move |&i| value_index(self.indices, i as usize).and_then(|i| src.get(i)).copied())
+    }
+
+    /// One number from element `e`'s: their average, sum, least or most.
+    fn reduce<T: Copy, U>(&self, src: &[T], e: usize, empty: U, to: impl Fn(T) -> f64, back: impl Fn(f64) -> U) -> U {
+        let mut n = 0usize;
+        let mut acc: Option<f64> = None;
+        for v in self.values(src, e) {
+            let x = to(v);
+            n += 1;
+            acc = Some(match (acc, self.reduce) {
+                (None, _) => x,
+                (Some(a), Reduce::Average | Reduce::Sum) => a + x,
+                (Some(a), Reduce::Min) => a.min(x),
+                (Some(a), Reduce::Max) => a.max(x),
+            });
+        }
+        match acc {
+            None => empty,
+            Some(a) if self.reduce == Reduce::Average => back(a / n as f64),
+            Some(a) => back(a),
+        }
+    }
+
+    /// The same, component by component.
+    fn reduce_n<const N: usize>(&self, src: &[[f32; N]], e: usize) -> [f32; N] {
+        let mut n = 0usize;
+        let mut acc: Option<[f32; N]> = None;
+        for v in self.values(src, e) {
+            n += 1;
+            acc = Some(match acc {
+                None => v,
+                Some(mut a) => {
+                    for k in 0..N {
+                        a[k] = match self.reduce {
+                            Reduce::Average | Reduce::Sum => a[k] + v[k],
+                            Reduce::Min => a[k].min(v[k]),
+                            Reduce::Max => a[k].max(v[k]),
+                        };
+                    }
+                    a
+                }
+            });
+        }
+        match acc {
+            None => [0.0; N],
+            Some(mut a) => {
+                if self.reduce == Reduce::Average { for x in a.iter_mut() { *x /= n as f32; } }
+                a
+            }
+        }
     }
 }
 
@@ -297,9 +490,21 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
 /// by name; those not given take their defaults. The result shares every
 /// column the plan does not set with `geo`.
 pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
-    let sources = plan.reads.iter().map(|r| {
-        let attr = geo.attr(r.context, &r.name);
-        Source { column: attr.map(|a| &a.column), indices: attr.and_then(|a| a.indices.as_deref().map(|v| v.as_slice())) }
+    // How the plan's elements reach each context read: made once per run,
+    // shared by the reads of that context.
+    let mut maps: HashMap<Context, Arc<Map>> = HashMap::new();
+    // The columns made from the topology, one per read of one.
+    let made: Vec<Option<Column>> = plan.reads.iter()
+        .map(|r| if r.derived { crate::derived::column(geo, r.context, &r.name) } else { None })
+        .collect();
+    let sources = plan.reads.iter().zip(&made).map(|(r, made)| {
+        let attr = if r.derived { None } else { geo.attr(r.context, &r.name) };
+        let map = maps.entry(r.context).or_insert_with(|| Arc::new(mapping(geo, plan.context, r.context))).clone();
+        Source {
+            column: made.as_ref().or(attr.map(|a| &a.column)),
+            indices: attr.and_then(|a| a.indices.as_deref().map(|v| v.as_slice())),
+            map, reduce: r.reduce,
+        }
     }).collect();
     let params = plan.params.iter()
         .map(|(name, default)| params.get(name).and_then(|v| v.convert(default.ty())).unwrap_or(*default))
@@ -355,7 +560,31 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
             Out::Vec3(v) => Column::Vec3(Arc::new(v)),
             Out::Vec4(v) => Column::Vec4(Arc::new(v)),
         };
-        out.set(plan.context, &w.name, Attr::new(column, w.role));
+        let column = if w.context == plan.context { column } else { carry(geo, &column, plan.context, w) };
+        // One attribute of a name: set in one context, gone from the others
+        // (as USD has one primvar of a name).
+        for c in Context::ALL { if c != w.context { out.remove(c, &w.name); } }
+        out.set(w.context, &w.name, Attr::new(column, w.role));
     }
     out
+}
+
+/// A column of the plan's elements carried into the context `w` writes:
+/// each element there reads the plan's elements it touches, as Get Data
+/// reads across, made one by `w.reduce`.
+fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
+    let n = geo.count(w.context);
+    // The one Object value, for every element.
+    let map = if from == Context::Object { Map::One(vec![0; n]) } else { mapping(geo, w.context, from) };
+    let source = Source { column: Some(column), indices: None, map: Arc::new(map), reduce: w.reduce };
+    let mut reg = Reg::Bool(vec![]);
+    load(&source, 0, n, &mut reg, w.ty);
+    match reg {
+        Reg::Bool(v) => Column::Bool(Arc::new(v)),
+        Reg::Int(v) => Column::Int(Arc::new(v)),
+        Reg::Float(v) => Column::Float(Arc::new(v)),
+        Reg::Vec2(v) => Column::Vec2(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+    }
 }

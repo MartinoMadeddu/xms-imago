@@ -30,16 +30,39 @@ pub enum Op {
     /// The graph's end. Its inputs are Execute ports, run in order; it runs
     /// over every element of `context`.
     Root { context: Context },
-    /// An attribute of the geometry, by name (`P` is the points).
-    GetData { name: String },
+    /// An attribute of the geometry, by name (`P` is the points). `context`:
+    /// where the attribute is read from; None, the graph's own context (or
+    /// Object). From another context, each element reads the elements it
+    /// touches: a corner its point or its face, a face its corners or
+    /// points, a point the faces or corners around it; where it touches
+    /// several, `reduce` makes them one value.
+    GetData { name: String, context: Option<Context>, reduce: Reduce },
     /// Set an attribute: input 0 is the value. Its output is an Execute,
-    /// to wire into the root.
-    SetData { name: String },
+    /// to wire into the root. `context`: where the attribute is written;
+    /// None, the graph's own. Into another context, each element there
+    /// takes the values of the graph's elements it touches (a face its
+    /// points, a point the faces around it), made one by `reduce`.
+    SetData { name: String, context: Option<Context>, reduce: Reduce },
     /// A value given when the graph runs (time, a promoted parameter);
     /// `default` when none is given. Changing it does not recompile.
     Parameter { name: String, default: Value },
     Constant(Value),
     Math(Math),
+}
+
+/// How the values an element touches in another context become one: a
+/// face reading its points' positions gets their average, by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Reduce {
+    #[default]
+    Average,
+    Sum,
+    Min,
+    Max,
+}
+
+impl Reduce {
+    pub const ALL: [Reduce; 4] = [Reduce::Average, Reduce::Sum, Reduce::Min, Reduce::Max];
 }
 
 /// Maths, on any type it makes sense for: `Add` adds floats or vectors,
@@ -92,6 +115,14 @@ impl Op {
             Op::Math(m) => Some(m.arity()),
         }
     }
+}
+
+impl Op {
+    /// Get Data of an attribute in the graph's own context.
+    pub fn get(name: &str) -> Op { Op::GetData { name: name.into(), context: None, reduce: Reduce::Average } }
+
+    /// Set Data of an attribute in the graph's own context.
+    pub fn set(name: &str) -> Op { Op::SetData { name: name.into(), context: None, reduce: Reduce::Average } }
 }
 
 impl Graph {

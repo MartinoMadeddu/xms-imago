@@ -17,15 +17,19 @@
 //! - `exec`: the plan run over a `Geo`. Only the attributes the graph reads
 //!   are read, a batch at a time; only the attributes it sets get new
 //!   columns; every other column stays shared with the input.
+//! - `derived`: what the topology gives without being stored (a face's
+//!   corners, first corner, normal and area; a corner's point, face and
+//!   place in it), as the Primitive Inspector shows it.
 
 pub mod compile;
+pub mod derived;
 pub mod exec;
 pub mod graph;
 pub mod types;
 
-pub use compile::{compile, CompileError, Plan};
+pub use compile::{compile, output_types, CompileError, Plan};
 pub use exec::{run, BATCH};
-pub use graph::{Graph, Input, Math, Node, Op};
+pub use graph::{Graph, Input, Math, Node, Op, Reduce};
 pub use types::{Ty, Value};
 
 #[cfg(test)]
