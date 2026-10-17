@@ -108,6 +108,8 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 
 **Now:** a graph runs on each primitive, in the primitive's own space (object space), on its `Geo`. Nodes read and write whole per-point arrays (`P` = points). Writes replace only their column. The output is the primitive with its `geo` updated, so ICE results are edits like any other node's and are written to USD the same way. The node implementations are placeholders.
 
+**The engine (`src/ice/engine/`, being built on `core/ice-refactor`):** stage 1 is in: the graph (`Op`: Get Data, Set Data, Parameter, Constant, Math), the compiler (types, contexts, uniform hoisting, only what reaches the root, reads and writes listed) and the batched executor (4,096 elements a batch, Rayon, registers per thread). It reads only the columns the graph uses and gives new columns only to the attributes it sets; every other column of the result is the input's. The ICE operator moves onto it in stage 2.
+
 **Planned engine:** loosely modelled after Softimage ICE and Houdini VOPs: ICE's contexts and per-element arrays, with a compile step in the spirit of VOPs. Three layers.
 
 1. **Graph.** Ports carry **type**, **structure** (single value, or array per element) and **context**. These are validated when you connect, and a mismatch shows as a red wire. Constants take the context they're wired into. The graph runs over a chosen context and executes its Execute ports in order.
