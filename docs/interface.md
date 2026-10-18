@@ -4,9 +4,9 @@
 
 ## Top bar
 
-A fixed line across the top of the window, for things that belong to the whole program. It holds the logo and the name, the menus, the name of the graph's file, and the layout padlock at the right. It is not a pane: it cannot be moved, floated or closed.
+A fixed line across the top of the window, for things that belong to the whole program. It is not a pane: it cannot be moved, floated or closed. From the left: the logo and the program's name, dimmed, with a thin divider after them: nothing there is clickable. Then the menus, File, Edit and Window: flat titles that light up in the accent colour under the mouse and stay lit while the menu is open. In the middle, the name of the graph's file, in plain text, with a dot before it while it has unsaved changes (hover it for the path). At the right, the layout padlock, a button that lights up under the mouse too.
 
-![The File menu](xms_menu_bar.png)
+![The top bar: the wordmark, the menus with Window under the mouse, the graph's file with unsaved changes, the padlock](xms_menu_bar.png)
 
 The menus, from the left, as in other programs:
 

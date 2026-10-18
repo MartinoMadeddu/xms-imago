@@ -55,6 +55,22 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # The example files fetched on demand, so the regression suite runs
+      # in full (without them the templates needing them are skipped).
+      - name: Example files
+        if: matrix.name == 'linux-x86_64'
+        uses: actions/cache@v4
+        with:
+          path: |
+            examples/usd/carbon_frame_bike
+            examples/usd/elephant
+            examples/mocap/novasci/*.fbx
+          key: example-downloads-${{ hashFiles('src/examples.rs') }}
+
+      - name: Download example files
+        if: matrix.name == 'linux-x86_64'
+        run: cargo test --release --target ${{ matrix.target }} download_example_files -- --ignored
+
       - name: Test
         if: matrix.name == 'linux-x86_64'
         run: cargo test --release --target ${{ matrix.target }}

@@ -59,7 +59,8 @@ if failed:
 
 if os.path.isfile(regress_txt):
     lines = open(regress_txt, errors="replace").read().splitlines()
-    changed = [l for l in lines if not l.startswith("ok")]
+    skipped = [l for l in lines if l.startswith("SKIPPED")]
+    changed = [l for l in lines if not l.startswith("ok") and not l.startswith("SKIPPED")]
     section("Regression suite: every template at its view flag")
     if not lines:
         print("No report: the regression test did not run (see the failures above).\n")
@@ -71,7 +72,11 @@ if os.path.isfile(regress_txt):
         for l in changed: print(f"- `{l}`")
         print()
     else:
-        print(f"All {len(lines)} templates give the numbers of the baseline.\n")
+        print(f"All {len(lines) - len(skipped)} templates give the numbers of the baseline.\n")
+    if skipped:
+        print(f"{len(skipped)} template(s) skipped, their example files not downloaded (the download step did not run or failed):\n")
+        for l in skipped: print(f"- `{l}`")
+        print()
     timings = []
     for l in lines:
         m = re.match(r"ok\s+(.*?) \((\d+) ms\)$", l)

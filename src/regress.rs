@@ -7,7 +7,10 @@
 //! a template puts out at its view flag: how many primitives, points,
 //! triangles, copies, materials, cameras; for a clip, its frames, joints,
 //! rate and skin; which example files were missing; and how long the cook
-//! took (recorded, not compared). A number that moves fails the test, with
+//! took (recorded, not compared). A template whose files are fetched on
+//! demand (`examples::SOURCES`) is skipped when they are not there, so the
+//! suite passes offline and in full once `download_example_files` has run.
+//! A number that moves fails the test, with
 //! the template, the field and both values in the message, so the change is
 //! either a regression to fix or a new baseline to write:
 //!
@@ -206,6 +209,13 @@ mod tests {
         let mut lines: Vec<String> = vec![];
         let mut failed = 0;
         for (name, s) in &now {
+            // A template whose files are fetched on demand, run without
+            // them, is skipped, not failed: the baseline holds the numbers
+            // with the files there.
+            if !s.missing.is_empty() && s.missing.iter().all(|m| crate::examples::downloadable(m).is_some()) {
+                lines.push(format!("SKIPPED  {name}: not downloaded: {} (cargo test --release download_example_files -- --ignored)", s.missing.join(", ")));
+                continue;
+            }
             match was.get(name) {
                 None => { lines.push(format!("NEW      {name}: no baseline yet ({} prims, {} triangles, {} ms)", s.prims, s.triangles, s.cook_ms)); failed += 1; }
                 Some(w) => {

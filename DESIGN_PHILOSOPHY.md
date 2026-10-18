@@ -74,6 +74,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 - The program works with files as other programs do. File, Edit and Window menus at the top left, with the usual shortcuts (New, Open, Save, Save As, Quit); the templates at the bottom of the File menu, by author, then by area, since a template is a file to open. A node graph pane holds what belongs to the graph only.
 - Nothing is lost without asking: closing, New, or opening a file or template as new over unsaved changes asks to save first.
+- What can be clicked looks clickable, and what cannot does not. In the top bar the program's name is dimmed and set apart by a divider, the menu titles light up under the mouse, the file's name is plain text in the middle, the padlock is a button. The same test applies to every pane: a label never looks like a button.
 - Nothing is written over a file that exists without asking: Save As, a saved layout, Write FBX, Write USD. Save writes to the graph's own file without asking, as everywhere.
 
 ## Undo is for the scene
@@ -221,3 +222,5 @@ Load USD brings a file in as USD would: sublayered, at its own paths, or its def
 - 18/10/2026: Templates moved to the bottom of the File menu, under the usual commands, with its categorised submenu (Simon).
 - 18/10/2026: openly licensed example files: four Novasci clips (CC0) and the USD Working Group's teapot and mini car kit in the repository; the other 17 clips, the carbon frame bike and the elephant (CC BY-SA 4.0) fetched on demand by a dialog that names the source, the licence and the size (Simon: "ask if we want to download it").
 - 18/10/2026: the templates as the regression suite, with a baseline in `tests/regression/templates.json`, run by a GitHub workflow after every build with a report of what to fix (Simon).
+- 18/10/2026: the regression suite skips the templates whose example files are fetched on demand when they are not there (the release build's tests ran without them and failed); the release workflow fetches them first, as the test workflow does.
+- 18/10/2026: the top bar laid out so the program's name, the menus and the file's name read apart: what is clickable looks it (Simon: "everything is in the same font and looks clickable").
