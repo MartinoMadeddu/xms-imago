@@ -34,6 +34,7 @@ mod ragdoll;
 mod history;
 mod recent;
 mod menus;
+mod timings;
 mod materialx;
 
 
@@ -706,14 +707,23 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
+                    let _t = crate::timings::span("primitive inspector: geometry for a tab");
                     let (_, _, scene) = g.evaluate_scene(&eval)?;
                     Some(prim_inspector::scene_parts(scene, &paths))
+                };
+                let get_summary = |g: &NodeGraphState| -> prim_inspector::Summary {
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                        subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                    };
+                    let _t = crate::timings::span("primitive inspector: counts");
+                    g.evaluate_scene(&eval).map(|(_, _, scene)| prim_inspector::scene_summary(&scene, &paths)).unwrap_or_default()
                 };
                 let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim_out(id, g.viewed_output()));
                 let get_props = |g: &NodeGraphState| -> Vec<prim_inspector::PropRow> {
                     let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
+                    let _t = crate::timings::span("primitive inspector: properties");
                     match g.evaluate_scene(&eval) {
                         Some((view, _, scene)) => prim_inspector::scene_properties(g, view, &scene, &paths),
                         None => vec![],
@@ -723,7 +733,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     node: self.graph.display_source(),
                     paths: self.hierarchy.selected_paths().to_vec(),
                 };
-                let go_to = draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_clip, &get_props);
+                let go_to = draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_summary, &get_clip, &get_props);
                 // "Go to Operator" on a Properties row: select the operator the value comes from.
                 if let Some(id) = go_to {
                     self.graph.selected_node = Some(id);
@@ -892,7 +902,8 @@ pub(crate) fn track_revision_frame(ctx: &egui::Context, app: &mut AppState, last
     };
     let _ = ctx;
     // A solve that finished on its thread changes what its node puts out.
-    if *last != Some(hash) || ragdoll::take_changed() {
+    // So does a stage read in the background, as its boxes then all of it arrive.
+    if *last != Some(hash) || ragdoll::take_changed() | usd_scene::take_changed() {
         *last = Some(hash);
         revision.0 = revision.0.wrapping_add(1);
     }
@@ -1474,6 +1485,7 @@ pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {
     };
 
     // The scene at the view flag, as its own tree.
+    let _t = crate::timings::span("scene explorer: cook and list the scene");
     hierarchy.rebuild_scene(graph.evaluate_scene(&eval_subnet));
 }
 
@@ -1502,6 +1514,8 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
     let NodeType::WriteUsd { path } = &node.node_type else { return };
     let result = (|| {
         if path.trim().is_empty() { return Err("No file set".to_string()); }
+        // Never boxes in place of geometry.
+        if usd_scene::any_reading() { return Err("A stage is still being read: write when it is done".to_string()); }
         let (src, out) = node.inputs.first().and_then(|i| i.connected_output).ok_or("Nothing connected")?;
         let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())

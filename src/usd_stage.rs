@@ -33,7 +33,41 @@ use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdMaterial, UsdMesh, Us
 /// Read a composed stage. `layer` is the root layer (a `.usdz` is unpacked
 /// beforehand, so its textures are files on disk).
 pub fn read(layer: &Path) -> Result<UsdScene, String> {
-    let translated = xms_usd::translate(layer, Default::default())?;
+    read_phased(layer, |_| {})
+}
+
+/// Read a composed stage in two passes over one open stage: `boxes` is
+/// given the stage as boxes first (each mesh, curves or points as the box of
+/// its extent, no materials or authored values), then the whole of it is
+/// read and returned.
+pub fn read_phased(layer: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
+    let start = std::time::Instant::now();
+    let mut first = 0.0;
+    let translated = xms_usd::translate_phased(layer, Default::default(), |b| {
+        let _t = crate::timings::span("usd: the stage as boxes, for the Viewer");
+        first = b.seconds;
+        boxes(scene_of(b, layer, true));
+    })?;
+    if crate::timings::on() {
+        // The stage is opened once (openusd reads and composes the layers),
+        // translated as boxes, then in full (xms-usd), which says where its
+        // time went.
+        let total = start.elapsed().as_secs_f64();
+        eprintln!("[xms] usd: open the stage (openusd: read and compose the layers) and make the boxes: {:.0} ms", (total - translated.seconds) * 1e3);
+        eprintln!("[xms] usd: translate the boxes (xms-usd): {:.0} ms", first * 1e3);
+        eprintln!("[xms] usd: translate the whole stage (xms-usd): {:.0} ms", translated.seconds * 1e3);
+        for w in translated.warnings.iter().filter(|w| w.starts_with("Scene-layer translation:")) {
+            eprintln!("[xms]     {w}");
+        }
+    }
+    Ok(scene_of(translated, layer, false))
+}
+
+/// A translated stage as the program holds it: the hierarchy, and every
+/// mesh, curves and points with its geometry and placements. `boxes`: the
+/// translation was the first, boxes-only pass.
+fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool) -> UsdScene {
+    let _walk = crate::timings::span(if boxes { "usd: boxes to geometry" } else { "usd: prims to geometry and mesh views" });
     let sc = &translated.scene;
     let info = &sc.info;
 
@@ -53,13 +87,34 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
         if unit > 0.0 && (unit - 1.0).abs() > 1e-9 { root *= DMat4::from_scale(DVec3::splat(unit)); }
     }
 
-    let mut walk = Walk { sc, t: sc.time().time, root, scene: &mut scene, nodes: vec![], counts: Counts::default(), shared: HashMap::new(), listing: 0 };
+    let t = sc.time().time;
+    let mut walk = Walk { sc, t, root, scene: &mut scene, nodes: vec![], counts: Counts::default(), jobs: vec![], job_of: HashMap::new(), pending: vec![], listing: 0 };
     for child in sc.children(&rs::Path::root()) {
         // Native-instance prototypes are reached through their instances.
         if child.name().starts_with("__Prototype") { continue; }
         walk.prim(child, child.as_str().to_string(), root, None, Purpose::Default, 1, false, false);
     }
-    let Walk { nodes, counts, .. } = walk;
+    let Walk { nodes, mut counts, jobs, pending, .. } = walk;
+
+    // The geometry of every mesh, curves and points, once per source prim,
+    // made on every core: each is independent of the others.
+    let made: Vec<Option<(Arc<Geo>, Arc<MeshData>)>> = {
+        use rayon::prelude::*;
+        let _t = crate::timings::span(format!("usd: geometry of {} prims, in parallel", jobs.len()));
+        jobs.par_iter().map(|src| sc.get(src).and_then(|p| geometry(&p.kind, t)).map(shared)).collect()
+    };
+    let mut invalid: HashSet<String> = HashSet::new();
+    for (mesh, job) in pending {
+        match &made[job] {
+            Some((geo, view)) => { scene.meshes[mesh].geo = Some(geo.clone()); scene.meshes[mesh].mesh = view.clone(); }
+            None => { invalid.insert(scene.meshes[mesh].path.clone()); }
+        }
+    }
+    if !invalid.is_empty() {
+        counts.invalid += invalid.len();
+        scene.meshes.retain(|m| !invalid.contains(&m.path));
+        for i in &mut scene.instancers { i.members.retain(|(path, ..)| !invalid.contains(path)); }
+    }
     let nodes_index: HashMap<String, usize> = nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
     // Drawn, but not where the hierarchy has a prim: the Scene Explorer
     // would list them a second time, by their paths. Said, to be fixed.
@@ -77,11 +132,16 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
         arc: None,
     });
     scene.notes = counts.notes();
+    if boxes {
+        scene.notes.insert(0, "Shown as boxes while the geometry is read".into());
+        scene.reading = true;
+        return scene;
+    }
     // The translator's own notes, minus timings and empty reports.
     scene.notes.extend(translated.warnings.into_iter().filter(|w| {
         !w.starts_with("Scene-layer translation:") && !w.starts_with("Prototypes in the scene layer: 0 ")
     }));
-    Ok(scene)
+    scene
 }
 
 /// What the stage holds that is not turned into packed primitives yet.
@@ -114,9 +174,13 @@ struct Walk<'a> {
     scene:   &'a mut UsdScene,
     nodes:   Vec<StageNode>,
     counts:  Counts,
-    /// Instanced meshes in their own space, by their path in the scene
-    /// layer: made once, shared by every copy.
-    shared:  HashMap<String, Option<(Arc<Geo>, Arc<MeshData>)>>,
+    /// The prims whose geometry is to be made, each once (by its path in the
+    /// scene layer, so an instanced mesh is shared by every copy), after the
+    /// walk and in parallel.
+    jobs:    Vec<rs::Path>,
+    job_of:  HashMap<String, usize>,
+    /// Which of `scene.meshes` takes which job's geometry.
+    pending: Vec<(usize, usize)>,
     /// Inside a point instancer: prims are listed, its prototypes are drawn
     /// through the instancer instead.
     listing: usize,
@@ -176,18 +240,11 @@ impl Walk<'_> {
                     // In its own space, placed by its world transform (root
                     // correction included). Under an instance it is shared with
                     // every other instance of the same prototype.
-                    let made = if under_instance {
-                        self.shared_geometry(src, &prim.kind)
-                    } else {
-                        geometry(&prim.kind, t).map(shared)
-                    };
-                    match made {
-                        Some((geo, mesh)) => self.scene.meshes.push(UsdMesh {
-                            path: shown.clone(), mesh, geo: Some(geo), material: binding.clone(),
-                            place: Placement::One(world.as_mat4()), purpose,
-                        }),
-                        None => self.counts.invalid += 1,
-                    }
+                    self.later(src);
+                    self.scene.meshes.push(UsdMesh {
+                        path: shown.clone(), mesh: Arc::default(), geo: None, material: binding.clone(),
+                        place: Placement::One(world.as_mat4()), purpose,
+                    });
                 }
             }
             rs::PrimKind::Camera(c) if !under_instance => self.scene.cameras.push(UsdCamera {
@@ -235,11 +292,19 @@ impl Walk<'_> {
         }
     }
 
-    /// A mesh, curves or points in their own space, made once and shared by
-    /// every copy.
-    fn shared_geometry(&mut self, src: &rs::Path, kind: &rs::PrimKind) -> Option<(Arc<Geo>, Arc<MeshData>)> {
-        let t = self.t;
-        self.shared.entry(src.as_str().to_string()).or_insert_with(|| geometry(kind, t).map(shared)).clone()
+    /// The geometry of `src` for the mesh about to be pushed onto
+    /// `scene.meshes`: made after the walk, once per source prim, so every
+    /// copy of an instanced mesh shares it.
+    fn later(&mut self, src: &rs::Path) {
+        let job = match self.job_of.get(src.as_str()) {
+            Some(&j) => j,
+            None => {
+                self.jobs.push(src.clone());
+                self.job_of.insert(src.as_str().to_string(), self.jobs.len() - 1);
+                self.jobs.len() - 1
+            }
+        };
+        self.pending.push((self.scene.meshes.len(), job));
     }
 
     /// A point instancer: one packed primitive per mesh of each prototype,
@@ -297,11 +362,11 @@ impl Walk<'_> {
             self.gather(proto, proto_shown, DMat4::IDENTITY, binding.clone(), purpose, &mut found, &mut nested);
             for (mesh_src, mesh_shown, inside, material, purpose) in found {
                 let Some(kind) = sc.get(&mesh_src).map(|p| &p.kind) else { continue };
-                let Some((geo, shared)) = self.shared_geometry(&mesh_src, kind) else { self.counts.invalid += 1; continue };
                 if let rs::PrimKind::Mesh(m) = kind { if !m.subsets.is_empty() { self.counts.subsets += 1; } }
                 let place: Arc<[Mat4]> = copies(local, inside).iter().map(|m| m.as_mat4()).collect();
                 instancer.members.push((mesh_shown.clone(), index as u32, inside.as_mat4()));
-                self.scene.meshes.push(UsdMesh { path: mesh_shown, mesh: shared, geo: Some(geo), material, place: Placement::Many(place), purpose });
+                self.later(&mesh_src);
+                self.scene.meshes.push(UsdMesh { path: mesh_shown, mesh: Arc::default(), geo: None, material, place: Placement::Many(place), purpose });
             }
             for (inner_src, inner_shown, inside, material, purpose) in nested {
                 let Some(rs::PrimKind::Instancer(inner)) = sc.get(&inner_src).map(|p| &p.kind) else { continue };
@@ -456,7 +521,11 @@ fn geometry(kind: &rs::PrimKind, t: f64) -> Option<Geo> {
 
 /// The geometry and its `MeshData` view, made once per prim (or prototype).
 fn shared(geo: Geo) -> (Arc<Geo>, Arc<MeshData>) {
-    let view = Arc::new(geo.to_mesh());
+    // Lean: the attributes stay in the geometry, and the Primitive
+    // Inspector makes their rows when a geometry tab is opened, instead of
+    // every primvar of every prim being expanded (a row of numbers per
+    // element) as the stage loads.
+    let view = Arc::new(geo.to_mesh_lean());
     (Arc::new(geo), view)
 }
 

@@ -188,6 +188,7 @@ pub struct Inputs<'a> {
 
 
 pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scene {
+    let _t = crate::timings::span("viewer: build the scene to draw");
     let mode = crate::viewport::display::mode();
     let bg = crate::theme::viewport_bg();
     let mut s = Scene { generation, ..Default::default() };
@@ -248,7 +249,10 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         s.meshes.push(MeshDraw { geometry: Arc::new(Geometry::of(&hl, Kind::Surface)), instances: inst, blend: true, edges: false, material: None });
     }
 
-    let packed = if stage.is_none() { graph.evaluate_for_viewport_packed(&eval_subnet) } else { None };
+    let packed = if stage.is_none() {
+        let _t = crate::timings::span("viewer: cook the graph");
+        graph.evaluate_for_viewport_packed(&eval_subnet)
+    } else { None };
     // A material viewed on its own: a sphere wearing it.
     let packed = match packed {
         Some(EvalResult::Material(m)) => Some(crate::core::material::preview(&m)),
@@ -286,7 +290,10 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {
-                let (shown, boxes) = crate::viewport::bounds::split(prims, input.hierarchy);
+                let (shown, boxes) = {
+                    let _t = crate::timings::span("viewer: boxes for closed prims");
+                    crate::viewport::bounds::split(prims, input.hierarchy)
+                };
                 let (points, pairs) = crate::viewport::bounds::box_lines(&boxes);
                 let c = ink(crate::theme::c(200, 200, 200));
                 push_lines(&mut s.lines, &points, &pairs, &Mat4::IDENTITY, [c[0], c[1], c[2], 1.0]);

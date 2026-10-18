@@ -1192,7 +1192,7 @@ fn edit_poly(
 /// The parameters of one Edit Poly operation.
 fn op_rows(f: &mut Rows, i: usize, kind: &mut PolyOpKind) {
     let modes = [(ExtrudeMode::Group, "Group"), (ExtrudeMode::LocalNormal, "Local normal"), (ExtrudeMode::ByPolygon, "By polygon")];
-    let mut mode_row = |f: &mut Rows, mode: &mut ExtrudeMode| {
+    let mode_row = |f: &mut Rows, mode: &mut ExtrudeMode| {
         let id = f.ui.id().with(("poly_mode", i));
         f.row("Mode", None, |ui| form::choice_widget(ui, id, mode, &modes));
     };
@@ -1648,10 +1648,15 @@ fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
 
 /// What a USD file holds, from the cached stage.
 fn usd_summary(ui: &mut egui::Ui, path: &str, io: &mut PanelIo) {
+    // A big stage is read in the background: its boxes first, then the
+    // whole of it. Say how far it has come.
+    let reading = crate::usd_scene::reading(path);
     let scene = match crate::usd_scene::load_cached(path) {
         Ok(s) => s,
+        Err(e) if reading.is_some() => { group(ui, "Stage", None, |f| f.status(Status::Info, e)); return; }
         Err(e) => { group(ui, "Stage", None, |f| f.status(Status::Bad, format!("Could not read the file: {e}"))); return; }
     };
+    if let Some(r) = reading { group(ui, "Stage", None, |f| f.status(Status::Info, r)); }
     let leaf = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
     group(ui, "Stage", None, |f| {
         f.value("Meshes", format!("{} primitives, {} triangles", scene.meshes.len(), scene.triangles()));

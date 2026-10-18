@@ -571,7 +571,7 @@ fn draw_node(
     // ============================================================================
 
     // ── Bypass button, left of the title ─────────────────────────────────────
-    let mut on_bypass = false;
+    let on_bypass;
     {
         let by_rect = egui::Rect::from_min_size(
             egui::pos2(np.x + 4.0 * zoom, np.y + 4.0 * zoom), egui::vec2(eye_size, eye_size));

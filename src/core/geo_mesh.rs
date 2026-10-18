@@ -14,6 +14,14 @@ pub trait GeoMesh {
     /// their widths, curves, and every other attribute with one to four
     /// float components as a `PrimVar`.
     fn to_mesh(&self) -> MeshData;
+    /// The same view without the other attributes as `PrimVar`s: what the
+    /// Viewer and the mesh tools need, made fast for a stage of thousands of
+    /// primitives. The geometry keeps them; `primvars_view` makes them when
+    /// asked (the Primitive Inspector, on a geometry tab).
+    fn to_mesh_lean(&self) -> MeshData;
+    /// Every attribute but the points, normals, widths and UVs (which the
+    /// view holds itself) with one to four float components, as `PrimVar`s.
+    fn primvars_view(&self) -> Vec<PrimVar>;
     /// This geometry with the changes a `MeshData` operation made to its
     /// view (`before` what it was given, `after` what it returned), only what
     /// changed replaced.
@@ -30,6 +38,25 @@ impl GeoMesh for Geo {
     /// their widths, curves, and every other attribute with one to four
     /// float components as a `PrimVar`.
     fn to_mesh(&self) -> MeshData {
+        let mut m = self.to_mesh_lean();
+        m.primvars = self.primvars_view();
+        m
+    }
+
+    fn primvars_view(&self) -> Vec<PrimVar> {
+        let mut out = vec![];
+        for ctx in Context::ALL {
+            for (name, attr) in self.attrs(ctx) {
+                if matches!(name, POINTS | NORMALS | WIDTHS) || UV_NAMES.contains(&name) { continue; }
+                if let Some(values) = float_rows(attr, self.count(ctx)) {
+                    out.push(PrimVar { name: name.to_string(), interp: interp_of(ctx), values });
+                }
+            }
+        }
+        out
+    }
+
+    fn to_mesh_lean(&self) -> MeshData {
         let mut m = MeshData::default();
         match &self.topology {
             Topology::Points => {
@@ -87,15 +114,6 @@ impl GeoMesh for Geo {
                 m.polys = polys;
                 if let Some(n) = self.attr(Context::Point, NORMALS).and_then(|a| expand_vec3s(a, self.point_count())) {
                     m.normals = n;
-                }
-            }
-        }
-        // Everything else as primvars.
-        for ctx in Context::ALL {
-            for (name, attr) in self.attrs(ctx) {
-                if matches!(name, POINTS | NORMALS | WIDTHS) || UV_NAMES.contains(&name) { continue; }
-                if let Some(values) = float_rows(attr, self.count(ctx)) {
-                    m.primvars.push(PrimVar { name: name.to_string(), interp: interp_of(ctx), values });
                 }
             }
         }

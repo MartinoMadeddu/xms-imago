@@ -26,22 +26,42 @@ fn union(a: Option<Bounds>, b: Bounds) -> Option<Bounds> {
     Some(match a { Some(a) => (a.0.min(b.0), a.1.max(b.1)), None => b })
 }
 
+/// Boxes remembered by key, each with the mesh it was measured on: a key
+/// whose mesh is gone is stale. Meshes that are gone are let go when the
+/// map has doubled since it was last cleared, not on every insert: a stage
+/// with 240,000 live meshes would otherwise sweep the whole map each time
+/// (quadratic, most of the first frame's time on Moana).
+struct Kept<K> {
+    map:  HashMap<K, (Weak<MeshData>, Option<Bounds>)>,
+    next: usize,
+}
+
+impl<K: std::hash::Hash + Eq> Kept<K> {
+    fn get(&self, key: &K, mesh: &Arc<MeshData>) -> Option<Option<Bounds>> {
+        self.map.get(key).filter(|(w, _)| w.upgrade().is_some_and(|m| Arc::ptr_eq(&m, mesh))).map(|(_, b)| *b)
+    }
+
+    fn insert(&mut self, key: K, mesh: &Arc<MeshData>, b: Option<Bounds>) {
+        if self.map.len() >= self.next {
+            self.map.retain(|_, (w, _)| w.strong_count() > 0);
+            self.next = (self.map.len() * 2).max(8192);
+        }
+        self.map.insert(key, (Arc::downgrade(mesh), b));
+    }
+}
+
 /// The box of a mesh in its own space. Remembered per shared mesh, so a
 /// heavy model is measured once.
 fn mesh_bounds(mesh: &Arc<MeshData>) -> Option<Bounds> {
-    type Kept = HashMap<usize, (Weak<MeshData>, Option<Bounds>)>;
-    static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
+    static KEPT: Mutex<Option<Kept<usize>>> = Mutex::new(None);
     let key = Arc::as_ptr(mesh) as usize;
-    let mut kept = KEPT.lock().unwrap();
-    let kept = kept.get_or_insert_with(HashMap::new);
-    if let Some((weak, b)) = kept.get(&key) {
-        if weak.upgrade().is_some_and(|m| Arc::ptr_eq(&m, mesh)) { return *b; }
-    }
+    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    let kept = kept.get_or_insert_with(|| Kept { map: HashMap::new(), next: 8192 });
+    if let Some(b) = kept.get(&key, mesh) { return b; }
     let b = mesh.vertices.iter().chain(&mesh.points).chain(&mesh.curve_points)
         .map(|v| Vec3::from_array(*v))
         .fold(None, |acc, v| union(acc, (v, v)));
-    if kept.len() > 8192 { kept.retain(|_, (w, _)| w.strong_count() > 0); }
-    kept.insert(key, (Arc::downgrade(mesh), b));
+    kept.insert(key, mesh, b);
     b
 }
 
@@ -61,7 +81,24 @@ fn moved(b: Bounds, m: &Mat4) -> Bounds {
 pub fn world_bounds(p: &Prim) -> Option<Bounds> {
     let local = mesh_bounds(&p.mesh)?;
     if !p.place.is_placed() { return Some(local); }
-    p.place.matrices().iter().fold(None, |acc, m| union(acc, moved(local, m)))
+    let copies = p.place.matrices();
+    let around = || copies.iter().fold(None, |acc, m| union(acc, moved(local, m)));
+    if copies.len() < 256 { return around(); }
+    // A point instancer: its copies measured once, not on every frame the
+    // scene is built. Keyed by the mesh and the placements (their address,
+    // count, and the first and last copy's position, so placements made
+    // again at the same address are not mistaken for the old ones).
+    type Key = (usize, usize, usize, [u32; 6]);
+    static KEPT: Mutex<Option<Kept<Key>>> = Mutex::new(None);
+    let (a, b) = (copies[0].w_axis, copies[copies.len() - 1].w_axis);
+    let key: Key = (Arc::as_ptr(&p.mesh) as usize, copies.as_ptr() as usize, copies.len(),
+                    [a.x.to_bits(), a.y.to_bits(), a.z.to_bits(), b.x.to_bits(), b.y.to_bits(), b.z.to_bits()]);
+    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    let kept = kept.get_or_insert_with(|| Kept { map: HashMap::new(), next: 8192 });
+    if let Some(b) = kept.get(&key, &p.mesh) { return b; }
+    let b = around();
+    kept.insert(key, &p.mesh, b);
+    b
 }
 
 /// Split packed primitives into those drawn as geometry and the boxes drawn
@@ -98,7 +135,13 @@ fn decide(
 ) {
     let nodes = &tree.nodes;
     let n = nodes.len();
-    let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, node)| (node.path.as_str(), i)).collect();
+    // The stage's own index of its prims, when it has one for every prim;
+    // made here otherwise (a tree built by hand, in a test).
+    let made: HashMap<String, usize>;
+    let index = if tree.index.len() == n { &tree.index } else {
+        made = nodes.iter().enumerate().map(|(i, node)| (node.path.clone(), i)).collect();
+        &made
+    };
 
     // Each primitive belongs to the prim of its path, or else to the nearest
     // listed prim above it.

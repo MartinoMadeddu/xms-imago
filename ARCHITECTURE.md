@@ -63,7 +63,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `material`, `look`, `purpose`, `picked` | |
 | `camera` | a camera (`core::camera::Camera`, USD's values): the prim is one, with no geometry, placed. A file's carry the shared empty geometry (`nodes::no_geometry`) as geo and source, so only a move is an edit |
 | `shading` | a material Material Binding put in the scene: the prim is it, with no geometry. Not drawn, listed as `Material`, written as `def Material` (`usd_write::new_prim`) |
-| `mesh` | `MeshData` view of `geo` for legacy consumers (viewport, Edit Poly, UV). Temporary, see §9 |
+| `mesh` | `MeshData` view of `geo` for legacy consumers (viewport, Edit Poly, UV). Temporary, see §9. A stage's primitives and ICE's results get the lean view (`to_mesh_lean`: no `primvars`); their attributes stay in `geo`, and the Primitive Inspector makes their rows from it when a geometry tab is opened |
 
 - **Cameras:** the Viewer gathers the scene's cameras when it builds its scene (`viewer::scene::Scene::cameras`), draws each as a pyramid (`Camera::glyph`) and, when one is chosen (`viewer::camera::look_through`, a path), draws through it (`Camera::view_proj`: reversed depth as the Viewer's own camera, the gate fitted in the view). Navigating or framing hands the view back to the Viewer's own camera at that place (`Viewer::leave_camera`).
 - **Load modes:** Load USD builds its primitives with `nodes::stage_prims`. Sublayered, they keep the file's paths and share the cached stage's tree. Referenced or payloaded, `usd_scene::referenced_prim` picks the prim (named, else `defaultPrim`, else the first root prim), and `StageArc::place` rebases every path to the Primitive Location: the primitives, their bindings and prototypes, and the tree (`usd_scene::rebased`, with Xforms above the location and `StageTree::arc` set). Write USD sublayers the trees without an arc and writes the others as a `references` or `payload` on their location (`usd_write::arc_prim`).
@@ -137,7 +137,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 1. **Replace only the columns you change.** Clone the `Geo`; write through `points_mut()`, `attr_mut()` or `set()`. Never rebuild a `Geo` to change one thing: every rebuilt column becomes an edit, a copy and a write.
 2. **Keep primitives placed.** Move by `place` (`Placement::moved`), and work in the primitive's own space. `Prim::world()` gives the drawn mesh when needed.
 3. **Keep identity.** Build outputs with `Prim { geo, mesh, ..p.clone() }` so `path`, `source`, `stage`, material and purpose travel along. If geometry can't stay traceable, set `geo: None`.
-4. **Keep `mesh` in step with `geo`.** Rebuild the view (`geo.to_mesh()`), or clear `geo` if only `mesh` changed.
+4. **Keep `mesh` in step with `geo`.** Rebuild the view (`geo.to_mesh()`, or `to_mesh_lean()` when `geo` is kept with it), or clear `geo` if only `mesh` changed.
 
 ## 10. Where it's going
 

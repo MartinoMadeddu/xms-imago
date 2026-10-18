@@ -22,32 +22,64 @@ pub struct Source {
 /// listed grows with the geometry there is, not with the copies drawn.
 pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
     match scene {
-        EvalResult::Named(prims) => {
-            // A point instancer is listed as its instances, one point each.
-            // Its prototypes are listed only when they are selected
-            // themselves (a row below the instancer): selecting the
-            // instancer, a group above it or nothing lists its points, not
-            // the geometry drawn at them.
-            let instancers: Vec<&str> = prims.iter().filter(|p| p.instancing.is_some()).map(|p| p.path.as_str()).collect();
-            let below = |q: &str, p: &str| q.strip_prefix(p.trim_end_matches('/')).is_some_and(|rest| rest.starts_with('/'));
-            let at_or_below = |q: &str, p: &str| q == p.trim_end_matches('/') || below(q, p);
-            let wanted = |x: &Prim| {
-                let instancer = x.instanced_by.as_ref().map(|b| b.instancer.as_str())
-                    .or_else(|| instancers.iter().copied().find(|i| below(&x.path, i)));
-                match instancer {
-                    Some(i) => paths.iter().any(|p| at_or_below(&x.path, p) && below(p.trim_end_matches('/'), i)),
-                    None => paths.is_empty() || paths.iter().any(|p| at_or_below(&x.path, p)),
-                }
-            };
-            let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
-            // A material has no geometry: its inputs are in the Properties tab.
-            prims.iter().filter(|x| x.shading.is_none() && x.camera.is_none() && wanted(x)).filter_map(|p| {
-                if !instanced(p) { return Some(part(p, true)); }
-                seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then(|| part(p, false))
-            }).collect()
-        }
+        EvalResult::Named(prims) => shown(&prims, paths).into_iter().map(|(p, placed)| part(p, placed)).collect(),
         scene => scene.into_parts(),
     }
+}
+
+/// How much geometry the inspector would list: what its tabs count, worked
+/// out from the primitives as they are, without copying or placing any of
+/// them. The geometry itself (`scene_parts`) is made only when a geometry
+/// tab is opened.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Summary {
+    pub points:  usize,
+    pub faces:   usize,
+    pub corners: usize,
+}
+
+impl Summary {
+    /// Whether there is any geometry to list.
+    pub fn any(&self) -> bool { self.points > 0 }
+}
+
+/// The counts of what `scene_parts` would list.
+pub fn scene_summary(scene: &EvalResult, paths: &[String]) -> Summary {
+    let of = |m: &MeshData| Summary { points: m.point_count(), faces: m.num_faces() + m.curve_counts.len(), corners: m.corner_count() };
+    let add = |a: Summary, b: Summary| Summary { points: a.points + b.points, faces: a.faces + b.faces, corners: a.corners + b.corners };
+    match scene {
+        // Listed once each: placing a primitive does not change its counts.
+        EvalResult::Named(prims) => shown(prims, paths).into_iter().map(|(p, _)| of(&p.mesh)).fold(Summary::default(), add),
+        EvalResult::Single(m) => of(m),
+        EvalResult::Anim(_) | EvalResult::Material(_) => Summary::default(),
+    }
+}
+
+/// The primitives listed, and whether each is listed where it is drawn
+/// (placed) or once in its own space (instanced).
+fn shown<'a>(prims: &'a [Prim], paths: &[String]) -> Vec<(&'a Prim, bool)> {
+    // A point instancer is listed as its instances, one point each.
+    // Its prototypes are listed only when they are selected
+    // themselves (a row below the instancer): selecting the
+    // instancer, a group above it or nothing lists its points, not
+    // the geometry drawn at them.
+    let instancers: Vec<&str> = prims.iter().filter(|p| p.instancing.is_some()).map(|p| p.path.as_str()).collect();
+    let below = |q: &str, p: &str| q.strip_prefix(p.trim_end_matches('/')).is_some_and(|rest| rest.starts_with('/'));
+    let at_or_below = |q: &str, p: &str| q == p.trim_end_matches('/') || below(q, p);
+    let wanted = |x: &Prim| {
+        let instancer = x.instanced_by.as_ref().map(|b| b.instancer.as_str())
+            .or_else(|| instancers.iter().copied().find(|i| below(&x.path, i)));
+        match instancer {
+            Some(i) => paths.iter().any(|p| at_or_below(&x.path, p) && below(p.trim_end_matches('/'), i)),
+            None => paths.is_empty() || paths.iter().any(|p| at_or_below(&x.path, p)),
+        }
+    };
+    let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
+    // A material has no geometry: its inputs are in the Properties tab.
+    prims.iter().filter(|x| x.shading.is_none() && x.camera.is_none() && wanted(x)).filter_map(|p| {
+        if !instanced(p) { return Some((p, true)); }
+        seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then_some((p, false))
+    }).collect()
 }
 
 /// Whether a primitive is instanced geometry, or a point instancer: listed
@@ -70,6 +102,20 @@ pub fn copies(p: &Prim, scene: &[Prim]) -> usize {
 /// the Object values it inherits from the prims above it (Set Attribute on
 /// a group) among its Object attributes.
 fn part(p: &Prim, placed: bool) -> MeshData {
+    // What each element carries, from the geometry itself: the mesh view a
+    // stage loads does not hold it (made here, when a tab asks for it).
+    let with_attrs;
+    let p = match &p.geo {
+        // The same points: the geometry is the one the mesh views.
+        Some(g) if g.point_count() == p.mesh.point_count() => {
+            use crate::core::geo_mesh::GeoMesh;
+            let mut mesh = (*p.mesh).clone();
+            mesh.primvars = g.primvars_view();
+            with_attrs = Prim { mesh: std::sync::Arc::new(mesh), ..p.clone() };
+            &with_attrs
+        }
+        _ => p,
+    };
     let mut m = if placed { p.world().into_owned() } else { (*p.mesh).clone() };
     for (name, value) in crate::core::properties::inherited_primvars(p) {
         if let Some(n) = value.numbers() {
@@ -357,6 +403,35 @@ mod tests {
         assert!(scene_parts(scene(), &sel(&["/gone"])).is_empty());
         // A plain mesh has no path: always all of it.
         assert_eq!(scene_parts(EvalResult::Single(cube()), &sel(&["/set"])).len(), 1);
+    }
+
+    /// The counts the tabs show are those of what a geometry tab lists,
+    /// worked out without making it; the attributes a stage's lean view
+    /// leaves out come from the geometry when it is made.
+    #[test]
+    fn the_counts_match_and_attributes_come_from_the_geometry() {
+        use crate::core::geo::{Attr, Column, Context, Geo, Role};
+        use crate::core::geo_mesh::GeoMesh;
+        use std::sync::Arc;
+        let mut geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]], vec![4], vec![0, 1, 2, 3]);
+        geo.set(Context::Point, "heat", Attr::new(Column::Float(Arc::new(vec![1.0, 2.0, 3.0, 4.0])), Role::None));
+        let lean = geo.to_mesh_lean();
+        assert!(lean.primvars.is_empty(), "the lean view leaves the attributes in the geometry");
+        let prim = |path: &str| Prim {
+            geo: Some(Arc::new(geo.clone())),
+            place: crate::types::Placement::One(glam::Mat4::from_translation(glam::Vec3::X)),
+            ..Prim::new(path.into(), lean.clone())
+        };
+        let scene = EvalResult::Named(vec![prim("/a"), prim("/b")]);
+        let parts = scene_parts(scene.clone(), &[]);
+        let summary = scene_summary(&scene, &[]);
+        assert_eq!(summary.points, parts.iter().map(|m| m.point_count()).sum::<usize>());
+        assert_eq!(summary.faces, parts.iter().map(|m| m.num_faces()).sum::<usize>());
+        assert_eq!(summary.corners, parts.iter().map(|m| m.corner_count()).sum::<usize>());
+        assert_eq!((summary.points, summary.faces, summary.corners), (8, 2, 8));
+        let heat = parts[0].primvars.iter().find(|p| p.name == "heat").expect("heat, from the geometry");
+        assert_eq!(heat.values, vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0]]);
+        assert_eq!(scene_summary(&scene, &["/b".to_string()]).points, 4);
     }
 
     /// The Properties tab of a group Imago made, and of a cube below it:

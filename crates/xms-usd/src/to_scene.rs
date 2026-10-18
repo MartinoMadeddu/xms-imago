@@ -30,6 +30,12 @@ pub struct SceneOptions {
     /// `user:`, kept as `user:mask`). Grooms often carry many per-point attributes
     /// nothing renders; a prefix keeps them from being decoded
     pub curve_primvars: Option<String>,
+    /// Only what drawing the stage as boxes needs: the hierarchy, transforms,
+    /// visibility, purpose, instancing, and each mesh, curves or points as
+    /// the box of its authored `extent` (of its points when it has none).
+    /// No mesh arrays, primvars, materials, bindings or authored values: a
+    /// first pass a big stage can show quickly, before the whole of it.
+    pub boxes_only: bool,
 }
 
 /// The default curve-primvar prefix.
@@ -52,7 +58,7 @@ struct Profile {
 
 impl Default for SceneOptions {
     fn default() -> Self {
-        SceneOptions { time: None, shutter: (0.0, 0.0), import_curves: true, curve_primvars: Some(CURVE_PRIMVAR_PREFIX.to_string()) }
+        SceneOptions { time: None, shutter: (0.0, 0.0), import_curves: true, curve_primvars: Some(CURVE_PRIMVAR_PREFIX.to_string()), boxes_only: false }
     }
 }
 
@@ -70,6 +76,17 @@ pub fn translate(path: &FsPath, opts: SceneOptions) -> Result<Translated, String
     translate_stage(&stage, path, opts)
 }
 
+/// Open the stage once and translate it twice: as boxes first (handed to
+/// `boxes` as soon as they are made), then in full. For a big stage read
+/// in the background: what it looks like is shown long before all of it is
+/// read.
+pub fn translate_phased(path: &FsPath, opts: SceneOptions, boxes: impl FnOnce(Translated)) -> Result<Translated, String> {
+    let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
+    let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
+    if let Ok(first) = translate_stage(&stage, path, SceneOptions { boxes_only: true, ..opts.clone() }) { boxes(first); }
+    translate_stage(&stage, path, SceneOptions { boxes_only: false, ..opts })
+}
+
 /// Translate an already-open stage (`path` is its root layer, for `.mtlx` references).
 pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Result<Translated, String> {
     let t0 = Instant::now();
@@ -85,6 +102,7 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         time,
         window: (t + opts.shutter.0, t + opts.shutter.1),
         import_curves: opts.import_curves,
+        boxes_only: opts.boxes_only,
         scene: rs::Scene::new(),
         warnings: Vec::new(),
         prototypes: HashSet::new(),
@@ -170,6 +188,7 @@ struct Translator<'s> {
     time: Option<f64>,
     window: (f64, f64),
     import_curves: bool,
+    boxes_only: bool,
     scene: rs::Scene,
     warnings: Vec<String>,
     /// Native-instance prototypes already translated
@@ -559,6 +578,10 @@ impl<'s> Translator<'s> {
             }
         } else {
             match ty.as_str() {
+                "Mesh" | "BasisCurves" | "Points" if self.boxes_only => {
+                    self.box_of(prim).map_or(PrimKind::Group, |m| PrimKind::Mesh(Box::new(m)))
+                }
+                "Material" if self.boxes_only => { descend = false; PrimKind::Group }
                 "Mesh" => {
                     let t = std::time::Instant::now();
                     let k = self.mesh(prim).map_or(PrimKind::Group, |m| PrimKind::Mesh(Box::new(m)));
@@ -606,12 +629,14 @@ impl<'s> Translator<'s> {
             Some("guide") => rs::Purpose::Guide,
             _ => rs::Purpose::Default,
         };
-        p.material_binding = binding(prim).and_then(|b| self.target_path(&b));
-        p.opaque = ["primvars:rray:opaque", "rray:opaque", "primvars:arnold:opaque"]
-            .iter()
-            .find_map(|n| self.value(prim, n).and_then(scalar))
-            .map(|v| v != 0.0);
-        p.authored = self.authored(prim);
+        if !self.boxes_only {
+            p.material_binding = binding(prim).and_then(|b| self.target_path(&b));
+            p.opaque = ["primvars:rray:opaque", "rray:opaque", "primvars:arnold:opaque"]
+                .iter()
+                .find_map(|n| self.value(prim, n).and_then(scalar))
+                .map(|v| v != 0.0);
+            p.authored = self.authored(prim);
+        }
         self.scene.insert(p);
         if descend {
             for c in prim.children().unwrap_or_default() {
@@ -712,6 +737,35 @@ impl<'s> Translator<'s> {
             }
         }
         out
+    }
+
+    /// A mesh, curves or points as its box, a mesh of six quads: from its
+    /// authored `extent`, or from its points when it has none (or an empty
+    /// one), so every prim with geometry has a box.
+    fn box_of(&self, prim: &Prim) -> Option<rs::Mesh> {
+        let from_points = || {
+            let points = self.value(prim, "points").and_then(vec3_array)?;
+            let first = *points.first()?;
+            Some(points.iter().fold((first, first), |(lo, hi), p| {
+                ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])])
+            }))
+        };
+        let (lo, hi) = self.value(prim, "extent").and_then(vec3_array)
+            .filter(|e| e.len() == 2 && (0..3).all(|k| e[0][k] <= e[1][k]))
+            .map(|e| (e[0], e[1]))
+            .or_else(from_points)?;
+        let corner = |c: u32| [
+            if c & 1 != 0 { hi[0] } else { lo[0] },
+            if c & 2 != 0 { hi[1] } else { lo[1] },
+            if c & 4 != 0 { hi[2] } else { lo[2] },
+        ];
+        const FACES: [u32; 24] = [0, 2, 3, 1, 4, 5, 7, 6, 0, 1, 5, 4, 2, 6, 7, 3, 0, 4, 6, 2, 1, 3, 7, 5];
+        Some(rs::Mesh {
+            points: Sampled::constant((0..8).map(corner).collect()),
+            face_vertex_counts: vec![4; 6],
+            face_vertex_indices: FACES.to_vec(),
+            ..Default::default()
+        })
     }
 
     fn mesh(&self, prim: &Prim) -> Option<rs::Mesh> {

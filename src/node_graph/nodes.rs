@@ -125,7 +125,8 @@ pub fn evaluate_node_type(
                         if any_picked && !p.picked { return p.clone(); }
                         let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
                         let out = eval_subnet(*id, &geo, template.as_ref());
-                        Prim { mesh: Arc::new(out.to_mesh()), geo: Some(Arc::new(out)), ..p.clone() }
+                        // The attributes stay in the geometry (see `to_mesh_lean`).
+                        Prim { mesh: Arc::new(out.to_mesh_lean()), geo: Some(Arc::new(out)), ..p.clone() }
                     }).collect()))
                 }
                 other => {
