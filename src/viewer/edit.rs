@@ -11,7 +11,7 @@
 
 use glam::{Quat, Vec2, Vec3};
 
-use crate::core::manip::{self, Handle, Tool, AXES, RING_STEPS};
+use crate::core::manip::{self, Tool};
 use crate::core::poly::{self, Component as Picked, PickMode, PickView, PolyMesh, PolyOp, PolyOpKind, PolySelection, SubLevel};
 use crate::modelling::{self, Drag, PolyTool};
 use crate::types::NodeType;
@@ -30,19 +30,19 @@ pub struct Overlay {
     pub points: Vec<f32>,
 }
 
-fn line(out: &mut Vec<f32>, a: Vec3, b: Vec3, c: [f32; 4]) {
+pub(super) fn line(out: &mut Vec<f32>, a: Vec3, b: Vec3, c: [f32; 4]) {
     out.extend_from_slice(&a.to_array()); out.extend_from_slice(&c);
     out.extend_from_slice(&b.to_array()); out.extend_from_slice(&c);
 }
 
 /// An sRGB colour with alpha, as the overlay's linear colour.
-fn colour(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
+pub(super) fn colour(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
     let c = linear_f([r, g, b]);
     [c[0], c[1], c[2], a]
 }
 
 /// A ring of lines about `centre`, square to `normal`.
-fn circle(out: &mut Vec<f32>, centre: Vec3, normal: Vec3, radius: f32, c: [f32; 4]) {
+pub(super) fn circle(out: &mut Vec<f32>, centre: Vec3, normal: Vec3, radius: f32, c: [f32; 4]) {
     let n = normal.normalize_or_zero();
     let u = n.any_orthonormal_vector();
     let v = n.cross(u);
@@ -51,7 +51,7 @@ fn circle(out: &mut Vec<f32>, centre: Vec3, normal: Vec3, radius: f32, c: [f32; 
 }
 
 /// A line with a head at `tip`.
-fn arrow(out: &mut Vec<f32>, from: Vec3, tip: Vec3, c: [f32; 4]) {
+pub(super) fn arrow(out: &mut Vec<f32>, from: Vec3, tip: Vec3, c: [f32; 4]) {
     line(out, from, tip, c);
     let d = tip - from;
     let len = d.length();
@@ -221,34 +221,7 @@ fn overlay(stage: &modelling::Stage, tool: &PolyTool, view: &PickView, ppp: f32)
 
     // Manipulator, drawn over everything.
     if let Some((c, size)) = stage.gizmo(tool.tool, view) {
-        let col = |h: Handle| {
-            if tool.hot == Some(h) { return colour(1.0, 0.9, 0.2, 1.0); }
-            match h {
-                Handle::Axis(0) => colour(0.92, 0.22, 0.22, 1.0),
-                Handle::Axis(1) => colour(0.35, 0.8, 0.2, 1.0),
-                Handle::Axis(_) => colour(0.25, 0.5, 1.0, 1.0),
-                Handle::Centre  => colour(0.9, 0.9, 0.9, 1.0),
-            }
-        };
-        for a in 0..3 {
-            let c_a = col(Handle::Axis(a));
-            let tip = c + AXES[a] * size;
-            match tool.tool {
-                Tool::Move => arrow(&mut o.top, c, tip, c_a),
-                Tool::Scale => {
-                    line(&mut o.top, c, tip, c_a);
-                    let k = size * 0.06;
-                    for b in 0..3 { line(&mut o.top, tip - AXES[b] * k, tip + AXES[b] * k, c_a); }
-                }
-                Tool::Rotate => for k in 0..RING_STEPS {
-                    line(&mut o.top, manip::ring_point(c, size, a, k), manip::ring_point(c, size, a, k + 1), c_a);
-                },
-                Tool::Select => {}
-            }
-        }
-        if tool.tool != Tool::Rotate {
-            circle(&mut o.top, c, view.eye - c, size * 0.07, col(Handle::Centre));
-        }
+        super::gizmo::draw(&mut o, c, size, tool.tool, tool.hot, view);
     }
 
     let (vis_verts, vis_edges) = poly::visible_components(mesh, view);

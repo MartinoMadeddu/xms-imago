@@ -219,6 +219,21 @@ Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
 
 The 🎥 menu at the top of the Viewer, next to the display mode, lists the cameras of the scene at the view flag. Choose one to look through it: the whole gate is shown, what is outside it darkened, the camera's name at the top, in the middle. Perspective goes back to the Viewer's own camera, where it was. Orbiting, panning, zooming or framing while looking through a camera leaves it, the view staying where it is (see [USD](usd.md#cameras)).
 
+## Manipulators
+
+A selected Transform or Camera node has handles in the Viewer, the same ones Edit Poly has (see [Edit Poly](edit-poly.md)): Q selects, W moves, E rotates, R scales, with the cursor over the Viewer. A drag on a handle writes into the node's parameters as you drag, and is one step of the history when the button is let go. The handle under the cursor turns yellow.
+
+| Node | Pivot | Handles |
+|---|---|---|
+| Transform | Its translation: where the node turns and scales about | Move along an axis, or free in the plane of the screen from the centre; rotate on a ring; scale along an axis, or evenly from the centre. On a clip the scale is the same on every axis, whichever handle is pulled |
+| Camera | The camera | Move and rotate. R does nothing: a camera has no size |
+
+With Q the pivot shows as a small tripod and a dot, so where the handles will be is in sight. A move leaves the rotation and scale as they were written; a rotation leaves the translation and scale.
+
+![The move handles on MoveSphere; the grid, clicked, outlined](xms_gizmo.png)
+
+Clicking a primitive in the Viewer selects it, as clicking a row of the Scene Explorer does: that row lights up, the Primitive Inspector shows the prim, the selected primitives are outlined by their bounds in the Viewer. Ctrl+click (Cmd+click on macOS) adds a primitive or takes it out; a click on nothing clears the selection. A click is a press and release in place: a drag orbits, pans or zooms as the navigation style has it. Not while an Edit Poly node is selected, whose clicks pick components, and not on a handle.
+
 ## Framing
 
 With the cursor over the Viewer:
@@ -338,5 +353,7 @@ The window draws a new frame when something happens (input, a change in the grap
 
 - The Primitive Inspector shows curves' positions only: their widths and other attributes are not listed yet. Nor are the attributes of a primitive placed from a stage, apart from positions, normals, UVs and points' widths.
 - The Edit menu acts on the root scene graph, not inside an ICE graph.
+- Manipulators work on world axes only; no snapping to the grid or to points while dragging; a Transform node's pivot cannot be moved off its translation.
+- Clicking a primitive selects it in the Scene Explorer, not the operator that placed it; the manipulator belongs to the selected node.
 - Paste in the Edit menu pastes the nodes copied last; Ctrl+V over the canvas also takes nodes from the system clipboard, under the pointer.
 - No question before Write FBX or Write USD overwrites a file in a batch run started some other way than the node's buttons (the tests, say).

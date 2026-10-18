@@ -11,7 +11,9 @@
 
 pub(crate) mod camera;
 mod edit;
+mod gizmo;
 mod gpu;
+mod pick;
 mod scene;
 
 use std::sync::Arc;
@@ -26,7 +28,8 @@ pub struct ViewerInput<'a> {
     /// Mutable: Edit Poly's picking and manipulators write to its node.
     pub graph:     &'a mut crate::node_graph::NodeGraphState,
     pub subnets:   &'a crate::ice::IceGraphStore,
-    pub hierarchy: &'a crate::types::SceneHierarchy,
+    /// Mutable: a click on a primitive selects it, as in the Scene Explorer.
+    pub hierarchy: &'a mut crate::types::SceneHierarchy,
     pub playback:  &'a mut crate::timeline::Playback,
     pub revision:  u64,
     pub nav:       NavSettings,
@@ -64,6 +67,11 @@ pub struct Viewer {
     drag:       Drag,
     /// What the left button is doing for Edit Poly.
     edit_drag:  crate::modelling::Drag,
+    /// A handle of a Transform or Camera node being dragged.
+    gizmo_drag: Option<gizmo::Drag>,
+    /// Where the left button went down over the Viewer, for a click that
+    /// picks a primitive (a drag is not a click).
+    press:      Option<egui::Pos2>,
     scene:      Arc<scene::Scene>,
     cache:      scene::GeometryCache,
     /// What the scene was last built for.
@@ -77,7 +85,7 @@ pub struct Viewer {
 }
 
 impl Viewer {
-    pub fn show(&mut self, ui: &mut egui::Ui, input: ViewerInput) {
+    pub fn show(&mut self, ui: &mut egui::Ui, mut input: ViewerInput) {
         let rect = ui.max_rect();
         ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let aspect = rect.width() / rect.height().max(1.0);
@@ -116,7 +124,17 @@ impl Viewer {
             size:      glam::Vec2::new(rect.width(), rect.height()),
             eye,
         };
-        let overlay = edit::run(ui.ctx(), rect, &view, input.graph, input.subnets, &input.nav, input.tool, &mut self.edit_drag);
+        let mut overlay = edit::run(ui.ctx(), rect, &view, input.graph, input.subnets, &input.nav, input.tool, &mut self.edit_drag);
+        // Handles of the selected Transform or Camera node.
+        {
+            let (cursor, held) = ui.ctx().input(|i| (i.pointer.hover_pos(), held(i)));
+            let over = cursor.is_some_and(|p| rect.contains(p)
+                && ui.ctx().layer_id_at(p).map(|l| l == egui::LayerId::background()).unwrap_or(true));
+            let free = over && !input.nav.style.claims_left_button(held);
+            let g = gizmo::run(ui.ctx(), rect, &view, input.graph, input.tool, &mut self.gizmo_drag, free);
+            overlay.top.extend(g.top);
+            self.pick_prims(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
+        }
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
@@ -131,6 +149,53 @@ impl Viewer {
         ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(rect, gpu::ViewerPaint(frame)));
         self.origin_label(ui, rect, view_proj);
         if let Some((path, _, cam)) = &looking { gate(ui, rect, &path, cam); }
+    }
+
+    /// A click on a primitive selects it in the Scene Explorer (Ctrl adds
+    /// or takes away, a click on nothing clears), and the selected
+    /// primitives are outlined by their bounds. Not while an Edit Poly node
+    /// is selected, whose clicks pick components, nor on a handle.
+    fn pick_prims(&mut self, ctx: &egui::Context, rect: egui::Rect, view: &crate::core::poly::PickView, input: &mut ViewerInput, free: bool, overlay: &mut edit::Overlay) {
+        let editing = input.graph.selected_node
+            .and_then(|id| input.graph.nodes.iter().find(|n| n.id == id))
+            .is_some_and(|n| matches!(n.node_type, crate::types::NodeType::EditPoly { .. }));
+        let (pressed, released, pos, ctrl) = ctx.input(|i| (
+            i.pointer.button_pressed(egui::PointerButton::Primary),
+            i.pointer.button_released(egui::PointerButton::Primary),
+            i.pointer.latest_pos(), i.modifiers.ctrl || i.modifiers.mac_cmd,
+        ));
+        if pressed { self.press = if free && !editing && input.tool.hot.is_none() && self.gizmo_drag.is_none() { pos } else { None }; }
+        let subnets = input.subnets;
+        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+            subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+        };
+        let prims = match input.graph.evaluate_for_viewport_packed(&eval) {
+            Some(crate::types::EvalResult::Named(p)) => p,
+            _ => vec![],
+        };
+        if released {
+            if let (Some(start), Some(end)) = (self.press.take(), pos) {
+                if start.distance(end) <= 4.0 && free {
+                    let origin = Vec2::new(rect.min.x, rect.min.y);
+                    match pick::prim_at(view, Vec2::new(end.x, end.y) - origin, &prims) {
+                        Some(path) => input.hierarchy.click(&path, ctrl, false, &[]),
+                        None => if !ctrl { input.hierarchy.clear_selection() },
+                    }
+                    ctx.request_repaint();
+                }
+            }
+        }
+        if !input.hierarchy.selected_paths().is_empty() {
+            let c = edit::colour(1.0, 0.75, 0.2, 1.0);
+            for (lo, hi) in pick::selected_bounds(&prims, input.hierarchy.selected_paths()) {
+                let p = |x: f32, y: f32, z: f32| glam::Vec3::new(x, y, z);
+                let corners = [p(lo.x, lo.y, lo.z), p(hi.x, lo.y, lo.z), p(hi.x, hi.y, lo.z), p(lo.x, hi.y, lo.z),
+                               p(lo.x, lo.y, hi.z), p(hi.x, lo.y, hi.z), p(hi.x, hi.y, hi.z), p(lo.x, hi.y, hi.z)];
+                for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)] {
+                    edit::line(&mut overlay.top, corners[a], corners[b], c);
+                }
+            }
+        }
     }
 
     /// The camera of the scene looked through, as the scene has it now.

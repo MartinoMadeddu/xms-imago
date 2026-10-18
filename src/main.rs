@@ -677,7 +677,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 self.vp_rect.0 = Some(ui.max_rect());
                 if let Some(v) = self.viewer.as_deref_mut() {
                     v.show(ui, viewer::ViewerInput {
-                        graph: &mut *self.graph, subnets: &*self.subnets, hierarchy: &*self.hierarchy,
+                        graph: &mut *self.graph, subnets: &*self.subnets, hierarchy: &mut *self.hierarchy,
                         playback: &mut *self.playback, revision: self.revision, nav: self.nav_settings,
                         tool: &mut *self.poly_tool,
                     });

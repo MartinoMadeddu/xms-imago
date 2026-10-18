@@ -172,7 +172,7 @@ fn primitives(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let cube   = g.add_node("Cube".into(), NodeType::cube(1.0), p(40.0, 20.0));
     let sphere = g.add_node("Sphere".into(), NodeType::sphere(0.6, 24), p(250.0, 20.0));
     let grid   = g.add_node("Grid".into(), NodeType::grid(8, 8, 5.0), p(460.0, 20.0));
-    let cube_x = g.add_node("MoveCube".into(), transform([-1.2, 0.5, 0.0], [0.0, 30.0, 0.0], [1.0, 1.0, 1.0]), p(40.0, 120.0));
+    let cube_x = g.add_node("MoveCube".into(), transform([-1.2, 0.5, 0.0], [0.0, 30f32.to_radians(), 0.0], [1.0, 1.0, 1.0]), p(40.0, 120.0));
     let sph_x  = g.add_node("MoveSphere".into(), transform([1.2, 0.6, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), p(250.0, 120.0));
     let m1     = g.add_node("Merge".into(), NodeType::merge(), p(145.0, 220.0));
     let m2     = g.add_node("MergeFloor".into(), NodeType::merge(), p(300.0, 320.0));
@@ -292,7 +292,7 @@ fn bridge(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     // Two cubes, each a primitive of its own.
     let a    = g.add_node("Lower".into(), NodeType::CreateCube { size: 1.0, location: "/lower".into() }, p(60.0, 20.0));
     let b    = g.add_node("Upper".into(), NodeType::CreateCube { size: 1.0, location: "/upper".into() }, p(300.0, 20.0));
-    let lift = g.add_node("Lift".into(), transform([0.0, 2.5, 0.0], [0.0, 45.0, 0.0], [1.0, 1.0, 1.0]), p(300.0, 120.0));
+    let lift = g.add_node("Lift".into(), transform([0.0, 2.5, 0.0], [0.0, 45f32.to_radians(), 0.0], [1.0, 1.0, 1.0]), p(300.0, 120.0));
     let m    = g.add_node("Merge".into(), NodeType::merge(), p(180.0, 220.0));
     let ep   = g.add_node("Bridge".into(), edit_poly(ops, Default::default()), p(180.0, 320.0));
     g.add_connection(b, 0, lift, 0);

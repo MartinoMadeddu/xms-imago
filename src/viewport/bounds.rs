@@ -27,8 +27,8 @@ fn union(a: Option<Bounds>, b: Bounds) -> Option<Bounds> {
 }
 
 /// The box of a mesh in its own space. Remembered per shared mesh, so a
-/// heavy model is measured once.
-fn mesh_bounds(mesh: &Arc<MeshData>) -> Option<Bounds> {
+/// A mesh's own box, kept while the mesh lives.
+pub fn local_bounds(mesh: &Arc<MeshData>) -> Option<Bounds> {
     type Kept = HashMap<usize, (Weak<MeshData>, Option<Bounds>)>;
     static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
     let key = Arc::as_ptr(mesh) as usize;
@@ -45,8 +45,8 @@ fn mesh_bounds(mesh: &Arc<MeshData>) -> Option<Bounds> {
     b
 }
 
-/// A box moved by a matrix: the box around the moved box.
-fn moved(b: Bounds, m: &Mat4) -> Bounds {
+/// A box moved by a matrix: the box around its moved corners.
+pub fn moved_bounds(b: Bounds, m: &Mat4) -> Bounds {
     let centre = m.transform_point3((b.0 + b.1) * 0.5);
     let half = (b.1 - b.0) * 0.5;
     let reach = Vec3::new(
@@ -59,9 +59,9 @@ fn moved(b: Bounds, m: &Mat4) -> Bounds {
 
 /// Where a packed primitive is drawn, every copy included.
 pub fn world_bounds(p: &Prim) -> Option<Bounds> {
-    let local = mesh_bounds(&p.mesh)?;
+    let local = local_bounds(&p.mesh)?;
     if !p.place.is_placed() { return Some(local); }
-    p.place.matrices().iter().fold(None, |acc, m| union(acc, moved(local, m)))
+    p.place.matrices().iter().fold(None, |acc, m| union(acc, moved_bounds(local, m)))
 }
 
 /// Split packed primitives into those drawn as geometry and the boxes drawn
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn a_turned_box_still_holds_its_corners() {
         let m = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4);
-        let b = moved((Vec3::splat(-1.0), Vec3::splat(1.0)), &m);
+        let b = moved_bounds((Vec3::splat(-1.0), Vec3::splat(1.0)), &m);
         assert!((b.1.x - std::f32::consts::SQRT_2).abs() < 1e-5);
     }
 }

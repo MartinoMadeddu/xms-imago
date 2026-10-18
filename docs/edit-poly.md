@@ -75,6 +75,8 @@ The manipulator sits at the centre of the selection, on world axes. Move and Sca
 
 Each drag is stored as a Transform operation. Further drags on the same selection update that operation. A scale after a rotation starts a new one.
 
+The same handles and keys work on a selected Transform or Camera node, writing into its parameters: see [Interface](interface.md#manipulators).
+
 The Delete key in the Viewer adds a Delete operation.
 
 ## Collapsing
