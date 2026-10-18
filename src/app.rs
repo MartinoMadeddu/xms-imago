@@ -51,4 +51,6 @@ pub struct AppState {
     pub batch:      BatchState,
     /// Example files a graph names that can be fetched.
     pub downloads:  Downloads,
+    /// The Graph Editor's view and selection.
+    pub graph_editor: crate::graph_editor::GraphEditor,
 }

@@ -28,6 +28,9 @@ struct SavedNode {
     frozen:    bool,
     #[serde(default, skip_serializing_if = "is_false")]
     ghost:     bool,
+    /// Keys on its parameters. Left out when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    channels:  Vec<crate::core::keys::Channel>,
     /// Its Prims Location tab. Left out of the file when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     locations: Vec<String>,
@@ -44,6 +47,10 @@ struct SavedGraph {
     /// `NodeGraphState::view_output`).
     #[serde(default)]
     view_output: usize,
+    /// The scene's frame range and rate. Graphs saved before it have the
+    /// default (1 to 120 at 24 fps).
+    #[serde(default)]
+    scene:       crate::node_graph::SceneRange,
 }
 
 pub fn to_json(graph: &NodeGraphState) -> String {
@@ -57,6 +64,7 @@ pub fn to_json(graph: &NodeGraphState) -> String {
             bypassed:  n.bypassed,
             frozen:    n.frozen,
             ghost:     n.ghost,
+            channels:  n.channels.clone(),
             locations: n.locations.clone(),
         }).collect(),
         connections: graph.connections.iter()
@@ -64,6 +72,7 @@ pub fn to_json(graph: &NodeGraphState) -> String {
             .collect(),
         view_flag: graph.view_flag.map(|n| n.0),
         view_output: graph.view_output,
+        scene: graph.scene,
     };
     serde_json::to_string_pretty(&saved).unwrap_or_default()
 }
@@ -81,7 +90,7 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
         if let NodeType::Ice { id, .. } = &mut node_type { *id = IceGraphId(usize::MAX); }
         let id = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]));
         // Keep the saved ids so connections can be restored as written.
-        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.locations = n.locations; }
+        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.channels = n.channels; node.locations = n.locations; }
         graph.next_node_id = graph.next_node_id.max(n.id + 1);
     }
     for [from, out, to, input] in saved.connections {
@@ -94,6 +103,7 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
     for id in ids { graph.keep_an_input_free(id); }
     graph.view_flag = saved.view_flag.map(NodeId).filter(|v| graph.nodes.iter().any(|n| n.id == *v));
     graph.view_output = saved.view_output;
+    graph.scene = saved.scene;
     // A graph saved with nothing viewed views the end of its last chain.
     graph.repair_view_flag(None);
     Ok(())
@@ -304,7 +314,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
         xms_nodes: 1,
         nodes: picked.iter().map(|n| SavedNode {
             id: n.id.0, name: n.name.clone(), position: [n.position.x, n.position.y],
-            node_type: n.node_type.clone(), bypassed: n.bypassed, frozen: n.frozen, ghost: n.ghost, locations: n.locations.clone(),
+            node_type: n.node_type.clone(), bypassed: n.bypassed, frozen: n.frozen, ghost: n.ghost, channels: n.channels.clone(), locations: n.locations.clone(),
         }).collect(),
         connections: graph.connections.iter()
             .filter(|c| inside(c.from_node) && inside(c.to_node))
@@ -319,7 +329,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
 pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: Fragment, at: Option<egui::Pos2>) -> Placed {
     let Fragment { nodes, connections, trees, .. } = fragment;
     // Nodes from an older version are brought up to date as a file is.
-    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0 };
+    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0, scene: Default::default() };
     upgrade(&mut saved);
     let corner = saved.nodes.iter().fold(egui::pos2(f32::MAX, f32::MAX), |c, n| egui::pos2(c.x.min(n.position[0]), c.y.min(n.position[1])));
     let shift = match at { Some(at) => at - corner, None => egui::vec2(40.0, 40.0) };
@@ -332,7 +342,7 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: 
                 .unwrap_or(IceGraphId(usize::MAX));
         }
         let new = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]) + shift);
-        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.locations = n.locations.clone(); }
+        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.channels = n.channels.clone(); node.locations = n.locations.clone(); }
         placed.insert(n.id, new);
     }
     for [from, out, to, input] in saved.connections {
@@ -436,6 +446,7 @@ pub(crate) fn clear(graph: &mut NodeGraphState) {
     graph.selected_connection = None;
     graph.view_flag = None;
     graph.view_output = 0;
+    graph.scene = Default::default();
     graph.dragging_node = None;
     graph.connecting_from = None;
 }

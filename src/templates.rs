@@ -85,6 +85,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Three spheres with MaterialX materials: a gold standard_surface, a red open_pbr_surface, and a standard_surface reading a texture through an image node. Double-click a MaterialX node to open its graph. Write USD is viewed" },
     Template { by: MARTINO, group: "USD stages", name: "USD: material binding", build: usd_material_binding,
         hint: "Two Material operators wired into a Material Binding: car paint on the whole model, chrome on the wheels (the later row wins). Textured mode shows them" },
+    Template { by: SIMON, group: "Animation & Mocap", name: "Keys: a bouncing ball", build: keys_bounce,
+        hint: "A sphere keyed to bounce along the grid: open the Graph Editor to see its curves, press Play" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Clip basics", build: clip_basics,
         hint: "Test clip renamed, trimmed, retimed and given a start timecode. Select each node to see the timeline follow" },
     Template { by: SIMON, group: "Animation & Mocap", name: "FBX import", build: fbx_import,
@@ -184,6 +186,47 @@ fn primitives(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(grid, 0, m2, 1);
     finish(g, m2, cube_x);
     "Shapes: select a Transform node and change its values in Parameters.".into()
+}
+
+/// A ball keyed to bounce: four keys of height, cycled; forward motion on
+/// two keys, cycled with offset so it keeps going; a squash on contact.
+fn keys_bounce(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::keys::{Infinity, Tangent};
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange { start: 1, end: 96, fps_num: 24, fps_den: 1 };
+    let ball  = g.add_node("Ball".into(), NodeType::sphere(0.4, 24), p(40.0, 20.0));
+    let grid  = g.add_node("Floor".into(), NodeType::grid(8, 8, 12.0), p(260.0, 20.0));
+    let mv    = g.add_node("Bounce".into(), transform([-4.0, 0.4, 0.0], [0.0; 3], [1.0; 3]), p(40.0, 120.0));
+    let merge = g.add_node("Merge".into(), NodeType::merge(), p(150.0, 220.0));
+    g.add_connection(ball, 0, mv, 0);
+    g.add_connection(mv, 0, merge, 0);
+    g.add_connection(grid, 0, merge, 1);
+    // Height: down on 1 and 25, up on 13. Sharp at the floor, eased at the top.
+    for (f, v) in [(1.0, 0.4), (13.0, 2.6), (25.0, 0.4)] { g.set_key_value(mv, "translation/1", f, v); }
+    // Forward: a metre a bounce, on and on.
+    for (f, v) in [(1.0, -4.0), (25.0, -3.0)] { g.set_key_value(mv, "translation/0", f, v); }
+    // Squash on contact: flat on 1 and 25, round by 4 and 22.
+    for (f, v) in [(1.0, 0.7), (4.0, 1.0), (22.0, 1.0), (25.0, 0.7)] { g.set_key_value(mv, "scale/1", f, v); }
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == mv) {
+        for c in &mut n.channels {
+            match c.path.as_str() {
+                "translation/1" => {
+                    c.post = Infinity::Cycle;
+                    for k in &mut c.keys {
+                        if k.value < 1.0 { k.in_type = Tangent::Linear; k.out_type = Tangent::Linear; k.broken = true; }
+                        else { k.in_type = Tangent::Flat; k.out_type = Tangent::Flat; }
+                    }
+                }
+                "translation/0" => {
+                    c.post = Infinity::CycleOffset;
+                    for k in &mut c.keys { k.in_type = Tangent::Linear; k.out_type = Tangent::Linear; }
+                }
+                _ => c.post = Infinity::Cycle,
+            }
+        }
+    }
+    finish(g, merge, mv);
+    "Keys: Bounce's translate X and Y and scale Y are keyed. Press Play, or open the Graph Editor (Window menu) with Bounce selected: Y is cycled, X cycled with offset so the ball keeps going. Select a key there and pick a tangent type, or drag it.".into()
 }
 
 fn usd(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {

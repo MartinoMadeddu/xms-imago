@@ -37,7 +37,8 @@ pub struct Target {
 pub fn target(graph: &NodeGraphState) -> Option<Target> {
     let id = graph.selected_node?;
     let node = graph.nodes.iter().find(|n| n.id == id)?;
-    match &node.node_type {
+    // Keyed parameters as at the playhead.
+    match &*graph.animated_type(node) {
         NodeType::Transform { translation, rotation, scale } => {
             let uniform = node.inputs.first().and_then(|i| i.connected_output)
                 .and_then(|(src, _)| graph.nodes.iter().find(|n| n.id == src))
@@ -60,9 +61,9 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
 /// Put the part of a transform a drag changed back into the node: only
 /// that part, so a move leaves the rotation written as it was.
 pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (Vec3, Quat, Vec3)) {
-    let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) else { return };
     let euler = || { let (x, y, z) = r.to_euler(EulerRot::XYZ); Vec3::new(x, y, z) };
-    match &mut node.node_type {
+    // As at the playhead: a keyed number dragged is keyed there.
+    graph.edit_animated(id, |node_type| match node_type {
         NodeType::Transform { translation, rotation, scale } => match delta {
             Delta::Translate(_) => if *translation != t { *translation = t; },
             Delta::Rotate(_) => { let e = euler(); if *rotation != e { *rotation = e; } }
@@ -74,7 +75,7 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
             Delta::Scale(_) => {}
         },
         _ => {}
-    }
+    });
 }
 
 /// A handle being dragged.

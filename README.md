@@ -26,6 +26,10 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Five selection levels:** vertex, edge, border, polygon, element. Pick in the Viewer, or select by rule so the selection adapts when the mesh changes
 - **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset, outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach, tessellate, triangulate, turn, relax, subdivide and more
 - **Soft selection:** a falloff distance on Transform
+- **Keys:** any number of any operator can be keyed (S keys the selected one at the playhead; the Keys group in Parameters keys one number). The timeline shows the scene's range and the keys, which drag to move. The Graph Editor shapes the curves: tangent types (Auto, Spline, Clamped, Linear, Flat, Stepped, Plateau), broken and weighted handles, infinity (cycle, cycle with offset, oscillate), insert, copy and paste. See [docs/keys.md](docs/keys.md)
+
+![The bouncing ball template: its curves in the Graph Editor, its keys on the timeline](docs/xms_keys.png)
+
 - **Node flags:** bypass, view, freeze (keep a node's result while what is above it changes) and ghost (its output drawn as a grey wireframe in the Viewer) on each node's title. The middle button held on a node shows what it puts out and how long it took to cook
 - **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each drag becomes an operation you can edit afterwards. A Transform or Camera node has the same handles, writing into its parameters; clicking a primitive in the Viewer selects it
 - **Collapse when you are done:** freeze operations one by one or all at once, or let the node collapse them as you go. Collapsed operations still follow the mesh coming in
@@ -168,7 +172,7 @@ On Ubuntu or Debian, first:
 
 ## Documentation
 
-[docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD, geometry, Viewer navigation, animation and mocap, Body Collide, builds and releases.
+[docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD, geometry, Viewer navigation, animation and mocap, keys and the Graph Editor, Body Collide, builds and releases.
 
 ## Contributing
 

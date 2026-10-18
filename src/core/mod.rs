@@ -29,6 +29,8 @@ pub mod material;
 pub mod camera;
 pub mod uv;
 pub mod manip;
+/// Keys on parameters: animation curves.
+pub mod keys;
 pub mod xform;
 /// The geometry model of packed primitives, the nodes and ICE: typed
 /// attribute columns per context.

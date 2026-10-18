@@ -47,7 +47,8 @@ pub struct TimelineSource {
 /// Why there is no source, for the empty-state label.
 pub enum TimelineState {
     Source(TimelineSource),
-    NoTimeData { node_name: String },
+    /// The selected node gives no clip: the scene range is shown.
+    NoTimeData,
     Nothing,
 }
 
@@ -65,7 +66,7 @@ pub fn resolve_source(graph: &NodeGraphState) -> TimelineState {
     };
     let Some(clip) = graph.eval_anim(id) else {
         return if from_selection {
-            TimelineState::NoTimeData { node_name: node.name.clone() }
+            TimelineState::NoTimeData
         } else {
             TimelineState::Nothing
         };

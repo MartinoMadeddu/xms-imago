@@ -4,7 +4,7 @@ Animation nodes are in the "Animation & Mocap" sub-menu of the add-node menu. A 
 
 ## Timeline
 
-The timeline has no range of its own. It takes range, rate and timecode from the clip of the selected node. Space plays, Left and Right step a frame, Home and End jump to the ends.
+When the selected node gives a clip, the timeline takes range, rate and timecode from that clip. Otherwise it shows the scene's own range and rate, saved with the graph, and the keys of the selected operator (see [Keys](keys.md)). Space plays, Left and Right step a frame, Home and End jump to the ends.
 
 ## Nodes
 

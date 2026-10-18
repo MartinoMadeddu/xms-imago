@@ -1,3 +1,4 @@
+pub mod keying;
 pub mod nodes;
 pub mod ui;
 
@@ -155,6 +156,9 @@ pub struct GraphNode {
     /// A ghosted node's output is drawn in the Viewer as a grey wireframe
     /// beside the scene, to line things up against. Saved.
     pub ghost:     bool,
+    /// Keys on its parameters, one channel per animated number (see
+    /// `core::keys`). Saved.
+    pub channels:  Vec<crate::core::keys::Channel>,
     /// Primitive Locations (the Prims Location tab): the primitives the
     /// operator works on. Empty: every primitive (`core::locations`).
     pub locations: Vec<String>,
@@ -213,6 +217,33 @@ pub struct NodeGraphState {
     pub cook_times:          CookTimes,
     /// The node a middle-click is held on: its information is shown.
     pub info_node:           Option<NodeId>,
+    /// The playhead, in seconds, as the timeline has it: keyed parameters
+    /// are cooked at the frame it falls on.
+    pub time:                f64,
+    /// The scene's frame range and rate, saved with the graph: the
+    /// timeline's range when what is selected is not a clip, and the rate
+    /// keys are set in.
+    pub scene:               SceneRange,
+}
+
+/// The scene's frames: first, last and rate. Frame `f` is at `f / fps`
+/// seconds.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SceneRange {
+    pub start:   i64,
+    pub end:     i64,
+    pub fps_num: u32,
+    pub fps_den: u32,
+}
+
+impl Default for SceneRange {
+    fn default() -> Self { SceneRange { start: 1, end: 120, fps_num: 24, fps_den: 1 } }
+}
+
+impl SceneRange {
+    pub fn fps(&self) -> f64 { self.fps_num as f64 / self.fps_den.max(1) as f64 }
+    pub fn seconds(&self, frame: f64) -> f64 { frame / self.fps().max(1e-9) }
+    pub fn frame(&self, seconds: f64) -> f64 { seconds * self.fps() }
 }
 
 impl Default for NodeGraphState {
@@ -238,6 +269,8 @@ impl Default for NodeGraphState {
             frozen: Frozen::default(),
             cook_times: CookTimes::default(),
             info_node: None,
+            time: 0.0,
+            scene: SceneRange::default(),
         };
         s
     }
@@ -268,9 +301,13 @@ impl NodeGraphState {
             n.outputs.len().hash(&mut w.0);
             n.bypassed.hash(&mut w.0);
             (n.frozen, n.ghost).hash(&mut w.0);
+            if !n.channels.is_empty() { let _ = serde_json::to_writer(&mut w, &n.channels); }
             n.locations.hash(&mut w.0);
         }
         for c in &self.connections { (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut w.0); }
+        // Keyed parameters change with the playhead: so does the scene.
+        if self.nodes.iter().any(|n| !n.channels.is_empty()) { self.frame().to_bits().hash(&mut w.0); }
+        let _ = serde_json::to_writer(&mut w, &self.scene);
         self.view_flag.map(|n| n.0).hash(&mut w.0);
         self.view_output.hash(&mut w.0);
         self.selected_node.map(|n| n.0).hash(&mut w.0);
@@ -287,7 +324,7 @@ impl NodeGraphState {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&node_type);
-        self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false, frozen: false, ghost: false, locations: vec![] });
+        self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false, frozen: false, ghost: false, channels: vec![], locations: vec![] });
         // The first operator of a graph is viewed: there is always one.
         if self.view_flag.is_none() { self.view_flag = Some(id); self.view_output = 0; }
         self.mark_dirty();
@@ -731,7 +768,9 @@ impl NodeGraphState {
             return Some(h.finish());
         }
         if matches!(node.node_type, NodeType::Ice { .. }) { return None; }
-        match &node.node_type {
+        // Keyed parameters as at the playhead.
+        let animated = self.animated_type(node);
+        match &*animated {
             // Edit Poly's result is its operations on its input. The selection
             // being built, and which operation is open, change only what the
             // Viewer shows: picking polygons cooks nothing again.
@@ -804,9 +843,12 @@ impl NodeGraphState {
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         let node = self.nodes.iter().find(|n| n.id == id)?;
+        // Keyed parameters at the playhead.
+        let animated = self.animated_type(node);
+        let node_type: &NodeType = &animated;
 
         // A placeholder hands each input to the output of the same number.
-        if matches!(node.node_type, NodeType::Placeholder { .. }) {
+        if matches!(*node_type, NodeType::Placeholder { .. }) {
             let result = node.inputs.get(output).and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet));
             cache.insert((id, output), result.clone());
@@ -824,7 +866,7 @@ impl NodeGraphState {
             node.inputs.first()
                 .and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet))
-        } else if let NodeType::MaterialBinding { library, bindings, .. } = &node.node_type {
+        } else if let NodeType::MaterialBinding { library, bindings, .. } = node_type {
             // Each input by its number: the scene, then one material each.
             let mut ports: Vec<Option<EvalResult>> = vec![];
             for s in &node.inputs {
@@ -833,12 +875,12 @@ impl NodeGraphState {
             let materials: Vec<_> = ports.iter().skip(1)
                 .map(|r| match r { Some(EvalResult::Material(m)) => Some(m.clone()), _ => None }).collect();
             Some(crate::core::material::bind(ports.first().and_then(|r| r.as_ref()), &materials, library, &node.locations, bindings))
-        } else if crate::core::locations::takes_locations(&node.node_type) && crate::core::locations::is_set(&node.locations) {
+        } else if crate::core::locations::takes_locations(node_type) && crate::core::locations::is_set(&node.locations) {
             // The operator works on the primitives its Prims Location tab
             // lists; what comes after it sees the picks that came in.
             use crate::core::locations;
             let first = inputs.first()?;
-            match &node.node_type {
+            match node_type {
                 NodeType::PrunePrims { keep, .. } => Some(locations::prune(first, &node.locations, *keep)),
                 // Set Attribute names prims, groups and other prims without
                 // geometry among them: it reads the list itself.
@@ -850,10 +892,10 @@ impl NodeGraphState {
                 }
             }
         } else {
-            evaluate_node_type(&node.node_type, &inputs, eval_subnet, output)
+            evaluate_node_type(node_type, &inputs, eval_subnet, output)
         };
         // A material is named by its operator.
-        let result = match (&node.node_type, result) {
+        let result = match (node_type, result) {
             (NodeType::Material { surface }, Some(EvalResult::Material(_))) =>
                 Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::new(&node.name, surface)))),
             (NodeType::MaterialX { graph }, Some(EvalResult::Material(_))) =>

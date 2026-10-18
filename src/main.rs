@@ -29,6 +29,8 @@ mod uv_editor;
 mod uv_canvas;
 mod examples;
 mod downloads;
+mod keys_ui;
+mod graph_editor;
 #[cfg(test)]
 mod regress;
 mod examples_stage;
@@ -93,8 +95,14 @@ pub(crate) fn draw_ui(
     let ctx = &root.ctx().clone();
     let AppState {
         graph, stack, hierarchy, subnets, nav, vp_rect, prim_state, playback, browser, graph_file,
-        layout, revision, uv_state, history, recent, save_first, confirm, batch, ..
+        layout, revision, uv_state, history, recent, save_first, confirm, batch, graph_editor, ..
     } = app;
+    // Keyed parameters cook at the playhead.
+    graph.time = playback.time;
+    // S, tapped: key the selected operator at the playhead.
+    if !browser.is_open() {
+        if let Some(m) = keys_ui::s_key(ctx, graph) { graph_file.message = m; }
+    }
 
     // ── Path chosen in the file browser ──────────────────────────────────────
     if let Some((target, path)) = browser.take_result() {
@@ -364,7 +372,7 @@ pub(crate) fn draw_ui(
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0, locked, toggle_float: &mut toggle_float, tab_pressed: &mut tab_pressed,
             uv_state: &mut *uv_state, history: &mut *history,
-            confirm: &mut *confirm,
+            confirm: &mut *confirm, graph_editor: &mut *graph_editor,
         };
         let mut style = egui_dock::Style::from_egui(root.style());
         style.tab_bar.fill_tab_bar = true;
@@ -643,6 +651,7 @@ struct Panes<'a> {
     /// Pane whose tab the mouse button went down on this frame.
     tab_pressed:    &'a mut Option<Pane>,
     uv_state:       &'a mut uv_editor::UvEditorState,
+    graph_editor:   &'a mut graph_editor::GraphEditor,
     history:        &'a mut history::History,
     confirm:        &'a mut Confirm,
     /// The Viewer's 3D view, when the interface draws it (eframe).
@@ -686,7 +695,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::Timeline => {
-                draw_timeline(ui, self.playback, self.timeline_state, self.dt, self.keys_free, self.space_plays);
+                draw_timeline(ui, self.playback, self.timeline_state, self.graph, self.dt, self.keys_free, self.space_plays);
             }
 
             Pane::Parameters => {
@@ -705,7 +714,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let mut tool = self.poly_tool.tool;
                     let scene_paths = self.hierarchy.selected_paths().to_vec();
                     let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool, scene_paths, add: vec![] };
+                    // A keyed node shows its parameters at the playhead; a
+                    // keyed number changed here is keyed there.
+                    let editing = self.graph.selected_node.and_then(|id| self.graph.begin_edit(id).map(|own| (id, own)));
                     draw_properties_panel(ui, self.graph, &*self.stack, self.subnets, self.nav, self.anim_ctx, &mut io);
+                    if let Some((id, own)) = editing { self.graph.end_edit(id, own); }
+                    if let Some(id) = self.graph.selected_node { crate::keys_ui::channel_box(ui, self.graph, id); }
                     // Operators the panel asked for: a MaterialX operator from a stage's material.
                     for (name, t) in std::mem::take(&mut io.add) { import_node(self.graph, name, t); }
                     // Writing over files that exist asks first.
@@ -721,6 +735,10 @@ impl egui_dock::TabViewer for Panes<'_> {
             Pane::SceneExplorer => {
                 egui::ScrollArea::both().id_salt("scene_explorer_scroll").auto_shrink([false, false])
                     .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy));
+            }
+
+            Pane::GraphEditor => {
+                graph_editor::draw(ui, self.graph_editor, self.graph, self.playback);
             }
 
             Pane::History => {

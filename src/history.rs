@@ -49,6 +49,7 @@ pub struct Doc {
     connections: Vec<Connection>,
     view_flag:   Option<NodeId>,
     view_output: usize,
+    scene:       crate::node_graph::SceneRange,
     next_node:   usize,
     next_conn:   usize,
 }
@@ -70,6 +71,7 @@ fn node_hash(n: &GraphNode, core: bool) -> (u64, usize) {
     n.bypassed.hash(&mut h);
     (n.frozen, n.ghost).hash(&mut h);
     n.locations.hash(&mut h);
+    if !n.channels.is_empty() { let mut w = HashWriter(&mut h, 0); let _ = serde_json::to_writer(&mut w, &n.channels); }
     n.position.x.to_bits().hash(&mut h);
     n.position.y.to_bits().hash(&mut h);
     for i in &n.inputs { i.connected_output.map(|(id, out)| (id.0, out)).hash(&mut h); }
@@ -101,6 +103,7 @@ fn doc_hashes(g: &NodeGraphState) -> (u64, u64) {
         for c in &g.connections { (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(h); }
         g.view_flag.map(|n| n.0).hash(h);
         g.view_output.hash(h);
+        let _ = serde_json::to_string(&g.scene).map(|t| t.hash(h));
     }
     (full.finish(), core.finish())
 }
@@ -129,6 +132,7 @@ impl Doc {
             connections: g.connections.clone(),
             view_flag:   g.view_flag,
             view_output: g.view_output,
+            scene:       g.scene,
             next_node:   g.next_node_id,
             next_conn:   g.next_connection_id,
         }, bytes)
@@ -142,6 +146,7 @@ impl Doc {
         g.connections = self.connections.clone();
         g.view_flag = self.view_flag;
         g.view_output = self.view_output;
+        g.scene = self.scene;
         g.next_node_id = g.next_node_id.max(self.next_node);
         g.next_connection_id = g.next_connection_id.max(self.next_conn);
         g.dragging_node = None;
@@ -459,7 +464,7 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     let unwired: Vec<_> = wa.iter().filter(|w| !wb.contains(w)).copied().collect();
 
     let mut params = vec![]; let mut renamed = vec![]; let mut bypassed = vec![]; let mut moved = vec![]; let mut located = vec![];
-    let mut frozen = vec![]; let mut ghosted = vec![];
+    let mut frozen = vec![]; let mut ghosted = vec![]; let mut keyed = vec![];
     for (i, n) in b.nodes.iter().enumerate() {
         let Some(o) = a.node(n.id) else { continue };
         if a.nodes.iter().position(|x| x.id == n.id).map(|j| a.node_hashes[j]) == Some(b.node_hashes[i]) { continue; }
@@ -467,6 +472,7 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
         if o.name != n.name { renamed.push(n.id); }
         if o.bypassed != n.bypassed { bypassed.push(n.id); }
         if o.frozen != n.frozen { frozen.push(n.id); }
+        if o.channels != n.channels { keyed.push(n.id); }
         if o.ghost != n.ghost { ghosted.push(n.id); }
         if o.locations != n.locations { located.push(n.id); }
         if o.position != n.position { moved.push(n.id); }
@@ -474,7 +480,7 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
 
     let mut touched: Vec<NodeId> = vec![];
     let mut touch = |ids: &[NodeId]| for id in ids { if !touched.contains(id) { touched.push(*id); } };
-    touch(&params); touch(&added); touch(&renamed); touch(&bypassed); touch(&located); touch(&frozen); touch(&ghosted);
+    touch(&params); touch(&added); touch(&renamed); touch(&bypassed); touch(&located); touch(&frozen); touch(&ghosted); touch(&keyed);
     let wire_nodes: Vec<NodeId> = wired.iter().chain(unwired.iter()).flat_map(|w| [w.2, w.0]).collect();
     touch(&wire_nodes); touch(&removed); touch(&moved);
     let view_moved = a.view_flag != b.view_flag || a.view_output != b.view_output;
@@ -505,6 +511,8 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
             format!("Change {} nodes", params.len())
         };
         (l, Kind::Edit)
+    } else if !keyed.is_empty() {
+        (format!("{}: keys", name(b, keyed[0])), Kind::Edit)
     } else if !located.is_empty() {
         (format!("{}: Prims Location", name(b, located[0])), Kind::Edit)
     } else if !renamed.is_empty() {
@@ -518,6 +526,8 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     } else if !ghosted.is_empty() {
         let on = b.node(ghosted[0]).map_or(false, |n| n.ghost);
         (format!("{} {}", if on { "Ghost" } else { "Unghost" }, count(ghosted.len(), name(b, ghosted[0]), "nodes")), Kind::Display)
+    } else if a.scene != b.scene {
+        (format!("Scene range {} to {} at {} fps", b.scene.start, b.scene.end, crate::core::anim::FrameRate { num: b.scene.fps_num, den: b.scene.fps_den }.label()), Kind::Edit)
     } else if view_moved {
         match b.view_flag {
             // An operator with several outputs says which is viewed.
