@@ -72,6 +72,11 @@ impl eframe::App for ImagoApp {
             self.closing = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        // Example files the graph names that are not there: offered, fetched.
+        if !self.app.save_first.busy() {
+            crate::downloads::frame(&ctx, &mut self.app.downloads, &self.app.graph);
+            if let Some(m) = self.app.downloads.message.take() { self.app.graph_file.message = m; }
+        }
 
         crate::refresh_operator_stack(&mut self.app, &mut self.seen_stack);
         crate::refresh_scene_hierarchy(&mut self.app, &mut self.seen_scene);

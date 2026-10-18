@@ -1,0 +1,86 @@
+# Runs the tests and the regression suite on every push and pull request,
+# and writes a report for whoever has to act on it: the failed tests with
+# their output, the templates whose numbers moved, the warnings. The report
+# is the job summary and an artifact (test-report), with the full logs.
+#
+# "Build and release" (release.yml) builds the binaries on pushes to main;
+# this runs alongside it, on every branch.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  XMS_REGRESS_REPORT: ${{ github.workspace }}/report/regression.txt
+
+jobs:
+  test:
+    name: Tests and regression suite
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests
+
+      - name: Build
+        run: |
+          mkdir -p report
+          cargo build --release 2>&1 | tee report/build.log
+
+      # The example files a template fetches (see src/examples.rs, SOURCES),
+      # so every template cooks on real files. Kept between runs.
+      - name: Example files fetched on demand
+        uses: actions/cache@v4
+        with:
+          path: |
+            examples/usd/carbon_frame_bike
+            examples/usd/elephant
+            examples/mocap/novasci/*.fbx
+          key: example-downloads-${{ hashFiles('src/examples.rs') }}
+
+      - name: Download example files
+        run: cargo test --release download_example_files -- --ignored --nocapture 2>&1 | tail -30
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: cargo test --release 2>&1 | tee report/test.log
+
+      - name: Report
+        if: always()
+        run: |
+          python3 -I ci/report.py report/test.log report/regression.txt report/build.log > report/report.md
+          cat report/report.md >> "$GITHUB_STEP_SUMMARY"
+          cat report/report.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: report/
+          retention-days: 30
+
+      - name: Result
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "Tests failed: see the summary above and the test-report artifact."
+          exit 1

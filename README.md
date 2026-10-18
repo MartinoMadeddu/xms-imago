@@ -26,7 +26,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Five selection levels:** vertex, edge, border, polygon, element. Pick in the Viewer, or select by rule so the selection adapts when the mesh changes
 - **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset, outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach, tessellate, triangulate, turn, relax, subdivide and more
 - **Soft selection:** a falloff distance on Transform
-- **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each drag becomes an operation you can edit afterwards
+- **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each drag becomes an operation you can edit afterwards. A Transform or Camera node has the same handles, writing into its parameters; clicking a primitive in the Viewer selects it
 - **Collapse when you are done:** freeze operations one by one or all at once, or let the node collapse them as you go. Collapsed operations still follow the mesh coming in
 
 ![Edit Poly: collapsed and live operations, with the move manipulator on the selection](docs/xms_edit_poly.png)
@@ -126,7 +126,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Remembered:** layout, floating windows, theme and navigation style come back at the next start
 - **Copy and paste nodes:** Ctrl+C and Ctrl+V, with their wires and ICE graphs, between windows and from one session to the next
 - **Add or open:** opening a file or a template asks whether to add it to the graph or open it as new, and asks to save first before anything is replaced
-- **Menus:** File, Edit, Templates and Window at the top left, as in other programs. File has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an FBX, a USD) and Quit, with the usual shortcuts. The top bar shows the file and whether it is saved; closing, New, opening a file or loading a template over unsaved changes asks first, and nothing writes over a file that exists without asking (Save As, Save layout, Write FBX, Write USD)
+- **Menus:** File, Edit and Window at the top left, as in other programs. File has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an FBX, a USD), Quit and, at the bottom, Templates (the ready-made graphs by author, then by area), with the usual shortcuts. The top bar shows the file and whether it is saved; closing, New, opening a file or loading a template over unsaved changes asks first, and nothing writes over a file that exists without asking (Save As, Save layout, Write FBX, Write USD)
 - **Fast:** each operator's result is kept until it or something above it changes, as in Houdini: selecting, redrawing and playing cook nothing again, and a change cooks only what is below it
 - **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange for whatever is selected or active). A colour editor changes any of them, and has a **Dark fields** switch (dark grey text and number fields with light text; off by default, `DARK_FIELD_BG=1` turns it on for a run)
 - **Layouts as files:** save a layout, load it back, pass it to someone else
@@ -194,6 +194,12 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 
 - `examples/DeLorean.usdz` is by VTX (https://sketchfab.com/VTX_car), under CC BY-NC-SA 4.0, included with the permission of its author. See `examples/CREDITS.md`.
 - `examples/ragdoll/` holds Simon Legrand's take and car for the Body Collide template, as FBX, with the solved result: `split/into_the_car_.fbx` is frames 1200 to 9199 of the take, `car.fbx` the car. See [examples/ragdoll/README.md](examples/ragdoll/README.md).
+- `examples/mocap/novasci/` holds four clips of the Novasci Free Motion Pack (CC0); `examples/usd/teapot/` and `examples/usd/mini_car_kit/` are from the USD Working Group's assets. `examples/CREDITS.md` lists every file's author and licence.
+- Files too big for the repository, or under a licence that asks for a credit, are fetched on demand: a graph naming one opens a dialog that says where it comes from and under which licence, and downloads it into the examples folder. See [docs/templates.md](docs/templates.md#example-files-fetched-on-demand).
+
+## Tests
+
+`cargo test --release` runs the unit tests and the regression suite: every template built, cooked and compared with `tests/regression/templates.json` (see [docs/templates.md](docs/templates.md#the-templates-as-a-regression-suite)). The GitHub workflow in `.github/workflows/tests.yml` runs both after every push and pull request, fetches the downloadable example files first (`cargo test --release download_example_files -- --ignored`), and writes a report in the job summary: failed tests with their output, the templates that changed and by what, the slowest cooks, build warnings. The report is also the artifact `test-report` of the run.
 
 ## Credit
 

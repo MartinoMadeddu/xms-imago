@@ -1,8 +1,10 @@
 # Templates and example files
 
-The Templates menu, in the menu bar at the top left, holds ready-made graphs. Picking one asks whether to add it to the current graph, beside the nodes already there, or open it as a new graph; opening as new asks to save unsaved changes first (see [Interface](interface.md#files)). On an empty graph it opens straight away. A line under the header then says what to look at.
+Templates are at the bottom of the File menu: ready-made graphs, by author, then by area. Picking one asks whether to add it to the current graph, beside the nodes already there, or open it as a new graph; opening as new asks to save unsaved changes first (see [Interface](interface.md#files)). On an empty graph it opens straight away. A line under the header then says what to look at.
 
 The menu is in two parts, by whose work the templates show: **Martino** (composed USD stages, ICE) and **Simon** (everything else).
+
+![File > Templates > Simon > USD](xms_file_templates.png)
 
 ![The Viewer of twelve of the templates](xms_templates.png)
 
@@ -64,6 +66,9 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 | USD: heavy model | A 461,595 triangle model as 43 primitives, with its materials, textures and UVs |
 | USD: pick and edit | One wheel picked by a path pattern, moved, and handed to an Edit Poly node. The other primitives pass through |
 | USD: prune | The model cut down to its wheels and callipers, listed in the Prune node's Prims Location tab as `/**/*Wheel*` and `/**/*Calliper*` |
+| Open assets: teapot and car kit | Two openly licensed models from the USD Working Group: the teapot (2,472 triangles) and the mini car kit (`vehicleVariants.usda`, six meshes with variants), the kit moved 1.5 m aside by a Transform and merged |
+| Open assets: carbon frame bike (download) | A 331-mesh, 135,648-triangle bike with 31 materials, `CarbonFrameBike.usdz` (27 MB), fetched on first use (see [Example files fetched on demand](#example-files-fetched-on-demand)) |
+| Open assets: elephant with monochord (download) | A textured elephant, three meshes with two PNG textures, fetched on first use |
 
 ## Simon: Animation & Mocap
 
@@ -88,6 +93,8 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 | Capture and Skin | The same, with the character's mesh weighted again by proximity (Capture) and its skin put on the retargeted take by joint name (Skin). Bypass Capture to use the file's own weights |
 | Mocap folder: retarget, skin, collide, write | The example takes folder, each actor placed by a Transform and retargeted onto the character, feet set by Reach, kept out of a stand-in set by Body Collide, written as skinned FBX to `{dir}/retargeted`. All files on a Write node solves and writes the whole folder |
 | Human Limits | Fix Pose bends the test walk's left elbow 80 degrees the wrong way; Human Limits, against the walk before it, bends it back |
+| Novasci clip onto the character | A Mixamo-skeleton clip from the Novasci Free Motion Pack (`mocap/novasci/ComeHere1.fbx`, 66 joints, 30 fps) retargeted onto the 342-joint character |
+| Novasci clip: thumbs up (download) | The same with `ThumbsUp1.fbx`, which is not in the repository: the download dialog fetches it on first use |
 
 ## Example files
 
@@ -104,8 +111,31 @@ In the `examples` folder:
 | `stage/forest.usda` | A PointInstancer of 4,900 copies of two prototypes |
 | `stage/tables.usda` | 64 instanceable references to `table.usda` |
 | `stage/lamps.usda` | Three lamps with render, proxy and guide purposes |
+| `mocap/novasci/*.fbx` | Four clips of the Novasci Free Motion Pack on the Mixamo skeleton (66 joints, 30 fps): ComeHere1, HandsOnHead, Celebrate1, GoAwayAngry. CC0. See `examples/mocap/novasci/README.md` |
+| `usd/teapot/Teapot.usd` | The USD Working Group's teapot, 2,472 triangles, with its texture. See `examples/usd/teapot/README_source.md` |
+| `usd/mini_car_kit/` | The USD Working Group's mini car kit: vehicles assembled from parts with variant sets. See `examples/usd/mini_car_kit/README_source.md` |
 
 The FBX file holds skeletons and animation only, no meshes.
+
+Every example file in the repository is under a licence that allows it to be passed on; `examples/CREDITS.md` names each one's author and licence.
+
+### Example files fetched on demand
+
+Some files a template or a saved graph names are not in the repository: too big, or under a licence that asks for a credit beside the file. When such a graph opens, a dialog says which files are missing, who made them, under which licence, how big they are and where they come from, and offers to download them into the examples folder, to open the page for a download by hand, or Not now (Esc). The download runs in the background with a progress bar; the loaders see the new file by its date, so the graph cooks with it at once. A file declined is not asked about again until another graph is opened.
+
+![The download dialog](xms_download.png)
+
+| File | Source | Licence | Size |
+|---|---|---|---|
+| `mocap/novasci/*.fbx`, the 17 clips not in the repository | [Novasci Free Motion Pack 1](https://github.com/J-Beardmore/FreeMotionPack1) | CC0 1.0 | 0.3 to 0.6 MB each |
+| `usd/carbon_frame_bike/CarbonFrameBike.usdz` | [USD Working Group assets](https://github.com/usd-wg/assets) | CC BY-SA 4.0 | 27 MB |
+| `usd/elephant/SoC-ElephantWithMonochord.usdc` and two textures | [USD Working Group assets](https://github.com/usd-wg/assets) | CC BY-SA 4.0 | 2 MB |
+
+The table is `SOURCES` in `src/examples.rs`: a file's path under the examples folder, its URL and its size in bytes, so the dialog can say how much it will fetch.
+
+### The templates as a regression suite
+
+Every template is also a test. `cargo test --release regression` builds each one, cooks it at its view flag and compares what comes out (primitives, copies, points, triangles, materials, cameras; for a clip its frames, joints, rate, skin and where the hips end; which files were missing) with the baseline in `tests/regression/templates.json`. A number that moves fails the test and names the template, the field and both values. When the change is intended, `XMS_REGRESS_UPDATE=1 cargo test --release regression` writes the baseline again; commit it. The GitHub workflow `.github/workflows/tests.yml` runs the suite after every build and writes the report (failed tests, the differences, the slowest cooks, build warnings) in the job summary.
 
 The program looks for the folder in this order: the folder named by the `XMS_EXAMPLES` environment variable, next to the program, the root of the source tree when run with `cargo run`, the working folder. If it is not found, the template still loads and its message says so.
 

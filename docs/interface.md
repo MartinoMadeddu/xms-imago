@@ -4,17 +4,16 @@
 
 ## Top bar
 
-A fixed line across the top of the window, for things that belong to the whole program. It holds the logo and the name, the menus, the name of the graph's file, and the layout padlock at the right. It is not a pane: it cannot be moved, floated or closed.
+A fixed line across the top of the window, for things that belong to the whole program. It is not a pane: it cannot be moved, floated or closed. From the left: the logo and the program's name, dimmed, with a thin divider after them: nothing there is clickable. Then the menus, File, Edit and Window: flat titles that light up in the accent colour under the mouse and stay lit while the menu is open. In the middle, the name of the graph's file, in plain text, with a dot before it while it has unsaved changes (hover it for the path). At the right, the layout padlock, a button that lights up under the mouse too.
 
-![The File menu](xms_menu_bar.png)
+![The top bar: the wordmark, the menus with Window under the mouse, the graph's file with unsaved changes, the padlock](xms_menu_bar.png)
 
 The menus, from the left, as in other programs:
 
 | Menu | Holds |
 |---|---|
-| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q). See [Files](#files) |
+| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q), and at the bottom Templates: the ready-made graphs, by author, then by area. See [Files](#files) and [Templates](templates.md) |
 | Edit | Undo, Redo, Copy, Paste, Delete, Select All, for the operators of the root scene graph |
-| Templates | The ready-made graphs, by author, then by area. See [Templates](templates.md) |
 | Window | The panes (tick to show), Dock floating panes, Reset layout, Save layout..., Load layout..., Theme |
 
 On macOS the shortcuts take Cmd in place of Ctrl.
@@ -220,6 +219,21 @@ Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
 
 The 🎥 menu at the top of the Viewer, next to the display mode, lists the cameras of the scene at the view flag. Choose one to look through it: the whole gate is shown, what is outside it darkened, the camera's name at the top, in the middle. Perspective goes back to the Viewer's own camera, where it was. Orbiting, panning, zooming or framing while looking through a camera leaves it, the view staying where it is (see [USD](usd.md#cameras)).
 
+## Manipulators
+
+A selected Transform or Camera node has handles in the Viewer, the same ones Edit Poly has (see [Edit Poly](edit-poly.md)): Q selects, W moves, E rotates, R scales, with the cursor over the Viewer. A drag on a handle writes into the node's parameters as you drag, and is one step of the history when the button is let go. The handle under the cursor turns yellow.
+
+| Node | Pivot | Handles |
+|---|---|---|
+| Transform | Its translation: where the node turns and scales about | Move along an axis, or free in the plane of the screen from the centre; rotate on a ring; scale along an axis, or evenly from the centre. On a clip the scale is the same on every axis, whichever handle is pulled |
+| Camera | The camera | Move and rotate. R does nothing: a camera has no size |
+
+With Q the pivot shows as a small tripod and a dot, so where the handles will be is in sight. A move leaves the rotation and scale as they were written; a rotation leaves the translation and scale.
+
+![The move handles on MoveSphere; the grid, clicked, outlined](xms_gizmo.png)
+
+Clicking a primitive in the Viewer selects it, as clicking a row of the Scene Explorer does: that row lights up, the Primitive Inspector shows the prim, the selected primitives are outlined by their bounds in the Viewer. Ctrl+click (Cmd+click on macOS) adds a primitive or takes it out; a click on nothing clears the selection. A click is a press and release in place: a drag orbits, pans or zooms as the navigation style has it. Not while an Edit Poly node is selected, whose clicks pick components, and not on a handle.
+
 ## Framing
 
 With the cursor over the Viewer:
@@ -343,5 +357,7 @@ The window draws a new frame when something happens (input, a change in the grap
 
 - The Primitive Inspector shows curves' positions only: their widths and other attributes are not listed yet.
 - The Edit menu acts on the root scene graph, not inside an ICE graph.
+- Manipulators work on world axes only; no snapping to the grid or to points while dragging; a Transform node's pivot cannot be moved off its translation.
+- Clicking a primitive selects it in the Scene Explorer, not the operator that placed it; the manipulator belongs to the selected node.
 - Paste in the Edit menu pastes the nodes copied last; Ctrl+V over the canvas also takes nodes from the system clipboard, under the pointer.
 - No question before Write FBX or Write USD overwrites a file in a batch run started some other way than the node's buttons (the tests, say).

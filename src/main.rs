@@ -28,6 +28,9 @@ mod layout;
 mod uv_editor;
 mod uv_canvas;
 mod examples;
+mod downloads;
+#[cfg(test)]
+mod regress;
 mod examples_stage;
 mod templates;
 mod ragdoll;
@@ -248,44 +251,59 @@ pub(crate) fn draw_ui(
     // Fixed line above the panes, for things that belong to the whole
     // program. It is not a pane: it cannot be moved, floated or closed.
     egui::Panel::top("top_bar")
-        .exact_size(26.0)
+        .exact_size(28.0)
         .resizable(false)
-        .frame(egui::Frame::NONE.fill(theme::c(58, 58, 58)).inner_margin(egui::Margin::symmetric(8, 3)))
+        .frame(egui::Frame::NONE.fill(theme::c(58, 58, 58)).inner_margin(egui::Margin::symmetric(8, 0)))
         .show(root, |ui| {
+            let bar = ui.max_rect();
             ui.horizontal_centered(|ui| {
+                // The wordmark: the logo and the name, dimmed, nothing to
+                // click. A thin divider sets it apart from the menus.
                 draw_logo(ui);
-                ui.label(egui::RichText::new("XMS | Imago").strong().color(theme::c(243, 243, 243)));
-                ui.add_space(6.0);
-                // The menus, as in any other program: File, Edit, Templates, Window.
-                // Flat menu titles, as in a menu bar.
+                ui.add_space(2.0);
+                ui.add(egui::Label::new(egui::RichText::new("XMS | Imago").size(12.0).color(theme::c(165, 165, 165))).selectable(false));
+                ui.add_space(10.0);
+                top_bar_divider(ui);
+                ui.add_space(4.0);
+                // The menus: flat titles that light up under the mouse and
+                // stay lit while open, as a menu bar does.
                 ui.scope(|ui| {
-                    ui.visuals_mut().button_frame = false;
+                    menu_title_style(ui);
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
-                    templates_menu(ui, &mut *save_first);
                     crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked));
                 });
-                // The file the graph is in, and whether it has changed since.
+                let menus_end = ui.cursor().min.x;
+                let mut lock_start = bar.right();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // The lock sits at the far right, a button like any other.
+                    let tip = if locked {
+                        "Layout locked: panes cannot be moved, floated or closed. Dividers still resize. Click to unlock"
+                    } else {
+                        "Lock the layout"
+                    };
+                    let r = lock_button(ui, locked).on_hover_text(tip);
+                    if r.clicked() { layout.locked = !locked; }
+                    lock_start = r.rect.left();
+                });
+                // The graph's file, centred in the bar as a window title is,
+                // with a dot before it while it has unsaved changes. Plain
+                // text, not a button: nothing happens on a click.
                 let doc = graph_file.path.as_deref().map(file_name).unwrap_or_else(|| "Untitled".into());
                 let unsaved = history.is_dirty();
-                ui.label(egui::RichText::new(format!("  {doc}{}", if unsaved { "  (unsaved)" } else { "" }))
-                    .color(theme::c(200, 200, 200)))
+                let title = egui::RichText::new(if unsaved { format!("• {doc}") } else { doc.clone() })
+                    .size(13.0).color(theme::c(225, 225, 225));
+                let galley = ui.painter().layout_no_wrap(title.text().to_string(), egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                let w = galley.size().x;
+                let free = egui::Rect::from_min_max(egui::pos2(menus_end + 16.0, bar.top()), egui::pos2(lock_start - 16.0, bar.bottom()));
+                let x = (bar.center().x - w / 2.0).max(free.left()).min((free.right() - w).max(free.left()));
+                let rect = egui::Rect::from_min_max(egui::pos2(x, bar.top()), egui::pos2(x + w.min(free.width().max(0.0)), bar.bottom()));
+                ui.put(rect, egui::Label::new(title).selectable(false).truncate())
                     .on_hover_text(match (&graph_file.path, unsaved) {
                         (Some(p), true)  => format!("{}\nChanged since it was saved. Ctrl+S saves", p.display()),
                         (Some(p), false) => format!("{}\nSaved", p.display()),
                         (None, _)        => "Not saved to a file yet. Ctrl+S saves".into(),
                     });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // The lock sits at the far right.
-                    {
-                        let tip = if locked {
-                            "Layout locked: panes cannot be moved, floated or closed. Dividers still resize. Click to unlock"
-                        } else {
-                            "Lock the layout"
-                        };
-                        if lock_button(ui, locked).on_hover_text(tip).clicked() { layout.locked = !locked; }
-                    }
-                });
             });
         });
     theme::editor(ctx);
@@ -294,6 +312,7 @@ pub(crate) fn draw_ui(
             FileCommand::New => save_first.load_new(),
             FileCommand::Open => { browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", &["json"], ""); }
             FileCommand::OpenRecent(p) => save_first.load(Source::File(p)),
+            FileCommand::Template(i) => save_first.load(Source::Template(i)),
             FileCommand::ClearRecent => recent.clear(),
             FileCommand::Save => { save_or_ask(&graph, &mut *graph_file, &mut *history, &mut *recent, &mut *browser); }
             FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut *browser),
@@ -545,6 +564,33 @@ fn draw_logo(ui: &mut egui::Ui) -> egui::Response {
     response
 }
 
+/// A thin vertical line between parts of the top bar.
+fn top_bar_divider(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 16.0), egui::Sense::hover());
+    ui.painter().vline(rect.center().x, rect.y_range(), egui::Stroke::new(1.0, theme::c(92, 92, 92)));
+}
+
+/// Menu titles in the top bar: no frame at rest, a lit plate under the
+/// mouse and while the menu is open, so a title reads as something to click
+/// and the rest of the bar does not.
+fn menu_title_style(ui: &mut egui::Ui) {
+    let v = ui.visuals_mut();
+    v.button_frame = true;
+    v.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+    v.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+    v.widgets.inactive.fg_stroke.color = theme::c(236, 236, 236);
+    let lit = theme::accent();
+    for w in [&mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+        w.weak_bg_fill = lit;
+        w.bg_fill = lit;
+        w.bg_stroke = egui::Stroke::NONE;
+        w.expansion = 0.0;
+        w.corner_radius = egui::CornerRadius::same(3);
+        w.fg_stroke.color = egui::Color32::from_rgb(250, 250, 250);
+    }
+    ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+}
+
 /// Padlock button, drawn by hand: closed when locked, shackle swung open
 /// when not. The emoji font's padlock is unreadable at this size.
 fn lock_button(ui: &mut egui::Ui, locked: bool) -> egui::Response {
@@ -632,7 +678,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 self.vp_rect.0 = Some(ui.max_rect());
                 if let Some(v) = self.viewer.as_deref_mut() {
                     v.show(ui, viewer::ViewerInput {
-                        graph: &mut *self.graph, subnets: &*self.subnets, hierarchy: &*self.hierarchy,
+                        graph: &mut *self.graph, subnets: &*self.subnets, hierarchy: &mut *self.hierarchy,
                         playback: &mut *self.playback, revision: self.revision, nav: self.nav_settings,
                         tool: &mut *self.poly_tool,
                     });
@@ -944,6 +990,8 @@ enum FileCommand {
     New,
     Open,
     OpenRecent(std::path::PathBuf),
+    /// A template, by its index in `templates::TEMPLATES`.
+    Template(usize),
     ClearRecent,
     Save,
     SaveAs,
@@ -1002,6 +1050,8 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
         });
         ui.separator();
         if menu_item(ui, "Quit", &format!("{CMD}+Q")) { c = Some(FileCommand::Quit); }
+        ui.separator();
+        if let Some(i) = templates_menu(ui) { c = Some(FileCommand::Template(i)); }
     });
     c
 }
@@ -1039,9 +1089,11 @@ fn edit_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, subnets: &mut IceGra
     });
 }
 
-/// Ready-made graphs, by whose work they show, then by area. Picking one
-/// asks whether to add it to the graph or open it as new (`SaveFirst::load`).
-fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
+/// Ready-made graphs, at the bottom of the File menu, by whose work they
+/// show, then by area. Picking one asks whether to add it to the graph or
+/// open it as new (`SaveFirst::load`). Returns the template picked.
+fn templates_menu(ui: &mut egui::Ui) -> Option<usize> {
+    let mut picked = None;
     crate::menus::menu(ui, "Templates", |ui| {
         for (by, groups) in templates::MENU {
             crate::menus::menu(ui, by, |ui| {
@@ -1049,7 +1101,7 @@ fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
                     crate::menus::menu(ui, group, |ui| {
                         for (index, t) in templates::TEMPLATES.iter().enumerate().filter(|(_, t)| t.by == by && t.group == group) {
                             if ui.button(t.name).on_hover_text(t.hint).clicked() {
-                                save_first.load(Source::Template(index));
+                                picked = Some(index);
                                 ui.close();
                             }
                         }
@@ -1058,6 +1110,7 @@ fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
             });
         }
     });
+    picked
 }
 
 /// Panes, layout and theme.
@@ -1295,7 +1348,7 @@ impl SaveFirst {
     }
 
     /// A question is showing, or waits on the browser.
-    fn busy(&self) -> bool { self.choosing.is_some() || self.after.is_some() }
+    pub fn busy(&self) -> bool { self.choosing.is_some() || self.after.is_some() }
 
     /// Hold `after` and ask, when there is something to lose. Returns
     /// whether it is held (false: carry it out now).
@@ -1336,7 +1389,7 @@ fn carry_out(after: After, graph: &mut NodeGraphState, subnets: &mut IceGraphSto
 }
 
 /// Dim the window behind a question, and take the clicks meant for it.
-fn dim_behind(ctx: &egui::Context) {
+pub(crate) fn dim_behind(ctx: &egui::Context) {
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("quit_dim")).order(egui::Order::Foreground).fixed_pos(screen.min)
         .show(ctx, |ui| {
@@ -1372,7 +1425,19 @@ fn ask_add_or_open(ctx: &egui::Context, what: &str) -> Option<u8> {
 /// (`close_requested`), Quit, New, opening a file or a template. Returns
 /// true when the program should close now.
 pub(crate) fn save_first_frame(ctx: &egui::Context, app: &mut AppState, close_requested: bool) -> bool {
-    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, .. } = app;
+    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, downloads, .. } = app;
+    // A graph brought in may name example files to fetch: ask again about
+    // files declined for an earlier one.
+    let before = graph.content_hash();
+    let quit = save_first_step(ctx, save_first, history, recent, graph_file, browser, graph, subnets, nav, close_requested);
+    if graph.content_hash() != before { downloads.graph_opened(); }
+    quit
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_first_step(ctx: &egui::Context, save_first: &mut SaveFirst, history: &mut history::History, recent: &mut recent::Recent,
+                   graph_file: &mut GraphFile, browser: &mut FileBrowser, graph: &mut NodeGraphState, subnets: &mut IceGraphStore,
+                   nav: &mut GraphNavigation, close_requested: bool) -> bool {
     if close_requested && !save_first.ask(&history, &After::Quit) { return true; }
     if std::mem::take(&mut save_first.quit) && !save_first.ask(&history, &After::Quit) {
         return true;

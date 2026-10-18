@@ -9,3 +9,13 @@ _site/
 # Archives and patches made for sharing, never committed
 *.zip
 *.patch
+# Example files fetched on demand (see src/examples.rs, SOURCES); the four
+# Novasci clips in the repository are listed in examples/mocap/novasci/README.md.
+/examples/usd/carbon_frame_bike/
+/examples/usd/elephant/
+/examples/mocap/novasci/*.fbx
+!/examples/mocap/novasci/ComeHere1.fbx
+!/examples/mocap/novasci/HandsOnHead.fbx
+!/examples/mocap/novasci/Celebrate1.fbx
+!/examples/mocap/novasci/GoAwayAngry.fbx
+*.part
