@@ -32,7 +32,7 @@ mod values;
 mod xform;
 // mod export;   // later: .usda override-layer export (needs adapting to xms-scene)
 
-pub use to_scene::{translate, translate_stage, SceneOptions, Translated, CURVE_PRIMVAR_PREFIX};
+pub use to_scene::{translate, translate_phased, translate_stage, SceneOptions, Translated, CURVE_PRIMVAR_PREFIX};
 /// rray's name for [`translate`], kept so code ported from rray reads the same.
 pub use to_scene::translate as translate_to_scene;
 

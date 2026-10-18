@@ -371,7 +371,7 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
         Topology::Points => "Points",
     });
     // Its placement, without the root correction the file's axes do not have.
-    let place = match &p.place { Placement::One(m) => (root.as_dmat4().inverse() * m.as_dmat4()), _ => root.as_dmat4().inverse() };
+    let place = match &p.place { Placement::One(m) => root.as_dmat4().inverse() * m.as_dmat4(), _ => root.as_dmat4().inverse() };
     if place != DMat4::IDENTITY {
         spec.lines.push(format!("matrix4d xformOp:transform = {}", matrix(&place)));
         spec.lines.push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());

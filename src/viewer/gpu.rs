@@ -43,15 +43,67 @@ pub struct Frame {
     pub overlay:   super::edit::Overlay,
 }
 
-/// A mesh on the GPU, kept while its geometry lives.
+/// Every buffer stays under this size: wgpu's guaranteed maximum is 256 MB,
+/// and a groom or a dense scan can need several times that. Bigger meshes
+/// are split into parts, more copies into several instance buffers.
+const BUFFER_BYTES: usize = 128 << 20;
+const PART_VERTICES: usize = BUFFER_BYTES / (VERTEX_FLOATS * 4);
+const PART_INDICES: usize = BUFFER_BYTES / 4;
+
+/// A mesh on the GPU, kept while its geometry lives: one or more parts,
+/// each its own vertex and index buffers.
 struct GpuMesh {
     geometry: Arc<Geometry>,
-    vertices: wgpu::Buffer,
-    indices:  wgpu::Buffer,
-    count:    u32,
+    parts:    Vec<(wgpu::Buffer, wgpu::Buffer, u32)>,
 }
 
-struct Draw { mesh: usize, instances: wgpu::Buffer, copies: u32, blend: bool, edges: bool, material: Option<usize> }
+/// A mesh drawn at its copies: one instance buffer per chunk of copies.
+struct Draw { mesh: usize, instances: Vec<(wgpu::Buffer, u32)>, blend: bool, edges: bool, material: Option<usize> }
+
+/// The mesh in parts that each fit a buffer. `per` indices make one
+/// triangle (3) or line (2). A part takes the vertices its primitives use,
+/// renumbered; small meshes are one part, uncopied.
+fn parts(g: &Geometry, per: usize) -> Vec<(std::borrow::Cow<'_, [f32]>, std::borrow::Cow<'_, [u32]>)> {
+    use std::borrow::Cow;
+    let n = g.vertices.len() / VERTEX_FLOATS;
+    if n <= PART_VERTICES && g.indices.len() <= PART_INDICES {
+        return vec![(Cow::Borrowed(&g.vertices[..]), Cow::Borrowed(&g.indices[..]))];
+    }
+    let mut out = vec![];
+    let mut remap = vec![u32::MAX; n];
+    let (mut verts, mut idx, mut used): (Vec<f32>, Vec<u32>, Vec<usize>) = (vec![], vec![], vec![]);
+    for prim in g.indices.chunks(per) {
+        let new = prim.iter().filter(|&&i| remap.get(i as usize) == Some(&u32::MAX)).count();
+        if verts.len() / VERTEX_FLOATS + new > PART_VERTICES || idx.len() + per > PART_INDICES {
+            out.push((Cow::Owned(std::mem::take(&mut verts)), Cow::Owned(std::mem::take(&mut idx))));
+            for v in used.drain(..) { remap[v] = u32::MAX; }
+        }
+        for &i in prim {
+            let i = i as usize;
+            if i >= n { continue; }
+            if remap[i] == u32::MAX {
+                remap[i] = (verts.len() / VERTEX_FLOATS) as u32;
+                verts.extend_from_slice(&g.vertices[i * VERTEX_FLOATS..(i + 1) * VERTEX_FLOATS]);
+                used.push(i);
+            }
+            idx.push(remap[i]);
+        }
+    }
+    if !idx.is_empty() { out.push((Cow::Owned(verts), Cow::Owned(idx))); }
+    out
+}
+
+/// Floats into vertex buffers of at most `BUFFER_BYTES`, whole items
+/// (`stride` floats) each, with how many items each holds.
+fn chunked(device: &wgpu::Device, label: &str, data: &[f32], stride: usize) -> Vec<(wgpu::Buffer, u32)> {
+    let per = (BUFFER_BYTES / (stride * 4)).max(1) * stride;
+    data.chunks(per).map(|c| (
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label), contents: bytemuck::cast_slice(c), usage: wgpu::BufferUsages::VERTEX,
+        }),
+        (c.len() / stride) as u32,
+    )).collect()
+}
 
 struct Target {
     size:    [u32; 2],
@@ -73,10 +125,10 @@ pub struct ViewerGpu {
     /// everything.
     raised:      wgpu::RenderPipeline,
     on_top:      wgpu::RenderPipeline,
-    top_buffer:  Option<(wgpu::Buffer, u32)>,
+    top_buffer:  Vec<(wgpu::Buffer, u32)>,
     points:      wgpu::RenderPipeline,
     point_buffer: Option<(wgpu::Buffer, u32)>,
-    frame_lines: [Option<(wgpu::Buffer, u32)>; 2],
+    frame_lines: [Vec<(wgpu::Buffer, u32)>; 2],
     blit:        wgpu::RenderPipeline,
     blit_layout: wgpu::BindGroupLayout,
     sampler:     wgpu::Sampler,
@@ -92,7 +144,7 @@ pub struct ViewerGpu {
     target:      Option<Target>,
     meshes:      Vec<GpuMesh>,
     draws:       Vec<Draw>,
-    line_buffer: Option<(wgpu::Buffer, u32)>,
+    line_buffer: Vec<(wgpu::Buffer, u32)>,
     generation:  u64,
 }
 
@@ -258,11 +310,11 @@ impl ViewerGpu {
         let plain = material_group(device, &material_layout, &white, &white, &map_sampler);
 
         ViewerGpu {
-            view_buffer, view_group, opaque, blended, lines, edges, raised, on_top, top_buffer: None, frame_lines: [None, None],
+            view_buffer, view_group, opaque, blended, lines, edges, raised, on_top, top_buffer: vec![], frame_lines: [vec![], vec![]],
             points, point_buffer: None,
             blit, blit_layout, sampler,
             material_layout, map_sampler, textures: HashMap::new(), white, materials: vec![], plain,
-            target: None, meshes: vec![], draws: vec![], line_buffer: None, generation: u64::MAX,
+            target: None, meshes: vec![], draws: vec![], line_buffer: vec![], generation: u64::MAX,
         }
     }
 
@@ -298,7 +350,8 @@ impl ViewerGpu {
                 if textures.contains_key(path) { continue; }
                 let view = match self.textures.remove(path) {
                     Some((d, v)) if Arc::ptr_eq(&d, decoded) => v,
-                    _ => upload_texture(device, queue, decoded),
+                    // Too big for the GPU even at its smallest: drawn untextured.
+                    _ => match upload_texture(device, queue, decoded) { Some(v) => v, None => continue },
                 };
                 textures.insert(path.clone(), (decoded.clone(), view));
             }
@@ -321,23 +374,23 @@ impl ViewerGpu {
                         Some(i) => old.swap_remove(i),
                         None => GpuMesh {
                             geometry: d.geometry.clone(),
-                            vertices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("viewer vertices"), contents: bytemuck::cast_slice(&d.geometry.vertices), usage: wgpu::BufferUsages::VERTEX,
-                            }),
-                            indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("viewer indices"), contents: bytemuck::cast_slice(&d.geometry.indices), usage: wgpu::BufferUsages::INDEX,
-                            }),
-                            count: d.geometry.indices.len() as u32,
+                            parts: parts(&d.geometry, if d.edges { 2 } else { 3 }).into_iter().map(|(v, i)| (
+                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("viewer vertices"), contents: bytemuck::cast_slice(&v), usage: wgpu::BufferUsages::VERTEX,
+                                }),
+                                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("viewer indices"), contents: bytemuck::cast_slice(&i), usage: wgpu::BufferUsages::INDEX,
+                                }),
+                                i.len() as u32,
+                            )).collect(),
                         },
                     };
                     meshes.push(gm);
                     meshes.len() - 1
                 }
             };
-            let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("viewer instances"), contents: bytemuck::cast_slice(&d.instances), usage: wgpu::BufferUsages::VERTEX,
-            });
-            self.draws.push(Draw { mesh, instances, copies: (d.instances.len() / INSTANCE_FLOATS) as u32, blend: d.blend, edges: d.edges, material: d.material });
+            let instances = chunked(device, "viewer instances", &d.instances, INSTANCE_FLOATS);
+            self.draws.push(Draw { mesh, instances, blend: d.blend, edges: d.edges, material: d.material });
         }
         self.meshes = meshes;
         self.line_buffer = line_buffer(device, &scene.lines);
@@ -375,14 +428,14 @@ impl ViewerGpu {
         for d in self.draws.iter().filter(|d| !d.blend && !d.edges) { self.draw_mesh(&mut pass, d); }
         pass.set_pipeline(&self.edges);
         for d in self.draws.iter().filter(|d| d.edges) { self.draw_mesh(&mut pass, d); }
-        if let Some((buffer, count)) = &self.line_buffer {
-            pass.set_pipeline(&self.lines);
+        pass.set_pipeline(&self.lines);
+        for (buffer, count) in &self.line_buffer {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
         // Edit Poly's wireframe and vertices, on their surface.
-        if let Some((buffer, count)) = &self.frame_lines[0] {
-            pass.set_pipeline(&self.raised);
+        pass.set_pipeline(&self.raised);
+        for (buffer, count) in &self.frame_lines[0] {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
@@ -395,7 +448,7 @@ impl ViewerGpu {
         for d in self.draws.iter().filter(|d| d.blend && !d.edges) { self.draw_mesh(&mut pass, d); }
         // Over everything: the skeleton and the manipulator.
         pass.set_pipeline(&self.on_top);
-        for (buffer, count) in self.top_buffer.iter().chain(self.frame_lines[1].iter()) {
+        for (buffer, count) in self.top_buffer.iter().chain(&self.frame_lines[1]) {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
@@ -405,21 +458,20 @@ impl ViewerGpu {
         let m = &self.meshes[d.mesh];
         let material = d.material.and_then(|i| self.materials.get(i)).unwrap_or(&self.plain);
         pass.set_bind_group(1, material, &[]);
-        pass.set_vertex_buffer(0, m.vertices.slice(..));
-        pass.set_vertex_buffer(1, d.instances.slice(..));
-        pass.set_index_buffer(m.indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..m.count, 0, 0..d.copies);
+        for (vertices, indices, count) in &m.parts {
+            pass.set_vertex_buffer(0, vertices.slice(..));
+            pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+            for (instances, copies) in &d.instances {
+                pass.set_vertex_buffer(1, instances.slice(..));
+                pass.draw_indexed(0..*count, 0, 0..*copies);
+            }
+        }
     }
 }
 
-/// Lines into a vertex buffer, or nothing when there are none.
-fn line_buffer(device: &wgpu::Device, lines: &[f32]) -> Option<(wgpu::Buffer, u32)> {
-    (!lines.is_empty()).then(|| (
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("viewer lines"), contents: bytemuck::cast_slice(lines), usage: wgpu::BufferUsages::VERTEX,
-        }),
-        (lines.len() / LINE_FLOATS) as u32,
-    ))
+/// Lines into vertex buffers, whole lines each (two vertices).
+fn line_buffer(device: &wgpu::Device, lines: &[f32]) -> Vec<(wgpu::Buffer, u32)> {
+    chunked(device, "viewer lines", lines, LINE_FLOATS * 2).into_iter().map(|(b, n)| (b, n * 2)).collect()
 }
 
 /// A material's bind group: its colour and emissive textures and the sampler.
@@ -435,15 +487,24 @@ fn material_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, colour:
 }
 
 /// A decoded image and its smaller copies, as an sRGB texture.
-fn upload_texture(device: &wgpu::Device, queue: &wgpu::Queue, d: &Decoded) -> wgpu::TextureView {
+/// Larger than the GPU takes (8,192 pixels a side is the guaranteed
+/// maximum; a 16K texture is not unusual), the image starts from its first
+/// smaller copy that fits. `None` when none does.
+fn upload_texture(device: &wgpu::Device, queue: &wgpu::Queue, d: &Decoded) -> Option<wgpu::TextureView> {
+    let max = device.limits().max_texture_dimension_2d;
+    let (mut w, mut h, mut at, mut levels) = (d.width, d.height, 0usize, d.levels.max(1));
+    while w > max || h > max {
+        if levels <= 1 { return None; }
+        at += (w * h * 4) as usize;
+        (w, h, levels) = ((w / 2).max(1), (h / 2).max(1), levels - 1);
+    }
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("viewer map"),
-        size: wgpu::Extent3d { width: d.width, height: d.height, depth_or_array_layers: 1 },
-        mip_level_count: d.levels.max(1), sample_count: 1, dimension: wgpu::TextureDimension::D2,
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        mip_level_count: levels, sample_count: 1, dimension: wgpu::TextureDimension::D2,
         format: PICTURE, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
     });
-    let (mut w, mut h, mut at) = (d.width, d.height, 0usize);
-    for level in 0..d.levels.max(1) {
+    for level in 0..levels {
         let size = (w * h * 4) as usize;
         if at + size > d.pixels.len() { break; }
         queue.write_texture(
@@ -456,7 +517,7 @@ fn upload_texture(device: &wgpu::Device, queue: &wgpu::Queue, d: &Decoded) -> wg
         w = (w / 2).max(1);
         h = (h / 2).max(1);
     }
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
+    Some(texture.create_view(&wgpu::TextureViewDescriptor::default()))
 }
 
 /// The Viewer's paint callback: draws the picture before egui's pass, and

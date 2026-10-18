@@ -48,6 +48,8 @@ pub fn draw_prim_inspector(
     // Playhead, for the pose a clip is listed in.
     time:     f64,
     get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<MeshData>>,
+    // The counts of that geometry, without making it.
+    get_summary: &dyn Fn(&NodeGraphState) -> crate::prim_inspector::Summary,
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
     // The Properties tab: the selected prims themselves.
     get_props: &dyn Fn(&NodeGraphState) -> Vec<super::PropRow>,
@@ -60,9 +62,16 @@ pub fn draw_prim_inspector(
             let paths = &source.paths;
             if !state.is_cache_valid(source.node, paths, revision) {
                 let clip = get_clip(graph);
-                let parts = if clip.is_none() { get_parts(graph).unwrap_or_default() } else { vec![] };
+                let summary = if clip.is_none() { get_summary(graph) } else { Default::default() };
                 let props = if clip.is_none() { get_props(graph) } else { vec![] };
-                state.update_cache(source.node, paths, parts, clip, props, revision);
+                state.update_cache(source.node, paths, summary, clip, props, revision);
+            }
+            // The geometry is made only for a geometry tab: on Properties a
+            // big scene costs nothing more to show.
+            use PrimInspectorTab as Tab;
+            let geometry_tab = matches!(state.active_tab, Tab::Vertex | Tab::Edge | Tab::Uniform | Tab::FaceVarying | Tab::Constant);
+            if geometry_tab && state.summary().any() && !state.parts_loaded() && state.cached_clip().is_none() {
+                state.set_parts(get_parts(graph).unwrap_or_default());
             }
 
             // ── Path breadcrumb ───────────────────────────────────────────────
@@ -90,9 +99,10 @@ pub fn draw_prim_inspector(
                 });
 
             let clip = state.cached_clip();
+            let summary = state.summary();
             let mesh = state.cached_parts().filter(|parts| parts.iter().any(|m| m.point_count() > 0));
             let props = state.cached_props();
-            if clip.is_none() && mesh.is_none() && props.is_empty() {
+            if clip.is_none() && !summary.any() && props.is_empty() {
                 ui.add_space(12.0);
                 ui.centered_and_justified(|ui| {
                     ui.label(egui::RichText::new("No mesh or clip in the scene at the view flag.")
@@ -103,12 +113,13 @@ pub fn draw_prim_inspector(
 
             // ── Tabs ─────────────────────────────────────────────────────────
             // A clip lists joints and bones; a mesh lists its components.
-            use PrimInspectorTab as Tab;
             let clip_tab = matches!(state.active_tab, Tab::Joint | Tab::Bone);
             if clip.is_some() && !clip_tab { state.set_active_tab(Tab::Joint); }
-            if clip.is_none() && clip_tab { state.set_active_tab(Tab::Vertex); }
+            if clip.is_none() && clip_tab { state.set_active_tab(Tab::Properties); }
             // A group, a camera or a light alone: only its properties.
-            if clip.is_none() && mesh.is_none() { state.set_active_tab(Tab::Properties); }
+            if clip.is_none() && !summary.any() { state.set_active_tab(Tab::Properties); }
+            // Geometry with no properties listed: its points.
+            if clip.is_none() && summary.any() && props.is_empty() && state.active_tab == Tab::Properties { state.set_active_tab(Tab::Vertex); }
 
             egui::Frame::NONE
                 .fill(xsi::TAB_BG())
@@ -118,13 +129,16 @@ pub fn draw_prim_inspector(
                         if let Some(c) = &clip {
                             tab_btn(ui, state, Tab::Joint, &format!("Joint ({})", c.joints.len()));
                             tab_btn(ui, state, Tab::Bone, &format!("Bone ({})", bones(c).len()));
-                        } else if let Some(parts) = &mesh {
-                            let sum = |f: &dyn Fn(&MeshData) -> usize| parts.iter().map(f).sum::<usize>();
-                            tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", sum(&|m: &MeshData| m.point_count())));
-                            tab_btn(ui, state, Tab::Edge, &format!("Edge ({})", state.edge_count));
-                            tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", sum(&|m: &MeshData| m.num_faces() + m.curve_counts.len())));
-                            tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", sum(&|m: &MeshData| m.corner_count())));
-                            tab_btn(ui, state, Tab::Constant, &format!("Object ({})", object_rows(parts)));
+                        } else if summary.any() {
+                            // Edges and Object rows are counted once the
+                            // geometry is made (a geometry tab opened).
+                            let loaded = |n: usize| if state.parts_loaded() { format!(" ({n})") } else { String::new() };
+                            let (edges, objects) = (loaded(state.edge_count), loaded(mesh.as_deref().map_or(0, |p| object_rows(p))));
+                            tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", summary.points));
+                            tab_btn(ui, state, Tab::Edge, &format!("Edge{edges}"));
+                            tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", summary.faces));
+                            tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", summary.corners));
+                            tab_btn(ui, state, Tab::Constant, &format!("Object{objects}"));
                         }
                         if clip.is_none() && !props.is_empty() {
                             let prims = props.iter().fold(Vec::<&str>::new(), |mut v, r| { if v.last() != Some(&r.path.as_str()) { v.push(&r.path); } v }).len();
@@ -141,6 +155,13 @@ pub fn draw_prim_inspector(
             let tab = state.active_tab.clone();
             if tab == Tab::Properties {
                 go_to = draw_properties(ui, &props);
+                return;
+            }
+            // A geometry tab just opened: its geometry is made next frame.
+            if clip.is_none() && !state.parts_loaded() {
+                ui.ctx().request_repaint();
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Reading the geometry...").color(xsi::TEXT_DIM()));
                 return;
             }
             let frame = clip.as_ref().map(|c| c.index_at(time)).unwrap_or(0);

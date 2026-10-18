@@ -404,7 +404,7 @@ pub fn editor(ctx: &egui::Context) {
         });
         ui.separator();
         egui::Grid::new("theme_editor_grid").num_columns(3).spacing([10.0, 6.0]).show(ui, |ui| {
-            let mut row = |ui: &mut egui::Ui, name: &str, what: &str, c: &mut [u8; 3]| {
+            let row = |ui: &mut egui::Ui, name: &str, what: &str, c: &mut [u8; 3]| {
                 ui.label(name);
                 ui.color_edit_button_srgb(c);
                 ui.label(egui::RichText::new(what).small());

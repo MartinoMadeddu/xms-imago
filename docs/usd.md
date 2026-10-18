@@ -41,6 +41,15 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked beside itself so its textures are files the Viewer can read.
 
+## Big stages: boxes first
+
+A stage is read on a thread of its own, in two passes over one open stage, so the program stays in use while it loads:
+
+1. **Boxes.** The hierarchy, transforms, visibility, purpose and instancing, and each mesh, curves or points as the box of its authored `extent` (worked out from its points when it has none, so every prim with geometry has a box). The program waits for this pass, as it did for a whole load: there is nothing to show or work on yet. When it is done the Viewer and the Scene Explorer show the stage and the program is in use again; Transform, Prune and Set Attribute already work on it.
+2. **The whole stage.** Every mesh array, primvar, material, binding and authored value, the geometry made on every core. When it is done it replaces the boxes, and everything downstream is cooked again.
+
+Until the second pass is done, the Load USD node's parameters say *Shown as boxes; reading the geometry…*, an opened prim shows its box, the Primitive Inspector lists the boxes, and Write USD waits (it would otherwise write boxes in place of geometry). On Moana the boxes take a fraction of the time the whole island takes; `XMS_TIMINGS=1` prints both.
+
 ## Sublayer, Reference, Payload
 
 Load USD's **Mode** says how the file comes into the scene, as in USD:

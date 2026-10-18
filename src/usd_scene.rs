@@ -272,6 +272,10 @@ pub struct UsdScene {
     pub animated:        usize,
     /// What the layer holds that was not read in full.
     pub notes:           Vec<String>,
+    /// The first, boxes-only pass of a stage still being read: each mesh is
+    /// the box of its extent; materials and authored values come with the
+    /// whole stage.
+    pub reading:         bool,
 }
 
 impl UsdScene {
@@ -676,12 +680,23 @@ fn open(path: &Path) -> Result<Layer, String> {
 
 /// Read a USD file. Not cached: see `load_cached`.
 pub fn load(path: &Path) -> Result<UsdScene, String> {
+    load_phased(path, |_| {})
+}
+
+/// Read a USD file, giving `boxes` the stage drawn as boxes as soon as
+/// that much is read (see `usd_stage::read_phased`).
+fn load_phased(path: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
+    let mut _t = crate::timings::span(format!("usd: load {}", path.display()));
     if !path.exists() { return Err(format!("{} not found", path.display())); }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     // A usdz is unpacked first, so its textures are files on disk.
     let layer = if ext == "usdz" { extract_usdz(path)? } else { path.to_path_buf() };
     let base_dir = layer.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let composed = crate::usd_stage::read(&layer);
+    let composed = crate::usd_stage::read_phased(&layer, |mut first| {
+        first.base_dir = base_dir.clone();
+        std::sync::Arc::make_mut(&mut first.tree).source = path.to_path_buf();
+        boxes(first);
+    });
     let mut scene = match composed {
         Ok(scene) if !scene.meshes.is_empty() => scene,
         other => {
@@ -703,6 +718,7 @@ pub fn load(path: &Path) -> Result<UsdScene, String> {
     // The file as given (a .usdz, not the folder it was unpacked into):
     // what an override layer sublayers.
     std::sync::Arc::make_mut(&mut scene.tree).source = path.to_path_buf();
+    _t.note(format!("{} meshes, {} instancers", scene.meshes.len(), scene.instancers.len()));
     Ok(scene)
 }
 
@@ -733,23 +749,106 @@ fn load_root_layer(layer: &Path, ext: &str) -> Result<UsdScene, String> {
     Ok(scene)
 }
 
-type Cached = (std::path::PathBuf, Option<std::time::SystemTime>, Result<Arc<UsdScene>, String>);
-static CACHE: Mutex<Vec<Cached>> = Mutex::new(Vec::new());
+/// What is known of a stage: nothing yet, its boxes, or all of it.
+#[derive(Clone)]
+enum Known {
+    Reading,
+    Boxes(Arc<UsdScene>),
+    Done(Result<Arc<UsdScene>, String>),
+}
 
-/// Read a USD file once, and again only when the file changes on disk.
+type Cached = (std::path::PathBuf, Option<std::time::SystemTime>, Arc<Mutex<Known>>);
+static CACHE: Mutex<Vec<Cached>> = Mutex::new(Vec::new());
+/// Moves when a stage read in the background has more to show: its boxes,
+/// then the whole of it. Part of a Load USD node's cook key.
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn changed() {
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// See `GENERATION`.
+pub fn generation() -> u64 { GENERATION.load(std::sync::atomic::Ordering::Relaxed) }
+
+/// Whether a stage being read has had more to show since last asked: the
+/// graph's revision moves, so what shows the stage is made again.
+pub fn take_changed() -> bool { CHANGED.swap(false, std::sync::atomic::Ordering::Relaxed) }
+
+/// How far reading `path` has come, for the Load USD node's parameters:
+/// `None` once it is read (or before it is asked for).
+pub fn reading(path: &str) -> Option<&'static str> {
+    let path = std::path::PathBuf::from(path.trim());
+    let known = CACHE.lock().ok()?.iter().find(|(p, _, _)| *p == path).map(|(_, _, k)| k.clone())?;
+    let known = known.lock().ok()?;
+    match *known {
+        Known::Reading => Some("Reading the stage…"),
+        Known::Boxes(_) => Some("Shown as boxes; reading the geometry…"),
+        Known::Done(_) => None,
+    }
+}
+
+/// Whether any stage is still being read: Write USD waits for it, so it
+/// never writes boxes in place of geometry.
+pub fn any_reading() -> bool {
+    CACHE.lock().is_ok_and(|c| c.iter().any(|(_, _, k)| k.lock().is_ok_and(|k| !matches!(*k, Known::Done(_)))))
+}
+
+/// A USD file as far as it is read, and again when it changes on disk. The
+/// first time a file is asked for, it is read on a thread of its own: this
+/// waits for its first pass (prims, properties and boxes), as a load always
+/// did, then returns the boxes while the rest of the stage is read in the
+/// background and replaces them when it is done. In tests the file is read
+/// at once.
 pub fn load_cached(path: &str) -> Result<Arc<UsdScene>, String> {
     let path = std::path::PathBuf::from(path);
     let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-    if let Ok(cache) = CACHE.lock() {
-        if let Some((_, _, scene)) = cache.iter().find(|(p, s, _)| *p == path && *s == stamp) { return scene.clone(); }
+    let known = {
+        let Ok(mut cache) = CACHE.lock() else { return Err("The stage cache is unavailable".into()) };
+        match cache.iter().find(|(p, s, _)| *p == path && *s == stamp) {
+            Some((_, _, known)) => known.clone(),
+            None => {
+                let known = Arc::new(Mutex::new(Known::Reading));
+                cache.retain(|(p, _, _)| *p != path);
+                if cache.len() >= 6 { cache.remove(0); }
+                cache.push((path.clone(), stamp, known.clone()));
+                read_in_background(path, known.clone());
+                known
+            }
+        }
+    };
+    // The first pass, waited for: nothing can be shown or worked on before it.
+    let now = loop {
+        let now = known.lock().map(|k| k.clone()).unwrap_or(Known::Reading);
+        if !matches!(now, Known::Reading) { break now; }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    match now {
+        Known::Reading => Err("Reading the stage…".into()),
+        Known::Boxes(scene) => Ok(scene),
+        Known::Done(result) => result,
     }
-    let scene = load(&path).map(Arc::new);
-    if let Ok(mut cache) = CACHE.lock() {
-        cache.retain(|(p, _, _)| *p != path);
-        if cache.len() >= 6 { cache.remove(0); }
-        cache.push((path, stamp, scene.clone()));
-    }
-    scene
+}
+
+#[cfg(not(test))]
+fn read_in_background(path: std::path::PathBuf, known: Arc<Mutex<Known>>) {
+    std::thread::spawn(move || {
+        let full = load_phased(&path, |boxes| {
+            if let Ok(mut k) = known.lock() {
+                if matches!(*k, Known::Reading) { *k = Known::Boxes(Arc::new(boxes)); }
+            }
+            changed();
+        });
+        if let Ok(mut k) = known.lock() { *k = Known::Done(full.map(Arc::new)); }
+        changed();
+    });
+}
+
+#[cfg(test)]
+fn read_in_background(path: std::path::PathBuf, known: Arc<Mutex<Known>>) {
+    let full = load(&path).map(Arc::new);
+    if let Ok(mut k) = known.lock() { *k = Known::Done(full); }
 }
 
 #[cfg(test)]

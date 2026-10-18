@@ -1120,7 +1120,6 @@ impl EvalResult {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum PrimInspectorTab {
-    #[default]
     Vertex,
     Edge,
     /// One row per polygon. Per-polygon primvars sit here too.
@@ -1128,7 +1127,9 @@ pub enum PrimInspectorTab {
     FaceVarying,
     Constant,
     /// The selected prims themselves: their properties, by name, with where
-    /// each comes from.
+    /// each comes from. The tab the inspector opens on, every session: it
+    /// costs nothing to show, where a geometry tab lists every element.
+    #[default]
     Properties,
     /// Joints of a clip, at the playhead.
     Joint,
@@ -1163,8 +1164,12 @@ pub struct PrimInspectorState {
     pub row_offset:   usize,
 
     // Primitives or clip of the scene at the view flag (the selected row's
-    // part of it), cooked once per graph revision and selection.
+    // part of it), cooked once per graph revision and selection. The
+    // primitives only once a geometry tab asks for them (`parts_loaded`);
+    // until then `summary` counts them.
     cached_parts:   Option<std::sync::Arc<Vec<MeshData>>>,
+    parts_loaded:   bool,
+    summary:        crate::prim_inspector::Summary,
     cached_clip:    Option<std::sync::Arc<crate::core::anim::AnimData>>,
     cached_node_id: Option<NodeId>,
     cached_paths:   Vec<String>,
@@ -1185,20 +1190,23 @@ impl PrimInspectorState {
         self.cached_node_id == node_id && self.cached_paths == paths && self.cached_rev == Some(revision)
     }
 
+    /// What is shown for this operator, these paths and this revision: the
+    /// clip, the properties and the counts of the geometry. The geometry
+    /// itself comes with `set_parts`, when a geometry tab is opened.
     pub fn update_cache(
         &mut self,
         node_id:  Option<NodeId>,
         paths:    &[String],
-        parts:    Vec<MeshData>,
+        summary:  crate::prim_inspector::Summary,
         clip:     Option<std::sync::Arc<crate::core::anim::AnimData>>,
         props:    Vec<crate::prim_inspector::PropRow>,
         revision: u64,
     ) {
         self.cached_props   = std::sync::Arc::new(props);
-        self.edge_count = parts.iter()
-            .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
-            .sum();
-        self.cached_parts   = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
+        self.summary        = summary;
+        self.edge_count     = 0;
+        self.cached_parts   = None;
+        self.parts_loaded   = false;
         self.cached_clip    = clip;
         self.cached_node_id = node_id;
         self.cached_paths   = paths.to_vec();
@@ -1206,6 +1214,23 @@ impl PrimInspectorState {
         self.table_key      = None;
         self.table          = InspectorTable::default();
     }
+
+    /// The geometry, made when a geometry tab first asks for it.
+    pub fn set_parts(&mut self, parts: Vec<MeshData>) {
+        self.edge_count = parts.iter()
+            .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
+            .sum();
+        self.cached_parts = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
+        self.parts_loaded = true;
+        self.table_key    = None;
+        self.table        = InspectorTable::default();
+    }
+
+    /// Whether the geometry has been made for what is cached.
+    pub fn parts_loaded(&self) -> bool { self.parts_loaded }
+
+    /// The counts of the geometry, made or not.
+    pub fn summary(&self) -> crate::prim_inspector::Summary { self.summary }
 
     /// The primitives shown, each where it is drawn.
     pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> { self.cached_parts.clone() }
