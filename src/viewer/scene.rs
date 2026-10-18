@@ -29,6 +29,9 @@ pub enum Kind {
     Textured,
     /// Polygon edges, as lines.
     Edges,
+    /// Curves and points, as lines: one GPU mesh drawn at every copy, like
+    /// the edges, so a groom is held once however often it is placed.
+    Strands,
 }
 
 impl Geometry {
@@ -38,6 +41,11 @@ impl Geometry {
             vertices.extend_from_slice(p); vertices.extend_from_slice(n); vertices.extend_from_slice(&uv);
         };
         match kind {
+            Kind::Strands => {
+                let (points, pairs) = crate::strands::lines(md);
+                for p in &points { push(p, &[0.0, 1.0, 0.0], [0.0; 2]); }
+                Geometry { vertices, indices: pairs }
+            }
             Kind::Edges => {
                 for p in &md.vertices { push(p, &[0.0, 1.0, 0.0], [0.0; 2]); }
                 Geometry { vertices, indices: wire_edges(md) }
@@ -178,9 +186,6 @@ pub struct Inputs<'a> {
     pub time:      f64,
 }
 
-/// Curves and points of a primitive are drawn at this many of its copies
-/// at most (they are lines made on the CPU, not instanced).
-const STRAND_COPIES: usize = 64;
 
 pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scene {
     let mode = crate::viewport::display::mode();
@@ -299,16 +304,6 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 let identity = [Mat4::IDENTITY];
                 let places: &[Mat4] = if p.place.is_placed() { p.place.matrices() } else { &identity };
                 let look = p.look.as_deref().filter(|_| mode == DisplayMode::Textured);
-                // Curves and points, as lines.
-                if crate::strands::has_strands(&p.mesh) {
-                    let (points, pairs) = crate::strands::lines(&p.mesh);
-                    let c = match look {
-                        Some(l) => { let c = linear_f(l.color); [c[0], c[1], c[2], 1.0] }
-                        None => { let c = ink(crate::theme::c(205, 205, 205)); [c[0], c[1], c[2], 1.0] }
-                    };
-                    for m in places.iter().take(STRAND_COPIES) { push_lines(&mut s.lines, &points, &pairs, m, c); }
-                }
-                if p.mesh.vertices.is_empty() { continue; }
                 let mut add = |kind: Kind, colour: [f32; 4], flags: [f32; 4], look_key: usize, material: Option<usize>, blend: bool| {
                     let key = Key { mesh: Arc::as_ptr(&p.mesh) as usize, kind, look: look_key, blend };
                     let at = match groups.iter().position(|g| g.0 == key) {
@@ -317,6 +312,15 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     };
                     for m in places { push_instance_with(&mut groups[at].2, m, colour, flags); }
                 };
+                // Curves and points, as lines, at every copy.
+                if crate::strands::has_strands(&p.mesh) {
+                    let c = match look {
+                        Some(l) => { let c = linear_f(l.color); [c[0], c[1], c[2], 1.0] }
+                        None => { let c = ink(crate::theme::c(205, 205, 205)); [c[0], c[1], c[2], 1.0] }
+                    };
+                    add(Kind::Strands, c, [0.0; 4], 0, None, false);
+                }
+                if p.mesh.vertices.is_empty() { continue; }
                 if matches!(mode, DisplayMode::HiddenLine | DisplayMode::Wireframe) {
                     add(Kind::Edges, wire_ink, [0.0; 4], 0, None, false);
                 }
@@ -348,7 +352,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             }
             for (key, md, instances, material) in groups {
                 let geometry = cache.get(&md, key.kind, &mut used);
-                s.meshes.push(MeshDraw { geometry, instances, blend: key.blend, edges: key.kind == Kind::Edges, material });
+                s.meshes.push(MeshDraw { geometry, instances, blend: key.blend, edges: matches!(key.kind, Kind::Edges | Kind::Strands), material });
             }
         }
         other => {
@@ -363,9 +367,11 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             };
             if let Some(md) = shown {
                 if crate::strands::has_strands(&md) {
-                    let (points, pairs) = crate::strands::lines(&md);
                     let c = ink(crate::theme::c(205, 205, 205));
-                    push_lines(&mut s.lines, &points, &pairs, &Mat4::IDENTITY, [c[0], c[1], c[2], 1.0]);
+                    let mut inst = vec![];
+                    push_instance(&mut inst, &Mat4::IDENTITY, [c[0], c[1], c[2], 1.0], false);
+                    let geometry = cache.get(&md, Kind::Strands, &mut used);
+                    s.meshes.push(MeshDraw { geometry, instances: inst, blend: false, edges: true, material: None });
                 }
                 if !md.vertices.is_empty() {
                     if matches!(mode, DisplayMode::HiddenLine | DisplayMode::Wireframe) {
