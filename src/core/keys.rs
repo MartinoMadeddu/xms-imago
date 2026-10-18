@@ -346,6 +346,8 @@ pub fn set(value: &mut serde_json::Value, path: &str, x: f64) -> bool {
 
 /// A path as people read it: `translation/0` is "Translation X".
 pub fn label(path: &str) -> String {
+    // A Local Animation's keys name the parameters it inherits.
+    let path = path.strip_prefix("inherited/").unwrap_or(path);
     let parts: Vec<String> = path.split('/').map(|p| match p {
         "0" => "X".into(), "1" => "Y".into(), "2" => "Z".into(), "3" => "W".into(),
         w => {

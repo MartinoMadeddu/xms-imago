@@ -99,6 +99,8 @@ pub(crate) fn draw_ui(
     } = app;
     // Keyed parameters cook at the playhead.
     graph.time = playback.time;
+    // Local Animations show the parameters of the operator before them.
+    graph.sync_inherited();
     // S, tapped: key the selected operator at the playhead.
     if !browser.is_open() {
         if let Some(m) = keys_ui::s_key(ctx, graph) { graph_file.message = m; }

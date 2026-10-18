@@ -34,10 +34,11 @@ pub fn kind_of(t: &NodeType) -> String {
 impl NodeGraphState {
     /// The frame the playhead is on, at the scene's rate (fractional while
     /// playing a clip of another rate).
-    pub fn frame(&self) -> f64 { self.scene.frame(self.time) }
+    pub fn frame(&self) -> f64 { self.scene.frame(self.now()) }
 
-    /// A node's parameters at the playhead.
-    pub fn animated_type<'a>(&self, node: &'a GraphNode) -> Cow<'a, NodeType> { animated_at(node, self.frame()) }
+    /// A node's parameters at the playhead (at its own local frame, for a
+    /// Local Animation).
+    pub fn animated_type<'a>(&self, node: &'a GraphNode) -> Cow<'a, NodeType> { animated_at(node, self.node_frame(node)) }
 
     fn node_mut(&mut self, id: NodeId) -> Option<&mut GraphNode> { self.nodes.iter_mut().find(|n| n.id == id) }
 
@@ -45,7 +46,12 @@ impl NodeGraphState {
     /// playhead, in the order the parameters are saved.
     pub fn keyable_values(&self, id: NodeId) -> Vec<(String, f64)> {
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return vec![] };
-        serde_json::to_value(&*self.animated_type(node)).map(|v| keys::keyable(&v)).unwrap_or_default()
+        let all = serde_json::to_value(&*self.animated_type(node)).map(|v| keys::keyable(&v)).unwrap_or_default();
+        // A Local Animation keys the parameters it inherits, not its range.
+        if matches!(node.node_type, NodeType::LocalAnimation { .. }) {
+            return all.into_iter().filter(|(p, _)| p.starts_with("inherited/")).collect();
+        }
+        all
     }
 
     /// Set a key on `path` at `frame` with `value`.
@@ -66,7 +72,7 @@ impl NodeGraphState {
 
     /// Key every keyable number of a node at the playhead. How many.
     pub fn key_all(&mut self, id: NodeId) -> usize {
-        let frame = self.frame().round();
+        let frame = self.nodes.iter().find(|n| n.id == id).map(|n| self.node_frame(n)).unwrap_or(0.0).round();
         let values = self.keyable_values(id);
         for (p, v) in &values { self.set_key_value(id, p, frame, *v); }
         values.len()
@@ -125,7 +131,7 @@ impl NodeGraphState {
     /// as at the playhead, so what is shown is what is cooked. Returns its
     /// own, for `end_edit`.
     pub fn begin_edit(&mut self, id: NodeId) -> Option<NodeType> {
-        let frame = self.frame();
+        let frame = self.nodes.iter().find(|n| n.id == id).map(|n| self.node_frame(n))?;
         let node = self.node_mut(id)?;
         let own = node.node_type.clone();
         if !node.channels.is_empty() {
@@ -139,7 +145,7 @@ impl NodeGraphState {
     /// playhead with its new value; everything else changed is kept as the
     /// node's own. Nothing changed: the node is as it was.
     pub fn end_edit(&mut self, id: NodeId, own: NodeType) {
-        let frame = self.frame();
+        let Some(frame) = self.nodes.iter().find(|n| n.id == id).map(|n| self.node_frame(n)) else { return };
         let Some(node) = self.node_mut(id) else { return };
         if node.channels.is_empty() { return; }
         let shown = animated_at(&GraphNode { node_type: own.clone(), ..node.clone() }, frame).into_owned();

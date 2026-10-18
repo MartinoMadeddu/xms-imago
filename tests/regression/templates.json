@@ -21,7 +21,7 @@
         -1.072
       ]
     },
-    "cook_ms": 5492
+    "cook_ms": 5442
   },
   "Body Collide: obstacle course": {
     "nodes": 20,
@@ -45,7 +45,7 @@
         -1.055
       ]
     },
-    "cook_ms": 112
+    "cook_ms": 115
   },
   "Cameras": {
     "nodes": 8,
@@ -82,7 +82,7 @@
         1.057
       ]
     },
-    "cook_ms": 1874
+    "cook_ms": 1863
   },
   "Clip basics": {
     "nodes": 5,
@@ -119,7 +119,7 @@
     "triangles": 282,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 7
+    "cook_ms": 8
   },
   "Curves and points": {
     "nodes": 1,
@@ -132,7 +132,7 @@
     "triangles": 0,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 3
+    "cook_ms": 5
   },
   "Edit Poly: bolt": {
     "nodes": 2,
@@ -197,7 +197,7 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 6
+    "cook_ms": 8
   },
   "Edit Poly: tower": {
     "nodes": 2,
@@ -247,7 +247,7 @@
         1.028
       ]
     },
-    "cook_ms": 110
+    "cook_ms": 112
   },
   "Human Limits": {
     "nodes": 3,
@@ -312,6 +312,19 @@
     "cameras": 0,
     "cook_ms": 0
   },
+  "Local Animation and Merge Animation": {
+    "nodes": 8,
+    "viewed": "LinedUp",
+    "output": 0,
+    "kind": "prims",
+    "prims": 2,
+    "copies": 2,
+    "points": 633,
+    "triangles": 1164,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
   "Material bindings": {
     "nodes": 17,
     "viewed": "WriteUSD",
@@ -360,7 +373,7 @@
         1.057
       ]
     },
-    "cook_ms": 166
+    "cook_ms": 132
   },
   "Mocap split": {
     "nodes": 12,
@@ -458,7 +471,7 @@
         0.062
       ]
     },
-    "cook_ms": 641
+    "cook_ms": 576
   },
   "Novasci clip: thumbs up (download)": {
     "nodes": 3,
@@ -482,7 +495,7 @@
         0.062
       ]
     },
-    "cook_ms": 580
+    "cook_ms": 545
   },
   "Open assets: carbon frame bike (download)": {
     "nodes": 1,
@@ -495,7 +508,7 @@
     "triangles": 135648,
     "materials": 31,
     "cameras": 0,
-    "cook_ms": 824
+    "cook_ms": 703
   },
   "Open assets: elephant with monochord (download)": {
     "nodes": 1,
@@ -508,7 +521,7 @@
     "triangles": 2762,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 11
+    "cook_ms": 9
   },
   "Open assets: teapot and car kit": {
     "nodes": 4,
@@ -534,7 +547,7 @@
     "triangles": 415006,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 22
+    "cook_ms": 24
   },
   "Purposes: street lamps": {
     "nodes": 1,
@@ -547,7 +560,7 @@
     "triangles": 1218,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 3
+    "cook_ms": 5
   },
   "Retarget": {
     "nodes": 5,
@@ -571,7 +584,7 @@
         1.032
       ]
     },
-    "cook_ms": 3
+    "cook_ms": 7
   },
   "Retarget onto a character": {
     "nodes": 5,
@@ -595,7 +608,7 @@
         1.057
       ]
     },
-    "cook_ms": 218
+    "cook_ms": 214
   },
   "Shapes": {
     "nodes": 7,
@@ -658,7 +671,7 @@
     "triangles": 82,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 2
   },
   "USD: heavy model": {
     "nodes": 1,
@@ -671,7 +684,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 212
+    "cook_ms": 170
   },
   "USD: material binding": {
     "nodes": 4,
@@ -684,7 +697,7 @@
     "triangles": 461595,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 0
+    "cook_ms": 1
   },
   "USD: pick and edit": {
     "nodes": 4,
@@ -697,7 +710,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 16
+    "cook_ms": 19
   },
   "USD: prune": {
     "nodes": 2,
@@ -736,6 +749,6 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 329
+    "cook_ms": 356
   }
 }

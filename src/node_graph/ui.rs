@@ -944,6 +944,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::UvEdit { edits: vec![] }, "Move single UV islands, in the UV Editor"),
         ]),
         ("🎬", "Animation", vec![
+            (NodeType::LocalAnimation { start: 1, end: 48, inherited: serde_json::Value::Null }, "Key the parameters of the operator before it, on frames of its own, from Start to End"),
+            (NodeType::MergeAnimation { align: crate::types::AnimAlign::First, match_rate: false, inputs: 2 }, "Inputs as one, each moved in time: to start, end or be centred with input A, or stretched or squeezed to fit"),
             (NodeType::RenameJoints { find: String::new(), replace: String::new(), strip_namespace: true, prefix: String::new() }, "Rename joints by pattern"),
             (NodeType::TrimClip { head: 0, tail: 0 }, "Cut frames from the start and the end"),
             (NodeType::Retime { fps_num: 30, fps_den: 1, mode: RetimeMode::Resample }, "Change the frame rate"),

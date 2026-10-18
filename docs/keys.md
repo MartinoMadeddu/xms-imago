@@ -1,4 +1,4 @@
-# Keys and the Graph Editor
+# Keys, the Graph Editor and animation in time
 
 Any number among an operator's parameters can be keyed: a Transform's translate, rotate and scale, a sphere's radius, a camera's focal length, a UV Transform's offset. The operator then cooks, at each frame, with the value its curve gives there. Moving the playhead moves the scene.
 
@@ -72,11 +72,42 @@ Break lets a key's two handles move apart; Unify puts them back on one slope. We
 
 Before and After set what a curve does past its first and last key: Constant (the end key's value), Linear (on along the end tangent), Cycle (the keys again and again), Cycle with Offset (again, each time shifted by the difference between the last key and the first: a walk keeps walking), Oscillate (forwards, then backwards).
 
+## Local Animation
+
+A Local Animation sits after an operator and keys that operator's parameters on frames of its own. Its Keys group lists the parameters of the operator wired into it; its keys are on local frames, local frame 0 falling on its Start, and it lasts until its End, holding its first and last values before and after. It cooks that operator again with those parameters: the operator itself is not changed, so one operator can feed several Local Animations, each with its own timing.
+
+When a Local Animation is selected, the timeline shows its range over the scene's and its keys where they fall, and says the local frame; the Graph Editor shows its curves on local frames. Its parameters show the operator it keys and its range.
+
+![The Local Animation template: Rise selected, its keys on local frames, its range 1 to 24 on the timeline](xms_local_animation.png)
+
+## Time ranges
+
+Every operator has a time range: a Local Animation's, a clip's frames, the frames its own keys span, and the ranges of whatever comes into it, put together. Selecting an operator shows its range on the timeline, over the scene's. A Merge of two animations shows the widest range.
+
+## Merge Animation
+
+Merge Animation merges its inputs as Merge does, each input first moved, or stretched, in time:
+
+| Align | Each input |
+|---|---|
+| Frame to frame | Where it is |
+| First frame | Starts where input A starts |
+| Last frame | Ends where input A ends |
+| Middle | Is centred where input A is |
+| Stretch to the longest | Is stretched over the longest input's range |
+| Shrink to the shortest | Is squeezed into the shortest input's range |
+
+What is keyed above an input is cooked at the time the input is moved to. The parameters list each input's range and where it lands.
+
+Clips: when input A brings a clip, Merge Animation puts out that clip alone, moved as its input is (so Stretch and Shrink retime it to the longest or shortest range; First, Last and Middle leave it where it is, input A being what the others line up with). Match rate resamples it to the scene's rate first.
+
 ## Saving and undo
 
 Keys and the scene's range are saved with the graph, copied and pasted with their operators, and every change to them is a step of the history ("Bounce: keys", "Scene range 1 to 96 at 24 fps").
 
-## Template
+## Templates
+
+Animation & Mocap ▸ Local Animation and Merge Animation: Rise keys a cube's Transform on frames 1 to 24, Roll a ball's on 49 to 60. AsTheyAre, a Merge, shows frames 1 to 60; LinedUp, a Merge Animation set to First frame, plays both from frame 1. Set its Align to Stretch and the ball rolls over the cube's 23 frames.
 
 Animation & Mocap ▸ Keys: a bouncing ball. A sphere's Transform with translate X and Y and scale Y keyed: Y cycled with linear keys on the floor and a flat key at the top, X cycled with offset so the ball keeps moving on, scale squashing on contact.
 
@@ -87,3 +118,6 @@ Animation & Mocap ▸ Keys: a bouncing ball. A sphere's Transform with translate
 - Write USD and Write FBX write the values at the playhead, not the curves.
 - The channels list shows the keyed numbers only: numbers not keyed yet are keyed from Parameters.
 - Keys inside an ICE graph or a MaterialX graph.
+- Merge Animation puts out one clip, input A's: several clips coming in are not held side by side, and a clip on another input is not lined up with A.
+- A Local Animation over another Local Animation or a Merge Animation keys nothing of its own: what comes in passes through.
+- Local Animation ranges are not written to USD.

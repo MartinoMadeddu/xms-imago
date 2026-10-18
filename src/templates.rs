@@ -87,6 +87,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Two Material operators wired into a Material Binding: car paint on the whole model, chrome on the wheels (the later row wins). Textured mode shows them" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Keys: a bouncing ball", build: keys_bounce,
         hint: "A sphere keyed to bounce along the grid: open the Graph Editor to see its curves, press Play" },
+    Template { by: SIMON, group: "Animation & Mocap", name: "Local Animation and Merge Animation", build: local_animation,
+        hint: "Two animations on frames of their own, merged as they are and lined up in time" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Clip basics", build: clip_basics,
         hint: "Test clip renamed, trimmed, retimed and given a start timecode. Select each node to see the timeline follow" },
     Template { by: SIMON, group: "Animation & Mocap", name: "FBX import", build: fbx_import,
@@ -227,6 +229,40 @@ fn keys_bounce(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     }
     finish(g, merge, mv);
     "Keys: Bounce's translate X and Y and scale Y are keyed. Press Play, or open the Graph Editor (Window menu) with Bounce selected: Y is cycled, X cycled with offset so the ball keeps going. Select a key there and pick a tangent type, or drag it.".into()
+}
+
+/// Two Local Animations of different lengths at different times, merged
+/// as they are (Merge: the widest range) and lined up (Merge Animation).
+fn local_animation(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::keys::Tangent;
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange { start: 1, end: 72, fps_num: 24, fps_den: 1 };
+    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 0.8, location: "/cube".into() }, p(40.0, 20.0));
+    let place_c = g.add_node("PlaceCube".into(), transform([-1.5, 0.4, 0.0], [0.0; 3], [1.0; 3]), p(40.0, 120.0));
+    let rise = g.add_node("Rise".into(), NodeType::LocalAnimation { start: 1, end: 24, inherited: serde_json::Value::Null }, p(40.0, 220.0));
+    let ball = g.add_node("Ball".into(), NodeType::CreateSphere { radius: 0.4, segments: 24, location: "/ball".into() }, p(300.0, 20.0));
+    let place_b = g.add_node("PlaceBall".into(), transform([1.0, 0.4, 0.0], [0.0; 3], [1.0; 3]), p(300.0, 120.0));
+    let roll = g.add_node("Roll".into(), NodeType::LocalAnimation { start: 49, end: 60, inherited: serde_json::Value::Null }, p(300.0, 220.0));
+    g.add_connection(cube, 0, place_c, 0);
+    g.add_connection(place_c, 0, rise, 0);
+    g.add_connection(ball, 0, place_b, 0);
+    g.add_connection(place_b, 0, roll, 0);
+    let merge = g.add_node("AsTheyAre".into(), NodeType::merge(), p(40.0, 330.0));
+    g.add_connection(rise, 0, merge, 0);
+    g.add_connection(roll, 0, merge, 1);
+    let lined = g.add_node("LinedUp".into(), NodeType::MergeAnimation { align: crate::types::AnimAlign::First, match_rate: false, inputs: 2 }, p(300.0, 330.0));
+    g.add_connection(rise, 0, lined, 0);
+    g.add_connection(roll, 0, lined, 1);
+    g.sync_inherited();
+    // The cube rises 2 m over its 23 frames; the ball rolls 3 m over 11.
+    for (f, v) in [(0.0, 0.4), (23.0, 2.4)] { g.set_key_value(rise, "inherited/translation/1", f, v); }
+    for (f, v) in [(0.0, 1.0), (11.0, 4.0)] { g.set_key_value(roll, "inherited/translation/0", f, v); }
+    for (f, v) in [(0.0, 0.0), (11.0, -7.5)] { g.set_key_value(roll, "inherited/rotation/2", f, v); }
+    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == roll) {
+        for c in &mut n.channels { for k in &mut c.keys { k.in_type = Tangent::Linear; k.out_type = Tangent::Linear; } }
+    }
+    finish(g, lined, lined);
+    "Rise keys the cube's Transform on frames 1 to 24, Roll the ball's on 49 to 60, each on frames of its own. AsTheyAre merges them as they are: select it, the timeline shows frames 1 to 60. LinedUp (viewed) starts both on frame 1; set its Align to Stretch and the ball rolls over the cube's 23 frames.".into()
 }
 
 fn usd(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {

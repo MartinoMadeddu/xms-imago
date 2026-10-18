@@ -91,6 +91,10 @@ pub fn evaluate_node_type(
             other => Some(other.map_mesh(|m| transform(&m, *translation, *rotation, *scale))),
         }),
 
+        // Cooked by the graph (`node_graph::local`); asked on its own, what
+        // comes in passes through.
+        NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. } => inputs.first().cloned(),
+
         NodeType::Merge { mode, .. } => {
             let first = inputs.first()?;
             if merges_primitives(*mode, first) {

@@ -74,6 +74,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
+| Local Animation and Merge Animation | Rise keys a cube's Transform on frames 1 to 24, Roll a ball's on 49 to 60, each on frames of its own. AsTheyAre (Merge) shows frames 1 to 60; LinedUp (Merge Animation, First frame, viewed) plays both from frame 1. See [Keys](keys.md#local-animation) |
 | Keys: a bouncing ball | A sphere's Transform with translate X and Y and scale Y keyed: Y cycled, linear on the floor and flat at the top, X cycled with offset so the ball keeps moving on, scale squashing on contact. Open the Graph Editor with Bounce selected (see [Keys](keys.md)) |
 | Clip basics | Test Clip, Rename Joints, Trim, Retime and Set Timecode in a chain. Select each node to see the timeline follow |
 | FBX import | The example take loaded with Load FBX and trimmed by a second at each end |

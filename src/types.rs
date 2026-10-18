@@ -113,6 +113,27 @@ pub enum NodeType {
     /// (one more is added when the last is wired); two in graphs saved
     /// before.
     Merge        { #[serde(default)] mode: MergeMode, #[serde(default = "two_inputs")] inputs: u32 },
+    /// Keys on the parameters of the operator wired into it, in a time of
+    /// its own: the keys are on local frames, local frame 0 falls on scene
+    /// frame `start`, and the animation lasts until `end` (held before and
+    /// after). Its output is that operator cooked again with those
+    /// parameters. `inherited`: that operator's parameters, kept in step
+    /// with it, so they can be keyed here (`node_graph::local`).
+    LocalAnimation {
+        start: i64,
+        end:   i64,
+        #[serde(default)] inherited: serde_json::Value,
+    },
+    /// Its inputs as one, as Merge does, each animation first moved or
+    /// stretched in time as `align` says, against input A's range or the
+    /// longest or shortest. `match_rate`: clips coming in are resampled to
+    /// the scene's rate first. `inputs`: how many, one more added when the
+    /// last is wired.
+    MergeAnimation {
+        #[serde(default)] align: AnimAlign,
+        #[serde(default)] match_rate: bool,
+        #[serde(default = "two_inputs")] inputs: u32,
+    },
     /// An ICE node: an ICE graph run on what comes in. Saved as "Subnet" by
     /// earlier versions.
     #[serde(alias = "Subnet")]
@@ -264,6 +285,34 @@ pub enum RetimeMode {
     Reinterpret,
 }
 
+/// How Merge Animation lines its inputs up in time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AnimAlign {
+    /// Each where it is: frame for frame.
+    #[default]
+    FrameToFrame,
+    /// Every input starts where input A starts.
+    First,
+    /// Every input ends where input A ends.
+    Last,
+    /// Every input's middle on input A's middle.
+    Middle,
+    /// Every input stretched over the longest one's range.
+    Stretch,
+    /// Every input squeezed into the shortest one's range.
+    Shrink,
+}
+
+impl AnimAlign {
+    pub const ALL: [AnimAlign; 6] = [AnimAlign::FrameToFrame, AnimAlign::First, AnimAlign::Last, AnimAlign::Middle, AnimAlign::Stretch, AnimAlign::Shrink];
+    pub fn label(self) -> &'static str {
+        match self {
+            AnimAlign::FrameToFrame => "Frame to frame", AnimAlign::First => "First frame", AnimAlign::Last => "Last frame",
+            AnimAlign::Middle => "Middle", AnimAlign::Stretch => "Stretch to the longest", AnimAlign::Shrink => "Shrink to the shortest",
+        }
+    }
+}
+
 /// How a Merge joins its inputs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MergeMode {
@@ -331,7 +380,7 @@ impl NodeType {
     }
 
     /// Nodes a clip goes through: the clip nodes, and Transform.
-    pub fn passes_clips(&self) -> bool { self.is_anim() || matches!(self, NodeType::Transform { .. } | NodeType::Placeholder { .. }) }
+    pub fn passes_clips(&self) -> bool { self.is_anim() || matches!(self, NodeType::Transform { .. } | NodeType::Placeholder { .. } | NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. }) }
 
     /// Nodes whose output is a clip.
     pub fn is_anim(&self) -> bool {
@@ -363,6 +412,8 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
+        NodeType::LocalAnimation { .. } => "⏳",
+        NodeType::MergeAnimation { .. } => "🎞",
         NodeType::Ice { .. }        => "▣",
         NodeType::Placeholder { .. }   => "📝",
         NodeType::LoadFbx { .. }       => "🎬",
@@ -419,6 +470,8 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",
+        NodeType::LocalAnimation { .. } => "Local Animation",
+        NodeType::MergeAnimation { .. } => "Merge Animation",
         NodeType::Ice { .. }        => "ICE",
         NodeType::Placeholder { .. }   => "Placeholder",
         NodeType::LoadFbx { .. }       => "Load FBX",

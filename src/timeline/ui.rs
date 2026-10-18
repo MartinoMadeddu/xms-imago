@@ -71,6 +71,10 @@ fn key_ticks(
     frame_of: &dyn Fn(f32) -> f64,
 ) -> bool {
     let Some(id) = graph.selected_node else { return false };
+    // A Local Animation's keys are on its own frames: drawn where they fall.
+    let off = graph.nodes.iter().find(|n| n.id == id).map(|n| graph.local_offset(n)).unwrap_or(0.0);
+    let x_of = |f: f64| x_of(f + off);
+    let frame_of = |x: f32| frame_of(x) - off;
     let frames = graph.key_frames(id);
     let drag_id = egui::Id::new("timeline_key_drag");
     let mut drag: Option<KeyDrag> = ui.data(|d| d.get_temp(drag_id));
@@ -104,7 +108,7 @@ fn key_ticks(
 /// Right-click on the track: key or unkey the selected operator here.
 fn key_menu(resp: &egui::Response, graph: &mut NodeGraphState) {
     let Some(id) = graph.selected_node else { return };
-    let frame = graph.frame().round();
+    let Some(frame) = graph.nodes.iter().find(|n| n.id == id).map(|n| graph.node_frame(n).round()) else { return };
     resp.context_menu(|ui| {
         if ui.button(format!("Key all at frame {frame} (S)")).clicked() { graph.key_all(id); ui.close(); }
         let here = graph.key_frames(id).iter().any(|f| (f - frame).abs() < 1e-6);
@@ -162,7 +166,8 @@ fn draw_scene(ui: &mut egui::Ui, pb: &mut Playback, graph: &mut NodeGraphState, 
         if ui.button("▶").on_hover_text("Next frame (Right)").clicked() { pb.playing = false; set_frame(pb, frame + 1); }
         if ui.button("⏭").on_hover_text("Last frame (End)").clicked() { set_frame(pb, end); }
         // Previous and next key of the selected operator.
-        let keyed = graph.selected_node.map(|id| graph.key_frames(id)).unwrap_or_default();
+        let off = graph.selected_node.and_then(|id| graph.nodes.iter().find(|n| n.id == id)).map(|n| graph.local_offset(n)).unwrap_or(0.0);
+        let keyed: Vec<f64> = graph.selected_node.map(|id| graph.key_frames(id)).unwrap_or_default().into_iter().map(|f| f + off).collect();
         let prev = keyed.iter().rev().find(|k| **k < frame as f64 - 1e-6).copied();
         let next = keyed.iter().find(|k| **k > frame as f64 + 1e-6).copied();
         if ui.add_enabled(prev.is_some(), egui::Button::new("⏪")).on_hover_text("Previous key of the selected operator").clicked() {
@@ -188,7 +193,11 @@ fn draw_scene(ui: &mut egui::Ui, pb: &mut Playback, graph: &mut NodeGraphState, 
         }).response.on_hover_text("The scene's rate: keys are set on its frames");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let what = graph.selected_node.and_then(|id| graph.nodes.iter().find(|n| n.id == id))
-                .map(|n| format!("{}: {} key{}", n.name, keyed.len(), if keyed.len() == 1 { "" } else { "s" }))
+                .map(|n| {
+                    let range = graph.time_range(n.id).map(|r| format!("  |  frames {:.0} to {:.0}", r.0, r.1)).unwrap_or_default();
+                    let local = if matches!(n.node_type, crate::types::NodeType::LocalAnimation { .. }) { format!("  |  local frame {}", graph.node_frame(n)) } else { String::new() };
+                    format!("{}: {} key frame{}{range}{local}", n.name, keyed.len(), if keyed.len() == 1 { "" } else { "s" })
+                })
                 .unwrap_or_else(|| "Scene".into());
             ui.colored_label(xsi::TEXT(), egui::RichText::new(what).strong());
         });
@@ -234,8 +243,17 @@ fn draw_scene(ui: &mut egui::Ui, pb: &mut Playback, graph: &mut NodeGraphState, 
         }
         f += major;
     }
-    // The range as a bar.
+    // The range as a bar; the selected operator's own range over it, as a
+    // clip's is: a Local Animation's, the keys in and above it, a Merge's
+    // widest.
     painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x0 - 1.0, rect.min.y + 18.0), egui::pos2(x1 + 1.0, rect.max.y - 3.0)), 2.0, xsi::INPUT_BAR());
+    if let Some((a, b)) = graph.selected_node.and_then(|id| graph.time_range(id)) {
+        let r = egui::Rect::from_min_max(egui::pos2(x_of(a).max(x0) - 1.0, rect.min.y + 18.0), egui::pos2(x_of(b).min(x1) + 1.0, rect.max.y - 3.0));
+        if r.width() > 0.0 {
+            painter.rect_filled(r, 2.0, xsi::CLIP_BAR());
+            painter.rect_stroke(r, 2.0, egui::Stroke::new(1.0, xsi::CLIP_EDGE()), egui::StrokeKind::Middle);
+        }
+    }
 
     let dragging_key = key_ticks(ui, &painter, &resp, rect, graph, &x_of, &frame_of);
     key_menu(&resp, graph);

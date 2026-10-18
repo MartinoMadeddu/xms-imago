@@ -117,7 +117,7 @@ Each operator below is described with: **Purpose**, **Inputs**, **Parameters**, 
 - **Inputs:** scene
 - **Parameters:** cache on/off; invalidate
 - **Targeting:** none
-- **Status:** **Not yet** as an operator. Every operator's result is already kept until it or something above it changes (keyed by parameters and inputs), so a Freeze is only needed to hold a result through changes upstream, or to keep it on disk.
+- **Status:** **Partial**, as a flag rather than an operator: Freeze on any operator's title holds its result through changes upstream (saved with the graph; the result itself is not, so it cooks once when the graph is opened). Every operator's result is otherwise kept until it or something above it changes (keyed by parameters and inputs). Not yet: keeping a frozen result on disk.
 
 ---
 
@@ -275,6 +275,9 @@ Attribute contexts in Imago map to USD interpolations: Object = `constant`, Poin
 | **Set Time Samples** | Author samples | attribute; sample list | Not yet (Write USD writes values at the current frame) |
 | **Resample** | Interpolate to a new sample set | rate; interpolation (held/linear) | Partial: Retime (Resample) for clips |
 | **Motion Blur Attrs** | Velocity, acceleration, shutter | velocities attr; accelerations attr; shutter open/close | Not yet |
+| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Graph Editor (`core::keys`, `docs/keys.md`); cooked at the playhead. Not written to USD as time samples yet |
+| **Local Animation** | Key the parameters of the operator before it, on frames of its own | start; end | **Done** (`node_graph::local`) |
+| **Merge Animation** | Merge, each input moved in time | align (frame to frame, first, last, middle, stretch, shrink); match rate | **Done** for animated parameters; for clips, only input A's is put out, retimed by Stretch and Shrink |
 
 USD time samples are read at the stage's start time only. Skeletal animation, skinning and blend shapes from USD are not read yet. Imago's mocap operators (Split Characters, Retarget, Reach, Body Collide, Capture, Skin…) work on clips and stay outside this spec.
 

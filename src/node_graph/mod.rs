@@ -1,4 +1,5 @@
 pub mod keying;
+pub mod local;
 pub mod nodes;
 pub mod ui;
 
@@ -220,6 +221,9 @@ pub struct NodeGraphState {
     /// The playhead, in seconds, as the timeline has it: keyed parameters
     /// are cooked at the frame it falls on.
     pub time:                f64,
+    /// The time an input is being cooked at, when Merge Animation moves it
+    /// in time (see `node_graph::local`).
+    pub eval_time:           local::EvalTime,
     /// The scene's frame range and rate, saved with the graph: the
     /// timeline's range when what is selected is not a clip, and the rate
     /// keys are set in.
@@ -270,6 +274,7 @@ impl Default for NodeGraphState {
             cook_times: CookTimes::default(),
             info_node: None,
             time: 0.0,
+            eval_time: Default::default(),
             scene: SceneRange::default(),
         };
         s
@@ -351,6 +356,14 @@ impl NodeGraphState {
                 vec![o("Scene")],
             ),
             NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
+            NodeType::LocalAnimation { .. } => (vec![i("Input")], vec![o("Output")]),
+            NodeType::MergeAnimation { inputs, .. } => (
+                (0..(*inputs).max(2) as usize).map(|k| InputSocket {
+                    name: if k < 26 { ((b'A' + k as u8) as char).to_string() } else { (k + 1).to_string() },
+                    connected_output: None,
+                }).collect(),
+                vec![o("Result")],
+            ),
             // A, B, C… then numbers past Z.
             NodeType::Merge { inputs, .. }  => (
                 (0..(*inputs).max(2) as usize).map(|k| InputSocket {
@@ -729,8 +742,9 @@ impl NodeGraphState {
                 let (src, out) = node.inputs.get(output)?.connected_output?;
                 self.eval_anim_node(src, out, cache, eval_subnet)
             }
-            // Transform passes a clip on when it is given one.
-            NodeType::Transform { .. } => match self.eval_node_out(id, output, cache, eval_subnet) {
+            // Transform passes a clip on when it is given one; so do the
+            // operators that place things in time.
+            NodeType::Transform { .. } | NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. } => match self.eval_node_out(id, output, cache, eval_subnet) {
                 Some(r @ EvalResult::Anim(_)) => Some(r),
                 _ => None,
             },
@@ -768,6 +782,10 @@ impl NodeGraphState {
             return Some(h.finish());
         }
         if matches!(node.node_type, NodeType::Ice { .. }) { return None; }
+        // Operators that place things in time are keyed by what they cook.
+        if !node.bypassed {
+            if let Some(k) = self.time_key(node, output, depth) { return k; }
+        }
         // Keyed parameters as at the playhead.
         let animated = self.animated_type(node);
         match &*animated {
@@ -843,15 +861,47 @@ impl NodeGraphState {
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         let node = self.nodes.iter().find(|n| n.id == id)?;
+        // Operators that place things in time.
+        if !node.bypassed {
+            match &node.node_type {
+                NodeType::LocalAnimation { .. } => {
+                    let r = self.cook_local(node, cache, eval_subnet);
+                    cache.insert((id, output), r.clone());
+                    return r;
+                }
+                NodeType::MergeAnimation { .. } => {
+                    let r = self.cook_merge_animation(node, eval_subnet);
+                    cache.insert((id, output), r.clone());
+                    return r;
+                }
+                _ => {}
+            }
+        }
+        self.cook_as(id, output, cache, eval_subnet, None)
+    }
+
+    /// Cook an output, with `as_type` in place of the node's parameters
+    /// when given (Local Animation's): that result is not kept as the
+    /// node's own.
+    pub(crate) fn cook_as(
+        &self,
+        id:          NodeId,
+        output:      usize,
+        cache:       &mut EvalCache,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        as_type:     Option<&NodeType>,
+    ) -> Option<EvalResult> {
+        let node = self.nodes.iter().find(|n| n.id == id)?;
+        let own = as_type.is_none();
         // Keyed parameters at the playhead.
-        let animated = self.animated_type(node);
+        let animated = match as_type { Some(t) => std::borrow::Cow::Borrowed(t), None => self.animated_type(node) };
         let node_type: &NodeType = &animated;
 
         // A placeholder hands each input to the output of the same number.
         if matches!(*node_type, NodeType::Placeholder { .. }) {
             let result = node.inputs.get(output).and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet));
-            cache.insert((id, output), result.clone());
+            if own { cache.insert((id, output), result.clone()); }
             return result;
         }
 
@@ -905,7 +955,7 @@ impl NodeGraphState {
         // A point instancer's copies follow its points, whatever moved them.
         let result = result.map(crate::core::instancing::sync);
         self.cook_times.put(id, started.elapsed().as_secs_f64() * 1000.0);
-        cache.insert((id, output), result.clone());
+        if own { cache.insert((id, output), result.clone()); }
         result
     }
 
@@ -998,7 +1048,7 @@ impl NodeGraphState {
         match &mut node.node_type {
             // Its inputs after the scene are materials.
             NodeType::MaterialBinding { inputs, .. } if full && n > 1 => *inputs = n,
-            NodeType::Merge { inputs, .. } if full => *inputs = n + 1,
+            NodeType::Merge { inputs, .. } | NodeType::MergeAnimation { inputs, .. } if full => *inputs = n + 1,
             _ => return,
         }
         self.sync_sockets(id);

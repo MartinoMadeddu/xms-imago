@@ -11,7 +11,7 @@
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and how edits are found. For anyone writing a node
 - [Viewer navigation](navigation.md): the seven navigation styles, framing keys
 - [Animation and mocap](mocap.md): clips, the timeline, batch export to FBX
-- [Keys and the Graph Editor](keys.md): keying any operator's numbers, the scene's range on the timeline, curves, tangents and infinity
+- [Keys and the Graph Editor](keys.md): keying any operator's numbers, the scene's range on the timeline, curves, tangents and infinity, Local Animation and Merge Animation
 - [Body Collide](body-collide.md): keeping a captured character out of a set and out of itself
 - [Builds and releases](releases.md): where the binaries come from
 

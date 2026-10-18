@@ -26,7 +26,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Five selection levels:** vertex, edge, border, polygon, element. Pick in the Viewer, or select by rule so the selection adapts when the mesh changes
 - **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset, outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach, tessellate, triangulate, turn, relax, subdivide and more
 - **Soft selection:** a falloff distance on Transform
-- **Keys:** any number of any operator can be keyed (S keys the selected one at the playhead; the Keys group in Parameters keys one number). The timeline shows the scene's range and the keys, which drag to move. The Graph Editor shapes the curves: tangent types (Auto, Spline, Clamped, Linear, Flat, Stepped, Plateau), broken and weighted handles, infinity (cycle, cycle with offset, oscillate), insert, copy and paste. See [docs/keys.md](docs/keys.md)
+- **Keys:** any number of any operator can be keyed (S keys the selected one at the playhead; the Keys group in Parameters keys one number). The timeline shows the scene's range and the keys, which drag to move. The Graph Editor shapes the curves: tangent types (Auto, Spline, Clamped, Linear, Flat, Stepped, Plateau), broken and weighted handles, infinity (cycle, cycle with offset, oscillate), insert, copy and paste. Local Animation keys the operator before it on frames of its own, from a start to an end; every operator shows its time range on the timeline (a Merge the widest); Merge Animation lines its inputs up in time (first, last or middle frame, stretch, shrink). See [docs/keys.md](docs/keys.md)
 
 ![The bouncing ball template: its curves in the Graph Editor, its keys on the timeline](docs/xms_keys.png)
 

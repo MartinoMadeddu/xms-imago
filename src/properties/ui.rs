@@ -217,6 +217,36 @@ pub fn draw_properties(
         _ => (None, None),
     };
 
+    // Time: what a Local Animation keys, and where each input of a Merge
+    // Animation lands.
+    let time_info: Vec<(String, String)> = match graph.nodes.iter().find(|n| n.id == sel_id) {
+        Some(n) if matches!(n.node_type, NodeType::LocalAnimation { .. }) => {
+            let src = n.inputs.first().and_then(|i| i.connected_output).and_then(|(s, _)| graph.nodes.iter().find(|x| x.id == s));
+            let keyed = n.channels.len();
+            let local = graph.node_frame(n);
+            vec![
+                ("Keys".into(), match src {
+                    Some(x) => format!("{} ({}): {keyed} number{} keyed", x.name, crate::types::node_type_label(&x.node_type), if keyed == 1 { "" } else { "s" }),
+                    None => "Wire an operator into it: its parameters are keyed here".into(),
+                }),
+                ("Local frame".into(), format!("{local}")),
+            ]
+        }
+        Some(n) if matches!(n.node_type, NodeType::MergeAnimation { .. }) => {
+            graph.merge_shifts(n).iter().enumerate().filter_map(|(k, (w, r, s))| {
+                let (src, _) = (*w)?;
+                let name = graph.nodes.iter().find(|x| x.id == src).map(|x| x.name.clone()).unwrap_or_default();
+                let port = if k < 26 { ((b'A' + k as u8) as char).to_string() } else { (k + 1).to_string() };
+                Some((port, match r {
+                    Some(r) => { let p = s.place(*r); format!("{name}: frames {:.0} to {:.0}, on {:.0} to {:.0}", r.0, r.1, p.0, p.1) }
+                    None => format!("{name}: not in time"),
+                }))
+            }).collect()
+        }
+        _ => vec![],
+    };
+    let range_now = graph.time_range(sel_id);
+
     let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sel_id) else { return };
 
     // ── The node itself ──────────────────────────────────────────────────────
@@ -422,6 +452,25 @@ pub fn draw_properties(
             if reset { *translation = Vec3::ZERO; *rotation = Vec3::ZERO; *scale = Vec3::ONE; }
             if clip { clip_summary(ui, anim, true); }
         }
+        NodeType::LocalAnimation { start, end, .. } => group(ui, "Local Animation",
+            Some("Keys on the parameters of the operator wired into it, on frames of its own: local frame 0 falls on Start. Key them in the Keys group below, or with S"),
+            |f| {
+                let (mut a, mut b) = (*start as i32, *end as i32);
+                if f.row("Start", Some("The scene frame its local frame 0 falls on"), |ui| ui.add(egui::DragValue::new(&mut a).speed(0.25))).changed() { *start = a as i64; }
+                if f.row("End", Some("The scene frame it ends on: held before Start and after End"), |ui| ui.add(egui::DragValue::new(&mut b).speed(0.25))).changed() { *end = (b as i64).max(*start); }
+                for (k, v) in &time_info { f.value(k, v.clone()); }
+                if let Some(r) = range_now { f.value("Range", format!("{:.0} to {:.0}, {:.0} frames", r.0, r.1, r.1 - r.0 + 1.0)); }
+            }),
+        NodeType::MergeAnimation { align, match_rate, inputs } => group(ui, "Merge Animation",
+            Some("Its inputs as one, as Merge does, each first moved or stretched in time. Wiring the last input adds another"),
+            |f| {
+                if f.drag_u32("Inputs", Some("How many inputs. Fewer drops the wires on the ones taken away"), inputs, 2..=64).changed() { resync = true; }
+                let options: Vec<(crate::types::AnimAlign, &str)> = crate::types::AnimAlign::ALL.iter().map(|a| (*a, a.label())).collect();
+                f.choice("Align", Some("First, Last and Middle line every input up with input A; Stretch and Shrink fit every input over the longest or shortest range"), align, &options);
+                f.toggle("Match rate", Some("Clips coming in are resampled to the scene's rate first"), match_rate);
+                for (k, v) in &time_info { f.value(k, v.clone()); }
+                if let Some(r) = range_now { f.value("Range", format!("{:.0} to {:.0}", r.0, r.1)); }
+            }),
         NodeType::Merge { mode, inputs } => group(ui, "Merge", Some("Its inputs, in order: on the same path the later is the stronger. Wiring the last input adds another"), |f| {
             if f.drag_u32("Inputs", Some("How many inputs. Fewer drops the wires on the ones taken away"), inputs, 2..=64).changed() { resync = true; }
             f.choice("Mode", Some("Auto goes by the first input: primitives are merged as primitives, a plain mesh or a clip becomes one mesh. Primitives and Flatten force one or the other"),

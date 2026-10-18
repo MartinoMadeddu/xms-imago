@@ -135,6 +135,10 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
     }
     let kind = kind_of(&node.node_type);
     let name = node.name.clone();
+    // A Local Animation's keys are on its own frames: the editor shows them.
+    let off = graph.local_offset(node);
+    let local = matches!(node.node_type, crate::types::NodeType::LocalAnimation { .. });
+    let local_range = match node.node_type { crate::types::NodeType::LocalAnimation { start, end, .. } => Some((0.0, (end - start).max(0) as f64)), _ => None };
     // Selected keys that are gone (undone, deleted elsewhere) go.
     let present: HashSet<(String, u64)> = node.channels.iter().flat_map(|c| c.keys.iter().map(move |k| (c.path.clone(), k.frame.to_bits()))).collect();
     ed.selected.retain(|(p, f)| present.contains(&(p.clone(), f.to_bits())));
@@ -148,6 +152,7 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
 
     egui::Panel::left(egui::Id::new("graph_editor_channels")).resizable(true).default_size(150.0).show(ui, |ui| {
         ui.label(egui::RichText::new(&name).strong());
+        if local { ui.label(egui::RichText::new(format!("Local frames: 0 is scene frame {off}")).small().weak()); }
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (k, p) in paths.iter().enumerate() {
                 let on = ed.shown.is_empty() || ed.shown.contains(p);
@@ -216,8 +221,9 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
         }
         v += vstep;
     }
-    // The scene's range, shaded.
-    let (s0, s1) = (map.x(graph.scene.start as f64), map.x(graph.scene.end as f64));
+    // The scene's range, shaded (a Local Animation's own).
+    let (r0, r1) = local_range.unwrap_or((graph.scene.start as f64, graph.scene.end as f64));
+    let (s0, s1) = (map.x(r0), map.x(r1));
     painter.rect_filled(egui::Rect::from_min_max(egui::pos2(s0.max(plot.min.x), plot.min.y), egui::pos2(s1.min(plot.max.x), plot.max.y)), 0.0, egui::Color32::from_white_alpha(6));
 
     // Curves: sampled every two pixels; beyond the keys (infinity) fainter.
@@ -294,7 +300,7 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
     }
 
     // The playhead.
-    let frame_now = graph.frame();
+    let frame_now = graph.frame() - off;
     let px = map.x(frame_now);
     if px >= plot.min.x && px <= plot.max.x {
         painter.line_segment([egui::pos2(px, ruler.min.y), egui::pos2(px, plot.max.y)], egui::Stroke::new(1.6, crate::theme::c(235, 190, 95)));
@@ -353,7 +359,7 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
         }
         Drag::Scrub if primary_down => if let Some(p) = pointer {
             pb.playing = false;
-            pb.time = graph.scene.seconds(map.f(p.x).round());
+            pb.time = graph.scene.seconds(map.f(p.x).round() + off);
         },
         Drag::Box { start } if primary_down => if let Some(p) = pointer {
             let r = egui::Rect::from_two_pos(start, p);
@@ -450,7 +456,7 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
             }).collect();
         }
         if paste && !ed.clipboard.is_empty() {
-            let at = graph.frame().round();
+            let at = (graph.frame() - off).round();
             let clip = ed.clipboard.clone();
             if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == id) {
                 ed.selected.clear();

@@ -37,7 +37,8 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) {
     let values = graph.keyable_values(id);
     if values.is_empty() { return; }
     let kind = kind_of(&node.node_type);
-    let frame = graph.frame().round();
+    // A Local Animation's keys are on its own frames.
+    let frame = graph.node_frame(node).round();
     let animated = !node.channels.is_empty();
     let rows: Vec<(String, f64, bool, bool)> = values.into_iter().map(|(p, v)| {
         let ch = node.channels.iter().find(|c| c.path == p);
@@ -99,5 +100,6 @@ pub fn s_key(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<String> 
     let id = graph.selected_node?;
     let n = graph.key_all(id);
     let name = graph.nodes.iter().find(|x| x.id == id).map(|x| x.name.clone()).unwrap_or_default();
-    Some(format!("Keyed {n} number{} of {name} at frame {}", if n == 1 { "" } else { "s" }, graph.frame().round()))
+    let at = graph.nodes.iter().find(|x| x.id == id).map(|x| graph.node_frame(x)).unwrap_or(0.0).round();
+    Some(format!("Keyed {n} number{} of {name} at frame {at}", if n == 1 { "" } else { "s" }))
 }
