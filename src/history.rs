@@ -68,6 +68,7 @@ fn node_hash(n: &GraphNode, core: bool) -> (u64, usize) {
     n.id.0.hash(&mut h);
     n.name.hash(&mut h);
     n.bypassed.hash(&mut h);
+    (n.frozen, n.ghost).hash(&mut h);
     n.locations.hash(&mut h);
     n.position.x.to_bits().hash(&mut h);
     n.position.y.to_bits().hash(&mut h);
@@ -458,19 +459,22 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     let unwired: Vec<_> = wa.iter().filter(|w| !wb.contains(w)).copied().collect();
 
     let mut params = vec![]; let mut renamed = vec![]; let mut bypassed = vec![]; let mut moved = vec![]; let mut located = vec![];
+    let mut frozen = vec![]; let mut ghosted = vec![];
     for (i, n) in b.nodes.iter().enumerate() {
         let Some(o) = a.node(n.id) else { continue };
         if a.nodes.iter().position(|x| x.id == n.id).map(|j| a.node_hashes[j]) == Some(b.node_hashes[i]) { continue; }
         if node_type_value(&o.node_type, true) != node_type_value(&n.node_type, true) { params.push(n.id); }
         if o.name != n.name { renamed.push(n.id); }
         if o.bypassed != n.bypassed { bypassed.push(n.id); }
+        if o.frozen != n.frozen { frozen.push(n.id); }
+        if o.ghost != n.ghost { ghosted.push(n.id); }
         if o.locations != n.locations { located.push(n.id); }
         if o.position != n.position { moved.push(n.id); }
     }
 
     let mut touched: Vec<NodeId> = vec![];
     let mut touch = |ids: &[NodeId]| for id in ids { if !touched.contains(id) { touched.push(*id); } };
-    touch(&params); touch(&added); touch(&renamed); touch(&bypassed); touch(&located);
+    touch(&params); touch(&added); touch(&renamed); touch(&bypassed); touch(&located); touch(&frozen); touch(&ghosted);
     let wire_nodes: Vec<NodeId> = wired.iter().chain(unwired.iter()).flat_map(|w| [w.2, w.0]).collect();
     touch(&wire_nodes); touch(&removed); touch(&moved);
     let view_moved = a.view_flag != b.view_flag || a.view_output != b.view_output;
@@ -508,6 +512,12 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     } else if !bypassed.is_empty() {
         let on = b.node(bypassed[0]).map_or(false, |n| n.bypassed);
         (format!("{} {}", if on { "Bypass" } else { "Turn on" }, count(bypassed.len(), name(b, bypassed[0]), "nodes")), Kind::Bypass)
+    } else if !frozen.is_empty() {
+        let on = b.node(frozen[0]).map_or(false, |n| n.frozen);
+        (format!("{} {}", if on { "Freeze" } else { "Thaw" }, count(frozen.len(), name(b, frozen[0]), "nodes")), Kind::Bypass)
+    } else if !ghosted.is_empty() {
+        let on = b.node(ghosted[0]).map_or(false, |n| n.ghost);
+        (format!("{} {}", if on { "Ghost" } else { "Unghost" }, count(ghosted.len(), name(b, ghosted[0]), "nodes")), Kind::Display)
     } else if view_moved {
         match b.view_flag {
             // An operator with several outputs says which is viewed.

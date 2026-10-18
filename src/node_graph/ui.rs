@@ -38,6 +38,8 @@ mod xsi {
     pub fn SEL_RECT_BORDER() -> Color32 { crate::theme::c(120, 160, 220) }
     pub fn VIEW_FLAG() -> Color32 { crate::theme::c(100, 180, 255) } // 👁️ NEW - Blue for active view flag
     pub fn BYPASS() -> Color32 { crate::theme::c(235, 170, 60) }
+    pub fn FROZEN() -> Color32 { crate::theme::c(110, 200, 235) }
+    pub fn GHOST() -> Color32 { crate::theme::c(230, 120, 190) }
     pub fn BYPASS_VEIL() -> Color32 { Color32::from_rgba_unmultiplied(128, 128, 128, 120) }
     pub fn VIEW_FLAG_HOV() -> Color32 { crate::theme::c(150, 210, 255) } // 👁️ NEW - Lighter blue on hover
     // Sockets carrying a material: purple.
@@ -347,7 +349,9 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
     }
 
     // ── Marquee select ────────────────────────────────────────────────────────
-    let is_panning   = ui.input(|i| i.modifiers.shift) || ui.input(|i| i.pointer.middle_down());
+    // The middle button pans, unless it went down on a node: then it
+    // shows that node's information.
+    let is_panning   = ui.input(|i| i.modifiers.shift) || (ui.input(|i| i.pointer.middle_down()) && graph.info_node.is_none());
     let is_wiring    = graph.connecting_from.is_some();
     let is_dragging  = graph.dragging_node.is_some();
 
@@ -509,14 +513,22 @@ fn draw_node(
     painter.text(egui::pos2(text_x, np.y + 12.0 * zoom), egui::Align2::LEFT_CENTER, node_type_icon(&node.node_type),
         egui::FontId::proportional(12.0 * zoom), ink);
     let name_x = text_x + 17.0 * zoom;
+    // The freeze and ghost buttons show when the node is under the
+    // pointer or one of them is on; the name stops short of them.
+    let hovered_node = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| rect.contains(p));
+    let flags_shown = hovered_node || node.frozen || node.ghost;
+    let flag_size = 16.0 * zoom;
+    let name_end = np.x + NODE_WIDTH * zoom - flag_size * if flags_shown { 3.0 } else { 1.0 } - 8.0 * zoom;
+    let name_painter = painter.with_clip_rect(painter.clip_rect().intersect(
+        egui::Rect::from_min_max(egui::pos2(np.x, np.y), egui::pos2(name_end, np.y + 32.0 * zoom))));
     for dx in [0.0, 0.6] {
-        painter.text(egui::pos2(name_x + dx * zoom, np.y + 12.0 * zoom), egui::Align2::LEFT_CENTER, &node.name,
+        name_painter.text(egui::pos2(name_x + dx * zoom, np.y + 12.0 * zoom), egui::Align2::LEFT_CENTER, &node.name,
             egui::FontId::proportional(12.5 * zoom), ink);
     }
     let type_name: String = node_type_label(&node.node_type).split_whitespace()
         .map(|w| { let mut c = w.chars(); c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default() })
         .collect();
-    painter.text(egui::pos2(name_x, np.y + 25.0 * zoom), egui::Align2::LEFT_CENTER, type_name,
+    name_painter.text(egui::pos2(name_x, np.y + 25.0 * zoom), egui::Align2::LEFT_CENTER, type_name,
         egui::FontId::proportional(9.5 * zoom), ink_dim);
 
     let dr = ui.allocate_rect(title_rect, egui::Sense::click_and_drag());
@@ -569,6 +581,57 @@ fn draw_node(
     // ============================================================================
     // END VIEW_FLAG_BUTTON
     // ============================================================================
+
+    // ── Freeze and ghost buttons, left of the eye ────────────────────────────
+    // Drawn by hand, as the bypass ring is: a snowflake (frozen: keeps its
+    // result) and a wireframe square (ghosted: drawn grey in the Viewer).
+    let mut on_flag = false;
+    if flags_shown {
+        for (k, which) in [(2.0, 0u8), (1.0, 1u8)] {
+            let at = egui::pos2(eye_pos.x - flag_size * k - 2.0 * zoom * (k - 1.0), eye_pos.y);
+            let r_rect = egui::Rect::from_min_size(at, egui::vec2(flag_size, flag_size));
+            let resp = ui.allocate_rect(r_rect, egui::Sense::click());
+            let over = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r_rect.contains(p));
+            let on = if which == 0 { node.frozen } else { node.ghost };
+            let col = if on { if which == 0 { xsi::FROZEN() } else { xsi::GHOST() } } else if over { ink } else { ink_dim };
+            let c = r_rect.center();
+            let r = 4.6 * zoom;
+            let st = egui::Stroke::new(1.3 * zoom, col);
+            if which == 0 {
+                for a in 0..3 {
+                    let ang = a as f32 * std::f32::consts::PI / 3.0 + std::f32::consts::FRAC_PI_2;
+                    let d = egui::vec2(ang.cos(), ang.sin()) * r;
+                    painter.line_segment([c - d, c + d], st);
+                }
+            } else {
+                let q = egui::Rect::from_center_size(c, egui::vec2(r * 1.8, r * 1.8));
+                painter.rect_stroke(q, 0.0, st, egui::StrokeKind::Middle);
+                painter.line_segment([q.left_top(), q.right_bottom()], st);
+            }
+            let hit = click_at.is_some_and(|p| r_rect.contains(p));
+            on_flag |= hit;
+            if resp.clicked() || hit {
+                if which == 0 { graph.toggle_frozen(id); } else { graph.toggle_ghost(id); }
+            }
+            resp.on_hover_text(match (which, on) {
+                (0, true)  => "Frozen: keeps the result it had when frozen; what is above it can change without it cooking again. Click to let it cook again",
+                (0, false) => "Freeze: keep this node's result as it is now",
+                (_, true)  => "Ghosted: its output is drawn in the Viewer as a grey wireframe. Click to stop",
+                _          => "Ghost: draw this node's output in the Viewer as a grey wireframe, beside the scene",
+            });
+        }
+    }
+    // A frozen node wears a bar of its colour along the bottom.
+    if node.frozen {
+        let bar = egui::Rect::from_min_max(egui::pos2(rect.min.x + 6.0 * zoom, rect.max.y - 4.0 * zoom), egui::pos2(rect.max.x - 6.0 * zoom, rect.max.y - 2.0 * zoom));
+        painter.rect_filled(bar, 1.0 * zoom, xsi::FROZEN());
+    }
+
+    // ── Middle button held on a node: its information ────────────────────────
+    let (mid_pressed, mid_down, press) = ui.input(|i| (
+        i.pointer.button_pressed(egui::PointerButton::Middle), i.pointer.middle_down(), i.pointer.press_origin()));
+    if mid_pressed && press.is_some_and(|p| rect.contains(p)) { graph.info_node = Some(id); }
+    if !mid_down && graph.info_node == Some(id) { graph.info_node = None; }
 
     // ── Bypass button, left of the title ─────────────────────────────────────
     let on_bypass;
@@ -699,7 +762,7 @@ fn draw_node(
     }
 
     // ── Title bar drag / click ────────────────────────────────────────────────
-    if dr.clicked() && !on_eye && !on_bypass {
+    if dr.clicked() && !on_eye && !on_bypass && !on_flag {
         // Clicking a node: select it. If not shift-held, clear multi-selection.
         if !ui.input(|i| i.modifiers.shift) {
             graph.selected_nodes.clear();
@@ -712,7 +775,8 @@ fn draw_node(
     if dr.double_clicked() {
         if let Some(d) = dive_of(node) { dive = Some(d); }
     }
-    if dr.drag_started() && graph.connecting_from.is_none() {
+    // The left button moves nodes; the middle one, held, shows information.
+    if dr.drag_started_by(egui::PointerButton::Primary) && graph.connecting_from.is_none() {
         // If dragging a node not in the current selection, replace selection
         if !graph.selected_nodes.contains(&id) {
             graph.selected_nodes = vec![id];
@@ -721,7 +785,7 @@ fn draw_node(
         graph.dragging_node = Some(id);
         graph.drag_offset   = dr.interact_pointer_pos().unwrap_or_default() - np;
     }
-    if dr.dragged() && graph.dragging_node == Some(id) {
+    if dr.dragged_by(egui::PointerButton::Primary) && graph.dragging_node == Some(id) {
         if let Some(ptr) = dr.interact_pointer_pos() {
             let new_pos = to_canvas(ptr - graph.drag_offset);
             if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == id) {
@@ -1028,4 +1092,84 @@ fn bezier(p0: egui::Pos2, p1: egui::Pos2, p2: egui::Pos2, p3: egui::Pos2, t: f32
         mt*mt*mt*p0.x + 3.0*mt*mt*t*p1.x + 3.0*mt*t*t*p2.x + t*t*t*p3.x,
         mt*mt*mt*p0.y + 3.0*mt*mt*t*p1.y + 3.0*mt*t*t*p2.y + t*t*t*p3.y,
     )
+}
+// ============================================================================
+// NODE INFORMATION (middle button held on a node)
+// ============================================================================
+
+/// Lines describing what one output of a node puts out.
+pub fn output_info(r: &Option<crate::types::EvalResult>) -> Vec<String> {
+    use crate::types::EvalResult;
+    match r {
+        None => vec!["Nothing".into()],
+        Some(EvalResult::Single(m)) => vec![format!("One mesh: {} points, {} triangles", m.vertices.len(), m.indices.len() / 3)],
+        Some(EvalResult::Named(prims)) => {
+            let copies: usize = prims.iter().map(|p| p.place.copies().max(1)).sum();
+            let points: usize = prims.iter().map(|p| p.mesh.vertices.len() * p.place.copies().max(1)).sum();
+            let tris: usize = prims.iter().map(|p| p.mesh.indices.len() / 3 * p.place.copies().max(1)).sum();
+            let cameras = prims.iter().filter(|p| p.camera.is_some()).count();
+            let mut mats: Vec<&str> = prims.iter().filter_map(|p| p.material.as_deref()).collect();
+            mats.sort(); mats.dedup();
+            let mut out = vec![format!("{} primitive{}{}", prims.len(), if prims.len() == 1 { "" } else { "s" },
+                if copies != prims.len() { format!(", {copies} copies drawn") } else { String::new() })];
+            out.push(format!("{points} points, {tris} triangles"));
+            if !mats.is_empty() { out.push(format!("{} material{}", mats.len(), if mats.len() == 1 { "" } else { "s" })); }
+            if cameras > 0 { out.push(format!("{cameras} camera{}", if cameras == 1 { "" } else { "s" })); }
+            if let Some(p) = prims.first() { out.push(format!("First: {}", p.path)); }
+            out
+        }
+        Some(EvalResult::Anim(c)) => {
+            let mut out = vec![format!("Clip: {} joints, {} frames at {}/{} fps", c.joints.len(), c.frames, c.rate.num, c.rate.den)];
+            out.push(format!("{:.2} s, from frame {}", c.duration_seconds(), c.start_frame));
+            if let Some(k) = &c.skin { out.push(format!("Skinned mesh: {} points", k.positions.len())); }
+            out
+        }
+        Some(EvalResult::Material(m)) => vec![format!("Material {}", m.name)],
+    }
+}
+
+/// While the middle button is held on a node: a panel beside it with its
+/// type, its flags, what is wired in, what each output puts out and how
+/// long it last took to cook. Its outputs are cooked if they are not yet.
+pub fn info_popup(
+    ctx:   &egui::Context,
+    graph: &NodeGraphState,
+    canvas: egui::Rect,
+    eval_subnet: &impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+) {
+    let Some(id) = graph.info_node else { return };
+    let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
+    let (pan, zoom) = (graph.pan_offset, graph.zoom);
+    let right = canvas.min + egui::vec2((node.position.x + NODE_WIDTH) * zoom + pan.x + 10.0, node.position.y * zoom + pan.y);
+    egui::Area::new(egui::Id::new("node_info")).order(egui::Order::Tooltip).fixed_pos(right).interactable(false).show(ctx, |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.set_max_width(320.0);
+            ui.label(egui::RichText::new(&node.name).strong());
+            ui.label(egui::RichText::new(node_type_label(&node.node_type)).weak());
+            let mut flags = vec![];
+            if graph.view_flag == Some(id) { flags.push("viewed"); }
+            if node.bypassed { flags.push("bypassed"); }
+            if node.frozen { flags.push("frozen"); }
+            if node.ghost { flags.push("ghosted"); }
+            if !flags.is_empty() { ui.label(flags.join(", ")); }
+            ui.separator();
+            for (i, inp) in node.inputs.iter().enumerate() {
+                let from = inp.connected_output
+                    .and_then(|(src, out)| graph.nodes.iter().find(|n| n.id == src).map(|n| (n, out)))
+                    .map(|(n, out)| if n.outputs.len() > 1 { format!("{}.{}", n.name, n.outputs.get(out).map(|o| o.name.as_str()).unwrap_or("?")) } else { n.name.clone() });
+                if from.is_some() || i == 0 {
+                    ui.label(format!("In {}: {}", inp.name, from.unwrap_or_else(|| "not wired".into())));
+                }
+            }
+            for (k, out) in node.outputs.iter().enumerate() {
+                let r = graph.eval_node_out(id, k, &mut Default::default(), eval_subnet);
+                ui.label(egui::RichText::new(format!("Out {}", out.name)).strong());
+                for line in output_info(&r) { ui.label(line); }
+            }
+            if let Some(ms) = graph.cook_times.get(id) {
+                ui.separator();
+                ui.label(egui::RichText::new(format!("Last cooked in {ms:.1} ms (its own work)")).weak());
+            }
+        });
+    });
 }

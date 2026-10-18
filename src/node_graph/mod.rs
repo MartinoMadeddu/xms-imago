@@ -5,6 +5,51 @@ use std::collections::HashMap;
 use crate::types::{BodyView, ConnectionId, EvalResult, MeshData, NodeId, NodeType, IceGraphId};
 use nodes::evaluate_node_type;
 
+/// What frozen nodes hold: per node, the freeze it is on (a new one each
+/// time it is frozen, so what is below sees a new result) and its results
+/// by output. Shared by copies of the graph, as `Cooked` is.
+#[derive(Clone, Default)]
+pub struct Frozen(std::sync::Arc<std::sync::Mutex<FrozenInner>>);
+
+#[derive(Default)]
+struct FrozenInner {
+    nodes: HashMap<NodeId, (u64, HashMap<usize, Option<EvalResult>>)>,
+    next:  u64,
+}
+
+impl Frozen {
+    /// The freeze a node is on, made when first asked.
+    fn epoch(&self, id: NodeId) -> u64 {
+        let Ok(mut f) = self.0.lock() else { return 0 };
+        if let Some(e) = f.nodes.get(&id) { return e.0; }
+        f.next += 1;
+        let e = f.next;
+        f.nodes.insert(id, (e, HashMap::new()));
+        e
+    }
+    fn get(&self, id: NodeId, output: usize) -> Option<Option<EvalResult>> {
+        self.0.lock().ok()?.nodes.get(&id)?.1.get(&output).cloned()
+    }
+    fn put(&self, id: NodeId, output: usize, r: &Option<EvalResult>) {
+        let Ok(mut f) = self.0.lock() else { return };
+        f.next += 1;
+        let next = f.next;
+        f.nodes.entry(id).or_insert((next, HashMap::new())).1.insert(output, r.clone());
+    }
+    /// Let go of what a node held: it is thawed, or frozen anew.
+    fn forget(&self, id: NodeId) { if let Ok(mut f) = self.0.lock() { f.nodes.remove(&id); } }
+}
+
+/// How long each node took to cook the last time it did, its own work
+/// only (not what is above it), in milliseconds. Shown on middle-click.
+#[derive(Clone, Default)]
+pub struct CookTimes(std::sync::Arc<std::sync::Mutex<HashMap<NodeId, f64>>>);
+
+impl CookTimes {
+    pub fn get(&self, id: NodeId) -> Option<f64> { self.0.lock().ok()?.get(&id).copied() }
+    fn put(&self, id: NodeId, ms: f64) { if let Ok(mut t) = self.0.lock() { t.insert(id, ms); } }
+}
+
 /// Results of one evaluation pass, per node output socket.
 pub type EvalCache = HashMap<(NodeId, usize), Option<EvalResult>>;
 
@@ -103,6 +148,13 @@ pub struct GraphNode {
     pub outputs:   Vec<OutputSocket>,
     /// A bypassed node hands its first input on unchanged.
     pub bypassed:  bool,
+    /// A frozen node keeps the result it had when it was frozen: what is
+    /// above it can change without it, or what is below it, cooking again.
+    /// Saved; a graph opened with a frozen node cooks it once, then holds.
+    pub frozen:    bool,
+    /// A ghosted node's output is drawn in the Viewer as a grey wireframe
+    /// beside the scene, to line things up against. Saved.
+    pub ghost:     bool,
     /// Primitive Locations (the Prims Location tab): the primitives the
     /// operator works on. Empty: every primitive (`core::locations`).
     pub locations: Vec<String>,
@@ -155,6 +207,12 @@ pub struct NodeGraphState {
     pub frame_request:       bool,
     /// Results kept between evaluations (see `Cooked`).
     pub cooked:              Cooked,
+    /// What frozen nodes hold.
+    pub frozen:              Frozen,
+    /// How long each node last took to cook.
+    pub cook_times:          CookTimes,
+    /// The node a middle-click is held on: its information is shown.
+    pub info_node:           Option<NodeId>,
 }
 
 impl Default for NodeGraphState {
@@ -177,6 +235,9 @@ impl Default for NodeGraphState {
             menu_from: None,
             frame_request: true,
             cooked: Cooked::default(),
+            frozen: Frozen::default(),
+            cook_times: CookTimes::default(),
+            info_node: None,
         };
         s
     }
@@ -206,6 +267,7 @@ impl NodeGraphState {
             for i in &n.inputs { i.connected_output.map(|(id, out)| (id.0, out)).hash(&mut w.0); }
             n.outputs.len().hash(&mut w.0);
             n.bypassed.hash(&mut w.0);
+            (n.frozen, n.ghost).hash(&mut w.0);
             n.locations.hash(&mut w.0);
         }
         for c in &self.connections { (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut w.0); }
@@ -225,7 +287,7 @@ impl NodeGraphState {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&node_type);
-        self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false, locations: vec![] });
+        self.nodes.push(GraphNode { id, name, node_type, position: pos, inputs, outputs, bypassed: false, frozen: false, ghost: false, locations: vec![] });
         // The first operator of a graph is viewed: there is always one.
         if self.view_flag.is_none() { self.view_flag = Some(id); self.view_output = 0; }
         self.mark_dirty();
@@ -537,6 +599,28 @@ impl NodeGraphState {
         value
     }
 
+    /// Freeze a node at its result now, or let it cook again.
+    /// Freezing takes the results as they are now, where they are cooked;
+    /// an output not cooked yet is taken the first time it is asked for.
+    pub fn toggle_frozen(&mut self, node_id: NodeId) {
+        let Some(n) = self.nodes.iter().find(|n| n.id == node_id) else { return };
+        let (freezing, outputs) = (!n.frozen, n.outputs.len().max(1));
+        self.frozen.forget(node_id);
+        if freezing {
+            for k in 0..outputs {
+                if let Some(r) = self.cook_key(node_id, k).and_then(|key| self.cooked.get(key)) {
+                    self.frozen.put(node_id, k, &r);
+                }
+            }
+        }
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) { n.frozen = freezing; }
+    }
+
+    /// Draw a node's output as a grey wireframe in the Viewer, or stop.
+    pub fn toggle_ghost(&mut self, node_id: NodeId) {
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) { n.ghost = !n.ghost; }
+    }
+
     pub fn toggle_bypass(&mut self, node_id: NodeId) {
         if let Some(n) = self.nodes.iter_mut().find(|n| n.id == node_id) {
             n.bypassed = !n.bypassed;
@@ -640,8 +724,13 @@ impl NodeGraphState {
         use std::hash::{Hash, Hasher};
         if depth > 256 { return None; }
         let node = self.nodes.iter().find(|n| n.id == id)?;
-        if matches!(node.node_type, NodeType::Ice { .. }) { return None; }
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        // A frozen node is what it held: nothing above it counts.
+        if node.frozen {
+            ("frozen", id.0, output, self.frozen.epoch(id)).hash(&mut h);
+            return Some(h.finish());
+        }
+        if matches!(node.node_type, NodeType::Ice { .. }) { return None; }
         match &node.node_type {
             // Edit Poly's result is its operations on its input. The selection
             // being built, and which operation is open, change only what the
@@ -685,6 +774,17 @@ impl NodeGraphState {
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         if let Some(cached) = cache.get(&(id, output)) { return cached.clone(); }
+        // A frozen node gives what it held, cooking once if it holds nothing
+        // yet (just frozen, or a graph just opened).
+        if self.nodes.iter().any(|n| n.id == id && n.frozen) {
+            if let Some(kept) = self.frozen.get(id, output) {
+                cache.insert((id, output), kept.clone());
+                return kept;
+            }
+            let result = self.cook(id, output, cache, eval_subnet);
+            self.frozen.put(id, output, &result);
+            return result;
+        }
         // Cooked before, and nothing it depends on changed since.
         let key = self.cook_key(id, output);
         if let Some(kept) = key.and_then(|k| self.cooked.get(k)) {
@@ -717,6 +817,8 @@ impl NodeGraphState {
             .filter_map(|s| s.connected_output
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet)))
             .collect();
+        // Its own time: from when its inputs are in.
+        let started = std::time::Instant::now();
 
         let result = if node.bypassed {
             node.inputs.first()
@@ -760,6 +862,7 @@ impl NodeGraphState {
         };
         // A point instancer's copies follow its points, whatever moved them.
         let result = result.map(crate::core::instancing::sync);
+        self.cook_times.put(id, started.elapsed().as_secs_f64() * 1000.0);
         cache.insert((id, output), result.clone());
         result
     }
@@ -946,6 +1049,63 @@ mod cook_tests {
         // A copy of the graph (an undo step, a batch) finds the same results.
         let copy = g.clone();
         assert!(Arc::ptr_eq(&walk_before, &copy.eval_anim(walk).unwrap()));
+    }
+
+    /// A frozen node keeps its result while what is above it changes, and
+    /// what is below it is not cooked again; thawed, it follows again.
+    /// Freezing it anew takes the result as it is then. Saved and read back.
+    #[test]
+    fn a_frozen_node_keeps_its_result() {
+        let mut g = NodeGraphState::default();
+        let p = |y: f32| egui::pos2(0.0, y);
+        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/cube".into() }, p(0.0));
+        let place = g.add_node("Place".into(), NodeType::Transform { translation: glam::Vec3::ZERO, rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, p(100.0));
+        let after = g.add_node("After".into(), NodeType::Transform { translation: glam::Vec3::Y, rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, p(200.0));
+        g.add_connection(cube, 0, place, 0);
+        g.add_connection(place, 0, after, 0);
+        let size = |g: &NodeGraphState| match g.eval_node(after, &mut Default::default(), &pass) {
+            Some(EvalResult::Named(p)) => crate::viewport::bounds::world_bounds(&p[0]).map(|b| b.1.x - b.0.x).unwrap(),
+            _ => panic!(),
+        };
+        let set_size = |g: &mut NodeGraphState, v: f32| if let NodeType::CreateCube { size, .. } = &mut g.nodes.iter_mut().find(|n| n.id == cube).unwrap().node_type { *size = v; };
+        assert!((size(&g) - 1.0).abs() < 1e-5);
+        g.toggle_frozen(place);
+        let before = g.eval_node(after, &mut Default::default(), &pass);
+        set_size(&mut g, 3.0);
+        assert!((size(&g) - 1.0).abs() < 1e-5, "frozen: the cube's change does not reach");
+        // What is below it was not cooked again.
+        let again = g.eval_node(after, &mut Default::default(), &pass);
+        match (before, again) {
+            (Some(EvalResult::Named(a)), Some(EvalResult::Named(b))) => assert!(Arc::ptr_eq(&a[0].mesh, &b[0].mesh)),
+            _ => panic!(),
+        }
+        // Saved and read back: still frozen, cooks once, then holds.
+        let mut h = NodeGraphState::default();
+        crate::graph_io::from_json(&mut h, &crate::graph_io::to_json(&g)).unwrap();
+        assert!(h.nodes.iter().any(|n| n.name == "Place" && n.frozen));
+        g.toggle_frozen(place);
+        assert!((size(&g) - 3.0).abs() < 1e-5, "thawed");
+        g.toggle_frozen(place);
+        set_size(&mut g, 2.0);
+        assert!((size(&g) - 3.0).abs() < 1e-5, "frozen again at the size it had then");
+        assert!(g.cook_times.get(cube).is_some());
+    }
+
+    /// The ghost flag is saved, and the information shown for a node
+    /// says what its output holds.
+    #[test]
+    fn ghost_is_saved_and_info_describes_outputs() {
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/cube".into() }, egui::pos2(0.0, 0.0));
+        g.toggle_ghost(cube);
+        let mut h = NodeGraphState::default();
+        crate::graph_io::from_json(&mut h, &crate::graph_io::to_json(&g)).unwrap();
+        assert!(h.nodes[0].ghost && !h.nodes[0].frozen);
+        let lines = crate::node_graph::ui::output_info(&g.eval_node(cube, &mut Default::default(), &pass));
+        assert_eq!(lines[0], "1 primitive");
+        assert!(lines[1].ends_with("12 triangles"), "{lines:?}");
+        assert_eq!(lines.last().unwrap(), "First: /cube");
+        assert_eq!(crate::node_graph::ui::output_info(&None), ["Nothing"]);
     }
 
     /// Merge takes any number of inputs, keeping one free, and merges them

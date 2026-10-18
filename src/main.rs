@@ -841,7 +841,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                             self.graph.frame_request = true;
                         }
                         ui.small_button("?").on_hover_text(
-                            "Right-click or Tab: add a node\nCtrl+C, Ctrl+V: copy and paste nodes\nShift+drag: pan\nEsc: cancel a wire\nDouble-click an ICE node, or ↓: open its ICE graph\nRight-click an output: add a node under it, wired\nF or A: frame every node\nRing at the left of a node: bypass\nEye at the right: show in the Viewer");
+                            "Right-click or Tab: add a node\nCtrl+C, Ctrl+V: copy and paste nodes\nShift+drag: pan\nEsc: cancel a wire\nDouble-click an ICE node, or ↓: open its ICE graph\nRight-click an output: add a node under it, wired\nF or A: frame every node\nRing at the left of a node: bypass\nEye at the right: show in the Viewer\nSnowflake: freeze, keep the result as it is\nSquare: ghost, drawn grey in the Viewer\nMiddle button held on a node: what it puts out");
                     });
                     if !self.graph_file.message.is_empty() {
                         ui.label(egui::RichText::new(&self.graph_file.message).small().color(theme::c(230, 230, 230)));
@@ -856,6 +856,13 @@ impl egui_dock::TabViewer for Panes<'_> {
                     canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
                     let dive = draw_node_graph(&mut canvas, self.graph);
                     ui.allocate_rect(rect, egui::Sense::hover());
+                    {
+                        let subnets = &*self.subnets;
+                        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                            subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                        };
+                        crate::node_graph::ui::info_popup(ui.ctx(), self.graph, rect, &eval);
+                    }
 
                     // Ctrl+C, Ctrl+V (Cmd on macOS) over the canvas: copy the
                     // selected nodes, paste them under the pointer.

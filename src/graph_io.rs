@@ -13,6 +13,8 @@ use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
 use crate::types::{NodeId, NodeType, SplitPick, IceGraphId, DEFAULT_WRITE_PATH};
 
+fn is_false(b: &bool) -> bool { !*b }
+
 #[derive(Serialize, Deserialize)]
 struct SavedNode {
     id:        usize,
@@ -21,6 +23,11 @@ struct SavedNode {
     node_type: NodeType,
     #[serde(default)]
     bypassed:  bool,
+    /// Frozen and ghosted (see `GraphNode`). Left out when off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    frozen:    bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    ghost:     bool,
     /// Its Prims Location tab. Left out of the file when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     locations: Vec<String>,
@@ -48,6 +55,8 @@ pub fn to_json(graph: &NodeGraphState) -> String {
             position:  [n.position.x, n.position.y],
             node_type: n.node_type.clone(),
             bypassed:  n.bypassed,
+            frozen:    n.frozen,
+            ghost:     n.ghost,
             locations: n.locations.clone(),
         }).collect(),
         connections: graph.connections.iter()
@@ -72,7 +81,7 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
         if let NodeType::Ice { id, .. } = &mut node_type { *id = IceGraphId(usize::MAX); }
         let id = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]));
         // Keep the saved ids so connections can be restored as written.
-        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; node.locations = n.locations; }
+        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.locations = n.locations; }
         graph.next_node_id = graph.next_node_id.max(n.id + 1);
     }
     for [from, out, to, input] in saved.connections {
@@ -295,7 +304,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
         xms_nodes: 1,
         nodes: picked.iter().map(|n| SavedNode {
             id: n.id.0, name: n.name.clone(), position: [n.position.x, n.position.y],
-            node_type: n.node_type.clone(), bypassed: n.bypassed, locations: n.locations.clone(),
+            node_type: n.node_type.clone(), bypassed: n.bypassed, frozen: n.frozen, ghost: n.ghost, locations: n.locations.clone(),
         }).collect(),
         connections: graph.connections.iter()
             .filter(|c| inside(c.from_node) && inside(c.to_node))
@@ -323,7 +332,7 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: 
                 .unwrap_or(IceGraphId(usize::MAX));
         }
         let new = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]) + shift);
-        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; node.locations = n.locations.clone(); }
+        if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == new) { node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.locations = n.locations.clone(); }
         placed.insert(n.id, new);
     }
     for [from, out, to, input] in saved.connections {

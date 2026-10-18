@@ -403,8 +403,52 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             }
         }
     }
+    ghosts(&mut s, graph, &eval_subnet, input.time, cache, &mut used);
     cache.keep(&used);
     s
+}
+
+/// Ghosted operators: what each puts out drawn as a grey wireframe beside
+/// the scene, the edges of its meshes at every copy, the bones of its clip
+/// at the playhead. Hidden by what is in front, like the ground grid. The
+/// operator with the view flag is drawn as the scene already.
+fn ghosts(
+    s:     &mut Scene,
+    graph: &crate::node_graph::NodeGraphState,
+    eval_subnet: &impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    time:  f64,
+    cache: &mut GeometryCache,
+    used:  &mut Vec<(usize, Kind)>,
+) {
+    let grey = { let c = ink(crate::theme::c(170, 150, 165)); [c[0], c[1], c[2], 1.0] };
+    for node in graph.nodes.iter().filter(|n| n.ghost && Some(n.id) != graph.view_flag) {
+        let r = graph.eval_node_out(node.id, 0, &mut std::collections::HashMap::new(), eval_subnet);
+        let mut draw = |md: &Arc<MeshData>, places: &[Mat4]| {
+            if md.vertices.is_empty() { return; }
+            let mut inst = vec![];
+            for m in places { push_instance(&mut inst, m, grey, false); }
+            let geometry = cache.get(md, Kind::Edges, used);
+            s.meshes.push(MeshDraw { geometry, instances: inst, blend: false, edges: true, material: None });
+        };
+        match r {
+            Some(EvalResult::Named(prims)) => for p in prims.iter().filter(|p| p.camera.is_none() && p.shading.is_none()) {
+                let identity = [Mat4::IDENTITY];
+                draw(&p.mesh, if p.place.is_placed() { p.place.matrices() } else { &identity });
+            },
+            Some(EvalResult::Anim(clip)) => {
+                if clip.joints.is_empty() { continue; }
+                let pose = clip.world_pose(clip.index_at(time));
+                for (j, jt) in clip.joints.iter().enumerate() {
+                    if let Some(p) = jt.parent.filter(|p| clip.joints[*p].is_bone) {
+                        s.lines.extend_from_slice(&pose[p].w_axis.truncate().to_array()); s.lines.extend_from_slice(&grey);
+                        s.lines.extend_from_slice(&pose[j].w_axis.truncate().to_array()); s.lines.extend_from_slice(&grey);
+                    }
+                }
+            }
+            Some(EvalResult::Material(_)) | None => {}
+            Some(other) => draw(&Arc::new(other.into_mesh()), &[Mat4::IDENTITY]),
+        }
+    }
 }
 
 /// A clip's skeleton at `time`, as lines, as under Bevy (`draw_clip_skeleton`).

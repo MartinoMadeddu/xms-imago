@@ -190,16 +190,22 @@ The same words mean the same thing everywhere: Translate, Rotate and Scale on ev
 
 ## Node buttons
 
-Each node in the graph has two buttons in its title.
+Each node in the graph has buttons in its title. Bypass and View are always there; Freeze and Ghost show when the pointer is over the node, or when they are on.
 
 | Button | Where | Does |
 |---|---|---|
 | Bypass | Left, a ring | Switches the node off. Its first input passes through unchanged. The ring turns orange with a bar through it and the node is greyed. A bypassed node with nothing wired to it gives nothing |
+| Freeze | Right, a snowflake | Keeps the node's result as it is now. What is above it can change without it, or anything below it, cooking again: freeze a slow solve or a heavy load and work downstream. The snowflake turns blue and a blue bar runs along the bottom of the node. Click again to let it cook again. Saved with the graph; the result is not, so a graph opened with a frozen node cooks it once, then holds |
+| Ghost | Right, a square | Draws the node's output in the Viewer as a grey wireframe, beside the scene, to line things up against: meshes by their edges at every copy, a clip by its bones at the playhead. The square turns pink. Saved with the graph |
 | View | Right | Makes that operator's output the scene: what the Viewer draws, the Scene Explorer lists and the Primitive Inspector shows. Clicked again on an operator with several outputs (Load FBX: Clip, Geometry, Rest), it moves on to the next; its tooltip says which is viewed |
+
+Holding the middle button down on a node shows what it is and what it puts out, until the button is let go: its type, its flags, what is wired into each input, for each output the primitives, points, triangles, materials and cameras, or the clip's joints, frames and rate, and how long the node last took to cook, its own work only. An output not cooked yet is cooked to be described. The middle button held on the canvas still pans.
+
+![MoveCube ghosted (its cube is the pink wireframe in the Viewer), MoveSphere frozen and viewed, with the middle button held on it](xms_node_flags.png)
 
 There is no Output node: the view flag says what the scene is, as Houdini's display flag does. One operator always has it while the graph has any. The first operator added to a graph gets it, and so does an operator added from the viewed output of the viewed one; deleting the viewed operator gives it to what was wired into it, else to the end of the last chain. A graph saved with an Output node opens without it, the view on what was wired into Output (unless another operator was viewed), and on the same output of it.
 
-Bypass is saved with the graph.
+Bypass, Freeze and Ghost are saved with the graph, and each is a step of the history.
 
 ![Smooth is bypassed. Prune Joints shows its picker](xms_bypass_pick.png)
 

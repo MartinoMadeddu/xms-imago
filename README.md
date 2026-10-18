@@ -26,6 +26,7 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 - **Five selection levels:** vertex, edge, border, polygon, element. Pick in the Viewer, or select by rule so the selection adapts when the mesh changes
 - **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset, outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach, tessellate, triangulate, turn, relax, subdivide and more
 - **Soft selection:** a falloff distance on Transform
+- **Node flags:** bypass, view, freeze (keep a node's result while what is above it changes) and ghost (its output drawn as a grey wireframe in the Viewer) on each node's title. The middle button held on a node shows what it puts out and how long it took to cook
 - **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each drag becomes an operation you can edit afterwards. A Transform or Camera node has the same handles, writing into its parameters; clicking a primitive in the Viewer selects it
 - **Collapse when you are done:** freeze operations one by one or all at once, or let the node collapse them as you go. Collapsed operations still follow the mesh coming in
 
