@@ -67,6 +67,12 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A 460,000 triangle model as 43 primitives. Select the Load USD node for its materials and textures; open the UV Editor for its UVs" },
     Template { by: SIMON, group: "USD", name: "USD: pick and edit", build: usd_pick,
         hint: "One wheel picked out of the model and moved. Only the picked primitive goes through the Transform and Edit Poly nodes" },
+    Template { by: SIMON, group: "USD", name: "Open assets: teapot and car kit", build: open_assets,
+        hint: "Two CC0 models from the USD Working Group's assets: the PolyHaven teapot with its materials, and the mini car kit's vehicles, merged. Files that ship with the program" },
+    Template { by: SIMON, group: "USD", name: "Open assets: carbon frame bike (download)", build: open_bike,
+        hint: "A 135,648-triangle bike with 31 materials, CC BY-SA, fetched into the examples folder when the template opens, with its licence shown first" },
+    Template { by: SIMON, group: "USD", name: "Open assets: elephant with monochord (download)", build: open_elephant,
+        hint: "A small textured model from Songs of Cultures, CC BY-SA, fetched into the examples folder when the template opens" },
     Template { by: SIMON, group: "USD", name: "USD: prune", build: usd_prune,
         hint: "The model cut down to its wheels and callipers with a path pattern" },
     Template { by: MARTINO, group: "USD stages", name: "USD: set attribute", build: usd_set_attribute,
@@ -99,6 +105,10 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Folder of takes, split per character, animation and skinned T-pose written per character" },
     Template { by: SIMON, group: "FBX and characters", name: "Load FBX: what a file holds", build: fbx_studio,
         hint: "A small studio: two meshes with their materials and UVs, a camera that dollies in, a light. Select Load FBX to see them listed" },
+    Template { by: SIMON, group: "FBX and characters", name: "Novasci clip onto the character", build: novasci_retarget,
+        hint: "A CC0 mocap clip on the Mixamo skeleton (ComeHere1, 93 frames) retargeted onto the 342-joint character. The other clips of the pack are fetched when a template asks for one" },
+    Template { by: SIMON, group: "FBX and characters", name: "Novasci clip: thumbs up (download)", build: novasci_download,
+        hint: "A clip of the pack that is not in the repository: the program offers to fetch it, saying where from and under which licence" },
     Template { by: SIMON, group: "FBX and characters", name: "Retarget onto a character", build: retarget_character,
         hint: "The example take on a 342-joint character in the pose its skin was bound in, then Reach: feet where the actor's are, within human limits" },
     Template { by: SIMON, group: "FBX and characters", name: "Capture and Skin", build: capture_skin,
@@ -820,6 +830,28 @@ fn take_onto_character(g: &mut NodeGraphState) -> (NodeId, NodeId, NodeId) {
     (split, who, ret)
 }
 
+/// A Novasci clip (Mixamo skeleton) onto the 342-joint character.
+fn novasci_onto_character(g: &mut NodeGraphState, clip: &str) -> NodeId {
+    crate::graph_io::clear(g);
+    let take = g.add_node("Clip".into(), NodeType::LoadFbx { path: examples::path(clip), take: 0 }, p(40.0, 20.0));
+    let who  = g.add_node("Character".into(), NodeType::LoadFbx { path: examples::path(examples::CHARACTER_FBX), take: 0 }, p(300.0, 20.0));
+    let ret  = g.add_node("Retarget".into(), NodeType::Retarget, p(170.0, 160.0));
+    g.add_connection(take, 0, ret, 0);
+    g.add_connection(who, 2, ret, 1);
+    view(g, ret);
+    ret
+}
+
+fn novasci_retarget(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    novasci_onto_character(g, examples::NOVASCI_CLIP);
+    format!("A Novasci clip (CC0, 66 joints on the Mixamo skeleton, a T-pose on frame 1) retargeted onto the 342-joint character: the joints are matched by the part of the body they are, so the two conventions meet. Put the view flag on Clip to see the source. The clips in examples/mocap/novasci ship with the program; the rest of the pack is fetched when asked for.{}", missing_examples())
+}
+
+fn novasci_download(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    novasci_onto_character(g, "mocap/novasci/ThumbsUp1.fbx");
+    format!("ThumbsUp1 is not in the repository: the program asked to fetch it from the pack's page, under CC0, into the examples folder. Once it is there, this graph reads it like any file; Not now leaves the Clip node pointing at a file that is missing.{}", missing_examples())
+}
+
 fn retarget_character(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let (split, _, ret) = take_onto_character(g);
@@ -919,6 +951,30 @@ fn stage(g: &mut NodeGraphState, name: &str, file: &str) -> NodeId {
 }
 
 const BOXES: &str = "The Scene Explorer lists the stage: each closed prim is drawn as its bounding box until it is opened, or tick Show all geometry.";
+
+/// Two CC0 models from the USD Working Group's assets, merged.
+fn open_assets(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    let teapot = g.add_node("Teapot".into(), NodeType::load_usd(examples::path(examples::TEAPOT_USD)), p(40.0, 20.0));
+    let cars   = g.add_node("CarKit".into(), NodeType::load_usd(examples::path(examples::CAR_KIT_USD)), p(300.0, 20.0));
+    let place  = g.add_node("PlaceCars".into(), transform([1.5, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), p(300.0, 120.0));
+    let merge  = g.add_node("Merge".into(), NodeType::merge(), p(170.0, 220.0));
+    g.add_connection(cars, 0, place, 0);
+    g.add_connection(teapot, 0, merge, 0);
+    g.add_connection(place, 0, merge, 1);
+    finish(g, merge, merge);
+    format!("Two models published under CC0 by the USD Working Group: the PolyHaven teapot (2,472 triangles, two materials with textures: Textured mode shows them) and the mini car kit (six vehicles with variants, read as the stage composes them). Both ship with the program, in examples/usd, with their licences beside them. {BOXES}{}", missing_examples())
+}
+
+fn open_bike(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    stage(g, "Bike", examples::BIKE_USDZ);
+    format!("Carbon Frame Bike by Robert Schweier and prefrontal cortex, CC BY-SA 4.0: 331 meshes, 135,648 triangles, 31 materials, in a 27 MB usdz that is not in the repository. The program asked to fetch it, saying where from and under which licence; Not now leaves the node pointing at a file that is missing. {BOXES}{}", missing_examples())
+}
+
+fn open_elephant(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    stage(g, "Elephant", examples::ELEPHANT_USDC);
+    format!("Vietnamese Elephant with Monochord from Songs of Cultures by A.MUSE, CC BY-SA 4.0: three meshes, two textured materials, fetched into the examples folder with its textures when the template opens. {BOXES}{}", missing_examples())
+}
 
 fn street(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     stage(g, "Street", crate::examples_stage::STREET);

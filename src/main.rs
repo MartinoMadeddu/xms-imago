@@ -28,6 +28,9 @@ mod layout;
 mod uv_editor;
 mod uv_canvas;
 mod examples;
+mod downloads;
+#[cfg(test)]
+mod regress;
 mod examples_stage;
 mod templates;
 mod ragdoll;
@@ -261,7 +264,6 @@ pub(crate) fn draw_ui(
                     ui.visuals_mut().button_frame = false;
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
-                    templates_menu(ui, &mut *save_first);
                     crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked));
                 });
                 // The file the graph is in, and whether it has changed since.
@@ -293,6 +295,7 @@ pub(crate) fn draw_ui(
             FileCommand::New => save_first.load_new(),
             FileCommand::Open => { browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", &["json"], ""); }
             FileCommand::OpenRecent(p) => save_first.load(Source::File(p)),
+            FileCommand::Template(i) => save_first.load(Source::Template(i)),
             FileCommand::ClearRecent => recent.clear(),
             FileCommand::Save => { save_or_ask(&graph, &mut *graph_file, &mut *history, &mut *recent, &mut *browser); }
             FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut *browser),
@@ -933,6 +936,8 @@ enum FileCommand {
     New,
     Open,
     OpenRecent(std::path::PathBuf),
+    /// A template, by its index in `templates::TEMPLATES`.
+    Template(usize),
     ClearRecent,
     Save,
     SaveAs,
@@ -991,6 +996,8 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
         });
         ui.separator();
         if menu_item(ui, "Quit", &format!("{CMD}+Q")) { c = Some(FileCommand::Quit); }
+        ui.separator();
+        if let Some(i) = templates_menu(ui) { c = Some(FileCommand::Template(i)); }
     });
     c
 }
@@ -1028,9 +1035,11 @@ fn edit_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, subnets: &mut IceGra
     });
 }
 
-/// Ready-made graphs, by whose work they show, then by area. Picking one
-/// asks whether to add it to the graph or open it as new (`SaveFirst::load`).
-fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
+/// Ready-made graphs, at the bottom of the File menu, by whose work they
+/// show, then by area. Picking one asks whether to add it to the graph or
+/// open it as new (`SaveFirst::load`). Returns the template picked.
+fn templates_menu(ui: &mut egui::Ui) -> Option<usize> {
+    let mut picked = None;
     crate::menus::menu(ui, "Templates", |ui| {
         for (by, groups) in templates::MENU {
             crate::menus::menu(ui, by, |ui| {
@@ -1038,7 +1047,7 @@ fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
                     crate::menus::menu(ui, group, |ui| {
                         for (index, t) in templates::TEMPLATES.iter().enumerate().filter(|(_, t)| t.by == by && t.group == group) {
                             if ui.button(t.name).on_hover_text(t.hint).clicked() {
-                                save_first.load(Source::Template(index));
+                                picked = Some(index);
                                 ui.close();
                             }
                         }
@@ -1047,6 +1056,7 @@ fn templates_menu(ui: &mut egui::Ui, save_first: &mut SaveFirst) {
             });
         }
     });
+    picked
 }
 
 /// Panes, layout and theme.
@@ -1284,7 +1294,7 @@ impl SaveFirst {
     }
 
     /// A question is showing, or waits on the browser.
-    fn busy(&self) -> bool { self.choosing.is_some() || self.after.is_some() }
+    pub fn busy(&self) -> bool { self.choosing.is_some() || self.after.is_some() }
 
     /// Hold `after` and ask, when there is something to lose. Returns
     /// whether it is held (false: carry it out now).
@@ -1325,7 +1335,7 @@ fn carry_out(after: After, graph: &mut NodeGraphState, subnets: &mut IceGraphSto
 }
 
 /// Dim the window behind a question, and take the clicks meant for it.
-fn dim_behind(ctx: &egui::Context) {
+pub(crate) fn dim_behind(ctx: &egui::Context) {
     let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("quit_dim")).order(egui::Order::Foreground).fixed_pos(screen.min)
         .show(ctx, |ui| {
@@ -1361,7 +1371,19 @@ fn ask_add_or_open(ctx: &egui::Context, what: &str) -> Option<u8> {
 /// (`close_requested`), Quit, New, opening a file or a template. Returns
 /// true when the program should close now.
 pub(crate) fn save_first_frame(ctx: &egui::Context, app: &mut AppState, close_requested: bool) -> bool {
-    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, .. } = app;
+    let AppState { save_first, history, recent, graph_file, browser, graph, subnets, nav, downloads, .. } = app;
+    // A graph brought in may name example files to fetch: ask again about
+    // files declined for an earlier one.
+    let before = graph.content_hash();
+    let quit = save_first_step(ctx, save_first, history, recent, graph_file, browser, graph, subnets, nav, close_requested);
+    if graph.content_hash() != before { downloads.graph_opened(); }
+    quit
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_first_step(ctx: &egui::Context, save_first: &mut SaveFirst, history: &mut history::History, recent: &mut recent::Recent,
+                   graph_file: &mut GraphFile, browser: &mut FileBrowser, graph: &mut NodeGraphState, subnets: &mut IceGraphStore,
+                   nav: &mut GraphNavigation, close_requested: bool) -> bool {
     if close_requested && !save_first.ask(&history, &After::Quit) { return true; }
     if std::mem::take(&mut save_first.quit) && !save_first.ask(&history, &After::Quit) {
         return true;

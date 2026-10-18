@@ -5,6 +5,7 @@
 //! shell.
 
 use crate::batch::BatchState;
+use crate::downloads::Downloads;
 use crate::file_browser::FileBrowser;
 use crate::history::History;
 use crate::ice::{GraphNavigation, IceGraphStore};
@@ -48,4 +49,6 @@ pub struct AppState {
     pub history:    History,
     /// Write FBX running over a folder, in the background.
     pub batch:      BatchState,
+    /// Example files a graph names that can be fetched.
+    pub downloads:  Downloads,
 }

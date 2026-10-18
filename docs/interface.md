@@ -12,9 +12,8 @@ The menus, from the left, as in other programs:
 
 | Menu | Holds |
 |---|---|
-| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q). See [Files](#files) |
+| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q), and at the bottom Templates: the ready-made graphs, by author, then by area. See [Files](#files) and [Templates](templates.md) |
 | Edit | Undo, Redo, Copy, Paste, Delete, Select All, for the operators of the root scene graph |
-| Templates | The ready-made graphs, by author, then by area. See [Templates](templates.md) |
 | Window | The panes (tick to show), Dock floating panes, Reset layout, Save layout..., Load layout..., Theme |
 
 On macOS the shortcuts take Cmd in place of Ctrl.

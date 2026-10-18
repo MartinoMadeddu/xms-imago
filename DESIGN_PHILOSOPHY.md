@@ -72,7 +72,7 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 ## Like any other program
 
-- The program works with files as other programs do. File, Edit, Templates and Window menus at the top left, with the usual shortcuts (New, Open, Save, Save As, Quit). A node graph pane holds what belongs to the graph only.
+- The program works with files as other programs do. File, Edit and Window menus at the top left, with the usual shortcuts (New, Open, Save, Save As, Quit); the templates at the bottom of the File menu, by author, then by area, since a template is a file to open. A node graph pane holds what belongs to the graph only.
 - Nothing is lost without asking: closing, New, or opening a file or template as new over unsaved changes asks to save first.
 - Nothing is written over a file that exists without asking: Save As, a saved layout, Write FBX, Write USD. Save writes to the graph's own file without asking, as everywhere.
 
@@ -121,6 +121,8 @@ If you are an AI assistant working in this repository, read `LLM_instructions.md
 
 - Documentation states what the program does, measured where it can be. Every page has a "Not done yet" list.
 - Each feature comes with tests; each change says what was tested and what was not.
+- Every template is a regression test: what it puts out at its view flag is measured and compared with a baseline checked in, by a GitHub workflow after every build, and a number that moves is named with both values. A template is the demo, the documentation and the test of a feature at once.
+- Every example file is openly licensed, with its author and licence listed beside it. What is too big for the repository, or whose licence asks for a credit beside the file, is fetched on demand: the program says where the file comes from and under which licence before downloading it. No file in the repository has a licence that forbids passing it on.
 - Credit: XMS was created by Martino Madeddu. Additional development by Simon Legrand.
 
 ## Materials are placed where they are bound
@@ -216,3 +218,6 @@ Load USD brings a file in as USD would: sublayered, at its own paths, or its def
 - 17/10/2026: on `core/ice-refactor`: Get Data reads what the topology gives under the Primitive Inspector's names (a face's `corners`, `firstCorner`, `N`, `area`; a corner's `ptIndex`, `faceIndex`, `localCornerIndex`), made when run; putting a node down that reaches nothing no longer cooks; port types and the Attributes list are worked out by the editor from the last run's geometry, the list only when opened (Martino: placing a Get Data lagged on the DeLorean).
 - 17/10/2026: on `core/ice-refactor`: Set Data has a Context too (Auto, Point, Face, Corner, Object) and Several, writing into another context the way Get Data reads across; a name is held in one context; boolean attributes reach the primvars as 0 and 1 (Martino). What the topology gives stays derived, not stored: it is the topology, and a stored copy would go stale when the topology changes; a graph that wants it kept writes it with Set Data.
 - 17/10/2026: on `core/ice-refactor`: a placed primitive keeps its primvars where it is drawn (`place_mesh` dropped them), so attributes ICE writes on a placed prim (the DeLorean's) show in the Primitive Inspector; corner values turn with a mirrored polygon (Martino: Set Data `foo` did not show).
+- 18/10/2026: Templates moved to the bottom of the File menu, under the usual commands, with its categorised submenu (Simon).
+- 18/10/2026: openly licensed example files: four Novasci clips (CC0) and the USD Working Group's teapot and mini car kit in the repository; the other 17 clips, the carbon frame bike and the elephant (CC BY-SA 4.0) fetched on demand by a dialog that names the source, the licence and the size (Simon: "ask if we want to download it").
+- 18/10/2026: the templates as the regression suite, with a baseline in `tests/regression/templates.json`, run by a GitHub workflow after every build with a report of what to fix (Simon).

@@ -39,7 +39,7 @@ This is how a change goes from a request in a Claude chat to `main`, with the pe
    - It uses the words in `VOCABULARY.md`.
    - It fetches `main` again just before making the patch. If anything new came in, it rebases onto it first.
 
-   It builds, runs `cargo test`, runs the program to look at the result (a screenshot under a virtual display: `xvfb-run` with `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `README.md` and `docs/`.
+   It builds, runs `cargo test` (with `XMS_EXAMPLES` set to the examples folder, so the regression suite finds the files), runs the program to look at the result (a screenshot under a virtual display: `xvfb-run` with `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `README.md` and `docs/`.
 3. **The assistant makes one patch** of everything since `origin/main`: `git diff --binary origin/main > xms-<what>-<suffix>.patch`. The suffix is new every time (date and time, `DDMMYYYY-HHMM`): a file sent again under a name already used replaces the earlier one in the chat instead of arriving as a new download, and "Download all" does not appear. `--binary` carries images, example files and solved data. It then checks the patch on a clean copy of `main` (`git worktree add` on `origin/main`, `git apply`), so it is known to apply before it is handed over.
 4. **The assistant sends the files**: the patch, and any screenshot worth looking at, as downloads in the chat, with the block of commands below filled in (patch name and commit message). It says what changed, what was tested and what was not.
 5. **The person clicks "Download all"**, so the files land in `~/Downloads`, and pastes the block into a terminal:
@@ -50,7 +50,7 @@ This is how a change goes from a request in a Claude chat to `main`, with the pe
        git add -A && \
        git commit -m "<what changed>" && \
        git push origin main && \
-       cargo run
+       cargo run --release
 
    `git pull --rebase` brings in what others pushed; `git apply` adds the change; the next three lines commit and push it; `cargo run` comes last, so the change is on `main` straight away and the program can stay open as long as the person likes without holding up anyone else. The assistant has built and tested the change before sending it; if something is wrong once it runs, the fix is the next patch. (The path in the first line is Simon's clone; use your own.)
    The commands are joined with `&&`, so the first one that fails stops the rest: a patch that does not apply is never followed by a commit and a push. The block holds no other commands (no `git rm`): deletions travel in the patch. On 13/10/2026 a block without `&&` committed and pushed only the deletions of a patch that had failed to apply.
@@ -73,6 +73,9 @@ A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that do
 ### Conventions
 
 - **Tests with every feature.** New behaviour comes with tests; `cargo test` passes before a change is handed over.
+- **The templates are the regression suite.** `cargo test --release regression` builds every template, cooks it at its view flag and compares the result with `tests/regression/templates.json` (`src/regress.rs`). A change to a loader, an operator or an example file that moves a number fails it, naming the template, the field and both values. When the move is intended, write the baseline again with `XMS_REGRESS_UPDATE=1 cargo test --release regression` and commit the file; a new template needs the baseline written too. Run it with the downloadable example files present (`cargo test --release download_example_files -- --ignored` fetches them), as the GitHub workflow does, or the `missing` field differs.
+- **Read the CI report.** `.github/workflows/tests.yml` runs the build, the download and the tests after every push and writes `ci/report.py`'s Markdown to the job summary and the artifact `test-report`: failed tests with their output, the regression differences, the slowest cooks, build warnings. When the person pastes it or links the run, fix what it names.
+- **Example files are openly licensed.** Every file under `examples/` has a licence that allows passing it on, listed in `examples/CREDITS.md`. A file too big for the repository (over about 10 MB), or under a licence asking for a credit beside it, is not committed: it goes in `SOURCES` in `src/examples.rs` (path under `examples/`, URL, size in bytes, author, licence, page), `.gitignore` leaves it out, and the download dialog (`src/downloads.rs`) fetches it when a graph names it. Searched so far: the Novasci Free Motion Pack (CC0, Mixamo skeleton), the USD Working Group assets (CC BY-SA 4.0 and similar), CMU mocap (BVH only, not read by the program).
 - **Documentation with every change.** `README.md` and the pages in `docs/` that describe what changed are updated in the same change. The website (`site/`) only when something on it is wrong.
 - **A screenshot when something visible changed**, in `docs/`, taken from the running program.
 - **Say what was tested and what was not.** A claim in the docs is measured where it can be.

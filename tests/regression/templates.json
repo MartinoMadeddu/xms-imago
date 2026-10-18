@@ -1,0 +1,728 @@
+{
+  "Body Collide: into the car": {
+    "nodes": 4,
+    "viewed": "BodyCollide",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 8000,
+      "joints": 342,
+      "rate": "30/1",
+      "skin": 32334,
+      "hips_end": [
+        0.53,
+        0.51,
+        -1.072
+      ]
+    },
+    "cook_ms": 6150
+  },
+  "Body Collide: obstacle course": {
+    "nodes": 20,
+    "viewed": "BodyCollide",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 600,
+      "joints": 342,
+      "rate": "30/1",
+      "skin": 32334,
+      "hips_end": [
+        0.478,
+        0.537,
+        -1.055
+      ]
+    },
+    "cook_ms": 114
+  },
+  "Cameras": {
+    "nodes": 8,
+    "viewed": "Merge",
+    "output": 0,
+    "kind": "prims",
+    "prims": 5,
+    "copies": 5,
+    "points": 1218,
+    "triangles": 2260,
+    "materials": 0,
+    "cameras": 2,
+    "cook_ms": 0
+  },
+  "Capture and Skin": {
+    "nodes": 7,
+    "viewed": "Skin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 728,
+      "joints": 342,
+      "rate": "120/1",
+      "skin": 32334,
+      "hips_end": [
+        -0.509,
+        0.972,
+        1.057
+      ]
+    },
+    "cook_ms": 2430
+  },
+  "Clip basics": {
+    "nodes": 5,
+    "viewed": "Timecode",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 72,
+      "joints": 19,
+      "rate": "24/1",
+      "skin": 0,
+      "hips_end": [
+        0.0,
+        0.967,
+        0.0
+      ]
+    },
+    "cook_ms": 0
+  },
+  "Composition: a street": {
+    "nodes": 1,
+    "viewed": "Street",
+    "output": 0,
+    "kind": "prims",
+    "prims": 27,
+    "copies": 27,
+    "points": 195,
+    "triangles": 282,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 5
+  },
+  "Curves and points": {
+    "nodes": 1,
+    "viewed": "Strands",
+    "output": 0,
+    "kind": "prims",
+    "prims": 6,
+    "copies": 6,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 2
+  },
+  "Edit Poly: bolt": {
+    "nodes": 2,
+    "viewed": "Bolt",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 86,
+    "triangles": 168,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Edit Poly: bridge": {
+    "nodes": 5,
+    "viewed": "Bridge",
+    "output": 0,
+    "kind": "mesh",
+    "prims": 1,
+    "copies": 1,
+    "points": 28,
+    "triangles": 52,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Edit Poly: goblet": {
+    "nodes": 2,
+    "viewed": "Goblet",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 546,
+    "triangles": 1088,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Edit Poly: panels": {
+    "nodes": 2,
+    "viewed": "Panels",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 409,
+    "triangles": 792,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Edit Poly: sea mine": {
+    "nodes": 2,
+    "viewed": "SeaMine",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 9602,
+    "triangles": 19200,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 8
+  },
+  "Edit Poly: tower": {
+    "nodes": 2,
+    "viewed": "Tower",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 36,
+    "triangles": 68,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Edit UV islands": {
+    "nodes": 4,
+    "viewed": "Arrange",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 8,
+    "triangles": 12,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "FBX import": {
+    "nodes": 2,
+    "viewed": "Trim",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 488,
+      "joints": 138,
+      "rate": "120/1",
+      "skin": 0,
+      "hips_end": [
+        -0.504,
+        0.877,
+        1.028
+      ]
+    },
+    "cook_ms": 135
+  },
+  "Human Limits": {
+    "nodes": 3,
+    "viewed": "HumanLimits",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 60,
+      "joints": 19,
+      "rate": "30/1",
+      "skin": 0,
+      "hips_end": [
+        0.0,
+        0.968,
+        0.0
+      ]
+    },
+    "cook_ms": 15
+  },
+  "ICE graph: spherify": {
+    "nodes": 3,
+    "viewed": "Spherify",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 386,
+    "triangles": 768,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 3
+  },
+  "Load FBX: what a file holds": {
+    "nodes": 1,
+    "viewed": "Studio",
+    "output": 1,
+    "kind": "prims",
+    "prims": 2,
+    "copies": 2,
+    "points": 12,
+    "triangles": 14,
+    "materials": 2,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Material bindings": {
+    "nodes": 17,
+    "viewed": "WriteUSD",
+    "output": 0,
+    "kind": "prims",
+    "prims": 8,
+    "copies": 8,
+    "points": 2307,
+    "triangles": 4308,
+    "materials": 3,
+    "cameras": 0,
+    "cook_ms": 2
+  },
+  "MaterialX: three shaders": {
+    "nodes": 12,
+    "viewed": "WriteUSD",
+    "output": 0,
+    "kind": "prims",
+    "prims": 6,
+    "copies": 6,
+    "points": 7203,
+    "triangles": 13824,
+    "materials": 3,
+    "cameras": 0,
+    "cook_ms": 2
+  },
+  "Mocap folder: retarget, skin, collide, write": {
+    "nodes": 15,
+    "viewed": "BodyCollide1",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 728,
+      "joints": 342,
+      "rate": "120/1",
+      "skin": 32334,
+      "hips_end": [
+        -0.509,
+        0.972,
+        1.057
+      ]
+    },
+    "cook_ms": 155
+  },
+  "Mocap split": {
+    "nodes": 12,
+    "viewed": "Split",
+    "output": 0,
+    "kind": "none",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Mocap split (example takes)": {
+    "nodes": 12,
+    "viewed": "Split",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 728,
+      "joints": 69,
+      "rate": "120/1",
+      "skin": 0,
+      "hips_end": [
+        -0.508,
+        0.877,
+        1.031
+      ]
+    },
+    "cook_ms": 0
+  },
+  "Mocap tools": {
+    "nodes": 9,
+    "viewed": "Loop",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 368,
+      "joints": 26,
+      "rate": "120/1",
+      "skin": 0,
+      "hips_end": [
+        0.502,
+        0.86,
+        1.026
+      ]
+    },
+    "cook_ms": 4
+  },
+  "Native instances: a hall of tables": {
+    "nodes": 1,
+    "viewed": "Hall",
+    "output": 0,
+    "kind": "prims",
+    "prims": 321,
+    "copies": 321,
+    "points": 2568,
+    "triangles": 3852,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 7
+  },
+  "Novasci clip onto the character": {
+    "nodes": 3,
+    "viewed": "Retarget",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 93,
+      "joints": 342,
+      "rate": "30/1",
+      "skin": 32334,
+      "hips_end": [
+        0.004,
+        0.982,
+        0.062
+      ]
+    },
+    "cook_ms": 960
+  },
+  "Novasci clip: thumbs up (download)": {
+    "nodes": 3,
+    "viewed": "Retarget",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 85,
+      "joints": 342,
+      "rate": "30/1",
+      "skin": 32334,
+      "hips_end": [
+        0.004,
+        0.982,
+        0.062
+      ]
+    },
+    "cook_ms": 797
+  },
+  "Open assets: carbon frame bike (download)": {
+    "nodes": 1,
+    "viewed": "Bike",
+    "output": 0,
+    "kind": "prims",
+    "prims": 331,
+    "copies": 331,
+    "points": 175462,
+    "triangles": 135648,
+    "materials": 31,
+    "cameras": 0,
+    "cook_ms": 877
+  },
+  "Open assets: elephant with monochord (download)": {
+    "nodes": 1,
+    "viewed": "Elephant",
+    "output": 0,
+    "kind": "prims",
+    "prims": 3,
+    "copies": 3,
+    "points": 1972,
+    "triangles": 2762,
+    "materials": 2,
+    "cameras": 0,
+    "cook_ms": 8
+  },
+  "Open assets: teapot and car kit": {
+    "nodes": 4,
+    "viewed": "Merge",
+    "output": 0,
+    "kind": "prims",
+    "prims": 7,
+    "copies": 7,
+    "points": 2296,
+    "triangles": 4460,
+    "materials": 2,
+    "cameras": 0,
+    "cook_ms": 33
+  },
+  "Point instancer: a forest": {
+    "nodes": 2,
+    "viewed": "Turn",
+    "output": 0,
+    "kind": "prims",
+    "prims": 5,
+    "copies": 9069,
+    "points": 242307,
+    "triangles": 415006,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 15
+  },
+  "Purposes: street lamps": {
+    "nodes": 1,
+    "viewed": "Lamps",
+    "output": 0,
+    "kind": "prims",
+    "prims": 15,
+    "copies": 15,
+    "points": 651,
+    "triangles": 1218,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 4
+  },
+  "Retarget": {
+    "nodes": 5,
+    "viewed": "ProxySkin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 728,
+      "joints": 19,
+      "rate": "120/1",
+      "skin": 1276,
+      "hips_end": [
+        -0.509,
+        0.94,
+        1.032
+      ]
+    },
+    "cook_ms": 5
+  },
+  "Retarget onto a character": {
+    "nodes": 5,
+    "viewed": "Reach",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 728,
+      "joints": 342,
+      "rate": "120/1",
+      "skin": 32334,
+      "hips_end": [
+        -0.509,
+        0.972,
+        1.057
+      ]
+    },
+    "cook_ms": 227
+  },
+  "Shapes": {
+    "nodes": 7,
+    "viewed": "MergeFloor",
+    "output": 0,
+    "kind": "prims",
+    "prims": 3,
+    "copies": 3,
+    "points": 714,
+    "triangles": 1292,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "T-pose and export": {
+    "nodes": 5,
+    "viewed": "ProxySkin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 1,
+      "joints": 19,
+      "rate": "30/1",
+      "skin": 1276,
+      "hips_end": [
+        0.0,
+        0.95,
+        0.0
+      ]
+    },
+    "cook_ms": 0
+  },
+  "UDIM tiles": {
+    "nodes": 20,
+    "viewed": "Unwrap",
+    "output": 0,
+    "kind": "mesh",
+    "prims": 1,
+    "copies": 1,
+    "points": 634,
+    "triangles": 1108,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 7
+  },
+  "USD import": {
+    "nodes": 4,
+    "viewed": "Merge",
+    "output": 0,
+    "kind": "prims",
+    "prims": 8,
+    "copies": 8,
+    "points": 57,
+    "triangles": 82,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 1
+  },
+  "USD: heavy model": {
+    "nodes": 1,
+    "viewed": "DeLorean",
+    "output": 0,
+    "kind": "prims",
+    "prims": 43,
+    "copies": 43,
+    "points": 376537,
+    "triangles": 461595,
+    "materials": 30,
+    "cameras": 0,
+    "cook_ms": 243
+  },
+  "USD: material binding": {
+    "nodes": 4,
+    "viewed": "Looks",
+    "output": 0,
+    "kind": "prims",
+    "prims": 45,
+    "copies": 45,
+    "points": 376537,
+    "triangles": 461595,
+    "materials": 2,
+    "cameras": 0,
+    "cook_ms": 1
+  },
+  "USD: pick and edit": {
+    "nodes": 4,
+    "viewed": "EditWheel",
+    "output": 0,
+    "kind": "prims",
+    "prims": 43,
+    "copies": 43,
+    "points": 376537,
+    "triangles": 461595,
+    "materials": 30,
+    "cameras": 0,
+    "cook_ms": 16
+  },
+  "USD: prune": {
+    "nodes": 2,
+    "viewed": "WheelsOnly",
+    "output": 0,
+    "kind": "prims",
+    "prims": 8,
+    "copies": 8,
+    "points": 47161,
+    "triangles": 72240,
+    "materials": 2,
+    "cameras": 0,
+    "cook_ms": 2
+  },
+  "USD: set attribute": {
+    "nodes": 3,
+    "viewed": "Asset",
+    "output": 0,
+    "kind": "prims",
+    "prims": 43,
+    "copies": 43,
+    "points": 376537,
+    "triangles": 461595,
+    "materials": 30,
+    "cameras": 0,
+    "cook_ms": 5
+  },
+  "Unwrap the sea mine": {
+    "nodes": 3,
+    "viewed": "Unwrap",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 9602,
+    "triangles": 19200,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 485
+  }
+}

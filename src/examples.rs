@@ -28,6 +28,14 @@ pub const STUDIO_FBX: &str = "fbx/studio.fbx";
 pub const CHARACTER_FBX: &str = "ragdoll/split/into_the_car_.fbx";
 /// Solved results that ship with the examples.
 pub const RAGDOLL_SOLVED: &str = "ragdoll/solved";
+/// A CC0 mocap clip on the Mixamo skeleton (J. Beardmore's FreeMotionPack1).
+pub const NOVASCI_CLIP: &str = "mocap/novasci/ComeHere1.fbx";
+/// CC0 models from the USD Working Group's assets, in the repository.
+pub const TEAPOT_USD:  &str = "usd/teapot/Teapot.usd";
+pub const CAR_KIT_USD: &str = "usd/mini_car_kit/assets/vehicles/vehicleVariants.usda";
+/// Models fetched when asked for (see `SOURCES`).
+pub const BIKE_USDZ:     &str = "usd/carbon_frame_bike/CarbonFrameBike.usdz";
+pub const ELEPHANT_USDC: &str = "usd/elephant/SoC-ElephantWithMonochord.usdc";
 
 /// The examples folder: the one named by XMS_EXAMPLES, next to the program,
 /// at the root of the source tree when run through cargo, or in the working
@@ -211,3 +219,139 @@ mod tests {
     }
 }
 
+
+// ── Files a template can download ────────────────────────────────────────────
+
+/// Where a set of example files comes from, and under which licence.
+pub struct Source {
+    pub name:    &'static str,
+    pub by:      &'static str,
+    pub licence: &'static str,
+    /// The page the files are published on, for downloading by hand.
+    pub page:    &'static str,
+    /// Each file: its path under the examples folder, where it is fetched
+    /// from, and about how many bytes it is.
+    pub files:   &'static [(&'static str, &'static str, u64)],
+}
+
+/// Example files that are not in the repository: free to use and to pass
+/// on, but fetched when a template first asks for them, to keep the
+/// repository small or because their licence asks for a credit beside them.
+/// The four Novasci clips, the teapot and the car kit in `examples/` are
+/// from the same places and ship with the program (CC0).
+pub const SOURCES: &[Source] = &[
+    Source {
+        name: "FreeMotionPack1 (Novasci)", by: "J. Beardmore", licence: "CC0 1.0 (public domain)",
+        page: "https://github.com/J-Beardmore/FreeMotionPack1",
+        files: &[
+            ("mocap/novasci/Celebrate2.fbx",     "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/Celebrate2.fbx",     499_052),
+            ("mocap/novasci/Celebrate3.fbx",     "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/Celebrate3.fbx",     429_868),
+            ("mocap/novasci/ComeHere2.fbx",      "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/ComeHere2.fbx",      518_956),
+            ("mocap/novasci/ComeHere3.fbx",      "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/ComeHere3.fbx",      494_972),
+            ("mocap/novasci/GoAwayAnnoyed.fbx",  "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/GoAwayAnnoyed.fbx",  509_964),
+            ("mocap/novasci/GoAwayQuickly.fbx",  "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/GoAwayQuickly.fbx",  488_892),
+            ("mocap/novasci/MiddleFinger1.fbx",  "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/MiddleFinger1.fbx",  448_492),
+            ("mocap/novasci/MiddleFinger2.fbx",  "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/MiddleFinger2.fbx",  778_428),
+            ("mocap/novasci/NodYes1.fbx",        "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/NodYes1.fbx",        331_276),
+            ("mocap/novasci/ShakeHeadNo1.fbx",   "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/ShakeHeadNo1.fbx",   379_420),
+            ("mocap/novasci/StopOneHand1.fbx",   "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/StopOneHand1.fbx",   502_508),
+            ("mocap/novasci/StopOneHand2.fbx",   "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/StopOneHand2.fbx",   457_196),
+            ("mocap/novasci/StopTwoHand1.fbx",   "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/StopTwoHand1.fbx",   454_908),
+            ("mocap/novasci/StopTwoHand2.fbx",   "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/StopTwoHand2.fbx",   507_132),
+            ("mocap/novasci/ThumbsDown1.fbx",    "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/ThumbsDown1.fbx",    467_180),
+            ("mocap/novasci/ThumbsDown2.fbx",    "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/ThumbsDown2.fbx",    486_108),
+            ("mocap/novasci/ThumbsUp1.fbx",      "https://raw.githubusercontent.com/J-Beardmore/FreeMotionPack1/main/MotionPack1/FBX/ThumbsUp1.fbx",      457_852),
+        ],
+    },
+    Source {
+        name: "Carbon Frame Bike", by: "Robert Schweier and prefrontal cortex (Felix Herbst), through the USD Working Group assets",
+        licence: "CC BY-SA 4.0: credit the authors, share alike",
+        page: "https://github.com/usd-wg/assets/tree/main/full_assets/CarbonFrameBike",
+        files: &[("usd/carbon_frame_bike/CarbonFrameBike.usdz", "https://raw.githubusercontent.com/usd-wg/assets/main/full_assets/CarbonFrameBike/CarbonFrameBike.usdz", 27_492_671)],
+    },
+    Source {
+        name: "Elephant with Monochord (Songs of Cultures)", by: "A.MUSE Interactive Design Studio, USDZ by Felix Herbst, through the USD Working Group assets",
+        licence: "CC BY-SA 4.0: credit the authors, share alike",
+        page: "https://github.com/usd-wg/assets/tree/main/full_assets/ElephantWithMonochord",
+        files: &[
+            ("usd/elephant/SoC-ElephantWithMonochord.usdc", "https://raw.githubusercontent.com/usd-wg/assets/main/full_assets/ElephantWithMonochord/SoC-ElephantWithMonochord.usdc", 851_298),
+            ("usd/elephant/0/Elefant_Diff.packed.png",       "https://raw.githubusercontent.com/usd-wg/assets/main/full_assets/ElephantWithMonochord/0/Elefant_Diff.packed.png",       1_108_781),
+            ("usd/elephant/0/Monochord_diff.png",            "https://raw.githubusercontent.com/usd-wg/assets/main/full_assets/ElephantWithMonochord/0/Monochord_diff.png",            596_142),
+        ],
+    },
+];
+
+/// The source and entry of an example file that can be downloaded, by its
+/// path under the examples folder.
+pub fn downloadable(name: &str) -> Option<(&'static Source, &'static (&'static str, &'static str, u64))> {
+    let name = name.replace('\\', "/");
+    SOURCES.iter().find_map(|s| s.files.iter().find(|f| name.ends_with(f.0)).map(|f| (s, f)))
+}
+
+/// Of the paths a graph names, those under the examples folder that are not
+/// there and can be fetched: what to offer to download.
+pub fn missing_downloads(paths: &[String]) -> Vec<(&'static Source, &'static (&'static str, &'static str, u64))> {
+    let mut out: Vec<_> = vec![];
+    for p in paths {
+        if std::path::Path::new(p).is_file() { continue; }
+        if let Some(found) = downloadable(p) {
+            if !out.iter().any(|(_, f): &(&Source, &(&str, &str, u64))| f.0 == found.1 .0) { out.push(found); }
+        }
+    }
+    out
+}
+
+/// Fetch one file into the examples folder (the folder named by XMS_EXAMPLES
+/// or found beside the program; `examples/` in the working folder when none
+/// is there). Returns the path written.
+pub fn download(file: &(&str, &str, u64), progress: &dyn Fn(u64, u64)) -> Result<PathBuf, String> {
+    let base = dir().unwrap_or_else(|| PathBuf::from("examples"));
+    let to = base.join(file.0);
+    if let Some(parent) = to.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    // The system's certificates and its proxy settings, so a download works
+    // behind a corporate proxy as the browser does.
+    let agent = ureq::AgentBuilder::new().try_proxy_from_env(true).timeout(std::time::Duration::from_secs(600)).build();
+    let response = agent.get(file.1).call().map_err(|e| e.to_string())?;
+    let total = response.header("Content-Length").and_then(|v| v.parse::<u64>().ok()).unwrap_or(file.2);
+    let mut reader = response.into_reader();
+    let part = to.with_extension("part");
+    let mut out = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; 1 << 16];
+    let mut got = 0u64;
+    loop {
+        let n = std::io::Read::read(&mut reader, &mut buf).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        std::io::Write::write_all(&mut out, &buf[..n]).map_err(|e| e.to_string())?;
+        got += n as u64;
+        progress(got, total);
+    }
+    drop(out);
+    std::fs::rename(&part, &to).map_err(|e| e.to_string())?;
+    Ok(to)
+}
+
+#[cfg(test)]
+mod download_tests {
+    /// Fetch every file of `SOURCES` into the examples folder, for the
+    /// regression suite on a machine that has none of them yet (the GitHub
+    /// workflow): `cargo test --release download_example_files -- --ignored`.
+    /// Files already there are left alone.
+    #[test]
+    #[ignore]
+    fn download_example_files() {
+        let base = super::dir().unwrap_or_else(|| "examples".into());
+        let mut fetched = 0;
+        for s in super::SOURCES {
+            for f in s.files {
+                if base.join(f.0).is_file() { continue; }
+                let t0 = std::time::Instant::now();
+                let to = super::download(f, &|_, _| {}).unwrap_or_else(|e| panic!("{}: {e}", f.0));
+                let size = std::fs::metadata(&to).map(|m| m.len()).unwrap_or(0);
+                println!("fetched {} ({} bytes, {:.1} s)", f.0, size, t0.elapsed().as_secs_f32());
+                assert!(size > 0, "{} is empty", f.0);
+                fetched += 1;
+            }
+        }
+        println!("{fetched} file(s) fetched into {}", base.display());
+    }
+}
