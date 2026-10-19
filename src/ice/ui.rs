@@ -212,7 +212,8 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
         return;
     };
     let title = format!("{}  {}", crate::types::subnet_node_icon(&node.node_type), crate::types::subnet_node_label(&node.node_type));
-    group(ui, &title, None, |f| { f.text("Name", None, &mut node.name, ""); });
+    group(ui, &title, None, |f| { f.text("Name", Some("The node's name: one word, a space typed becomes an underscore"), &mut node.name, ""); });
+    if node.name.chars().any(char::is_whitespace) { node.name = crate::node_graph::node_name(&node.name); }
     match &mut node.node_type {
         IceGraphNodeType::Root { context } => group(ui, "Runs over", None, |f| {
             f.choice("Context", Some("The elements every Execute port runs over"), context,

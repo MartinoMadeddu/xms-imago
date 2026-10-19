@@ -143,6 +143,7 @@ impl IceGraph {
     }
 
     pub fn add_node(&mut self, name: String, t: IceGraphNodeType, pos: egui::Pos2) -> NodeId {
+        let name = crate::node_graph::node_name(&name);
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&t);

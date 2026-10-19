@@ -116,6 +116,10 @@ A new node is never left out of sight: the view moves just enough to show it. Te
 
 Wires, ports and selection work the same way in every graph: the scene graph, ICE graphs and MaterialX graphs (selecting and deleting a wire, unplugging a port with two clicks, box select; `src/graph_ports.rs`).
 
+### Pass Through: organising a big graph
+
+**Pass Through** (Organise in the add menu) hands on what comes into its one input, unchanged: geometry, a clip, a material. It does nothing else, so it is free to put anywhere: a point to branch from, a named place to gather a long wire, a step that labels a part of the graph. It is drawn narrower than an operator, with square corners and no icon, so it reads as part of the layout rather than as a step that changes the scene. It can be bypassed, viewed, frozen and ghosted like any node.
+
 ### Placeholder: a node that does not exist yet
 
 When a graph needs a node the program does not have, put a **Placeholder** in its place: give it a name, as many inputs and outputs as the node would have, each named, and describe what it should do in **Description of node functionality for LLM**. Input 1 goes to output 1 unchanged, input 2 to output 2, and so on, so the rest of the graph keeps working. Save the graph and hand the file over: the name, the sockets and the description are in it, and an AI assistant reading it builds the node from them (see `LLM_instructions.md`).
@@ -193,7 +197,7 @@ A graph runs on each primitive coming in, in the primitive's own space, as an IC
 
 ## Parameters
 
-Every node's parameters are laid out the same way. The first group is the node's type and its name. Then its parameters, in titled groups. In every group a row is a label, right-aligned in a column of one width, and its value, which fills the rest: sliders, fields and lists line up down the pane. Primitive Location fields have a grey of their own, in the code font. With **Dark fields** on (see [Colour editor](#colour-editor)), fields you type in (text, numbers, the X Y Z of a transform) are dark grey with light text, in every theme, Primitive Location fields a step lighter; buttons, drop-downs, checkboxes and sliders keep the theme's look. Clip nodes end with a Clip group: what comes In and what goes Out.
+Every node's parameters are laid out the same way. The first group is the node's type and its name. A name is one word: a space typed in it (here, or renaming the node on the canvas with a double-click) becomes an underscore, and a node added from the menu, a template or an older graph file has its spaces made underscores too (`Pass_Through`, `Load_FBX`); ICE nodes are named the same way. Then its parameters, in titled groups. In every group a row is a label, right-aligned in a column of one width, and its value, which fills the rest: sliders, fields and lists line up down the pane. Primitive Location fields have a grey of their own, in the code font. With **Dark fields** on (see [Colour editor](#colour-editor)), fields you type in (text, numbers, the X Y Z of a transform) are dark grey with light text, in every theme, Primitive Location fields a step lighter; buttons, drop-downs, checkboxes and sliders keep the theme's look. Clip nodes end with a Clip group: what comes In and what goes Out.
 
 Explanations are in tooltips, on a group's title or a row's label, so the pane holds the parameters and the state of the node and little else.
 

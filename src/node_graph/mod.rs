@@ -178,6 +178,13 @@ pub struct Connection {
 // NODE GRAPH STATE
 // ============================================================================
 
+/// A node's name as the graph keeps it: no white space, each space (or
+/// tab) an underscore, as it is typed. A name is how an operator is found
+/// and what a material is called, so it is one word.
+pub fn node_name(name: &str) -> String {
+    name.chars().map(|c| if c.is_whitespace() { '_' } else { c }).collect()
+}
+
 #[derive(Clone)]
 pub struct NodeGraphState {
     pub nodes:               Vec<GraphNode>,
@@ -343,6 +350,7 @@ impl NodeGraphState {
     }
 
     pub fn add_node(&mut self, name: String, node_type: NodeType, pos: egui::Pos2) -> NodeId {
+        let name = node_name(&name);
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&node_type);
@@ -394,6 +402,7 @@ impl NodeGraphState {
                 outputs.iter().map(|n| OutputSocket { name: n.clone() }).collect(),
             ),
             NodeType::Ice { .. }         => (vec![i("Geometry"), i("Template")], vec![o("Out")]),
+            NodeType::PassThrough           => (vec![i("In")], vec![o("Out")]),
             NodeType::TestClip { .. }       => (vec![], vec![o("Clip")]),
             NodeType::RenameJoints { .. }
             | NodeType::TrimClip { .. }
@@ -759,6 +768,10 @@ impl NodeGraphState {
                 let (src, out) = node.inputs.get(output)?.connected_output?;
                 self.eval_anim_node(src, out, cache, eval_subnet)
             }
+            NodeType::PassThrough => {
+                let (src, out) = node.inputs.first()?.connected_output?;
+                self.eval_anim_node(src, out, cache, eval_subnet)
+            }
             // Transform passes a clip on when it is given one; so do the
             // operators that place things in time.
             NodeType::Transform { .. } | NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. } => match self.eval_node_out(id, output, cache, eval_subnet) {
@@ -914,8 +927,9 @@ impl NodeGraphState {
         let animated = match as_type { Some(t) => std::borrow::Cow::Borrowed(t), None => self.animated_type(node) };
         let node_type: &NodeType = &animated;
 
-        // A placeholder hands each input to the output of the same number.
-        if matches!(*node_type, NodeType::Placeholder { .. }) {
+        // A placeholder hands each input to the output of the same number;
+        // a Pass Through its one input to its one output.
+        if matches!(*node_type, NodeType::Placeholder { .. } | NodeType::PassThrough) {
             let result = node.inputs.get(output).and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet));
             if own { cache.insert((id, output), result.clone()); }
@@ -1117,6 +1131,29 @@ mod cook_tests {
     use std::sync::Arc;
 
     fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+
+    /// A Pass Through hands on what comes in, geometry or a clip, unchanged;
+    /// with nothing in, nothing comes out.
+    #[test]
+    fn a_pass_through_changes_nothing() {
+        assert_eq!(node_name("Pass Through\tnode"), "Pass_Through_node");
+        let mut g = NodeGraphState::default();
+        let p = |y: f32| egui::pos2(0.0, y);
+        let cube = g.add_node("Cube".into(), NodeType::cube(2.0), p(0.0));
+        let via = g.add_node("Via".into(), NodeType::PassThrough, p(100.0));
+        assert_eq!((g.nodes[1].inputs.len(), g.nodes[1].outputs.len()), (1, 1), "one input, one output");
+        assert!(g.eval_node(via, &mut Default::default(), &pass).is_none());
+        g.add_connection(cube, 0, via, 0);
+        let a = g.eval_node(cube, &mut Default::default(), &pass).unwrap().into_mesh();
+        let b = g.eval_node(via, &mut Default::default(), &pass).unwrap().into_mesh();
+        assert_eq!(a.vertices, b.vertices);
+        let walk = g.add_node("Walk".into(), NodeType::TestClip { seconds: 0.5, fps_num: 30, fps_den: 1 }, p(200.0));
+        let clip_via = g.add_node("Clip via".into(), NodeType::PassThrough, p(300.0));
+        assert_eq!(g.nodes.iter().find(|n| n.id == clip_via).unwrap().name, "Clip_via", "a space typed is an underscore");
+        g.add_connection(walk, 0, clip_via, 0);
+        let (w, v) = (g.eval_anim(walk).unwrap(), g.eval_anim(clip_via).expect("the clip comes through"));
+        assert_eq!(w.joints.len(), v.joints.len());
+    }
 
     /// A result is cooked once and handed out again until the node or
     /// something above it changes; what does not depend on the change is

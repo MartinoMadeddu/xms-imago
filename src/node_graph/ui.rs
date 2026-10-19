@@ -7,6 +7,19 @@ pub const NODE_HEIGHT: f32 = 50.0;
 const SOCKET_RADIUS:   f32 = 4.5;
 const SOCKET_HIT:      f32 = 22.0;
 const NODE_ROUNDING:   f32 = 5.0;
+/// A Pass Through's width: narrow, so it reads as a point in the layout,
+/// not an operator.
+pub const PASS_WIDTH: f32 = 120.0;
+
+/// How wide a node is drawn: a Pass Through narrower than the rest.
+pub fn node_width(node: &GraphNode) -> f32 {
+    if matches!(node.node_type, NodeType::PassThrough) { PASS_WIDTH } else { NODE_WIDTH }
+}
+
+/// How round a node's corners are: a Pass Through square-cornered.
+fn node_rounding(node: &GraphNode) -> f32 {
+    if matches!(node.node_type, NodeType::PassThrough) { 0.0 } else { NODE_ROUNDING }
+}
 /// The band around a node with a graph inside: a light grey, the same in
 /// every theme.
 fn dive_band() -> egui::Color32 { egui::Color32::from_rgb(200, 200, 200) }
@@ -56,10 +69,10 @@ pub fn output_socket_pos(node: &GraphNode, out_idx: usize) -> egui::Pos2 {
     // A material comes out on the right, to go into a Material Binding's side.
     if side_output(node) {
         let t = (out_idx + 1) as f32 / (node.outputs.len() + 1) as f32;
-        return egui::pos2(node.position.x + NODE_WIDTH, node.position.y + node_height(node) * t);
+        return egui::pos2(node.position.x + node_width(node), node.position.y + node_height(node) * t);
     }
     let t = (out_idx + 1) as f32 / (node.outputs.len() + 1) as f32;
-    egui::pos2(node.position.x + NODE_WIDTH * t, node.position.y + node_height(node))
+    egui::pos2(node.position.x + node_width(node) * t, node.position.y + node_height(node))
 }
 
 /// Where the first input on a node's side is, from its top, and the step
@@ -119,7 +132,7 @@ pub fn input_socket_pos(node: &GraphNode, in_idx: usize) -> egui::Pos2 {
     let top = (0..node.inputs.len()).filter(|&k| !side_input(node, k)).count();
     let at = (0..in_idx).filter(|&k| !side_input(node, k)).count();
     let t = (at + 1) as f32 / (top + 1) as f32;
-    egui::pos2(node.position.x + NODE_WIDTH * t, node.position.y)
+    egui::pos2(node.position.x + node_width(node) * t, node.position.y)
 }
 
 // ============================================================================
@@ -154,7 +167,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.frame_request = false;
         let mut bounds = egui::Rect::NOTHING;
         for node in &graph.nodes {
-            bounds = bounds.union(egui::Rect::from_min_size(node.position, egui::vec2(NODE_WIDTH, node_height(node))));
+            bounds = bounds.union(egui::Rect::from_min_size(node.position, egui::vec2(node_width(node), node_height(node))));
         }
         let room = canvas_rect.size() - egui::vec2(60.0, 70.0);
         // Not so small that the names cannot be read: a graph too large
@@ -384,7 +397,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
             let newly_selected: Vec<NodeId> = graph.nodes.iter()
                 .filter(|n| {
                     let node_rect = egui::Rect::from_min_size(
-                        n.position, egui::vec2(NODE_WIDTH, node_height(n)));
+                        n.position, egui::vec2(node_width(n), node_height(n)));
                     r.intersects(node_rect)
                 })
                 .map(|n| n.id)
@@ -491,7 +504,9 @@ fn draw_node(
     let zoom   = graph.zoom;
     let np     = to_screen(node.position);
     let height = node_height(node);
-    let rect   = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, height * zoom));
+    let width  = node_width(node);
+    let rounding = node_rounding(node);
+    let rect   = egui::Rect::from_min_size(np, egui::vec2(width * zoom, height * zoom));
     let id     = node.id;
     let is_sel = graph.selected_node == Some(id) || graph.selected_nodes.contains(&id);
     let is_sub = matches!(node.node_type, NodeType::Ice { .. });
@@ -510,7 +525,7 @@ fn draw_node(
     let dives = dive_of(node).is_some();
     if dives {
         let band = ring_width(zoom, true);
-        let r = NODE_ROUNDING * zoom;
+        let r = rounding * zoom;
         if is_sel {
             painter.rect_filled(rect.expand(band + w), r + band + w, crate::theme::selection());
         } else {
@@ -520,10 +535,10 @@ fn draw_node(
         painter.rect_filled(rect.expand(band), r + band, dive_band());
     } else {
         let ring = rect.expand(w);
-        painter.rect_filled(ring, NODE_ROUNDING * zoom + w,
+        painter.rect_filled(ring, rounding * zoom + w,
             if is_sel { crate::theme::selection() } else { egui::Color32::from_rgb(105, 105, 105) });
     }
-    painter.rect_filled(rect, NODE_ROUNDING * zoom, body);
+    painter.rect_filled(rect, rounding * zoom, body);
     // And a small arrow into it, at the bottom right.
     if dives {
         let c = egui::pos2(rect.max.x - 10.0 * zoom, rect.max.y - 9.0 * zoom);
@@ -535,22 +550,26 @@ fn draw_node(
     }
 
     let title_h    = 32.0 * zoom;
-    let title_rect = egui::Rect::from_min_size(np, egui::vec2(NODE_WIDTH * zoom, title_h));
-    painter.rect_stroke(rect, NODE_ROUNDING * zoom, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(38, 38, 38)), egui::StrokeKind::Middle);
+    let title_rect = egui::Rect::from_min_size(np, egui::vec2(width * zoom, title_h));
+    painter.rect_stroke(rect, rounding * zoom, egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(38, 38, 38)), egui::StrokeKind::Middle);
 
     // Icon, then the name in bold (drawn twice, a hair apart), the type
     // beneath in PascalCase, all from the left, after the bypass ring.
     // The node's icon leads the name, as in the add menu.
+    // A Pass Through, narrow, has no icon: its name has the room.
     let text_x = np.x + 24.0 * zoom;
-    painter.text(egui::pos2(text_x, np.y + 12.0 * zoom), egui::Align2::LEFT_CENTER, node_type_icon(&node.node_type),
-        egui::FontId::proportional(12.0 * zoom), ink);
-    let name_x = text_x + 17.0 * zoom;
+    let pass = matches!(node.node_type, NodeType::PassThrough);
+    if !pass {
+        painter.text(egui::pos2(text_x, np.y + 12.0 * zoom), egui::Align2::LEFT_CENTER, node_type_icon(&node.node_type),
+            egui::FontId::proportional(12.0 * zoom), ink);
+    }
+    let name_x = if pass { text_x } else { text_x + 17.0 * zoom };
     // The freeze and ghost buttons show when the node is under the
     // pointer or one of them is on; the name stops short of them.
     let hovered_node = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| rect.contains(p));
     let flags_shown = hovered_node || node.frozen || node.ghost;
     let flag_size = 16.0 * zoom;
-    let name_end = np.x + NODE_WIDTH * zoom - flag_size * if flags_shown { 3.0 } else { 1.0 } - 8.0 * zoom;
+    let name_end = np.x + width * zoom - flag_size * if flags_shown { 3.0 } else { 1.0 } - 8.0 * zoom;
     let name_painter = painter.with_clip_rect(painter.clip_rect().intersect(
         egui::Rect::from_min_max(egui::pos2(np.x, np.y), egui::pos2(name_end, np.y + 32.0 * zoom))));
     for dx in [0.0, 0.6] {
@@ -572,7 +591,7 @@ fn draw_node(
     let has_view_flag = graph.has_view_flag(id);
     let eye_icon = if has_view_flag { "👁" } else { "○" };
     let eye_size = 16.0 * zoom;
-    let eye_pos = egui::pos2(np.x + NODE_WIDTH * zoom - eye_size - 4.0 * zoom, np.y + 4.0 * zoom);
+    let eye_pos = egui::pos2(np.x + width * zoom - eye_size - 4.0 * zoom, np.y + 4.0 * zoom);
     let eye_rect = egui::Rect::from_min_size(eye_pos, egui::vec2(eye_size, eye_size));
     
     let eye_response = ui.allocate_rect(eye_rect, egui::Sense::click());
@@ -691,7 +710,7 @@ fn draw_node(
         });
     }
     if node.bypassed {
-        painter.rect_filled(rect, NODE_ROUNDING * zoom, xsi::BYPASS_VEIL());
+        painter.rect_filled(rect, rounding * zoom, xsi::BYPASS_VEIL());
     }
 
     // ── Output sockets ────────────────────────────────────────────────────────
@@ -826,7 +845,7 @@ fn draw_node(
     // Clear of the inputs on the left side, so a wire is dropped on them.
     let body_rect = egui::Rect::from_min_size(
         egui::pos2(np.x + SOCKET_HIT * 0.5, np.y + title_h),
-        egui::vec2(NODE_WIDTH * zoom - SOCKET_HIT * 0.5, (height - 32.0) * zoom));
+        egui::vec2(width * zoom - SOCKET_HIT * 0.5, (height - 32.0) * zoom));
     let body_sense = ui.allocate_rect(body_rect, egui::Sense::click());
     if body_sense.double_clicked() {
         graph.renaming_node = Some(id);
@@ -836,10 +855,12 @@ fn draw_node(
     if graph.renaming_node == Some(id) {
         let edit_rect = egui::Rect::from_min_size(
             egui::pos2(np.x + 4.0, np.y + title_h + 2.0),
-            egui::vec2(NODE_WIDTH * zoom - 8.0, 22.0));
+            egui::vec2(width * zoom - 8.0, 22.0));
         let r = ui.put(edit_rect,
             egui::TextEdit::singleline(&mut graph.rename_buffer)
                 .font(egui::FontId::proportional(11.0)));
+        // One word: a space typed is an underscore.
+        if graph.rename_buffer.chars().any(char::is_whitespace) { graph.rename_buffer = super::node_name(&graph.rename_buffer); }
         r.request_focus();
         if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             let new_name = graph.rename_buffer.clone();
@@ -1005,6 +1026,9 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ]),
         ("📝", "Placeholder", vec![
             (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new() }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
+        ]),
+        ("↓", "Organise", vec![
+            (NodeType::PassThrough, "Hands the scene on unchanged: for laying out big graphs, a place to gather wires or branch from"),
         ]),
         ("📂", "File", vec![
             (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
@@ -1234,7 +1258,7 @@ pub fn info_popup(
     let Some(id) = graph.info_node else { return };
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
     let (pan, zoom) = (graph.pan_offset, graph.zoom);
-    let right = canvas.min + egui::vec2((node.position.x + NODE_WIDTH) * zoom + pan.x + 10.0, node.position.y * zoom + pan.y);
+    let right = canvas.min + egui::vec2((node.position.x + node_width(node)) * zoom + pan.x + 10.0, node.position.y * zoom + pan.y);
     egui::Area::new(egui::Id::new("node_info")).order(egui::Order::Tooltip).fixed_pos(right).interactable(false).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_max_width(320.0);

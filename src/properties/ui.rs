@@ -251,7 +251,10 @@ pub fn draw_properties(
 
     // ── The node itself ──────────────────────────────────────────────────────
     let title = format!("{}  {}", node_type_icon(&node.node_type), node_type_label(&node.node_type));
-    group(ui, &title, None, |f| { f.text("Name", None, &mut node.name, ""); });
+    group(ui, &title, None, |f| {
+        f.text("Name", Some("The operator's name in the graph: one word, a space typed becomes an underscore"), &mut node.name, "");
+    });
+    if node.name.chars().any(char::is_whitespace) { node.name = crate::node_graph::node_name(&node.name); }
 
     if takes {
         let set = crate::core::locations::rows(&node.locations).count();
@@ -866,6 +869,11 @@ pub fn draw_properties(
 
         // ── Modelling ────────────────────────────────────────────────────────
         NodeType::EditPoly { ops, pending, edit, auto_collapse } => edit_poly(ui, ops, pending, edit, auto_collapse, io),
+
+        // ── Organise ─────────────────────────────────────────────────────────
+        NodeType::PassThrough => group(ui, "Pass Through", Some("Hands what comes in on to what follows, unchanged: for laying out a big graph. Rename it to say what passes through it"), |f| {
+            f.status(Status::Info, "Nothing to set: what comes in goes out");
+        }),
     }
     if resync { graph.sync_sockets(sel_id); }
 }

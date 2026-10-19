@@ -390,7 +390,7 @@ Status for the whole section: **Not yet.** The plan is rray as Imago's render de
 | Operator | Purpose | Status |
 |---|---|---|
 | **Switch / Conditional** | Select an input by index or expression | Not yet |
-| **Null / Dot** | Organisational pass-through | Not yet (a Placeholder with one input and one output passes through) |
+| **Null / Dot** | Organisational pass-through | **Done** as **Pass Through**: one input, one output, the scene handed on unchanged; drawn narrower and square-cornered (Organise in the add menu) |
 | **Compound / Subgraph** | Encapsulate a network (section 1.4) | Not yet |
 | **Python Script** | Run Python against the stage | Not yet |
 | **Expression** | Drive parameter values | Not yet |

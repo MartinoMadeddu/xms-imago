@@ -137,6 +137,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Layouts as files:** save a layout, load it back, pass it to someone else
 - **One add menu:** nine categories, each a submenu; every node has one name, the same in the menu, on the node and in its parameters
 - **Parameters that line up:** every node laid out the same way, labels in one column, values filling the other, explanations in tooltips
+- **Pass Through:** an organising node, narrower and square-cornered: what comes in goes out unchanged (geometry, a clip, a material). A place to gather wires or branch from in a big graph
 - **Placeholder node:** sketch a node that does not exist yet: name it, give it named inputs and outputs, describe what it should do. Data goes through unchanged, and the description travels in the saved graph for whoever builds it
 - **A tidy graph:** templates load laid out and framed, "Tidy" does the same to your own graph, and a right-click on an output adds the next node under it, already wired
 - **Compact lists:** the operator stack stays in one column however long the chain is

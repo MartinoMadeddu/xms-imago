@@ -201,6 +201,10 @@ pub enum NodeType {
     /// of what it should do. Saved with the graph, to show how a new node
     /// should work.
     Placeholder  { inputs: Vec<String>, outputs: Vec<String>, #[serde(default)] description: String },
+    /// Hands what comes in on to what follows, unchanged: geometry, a clip,
+    /// a material. For laying out big graphs: a place to gather wires, a
+    /// named point to branch from. Drawn narrower and square-cornered.
+    PassThrough,
     /// Skin weights by proximity: each point of the geometry weighted to the
     /// nearest bones of the skeleton, in the skeleton's first frame.
     Capture      { falloff: f32 },
@@ -380,7 +384,7 @@ impl NodeType {
     }
 
     /// Nodes a clip goes through: the clip nodes, and Transform.
-    pub fn passes_clips(&self) -> bool { self.is_anim() || matches!(self, NodeType::Transform { .. } | NodeType::Placeholder { .. } | NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. }) }
+    pub fn passes_clips(&self) -> bool { self.is_anim() || matches!(self, NodeType::Transform { .. } | NodeType::Placeholder { .. } | NodeType::PassThrough | NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. }) }
 
     /// Nodes whose output is a clip.
     pub fn is_anim(&self) -> bool {
@@ -416,6 +420,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::MergeAnimation { .. } => "🎞",
         NodeType::Ice { .. }        => "▣",
         NodeType::Placeholder { .. }   => "📝",
+        NodeType::PassThrough          => "↓",
         NodeType::LoadFbx { .. }       => "🎬",
         NodeType::TestClip { .. }      => "🚶",
         NodeType::RenameJoints { .. }  => "✏",
@@ -474,6 +479,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::MergeAnimation { .. } => "Merge Animation",
         NodeType::Ice { .. }        => "ICE",
         NodeType::Placeholder { .. }   => "Placeholder",
+        NodeType::PassThrough          => "Pass Through",
         NodeType::LoadFbx { .. }       => "Load FBX",
         NodeType::TestClip { .. }      => "Test Clip",
         NodeType::RenameJoints { .. }  => "Rename Joints",
