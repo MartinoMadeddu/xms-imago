@@ -185,8 +185,10 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
     {
         if let Some((to, input)) = view.selected_wire.take() {
             graph.disconnect(to, &input);
-        } else if let Some(id) = view.selected.take() {
-            graph.remove(id);
+        } else {
+            let mut ids = std::mem::take(&mut view.selected_nodes);
+            ids.extend(view.selected.take());
+            for id in ids { graph.remove(id); }
         }
     }
     // Frame every node: F or A, and once when the graph is first opened.
@@ -237,7 +239,8 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
             let ok = graph.wire_ok(lib, n.id, input);
             let colour = if ok { graph.output_type(lib, *src, output).map(type_colour).unwrap_or(pal::RIM()) } else { pal::WRONG() };
             let this = Some((n.id, input.clone()));
-            if view.selected_wire == this {
+            let picked = view.unplug.as_ref().is_some_and(|p| p.holds(*src, output, n.id, input));
+            if view.selected_wire == this || picked {
                 // Selected: wide, in the selection colour, under the wire.
                 draw_selected_wire(&painter, fp, tp, z);
             }
@@ -249,6 +252,8 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
         if response.clicked() {
             view.selected_wire = Some((*to, input.clone()));
             view.selected = None;
+            view.selected_nodes.clear();
+            view.unplug = None;
         }
         if response.secondary_clicked() {
             graph.disconnect(*to, input);
@@ -262,22 +267,55 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
             draw_wire_h(&painter, to_screen(fp), ptr, colour, false, z);
         }
     }
-    if ui.input(|i| i.key_pressed(egui::Key::Escape)) { view.wiring = None; view.drop = None; }
+    // Wires picked up off an output: from the pointer to their inputs.
+    if let Some(ptr) = ui.input(|i| i.pointer.hover_pos()) {
+        for (to, input) in &view.carrying {
+            if let Some(tp) = input_pos(graph, *to, input, &view) {
+                draw_selected_wire(&painter, ptr, to_screen(tp), z);
+            }
+        }
+    }
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) { view.wiring = None; view.drop = None; view.unplug = None; }
 
     // ── Nodes ────────────────────────────────────────────────────────────────
     let ids: Vec<u32> = graph.nodes.iter().map(|n| n.id).collect();
     for id in ids {
         draw_node(ui, &painter, graph, id, &mut view, &to_screen, &to_canvas);
     }
-    // A wire let go of over nothing: dropped.
-    if view.wiring.is_some() && ui.input(|i| i.pointer.primary_released()) { view.wiring = None; }
+    // A wire let go of over nothing: dropped. Wires picked up and let go of
+    // over the canvas are so unplugged.
+    if ui.input(|i| i.pointer.primary_released()) { view.wiring = None; view.carrying.clear(); }
 
     // Pan with Shift+drag or the middle button.
-    if response.dragged() && (ui.input(|i| i.modifiers.shift) || ui.input(|i| i.pointer.middle_down())) {
+    let panning = ui.input(|i| i.modifiers.shift) || ui.input(|i| i.pointer.middle_down());
+    if response.dragged() && panning {
         view.pan += response.drag_delta();
     }
-    // A click on the canvas, off the wires: nothing selected.
-    if response.clicked() && hovered_wire.is_none() { view.selected = None; view.selected_wire = None; }
+    // Box select: drag on the empty canvas.
+    let busy = panning || view.wiring.is_some() || view.dragging.is_some();
+    if response.drag_started_by(egui::PointerButton::Primary) && !busy {
+        view.marquee = response.interact_pointer_pos().map(to_canvas);
+    }
+    if let (Some(start), true) = (view.marquee, response.dragged() && !busy) {
+        if let Some(cur) = response.interact_pointer_pos().map(to_canvas) {
+            let r = egui::Rect::from_two_pos(start, cur);
+            view.selected_nodes = graph.nodes.iter()
+                .filter(|n| r.intersects(egui::Rect::from_min_size(egui::pos2(n.pos[0], n.pos[1]), layout(graph, n.id, &view).size)))
+                .map(|n| n.id).collect();
+            view.selected = view.selected_nodes.first().copied();
+            view.selected_wire = None;
+            crate::graph_ports::draw_marquee(&painter, egui::Rect::from_two_pos(to_screen(start), to_screen(cur)), true);
+        }
+    }
+    if response.drag_stopped() { view.marquee = None; }
+    // A click on the canvas, off the wires: a picked port's wires come off,
+    // nothing is selected.
+    if response.clicked() && hovered_wire.is_none() {
+        if let Some(picked) = view.unplug.take() { unplug(graph, &picked); }
+        view.selected = None;
+        view.selected_nodes.clear();
+        view.selected_wire = None;
+    }
     // A wire taken off elsewhere: not selected.
     let gone = view.selected_wire.as_ref().is_some_and(|(to, input)| graph.source(*to, input).is_none());
     if gone { view.selected_wire = None; }
@@ -358,6 +396,16 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
     if view.selected.is_some_and(|s| graph.node(s).is_none()) { view.selected = None; }
     super::set_view(ui.ctx(), op, view);
     false
+}
+
+/// Take off every wire of a picked port: the one into an input, or every
+/// one out of an output.
+fn unplug(graph: &mut Graph, picked: &crate::graph_ports::Picked<u32, String>) {
+    let off: Vec<(u32, String)> = graph.nodes.iter().flat_map(|n| n.inputs.iter().filter_map(move |(input, b)| match b {
+        xms_matx::Binding::Connect { node: src, output } if picked.holds(*src, output, n.id, input) => Some((n.id, input.clone())),
+        _ => None,
+    })).collect();
+    for (to, input) in off { graph.disconnect(to, &input); }
 }
 
 /// The band under a selected wire: the wire's curve, wide, in the
@@ -479,7 +527,7 @@ fn draw_node(
     let np = to_screen(egui::pos2(node.pos[0], node.pos[1]));
     let rect = egui::Rect::from_min_size(np, lay.size * z);
     let font = |pt: f32| egui::FontId::proportional(pt * z);
-    let selected = view.selected == Some(id);
+    let selected = view.selected == Some(id) || view.selected_nodes.contains(&id);
     let body = tint(lib.group(&node.node).unwrap_or(""));
     let (ink, ink_type) = inks(body);
 
@@ -509,7 +557,7 @@ fn draw_node(
     let dr = ui.allocate_rect(title_rect, egui::Sense::click_and_drag());
     // The rows below the title: a wire dropped here offers the inputs.
     let rows_rect = egui::Rect::from_min_max(egui::pos2(rect.min.x + SOCK_HIT * 0.5 * z, title_rect.max.y), rect.max);
-    let rows = ui.allocate_rect(rows_rect, egui::Sense::click());
+    let rows = ui.allocate_rect(rows_rect, egui::Sense::click_and_drag());
     let fold = ui.allocate_rect(fold_rect.expand(2.0 * z), egui::Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(if lay.folded { "Show every input" } else { "Show the connected inputs only" });
@@ -532,22 +580,72 @@ fn draw_node(
             view.wiring = Some((id, name.clone()));
             view.message.clear();
         }
+        // Ctrl+drag (Cmd on macOS): its wires picked up, to go to another
+        // output or, let go of over the canvas, nowhere.
+        if sr.drag_started_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.command) {
+            let off: Vec<(u32, String)> = graph.nodes.iter().flat_map(|n| n.inputs.iter().filter_map(move |(input, b)| match b {
+                xms_matx::Binding::Connect { node, output } if *node == id && output == name => Some((n.id, input.clone())),
+                _ => None,
+            })).collect();
+            if !off.is_empty() {
+                view.wiring = None;
+                view.unplug = None;
+                for (to, input) in &off { graph.disconnect(*to, input); }
+                view.carrying = off;
+            }
+        }
+        // Wires picked up off another output, let go of here: they come from
+        // this output now (not into its own node), where the types allow.
+        if sr.contains_pointer() && ui.input(|i| i.pointer.primary_released()) && !view.carrying.is_empty() {
+            for (to, input) in std::mem::take(&mut view.carrying) {
+                if to == id { continue; }
+                if let Err(e) = graph.connect(lib, id, name, to, &input) { view.message = e; }
+            }
+        }
+        // Clicked, with wires out of it: picked, to unplug them with a click
+        // on the canvas.
+        if sr.clicked() {
+            let wired = graph.nodes.iter().any(|n| n.inputs.iter().any(|(_, b)| matches!(b, xms_matx::Binding::Connect { node, output } if *node == id && output == name)));
+            view.unplug = wired.then(|| crate::graph_ports::Picked::Output(id, name.clone()));
+        }
+        if view.unplug == Some(crate::graph_ports::Picked::Output(id, name.clone())) {
+            crate::graph_ports::draw_picked(painter, sp, 4.0 * z.max(0.6));
+        }
     }
     // Inputs, on the left.
     for (name, ty, at) in &lay.inputs {
         let sp = np + *at * z;
-        let sr = ui.allocate_rect(egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0))), egui::Sense::drag());
+        let sr = ui.allocate_rect(egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0))), egui::Sense::click_and_drag());
         // While a wire is drawn the pointer is over the port, though the
         // wire's drag holds the hover.
         let target = sr.contains_pointer() && view.wiring.is_some();
         draw_port(painter, sp, type_colour(*ty), target, z);
         painter.text(egui::pos2(sp.x + 7.0 * z, sp.y), egui::Align2::LEFT_CENTER, name, font(LABEL_PT), ink);
+        // Dragged with a wire in it: the wire picked up, its end following
+        // the pointer, to go into another input or, let go of over the
+        // canvas, nowhere.
+        if sr.drag_started_by(egui::PointerButton::Primary) && view.wiring.is_none() {
+            if let Some((src, output)) = graph.source(id, name).map(|(s, o)| (s, o.to_string())) {
+                graph.disconnect(id, name);
+                view.wiring = Some((src, output));
+                view.unplug = None;
+                view.message.clear();
+            }
+        }
         if sr.contains_pointer() && ui.input(|i| i.pointer.primary_released()) {
             if let Some((from, output)) = view.wiring.take() {
                 if from != id {
                     view.message = graph.connect(lib, from, &output, id, name).err().unwrap_or_default();
                 }
+                view.unplug = None;
+            } else if sr.clicked() && graph.source(id, name).is_some() {
+                // Clicked, with a wire into it: picked, to unplug it with a
+                // click on the canvas.
+                view.unplug = Some(crate::graph_ports::Picked::Input(id, name.clone()));
             }
+        }
+        if view.unplug == Some(crate::graph_ports::Picked::Input(id, name.clone())) {
+            crate::graph_ports::draw_picked(painter, sp, 4.0 * z.max(0.6));
         }
     }
     // A wire let go of over the node's rows or title, not on a port: the
@@ -562,7 +660,25 @@ fn draw_node(
         }
     }
 
-    if dr.clicked() || rows.clicked() { view.selected = Some(id); view.selected_wire = None; }
+    // A click selects the node; Shift+click adds it to the selection.
+    if dr.clicked() || rows.clicked() {
+        view.selected_wire = None;
+        view.unplug = None;
+        if ui.input(|i| i.modifiers.shift) {
+            if let Some(k) = view.selected_nodes.iter().position(|n| *n == id) {
+                view.selected_nodes.remove(k);
+            } else {
+                if let Some(s) = view.selected { if !view.selected_nodes.contains(&s) { view.selected_nodes.push(s); } }
+                view.selected_nodes.push(id);
+            }
+        } else {
+            view.selected_nodes = vec![id];
+        }
+        view.selected = Some(id);
+    }
+    // The title or the rows dragged: the node moves, with the rest of the
+    // selection when it is part of it.
+    let grab = dr.union(rows.clone());
     dr.context_menu(|ui| {
         if ui.button("Delete").clicked() {
             graph.remove(id);
@@ -570,17 +686,25 @@ fn draw_node(
             ui.close();
         }
     });
-    if dr.drag_started() && view.wiring.is_none() {
+    if grab.drag_started() && view.wiring.is_none() {
         view.dragging = Some(id);
-        view.drag_offset = dr.interact_pointer_pos().unwrap_or_default() - np;
+        view.drag_offset = grab.interact_pointer_pos().unwrap_or_default() - np;
+        if !view.selected_nodes.contains(&id) { view.selected_nodes = vec![id]; }
         view.selected = Some(id);
         view.selected_wire = None;
     }
-    if dr.dragged() && view.dragging == Some(id) {
-        if let Some(ptr) = dr.interact_pointer_pos() {
+    if grab.dragged() && view.dragging == Some(id) {
+        if let Some(ptr) = grab.interact_pointer_pos() {
             let p = to_canvas(ptr - view.drag_offset);
-            if let Some(n) = graph.node_mut(id) { n.pos = [p.x.round(), p.y.round()]; }
+            let delta = [p.x.round() - node.pos[0], p.y.round() - node.pos[1]];
+            let moving: Vec<u32> = view.selected_nodes.iter().copied().chain([id]).collect();
+            let mut moved: Vec<u32> = vec![];
+            for m in moving {
+                if moved.contains(&m) { continue; }
+                moved.push(m);
+                if let Some(n) = graph.node_mut(m) { n.pos = [n.pos[0] + delta[0], n.pos[1] + delta[1]]; }
+            }
         }
     }
-    if dr.drag_stopped() { view.dragging = None; }
+    if grab.drag_stopped() { view.dragging = None; }
 }

@@ -197,6 +197,19 @@ pub struct NodeGraphState {
     pub selected_nodes:      Vec<NodeId>,
     pub marquee_start:       Option<egui::Pos2>,
     pub selected_connection: Option<ConnectionId>,
+    /// A port clicked to unplug: a click on the empty canvas takes its
+    /// wires off (`graph_ports`).
+    pub unplug:              Option<crate::graph_ports::Picked<NodeId, usize>>,
+    /// The inputs whose wires were picked up off an output (Ctrl+drag): let
+    /// go of on another output they go there, anywhere else they are gone.
+    pub carrying:            Vec<(NodeId, usize)>,
+    /// The wire being drawn was dragged (from an output, or picked up off an
+    /// input), not clicked: let go of over no input, it is gone.
+    pub wire_dragged:        bool,
+    /// The input the left button went down on, while it is held: dragged
+    /// far enough, its wire is picked up. Found from where the press was,
+    /// as the title under the socket would otherwise take the drag.
+    pub pressed_input:       Option<(NodeId, usize)>,
     pub graph_version:       u64,
     /// The operator whose output is the scene: what the Viewer draws, the
     /// Scene Explorer lists and the Primitive Inspector shows. One operator
@@ -264,6 +277,10 @@ impl Default for NodeGraphState {
             selected_nodes: vec![],
             marquee_start:  None,
             selected_connection: None,
+            unplug: None,
+            carrying: vec![],
+            wire_dragged: false,
+            pressed_input: None,
             graph_version: 0,
             view_flag: None,
             view_output: 0,

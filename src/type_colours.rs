@@ -55,7 +55,7 @@ impl DataType {
             DataType::Vector4  => (175, 150,  30),  // dark yellow
             DataType::Colour   => (240, 130,  60),  // orange
             DataType::Matrix   => (185, 150, 240),  // light purple: lighter than materials
-            DataType::String   => (204, 178, 153),  // desaturated red-beige: Houdini VOPs' OpInput
+            DataType::String   => (210, 165, 125),  // Houdini VOPs' OpInput, a little more saturated
             DataType::Material => (140,  95, 190),  // purple
             DataType::Closure  => (225, 120, 205),  // pink-magenta
             DataType::Other    => ( 85,  85,  85),  // dark grey

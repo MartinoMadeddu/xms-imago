@@ -319,7 +319,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         return true;
     }
 
-    // ── Delete or Backspace: delete the selected node ────────────────────────
+    // ── Delete or Backspace: the selected wire, else the selected nodes ──────
     // Pointer anywhere over the canvas, nodes included, as in the main network.
     // Not with the pointer over a window above the graph (the file browser).
     let ptr_in_canvas = ui.input(|i| i.pointer.hover_pos())
@@ -327,7 +327,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input()
         && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
     {
-        if let Some(id) = graph.selected_node { graph.remove_node(id); }
+        graph.delete_selected();
     }
 
     // ── Frame every node (F or A) ────────────────────────────────────────────
@@ -392,10 +392,21 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
                 if is_near_bezier_h(ptr, fp, tp, 10.0) { hovered = Some(conn.id); }
             }
             let colour = out_colour(graph, fn_.id, conn.from_output);
+            // Selected, or a wire of the port picked to unplug: a band in the
+            // selection colour under it.
+            let picked = graph.unplug.as_ref().is_some_and(|p| p.holds(conn.from_node, &conn.from_output, conn.to_node, &conn.to_input));
+            if graph.selected_wire == Some(conn.id) || picked { draw_selected_wire_h(&painter, fp, tp, z); }
             draw_wire_h(&painter, fp, tp, colour, hovered == Some(conn.id), z);
         }
     }
+    // Click a wire: select it (Delete takes it off). Right-click: take it off.
     if let Some(cid) = hovered {
+        if response.clicked() {
+            graph.selected_wire = Some(cid);
+            graph.selected_node = None;
+            graph.selected_nodes.clear();
+            graph.unplug = None;
+        }
         if response.secondary_clicked() { graph.remove_connection(cid); }
     }
 
@@ -409,8 +420,17 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         }
     }
 
+    // Wires picked up off an output: from the pointer to their inputs.
+    if let Some(ptr) = ui.input(|i| i.pointer.hover_pos()) {
+        for (to, input) in &graph.carrying {
+            if let Some(tn) = graph.nodes.iter().find(|n| n.id == *to) {
+                draw_selected_wire_h(&painter, ptr, to_screen(input_socket_pos(tn, *input, &collapsed)), z);
+            }
+        }
+    }
+
     // Cancel on Escape
-    if ui.input(|i| i.key_pressed(egui::Key::Escape)) { graph.connecting_from = None; }
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) { graph.connecting_from = None; graph.unplug = None; }
 
     // Draw all nodes — sockets handle their own press/release via raw input
     let nodes_clone = graph.nodes.clone();
@@ -436,11 +456,49 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     if graph.connecting_from.is_some() && response.drag_stopped() {
         graph.connecting_from = None;
     }
+    // The button let go of after a wire was dragged, over no port that took
+    // it (the ports, drawn above, take it first): it is gone. Wires picked
+    // up and let go of over the canvas are so unplugged.
+    if ui.input(|i| i.pointer.primary_released()) {
+        if graph.wire_dragged { graph.connecting_from = None; }
+        graph.wire_dragged = false;
+        graph.carrying.clear();
+    }
 
     // Pan with Shift+drag or MMB
     let is_mmb = ui.input(|i| i.pointer.middle_down());
-    if response.dragged() && (ui.input(|i| i.modifiers.shift) || is_mmb) {
+    let panning = ui.input(|i| i.modifiers.shift) || is_mmb;
+    if response.dragged() && panning {
         graph.pan_offset += response.drag_delta();
+    }
+
+    // ── Box select: drag on the empty canvas ─────────────────────────────────
+    let busy = panning || graph.connecting_from.is_some() || graph.dragging_node.is_some();
+    if response.drag_started_by(egui::PointerButton::Primary) && !busy {
+        graph.marquee = response.interact_pointer_pos().map(to_canvas);
+    }
+    if let (Some(start), true) = (graph.marquee, response.dragged() && !busy) {
+        if let Some(cur) = response.interact_pointer_pos().map(to_canvas) {
+            let r = egui::Rect::from_two_pos(start, cur);
+            let folded: HashSet<NodeId> = ui.data(|d| d.get_temp(collapsed_id())).unwrap_or_default();
+            graph.selected_nodes = graph.nodes.iter()
+                .filter(|n| r.intersects(egui::Rect::from_min_size(n.position, layout(n, folded.contains(&n.id)).size)))
+                .map(|n| n.id).collect();
+            graph.selected_node = graph.selected_nodes.first().copied();
+            graph.selected_wire = None;
+            crate::graph_ports::draw_marquee(&painter, egui::Rect::from_two_pos(to_screen(start), to_screen(cur)), true);
+        }
+    }
+    if response.drag_stopped() { graph.marquee = None; }
+
+    // ── A click on the empty canvas: a picked port's wires come off, a wire
+    // being drawn is let go of, nothing is selected ──────────────────────────
+    if response.clicked() && hovered.is_none() {
+        if let Some(picked) = graph.unplug.take() { graph.unplug(&picked); }
+        graph.connecting_from = None;
+        graph.selected_node = None;
+        graph.selected_nodes.clear();
+        graph.selected_wire = None;
     }
 
     // ── Add a node: Tab or right-click on the canvas, as in every graph ─────
@@ -594,7 +652,7 @@ fn draw_subnet_node(
     let lay     = layout(node, folded);
     let rect    = egui::Rect::from_min_size(np, lay.size * z);
     let font    = |pt: f32| egui::FontId::proportional(pt * z);
-    let is_sel  = graph.selected_node == Some(id);
+    let is_sel  = graph.selected_node == Some(id) || graph.selected_nodes.contains(&id);
     let body    = tint(&node.node_type);
     let (ink, ink_type) = inks(body);
 
@@ -633,8 +691,9 @@ fn draw_subnet_node(
     draw_fold_box(painter, fold_rect);
 
     // ── IMPORTANT: title bar allocated FIRST → lowest hit-test priority ───────
-    let title_rect = egui::Rect::from_min_size(np, egui::vec2(lay.size.x, if folded { FOLDED_H } else { TITLE_H }) * z);
-    let dr = ui.allocate_rect(title_rect, egui::Sense::click_and_drag());
+    // The whole node, so a click or drag on its body selects or moves it
+    // rather than starting a box on the canvas.
+    let dr = ui.allocate_rect(rect, egui::Sense::click_and_drag());
     let fold = ui.allocate_rect(fold_rect.expand(2.0 * z), egui::Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(if folded { "Expand" } else { "Collapse" });
@@ -658,13 +717,45 @@ fn draw_subnet_node(
         if sr.drag_started() || (sr.is_pointer_button_down_on() && graph.connecting_from.is_none()) {
             graph.connecting_from = Some((id, i));
         }
+        if sr.drag_started_by(egui::PointerButton::Primary) {
+            graph.wire_dragged = true;
+            graph.unplug = None;
+            // Ctrl+drag (Cmd on macOS): its wires picked up, to go to
+            // another output or, let go of over the canvas, nowhere.
+            if ui.input(|i| i.modifiers.command) {
+                let off: Vec<(ConnectionId, NodeId, usize)> = graph.connections.iter()
+                    .filter(|c| c.from_node == id && c.from_output == i)
+                    .map(|c| (c.id, c.to_node, c.to_input)).collect();
+                if !off.is_empty() {
+                    graph.connecting_from = None;
+                    graph.carrying = off.iter().map(|(_, n, k)| (*n, *k)).collect();
+                    for (cid, _, _) in off { graph.remove_connection(cid); }
+                }
+            }
+        }
+        // Wires picked up off another output, let go of here: they come
+        // from this output now (not into its own node).
+        if sr.contains_pointer() && ui.input(|s| s.pointer.primary_released()) && !graph.carrying.is_empty() {
+            for (to, input) in std::mem::take(&mut graph.carrying) {
+                if to != id { graph.add_connection(id, i, to, input); }
+            }
+        }
+        // Clicked, with wires out of it: picked, to unplug them with a click
+        // on the canvas (or still to wire, with a click on an input).
+        if sr.clicked() {
+            let wired = graph.connections.iter().any(|c| c.from_node == id && c.from_output == i);
+            graph.unplug = wired.then_some(crate::graph_ports::Picked::Output(id, i));
+        }
+        if graph.unplug == Some(crate::graph_ports::Picked::Output(id, i)) {
+            crate::graph_ports::draw_picked(painter, sp, PORT_R * z.max(0.6));
+        }
     }
 
     // ── Input ports (left edge) ───────────────────────────────────────────────
     for (i, inp) in node.inputs.iter().enumerate() {
         let sp  = np + lay.inputs[i] * z;
         let hit = egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0)));
-        let sr  = ui.allocate_rect(hit, egui::Sense::drag());
+        let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag());
         // Hovered while a wire is being drawn: a target.
         let target = sr.hovered() && graph.connecting_from.is_some();
         draw_port(painter, sp, in_colour(graph, inp), target, z);
@@ -675,16 +766,53 @@ fn draw_subnet_node(
 
         // Complete wire: mouse released while this socket is hovered.
         // Use raw input so the canvas response can't steal the release.
-        if sr.hovered() && ui.input(|s| s.pointer.primary_released()) {
+        // Dragged with a wire in it: the wire picked up, its end following
+        // the pointer, to go into another input or, let go of over the
+        // canvas, nowhere.
+        if sr.drag_started_by(egui::PointerButton::Primary) && graph.connecting_from.is_none() {
+            if let Some(src) = inp.connected_output {
+                let cid = graph.connections.iter().find(|c| c.to_node == id && c.to_input == i).map(|c| c.id);
+                if let Some(cid) = cid { graph.remove_connection(cid); }
+                graph.connecting_from = Some(src);
+                graph.wire_dragged = true;
+                graph.unplug = None;
+            }
+        }
+        if sr.contains_pointer() && ui.input(|s| s.pointer.primary_released()) {
             if let Some((fn_, fo)) = graph.connecting_from {
                 if fn_ != id { graph.add_connection(fn_, fo, id, i); }
                 graph.connecting_from = None;
+                graph.wire_dragged = false;
+                graph.unplug = None;
+            } else if sr.clicked() && inp.connected_output.is_some() {
+                // Clicked, with a wire into it: picked, to unplug it with a
+                // click on the canvas.
+                graph.unplug = Some(crate::graph_ports::Picked::Input(id, i));
             }
+        }
+        if graph.unplug == Some(crate::graph_ports::Picked::Input(id, i)) {
+            crate::graph_ports::draw_picked(painter, sp, PORT_R * z.max(0.6));
         }
     }
 
     // ── Title bar interactions (lowest priority — allocated first) ────────────
-    if dr.clicked() { graph.selected_node = Some(id); }
+    // A click selects the node; Shift+click adds it to the selection.
+    if dr.clicked() {
+        graph.unplug = None;
+        graph.selected_wire = None;
+        if ui.input(|i| i.modifiers.shift) {
+            if let Some(k) = graph.selected_nodes.iter().position(|n| *n == id) {
+                graph.selected_nodes.remove(k);
+            } else {
+                // The node selected before joins too.
+                if let Some(s) = graph.selected_node { if !graph.selected_nodes.contains(&s) { graph.selected_nodes.push(s); } }
+                graph.selected_nodes.push(id);
+            }
+        } else {
+            graph.selected_nodes = vec![id];
+        }
+        graph.selected_node = Some(id);
+    }
     let terminal = matches!(node.node_type, IceGraphNodeType::Root { .. });
     if !terminal {
         dr.context_menu(|ui| {
@@ -694,18 +822,32 @@ fn draw_subnet_node(
             }
         });
     }
-    // Only drag the node if we are not mid-wire
+    // Only drag the node if we are not mid-wire. A node of the selection
+    // moves the whole selection; another is selected and moved alone.
     if dr.drag_started() && graph.connecting_from.is_none() {
         graph.dragging_node = Some(id);
         graph.drag_offset   = dr.interact_pointer_pos().unwrap_or_default() - np;
+        if !graph.selected_nodes.contains(&id) { graph.selected_nodes = vec![id]; }
+        graph.selected_node = Some(id);
+        graph.selected_wire = None;
     }
     if dr.dragged() && graph.dragging_node == Some(id) {
         if let Some(ptr) = dr.interact_pointer_pos() {
-            let new_pos = to_canvas(ptr - graph.drag_offset);
-            if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == id) { n.position = new_pos; }
+            let delta = to_canvas(ptr - graph.drag_offset) - node.position;
+            let moving = graph.selected_nodes.clone();
+            for n in graph.nodes.iter_mut().filter(|n| moving.contains(&n.id) || n.id == id) { n.position += delta; }
         }
     }
     if dr.drag_stopped() { graph.dragging_node = None; }
+}
+
+/// The band under a selected wire: the same curve as `draw_wire_h`, wide,
+/// in the selection colour.
+pub(crate) fn draw_selected_wire_h(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2, z: f32) {
+    let off = (to.x - from.x).abs().max(60.0 * z) * 0.5;
+    let (c1, c2) = (egui::pos2(from.x + off, from.y), egui::pos2(to.x - off, to.y));
+    let pts: Vec<egui::Pos2> = (0..=24).map(|i| bezier(from, c1, c2, to, i as f32 / 24.0)).collect();
+    painter.add(egui::Shape::line(pts, egui::Stroke::new(6.0 * z.clamp(0.7, 1.5), crate::theme::selection())));
 }
 
 /// A port: a small dot in its type's colour on the node's edge, larger

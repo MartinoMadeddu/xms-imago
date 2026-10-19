@@ -79,6 +79,17 @@ pub struct View {
     pub zoom: f32,
     /// The node selected in the graph: its parameters are shown.
     pub selected: Option<u32>,
+    /// Every node selected (a box, or Shift+click): moved and deleted
+    /// together.
+    pub selected_nodes: Vec<u32>,
+    /// Where a box being dragged out to select nodes started, on the canvas.
+    pub marquee: Option<egui::Pos2>,
+    /// A port clicked to unplug: a click on the empty canvas takes its
+    /// wires off (`graph_ports`).
+    pub unplug: Option<crate::graph_ports::Picked<u32, String>>,
+    /// The inputs whose wires were picked up off an output (Ctrl+drag): let
+    /// go of on another output they go there, anywhere else they are gone.
+    pub carrying: Vec<(u32, String)>,
     /// The wire selected: the node and input it goes into. Delete takes it off.
     pub selected_wire: Option<(u32, String)>,
     /// A wire being drawn from this node's output.
@@ -107,7 +118,8 @@ pub struct Drop {
 
 impl Default for View {
     fn default() -> Self {
-        View { pan: egui::vec2(60.0, 60.0), zoom: 1.0, selected: None, selected_wire: None, wiring: None, dragging: None,
+        View { pan: egui::vec2(60.0, 60.0), zoom: 1.0, selected: None, selected_nodes: vec![], marquee: None, unplug: None, carrying: vec![],
+               selected_wire: None, wiring: None, dragging: None,
                drag_offset: egui::Vec2::ZERO, drop: None, message: String::new(), framed: false, toggled: vec![] }
     }
 }

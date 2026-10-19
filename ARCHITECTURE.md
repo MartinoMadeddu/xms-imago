@@ -166,6 +166,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `crates/xms-geo` | `Geo`, `Column`, `Attr`, `Topology`, `Context`, `CurveBasis`, `CurveWrap` (in the app: `core::geo`) |
 | `src/core/geo_mesh.rs` | `GeoMesh`: `Geo` to and from `MeshData` |
 | `src/type_colours.rs` | `DataType` and its colour: the colour of a type on ports and wires in every graph (ICE, MaterialX, material sockets) |
+| `src/graph_ports.rs` | What every graph does the same way with ports, wires and selection: a port picked to unplug (`Picked`), the marquee and the picked-port ring |
 | `crates/xms-ice` | the ICE engine: graph, compiler, batched executor |
 | `src/core/properties.rs` | Properties: values and their types, Object and Property contexts, the properties Imago knows and how each is written, opinions on prims without geometry, inheritance (visibility, purpose, Object values) |
 | `src/core/set_attribute.rs` | The Set Attribute operator: its rows, and setting them on the prims its Prims Location tab names |

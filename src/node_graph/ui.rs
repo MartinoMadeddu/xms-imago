@@ -285,7 +285,8 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
             let fp  = to_screen(output_socket_pos(fn_, conn.from_output));
             let tp  = to_screen(input_socket_pos(tn,   conn.to_input));
             let side = (side_output(fn_), side_input(tn, conn.to_input));
-            let is_sel = graph.selected_connection == Some(conn.id);
+            let is_sel = graph.selected_connection == Some(conn.id)
+                || graph.unplug.as_ref().is_some_and(|p| p.holds(conn.from_node, &conn.from_output, conn.to_node, &conn.to_input));
             if let Some(ptr) = response.hover_pos() {
                 if is_near_bezier(ptr, fp, tp, side, 10.0) { hovered_conn = Some(conn.id); }
             }
@@ -313,9 +314,18 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
             if let Some(ptr) = ptr { draw_wire_to(&painter, fp, ptr, (side_output(fn_), false), false, false); }
         }
     }
+    // Wires picked up off an output: from the pointer to their inputs.
+    if let Some(ptr) = ui.input(|i| i.pointer.hover_pos()) {
+        for (to, input) in &graph.carrying {
+            if let Some(tn) = graph.nodes.iter().find(|n| n.id == *to) {
+                draw_wire_to(&painter, ptr, to_screen(input_socket_pos(tn, *input)), (false, side_input(tn, *input)), false, true);
+            }
+        }
+    }
 
     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         graph.connecting_from = None;
+        graph.unplug = None;
     }
 
     // ── Delete selected nodes or wire ─────────────────────────────────────────
@@ -401,8 +411,30 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         }
     }
 
+    // The button let go of after a wire was dragged, over no port that took
+    // it (the ports, drawn above, take it first): it is gone. Wires picked
+    // up and let go of over the canvas are so unplugged.
+    if ui.input(|i| i.pointer.primary_released()) {
+        if graph.wire_dragged { graph.connecting_from = None; }
+        graph.wire_dragged = false;
+        graph.carrying.clear();
+        graph.pressed_input = None;
+    }
+
     // Cancel wire if mouse released over empty canvas
     if graph.connecting_from.is_some() && response.drag_stopped() {
+        graph.connecting_from = None;
+    }
+
+    // ── Click on empty canvas: a picked port's wires come off; a wire being
+    // drawn is let go of ───────────────────────────────────────────────────────
+    if response.clicked() && !is_panning && hovered_conn.is_none() {
+        if let Some(picked) = graph.unplug.take() {
+            let off: Vec<ConnectionId> = graph.connections.iter()
+                .filter(|c| picked.holds(c.from_node, &c.from_output, c.to_node, &c.to_input))
+                .map(|c| c.id).collect();
+            for cid in off { graph.remove_connection(cid); }
+        }
         graph.connecting_from = None;
     }
 
@@ -693,6 +725,38 @@ fn draw_node(
         if left && (sr.drag_started_by(egui::PointerButton::Primary) || (sr.is_pointer_button_down_on() && graph.connecting_from.is_none())) {
             graph.connecting_from = Some((id, i));
         }
+        if sr.drag_started_by(egui::PointerButton::Primary) {
+            graph.wire_dragged = true;
+            graph.unplug = None;
+            // Ctrl+drag (Cmd on macOS): its wires picked up, to go to
+            // another output or, let go of over the canvas, nowhere.
+            if ui.input(|i| i.modifiers.command) {
+                let off: Vec<(ConnectionId, NodeId, usize)> = graph.connections.iter()
+                    .filter(|c| c.from_node == id && c.from_output == i)
+                    .map(|c| (c.id, c.to_node, c.to_input)).collect();
+                if !off.is_empty() {
+                    graph.connecting_from = None;
+                    graph.carrying = off.iter().map(|(_, n, k)| (*n, *k)).collect();
+                    for (cid, _, _) in off { graph.remove_connection(cid); }
+                }
+            }
+        }
+        // Wires picked up off another output, let go of here: they come
+        // from this output now (not into its own node).
+        if sr.contains_pointer() && ui.input(|i| i.pointer.primary_released()) && !graph.carrying.is_empty() {
+            for (to, input) in std::mem::take(&mut graph.carrying) {
+                if to != id { graph.add_connection(id, i, to, input); }
+            }
+        }
+        // Clicked, with wires out of it: picked, to unplug them with a click
+        // on the canvas (or still to wire, with a click on an input).
+        if sr.clicked() {
+            let wired = graph.connections.iter().any(|c| c.from_node == id && c.from_output == i);
+            graph.unplug = wired.then_some(crate::graph_ports::Picked::Output(id, i));
+        }
+        if graph.unplug == Some(crate::graph_ports::Picked::Output(id, i)) {
+            crate::graph_ports::draw_picked(painter, sp, SOCKET_RADIUS * zoom);
+        }
     }
 
     // ── Input sockets ─────────────────────────────────────────────────────────
@@ -700,7 +764,7 @@ fn draw_node(
         let sp = to_screen(input_socket_pos(node, i));
         let side = side_input(node, i);
         let hit = egui::Rect::from_center_size(sp, egui::vec2(SOCKET_HIT, SOCKET_HIT));
-        let sr  = ui.allocate_rect(hit, egui::Sense::drag());
+        let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag());
 
         let r = SOCKET_RADIUS * zoom * if sr.hovered() { 1.3 } else { 1.0 };
         painter.circle_filled(sp, r + 1.0, egui::Color32::from_rgb(30, 30, 30));
@@ -720,14 +784,41 @@ fn draw_node(
                 egui::FontId::proportional(9.0 * zoom), xsi::TEXT_DIM());
         }
 
-        if sr.hovered() && ui.input(|inp| inp.pointer.primary_released()) {
+        // Dragged with a wire in it: the wire picked up, its end following
+        // the pointer, to go into another input or, let go of over the
+        // canvas, nowhere. Which socket was pressed is found from where the
+        // press was: the node's title, under the socket, would take the drag.
+        if ui.input(|i| i.pointer.primary_pressed() && i.pointer.press_origin().is_some_and(|p| hit.contains(p))) {
+            graph.pressed_input = Some((id, i));
+        }
+        let pulled = graph.pressed_input == Some((id, i)) && ui.input(|i| i.pointer.primary_down() && i.pointer.is_decidedly_dragging());
+        if pulled && graph.connecting_from.is_none() {
+            graph.pressed_input = None;
+            if let Some(src) = inp.connected_output {
+                let cid = graph.connections.iter().find(|c| c.to_node == id && c.to_input == i).map(|c| c.id);
+                if let Some(cid) = cid { graph.remove_connection(cid); }
+                graph.connecting_from = Some(src);
+                graph.wire_dragged = true;
+                graph.unplug = None;
+            }
+        }
+        if sr.contains_pointer() && ui.input(|inp| inp.pointer.primary_released()) {
             if let Some((fn_, fo)) = graph.connecting_from {
                 if fn_ != id {
                     graph.add_connection(fn_, fo, id, i);
                     graph.keep_an_input_free(id);
                 }
                 graph.connecting_from = None;
+                graph.wire_dragged = false;
+                graph.unplug = None;
+            } else if sr.clicked() && inp.connected_output.is_some() {
+                // Clicked, with a wire into it: picked, to unplug it with a
+                // click on the canvas.
+                graph.unplug = Some(crate::graph_ports::Picked::Input(id, i));
             }
+        }
+        if graph.unplug == Some(crate::graph_ports::Picked::Input(id, i)) {
+            crate::graph_ports::draw_picked(painter, sp, SOCKET_RADIUS * zoom);
         }
     }
 
@@ -763,6 +854,7 @@ fn draw_node(
 
     // ── Title bar drag / click ────────────────────────────────────────────────
     if dr.clicked() && !on_eye && !on_bypass && !on_flag {
+        graph.unplug = None;
         // Clicking a node: select it. If not shift-held, clear multi-selection.
         if !ui.input(|i| i.modifiers.shift) {
             graph.selected_nodes.clear();

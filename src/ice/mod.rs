@@ -72,6 +72,22 @@ pub struct IceGraph {
     pub next_node_id:       usize,
     pub next_connection_id: usize,
     pub selected_node:      Option<NodeId>,
+    /// Every node selected (a box, or Shift+click): moved and deleted
+    /// together. `selected_node` is the one whose parameters are shown.
+    pub selected_nodes:     Vec<NodeId>,
+    /// The wire selected: Delete takes it off.
+    pub selected_wire:      Option<ConnectionId>,
+    /// Where a box being dragged out to select nodes started, on the canvas.
+    pub marquee:            Option<egui::Pos2>,
+    /// A port clicked to unplug: a click on the empty canvas takes its
+    /// wires off (`graph_ports`).
+    pub unplug:             Option<crate::graph_ports::Picked<NodeId, usize>>,
+    /// The inputs whose wires were picked up off an output (Ctrl+drag): let
+    /// go of on another output they go there, anywhere else they are gone.
+    pub carrying:           Vec<(NodeId, usize)>,
+    /// The wire being drawn was dragged, not clicked: let go of over no
+    /// input, it is gone.
+    pub wire_dragged:       bool,
     pub dragging_node:      Option<NodeId>,
     pub drag_offset:        egui::Vec2,
     pub connecting_from:    Option<(NodeId, usize)>,
@@ -108,7 +124,9 @@ impl IceGraph {
             id, name,
             nodes: vec![], connections: vec![],
             next_node_id: 0, next_connection_id: 0,
-            selected_node: None, dragging_node: None,
+            selected_node: None, selected_nodes: vec![], selected_wire: None, marquee: None, unplug: None,
+            carrying: vec![], wire_dragged: false,
+            dragging_node: None,
             drag_offset: egui::Vec2::ZERO,
             connecting_from: None, pan_offset: egui::Vec2::ZERO, zoom: 1.0,
             error: Arc::default(),
@@ -189,9 +207,30 @@ impl IceGraph {
         for cid in wires { self.remove_connection(cid); }
         self.nodes.retain(|n| n.id != id);
         if self.selected_node == Some(id) { self.selected_node = None; }
+        self.selected_nodes.retain(|n| *n != id);
         if self.dragging_node == Some(id) { self.dragging_node = None; }
         if self.connecting_from.is_some_and(|(n, _)| n == id) { self.connecting_from = None; }
         true
+    }
+
+    /// Delete what is selected: the wire, else every node selected (not the
+    /// root, which every graph keeps).
+    pub fn delete_selected(&mut self) {
+        if let Some(cid) = self.selected_wire.take() {
+            self.remove_connection(cid);
+            return;
+        }
+        let mut ids = std::mem::take(&mut self.selected_nodes);
+        ids.extend(self.selected_node);
+        for id in ids { self.remove_node(id); }
+    }
+
+    /// Take off every wire of a picked port (`graph_ports::Picked`).
+    pub fn unplug(&mut self, picked: &crate::graph_ports::Picked<NodeId, usize>) {
+        let off: Vec<ConnectionId> = self.connections.iter()
+            .filter(|c| picked.holds(c.from_node, &c.from_output, c.to_node, &c.to_input))
+            .map(|c| c.id).collect();
+        for cid in off { self.remove_connection(cid); }
     }
 
     pub fn remove_connection(&mut self, cid: ConnectionId) {
@@ -202,6 +241,7 @@ impl IceGraph {
             }
         }
         self.connections.retain(|c| c.id != cid);
+        if self.selected_wire == Some(cid) { self.selected_wire = None; }
     }
 
     /// The graph as the engine takes it, and the editor's node at each of
@@ -443,6 +483,39 @@ mod tests {
         let pv = mesh.primvars.iter().find(|p| p.name == "test").expect("a test primvar");
         assert_eq!(pv.interp, crate::types::PrimVarInterp::Uniform);
         assert_eq!(pv.values, vec![vec![2.5]]);
+    }
+
+    /// A picked port's wires come off: an input's one wire, an output's
+    /// every wire. Deleting the selection takes the selected wire first,
+    /// else every selected node but the root.
+    #[test]
+    fn unplugging_and_deleting_the_selection() {
+        use crate::graph_ports::Picked;
+        let mut g = doubling();
+        let root = g.root().unwrap();
+        let p = g.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::GetData { .. })).unwrap().id;
+        let mul = g.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::Math { .. })).unwrap().id;
+        // P feeds both of Multiply's inputs: unplugging P's output takes both.
+        g.add_connection(p, 0, mul, 1);
+        g.unplug(&Picked::Output(p, 0));
+        assert!(g.connections.iter().all(|c| c.from_node != p));
+        assert!(g.nodes.iter().find(|n| n.id == mul).unwrap().inputs.iter().all(|i| i.connected_output.is_none()));
+        // An input: its wire only.
+        let set = g.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::SetData { .. })).unwrap().id;
+        g.unplug(&Picked::Input(set, 0));
+        assert!(g.connections.iter().all(|c| c.to_node != set));
+        assert!(g.connections.iter().any(|c| c.to_node == root), "Set's Execute still goes into the root");
+        // The selected wire goes first, then the nodes; the root stays.
+        let wire = g.connections[0].id;
+        g.selected_wire = Some(wire);
+        g.selected_nodes = vec![set, root];
+        g.delete_selected();
+        assert!(g.connections.iter().all(|c| c.id != wire));
+        assert!(g.nodes.iter().any(|n| n.id == set), "the wire only");
+        g.delete_selected();
+        assert!(g.nodes.iter().all(|n| n.id != set));
+        assert!(g.root().is_some());
+        assert!(g.selected_nodes.is_empty());
     }
 
     /// Putting a node down, wired to nothing, does not run the graph again;

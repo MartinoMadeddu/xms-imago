@@ -41,6 +41,7 @@ mod recent;
 mod menus;
 mod timings;
 mod type_colours;
+mod graph_ports;
 mod materialx;
 
 

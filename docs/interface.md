@@ -99,7 +99,10 @@ The list of recent files is kept in `recent.json` in the config folder.
 | Add a node | Right-click or press Tab on the canvas. The node is centred on the place you clicked |
 | Add a node after another | Right-click an output socket. The node you pick goes under that node, wired to the socket. If the place is taken it steps to the right |
 | Draw a wire | Drag from an output socket with the left button |
-| Remove a wire | Right-click it |
+| Remove a wire | Right-click it; or click it and press Delete or Backspace |
+| Unplug a port | Click a port that has a wire (an input, or an output with one or more), then click the empty canvas: its wires come off. The port shows a ring and its wires the selection colour until then; Escape, or a click anywhere else, lets it go. A clicked output still draws a new wire, so clicking an input instead connects it |
+| Unplug or move a wire in one motion | Drag from an input that has a wire: the wire comes off and its end follows the pointer. Let go on another input to connect it there, on the canvas to leave it unplugged. Ctrl+drag (Cmd+drag on macOS) from an output picks up all its wires: let go on another output to move them there, on the canvas to unplug them. A plain drag from an output still draws a new wire, as an output feeds any number of inputs |
+| Select several nodes | Drag a box on the empty canvas: every node it touches; Shift+click adds or takes off one. Dragging one of them moves them all; Delete deletes them |
 | See every node | "Frame" in the header, or F or A over the graph |
 | Tidy the graph | "Tidy" in the header lays the nodes out in rows, top to bottom, each node above the first node that uses it |
 | Copy nodes | Ctrl+C (Cmd+C on macOS) over the graph: the selected nodes, their parameters, the wires between them and the trees of their ICE nodes |
@@ -110,6 +113,8 @@ Copied nodes go to the system clipboard as text, and to `clipboard.json` in the 
 ![The ICE spherify template, then the same template added to it: the added nodes sit beside the first ones, and the view stays with the first](xms_copy_paste_add.png)
 
 A new node is never left out of sight: the view moves just enough to show it. Templates are laid out with Tidy and framed when they load.
+
+Wires, ports and selection work the same way in every graph: the scene graph, ICE graphs and MaterialX graphs (selecting and deleting a wire, unplugging a port with two clicks, box select; `src/graph_ports.rs`).
 
 ### Placeholder: a node that does not exist yet
 
@@ -159,7 +164,7 @@ Every graph colours a port, and the wires into it, by the type of data it carrie
 | Dark yellow | 175, 150, 30 | Vector 4, quaternion, rotation |
 | Orange | 240, 130, 60 | Colour (RGB, RGBA) |
 | Light purple | 185, 150, 240 | Matrix (3×3, 4×4) |
-| Desaturated red-beige (Houdini VOPs' OpInput) | 204, 178, 153 | String, file name, token |
+| Desaturated red-beige (Houdini VOPs' OpInput) | 210, 165, 125 | String, file name, token |
 | Purple | 140, 95, 190 | Material, shader (the scene graph's material sockets, MaterialX's shaders and `material`) |
 | Pink-magenta | 225, 120, 205 | BSDF, EDF, VDF (MaterialX closures) |
 | Dark grey | 85, 85, 85 | Execute (ICE), and what is not known yet |
