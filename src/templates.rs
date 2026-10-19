@@ -1088,7 +1088,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     let id = store.create_subnet("Spherify".into());
     if let Some(sub) = store.get_mut(id) {
-        // Get P → Normalize → Multiply (by 1.2) → Set P → ICE Tree.
+        // Get P → Normalize → Multiply (by 1.2) → Set P → ICE Execution Ports.
         let root = sub.root().expect("every ICE graph has a root");
         let get = sub.add_node("P".into(), IceGraphNodeType::get("P"), p(80.0, 200.0));
         let norm = sub.add_node("Normalize".into(), IceGraphNodeType::Math { op: xms_ice::Math::Normalize }, p(220.0, 200.0));
@@ -1108,7 +1108,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(cube, 0, dense, 0);
     g.add_connection(dense, 0, tree, 0);
     finish(g, tree, tree);
-    "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply), and written back as P (Set Data, run by the ICE Tree). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change Multiply's B in its parameters.".into()
+    "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply), and written back as P (Set Data, run by the ICEExectPorts node). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change Multiply's B in its parameters.".into()
 }
 
 fn mocap_example(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {

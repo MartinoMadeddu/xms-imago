@@ -369,7 +369,9 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
     sg.next_node_id = 0;
     for n in &t.nodes {
         let Ok(node_type) = serde_json::from_value::<crate::types::IceGraphNodeType>(n.node_type.clone()) else { continue };
-        let id = sg.add_node(n.name.clone(), node_type, egui::pos2(n.position[0], n.position[1]));
+        // The root's old name, from before it was ICE Execution Ports.
+        let name = if n.name == "ICE Tree" && matches!(node_type, crate::types::IceGraphNodeType::Root { .. }) { crate::ice::ROOT_NAME.to_string() } else { n.name.clone() };
+        let id = sg.add_node(name, node_type, egui::pos2(n.position[0], n.position[1]));
         if let Some(node) = sg.nodes.iter_mut().find(|x| x.id == id) {
             node.id = NodeId(n.id);
             for (input, value) in node.inputs.iter_mut().zip(&n.values) {
@@ -380,7 +382,7 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
     }
     // A tree from before the new engine has no root: it gets an empty one.
     if sg.root().is_none() {
-        sg.add_node("ICE Tree".into(), crate::types::IceGraphNodeType::Root { context: crate::core::geo::Context::Point }, egui::pos2(500.0, 200.0));
+        sg.add_node(crate::ice::ROOT_NAME.into(), crate::types::IceGraphNodeType::Root { context: crate::core::geo::Context::Point }, egui::pos2(500.0, 200.0));
     }
     // The root's ports, as many as the wires into it need.
     if let Some(root) = sg.nodes.iter_mut().find(|n| matches!(n.node_type, crate::types::IceGraphNodeType::Root { .. })) {
@@ -608,7 +610,7 @@ mod tests {
         let cube = g.add_node("Cube".into(), NodeType::cube(2.0), egui::pos2(100.0, 0.0));
         let sid = subnets.create_subnet("Spherify".into());
         {
-            // Get P → Normalize → Multiply (by 1.5) → Set P → ICE Tree.
+            // Get P → Normalize → Multiply (by 1.5) → Set P → ICE Execution Ports.
             let sg = subnets.get_mut(sid).unwrap();
             let root = sg.root().unwrap();
             let p = sg.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 200.0));

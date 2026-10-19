@@ -49,7 +49,7 @@ mod pal {
     // Node colours, by kind.
     pub fn GREEN() -> Color32 { Color32::from_rgb(152, 196,  98) }     // data, constants, maths, generators
     pub fn BLUE() -> Color32  { Color32::from_rgb(102, 150, 204) }     // get / set geometry
-    pub fn TEAL() -> Color32  { Color32::from_rgb(112, 186, 154) }     // the tree's in and out
+    pub fn PORTS() -> Color32 { Color32::from_rgb( 52,  52,  52) }     // ICE Execution Ports: dark grey, as MaterialX's material
 
     // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
@@ -64,7 +64,7 @@ struct Layout {
 }
 
 /// The title: the node type's full name in PascalCase (`GetData`,
-/// `CrossProduct`, `IceTree`).
+/// `CrossProduct`, `ICEExecutionPorts`).
 fn title_text(node: &IceGraphNode) -> String {
     crate::types::subnet_node_label(&node.node_type)
         .split_whitespace()
@@ -153,10 +153,18 @@ fn output_socket_pos(node: &IceGraphNode, idx: usize, collapsed: &HashSet<NodeId
     node.position + layout(node, collapsed.contains(&node.id)).outputs.get(idx).copied().unwrap_or_default()
 }
 
+/// The text colours that read on a node's colour: black on light ones,
+/// white on dark ones (ICE Execution Ports). The name's, then the type line's.
+fn inks(body: egui::Color32) -> (egui::Color32, egui::Color32) {
+    let lum = 0.299 * body.r() as f32 + 0.587 * body.g() as f32 + 0.114 * body.b() as f32;
+    if lum > 110.0 { (pal::INK(), pal::INK_TYPE()) }
+    else { (egui::Color32::from_rgb(240, 240, 240), egui::Color32::from_rgba_unmultiplied(240, 240, 240, 160)) }
+}
+
 /// A node's colour, by kind.
 fn tint(t: &IceGraphNodeType) -> egui::Color32 {
     match t {
-        IceGraphNodeType::Root { .. } => pal::TEAL(),
+        IceGraphNodeType::Root { .. } => pal::PORTS(),
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } => pal::GREEN(),
     }
@@ -477,7 +485,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     use xms_ice::{Math, Value};
     let mut out = vec![
         ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points)"),
-        ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the ICE Tree"),
+        ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the ICE Execution Ports"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Float(0.0) }, "A number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Int(0) }, "A whole number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Vec2([0.0; 2]) }, "Two numbers"),
@@ -588,6 +596,7 @@ fn draw_subnet_node(
     let font    = |pt: f32| egui::FontId::proportional(pt * z);
     let is_sel  = graph.selected_node == Some(id);
     let body    = tint(&node.node_type);
+    let (ink, ink_type) = inks(body);
 
     // A grey ring, the body, a dark edge; the selection blue around it when
     // selected, wide enough to see at any zoom.
@@ -602,11 +611,11 @@ fn draw_subnet_node(
     let name_y = if folded { np.y + FOLDED_H * 0.5 * z } else { np.y + 12.0 * z };
     for dx in [0.0, 0.6] {
         painter.text(egui::pos2(np.x + (7.0 + dx) * z, name_y), egui::Align2::LEFT_CENTER, &node.name,
-            font(TITLE_PT), pal::INK());
+            font(TITLE_PT), ink);
     }
     if !folded {
         painter.text(egui::pos2(np.x + 7.0 * z, np.y + 25.0 * z), egui::Align2::LEFT_CENTER, title_text(node),
-            font(TYPE_PT), pal::INK_TYPE());
+            font(TYPE_PT), ink_type);
         // A thin line between the title and the ports, short of the edges.
         let y = np.y + TITLE_H * z - 0.5;
         painter.line_segment([egui::pos2(rect.min.x + 4.0 * z, y), egui::pos2(rect.max.x - 4.0 * z, y)],
@@ -616,7 +625,7 @@ fn draw_subnet_node(
     // A constant's value, under the title.
     if let (false, Some(v)) = (folded, value_text(node)) {
         painter.text(egui::pos2(np.x + 7.0 * z, np.y + (TITLE_H + ROW_H * 0.5) * z), egui::Align2::LEFT_CENTER, v,
-            egui::FontId::monospace(LABEL_PT * z), pal::INK());
+            egui::FontId::monospace(LABEL_PT * z), ink);
     }
 
     // The collapse box, at the right of the title.
@@ -642,7 +651,7 @@ fn draw_subnet_node(
         draw_port(painter, sp, out_colour(graph, id, i), sr.hovered() || wiring, z);
         if !folded {
             painter.text(egui::pos2(sp.x - 7.0 * z, sp.y), egui::Align2::RIGHT_CENTER, &out.name,
-                font(LABEL_PT), pal::INK());
+                font(LABEL_PT), ink);
         }
 
         // Fire on the very first frame of press
@@ -661,7 +670,7 @@ fn draw_subnet_node(
         draw_port(painter, sp, in_colour(graph, inp), target, z);
         if !folded {
             painter.text(egui::pos2(sp.x + 7.0 * z, sp.y), egui::Align2::LEFT_CENTER, &inp.name,
-                font(LABEL_PT), pal::INK());
+                font(LABEL_PT), ink);
         }
 
         // Complete wire: mouse released while this socket is hovered.

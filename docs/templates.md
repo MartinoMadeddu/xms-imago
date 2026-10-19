@@ -31,7 +31,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 
 | Template | Shows |
 |---|---|
-| ICE graph: spherify | A cube subdivided three times, then an ICE graph: Get Data reads P, Normalize sets every point to unit length, Multiply scales by 1.2, Set Data writes P back, run by the ICE Tree. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
+| ICE graph: spherify | A cube subdivided three times, then an ICE graph: Get Data reads P, Normalize sets every point to unit length, Multiply scales by 1.2, Set Data writes P back, run by the ICE Execution Ports. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
 
 ## Simon: Basics
 

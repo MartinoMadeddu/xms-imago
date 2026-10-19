@@ -154,7 +154,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 ## Also in the box
 
 - Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of any number of inputs, as primitives or into one mesh
-- ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). Get Data reads an attribute (any the Primitive Inspector shows, from any context), maths nodes work on it, Set Data writes it, and the ICE Tree runs its Execute ports in order over every point (or face, corner, object), on each primitive in its own space. Compiled and run in parallel batches by the ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
+- ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). Get Data reads an attribute (any the Primitive Inspector shows, from any context), maths nodes work on it, Set Data writes it, and the ICE Execution Ports runs its Execute ports in order over every point (or face, corner, object), on each primitive in its own space. Compiled and run in parallel batches by the ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
 - Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip, and a Properties tab for the selected prims themselves (groups, cameras and lights too): each property's value and where it comes from
 - Graphs saved and loaded as JSON
 

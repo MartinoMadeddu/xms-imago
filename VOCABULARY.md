@@ -37,7 +37,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | How a Get Data reading another context makes the values an element touches one | promote, aggregate | **Several**: Average, Sum, Min, Max (Get Data's and Set Data's parameter) | Plain words: a face touches several points. Arrays (Get Array Data) will keep them as a list. |
 | What ICE reads from the topology without it being stored | intrinsic, built-in attribute | the Primitive Inspector's names: `corners`, `firstCorner`, `N`, `area` (Face); `ptIndex`, `faceIndex`, `localCornerIndex` (Corner) | One name for a column wherever it is shown or read. |
 | The colour a port and its wires get from what they carry | wire colour, socket colour | **data type colour** (`type_colours::DataType`) | One table for every graph: see docs/interface.md, Data type colours. |
-| An ICE graph's end node | SubnetInput / SubnetOutput, GraphInput / GraphOutput | **ICE Tree** | As in Softimage: one root with ordered Execute ports. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
+| An ICE graph's end node | SubnetInput / SubnetOutput, GraphInput / GraphOutput, ICE Tree | **ICE Execution Ports** (the node named ICEExectPorts) | Softimage's ICETree: one root with ordered Execute ports. Renamed so it says what it is. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
 
 ### Contexts and USD
 
@@ -73,7 +73,7 @@ The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 | Pick Primitives, Prune Primitives, Unpack | unchanged | "Primitive" now means exactly what these act on. |
 | "Primitives" menu category | Primitives (unchanged) | As above. |
 | Cube, Sphere, Grid under "Create" | **Shapes** group under "Create" | "Primitive" is no longer used for shapes. |
-| SubnetInput, SubnetOutput (ICE) | **ICE Tree** (root) | The new engine: Get Data and Set Data instead of a mesh going in and out. |
+| SubnetInput, SubnetOutput (ICE); ICE Tree | **ICE Execution Ports** (root) | The new engine: Get Data and Set Data instead of a mesh going in and out. |
 
 ## Code renames
 

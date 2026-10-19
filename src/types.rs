@@ -554,7 +554,7 @@ impl IceGraphNodeType {
 pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
     use xms_ice::{Math, Value};
     match t {
-        IceGraphNodeType::Root { .. } => "ICE Tree",
+        IceGraphNodeType::Root { .. } => "ICE Execution Ports",
         IceGraphNodeType::GetData { .. } => "Get Data",
         IceGraphNodeType::SetData { .. } => "Set Data",
         IceGraphNodeType::Constant { value } => match value {

@@ -2,7 +2,8 @@
 //! (nodes, wires, positions, values on unconnected inputs), and running it
 //! on a primitive's geometry with the ICE engine (`xms_ice`).
 //!
-//! A graph ends in its **ICE Tree** root: its Execute ports run in order,
+//! A graph ends in its **ICE Execution Ports** root (named ICEExectPorts):
+//! its Execute ports run in order,
 //! over every element of its context (points by default). Set Data nodes
 //! wired into it write attributes; everything else is reached from them.
 
@@ -58,6 +59,10 @@ pub struct IceGraphConnection {
     pub to_input:    usize,
 }
 
+/// The name a new graph's root is given (its type: ICE Execution Ports).
+/// A root still named as before, `ICE Tree`, is renamed when read.
+pub const ROOT_NAME: &str = "ICEExectPorts";
+
 #[derive(Clone)]
 pub struct IceGraph {
     pub id:                 IceGraphId,
@@ -110,11 +115,11 @@ impl IceGraph {
             types: Arc::default(),
             last_input: Arc::default(),
         };
-        g.add_node("ICE Tree".into(), IceGraphNodeType::Root { context: Context::Point }, egui::pos2(500.0, 200.0));
+        g.add_node(ROOT_NAME.into(), IceGraphNodeType::Root { context: Context::Point }, egui::pos2(500.0, 200.0));
         g
     }
 
-    /// The graph's root: the ICE Tree node.
+    /// The graph's root: the ICE Execution Ports node.
     pub fn root(&self) -> Option<NodeId> {
         self.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::Root { .. })).map(|n| n.id)
     }
@@ -159,7 +164,7 @@ impl IceGraph {
             if let Some(inp) = n.inputs.get_mut(to_in) {
                 inp.connected_output = Some((from, from_out));
             }
-            // The root keeps one Execute port free, as ICE's ICETree does.
+            // The root keeps one Execute port free, as Softimage's ICETree does.
             if matches!(n.node_type, IceGraphNodeType::Root { .. }) && n.inputs.iter().all(|i| i.connected_output.is_some()) {
                 let next = n.inputs.len() + 1;
                 n.inputs.push(execute_port(next));
@@ -364,7 +369,7 @@ mod tests {
     use super::*;
     use crate::core::geo::{Attr, Column, Role, POINTS};
 
-    /// Get P → Multiply (by its B, 2) → Set P → ICE Tree.
+    /// Get P → Multiply (by its B, 2) → Set P → ICE Execution Ports.
     fn doubling() -> IceGraph {
         let mut g = IceGraph::new(IceGraphId(0), "double".into());
         let root = g.root().unwrap();
