@@ -42,10 +42,10 @@ mod xsi {
     pub fn GHOST() -> Color32 { crate::theme::c(230, 120, 190) }
     pub fn BYPASS_VEIL() -> Color32 { Color32::from_rgba_unmultiplied(128, 128, 128, 120) }
     pub fn VIEW_FLAG_HOV() -> Color32 { crate::theme::c(150, 210, 255) } // 👁️ NEW - Lighter blue on hover
-    // Sockets carrying a material: purple.
-    pub fn SOCK_MAT() -> Color32 { Color32::from_rgb(140, 95, 190) }
-    pub fn SOCK_MAT_CONN() -> Color32 { Color32::from_rgb(175, 130, 225) }
-    pub fn SOCK_MAT_HOV() -> Color32 { Color32::from_rgb(205, 170, 245) }
+    // Sockets carrying a material: the materials' purple (`type_colours`).
+    pub fn SOCK_MAT() -> Color32 { crate::type_colours::DataType::Material.colour() }
+    pub fn SOCK_MAT_CONN() -> Color32 { crate::type_colours::connected(SOCK_MAT()) }
+    pub fn SOCK_MAT_HOV() -> Color32 { crate::type_colours::hovered(SOCK_MAT()) }
 }
 
 // ============================================================================

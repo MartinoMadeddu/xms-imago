@@ -40,6 +40,7 @@ mod history;
 mod recent;
 mod menus;
 mod timings;
+mod type_colours;
 mod materialx;
 
 

@@ -76,22 +76,23 @@ fn inks(body: egui::Color32) -> (egui::Color32, egui::Color32) {
     else { (egui::Color32::from_rgb(240, 240, 240), egui::Color32::from_rgba_unmultiplied(240, 240, 240, 160)) }
 }
 
-/// A data type's colour, on its ports and wires.
+/// A data type's colour, on its ports and wires: the colours every graph of
+/// XMS gives them (`type_colours`). An array is its element's colour.
 pub fn type_colour(t: Type) -> egui::Color32 {
-    let (r, g, b) = match t {
-        Type::Float | Type::FloatArray => (70, 230, 70),
-        Type::Integer | Type::Boolean | Type::IntegerArray => (20, 120, 40),
-        Type::Color3 | Type::Color4 | Type::Color3Array | Type::Color4Array => (240, 130, 60),
-        Type::Vector2 | Type::Vector3 | Type::Vector4 | Type::Vector2Array | Type::Vector3Array | Type::Vector4Array => (235, 225, 60),
-        Type::Matrix33 | Type::Matrix44 => (140, 150, 40),
-        Type::String | Type::Filename | Type::Geomname | Type::StringArray | Type::GeomnameArray => (200, 210, 225),
-        Type::Bsdf | Type::Edf | Type::Vdf => (225, 120, 205),
-        Type::SurfaceShader | Type::DisplacementShader | Type::VolumeShader | Type::LightShader => (140, 95, 190),
-        // The material: dark grey, as its node.
-        Type::Material => (70, 70, 70),
-        Type::None => (85, 85, 85),
-    };
-    egui::Color32::from_rgb(r, g, b)
+    use crate::type_colours::DataType;
+    match t {
+        Type::Float | Type::FloatArray => DataType::Float,
+        Type::Integer | Type::IntegerArray => DataType::Integer,
+        Type::Boolean => DataType::Boolean,
+        Type::Color3 | Type::Color4 | Type::Color3Array | Type::Color4Array => DataType::Colour,
+        Type::Vector2 | Type::Vector3 | Type::Vector2Array | Type::Vector3Array => DataType::Vector,
+        Type::Vector4 | Type::Vector4Array => DataType::Vector4,
+        Type::Matrix33 | Type::Matrix44 => DataType::Matrix,
+        Type::String | Type::Filename | Type::Geomname | Type::StringArray | Type::GeomnameArray => DataType::String,
+        Type::Bsdf | Type::Edf | Type::Vdf => DataType::Closure,
+        Type::SurfaceShader | Type::DisplacementShader | Type::VolumeShader | Type::LightShader | Type::Material => DataType::Material,
+        Type::None => DataType::Other,
+    }.colour()
 }
 
 /// Where everything of a node sits, relative to its top-left corner.

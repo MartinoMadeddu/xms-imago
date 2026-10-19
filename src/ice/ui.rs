@@ -51,13 +51,9 @@ mod pal {
     pub fn BLUE() -> Color32  { Color32::from_rgb(102, 150, 204) }     // get / set geometry
     pub fn TEAL() -> Color32  { Color32::from_rgb(112, 186, 154) }     // the tree's in and out
 
-    // Data types, as ICE colours their ports and wires.
-    pub fn SCALAR() -> Color32  { Color32::from_rgb( 70, 230,  70) }   // Float: bright green
-    pub fn INTEGER() -> Color32 { Color32::from_rgb( 20, 120,  40) }   // Int: dark green
-    pub fn VECTOR() -> Color32  { Color32::from_rgb(235, 225,  60) }   // Vec2, Vec3, Vec4: yellow
-    pub fn BOOLEAN() -> Color32 { Color32::from_rgb(214,  64,  56) }   // Bool: red
+    // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
-    pub fn OTHER() -> Color32   { Color32::from_rgb( 85,  85,  85) }   // execute and the rest: dark grey
+    pub fn OTHER() -> Color32   { crate::type_colours::DataType::Other.colour() }   // execute and the rest: dark grey
 }
 
 /// Where everything of a node sits, relative to its top-left corner.
@@ -544,14 +540,17 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<IceGraphNodeType> {
 /// A type's colour on ports and wires; Execute and what is not known yet
 /// are dark grey.
 fn ty_colour(t: Option<xms_ice::Ty>) -> egui::Color32 {
+    use crate::type_colours::DataType;
     use xms_ice::Ty;
     match t {
-        Some(Ty::Float) => pal::SCALAR(),
-        Some(Ty::Int) => pal::INTEGER(),
-        Some(Ty::Bool) => pal::BOOLEAN(),
-        Some(Ty::Vec2 | Ty::Vec3 | Ty::Vec4) => pal::VECTOR(),
-        None => pal::OTHER(),
-    }
+        Some(Ty::Float) => DataType::Float,
+        Some(Ty::Int) => DataType::Integer,
+        Some(Ty::Bool) => DataType::Boolean,
+        Some(Ty::Vec2 | Ty::Vec3) => DataType::Vector,
+        // Four numbers: a quaternion, a rotation.
+        Some(Ty::Vec4) => DataType::Vector4,
+        None => DataType::Other,
+    }.colour()
 }
 
 /// An output's colour: the type it gives, as the graph's last run found it.

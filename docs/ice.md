@@ -39,7 +39,7 @@ Every ICE graph ends in an **ICE Tree** node. Its inputs are **Execute ports**, 
 
 Right-click or Tab on the canvas to add a node: type to find it (↓ and ↑ through what is found, Enter adds), or pick it from its category, as in the scene graph and MaterialX graphs. A node is named after what it is (Get Data, Set Data, Add); the attribute a Get or Set Data reads or writes shows under its title (`self.P`). Drag from an output to an input to wire them.
 
-**Ports and wires are coloured by type**: Scalar bright green, Integer dark green, 2D, 3D and 4D Vector yellow, Boolean red; Execute, and what the graph has not run on yet, dark grey. The types are worked out, as the graph is drawn, on the geometry the graph last ran on (a Get Data is the type of the attribute it reads), for every node, wired into the ICE Tree or not.
+**Ports and wires are coloured by type**, as everywhere in XMS (see [Data type colours](interface.md#data-type-colours)): Scalar teal-green, Integer and Boolean blue, 2D and 3D Vector yellow, 4D Vector (a quaternion, a rotation) dark yellow; Execute, and what the graph has not run on yet, dark grey. The types are worked out, as the graph is drawn, on the geometry the graph last ran on (a Get Data is the type of the attribute it reads), for every node, wired into the ICE Tree or not.
 
 **Inputs hold values.** An input with nothing wired to it uses its own value, set in the Parameters pane (with its type: Scalar, Integer, 3D Vector, Boolean). A value meets the type of what it is combined with: a 1 added to a vector is the vector (1, 1, 1).
 

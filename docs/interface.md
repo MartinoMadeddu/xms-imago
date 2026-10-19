@@ -147,6 +147,25 @@ Scatter Points and Copy to Points are done in an ICE graph. A graph saved with t
 
 ![The add menu, Animation open](xms_add_menu.png)
 
+### Data type colours
+
+Every graph colours a port, and the wires into it, by the type of data it carries, with the same colour for a type wherever it is: an ICE float and a MaterialX float are the same teal-green. The colours are kept in one place (`src/type_colours.rs`) and do not change with the theme.
+
+| Colour | RGB | Type |
+|---|---|---|
+| Teal-green (Houdini VOPs' float) | 85, 210, 197 | Float (Scalar) |
+| Blue | 80, 140, 230 | Integer, Boolean |
+| Yellow | 235, 225, 60 | Vector (2D, 3D), position, texture coordinates |
+| Dark yellow | 175, 150, 30 | Vector 4, quaternion, rotation |
+| Orange | 240, 130, 60 | Colour (RGB, RGBA) |
+| Light purple | 185, 150, 240 | Matrix (3×3, 4×4) |
+| Desaturated red-beige (Houdini VOPs' OpInput) | 204, 178, 153 | String, file name, token |
+| Purple | 140, 95, 190 | Material, shader (the scene graph's material sockets, MaterialX's shaders and `material`) |
+| Pink-magenta | 225, 120, 205 | BSDF, EDF, VDF (MaterialX closures) |
+| Dark grey | 85, 85, 85 | Execute (ICE), and what is not known yet |
+
+An array is the colour of what it holds. A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
+
 ### MaterialX graphs
 
 A MaterialX operator holds a graph of MaterialX nodes, opened like an ICE graph: double-click it, or select it and press ↓; ↑ or the path at the top goes back up. It is drawn the same way, nodes coloured by kind (shaders purple, textures blue, procedurals orange, geometry teal, maths and the rest a neutral grey, the `surfacematerial` where the graph ends dark grey), the same whatever types a node takes: only its ports and wires are coloured by type. Right-click or Tab adds a node: the surface shaders, the material and the image nodes first, then every node of the library by group, or by a search. Drag an output onto an input to connect them; onto a node's body, to choose among the inputs that take it. A wire clicked is selected, and Delete or Backspace takes it off; right-clicked, it is taken off at once; a wire between types that do not join (after a node was changed) is red. Nodes with many inputs, the surface shaders, show their connected inputs only: the box at the right of the title shows them all. The Parameters pane shows the selected node's inputs (see [MaterialX](materialx.md)).
@@ -165,7 +184,7 @@ An ICE node holds a graph of its own. Double-click it, or select it and press �
 | Zoom | Mouse wheel, towards the pointer |
 | Frame | F or A |
 
-A graph runs on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage: every one, or those the ICE operator's Prims Location tab lists. Ports and wires are coloured by the type they carry (Scalar green, Integer dark green, vectors yellow, Boolean red, Execute and what is not known yet dark grey), as the graph's last run found them.
+A graph runs on each primitive coming in, in the primitive's own space, as an ICE tree runs on an object in Softimage: every one, or those the ICE operator's Prims Location tab lists. Ports and wires are coloured by the type they carry (see [Data type colours](#data-type-colours): Scalar teal-green, Integer and Boolean blue, 2D and 3D vectors yellow, 4D vectors dark yellow, Execute and what is not known yet dark grey), as the graph's last run found them.
 
 ## Parameters
 
