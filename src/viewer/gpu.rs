@@ -192,6 +192,13 @@ impl ViewerGpu {
                     binding: 2, visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None,
                 },
+                // Where each map's UVs read it from: a UDIM texture's tiles
+                // side by side in one image (`MapPlace` in the shader).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3, visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -307,7 +314,7 @@ impl ViewerGpu {
             wgpu::util::TextureDataOrder::LayerMajor,
             &[255, 255, 255, 255],
         ).create_view(&wgpu::TextureViewDescriptor::default());
-        let plain = material_group(device, &material_layout, &white, &white, &map_sampler);
+        let plain = material_group(device, &material_layout, &white, &white, &map_sampler, [1, 1], [1, 1]);
 
         ViewerGpu {
             view_buffer, view_group, opaque, blended, lines, edges, raised, on_top, top_buffer: vec![], frame_lines: [vec![], vec![]],
@@ -359,7 +366,8 @@ impl ViewerGpu {
         self.textures = textures;
         self.materials = scene.materials.iter().map(|m| {
             let view = |t: &Option<(PathBuf, Arc<Decoded>)>| t.as_ref().and_then(|(p, _)| self.textures.get(p)).map(|(_, v)| v).unwrap_or(&self.white);
-            material_group(device, &self.material_layout, view(&m.colour), view(&m.emissive), &self.map_sampler)
+            let tiles = |t: &Option<(PathBuf, Arc<Decoded>)>| t.as_ref().filter(|(p, _)| self.textures.contains_key(p)).map_or([1, 1], |(_, d)| d.tiles);
+            material_group(device, &self.material_layout, view(&m.colour), view(&m.emissive), &self.map_sampler, tiles(&m.colour), tiles(&m.emissive))
         }).collect();
 
         let mut meshes: Vec<GpuMesh> = vec![];
@@ -475,13 +483,28 @@ fn line_buffer(device: &wgpu::Device, lines: &[f32]) -> Vec<(wgpu::Buffer, u32)>
 }
 
 /// A material's bind group: its colour and emissive textures and the sampler.
-fn material_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, colour: &wgpu::TextureView, emissive: &wgpu::TextureView, sampler: &wgpu::Sampler) -> wgpu::BindGroup {
+/// How a map's UVs read it: scale then offset, as `MapPlace` in the shader.
+/// The GPU's UVs are (u, 1 - v); a UDIM image holds `tiles` across and up,
+/// tile 1001 at the bottom left, so u is divided by the tiles across and v
+/// by the tiles up, from the bottom.
+pub fn map_place(tiles: [u32; 2]) -> [f32; 4] {
+    let (sx, sy) = (1.0 / tiles[0].max(1) as f32, 1.0 / tiles[1].max(1) as f32);
+    [sx, sy, 0.0, 1.0 - sy]
+}
+
+fn material_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, colour: &wgpu::TextureView, emissive: &wgpu::TextureView,
+                  sampler: &wgpu::Sampler, colour_tiles: [u32; 2], emissive_tiles: [u32; 2]) -> wgpu::BindGroup {
+    let place: Vec<f32> = map_place(colour_tiles).into_iter().chain(map_place(emissive_tiles)).collect();
+    let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("viewer map place"), contents: bytemuck::cast_slice(&place), usage: wgpu::BufferUsages::UNIFORM,
+    });
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("viewer material"), layout,
         entries: &[
             wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(colour) },
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(emissive) },
             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+            wgpu::BindGroupEntry { binding: 3, resource: buffer.as_entire_binding() },
         ],
     })
 }
@@ -571,3 +594,21 @@ pub fn install(render_state: &egui_wgpu::RenderState, egui_samples: u32) {
 
 #[allow(dead_code)]
 fn _assert_send_sync() { fn f<T: Send + Sync>() {} f::<ViewerPaint>(); }
+
+#[cfg(test)]
+mod map_place_tests {
+    use super::map_place;
+
+    /// An ordinary texture is read as it is; a UDIM texture of 2 by 2 tiles
+    /// puts the middle of tile 1002 (UV 1.5, 0.5) at the middle of the
+    /// image's bottom-right quarter.
+    #[test]
+    fn udim_uvs_land_on_their_tile() {
+        assert_eq!(map_place([1, 1]), [1.0, 1.0, 0.0, 0.0]);
+        let p = map_place([2, 2]);
+        let (u, v) = (1.5f32, 0.5f32);
+        let gpu = [u, 1.0 - v];
+        let read = [gpu[0] * p[0] + p[2], gpu[1] * p[1] + p[3]];
+        assert_eq!(read, [0.75, 0.75]);
+    }
+}

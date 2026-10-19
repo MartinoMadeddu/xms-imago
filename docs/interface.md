@@ -66,6 +66,10 @@ The graph is saved as a JSON file. The top bar shows its name, and "(unsaved)" w
 | Add the materials of a MaterialX file | File > Import > MaterialX...: a MaterialX operator for each material of the `.mtlx` file (see [MaterialX](materialx.md#materialx-files)) |
 | Close | File > Quit (Ctrl+Q), or the window's close button. Asks to save unsaved changes first |
 
+### The file browser
+
+Folders first, then the files the asking field takes (**All files** shows the rest). **Collapse sequences**, on by default, lists files numbered alike as one entry: `shot.####.exr   1-120 (120 files)`; picking it gives its first file. With **UDIM** on too, a sequence numbered 1001 to 1999 in four digits is one `<UDIM>` path, `body.<UDIM>.exr   1001-1012 (5 tiles)`, which picking gives as it is: a texture of UDIM tiles (see [USD](usd.md#materials-in-the-viewer)). Both are kept from one browse to the next.
+
 ### Replacing files
 
 As in other programs, nothing is written over a file that exists without asking:

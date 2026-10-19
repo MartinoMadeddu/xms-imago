@@ -59,6 +59,8 @@ The editor draws the layout into a pixel buffer of its own, on several threads, 
 
 "Borders only" draws the outline of each island and leaves out the edges inside. It turns itself on for layouts over 300,000 edges, and can be turned off again. Where many inner edges land on one pixel they add up, so density reads as tone.
 
+The Viewer draws UDIM textures: a texture path with `<UDIM>` in it reads every tile, and each part of the mesh shows the tile its UVs fall in (see [USD](usd.md#materials-in-the-viewer)).
+
 UVs that run far outside the unit square, as a repeating texture does, are not taken for UDIM tiles: the header gives their extent, Fit shows the unit square and "Fit all" the whole extent.
 
 ![The authored UVs of a 461,595 triangle model](xms_uv_heavy.png)

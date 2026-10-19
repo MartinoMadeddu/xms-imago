@@ -28,6 +28,7 @@ pub mod material;
 /// Cameras: a UsdGeomCamera's values, looked through by the Viewer.
 pub mod camera;
 pub mod uv;
+pub mod sequences;
 pub mod manip;
 /// Keys on parameters: animation curves.
 pub mod keys;

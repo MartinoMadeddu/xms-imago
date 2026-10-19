@@ -170,6 +170,8 @@ Primitives are drawn with their materials: colour, roughness, metallic, opacity,
 ![The example model with its textures](xms_usd_textured.png)
 
 - Texture files are decoded in the background. A surface shows its plain colour until its texture is ready, and "loading N" shows next to the Viewer menu meanwhile.
+- PNG, JPEG, TIFF, TGA, HDR and OpenEXR are read. A float image (EXR, HDR) holds linear light and is shown as such.
+- **UDIM tiles:** a texture path with `<UDIM>` (or `<udim>`) in place of the tile number (`body.<UDIM>.exr`) reads every tile there is, from 1001 to 1999, as Mari, Substance and USD name them. The tiles are laid out as they lie in UV space and each part of the mesh shows the tile its UVs fall in; a tile not there is grey. The tiles share 4096 pixels across the widest way (1,024 each for up to four, 409 for ten). It works for a USD stage's textures, the Material operator's and a MaterialX graph's alike. In the file browser, with **Collapse sequences** and **UDIM** on, the tiles are one entry, `body.<UDIM>.exr`, which picking gives as it is.
 - Images larger than 2048 pixels on a side are reduced to that. Each gets its chain of smaller copies, so distant surfaces do not shimmer. Textures repeat outside the unit square.
 - A material with opacity below one is blended. A material whose opacity comes from its colour texture is cut out by that texture's alpha.
 - "Textures" in the Viewer menu turns all of this off and shows plain grey.

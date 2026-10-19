@@ -13,6 +13,14 @@ struct View {
 @group(1) @binding(0) var colour_map:   texture_2d<f32>;
 @group(1) @binding(1) var emissive_map: texture_2d<f32>;
 @group(1) @binding(2) var map_sampler:  sampler;
+// Where each map is read from: UVs scaled (xy) then offset (zw). An
+// ordinary texture is read as it is; a UDIM texture's tiles lie side by
+// side in one image, 1001 at the bottom left.
+struct MapPlace {
+    colour:   vec4<f32>,
+    emissive: vec4<f32>,
+};
+@group(1) @binding(3) var<uniform> map_place: MapPlace;
 
 struct MeshIn {
     @location(0) pos:    vec3<f32>,
@@ -55,8 +63,10 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
 fn fs_mesh(i: MeshOut) -> @location(0) vec4<f32> {
     // Textures are read before any branch: sampling needs every pixel of a
     // quad to take the same path.
-    let tex = mix(vec4<f32>(1.0), textureSample(colour_map, map_sampler, i.uv), i.flags.y);
-    let glow = textureSample(emissive_map, map_sampler, i.uv).rgb * i.flags.z;
+    let colour_uv = i.uv * map_place.colour.xy + map_place.colour.zw;
+    let emissive_uv = i.uv * map_place.emissive.xy + map_place.emissive.zw;
+    let tex = mix(vec4<f32>(1.0), textureSample(colour_map, map_sampler, colour_uv), i.flags.y);
+    let glow = textureSample(emissive_map, map_sampler, emissive_uv).rgb * i.flags.z;
     let base = i.colour * tex;
     if i.flags.w > 0.5 && base.a < 0.5 {
         discard;

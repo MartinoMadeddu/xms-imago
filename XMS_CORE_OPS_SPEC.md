@@ -304,7 +304,7 @@ Status for the whole section: **Not yet.** Collections would also be the third k
 
 ## 9. Materials
 
-Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with the texture behind each input, listed in Load USD's parameters and drawn in the Viewer (colour, emissive, opacity textures). Bindings stay with their prims and are written back when changed. The Material operator makes a UsdPreviewSurface (9.1); Material Binding puts materials in the scene and binds them (9.2).
+Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with the texture behind each input, listed in Load USD's parameters and drawn in the Viewer (colour, emissive, opacity textures; PNG, JPEG, TIFF, TGA, HDR, OpenEXR; UDIM tiles from a `<UDIM>` path). Bindings stay with their prims and are written back when changed. The Material operator makes a UsdPreviewSurface (9.1); Material Binding puts materials in the scene and binds them (9.2).
 
 ### 9.1 Create Material
 - A **compound operator**: contains other operators, and you can dive into the graph inside.

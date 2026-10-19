@@ -4,6 +4,12 @@
 //! background threads. The viewport asks for a file; until it is ready the
 //! surface shows its plain colour. `generation` moves each time a file
 //! finishes, which is the viewport's cue to rebuild its materials.
+//!
+//! PNG, JPEG, TIFF and OpenEXR are read. A float image (EXR) holds linear
+//! light, and is encoded as sRGB as the texture is (an 8-bit image already
+//! is). A `<UDIM>` path is its tiles laid out side by side in one image,
+//! tile 1001 at the bottom left, as the tiles lie in UV space: `tiles` says
+//! how many across and up, and the viewport scales the UVs to match.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +30,8 @@ pub struct Decoded {
     pub pixels: Vec<u8>,
     /// True when some pixel is not fully opaque.
     pub has_alpha: bool,
+    /// UDIM tiles across and up the image: [1, 1] for an ordinary texture.
+    pub tiles: [u32; 2],
 }
 
 enum State { Loading, Ready(Arc<Decoded>), Failed }
@@ -71,18 +79,77 @@ pub fn with_levels(pixels: Vec<u8>, width: u32, height: u32) -> Decoded {
         (w, h) = (nw, nh);
         levels += 1;
     }
-    Decoded { width, height, levels, pixels: all, has_alpha }
+    Decoded { width, height, levels, pixels: all, has_alpha, tiles: [1, 1] }
+}
+
+/// Linear light to an sRGB byte.
+fn srgb(x: f32) -> u8 {
+    let x = if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.0 };
+    let s = if x <= 0.003_130_8 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 };
+    (s * 255.0 + 0.5) as u8
+}
+
+/// An image as eight-bit sRGB RGBA: a float one (EXR) encoded from linear
+/// light, an eight-bit one as it is.
+fn to_srgb8(img: image::DynamicImage) -> image::RgbaImage {
+    use image::DynamicImage as D;
+    match img {
+        D::ImageRgb32F(_) | D::ImageRgba32F(_) => {
+            let f = img.into_rgba32f();
+            let (w, h) = f.dimensions();
+            let px: Vec<u8> = f.into_raw().chunks_exact(4)
+                .flat_map(|p| [srgb(p[0]), srgb(p[1]), srgb(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8])
+                .collect();
+            image::RgbaImage::from_raw(w, h, px).unwrap_or_default()
+        }
+        other => other.into_rgba8(),
+    }
+}
+
+fn read(path: &Path) -> Option<image::DynamicImage> {
+    let bytes = std::fs::read(path).ok()?;
+    image::load_from_memory(&bytes).ok()
 }
 
 fn decode(path: &Path) -> Option<Decoded> {
-    let bytes = std::fs::read(path).ok()?;
-    let mut img = image::load_from_memory(&bytes).ok()?;
+    if crate::core::sequences::is_udim(path) { return decode_udim(path); }
+    let mut img = read(path)?;
     if img.width().max(img.height()) > MAX_SIDE {
         img = img.resize(MAX_SIDE, MAX_SIDE, image::imageops::FilterType::Triangle);
     }
-    let rgba = img.into_rgba8();
+    let rgba = to_srgb8(img);
     let (w, h) = rgba.dimensions();
     Some(with_levels(rgba.into_raw(), w, h))
+}
+
+/// Largest side of the image a set of UDIM tiles is laid out in.
+pub const UDIM_SIDE: u32 = 4096;
+
+/// A `<UDIM>` texture: every tile found, each made square at one size, laid
+/// out as the tiles lie in UV space, 1001 at the bottom left. A tile not
+/// there is mid grey. `None` when no tile is found.
+fn decode_udim(path: &Path) -> Option<Decoded> {
+    use crate::core::sequences::{tile_place, udim_tiles};
+    let tiles = udim_tiles(path);
+    if tiles.is_empty() { return None; }
+    let cols = tiles.iter().map(|(n, _)| tile_place(*n).0).max().unwrap_or(0) + 1;
+    let rows = tiles.iter().map(|(n, _)| tile_place(*n).1).max().unwrap_or(0) + 1;
+    let side = (UDIM_SIDE / cols.max(rows)).clamp(32, 1024);
+    let mut atlas = image::RgbaImage::from_pixel(cols * side, rows * side, image::Rgba([128, 128, 128, 255]));
+    let mut any = false;
+    for (n, file) in &tiles {
+        let Some(img) = read(file) else { continue };
+        let tile = to_srgb8(img.resize_exact(side, side, image::imageops::FilterType::Triangle));
+        let (c, r) = tile_place(*n);
+        // Row 0 of the image is the top: the highest row of tiles.
+        image::imageops::replace(&mut atlas, &tile, (c * side) as i64, ((rows - 1 - r) * side) as i64);
+        any = true;
+    }
+    if !any { return None; }
+    let (w, h) = atlas.dimensions();
+    let mut d = with_levels(atlas.into_raw(), w, h);
+    d.tiles = [cols, rows];
+    Some(d)
 }
 
 /// The decoded file, if it is ready. The first call for a file starts its
@@ -121,6 +188,31 @@ mod tests {
         // The second level is a white pixel and a black one; the last their mean.
         assert_eq!(&d.pixels[32..40], &[255, 255, 255, 255, 0, 0, 0, 255]);
         assert_eq!(d.pixels[40], 128);
+    }
+
+    /// A `<UDIM>` path is its tiles in one image, laid out as in UV space:
+    /// 1001 at the bottom left, 1002 to its right, 1011 above it.
+    #[test]
+    fn udim_tiles_are_laid_out_as_in_uv_space() {
+        let dir = std::env::temp_dir().join("xms_udim_texture_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (n, c) in [(1001, [255, 0, 0]), (1002, [0, 255, 0]), (1011, [0, 0, 255])] {
+            image::RgbaImage::from_pixel(8, 8, image::Rgba([c[0], c[1], c[2], 255])).save(dir.join(format!("t.{n}.png"))).unwrap();
+        }
+        let d = decode(&dir.join("t.<UDIM>.png")).expect("tiles found");
+        assert_eq!(d.tiles, [2, 2]);
+        let (w, h) = (d.width, d.height);
+        assert_eq!(w, h);
+        let at = |x: u32, y: u32| { let k = ((y * w + x) * 4) as usize; [d.pixels[k], d.pixels[k + 1], d.pixels[k + 2]] };
+        let (q, b) = (w / 4, h - h / 4);
+        assert_eq!(at(q, b), [255, 0, 0], "1001: bottom left");
+        assert_eq!(at(w - q, b), [0, 255, 0], "1002: bottom right");
+        assert_eq!(at(q, h / 4), [0, 0, 255], "1011: top left");
+        assert_eq!(at(w - q, h / 4), [128, 128, 128], "1012 is not there: grey");
+        assert!(decode(&dir.join("none.<UDIM>.png")).is_none());
+        // Linear light, encoded as sRGB: half is about 188.
+        assert_eq!((srgb(0.0), srgb(0.5), srgb(1.0), srgb(4.0)), (0, 188, 255, 255));
     }
 
     #[test]

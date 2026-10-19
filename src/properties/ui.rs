@@ -1405,7 +1405,7 @@ fn material_rows(ui: &mut egui::Ui, s: &mut crate::core::material::PreviewSurfac
                 });
             });
             if clear || file.trim().is_empty() { s.textures.remove(input); } else { s.textures.insert(input.to_string(), file.clone()); }
-            if !clear && !file.trim().is_empty() && !std::path::Path::new(file.trim()).exists() {
+            if !clear && !file.trim().is_empty() && !crate::core::sequences::texture_exists(&file) {
                 f.status(Status::Bad, format!("{label}: file not found"));
             }
         }

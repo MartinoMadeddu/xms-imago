@@ -269,7 +269,7 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
                 changed = ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/texture.png").desired_width(w.max(40.0))).changed();
                 if ui.button("📂").on_hover_text("Browse").clicked() { *browse = true; }
             });
-            if !s.trim().is_empty() && !s.contains("<UDIM>") && !std::path::Path::new(s.trim()).exists() {
+            if !s.trim().is_empty() && !crate::core::sequences::texture_exists(s) {
                 ui.label(egui::RichText::new("file not found").small().color(egui::Color32::from_rgb(235, 140, 120)));
             }
             changed

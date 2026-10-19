@@ -1,6 +1,6 @@
 # XMS documentation
 
-- [Interface](interface.md): dockable panes, saved layout, theme, primitive inspector
+- [Interface](interface.md): dockable panes, saved layout, theme, primitive inspector, the file browser (sequences, UDIM), wires and selection in every graph, data type colours
 - [Undo](undo.md): what is undone, steps, branches, the History pane
 - [Templates and example files](templates.md): ready-made graphs for every area of the program
 - [Edit Poly](edit-poly.md): polygon modelling in one node

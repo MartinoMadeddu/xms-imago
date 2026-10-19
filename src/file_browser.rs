@@ -2,6 +2,12 @@
 //!
 //! Opens where the user last navigated, in this session or a previous one.
 //! The location is kept in a small text file in the user's config folder.
+//!
+//! **Collapse sequences** (on by default) lists files numbered alike as one
+//! entry (`shot.####.exr  1-120`); picking it gives its first file. With
+//! **UDIM** on too, a sequence numbered 1001 to 1999 is one `<UDIM>` path
+//! (`body.<UDIM>.exr  1001-1012`), which picking gives as it is: what a
+//! texture input takes for UDIM tiles (`core::sequences`).
 
 use std::path::{Path, PathBuf};
 
@@ -65,11 +71,16 @@ pub struct FileBrowser {
     dir:     PathBuf,
     request: Option<Request>,
     result:  Option<(BrowseTarget, PathBuf)>,
+    /// Files numbered alike listed as one entry. Kept from one browse to
+    /// the next, for the session.
+    collapse: bool,
+    /// With `collapse`: a sequence of UDIM tiles listed as its `<UDIM>` path.
+    udim:     bool,
 }
 
 impl Default for FileBrowser {
     fn default() -> Self {
-        Self { dir: load_last_dir(), request: None, result: None }
+        Self { dir: load_last_dir(), request: None, result: None, collapse: true, udim: true }
     }
 }
 
@@ -176,6 +187,13 @@ impl FileBrowser {
         let key = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
         dirs.sort_by_key(key);
         files.sort_by_key(key);
+        // Sequences as one entry each, UDIM tiles as their <UDIM> path.
+        let entries: Vec<crate::core::sequences::Entry> = if self.collapse {
+            crate::core::sequences::collapse(&files, self.udim)
+        } else {
+            files.iter().cloned().map(crate::core::sequences::Entry::File).collect()
+        };
+        let (mut collapse, mut udim) = (self.collapse, self.udim);
 
         let mut go_to:   Option<PathBuf> = None;
         let mut confirm: Option<PathBuf> = None;
@@ -227,10 +245,12 @@ impl FileBrowser {
                             let resp = ui.selectable_label(false, format!("📁 {name}"));
                             if resp.double_clicked() || resp.clicked() { go_to = Some(d.clone()); }
                         }
-                        for f in &files {
+                        for entry in &entries {
+                            let f = entry.path();
                             let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                            let sel  = req.selected.as_ref() == Some(f);
-                            let resp = ui.selectable_label(sel, format!("📄 {name}"));
+                            let sel  = req.selected.as_ref() == Some(&f);
+                            let icon = match entry { crate::core::sequences::Entry::File(_) => "📄", _ => "🎞" };
+                            let resp = ui.selectable_label(sel, format!("{icon} {}", entry.label()));
                             if resp.clicked() {
                                 req.selected  = Some(f.clone());
                                 req.file_name = name.clone();
@@ -287,9 +307,19 @@ impl FileBrowser {
                         ui.checkbox(&mut req.all_files, "All files");
                         ui.weak(format!("showing .{}", req.exts.join(" .")));
                     }
+                    if req.mode != BrowseMode::Folder {
+                        ui.checkbox(&mut collapse, "Collapse sequences")
+                            .on_hover_text("Files numbered alike as one entry (shot.####.exr); picking it gives its first file");
+                        ui.add_enabled_ui(collapse, |ui| {
+                            ui.toggle_value(&mut udim, "UDIM")
+                                .on_hover_text("A sequence numbered 1001 to 1999 as one <UDIM> path (body.<UDIM>.exr), for a texture of UDIM tiles");
+                        });
+                    }
                 });
             });
 
+        self.collapse = collapse;
+        self.udim = udim;
         if let Some(dir) = go_to { self.go(dir); }
         // A file that exists is replaced only once Replace is clicked.
         if let (Some(path), Some(req)) = (confirm.as_ref(), self.request.as_mut()) {
