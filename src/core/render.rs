@@ -582,8 +582,9 @@ pub struct RendererSettings {
     /// Values changed from a definition's defaults, by attribute name. Kept
     /// for every renderer chosen, so going back to one finds them again.
     pub values:      BTreeMap<String, Value>,
-    /// Settings typed in, by renderer: put under its namespace unless the
-    /// name has one (`spp` is `rray:spp`; `karma:object:x` stays).
+    /// Settings typed in, by renderer (Custom's one set): put under its
+    /// namespace unless the name has one (`spp` is `rray:spp`;
+    /// `karma:object:x` stays).
     pub extras:      BTreeMap<String, Vec<Extra>>,
     /// The AOVs ticked, by renderer. A renderer not here has its defaults.
     pub aovs:        BTreeMap<String, Vec<String>>,
@@ -642,10 +643,9 @@ impl RendererSettings {
         let key = self.extras_key();
         self.extras.entry(key).or_default()
     }
-    /// Custom renderers' rows are kept by their name.
-    fn extras_key(&self) -> String {
-        if self.renderer == CUSTOM { format!("{CUSTOM}:{}", self.custom_name.trim()) } else { self.renderer.clone() }
-    }
+    /// By renderer: Custom's are one set, whatever its name, so typing or
+    /// changing the name keeps the rows.
+    fn extras_key(&self) -> String { self.renderer.clone() }
 
     /// The AOVs ticked for the renderer chosen.
     pub fn ticked(&self, def: &Definition) -> Vec<String> {
@@ -675,7 +675,9 @@ pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> Ev
     if let Some(def) = &def {
         for p in &def.params { st.set(&p.name, RAttr::of(&r.value(p))); }
     }
-    for e in r.extras() {
+    // A Custom renderer's settings go under its name: none, none written.
+    let named = r.renderer != CUSTOM || !r.namespace().is_empty();
+    for e in r.extras().iter().filter(|_| named) {
         if e.name.trim().is_empty() { continue; }
         st.set(&r.full_name(&e.name), RAttr::of(&e.value));
     }
@@ -906,6 +908,12 @@ mod tests {
         r.extras_mut().push(Extra { name: "spp".into(), value: Value::Int(64) });
         r.extras_mut().push(Extra { name: "bounce".into(), value: Value::Int(4) });
         r.extras_mut().push(Extra { name: "other:thing".into(), value: Value::Float(1.0) });
+        // Typed in before the name: the rows stay when it is typed.
+        let mut unnamed = r.clone();
+        unnamed.custom_name.clear();
+        let st = named(renderer_settings(None, &unnamed));
+        assert!(at(&st, "/Render/Settings").attrs.is_empty(), "no name, nothing written (not a bare spp)");
+        assert_eq!(unnamed.extras().len(), 3, "the rows are kept with no name");
         let prims = named(renderer_settings(None, &r));
         assert_eq!(prims.len(), 1, "a RenderSettings prim, no AOVs: Custom has none");
         let st = at(&prims, "/Render/Settings");

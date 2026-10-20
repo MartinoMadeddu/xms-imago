@@ -29,7 +29,7 @@ Filtering and bit depth are not here: they belong to each RenderVar, or are the 
 
 ## Render Settings
 
-How a renderer renders it. Choose the **Renderer**: **Karma**, **Arnold**, any renderer with a definition file, or **Custom**.
+How a renderer renders it. Choose the **Renderer** from its menu: **Karma**, **Arnold**, any renderer with a definition file, or **Custom**.
 
 **Which RenderSettings prim:** the one the scene names (made by RenderScene Settings), else the first one made in Imago, else the first one of a loaded file (changed with an `over`), else it makes one at its own Primitive Location (`/Render/Settings`). The panel says which.
 
@@ -37,7 +37,7 @@ How a renderer renders it. Choose the **Renderer**: **Karma**, **Arnold**, any r
 
 **Extra Settings:** settings the definition does not list, as rows of name, type and value, written under the renderer's namespace (`arnold:global:` + the name) unless the name has one of its own (`karma:object:geosamples` stays as typed).
 
-**Custom:** type the renderer's name (`rray`). Its settings are rows you make, each written under that name: `spp` (int 64) is `int rray:spp = 64`, `bounce` is `rray:bounce`. The rows are kept by the renderer's name.
+**Custom:** type the renderer's name (`rray`). Its settings are rows you make, each written under that name: `spp` (int 64) is `int rray:spp = 64`, `bounce` is `rray:bounce`. Until it has a name nothing is written; the rows stay as you type or change it.
 
 **AOVs tab:** the renderer's standard AOVs as checkboxes, by group (Beauty, Light paths, Surface, Geometry, IDs); the beauty (`C` for Karma, `RGBA` for Arnold) is ticked to start with. **All**, **None** and **Defaults** tick them together. Each ticked AOV becomes a RenderVar beside the product (`/Render/Products/Vars/<name>`) with its `sourceName`, `sourceType` and `dataType`, added to the product's `orderedVars`. When there is no product yet, `Products/beauty` is made beside the RenderSettings prim. A Custom renderer has no standard AOVs: add them with Render Variables.
 

@@ -199,10 +199,19 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
     let def = (r.renderer != CUSTOM).then(|| render::definition(&r.renderer)).flatten();
 
     group(ui, "Renderer", Some("Whose settings: a definition file each (Karma and Arnold come with Imago; more go in the renderers folder), or Custom: settings you name"), |f| {
-        f.choice("Renderer", None, &mut r.renderer, &options);
+        f.row("Renderer", None, |ui| {
+            let current = options.iter().find(|(k, _)| *k == r.renderer).map(|(_, l)| *l).unwrap_or(r.renderer.as_str()).to_string();
+            egui::ComboBox::from_id_salt(("renderer", node.0)).width(ui.available_width() - 8.0).selected_text(current).show_ui(ui, |ui| {
+                for (key, label) in &options {
+                    if ui.selectable_label(r.renderer == *key, *label).clicked() { r.renderer = key.clone(); }
+                }
+            });
+        });
         if r.renderer == CUSTOM {
-            f.text("Name", Some("The renderer's name: its settings are written under it (rray: spp is rray:spp)"), &mut r.custom_name, "rray");
-            if r.namespace().is_empty() { f.status(Status::Info, "Type the renderer's name: the settings below go under it"); }
+            f.text("Name", Some("The renderer's name: its settings are written under it (rray: spp is rray:spp)"), &mut r.custom_name, "type the renderer's name");
+            let ns = r.namespace();
+            if ns.is_empty() { f.status(Status::Bad, "No name yet: type the renderer's name (rray). Until then its settings are not written"); }
+            else { f.status(Status::Ok, format!("Settings written as {ns}:name")); }
         } else if def.is_none() {
             f.status(Status::Bad, format!("No definition named \"{}\": its settings are kept, not written", r.renderer));
         }
