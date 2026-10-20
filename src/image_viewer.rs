@@ -100,8 +100,43 @@ fn scene(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<
     }
 }
 
-/// Where the Image Viewer's renders go: a folder of this program's own.
-fn render_dir() -> PathBuf { std::env::temp_dir().join(format!("xms-imago-render-{}", std::process::id())) }
+/// What the Image Viewer's render folders are called, before the program's id.
+const RENDER_DIR: &str = "xms-imago-render-";
+
+/// Where the Image Viewer's renders go: a folder of this program's own,
+/// deleted when it closes (`clean_up`).
+fn render_dir() -> PathBuf { std::env::temp_dir().join(format!("{RENDER_DIR}{}", std::process::id())) }
+
+/// Deletes this program's render folder (the layers written, the images
+/// rendered): when it closes. A render going is stopped first, and given
+/// two seconds to end, so its files can go.
+pub fn clean_up() {
+    command::stop(RUN_KEY);
+    let t0 = std::time::Instant::now();
+    while command::snapshot(RUN_KEY, 0).is_some_and(|s| s.state == State::Running) && t0.elapsed() < std::time::Duration::from_secs(2) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = std::fs::remove_dir_all(render_dir());
+}
+
+/// Deletes the render folders of programs no longer running (one that
+/// crashed, or was killed): when it starts. Another Imago running keeps its own.
+pub fn clean_up_left_behind() {
+    let Ok(read) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for e in read.filter_map(|e| e.ok()) {
+        let name = e.file_name().to_string_lossy().to_string();
+        let Some(pid) = name.strip_prefix(RENDER_DIR).and_then(|p| p.parse::<u32>().ok()) else { continue };
+        if pid != std::process::id() && !running(pid) { let _ = std::fs::remove_dir_all(e.path()); }
+    }
+}
+
+/// Whether a program with this id is running. On Windows not asked: taken as running.
+fn running(pid: u32) -> bool {
+    #[cfg(not(windows))]
+    { std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(true) }
+    #[cfg(windows)]
+    { let _ = pid; true }
+}
 
 pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, revision: u64) {
     // The scene's RenderSettings prims and cameras, when the graph changed.
@@ -272,6 +307,21 @@ fn poll(st: &mut ImageViewerState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(windows))]
+    #[test]
+    fn render_folders_left_behind_are_deleted() {
+        // An id no program has (beyond the usual pid range).
+        let gone = std::env::temp_dir().join(format!("{RENDER_DIR}{}", 4_000_000_000u32));
+        let mine = render_dir();
+        std::fs::create_dir_all(&gone).unwrap();
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::write(mine.join("scene.usda"), "#usda 1.0").unwrap();
+        clean_up_left_behind();
+        assert!(!gone.exists() && mine.exists(), "only folders of programs not running");
+        clean_up();
+        assert!(!mine.exists(), "its own when it closes");
+    }
 
     #[test]
     fn a_frame_is_rendered_with_the_settings_and_camera_chosen() {
