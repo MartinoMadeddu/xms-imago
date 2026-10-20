@@ -376,6 +376,9 @@ impl NodeGraphState {
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. }         => (vec![], vec![o("Scene")]),
+            NodeType::RenderSceneSettings { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }
+            | NodeType::RenderCommand { .. }
+                => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::MaterialBinding { inputs, .. } => (
                 std::iter::once(i("Scene")).chain((1..=(*inputs).max(1)).map(|k| InputSocket { name: format!("Material {k}"), connected_output: None })).collect(),
                 vec![o("Scene")],
@@ -673,6 +676,43 @@ impl NodeGraphState {
         };
         if let Ok(mut last) = LAST.lock() { *last = Some((key, id.0, output, value.clone())); }
         value
+    }
+
+    /// What reaches a render operator's input: the cameras, products and
+    /// RenderSettings prim of the scene (`core::render::context`), for its
+    /// Properties panel. Kept until the graph changes.
+    pub fn eval_render_context(
+        &self, id: NodeId,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    ) -> crate::core::render::Context {
+        type Kept = (u64, usize, crate::core::render::Context);
+        static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+        let key = self.content_hash();
+        if let Ok(last) = LAST.lock() {
+            if let Some((k, i, value)) = &*last { if *k == key && *i == id.0 { return value.clone(); } }
+        }
+        let value = self.nodes.iter().find(|n| n.id == id)
+            .and_then(|n| n.inputs.first()).and_then(|s| s.connected_output)
+            .and_then(|(src, out)| self.eval_node_out(src, out, &mut HashMap::new(), eval_subnet))
+            .map(|r| crate::core::render::context(&r))
+            .unwrap_or_default();
+        if let Ok(mut last) = LAST.lock() { *last = Some((key, id.0, value.clone())); }
+        value
+    }
+
+    /// The Write USD nearest above an operator (up its inputs, the first
+    /// first): the layer a Render Command renders.
+    pub fn upstream_write_usd(&self, id: NodeId) -> Option<NodeId> {
+        let mut queue: std::collections::VecDeque<NodeId> = self.nodes.iter().find(|n| n.id == id)?
+            .inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)).collect();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(n) = queue.pop_front() {
+            if !seen.insert(n) { continue; }
+            let Some(node) = self.nodes.iter().find(|x| x.id == n) else { continue };
+            if matches!(node.node_type, NodeType::WriteUsd { .. }) && !node.bypassed { return Some(n); }
+            queue.extend(node.inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)));
+        }
+        None
     }
 
     /// Freeze a node at its result now, or let it cook again.

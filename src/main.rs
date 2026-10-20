@@ -1203,6 +1203,8 @@ fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String>
             NodeType::WriteUsd { path } if std::path::Path::new(path.trim()).is_file() => Some(path.trim().to_string()),
             _ => None,
         }).into_iter().collect(),
+        // Rendering writes its layer again, as asked: no question.
+        PanelAction::RunCommand(_) => vec![],
     }
 }
 
@@ -1210,7 +1212,49 @@ fn run_action(graph: &NodeGraphState, subnets: &IceGraphStore, batch: &BatchStat
     match action {
         PanelAction::Write { targets, all_files } => batch::start(batch, graph, targets, all_files),
         PanelAction::WriteUsd(id) => write_usd(graph, subnets, id),
+        PanelAction::RunCommand(id) => run_command(graph, subnets, id),
     }
+}
+
+/// Run a Render Command: the Write USD above it writes its layer first
+/// when it says so, then its command lines start, in the background.
+fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId) {
+    let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
+    let NodeType::RenderCommand { command } = &node.node_type else { return };
+    let writer = graph.upstream_write_usd(id);
+    let usd = writer.and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
+        NodeType::WriteUsd { path } => Some(path.trim().to_string()),
+        _ => None,
+    }).unwrap_or_default();
+    if command.write_first {
+        if let Some(w) = writer {
+            write_usd(graph, subnets, w);
+            if let Some(Err(e)) = usd_write::last(w) {
+                crate::core::command::fail(id.0, format!("Not run: the layer could not be written: {e}"));
+                return;
+            }
+        }
+    }
+    // The folders the products write into: renderers do not make them.
+    if command.make_folders {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+            subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+        };
+        let scene = node.inputs.first().and_then(|i| i.connected_output)
+            .and_then(|(src, out)| graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval));
+        if let Some(types::EvalResult::Named(prims)) = scene {
+            let base = std::path::Path::new(&usd).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+            for dir in crate::core::render::output_folders(&prims, &base) {
+                if let Err(e) = std::fs::create_dir_all(&dir) {
+                    crate::core::command::fail(id.0, format!("Not run: could not make {}: {e}", dir.display()));
+                    return;
+                }
+            }
+        }
+    }
+    let lines = command.lines(&usd, &node.name, (graph.scene.start, graph.scene.end));
+    let env = command.env.iter().map(|e| (e.name.clone(), e.value.clone())).collect();
+    crate::core::command::start(id.0, lines, command.folder_for(&usd), env);
 }
 
 /// Add a saved graph to the one open, beside its nodes, as one undoable

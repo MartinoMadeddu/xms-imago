@@ -19,6 +19,10 @@
 //! - Material binding and purpose changes are written as such. Materials
 //!   Material Binding put in the scene are written as `def Material`s with
 //!   their shaders, under `def Scope` parents.
+//! - Render prims the render operators made are written as
+//!   `def RenderSettings`, `def RenderProduct` and `def RenderVar` under
+//!   `def Scope` parents (an `over` where the prim is a file's), and the
+//!   layer names its RenderSettings prim (`renderSettingsPrimPath`).
 //!
 //! Prims inside a native instance cannot carry opinions in USD (instance
 //! proxies are read-only), and point-instancer prototypes are changed
@@ -153,19 +157,22 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // Values set on those Xforms, carried by each primitive below them.
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
     let mut made: Vec<&Prim> = prims.iter().filter(|p| p.stage.is_none()).collect();
-    made.sort_by_key(|p| p.shading.is_some());
+    made.sort_by_key(|p| p.shading.is_some() || p.render.is_some());
     for p in made {
         if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
             report.skipped.push(format!("{}: not a primitive path", if p.path.is_empty() { "(no path)" } else { p.path.as_str() }));
             continue;
         }
         new_prim(root.at(&p.path), p, layer_root);
-        report.added += 1;
+        // A render prim of a file, changed: an `over`.
+        if p.render.as_ref().is_some_and(|r| r.over) { report.changed += 1; } else { report.added += 1; }
         let segments: Vec<&str> = p.path.split('/').filter(|s| !s.is_empty()).collect();
         for n in 1..segments.len() {
             let parent = format!("/{}", segments[..n].join("/"));
             let spec = root.at(&parent);
-            if spec.def.is_none() && !in_a_stage(&parent) { spec.def = Some(if p.shading.is_some() { "Scope" } else { "Xform" }); }
+            if spec.def.is_none() && !in_a_stage(&parent) {
+                spec.def = Some(if p.shading.is_some() || p.render.is_some() { "Scope" } else { "Xform" });
+            }
         }
         for (path, o) in p.above.iter() { above.entry(path.clone()).or_default().merge(o); }
     }
@@ -186,6 +193,9 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     // metadata only comes from the root layer), then the opinions.
     let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
     if let Some(name) = &default_prim { let _ = writeln!(text, "    defaultPrim = \"{name}\""); }
+    // The RenderSettings prim a renderer uses when told none: the one
+    // RenderScene Settings made.
+    if let Some(path) = crate::core::render::layer_settings(prims) { let _ = writeln!(text, "    renderSettingsPrimPath = \"{path}\""); }
     match sublayered.first() {
         Some(t) => {
             if let Some(mpu) = t.meters_per_unit { let _ = writeln!(text, "    metersPerUnit = {}", num64(mpu)); }
@@ -346,6 +356,14 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
             child.def = Some("Shader");
             child.lines = s.lines;
         }
+        for (name, value) in p.props.iter() { property(spec, name, value); }
+        return;
+    }
+    // A render prim: its attributes and relationships. One of a file is
+    // an `over`.
+    if let Some(r) = &p.render {
+        spec.def = if r.over { None } else { Some(r.kind.usd()) };
+        spec.lines.extend(r.lines());
         for (name, value) in p.props.iter() { property(spec, name, value); }
         return;
     }
@@ -787,6 +805,68 @@ def Xform "shot" {{
         let back = crate::usd_scene::load(&out).unwrap();
         let moved = back.cameras.iter().find(|c| c.path == "/shot/cam").unwrap();
         assert!((moved.position()[0] - 3.0).abs() < 1e-4 && (moved.position()[2] - 8.0).abs() < 1e-4, "{:?}", moved.position());
+    }
+
+    /// The render operators' prims are written as `def RenderSettings`,
+    /// `RenderProduct` and `RenderVar` under Scopes, with their
+    /// relationships, and the layer names the RenderSettings prim. Read back,
+    /// they are prims of those types.
+    #[test]
+    fn render_prims_are_written_and_read_back() {
+        use crate::core::render::{self, RendererSettings, SceneSettings};
+        let cube = cube_at("/set/cube");
+        let cam = Prim { camera: Some(Arc::new(Default::default())), ..Prim::new("/cam".into(), MeshData::default()) };
+        let scene = render::scene_settings(Some(&EvalResult::Named(vec![cube, cam])), &SceneSettings::default());
+        let EvalResult::Named(prims) = render::renderer_settings(Some(&scene), &RendererSettings::for_renderer("karma")) else { panic!() };
+        let out = std::env::temp_dir().join("xms_usd_write_test/render.usda");
+        let report = write_override(&prims, &out).unwrap();
+        assert_eq!(report.added, 5, "cube, camera, settings, product, the C var: {report:?}");
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in [
+            "renderSettingsPrimPath = \"/Render/Settings\"",
+            "def Scope \"Render\"", "def RenderSettings \"Settings\"", "def Scope \"Products\"", "def RenderProduct \"beauty\"",
+            "def Scope \"Vars\"", "def RenderVar \"C\"",
+            "uniform int2 resolution = (1920, 1080)", "rel camera = </cam>", "rel products = </Render/Products/beauty>",
+            "rel orderedVars = </Render/Products/Vars/C>", "uniform string sourceName = \"C.*[LO]\"", "string driver:parameters:aov:name = \"C\"", "int karma:global:bucketsize = 32",
+        ] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        let back = crate::usd_scene::load(&out).unwrap();
+        for (path, ty) in [("/Render/Settings", "RenderSettings"), ("/Render/Products/beauty", "RenderProduct"), ("/Render/Products/Vars/C", "RenderVar")] {
+            assert!(back.tree.nodes.iter().any(|n| n.path == path && n.type_name == ty), "{path} read back as a {ty}");
+        }
+    }
+
+    /// A file's RenderSettings prim is found without a wire and changed with
+    /// an `over`; the AOVs go on the file's product, appended to its own.
+    #[test]
+    fn a_files_render_settings_are_changed_with_overs() {
+        use crate::core::render::{self, RendererSettings};
+        let (path, _) = load("with_render.usda", &format!(r#"#usda 1.0
+def Xform "set" {{
+    def Mesh "card" {{{QUAD}    }}
+}}
+def Scope "Render" {{
+    def RenderSettings "rs" {{
+        uniform int2 resolution = (640, 480)
+    }}
+    def Scope "Products" {{
+        def RenderProduct "main" {{
+        }}
+    }}
+}}
+"#));
+        let scene = crate::usd_scene::load(&path).unwrap();
+        let prims = crate::node_graph::nodes::stage_prims(&scene, crate::usd_scene::LoadMode::Sublayer, "", "").unwrap();
+        let EvalResult::Named(prims) = render::renderer_settings(Some(&EvalResult::Named(prims)), &RendererSettings::for_renderer("arnold")) else { panic!() };
+        let out = std::env::temp_dir().join("xms_usd_write_test/render_over.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!(report.changed, 2, "the settings and the product: {report:?}");
+        for line in ["over \"rs\"", "int arnold:global:AA_samples = 3", "over \"main\"",
+            "append rel orderedVars = [</Render/Products/Vars/RGBA>]", "def Scope \"Vars\"", "def RenderVar \"RGBA\""] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        assert!(!text.contains("def RenderSettings") && !text.contains("renderSettingsPrimPath"), "the file's prim is not made again:\n{text}");
     }
 
     #[test]

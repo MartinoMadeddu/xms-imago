@@ -76,7 +76,7 @@ fn shown<'a>(prims: &'a [Prim], paths: &[String]) -> Vec<(&'a Prim, bool)> {
     };
     let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
     // A material has no geometry: its inputs are in the Properties tab.
-    prims.iter().filter(|x| x.shading.is_none() && x.camera.is_none() && wanted(x)).filter_map(|p| {
+    prims.iter().filter(|x| x.shading.is_none() && x.camera.is_none() && x.render.is_none() && wanted(x)).filter_map(|p| {
         if !instanced(p) { return Some((p, true)); }
         seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then_some((p, false))
     }).collect()
@@ -204,6 +204,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
             (None, Some(p)) => match p.geo.as_ref().map(|g| &g.topology) {
                 _ if p.shading.is_some() => "Material".into(),
                 _ if p.camera.is_some() => "Camera".into(),
+                _ if p.render.is_some() => p.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                 _ => "Mesh".into(),
@@ -216,6 +217,18 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
         if let Some(m) = prim.and_then(|p| p.shading.as_ref()) {
             let from = match material_of(graph, view, &m.name) { Some((id, n)) => (n, Some(id)), None => ("Imago".into(), None) };
             for (name, value) in crate::core::material::inputs(m) { row(&name, value, from.clone()); }
+            continue;
+        }
+
+        // A render prim: its attributes and relationships, from the render
+        // operator that made it.
+        if let Some(r) = prim.and_then(|p| p.render.as_ref()) {
+            let from = render_of(graph, view, path).map(|(id, n)| (n, Some(id))).unwrap_or_else(made_here);
+            if r.over { row("specifier", "over (the prim is the file's)".into(), from.clone()); }
+            for (name, a) in &r.attrs { row(name, a.display(), from.clone()); }
+            for (name, rel) in &r.rels {
+                row(name, if rel.append { format!("+ {}", rel.targets.join(", ")) } else { rel.targets.join(", ") }, from.clone());
+            }
             continue;
         }
 
@@ -357,6 +370,14 @@ pub fn bound_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &
 fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
     upstream(graph, view, |n| matches!(n.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. }) && crate::core::material::prim_name(&n.name) == name)
+        .map(|n| (n.id, n.name.clone()))
+}
+
+/// The render operator nearest upstream of `view`: what a render prim's
+/// values are shown as coming from. Its id and name.
+fn render_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, _path: &str) -> Option<(NodeId, String)> {
+    use crate::types::NodeType;
+    upstream(graph, view, |n| matches!(n.node_type, NodeType::RenderSceneSettings { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }))
         .map(|n| (n.id, n.name.clone()))
 }
 

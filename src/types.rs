@@ -96,6 +96,21 @@ pub enum NodeType {
         #[serde(default = "one_input")] inputs: u32,
         #[serde(default)] bindings: Vec<crate::core::material::BindTo>,
     },
+    // ── Render ───────────────────────────────────────────────────────────────
+    /// The RenderSettings prim (what is rendered: camera, resolution,
+    /// overscan, motion blur, depth of field, purposes) and a RenderProduct
+    /// (the image file). The one the layer names. See `core::render`.
+    RenderSceneSettings { #[serde(default)] scene: crate::core::render::SceneSettings },
+    /// A renderer's settings (Karma, Arnold, one from a definition file, or
+    /// Custom with settings typed in) on the RenderSettings prim the scene
+    /// has, and its standard AOVs ticked as RenderVars.
+    RenderSettings { #[serde(default)] renderer: crate::core::render::RendererSettings },
+    /// RenderVars (AOVs) of a product, set or overridden row by row.
+    RenderVariables { #[serde(default)] vars: crate::core::render::Variables },
+    /// A command line run on the system when its Run is pressed, never on
+    /// cook: husk on the layer the Write USD above it writes (`$USD`). What
+    /// comes in is handed on. See `core::command`.
+    RenderCommand { #[serde(default)] command: crate::core::render::CommandSettings },
     /// Merge packed primitives into one mesh.
     UnpackPrims,
     /// Moves whatever comes in: a mesh, packed primitives (the picked ones,
@@ -413,6 +428,10 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Material { .. }      => "🎨",
         NodeType::MaterialX { .. }     => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
+        NodeType::RenderSceneSettings { .. } => "📽",
+        NodeType::RenderSettings { .. } => "⚙",
+        NodeType::RenderVariables { .. } => "📑",
+        NodeType::RenderCommand { .. } => "🖥",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
@@ -472,6 +491,10 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Material { .. }      => "Material",
         NodeType::MaterialX { .. }     => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",
+        NodeType::RenderSceneSettings { .. } => "RenderScene Settings",
+        NodeType::RenderSettings { .. } => "Render Settings",
+        NodeType::RenderVariables { .. } => "Render Variables",
+        NodeType::RenderCommand { .. } => "Render Command",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",
@@ -876,6 +899,9 @@ pub struct Prim {
     /// A camera: this prim is one (a USD `Camera`), with no geometry; where
     /// it is and looks is its placement. `None` for the rest.
     pub camera: Option<std::sync::Arc<crate::core::camera::Camera>>,
+    /// A render prim: this prim is a RenderSettings, RenderProduct or
+    /// RenderVar, with no geometry (`core::render`). `None` for the rest.
+    pub render: Option<std::sync::Arc<crate::core::render::RenderPrim>>,
 }
 
 /// Which instancer a prototype mesh is drawn by, and what its placements
@@ -990,7 +1016,7 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None }
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -1154,7 +1180,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone(), camera: p.camera.clone() });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone(), camera: p.camera.clone(), render: p.render.clone() });
                     }
                 }
                 EvalResult::Named(out)
@@ -1728,9 +1754,10 @@ impl SceneHierarchy {
                     let mut seen_parents: std::collections::HashSet<String> =
                         std::collections::HashSet::new();
                     // Groups with geometry below them are Xforms; those with
-                    // materials alone (the Material Library Location) Scopes.
+                    // materials or render prims alone (the Material Library
+                    // Location, /Render) Scopes.
                     let holds_geometry: std::collections::HashSet<String> = prims.iter()
-                        .filter(|p| p.shading.is_none())
+                        .filter(|p| p.shading.is_none() && p.render.is_none())
                         .flat_map(|p| { let segs: Vec<&str> = p.path.trim_start_matches('/').split('/').collect();
                             (1..segs.len()).map(move |n| segs[..n].join("/")).collect::<Vec<_>>() })
                         .collect();
@@ -1772,7 +1799,8 @@ impl SceneHierarchy {
                         self.objects.push(SceneObject {
                             id,
                             name:         leaf_name.clone(),
-                            icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" } else { prim_icon(&leaf_name, false) },
+                            icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" }
+                                          else if let Some(r) = &prim.render { render_icon(r.kind) } else { prim_icon(&leaf_name, false) },
                             depth:        leaf_depth,
                             has_children: false,
                             expanded:     true,
@@ -1783,6 +1811,7 @@ impl SceneHierarchy {
                                 _ if prim.instancing.is_some() => "PointInstancer".into(),
                                 _ if prim.shading.is_some() => "Material".into(),
                                 _ if prim.camera.is_some() => "Camera".into(),
+                                _ if prim.render.is_some() => prim.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
                                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                                 _ => "Mesh".into(),
@@ -1794,6 +1823,12 @@ impl SceneHierarchy {
         }
     }
 }
+/// A render prim's icon in the Scene Explorer.
+fn render_icon(kind: crate::core::render::RenderKind) -> &'static str {
+    use crate::core::render::RenderKind;
+    match kind { RenderKind::Settings => "⚙", RenderKind::Product => "🖼", RenderKind::Var => "📑" }
+}
+
 fn yes() -> bool { true }
 
 fn one_tile() -> u32 { 1 }

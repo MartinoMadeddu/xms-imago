@@ -949,7 +949,7 @@ fn draw_node(
 }
 
 /// The palette node bodies take, by add-menu category.
-const CATEGORY_COLOURS: [(&str, [u8; 3]); 8] = [
+const CATEGORY_COLOURS: [(&str, [u8; 3]); 9] = [
     // The pastel palette at 80%, one colour per category.
     ("Create",     [0xAE, 0xC0, 0x96]),   // light green   (#DAF0BB)
     ("Modify",     [0x96, 0xA2, 0xC0]),   // light blue    (#BCCAF0)
@@ -959,6 +959,7 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 8] = [
     ("Animation",  [0x96, 0xA2, 0xC0]),   // light blue    (#BCCAF0)
     ("Mocap",      [0xAB, 0x98, 0xBA]),   // mauve         (#D6BEE8)
     ("Materials",  [0xC0, 0x96, 0xA8]),   // rose          (#F0BCD2)
+    ("Render",     [0x96, 0xBA, 0xC0]),   // light cyan    (#BBE8F0)
 ];
 
 /// The ICE node's own colour, whatever its category: the teal of
@@ -1053,6 +1054,12 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Material { surface: Default::default() }, "A UsdPreviewSurface material: colour, roughness, metallic, opacity and textures. Named by the node"),
             (NodeType::materialx(), "A material made from a graph of MaterialX nodes: standard_surface, open_pbr_surface, textures, maths. Double-click it to open its graph. Named by the node"),
             (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
+        ]),
+        ("📽", "Render", vec![
+            (NodeType::RenderSceneSettings { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),
+            (NodeType::RenderSettings { renderer: Default::default() }, "A renderer's settings (Karma, Arnold, or a Custom one typed in) on the scene's RenderSettings prim, and its standard AOVs as RenderVars"),
+            (NodeType::RenderVariables { vars: Default::default() }, "RenderVars (AOVs) of a product: add or override them row by row: name, source, type, format, filter"),
+            (NodeType::RenderCommand { command: Default::default() }, "Run a command line on the system: husk on the layer the Write USD above writes ($USD), over the scene's frames. Runs when you press Run, never on cook"),
         ]),
         ("🗺", "UV", vec![
             (NodeType::UvUnwrap { method: crate::core::uv::UvMethod::Conformal, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, "Make texture coordinates"),
@@ -1226,6 +1233,7 @@ pub fn output_info(r: &Option<crate::types::EvalResult>) -> Vec<String> {
             let points: usize = prims.iter().map(|p| p.mesh.vertices.len() * p.place.copies().max(1)).sum();
             let tris: usize = prims.iter().map(|p| p.mesh.indices.len() / 3 * p.place.copies().max(1)).sum();
             let cameras = prims.iter().filter(|p| p.camera.is_some()).count();
+            let renders = prims.iter().filter(|p| p.render.is_some()).count();
             let mut mats: Vec<&str> = prims.iter().filter_map(|p| p.material.as_deref()).collect();
             mats.sort(); mats.dedup();
             let mut out = vec![format!("{} primitive{}{}", prims.len(), if prims.len() == 1 { "" } else { "s" },
@@ -1233,6 +1241,7 @@ pub fn output_info(r: &Option<crate::types::EvalResult>) -> Vec<String> {
             out.push(format!("{points} points, {tris} triangles"));
             if !mats.is_empty() { out.push(format!("{} material{}", mats.len(), if mats.len() == 1 { "" } else { "s" })); }
             if cameras > 0 { out.push(format!("{cameras} camera{}", if cameras == 1 { "" } else { "s" })); }
+            if renders > 0 { out.push(format!("{renders} render prim{}", if renders == 1 { "" } else { "s" })); }
             if let Some(p) = prims.first() { out.push(format!("First: {}", p.path)); }
             out
         }
