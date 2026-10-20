@@ -1235,6 +1235,23 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
             }
         }
     }
+    // The folders the products write into: renderers do not make them.
+    if command.make_folders {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+            subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+        };
+        let scene = node.inputs.first().and_then(|i| i.connected_output)
+            .and_then(|(src, out)| graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval));
+        if let Some(types::EvalResult::Named(prims)) = scene {
+            let base = std::path::Path::new(&usd).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+            for dir in crate::core::render::output_folders(&prims, &base) {
+                if let Err(e) = std::fs::create_dir_all(&dir) {
+                    crate::core::command::fail(id.0, format!("Not run: could not make {}: {e}", dir.display()));
+                    return;
+                }
+            }
+        }
+    }
     let lines = command.lines(&usd, &node.name, (graph.scene.start, graph.scene.end));
     let env = command.env.iter().map(|e| (e.name.clone(), e.value.clone())).collect();
     crate::core::command::start(id.0, lines, command.folder_for(&usd), env);

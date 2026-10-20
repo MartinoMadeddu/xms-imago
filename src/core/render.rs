@@ -853,6 +853,9 @@ pub struct CommandSettings {
     /// Where it runs. Empty: the layer's folder, else Imago's.
     pub folder:       String,
     pub env:          Vec<EnvVar>,
+    /// Make the folders the scene's products write into, before running:
+    /// renderers do not.
+    pub make_folders: bool,
 }
 
 impl Default for CommandSettings {
@@ -866,6 +869,7 @@ impl Default for CommandSettings {
             end: 1,
             folder: String::new(),
             env: vec![],
+            make_folders: true,
         }
     }
 }
@@ -893,6 +897,21 @@ impl CommandSettings {
         if !self.folder.trim().is_empty() { return Some(self.folder.trim().into()); }
         std::path::Path::new(usd.trim()).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf())
     }
+}
+
+/// The folders the scene's products write into (`productName`'s folder),
+/// a relative one taken from `base` (the layer's folder, as husk takes it).
+/// A folder with a token in it (`$F`) is left out: the renderer's to make.
+pub fn output_folders(prims: &[Prim], base: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = vec![];
+    for r in prims.iter().filter_map(|p| p.render.as_ref()).filter(|r| r.kind == RenderKind::Product) {
+        let Some(name) = r.attrs.get("productName").map(|a| a.display()) else { continue };
+        let Some(dir) = std::path::Path::new(name.trim()).parent().filter(|d| !d.as_os_str().is_empty()) else { continue };
+        if dir.to_string_lossy().contains('$') { continue; }
+        let dir = if dir.is_absolute() { dir.to_path_buf() } else { base.join(dir) };
+        if !out.contains(&dir) { out.push(dir); }
+    }
+    out
 }
 
 /// Command lines to start from: name, line, what it does. husk takes the
@@ -1044,6 +1063,16 @@ mod tests {
         assert_eq!(once.lines("/s/a.usda", "R", (1, 24)), vec!["husk --engine cpu -f 1 -n 24 -V 2a \"/s/a.usda\"".to_string()]);
         assert_eq!(once.folder_for("/s/a.usda").as_deref(), Some(std::path::Path::new("/s")));
         assert_eq!(once.folder_for("a.usda"), None);
+    }
+
+    #[test]
+    fn the_folders_products_write_into() {
+        let scene = scene_settings(None, &SceneSettings::default());
+        let EvalResult::Named(prims) = scene else { panic!() };
+        assert_eq!(output_folders(&prims, std::path::Path::new("/shots/a")), vec![std::path::PathBuf::from("/shots/a/render")]);
+        let abs = scene_settings(None, &SceneSettings { output: "/out/$F4/x.exr".into(), ..Default::default() });
+        let EvalResult::Named(prims) = abs else { panic!() };
+        assert!(output_folders(&prims, std::path::Path::new("/shots")).is_empty(), "a token in the folder: the renderer's");
     }
 
     #[test]

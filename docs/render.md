@@ -95,7 +95,7 @@ Runs a command line on the system: husk on the layer the Write USD above it writ
 
 It runs **only when Run is pressed**, never while the graph cooks; on cook it hands on what comes in.
 
-- **Scene:** what `$USD` is, the file of the nearest Write USD above it. **Write First** (on) writes that layer before running, so the render sees the scene as it is now; if it cannot be written, nothing runs and the panel says why.
+- **Scene:** what `$USD` is, the file of the nearest Write USD above it. **Write First** (on) writes that layer before running, so the render sees the scene as it is now; if it cannot be written, nothing runs and the panel says why. **Make Output Folders** (on) makes the folders the scene's RenderProducts write into before running (`render/` for `render/beauty.$F4.exr`, next to the layer as husk takes it): renderers do not make them.
 - **Command:** the command line, with **Presets** to start from: husk with Karma CPU, Karma XPU, Arnold (arnold-usd's `HdArnoldRendererPlugin`), one husk per frame, and an `echo` to try the tokens. The line under it shows it with its tokens put in. husk renders the RenderSettings prim the layer names, so the presets do not give one (add `-s /Render/Settings` to choose).
 - **Tokens:** `$USD` the layer, `$NAME` the operator's name, `$F` the frame, `$F4` the frame in four digits (`$F2` to `$F9` likewise), `$FSTART`, `$FEND` and `$N` the range and how many frames; `${USD}` works too, and `$$` is a `$`. Any other `$` is left to the shell (`$HOME`). Put quotes around `"$USD"` for paths with spaces.
 - **Frames:** the scene range, or a custom one. **Run Per Frame** runs the line once per frame, `$F` that frame, one after the other; off, it runs once for the range (husk renders ranges itself).

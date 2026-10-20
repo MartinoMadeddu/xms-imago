@@ -470,6 +470,7 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
             None => f.status(Status::Bad, "No Write USD above: wire this operator after one, or type the file in place of $USD"),
         }
         f.toggle("Write First", Some("Write the layer before running, so the render sees the scene as it is now"), &mut c.write_first);
+        f.toggle("Make Output Folders", Some("Make the folders the scene's RenderProducts write into (their Output Image's folder, next to the layer when relative) before running: renderers do not"), &mut c.make_folders);
     });
 
     let tokens: String = command::TOKENS.iter().map(|(t, what)| format!("{t}: {what}")).collect::<Vec<_>>().join("\n");
