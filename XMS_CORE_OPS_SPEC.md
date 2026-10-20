@@ -395,14 +395,14 @@ In Imago: **Render Variables**.
 - **Product:** a path, picked from the products coming in. Empty: the RenderSettings prim's first product, else the first coming in, else `/Render/Products/beauty` (made, and added to the scene's RenderSettings prim).
 - **Rows:** one RenderVar each: on or off, name, `sourceName` (empty: the name), `sourceType` (raw, lpe, primvar, intrinsic), `dataType`, and extras: other attributes the renderer reads on it, picked or typed (`driver:parameters:aov:format`, `arnold:filter`, `arnold:width`). A row can be filled from any renderer's standard AOVs.
 - **Replace:** on, the product holds these RenderVars alone, in order; off, they are added to its own, a row replacing the RenderVar of its name. A row turned off is taken off the product.
-- **USD mapping:** `UsdRenderVar`, at `<product's parent>/Vars/<name>`
+- **USD mapping:** `UsdRenderVar`, at `<product's parent>/Vars/<name>`, with `driver:parameters:aov:name` (husk needs it)
 - **Status:** **Partial.** Not yet: RenderVars shared by name between products listed as such.
 
 ### 11.4 Render
 - **Purpose:** Trigger the render.
 - **Parameters:** frame range; output mode (local / farm); denoise on/off
 - **Inputs:** scene (must contain Render Settings)
-- **Status:** **Partial**, as **Render Command**: a command line run on the system when Run is pressed (never on cook), after a Write USD: `$USD` is its layer, written first if asked; `$F`, `$F4`, `$FSTART`, `$FEND`, `$N`, `$NAME` tokens; presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once or per frame; folder and environment variables; run in the background with Stop (ending what it started), its output and progress in the panel. Not yet: rendering inside Imago, the image in the Viewer, denoise, farm submission, animated layers.
+- **Status:** **Partial**, as **Render Command**: a command line run on the system when Run is pressed (never on cook), after a Write USD: `$USD` is its layer, written first if asked; `$F`, `$F4`, `$FSTART`, `$FEND`, `$N`, `$NAME` tokens; presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once or per frame; folder and environment variables; run in the background with Stop (ending what it started), its progress in the panel and its output in a Console tab. Not yet: rendering inside Imago, the image in the Viewer, denoise, farm submission, animated layers.
 
 ---
 

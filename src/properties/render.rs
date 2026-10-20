@@ -417,6 +417,51 @@ pub struct CommandIn {
 
 pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: NodeId, name: &str, input: &CommandIn, io: &mut super::ui::PanelIo) {
     use crate::core::command::{self, State};
+    let run = command::snapshot(node.0, 400);
+    let running = run.as_ref().is_some_and(|r| r.state == State::Running);
+    group(ui, "Run", None, |f| {
+        f.buttons("", None, |ui| {
+            if ui.add_enabled(!running && !c.line.trim().is_empty(), egui::Button::new("▶ Run")).clicked() {
+                io.action = Some(super::ui::PanelAction::RunCommand(node));
+            }
+            if ui.add_enabled(running, egui::Button::new("⏹ Stop")).on_hover_text("Ends the command and what it started").clicked() { command::stop(node.0); }
+            if ui.add_enabled(run.is_some() && !running, egui::Button::new("Clear")).clicked() { command::clear(node.0); }
+        });
+        let Some(r) = &run else { f.status(Status::Info, "Not run yet"); return };
+        let secs = r.elapsed.as_secs_f64();
+        let time = if secs < 60.0 { format!("{secs:.1} s") } else { format!("{}m {:02}s", (secs / 60.0) as u64, secs as u64 % 60) };
+        let of = if r.at.1 > 1 { format!(", run {} of {}", r.at.0, r.at.1) } else { String::new() };
+        match &r.state {
+            State::Running => f.status(Status::Info, format!("Running{of}: {time}")),
+            State::Done => f.status(Status::Ok, format!("Done in {time}")),
+            State::Stopped => f.status(Status::Info, format!("Stopped after {time}")),
+            State::Failed(why) => f.status(Status::Bad, format!("{why}{of}")),
+        }
+        if let Some(p) = r.progress.filter(|_| running) {
+            f.wide(|ui| ui.add(egui::ProgressBar::new(p / 100.0).show_percentage()));
+        }
+    });
+
+
+    // Its parameters, or what it prints: one tab at a time. A run starting
+    // shows the Console.
+    let tab_id = egui::Id::new(("render_command_tab", node.0));
+    let mut console = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
+    if io.action.as_ref().is_some_and(|a| matches!(a, super::ui::PanelAction::RunCommand(n) if *n == node)) { console = true; }
+    ui.horizontal(|ui| {
+        if ui.selectable_label(!console, "Parameters").clicked() { console = false; }
+        let lines = run.as_ref().map(|r| r.lines.len()).unwrap_or(0);
+        let label = if lines == 0 { "Console".to_string() } else { format!("Console ({lines})") };
+        if ui.selectable_label(console, label).on_hover_text("What the command prints").clicked() { console = true; }
+    });
+    ui.data_mut(|d| d.insert_temp(tab_id, console));
+    ui.add_space(4.0);
+    if console { console_view(ui, node, run.as_ref()); } else { command_params(ui, c, node, name, input); }
+}
+
+/// The command's parameters: what it renders, its line, its frames, where it runs.
+fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: NodeId, name: &str, input: &CommandIn) {
+    use crate::core::command;
     let usd = input.writer.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
     group(ui, "Scene", Some("What $USD is: the layer the Write USD above this operator writes"), |f| {
         match &input.writer {
@@ -486,39 +531,40 @@ pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: No
         f.buttons("Add", None, |ui| { if ui.button("+ Variable").clicked() { c.env.push(Default::default()); } });
     });
 
-    let run = command::snapshot(node.0, 400);
-    let running = run.as_ref().is_some_and(|r| r.state == State::Running);
-    group(ui, "Run", None, |f| {
-        f.buttons("", None, |ui| {
-            if ui.add_enabled(!running && !c.line.trim().is_empty(), egui::Button::new("▶ Run")).clicked() {
-                io.action = Some(super::ui::PanelAction::RunCommand(node));
-            }
-            if ui.add_enabled(running, egui::Button::new("⏹ Stop")).on_hover_text("Ends the command and what it started").clicked() { command::stop(node.0); }
-            if ui.add_enabled(run.is_some() && !running, egui::Button::new("Clear")).clicked() { command::clear(node.0); }
-        });
-        let Some(r) = &run else { f.status(Status::Info, "Not run yet"); return };
-        let secs = r.elapsed.as_secs_f64();
-        let time = if secs < 60.0 { format!("{secs:.1} s") } else { format!("{}m {:02}s", (secs / 60.0) as u64, secs as u64 % 60) };
-        let of = if r.at.1 > 1 { format!(", run {} of {}", r.at.0, r.at.1) } else { String::new() };
-        match &r.state {
-            State::Running => f.status(Status::Info, format!("Running{of}: {time}")),
-            State::Done => f.status(Status::Ok, format!("Done in {time}")),
-            State::Stopped => f.status(Status::Info, format!("Stopped after {time}")),
-            State::Failed(why) => f.status(Status::Bad, format!("{why}{of}")),
-        }
-        if let Some(p) = r.progress.filter(|_| running) {
-            f.wide(|ui| ui.add(egui::ProgressBar::new(p / 100.0).show_percentage()));
-        }
-    });
+}
 
-    if let Some(r) = &run {
-        group(ui, "Output", Some("What the command prints, the last 400 lines"), |f| {
-            f.wide(|ui| {
-                if ui.small_button("Copy").clicked() { ui.ctx().copy_text(r.lines.join("\n")); }
-                egui::ScrollArea::vertical().id_salt(("command_output", node.0)).max_height(260.0).stick_to_bottom(true).auto_shrink([false, true]).show(ui, |ui| {
-                    for l in &r.lines { ui.label(egui::RichText::new(l).monospace().small()); }
-                });
+/// What the command printed, as a terminal shows it: light text on black,
+/// the command lines run in green, errors and warnings in amber.
+fn console_view(ui: &mut egui::Ui, node: NodeId, run: Option<&crate::core::command::Snapshot>) {
+    use egui::Color32;
+    let black = Color32::from_rgb(12, 12, 12);
+    let text = Color32::from_rgb(208, 208, 208);
+    let prompt = Color32::from_rgb(120, 220, 120);
+    let warn = Color32::from_rgb(240, 180, 80);
+    let lines: &[String] = run.map(|r| r.lines.as_slice()).unwrap_or(&[]);
+    ui.horizontal(|ui| {
+        if ui.add_enabled(!lines.is_empty(), egui::Button::new("Copy")).on_hover_text("Every line kept, to the clipboard").clicked() {
+            ui.ctx().copy_text(lines.join("\n"));
+        }
+        ui.label(egui::RichText::new("The last 400 lines").small().color(ink::DIM()));
+    });
+    // The pane's height when it has one; inside a scrolling panel, a fixed one.
+    let h = ui.available_height() - 8.0;
+    let height = if h.is_finite() { h.clamp(240.0, 900.0) } else { 420.0 };
+    egui::Frame::NONE.fill(black).corner_radius(3.0).inner_margin(8.0).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        egui::ScrollArea::both().id_salt(("command_console", node.0)).max_height(height).min_scrolled_height(height)
+            .stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
+                if lines.is_empty() {
+                    ui.label(egui::RichText::new("Nothing yet: press Run").monospace().color(Color32::from_gray(120)));
+                }
+                for l in lines {
+                    let lower = l.to_ascii_lowercase();
+                    let colour = if l.starts_with("$ ") { prompt }
+                        else if ["error", "missing", "warning", "failed", "cannot", "could not"].iter().any(|w| lower.contains(w)) { warn }
+                        else { text };
+                    ui.add(egui::Label::new(egui::RichText::new(l).monospace().size(11.5).color(colour)).extend());
+                }
             });
-        });
-    }
+    });
 }

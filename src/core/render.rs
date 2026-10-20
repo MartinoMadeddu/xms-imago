@@ -280,10 +280,12 @@ pub fn vars_root(product: &str) -> String { format!("{}/Vars", parent(product)) 
 /// `Products/beauty` beside it.
 pub fn default_product(settings: &str) -> String { format!("{}/Products/beauty", parent(settings)) }
 
-/// A RenderVar prim made from a row: its source and type, and any other
-/// attributes the renderer reads on it.
-fn var_prim(prims: &[Prim], path: &str, source: &str, source_type: &str, data_type: &str, extras: &[(String, Value)]) -> RenderPrim {
+/// A RenderVar prim made from a row: its source and type, the AOV's name
+/// in the image (`driver:parameters:aov:name`, which husk needs on every
+/// RenderVar), and any other attributes the renderer reads on it.
+fn var_prim(prims: &[Prim], path: &str, aov: &str, source: &str, source_type: &str, data_type: &str, extras: &[(String, Value)]) -> RenderPrim {
     let mut v = take(prims, path, RenderKind::Var);
+    v.set(AOV_NAME, RAttr::of(&Value::Token(aov.trim().to_string())));
     v.set("sourceName", RAttr::of(&Value::String(source.to_string())).uniform());
     v.set("sourceType", RAttr::of(&Value::Token(source_type.to_string())).uniform());
     v.set("dataType", RAttr::of(&Value::Token(data_type.to_string())).uniform());
@@ -292,6 +294,9 @@ fn var_prim(prims: &[Prim], path: &str, source: &str, source_type: &str, data_ty
     }
     v
 }
+
+/// The AOV's name in the image, on a RenderVar: husk wants it on every one.
+pub const AOV_NAME: &str = "driver:parameters:aov:name";
 
 /// A RenderVar's name made a prim name: letters, digits and `_`.
 pub fn var_name(name: &str) -> String {
@@ -693,7 +698,7 @@ pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> Ev
         let root = vars_root(&product);
         for a in ticked {
             let var = format!("{root}/{}", var_name(&a.name));
-            let v = var_prim(&prims, &var, &a.source_name, &a.source_type, &a.data_type, &[]);
+            let v = var_prim(&prims, &var, &a.name, &a.source_name, &a.source_type, &a.data_type, &[]);
             put(&mut prims, &var, v);
             pr.target("orderedVars", &var);
         }
@@ -750,7 +755,7 @@ impl Default for VarRow {
 pub fn var_extra_presets() -> Vec<(&'static str, Value, &'static str)> {
     vec![
         ("driver:parameters:aov:format", Value::Token("half".into()), "Karma, husk: the channels' format in the file (half, float, color3h, color4h…)"),
-        ("driver:parameters:aov:name", Value::String(String::new()), "The channel name in the file, when not the RenderVar's"),
+        ("driver:parameters:aov:name", Value::Token(String::new()), "The channel name in the file: the row's name unless set here"),
         ("arnold:filter", Value::Token("gaussian_filter".into()), "Arnold: the pixel filter (box_filter, gaussian_filter, closest_filter…)"),
         ("arnold:width", Value::Float(2.0), "Arnold: the pixel filter's width"),
     ]
@@ -797,7 +802,7 @@ pub fn render_variables(input: Option<&EvalResult>, v: &Variables) -> EvalResult
         }
         let source = if row.source_name.trim().is_empty() { row.name.trim() } else { row.source_name.trim() };
         let extras: Vec<(String, Value)> = row.extras.iter().map(|e| (e.name.clone(), e.value.clone())).collect();
-        let prim = var_prim(&prims, &var, source, &row.source_type, &row.data_type, &extras);
+        let prim = var_prim(&prims, &var, &row.name, source, &row.source_type, &row.data_type, &extras);
         put(&mut prims, &var, prim);
         ordered.push(var);
     }
@@ -980,6 +985,7 @@ mod tests {
         assert_eq!(n.kind, RenderKind::Var);
         assert!(n.lines().contains(&"uniform token dataType = \"normal3f\"".to_string()));
         assert!(n.lines().contains(&"uniform string sourceName = \"N\"".to_string()));
+        assert!(n.lines().contains(&"token driver:parameters:aov:name = \"N\"".to_string()), "husk needs it: {:?}", n.lines());
     }
 
     #[test]

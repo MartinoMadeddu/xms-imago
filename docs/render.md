@@ -39,7 +39,7 @@ How a renderer renders it. Choose the **Renderer** from its menu: **Karma**, **A
 
 **Custom:** type the renderer's name (`rray`). Its settings are rows you make, each written under that name: `spp` (int 64) is `int rray:spp = 64`, `bounce` is `rray:bounce`. Until it has a name nothing is written; the rows stay as you type or change it.
 
-**AOVs tab:** the renderer's standard AOVs as checkboxes, by group (Beauty, Light paths, Surface, Geometry, IDs); the beauty (`C` for Karma, `RGBA` for Arnold) is ticked to start with. **All**, **None** and **Defaults** tick them together. Each ticked AOV becomes a RenderVar beside the product (`/Render/Products/Vars/<name>`) with its `sourceName`, `sourceType` and `dataType`, added to the product's `orderedVars`. When there is no product yet, `Products/beauty` is made beside the RenderSettings prim. A Custom renderer has no standard AOVs: add them with Render Variables.
+**AOVs tab:** the renderer's standard AOVs as checkboxes, by group (Beauty, Light paths, Surface, Geometry, IDs); the beauty (`C` for Karma, `RGBA` for Arnold) is ticked to start with. **All**, **None** and **Defaults** tick them together. Each ticked AOV becomes a RenderVar beside the product (`/Render/Products/Vars/<name>`) with its `sourceName`, `sourceType`, `dataType` and its name in the image (`driver:parameters:aov:name`, which husk needs on every RenderVar), added to the product's `orderedVars`. When there is no product yet, `Products/beauty` is made beside the RenderSettings prim. A Custom renderer has no standard AOVs: add them with Render Variables.
 
 ### Renderer definitions
 
@@ -76,7 +76,7 @@ RenderVars of a product, set or overridden row by row.
 
 - **Product:** a path, or picked from the products coming in. Empty: the RenderSettings prim's first product, else the first coming in, else `/Render/Products/beauty` (made, and added to the scene's RenderSettings prim).
 - **Replace:** on, the product holds these RenderVars alone, in this order. Off, they are added to its own; a row named as one it has replaces it.
-- **Rows:** one RenderVar each, at `<product's parent>/Vars/<name>`:
+- **Rows:** one RenderVar each, at `<product's parent>/Vars/<name>`, its name written as `driver:parameters:aov:name` too (an extra of that name overrides it):
   - **On**: off, the RenderVar is not written and is taken off the product
   - **Name**: the prim, and the AOV's name in the image
   - **Source Name**: an AOV name for raw, a light path expression for lpe (`C<RD>.*L`), a primvar's name. Empty: the name
@@ -100,7 +100,8 @@ It runs **only when Run is pressed**, never while the graph cooks; on cook it ha
 - **Tokens:** `$USD` the layer, `$NAME` the operator's name, `$F` the frame, `$F4` the frame in four digits (`$F2` to `$F9` likewise), `$FSTART`, `$FEND` and `$N` the range and how many frames; `${USD}` works too, and `$$` is a `$`. Any other `$` is left to the shell (`$HOME`). Put quotes around `"$USD"` for paths with spaces.
 - **Frames:** the scene range, or a custom one. **Run Per Frame** runs the line once per frame, `$F` that frame, one after the other; off, it runs once for the range (husk renders ranges itself).
 - **Environment:** the folder it runs in (empty: the layer's folder), and variables on top of Imago's (`HOUDINI_PATH`, `ARNOLD_PLUGIN_PATH`, licences). The program has to be on the `PATH` Imago was started with, or named by its full path.
-- **Run:** Run, Stop and Clear; what it is doing, how long it has taken, and its progress, read from the percentages it prints (husk's `-V 2a` prints them). **Output** shows the last 400 lines it printed, Copy takes them all.
+- **Run:** Run, Stop and Clear, above its tabs; what it is doing, how long it has taken, and its progress, read from the percentages it prints (husk's `-V 2a` prints them).
+- **Console tab:** what it prints, as a terminal shows it: light text on black, the command lines run in green, lines with errors or warnings in amber; the last 400 lines, Copy takes them. Pressing Run opens it; **Parameters** is the other tab. A Console pane for every run can follow.
 
 It runs through the system's shell (`sh -c`; `cmd /C` on Windows), in the background: Imago stays in use. Stop, or closing Imago, ends the command and everything it started.
 
@@ -127,6 +128,7 @@ def Scope "Render"
             def RenderVar "C"
             {
                 uniform token dataType = "color4f"
+                token driver:parameters:aov:name = "C"
                 uniform string sourceName = "C"
                 uniform token sourceType = "raw"
             }

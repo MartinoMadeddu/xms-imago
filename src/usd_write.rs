@@ -827,7 +827,7 @@ def Xform "shot" {{
             "def Scope \"Render\"", "def RenderSettings \"Settings\"", "def Scope \"Products\"", "def RenderProduct \"beauty\"",
             "def Scope \"Vars\"", "def RenderVar \"C\"",
             "uniform int2 resolution = (1920, 1080)", "rel camera = </cam>", "rel products = </Render/Products/beauty>",
-            "rel orderedVars = </Render/Products/Vars/C>", "uniform string sourceName = \"C\"", "int karma:global:bucketsize = 32",
+            "rel orderedVars = </Render/Products/Vars/C>", "uniform string sourceName = \"C\"", "token driver:parameters:aov:name = \"C\"", "int karma:global:bucketsize = 32",
         ] {
             assert!(text.contains(line), "{line} missing in\n{text}");
         }
