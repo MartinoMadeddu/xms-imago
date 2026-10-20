@@ -128,7 +128,7 @@ def Scope "Render"
             def RenderVar "C"
             {
                 uniform token dataType = "color4f"
-                token driver:parameters:aov:name = "C"
+                string driver:parameters:aov:name = "C"
                 uniform string sourceName = "C"
                 uniform token sourceType = "raw"
             }

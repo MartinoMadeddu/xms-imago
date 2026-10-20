@@ -285,7 +285,7 @@ pub fn default_product(settings: &str) -> String { format!("{}/Products/beauty",
 /// RenderVar), and any other attributes the renderer reads on it.
 fn var_prim(prims: &[Prim], path: &str, aov: &str, source: &str, source_type: &str, data_type: &str, extras: &[(String, Value)]) -> RenderPrim {
     let mut v = take(prims, path, RenderKind::Var);
-    v.set(AOV_NAME, RAttr::of(&Value::Token(aov.trim().to_string())));
+    v.set(AOV_NAME, RAttr::of(&Value::String(aov.trim().to_string())));
     v.set("sourceName", RAttr::of(&Value::String(source.to_string())).uniform());
     v.set("sourceType", RAttr::of(&Value::Token(source_type.to_string())).uniform());
     v.set("dataType", RAttr::of(&Value::Token(data_type.to_string())).uniform());
@@ -295,7 +295,8 @@ fn var_prim(prims: &[Prim], path: &str, aov: &str, source: &str, source_type: &s
     v
 }
 
-/// The AOV's name in the image, on a RenderVar: husk wants it on every one.
+/// The AOV's name in the image, on a RenderVar: husk wants it on every
+/// one, as a `string` (as Houdini writes it; a `token` is not found).
 pub const AOV_NAME: &str = "driver:parameters:aov:name";
 
 /// A RenderVar's name made a prim name: letters, digits and `_`.
@@ -755,7 +756,7 @@ impl Default for VarRow {
 pub fn var_extra_presets() -> Vec<(&'static str, Value, &'static str)> {
     vec![
         ("driver:parameters:aov:format", Value::Token("half".into()), "Karma, husk: the channels' format in the file (half, float, color3h, color4h…)"),
-        ("driver:parameters:aov:name", Value::Token(String::new()), "The channel name in the file: the row's name unless set here"),
+        ("driver:parameters:aov:name", Value::String(String::new()), "The channel name in the file: the row's name unless set here"),
         ("arnold:filter", Value::Token("gaussian_filter".into()), "Arnold: the pixel filter (box_filter, gaussian_filter, closest_filter…)"),
         ("arnold:width", Value::Float(2.0), "Arnold: the pixel filter's width"),
     ]
@@ -985,7 +986,7 @@ mod tests {
         assert_eq!(n.kind, RenderKind::Var);
         assert!(n.lines().contains(&"uniform token dataType = \"normal3f\"".to_string()));
         assert!(n.lines().contains(&"uniform string sourceName = \"N\"".to_string()));
-        assert!(n.lines().contains(&"token driver:parameters:aov:name = \"N\"".to_string()), "husk needs it: {:?}", n.lines());
+        assert!(n.lines().contains(&"string driver:parameters:aov:name = \"N\"".to_string()), "husk needs it: {:?}", n.lines());
     }
 
     #[test]
