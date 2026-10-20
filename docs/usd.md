@@ -244,7 +244,7 @@ Values are written at the current frame, as single values.
 - Load USD: a layer offset on a reference, several references on one prim, population masks, payloads left unloaded; moving the referenced prim itself when it is a mesh is written without the axis and unit transform
 
 - Write USD: time samples over a frame range, editing inside instances, a flattened single file; the stage's own `defaultPrim` (the first root prim is used)
-- A Primitive Location for the other operators that make geometry (ICE, Unpack, Merge set to Flatten); until then their plain mesh has no path, and Write USD says so
+- A Primitive Location for the operators that make a plain mesh (Unpack, Merge set to Flatten); until then it has no path, and Write USD says so. ICE keeps the primitives it is given, with their paths; a plain mesh going into it stays plain
 - Normal, roughness, metallic and occlusion maps in the Viewer
 - Cameras: gate offsets and depth of field in the Viewer, cameras inside native instances, animated cameras, editing a file's camera's lens
 - Animation: time samples beyond the start time, skeletal animation, skinning, blend shapes
