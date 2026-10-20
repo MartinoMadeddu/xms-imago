@@ -53,4 +53,6 @@ pub struct AppState {
     pub downloads:  Downloads,
     /// The Graph Editor's view and selection.
     pub graph_editor: crate::graph_editor::GraphEditor,
+    /// The Image Viewer: the image shown, and the render going.
+    pub image_viewer: crate::image_viewer::ImageViewerState,
 }

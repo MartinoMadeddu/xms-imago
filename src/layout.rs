@@ -19,12 +19,15 @@ pub enum Pane {
     PrimInspector, Timeline, UvEditor, History,
     /// The curves of the selected operator's keys.
     GraphEditor,
+    /// Renders and images: layers (AOVs), exposure, the values under the pointer.
+    ImageViewer,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 10] = [
+    pub const ALL: [Pane; 11] = [
         Pane::Viewer, Pane::NodeGraph, Pane::SceneExplorer, Pane::OperatorStack,
         Pane::Parameters, Pane::PrimInspector, Pane::Timeline, Pane::UvEditor, Pane::History, Pane::GraphEditor,
+        Pane::ImageViewer,
     ];
 
     pub fn title(self) -> &'static str {
@@ -39,6 +42,7 @@ impl Pane {
             Pane::UvEditor      => "UV Editor",
             Pane::History       => "History",
             Pane::GraphEditor   => "Graph Editor",
+            Pane::ImageViewer   => "Image Viewer",
         }
     }
 }
@@ -88,12 +92,12 @@ pub struct Layout {
 }
 
 /// Scene Explorer in a narrow column at the far left, the viewport beside
-/// it with the UV editor as a tab behind, the primitive inspector under
+/// it with the UV editor and the Image Viewer as tabs behind, the primitive inspector under
 /// both. Then the node graph, then the properties over the operator stack.
 /// Timeline along the bottom of those, History down the whole right side.
 /// The Graph Editor is a tab behind the node graph.
 pub fn default_dock() -> DockState<Pane> {
-    let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor]);
+    let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
     let s = dock.main_surface_mut();
     let [work, _history]  = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
     let [top, _timeline]  = s.split_below(work, 0.862, vec![Pane::Timeline]);

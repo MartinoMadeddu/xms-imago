@@ -64,7 +64,8 @@ The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 
 | Old name | New name | Why |
 | --- | --- | --- |
-| Viewport | **Viewer** | One pane for whatever is being looked at: the 3D scene today, and renders, images and other 2D views as they arrive, through the same pane instead of separate ones. "Viewer" says that; "Viewport" says 3D. |
+| Viewport | **Viewer** | The 3D scene. "Viewer" over "Viewport": it is where the scene is looked at, through any camera. Renders and images have the Image Viewer. |
+| (none) | **Image Viewer** | Renders and images: layers (AOVs), channels, exposure. It renders the scene itself (RenderSettings and camera menus, Render, Stop); rray will render into it. Its crate is `xms-image`. |
 | Node Graph | **Node Graph** (unchanged) | The pane shows the root scene graph or an ICE graph, so "Scene Graph" would be wrong half the time. |
 | Scene Explorer | **Scene Explorer** (unchanged) | The stage's primitives as a hierarchy. |
 | Properties | **Parameters** | The selected node's parameters, matching the term above. |

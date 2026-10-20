@@ -787,6 +787,7 @@ dependencies = [
  "miniz_oxide",
  "num-complex",
  "pulp",
+ "rayon-core",
  "smallvec",
  "zune-inflate",
 ]
@@ -4288,6 +4289,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xms-image"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "exr",
+ "image",
+]
+
+[[package]]
 name = "xms-imago"
 version = "0.1.5"
 dependencies = [
@@ -4307,6 +4317,7 @@ dependencies = [
  "ureq",
  "xms-geo",
  "xms-ice",
+ "xms-image",
  "xms-matx",
  "xms-scene",
  "xms-usd",

@@ -30,6 +30,8 @@ pub struct ImagoApp {
 impl ImagoApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::init(&cc.egui_ctx);
+        // Render folders an Imago that crashed left behind.
+        crate::image_viewer::clean_up_left_behind();
         if let Some(render_state) = cc.wgpu_render_state.as_ref() {
             crate::viewer::install(render_state, EGUI_SAMPLES as u32);
         }
@@ -72,6 +74,8 @@ impl eframe::App for ImagoApp {
             self.closing = true;
             // Renders started from Render Command end with the program.
             crate::core::command::stop_all();
+            // The Image Viewer's temporary layers and renders go with it.
+            crate::image_viewer::clean_up();
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         // Example files the graph names that are not there: offered, fetched.
