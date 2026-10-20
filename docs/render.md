@@ -111,6 +111,26 @@ It runs through the system's shell (`sh -c`; `cmd /C` on Windows), in the backgr
 
 The layer holds the scene at the current frame (animation is not written yet), so every frame of a range renders the same picture for now.
 
+## Image Viewer
+
+A pane of its own (a tab behind the Viewer in the default layout; Window menu otherwise) for renders and images, on the `xms-image` crate.
+
+**Rendering from it.** No Write USD or Render Command is needed: the Image Viewer renders the scene the view flag shows.
+
+- **RenderSettings** menu: the scene's RenderSettings prims, the one it names first (marked "the scene's").
+- **Camera** menu: the RenderSettings prim's own camera, or any camera of the scene.
+- **Render** writes the scene as a layer in a folder of Imago's own under the system's temporary folder and runs husk on the current frame of it there, in the background: `husk -s <settings> [-c <camera>] -f <frame> -n 1 -V 2a --snapshot 2 -o <image> <layer>` (with `-R HdArnoldRendererPlugin` when the settings are Arnold's). husk saves the image every two seconds while it renders, and each save comes into the view, then the finished frame. **Stop** ends it. The progress shows beside the buttons, **Log** shows what husk prints.
+- **⚙**: where husk is (its name on the PATH, or its full path: a program started from the macOS Dock does not see the shell's PATH), kept in Imago's config folder; and a file to open (any EXR, PNG, JPEG, TIFF, TGA, HDR).
+
+**Looking at it.**
+
+- **Layer**: the image's layers (AOVs), the beauty first. Channels are grouped by what is before their last dot (`combineddiffuse.r`, `.g`, `.b`); an EXR's named parts are layers too.
+- **RGB, R, G, B, A, L**: the colour, one channel, alpha, or luminance. A layer of one channel is grey.
+- **Exposure** (stops), **Gamma**, **sRGB** (renders are linear: on, they look as they are meant to), **Reset**.
+- The wheel zooms about the pointer, a drag pans, a double-click, F or **Fit** fits the frame. The frame (display window) is outlined when the pixels go beyond it (overscan). The bottom corner shows the pixel under the pointer and every channel of the layer there, as floats.
+
+Later: rray rendering straight into it, frame sequences on the timeline, A/B comparison.
+
 ## In the scene
 
 The render prims are primitives with no geometry, as cameras and materials are: the Scene Explorer lists them (⚙ RenderSettings, 🖼 RenderProduct, 📑 RenderVar) under their Scopes, and the Primitive Inspector's Properties tab lists their attributes and relationships, with the render operator they came from. The Viewer does not draw them.

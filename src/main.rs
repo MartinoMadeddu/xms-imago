@@ -43,6 +43,8 @@ mod timings;
 mod type_colours;
 mod graph_ports;
 mod materialx;
+/// The Image Viewer pane: renders and images.
+mod image_viewer;
 
 
 use app::{AppState, ViewportRect};
@@ -97,7 +99,7 @@ pub(crate) fn draw_ui(
     let ctx = &root.ctx().clone();
     let AppState {
         graph, stack, hierarchy, subnets, nav, vp_rect, prim_state, playback, browser, graph_file,
-        layout, revision, uv_state, history, recent, save_first, confirm, batch, graph_editor, ..
+        layout, revision, uv_state, history, recent, save_first, confirm, batch, graph_editor, image_viewer, ..
     } = app;
     // Keyed parameters cook at the playhead.
     graph.time = playback.time;
@@ -376,7 +378,7 @@ pub(crate) fn draw_ui(
             space_plays: nav_settings.style != viewport::nav::NavStyle::Houdini,
             revision: revision.0, locked, toggle_float: &mut toggle_float, tab_pressed: &mut tab_pressed,
             uv_state: &mut *uv_state, history: &mut *history,
-            confirm: &mut *confirm, graph_editor: &mut *graph_editor,
+            confirm: &mut *confirm, graph_editor: &mut *graph_editor, image_viewer: &mut *image_viewer,
         };
         let mut style = egui_dock::Style::from_egui(root.style());
         style.tab_bar.fill_tab_bar = true;
@@ -656,6 +658,7 @@ struct Panes<'a> {
     tab_pressed:    &'a mut Option<Pane>,
     uv_state:       &'a mut uv_editor::UvEditorState,
     graph_editor:   &'a mut graph_editor::GraphEditor,
+    image_viewer:   &'a mut image_viewer::ImageViewerState,
     history:        &'a mut history::History,
     confirm:        &'a mut Confirm,
     /// The Viewer's 3D view, when the interface draws it (eframe).
@@ -747,6 +750,10 @@ impl egui_dock::TabViewer for Panes<'_> {
 
             Pane::History => {
                 history::draw(ui, self.history, self.graph.selected_node);
+            }
+
+            Pane::ImageViewer => {
+                image_viewer::draw(ui, self.image_viewer, self.graph, &*self.subnets, self.revision);
             }
 
             Pane::OperatorStack => {

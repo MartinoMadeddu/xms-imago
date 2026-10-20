@@ -20,7 +20,7 @@ On macOS the shortcuts take Cmd in place of Ctrl.
 
 ## Panes
 
-Ten panes: Viewer, Node Graph, Graph Editor, UV Editor, Scene Explorer, Operator Stack, History, Parameters, Primitive Inspector, Timeline. Each one is a tab. The default layout has the Scene Explorer in a narrow column at the left, the Viewer beside it with the UV Editor as a tab behind it (see [UV](uv.md)), and the Primitive Inspector under both; then the Node Graph with the Graph Editor as a tab behind it (see [Keys](keys.md)), then Parameters over the Operator Stack. The Timeline runs along the bottom of those, and History (see [Undo](undo.md)) down the whole right side. A layout saved before the History pane or the Graph Editor existed does not have them: tick them in the Window menu, or "Reset layout" for this default.
+Eleven panes: Viewer, Image Viewer, Node Graph, Graph Editor, UV Editor, Scene Explorer, Operator Stack, History, Parameters, Primitive Inspector, Timeline. Each one is a tab. The default layout has the Scene Explorer in a narrow column at the left, the Viewer beside it with the UV Editor and the Image Viewer as tabs behind it (see [UV](uv.md), [Rendering](render.md#image-viewer)), and the Primitive Inspector under both; then the Node Graph with the Graph Editor as a tab behind it (see [Keys](keys.md)), then Parameters over the Operator Stack. The Timeline runs along the bottom of those, and History (see [Undo](undo.md)) down the whole right side. A layout saved before the History pane, the Graph Editor or the Image Viewer existed does not have them: tick them in the Window menu, or "Reset layout" for this default.
 
 | To | Do this |
 |---|---|

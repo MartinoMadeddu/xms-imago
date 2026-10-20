@@ -402,7 +402,7 @@ In Imago: **Render Variables**.
 - **Purpose:** Trigger the render.
 - **Parameters:** frame range; output mode (local / farm); denoise on/off
 - **Inputs:** scene (must contain Render Settings)
-- **Status:** **Partial**, as **Render Command**: a command line run on the system when Run is pressed (never on cook), after a Write USD: `$USD` is its layer, written first if asked; `$F`, `$F4`, `$FSTART`, `$FEND`, `$N`, `$NAME` tokens; presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once or per frame; folder and environment variables; run in the background with Stop (ending what it started), its progress in the panel and its output in a Console tab. Not yet: rendering inside Imago, the image in the Viewer, denoise, farm submission, animated layers.
+- **Status:** **Partial**, as **Render Command**: a command line run on the system when Run is pressed (never on cook), after a Write USD: `$USD` is its layer, written first if asked; `$F`, `$F4`, `$FSTART`, `$FEND`, `$N`, `$NAME` tokens; presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once or per frame; folder and environment variables; run in the background with Stop (ending what it started), its progress in the panel and its output in a Console tab. The **Image Viewer** pane renders the scene the view flag shows without either operator: its RenderSettings and camera menus, Render and Stop, husk run on a temporary layer, the image read again as husk saves it. Not yet: rendering inside Imago (rray), denoise, farm submission, animated layers.
 
 ---
 

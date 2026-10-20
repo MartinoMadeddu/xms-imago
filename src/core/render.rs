@@ -950,6 +950,39 @@ pub const COMMAND_PRESETS: [(&str, &str, &str); 5] = [
     ("Test: echo", "echo Rendering \"$USD\", frames $FSTART to $FEND", "Prints what it would render: to try the tokens"),
 ];
 
+/// A RenderSettings prim of the scene, as the Image Viewer offers it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettingsInfo {
+    pub path:     String,
+    /// Its camera, when Imago knows it (made in Imago: its `camera`).
+    pub camera:   Option<String>,
+    /// The renderer its settings are for, by their namespace: `arnold`
+    /// when it has `arnold:` settings, else `karma`.
+    pub renderer: &'static str,
+    /// The one the layer names.
+    pub named:    bool,
+}
+
+/// Every RenderSettings prim of the scene: those made in Imago (the named
+/// one first), then the files'.
+pub fn settings_list(prims: &[Prim]) -> Vec<SettingsInfo> {
+    let named = layer_settings(prims);
+    let mut out: Vec<SettingsInfo> = prims.iter().filter_map(|p| {
+        let r = p.render.as_ref().filter(|r| r.kind == RenderKind::Settings)?;
+        Some(SettingsInfo {
+            path: p.path.clone(),
+            camera: r.first("camera").map(str::to_string),
+            renderer: if r.attrs.keys().any(|k| k.starts_with("arnold:")) { "arnold" } else { "karma" },
+            named: named.as_deref() == Some(p.path.as_str()),
+        })
+    }).collect();
+    out.sort_by_key(|s| !s.named);
+    for path in stage_paths(prims, "RenderSettings") {
+        if !out.iter().any(|s| s.path == path) { out.push(SettingsInfo { path, camera: None, renderer: "karma", named: false }); }
+    }
+    out
+}
+
 /// The path of the RenderSettings prim a layer names: the one named, else
 /// the first made in Imago (not one of a file: that one's file names its own).
 pub fn layer_settings(prims: &[Prim]) -> Option<String> {
@@ -1116,6 +1149,20 @@ mod tests {
         let abs = scene_settings(None, &SceneSettings { output: "/out/$F4/x.exr".into(), ..Default::default() });
         let EvalResult::Named(prims) = abs else { panic!() };
         assert!(output_folders(&prims, std::path::Path::new("/shots")).is_empty(), "a token in the folder: the renderer's");
+    }
+
+    #[test]
+    fn the_settings_of_a_scene_are_listed() {
+        let cam = Prim { camera: Some(Arc::new(Default::default())), ..Prim::new("/cam".into(), MeshData::default()) };
+        let one = scene_settings(Some(&EvalResult::Named(vec![cam])), &SceneSettings { location: "/a/rs".into(), ..Default::default() });
+        let two = scene_settings(Some(&one), &SceneSettings { location: "/b/rs".into(), product: "/b/out".into(), camera: "/other".into(), ..Default::default() });
+        let two = renderer_settings(Some(&two), &RendererSettings::for_renderer("arnold"));
+        let EvalResult::Named(prims) = two else { panic!() };
+        let list = settings_list(&prims);
+        assert_eq!(list.iter().map(|s| s.path.as_str()).collect::<Vec<_>>(), ["/b/rs", "/a/rs"], "the named one first");
+        assert!(list[0].named && !list[1].named);
+        assert_eq!((list[0].camera.as_deref(), list[0].renderer), (Some("/other"), "arnold"));
+        assert_eq!((list[1].camera.as_deref(), list[1].renderer), (Some("/cam"), "karma"));
     }
 
     #[test]

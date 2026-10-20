@@ -539,6 +539,16 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
 /// What the command printed, as a terminal shows it: light text on black,
 /// the command lines run in green, errors and warnings in amber.
 fn console_view(ui: &mut egui::Ui, node: NodeId, run: Option<&crate::core::command::Snapshot>) {
+    // The pane's height when it has one; inside a scrolling panel, a fixed one.
+    let h = ui.available_height() - 40.0;
+    let height = if h.is_finite() { h.clamp(240.0, 900.0) } else { 420.0 };
+    console(ui, ("command_console", node.0), run, height, "Nothing yet: press Run");
+}
+
+/// A run's output as a terminal shows it, `height` high: light text on
+/// black, the command lines run in green, errors and warnings in amber, a
+/// Copy button above. Render Command's Console tab, the Image Viewer's log.
+pub fn console(ui: &mut egui::Ui, id: impl std::hash::Hash, run: Option<&crate::core::command::Snapshot>, height: f32, empty: &str) {
     use egui::Color32;
     let black = Color32::from_rgb(12, 12, 12);
     let text = Color32::from_rgb(208, 208, 208);
@@ -551,15 +561,12 @@ fn console_view(ui: &mut egui::Ui, node: NodeId, run: Option<&crate::core::comma
         }
         ui.label(egui::RichText::new("The last 400 lines").small().color(ink::DIM()));
     });
-    // The pane's height when it has one; inside a scrolling panel, a fixed one.
-    let h = ui.available_height() - 8.0;
-    let height = if h.is_finite() { h.clamp(240.0, 900.0) } else { 420.0 };
     egui::Frame::NONE.fill(black).corner_radius(3.0).inner_margin(8.0).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        egui::ScrollArea::both().id_salt(("command_console", node.0)).max_height(height).min_scrolled_height(height)
+        egui::ScrollArea::both().id_salt(id).max_height(height).min_scrolled_height(height)
             .stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
                 if lines.is_empty() {
-                    ui.label(egui::RichText::new("Nothing yet: press Run").monospace().color(Color32::from_gray(120)));
+                    ui.label(egui::RichText::new(empty).monospace().color(Color32::from_gray(120)));
                 }
                 for l in lines {
                     let lower = l.to_ascii_lowercase();

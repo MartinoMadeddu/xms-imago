@@ -1,0 +1,12 @@
+[package]
+name = "xms-image"
+version.workspace = true
+edition = "2021"
+description = "XMS | Imago's images: renders as layers (AOVs) of float channels, read from OpenEXR and other files or sent by a renderer, and an egui viewer for them"
+
+[dependencies]
+# Every layer and channel of an OpenEXR file (the image crate reads only its first RGBA).
+exr = "1.74"
+# PNG, JPEG, TIFF, TGA, HDR.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "tga", "hdr"] }
+egui = "0.36"
