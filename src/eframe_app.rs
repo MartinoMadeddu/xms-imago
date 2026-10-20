@@ -70,6 +70,8 @@ impl eframe::App for ImagoApp {
         }
         if crate::save_first_frame(&ctx, &mut self.app, close_requested && !self.closing) {
             self.closing = true;
+            // Renders started from Render Command end with the program.
+            crate::core::command::stop_all();
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         // Example files the graph names that are not there: offered, fetched.
@@ -85,7 +87,8 @@ impl eframe::App for ImagoApp {
         // own (playback, textures decoding, a batch), keep drawing.
         let busy = self.app.playback.playing
             || viewport::textures::pending() > 0
-            || self.app.batch.0.lock().map(|p| p.running).unwrap_or(false);
+            || self.app.batch.0.lock().map(|p| p.running).unwrap_or(false)
+            || crate::core::command::any_running();
         if busy { ctx.request_repaint(); } else { ctx.request_repaint_after(Duration::from_millis(250)); }
     }
 }

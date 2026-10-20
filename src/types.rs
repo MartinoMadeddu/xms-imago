@@ -107,6 +107,10 @@ pub enum NodeType {
     RenderSettings { #[serde(default)] renderer: crate::core::render::RendererSettings },
     /// RenderVars (AOVs) of a product, set or overridden row by row.
     RenderVariables { #[serde(default)] vars: crate::core::render::Variables },
+    /// A command line run on the system when its Run is pressed, never on
+    /// cook: husk on the layer the Write USD above it writes (`$USD`). What
+    /// comes in is handed on. See `core::command`.
+    RenderCommand { #[serde(default)] command: crate::core::render::CommandSettings },
     /// Merge packed primitives into one mesh.
     UnpackPrims,
     /// Moves whatever comes in: a mesh, packed primitives (the picked ones,
@@ -427,6 +431,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::RenderSceneSettings { .. } => "📽",
         NodeType::RenderSettings { .. } => "⚙",
         NodeType::RenderVariables { .. } => "📑",
+        NodeType::RenderCommand { .. } => "🖥",
         NodeType::UnpackPrims          => "📦",
         NodeType::Transform { .. }     => "⟲",
         NodeType::Merge { .. }         => "➕",
@@ -489,6 +494,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::RenderSceneSettings { .. } => "RenderScene Settings",
         NodeType::RenderSettings { .. } => "Render Settings",
         NodeType::RenderVariables { .. } => "Render Variables",
+        NodeType::RenderCommand { .. } => "Render Command",
         NodeType::UnpackPrims          => "Unpack",
         NodeType::Transform { .. }     => "Transform",
         NodeType::Merge { .. }         => "Merge",

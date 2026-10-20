@@ -364,7 +364,7 @@ All take **Primitive Locations** where they edit prims.
 
 ## 11. Rendering
 
-Status for the section: **Partial.** Three operators author the UsdRender prims a renderer reads (11.1 to 11.3), in the **Render** category of the add menu; Write USD writes them. Nothing renders from Imago yet (11.4): the layer is rendered by husk, kick or any UsdRender-aware renderer. The plan for rendering inside Imago is rray as its render delegate (see `ARCHITECTURE.md`).
+Status for the section: **Partial.** Three operators author the UsdRender prims a renderer reads (11.1 to 11.3), in the **Render** category of the add menu; Write USD writes them. Render Command (11.4) runs husk, or any command line, on the layer Write USD writes; nothing renders inside Imago yet. The plan for rendering inside Imago is rray as its render delegate (see `ARCHITECTURE.md`).
 
 The render prims are primitives with no geometry (`Prim::render`, `core::render`), listed in the Scene Explorer and the Primitive Inspector, not drawn. Each operator takes the scene on one input and hands it on with its render prims added or changed. A render prim that comes from a file is changed with an `over`; relationships on it are appended (`append rel`) since Imago does not read the file's targets.
 
@@ -402,7 +402,7 @@ In Imago: **Render Variables**.
 - **Purpose:** Trigger the render.
 - **Parameters:** frame range; output mode (local / farm); denoise on/off
 - **Inputs:** scene (must contain Render Settings)
-- **Status:** **Not yet.** Render the layer Write USD writes with husk, kick or another UsdRender-aware renderer.
+- **Status:** **Partial**, as **Render Command**: a command line run on the system when Run is pressed (never on cook), after a Write USD: `$USD` is its layer, written first if asked; `$F`, `$F4`, `$FSTART`, `$FEND`, `$N`, `$NAME` tokens; presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once or per frame; folder and environment variables; run in the background with Stop (ending what it started), its output and progress in the panel. Not yet: rendering inside Imago, the image in the Viewer, denoise, farm submission, animated layers.
 
 ---
 
@@ -439,5 +439,5 @@ Enough for a complete load, edit, bind, render loop:
 | 10 | Light | Not yet (read only) |
 | 11 | Camera | Partial (Camera operator, file cameras, looked through in the Viewer) |
 | 12 | Render Settings | Partial (RenderScene Settings, Render Settings with Karma, Arnold and Custom, Render Variables) |
-| 13 | Render | Not yet |
+| 13 | Render | Partial (Render Command runs husk on the written layer) |
 | 14 | Write USD (Save) | Partial (override layer in `usda`) |

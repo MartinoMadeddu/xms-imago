@@ -819,6 +819,86 @@ pub fn render_variables(input: Option<&EvalResult>, v: &Variables) -> EvalResult
     EvalResult::Named(prims)
 }
 
+// ── Render Command ─────────────────────────────────────────────────────────
+
+/// One environment variable a command runs with.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EnvVar {
+    pub name:  String,
+    pub value: String,
+}
+
+/// Render Command: a command line run on the system, to render the layer
+/// the Write USD above it writes. See `core::command`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CommandSettings {
+    /// With tokens: `$USD`, `$F4`, `$FSTART`, `$N`… (`command::TOKENS`).
+    pub line:         String,
+    /// Write the layer first, with the Write USD above, so the render sees
+    /// the scene as it is now.
+    pub write_first:  bool,
+    /// One run per frame (`$F` each frame), else one for the whole range.
+    pub per_frame:    bool,
+    /// Its own frames, else the scene range.
+    pub custom_range: bool,
+    pub start:        i64,
+    pub end:          i64,
+    /// Where it runs. Empty: the layer's folder, else Imago's.
+    pub folder:       String,
+    pub env:          Vec<EnvVar>,
+}
+
+impl Default for CommandSettings {
+    fn default() -> Self {
+        CommandSettings {
+            line: COMMAND_PRESETS[0].1.into(),
+            write_first: true,
+            per_frame: false,
+            custom_range: false,
+            start: 1,
+            end: 1,
+            folder: String::new(),
+            env: vec![],
+        }
+    }
+}
+
+impl CommandSettings {
+    /// The frames it renders: its own, or the scene's (`start`, `end`).
+    pub fn range(&self, scene: (i64, i64)) -> (i64, i64) {
+        let (a, b) = if self.custom_range { (self.start, self.end) } else { scene };
+        (a.min(b), a.max(b))
+    }
+
+    /// The command lines a run runs, tokens put in: one, or one per frame.
+    pub fn lines(&self, usd: &str, name: &str, scene: (i64, i64)) -> Vec<String> {
+        let (start, end) = self.range(scene);
+        let t = crate::core::command::Tokens { usd: usd.to_string(), name: name.to_string(), start, end, frame: start };
+        if self.per_frame {
+            (start..=end).map(|frame| crate::core::command::expand(&self.line, &crate::core::command::Tokens { frame, ..t.clone() })).collect()
+        } else {
+            vec![crate::core::command::expand(&self.line, &t)]
+        }
+    }
+
+    /// Where it runs: its folder, else the layer's.
+    pub fn folder_for(&self, usd: &str) -> Option<std::path::PathBuf> {
+        if !self.folder.trim().is_empty() { return Some(self.folder.trim().into()); }
+        std::path::Path::new(usd.trim()).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf())
+    }
+}
+
+/// Command lines to start from: name, line, what it does. husk takes the
+/// RenderSettings prim the layer names, so none is given.
+pub const COMMAND_PRESETS: [(&str, &str, &str); 5] = [
+    ("husk: Karma CPU", "husk --engine cpu -f $FSTART -n $N -V 2a \"$USD\"", "Karma's CPU engine, through husk (Houdini's bin folder on the PATH)"),
+    ("husk: Karma XPU", "husk --engine xpu -f $FSTART -n $N -V 2a \"$USD\"", "Karma XPU, through husk"),
+    ("husk: Arnold", "husk -R HdArnoldRendererPlugin -f $FSTART -n $N -V 2a \"$USD\"", "Arnold through husk, with arnold-usd's render delegate installed"),
+    ("husk: one frame each", "husk -f $F -n 1 -V 2a \"$USD\"", "One husk per frame: turn on Run per frame"),
+    ("Test: echo", "echo Rendering \"$USD\", frames $FSTART to $FEND", "Prints what it would render: to try the tokens"),
+];
+
 /// The path of the RenderSettings prim a layer names: the one named, else
 /// the first made in Imago (not one of a file: that one's file names its own).
 pub fn layer_settings(prims: &[Prim]) -> Option<String> {
@@ -945,6 +1025,18 @@ mod tests {
         let prims = named(render_variables(Some(&scene), &off));
         assert!(at(&prims, "/Render/Products/beauty").rels["orderedVars"].targets.is_empty());
         assert!(prims.iter().all(|p| p.path != "/Render/Products/Vars/C"));
+    }
+
+    #[test]
+    fn a_render_command_has_its_lines() {
+        let c = CommandSettings { line: "husk -f $F -o out.$F4.exr \"$USD\"".into(), per_frame: true, custom_range: true, start: 3, end: 1, ..Default::default() };
+        assert_eq!(c.lines("/s/a.usda", "R", (1, 100)), vec![
+            "husk -f 1 -o out.0001.exr \"/s/a.usda\"".to_string(), "husk -f 2 -o out.0002.exr \"/s/a.usda\"".into(), "husk -f 3 -o out.0003.exr \"/s/a.usda\"".into(),
+        ], "its own range, in order");
+        let once = CommandSettings::default();
+        assert_eq!(once.lines("/s/a.usda", "R", (1, 24)), vec!["husk --engine cpu -f 1 -n 24 -V 2a \"/s/a.usda\"".to_string()]);
+        assert_eq!(once.folder_for("/s/a.usda").as_deref(), Some(std::path::Path::new("/s")));
+        assert_eq!(once.folder_for("a.usda"), None);
     }
 
     #[test]

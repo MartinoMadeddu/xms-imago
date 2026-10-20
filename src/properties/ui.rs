@@ -37,6 +37,9 @@ pub enum PanelAction {
     Write { targets: Vec<NodeId>, all_files: bool },
     /// Run this Write USD node.
     WriteUsd(NodeId),
+    /// Run this Render Command: write the layer above it first if it says
+    /// so, then start its command lines.
+    RunCommand(NodeId),
 }
 
 /// Services the panel can reach beyond the graph.
@@ -218,6 +221,18 @@ pub fn draw_properties(
             let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
             graph.eval_render_context(sel_id, &pass)
         }
+        _ => Default::default(),
+    };
+    // What a Render Command renders: the Write USD above it, its name and file;
+    // and the scene's frames.
+    let command_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
+        Some(NodeType::RenderCommand { .. }) => super::render::CommandIn {
+            writer: graph.upstream_write_usd(sel_id).and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
+                NodeType::WriteUsd { path } => Some((n.name.clone(), path.trim().to_string())),
+                _ => None,
+            }),
+            scene: (graph.scene.start, graph.scene.end),
+        },
         _ => Default::default(),
     };
     // What reaches a Body Collide node: its clip and its collider.
@@ -522,6 +537,7 @@ pub fn draw_properties(
         NodeType::RenderSceneSettings { scene } => super::render::scene_settings_rows(ui, scene, &render_in),
         NodeType::RenderSettings { renderer } => super::render::renderer_rows(ui, renderer, &render_in, sel_id),
         NodeType::RenderVariables { vars } => super::render::variables_rows(ui, vars, &render_in),
+        NodeType::RenderCommand { command } => super::render::command_rows(ui, command, sel_id, &node.name, &command_in, io),
         NodeType::UnpackPrims => group(ui, "Unpack", Some("Nodes that need one mesh do this on their own. Unpack makes it explicit, or drops a pick"), |f| {
             f.value("In", format!("{} primitives", prim_paths.len()));
             f.value("Out", "One mesh");

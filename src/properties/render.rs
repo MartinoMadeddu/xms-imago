@@ -404,3 +404,121 @@ pub fn variables_rows(ui: &mut egui::Ui, v: &mut Variables, ctx: &Context) {
         });
     });
 }
+
+// ── Render Command ─────────────────────────────────────────────────────────
+
+/// What a Render Command's panel shows of the graph: the Write USD above
+/// it (its name and file), and the scene's frames.
+#[derive(Clone, Debug, Default)]
+pub struct CommandIn {
+    pub writer: Option<(String, String)>,
+    pub scene:  (i64, i64),
+}
+
+pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: NodeId, name: &str, input: &CommandIn, io: &mut super::ui::PanelIo) {
+    use crate::core::command::{self, State};
+    let usd = input.writer.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+    group(ui, "Scene", Some("What $USD is: the layer the Write USD above this operator writes"), |f| {
+        match &input.writer {
+            Some((w, p)) if !p.is_empty() => f.status(Status::Ok, format!("$USD is {p}, written by {w}")),
+            Some((w, _)) => f.status(Status::Bad, format!("{w} has no file set: $USD is empty")),
+            None => f.status(Status::Bad, "No Write USD above: wire this operator after one, or type the file in place of $USD"),
+        }
+        f.toggle("Write First", Some("Write the layer before running, so the render sees the scene as it is now"), &mut c.write_first);
+    });
+
+    let tokens: String = command::TOKENS.iter().map(|(t, what)| format!("{t}: {what}")).collect::<Vec<_>>().join("\n");
+    group(ui, "Command", Some("Run through the system's shell (sh, or cmd on Windows) when Run is pressed: never while the graph cooks"), |f| {
+        f.row("Presets", None, |ui| {
+            egui::ComboBox::from_id_salt(("command_presets", node.0)).width(ui.available_width() - 8.0).selected_text("Fill in…").show_ui(ui, |ui| {
+                for (label, line, about) in render::COMMAND_PRESETS {
+                    if ui.selectable_label(c.line == line, label).on_hover_text(about).clicked() { c.line = line.to_string(); }
+                }
+            });
+        });
+        f.wide(|ui| {
+            ui.add(egui::TextEdit::multiline(&mut c.line).code_editor().desired_rows(3).desired_width(f32::INFINITY))
+                .on_hover_text(format!("Tokens, put in when it runs:\n{tokens}\n$$ is a $; any other $ is the shell's ($HOME)"));
+        });
+        let lines = c.lines(&usd, name, input.scene);
+        if let Some(first) = lines.first() {
+            let more = if lines.len() > 1 { format!("\n… and {} more, one per frame", lines.len() - 1) } else { String::new() };
+            f.wide(|ui| ui.label(egui::RichText::new(format!("{first}{more}")).monospace().small().color(ink::DIM())));
+        }
+    });
+
+    group(ui, "Frames", Some("The frames $FSTART, $FEND, $N and $F stand for"), |f| {
+        let mut custom = c.custom_range;
+        f.choice("Range", None, &mut custom, &[(false, "Scene range"), (true, "Custom")]);
+        if custom && !c.custom_range { c.start = input.scene.0; c.end = input.scene.1; }
+        c.custom_range = custom;
+        if c.custom_range {
+            f.row("Frames", Some("First and last"), |ui| {
+                ui.horizontal(|ui| {
+                    let h = ui.spacing().interact_size.y;
+                    let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
+                    ui.field_sized([w, h], egui::DragValue::new(&mut c.start).speed(0.2).prefix("first "));
+                    ui.field_sized([w, h], egui::DragValue::new(&mut c.end).speed(0.2).prefix("last "));
+                });
+            });
+        } else {
+            f.value("Frames", format!("{} to {}", input.scene.0, input.scene.1));
+        }
+        f.toggle("Run Per Frame", Some("Off: one run for the whole range (husk renders ranges itself). On: one run per frame, $F that frame, one after the other"), &mut c.per_frame);
+        f.status(Status::Info, "The layer holds the scene at the current frame: animation is not written yet, so every frame renders the same");
+    });
+
+    group(ui, "Environment", Some("Where it runs, and variables it runs with on top of Imago's (HOUDINI_PATH, ARNOLD_PLUGIN_PATH, licences)"), |f| {
+        f.text("Folder", Some("Where it runs. Empty: the layer's folder"), &mut c.folder, "the layer's folder");
+        let mut remove = None;
+        for (k, e) in c.env.iter_mut().enumerate() {
+            f.row(&format!("Variable {}", k + 1), None, |ui| {
+                ui.horizontal(|ui| {
+                    let h = ui.spacing().interact_size.y;
+                    let w = ((ui.available_width() - 30.0 - ui.spacing().item_spacing.x) / 2.0).max(40.0);
+                    ui.field_sized([w, h], egui::TextEdit::singleline(&mut e.name).hint_text("NAME").font(egui::TextStyle::Monospace));
+                    ui.field_sized([w, h], egui::TextEdit::singleline(&mut e.value).hint_text("value"));
+                    if ui.small_button("🗑").clicked() { remove = Some(k); }
+                });
+            });
+        }
+        if let Some(k) = remove { c.env.remove(k); }
+        f.buttons("Add", None, |ui| { if ui.button("+ Variable").clicked() { c.env.push(Default::default()); } });
+    });
+
+    let run = command::snapshot(node.0, 400);
+    let running = run.as_ref().is_some_and(|r| r.state == State::Running);
+    group(ui, "Run", None, |f| {
+        f.buttons("", None, |ui| {
+            if ui.add_enabled(!running && !c.line.trim().is_empty(), egui::Button::new("▶ Run")).clicked() {
+                io.action = Some(super::ui::PanelAction::RunCommand(node));
+            }
+            if ui.add_enabled(running, egui::Button::new("⏹ Stop")).on_hover_text("Ends the command and what it started").clicked() { command::stop(node.0); }
+            if ui.add_enabled(run.is_some() && !running, egui::Button::new("Clear")).clicked() { command::clear(node.0); }
+        });
+        let Some(r) = &run else { f.status(Status::Info, "Not run yet"); return };
+        let secs = r.elapsed.as_secs_f64();
+        let time = if secs < 60.0 { format!("{secs:.1} s") } else { format!("{}m {:02}s", (secs / 60.0) as u64, secs as u64 % 60) };
+        let of = if r.at.1 > 1 { format!(", run {} of {}", r.at.0, r.at.1) } else { String::new() };
+        match &r.state {
+            State::Running => f.status(Status::Info, format!("Running{of}: {time}")),
+            State::Done => f.status(Status::Ok, format!("Done in {time}")),
+            State::Stopped => f.status(Status::Info, format!("Stopped after {time}")),
+            State::Failed(why) => f.status(Status::Bad, format!("{why}{of}")),
+        }
+        if let Some(p) = r.progress.filter(|_| running) {
+            f.wide(|ui| ui.add(egui::ProgressBar::new(p / 100.0).show_percentage()));
+        }
+    });
+
+    if let Some(r) = &run {
+        group(ui, "Output", Some("What the command prints, the last 400 lines"), |f| {
+            f.wide(|ui| {
+                if ui.small_button("Copy").clicked() { ui.ctx().copy_text(r.lines.join("\n")); }
+                egui::ScrollArea::vertical().id_salt(("command_output", node.0)).max_height(260.0).stick_to_bottom(true).auto_shrink([false, true]).show(ui, |ui| {
+                    for l in &r.lines { ui.label(egui::RichText::new(l).monospace().small()); }
+                });
+            });
+        });
+    }
+}

@@ -70,6 +70,8 @@ pub fn evaluate_node_type(
         NodeType::RenderSceneSettings { scene } => Some(crate::core::render::scene_settings(inputs.first(), scene)),
         NodeType::RenderSettings { renderer } => Some(crate::core::render::renderer_settings(inputs.first(), renderer)),
         NodeType::RenderVariables { vars } => Some(crate::core::render::render_variables(inputs.first(), vars)),
+        // Runs when asked, from its panel: on cook, what comes in goes on.
+        NodeType::RenderCommand { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::set_attribute::set_attributes(r, rows, &[])),
 

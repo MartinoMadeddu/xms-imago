@@ -173,6 +173,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `crates/xms-ice` | the ICE engine: graph, compiler, batched executor |
 | `src/core/properties.rs` | Properties: values and their types, Object and Property contexts, the properties Imago knows and how each is written, opinions on prims without geometry, inheritance (visibility, purpose, Object values) |
 | `src/core/render.rs`, `assets/renderers/` | Rendering as UsdRender has it: render prims (`RenderPrim`), the RenderScene Settings, Render Settings and Render Variables operators' work, finding the RenderSettings prim, renderer definitions (Karma, Arnold as JSON; more from the renderers folder). Their panels: `src/properties/render.rs` |
+| `src/core/command.rs` | Command lines run on the system (Render Command): tokens (`expand`), progress read from output, runs in the background by operator id (`start`, `stop`, `snapshot`), each in its own process group so Stop ends what it started. Pure std. `main::run_command` writes the layer first (`NodeGraphState::upstream_write_usd`) |
 | `src/core/set_attribute.rs` | The Set Attribute operator: its rows, and setting them on the prims its Prims Location tab names |
 | `src/core/locations.rs` | Primitive Locations: matching paths, picking by a list, pruning |
 | `src/types.rs` | `Prim`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |

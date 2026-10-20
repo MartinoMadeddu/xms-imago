@@ -30,6 +30,9 @@ pub mod camera;
 /// Rendering: the UsdRender prims (RenderSettings, RenderProduct,
 /// RenderVar) the render operators make, and renderer definitions.
 pub mod render;
+/// Command lines run on the system (Render Command): tokens, running in
+/// the background, output and progress.
+pub mod command;
 pub mod uv;
 pub mod sequences;
 pub mod manip;

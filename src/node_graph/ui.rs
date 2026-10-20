@@ -1059,6 +1059,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::RenderSceneSettings { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),
             (NodeType::RenderSettings { renderer: Default::default() }, "A renderer's settings (Karma, Arnold, or a Custom one typed in) on the scene's RenderSettings prim, and its standard AOVs as RenderVars"),
             (NodeType::RenderVariables { vars: Default::default() }, "RenderVars (AOVs) of a product: add or override them row by row: name, source, type, format, filter"),
+            (NodeType::RenderCommand { command: Default::default() }, "Run a command line on the system: husk on the layer the Write USD above writes ($USD), over the scene's frames. Runs when you press Run, never on cook"),
         ]),
         ("🗺", "UV", vec![
             (NodeType::UvUnwrap { method: crate::core::uv::UvMethod::Conformal, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, "Make texture coordinates"),

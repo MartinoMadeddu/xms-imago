@@ -1,9 +1,9 @@
 # Rendering
 
-Imago authors what a renderer needs to render the scene, as USD has it (UsdRender): a **RenderSettings** prim, a **RenderProduct** for each image, and a **RenderVar** for each AOV. Three operators make them, in the **Render** category of the add menu. Write USD writes them with the scene; the layer is then rendered by husk (Karma, or any Hydra delegate), kick (Arnold), or any renderer that reads UsdRender. Imago does not render yet.
+Imago authors what a renderer needs to render the scene, as USD has it (UsdRender): a **RenderSettings** prim, a **RenderProduct** for each image, and a **RenderVar** for each AOV. Three operators make them, in the **Render** category of the add menu. Write USD writes them with the scene; **Render Command** then runs husk (or any command line) on that layer. Imago does not render inside itself yet.
 
 ```
-Scene ─► RenderScene Settings ─► Render Settings ─► Render Variables ─► Write USD
+Scene ─► RenderScene Settings ─► Render Settings ─► Render Variables ─► Write USD ─► Render Command
 ```
 
 Each operator takes the scene on its one input and hands it on with its render prims added or changed, so they can sit anywhere in the graph. Render Settings and Render Variables do not need RenderScene Settings wired into them: they find the RenderSettings prim in the scene coming in.
@@ -85,6 +85,27 @@ RenderVars of a product, set or overridden row by row.
   - **Extras**: what the renderer reads on the RenderVar beyond those, picked or typed: `driver:parameters:aov:format` (Karma's channel format: half, float…), `driver:parameters:aov:name`, `arnold:filter`, `arnold:width`
 - **+ From a renderer** fills a row from any renderer's standard AOVs.
 
+## Render Command
+
+Runs a command line on the system: husk on the layer the Write USD above it writes, say. Put it after that Write USD:
+
+```
+… ─► Render Settings ─► Write USD ─► Render Command
+```
+
+It runs **only when Run is pressed**, never while the graph cooks; on cook it hands on what comes in.
+
+- **Scene:** what `$USD` is, the file of the nearest Write USD above it. **Write First** (on) writes that layer before running, so the render sees the scene as it is now; if it cannot be written, nothing runs and the panel says why.
+- **Command:** the command line, with **Presets** to start from: husk with Karma CPU, Karma XPU, Arnold (arnold-usd's `HdArnoldRendererPlugin`), one husk per frame, and an `echo` to try the tokens. The line under it shows it with its tokens put in. husk renders the RenderSettings prim the layer names, so the presets do not give one (add `-s /Render/Settings` to choose).
+- **Tokens:** `$USD` the layer, `$NAME` the operator's name, `$F` the frame, `$F4` the frame in four digits (`$F2` to `$F9` likewise), `$FSTART`, `$FEND` and `$N` the range and how many frames; `${USD}` works too, and `$$` is a `$`. Any other `$` is left to the shell (`$HOME`). Put quotes around `"$USD"` for paths with spaces.
+- **Frames:** the scene range, or a custom one. **Run Per Frame** runs the line once per frame, `$F` that frame, one after the other; off, it runs once for the range (husk renders ranges itself).
+- **Environment:** the folder it runs in (empty: the layer's folder), and variables on top of Imago's (`HOUDINI_PATH`, `ARNOLD_PLUGIN_PATH`, licences). The program has to be on the `PATH` Imago was started with, or named by its full path.
+- **Run:** Run, Stop and Clear; what it is doing, how long it has taken, and its progress, read from the percentages it prints (husk's `-V 2a` prints them). **Output** shows the last 400 lines it printed, Copy takes them all.
+
+It runs through the system's shell (`sh -c`; `cmd /C` on Windows), in the background: Imago stays in use. Stop, or closing Imago, ends the command and everything it started.
+
+The layer holds the scene at the current frame (animation is not written yet), so every frame of a range renders the same picture for now.
+
 ## In the scene
 
 The render prims are primitives with no geometry, as cameras and materials are: the Scene Explorer lists them (⚙ RenderSettings, 🖼 RenderProduct, 📑 RenderVar) under their Scopes, and the Primitive Inspector's Properties tab lists their attributes and relationships, with the render operator they came from. The Viewer does not draw them.
@@ -140,7 +161,8 @@ Render the layer with husk and Karma, or with Arnold through arnold-usd (husk or
 
 ## Not done yet
 
-- Rendering from Imago (the Viewer's Render mode, rray as its render delegate)
+- Rendering inside Imago (the Viewer's Render mode, rray as its render delegate), and the image streamed into the Viewer while husk renders
+- Several Render Commands queued, or sent to a farm
 - A file's own `renderSettingsPrimPath` read (its first RenderSettings prim is taken), a file's products and RenderVars read as relationships
 - Several RenderSettings prims to choose between, a camera or resolution per product
 - Settings that change over time
