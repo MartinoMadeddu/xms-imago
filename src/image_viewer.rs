@@ -10,7 +10,8 @@
 //! and the finished frame, comes into the view as it is written. Stop ends
 //! it. Under the bar: the layer (AOV), channel, exposure and gamma of the
 //! view, then the image, zoomed and panned, with the values under the
-//! pointer. Its log shows what husk prints.
+//! pointer; under it the snapshots bar (Snap keeps the image, to go back
+//! and forth between it and the next render). Its log shows what husk prints.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -211,13 +212,14 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
     // ── The view's own controls, then the image ───────────────────────────
     ui.horizontal(|ui| st.view.controls(ui));
     ui.separator();
+    // The image, the snapshots bar under it, the log under that.
+    let w = ui.available_width();
+    let below = 34.0 + if st.show_log { 210.0 } else { 0.0 };
+    let h = (ui.available_height() - below).max(80.0);
+    ui.allocate_ui(egui::vec2(w, h), |ui| st.view.canvas(ui));
+    ui.horizontal(|ui| st.view.snapshots(ui));
     if st.show_log {
-        let w = ui.available_width();
-        let h = (ui.available_height() - 210.0).max(80.0);
-        ui.allocate_ui(egui::vec2(w, h), |ui| st.view.canvas(ui));
         crate::properties::render::console(ui, "image_viewer_log", run.as_ref(), 150.0, "Nothing yet: press Render");
-    } else {
-        st.view.canvas(ui);
     }
 }
 
@@ -235,6 +237,8 @@ fn start(st: &mut ImageViewerState, graph: &NodeGraphState, subnets: &crate::ice
     let _ = std::fs::remove_file(&image);
     let line = husk_line(&st.husk().clone(), settings, &st.camera, frame, &image, &layer);
     command::start(RUN_KEY, vec![line], Some(dir), vec![]);
+    // What comes in is shown, whatever snapshot was.
+    st.view.show_active();
     let camera = if st.camera.is_empty() { settings.camera.clone().unwrap_or_default() } else { st.camera.clone() };
     st.run = Some(Run { image, seen: None, title: format!("frame {frame}   {}   {camera}", settings.path), finished: false });
 }

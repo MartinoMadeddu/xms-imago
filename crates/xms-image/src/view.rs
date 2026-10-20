@@ -7,10 +7,21 @@
 //!   window, outlined when the pixels go beyond it: overscan); the wheel
 //!   zooms about the pointer, a drag pans, a double-click or F fits it; the
 //!   pixel under the pointer and its values in the corner.
+//! - **Snapshots** (`ImageView::snapshots`): the image kept, as many as
+//!   wanted, to go back and forth between them and the active one (the
+//!   render coming in), as Houdini's render view: a menu, a slider, − and +,
+//!   Snap, a name, ✕ to let one go. Kept while the program runs.
 
 use std::sync::Arc;
 
 use crate::image::{Image, Layer, Look, Show};
+
+/// An image kept: what it was, and the name it is listed by.
+pub struct Snap {
+    pub image: Arc<Image>,
+    pub title: String,
+    pub name:  String,
+}
 
 /// What a view shows, and how.
 pub struct ImageView {
@@ -29,6 +40,12 @@ pub struct ImageView {
     texture: Option<egui::TextureHandle>,
     /// What the texture holds: the image, layer, show and look it was made from.
     made:    Option<(usize, String, Show, [u32; 3])>,
+    /// Images kept, oldest first.
+    pub snaps: Vec<Snap>,
+    /// What is shown: 0 the active image, `k` the snapshot `k` (from 1).
+    pub showing: usize,
+    /// The number the next snapshot is named with.
+    next_snap: usize,
 }
 
 impl Default for ImageView {
@@ -36,6 +53,7 @@ impl Default for ImageView {
         ImageView {
             image: None, title: String::new(), layer: "RGBA".into(), show: Show::Colour, look: Look::default(),
             zoom: 1.0, pan: egui::Vec2::ZERO, fit: true, texture: None, made: None,
+            snaps: vec![], showing: 0, next_snap: 1,
         }
     }
 }
@@ -59,8 +77,35 @@ impl ImageView {
     /// Nothing shown.
     pub fn clear(&mut self) { self.image = None; self.title.clear(); self.made = None; }
 
-    fn current(&self) -> Option<(Arc<Image>, Layer)> {
+    /// The image shown, and what it is: the active one, or a snapshot.
+    pub fn shown(&self) -> Option<(Arc<Image>, String)> {
+        match self.showing {
+            0 => self.image.clone().map(|i| (i, self.title.clone())),
+            k => self.snaps.get(k - 1).map(|s| (s.image.clone(), format!("{}   {}", s.name, s.title))),
+        }
+    }
+
+    /// The active image shown again (a render starting).
+    pub fn show_active(&mut self) { self.showing = 0; }
+
+    /// Keeps the active image as a snapshot, and shows it. Its number.
+    pub fn snap(&mut self) -> Option<usize> {
         let image = self.image.clone()?;
+        let name = format!("Snap {}", self.next_snap);
+        self.next_snap += 1;
+        self.snaps.push(Snap { image, title: self.title.clone(), name });
+        Some(self.snaps.len())
+    }
+
+    /// Lets the snapshot shown go; the one before it is shown.
+    pub fn drop_snap(&mut self) {
+        if self.showing == 0 || self.showing > self.snaps.len() { return; }
+        self.snaps.remove(self.showing - 1);
+        self.showing = self.showing.saturating_sub(1).min(self.snaps.len());
+    }
+
+    fn current(&self) -> Option<(Arc<Image>, Layer)> {
+        let (image, _) = self.shown()?;
         let layers = image.layers();
         let layer = layers.iter().find(|l| l.name == self.layer).or(layers.first())?.clone();
         Some((image, layer))
@@ -68,7 +113,7 @@ impl ImageView {
 
     /// The layer, what of it, exposure, gamma, sRGB and Fit, in a row.
     pub fn controls(&mut self, ui: &mut egui::Ui) {
-        let layers = self.image.as_ref().map(|i| i.layers()).unwrap_or_default();
+        let layers = self.shown().map(|(i, _)| i.layers()).unwrap_or_default();
         ui.add_enabled_ui(!layers.is_empty(), |ui| {
             egui::ComboBox::from_id_salt("xms_image_layer").width(150.0).selected_text(if self.layer.is_empty() { "Layer" } else { self.layer.as_str() })
                 .show_ui(ui, |ui| {
@@ -91,6 +136,40 @@ impl ImageView {
         ui.checkbox(&mut self.look.srgb, "sRGB").on_hover_text("Renders are linear: sRGB's transfer shows them as they are meant to be seen");
         if ui.button("Reset").on_hover_text("Exposure 0, gamma 1, sRGB").clicked() { self.look = Look::default(); }
         if ui.button("Fit").on_hover_text("The frame in the view (double-click it, or F)").clicked() { self.fit = true; }
+    }
+
+    /// The snapshots bar: which image is shown (the menu, the slider, − and
+    /// +), Snap, the name of the one shown, ✕ to let it go.
+    pub fn snapshots(&mut self, ui: &mut egui::Ui) {
+        let n = self.snaps.len();
+        self.showing = self.showing.min(n);
+        let label = |k: usize, snaps: &[Snap]| if k == 0 { "Active Render".to_string() } else { snaps[k - 1].name.clone() };
+        egui::ComboBox::from_id_salt("xms_image_snaps").width(140.0).selected_text(label(self.showing, &self.snaps)).show_ui(ui, |ui| {
+            for k in 0..=n {
+                if ui.selectable_label(self.showing == k, label(k, &self.snaps)).clicked() { self.showing = k; }
+            }
+        }).response.on_hover_text("The image shown: the active render, or a snapshot");
+        if ui.add_enabled(self.showing > 0, egui::Button::new("✕")).on_hover_text("Let this snapshot go").clicked() { self.drop_snap(); }
+        ui.add_enabled_ui(n > 0, |ui| {
+            ui.spacing_mut().slider_width = (ui.available_width() * 0.4).clamp(80.0, 360.0);
+            let mut k = self.showing;
+            if ui.add(egui::Slider::new(&mut k, 0..=n.max(1)).show_value(false)).on_hover_text("0: the active render, then each snapshot").changed() { self.showing = k.min(n); }
+            if ui.small_button("−").on_hover_text("The one before").clicked() { self.showing = self.showing.saturating_sub(1); }
+            if ui.small_button("+").on_hover_text("The one after").clicked() { self.showing = (self.showing + 1).min(n); }
+        });
+        ui.separator();
+        if ui.add_enabled(self.image.is_some(), egui::Button::new("📷 Snap")).on_hover_text("Keep the active image, to compare with what comes next").clicked() {
+            if let Some(k) = self.snap() { self.showing = k; }
+        }
+        if self.showing > 0 {
+            if let Some(s) = self.snaps.get_mut(self.showing - 1) {
+                ui.add(egui::TextEdit::singleline(&mut s.name).desired_width(140.0)).on_hover_text("The snapshot's name");
+            }
+        }
+        if n > 0 {
+            let bytes: usize = self.snaps.iter().map(|s| s.image.channels.len() * s.image.width * s.image.height * 4).sum();
+            ui.label(egui::RichText::new(format!("{n} kept, {:.0} MB", bytes as f64 / 1_048_576.0)).small().weak());
+        }
     }
 
     /// The image in the space left, with zoom, pan and the values under the pointer.
@@ -159,7 +238,8 @@ impl ImageView {
             painter.rect_filled(r, 3.0, egui::Color32::from_black_alpha(170));
             painter.galley(r.min + egui::vec2(4.0, 4.0), galley, egui::Color32::WHITE);
         };
-        let title = if self.title.is_empty() { String::new() } else { format!("{}   ", self.title) };
+        let shown_title = self.shown().map(|(_, t)| t).unwrap_or_default();
+        let title = if shown_title.trim().is_empty() { String::new() } else { format!("{}   ", shown_title.trim()) };
         label(&painter, rect.left_top() + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("{title}{} × {}   {}", image.width, image.height, layer.name));
         label(&painter, rect.right_top() + egui::vec2(-8.0, 8.0), egui::Align2::RIGHT_TOP, format!("{:.0}%", s * 100.0));
 

@@ -129,7 +129,9 @@ A pane of its own (a tab behind the Viewer in the default layout; Window menu ot
 - **Exposure** (stops), **Gamma**, **sRGB** (renders are linear: on, they look as they are meant to), **Reset**.
 - The wheel zooms about the pointer, a drag pans, a double-click, F or **Fit** fits the frame. The frame (display window) is outlined when the pixels go beyond it (overscan). The bottom corner shows the pixel under the pointer and every channel of the layer there, as floats.
 
-Later: rray rendering straight into it, frame sequences on the timeline, A/B comparison.
+**Snapshots**, the bar under the image, as Houdini's render view: **📷 Snap** keeps the active image (the render coming in, or the file opened) as *Snap 1*, *Snap 2*…; the menu, the slider and − and + go back and forth between the **Active Render** and every snapshot; the name field renames the one shown; **✕** lets it go. Rendering again shows the active render; a snapshot keeps its layers, so compare any AOV. They are kept while the program runs, with how much memory they take.
+
+Later: rray rendering straight into it, frame sequences on the timeline, a wipe between two images.
 
 ## In the scene
 
