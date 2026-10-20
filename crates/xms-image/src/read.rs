@@ -16,7 +16,9 @@ pub fn read(path: &Path) -> Result<Image, String> {
 /// it, `part.channel` for a named part. Laid out in the box holding every
 /// part's data window.
 fn read_exr(path: &Path) -> Result<Image, String> {
-    use exr::prelude::*;
+    // Not the prelude: it has an `Image` of its own.
+    use exr::image::FlatSamples;
+    use exr::prelude::read_all_flat_layers_from_file;
     let file = read_all_flat_layers_from_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let dw = file.attributes.display_window;
     // The box every part's pixels are in.
