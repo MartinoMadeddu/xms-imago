@@ -70,7 +70,7 @@ An AOV can also give its RenderVar's `format` (`driver:parameters:aov:format`: `
 
 **Karma's AOVs** follow what Houdini 20.5's Karma Render Settings writes: the beauty `C` is the light path expression `C.*[LO]` (color4f, written as `color4h`), the light path AOVs `color3h`, P `ray:hitP` and P (Camera Space) `ray:hitP_camera` as `float3`, UV the `st` primvar. Those not seen in a Houdini file are marked unconfirmed in their tooltip.
 
-**Karma:** the names follow Houdini's Karma Render Settings. `karma:global:cacheratio`, `karma:object:geosamples` and `karma:object:dicingquality` are in SideFX's documentation; the others are marked unconfirmed. `karma --all-properties` lists every one with its type and default: correct the file from it, or put a corrected copy in the renderers folder.
+**Karma:** the settings' names, types and defaults are those Houdini 20.5's Karma Render Settings writes: `karma:global:` for the render's (`samplesperpixel`, `pathtracedsamples`, `convergence_mode`, `colorlimit`, `bucketsize`…), `karma:object:` for the defaults every object takes (the ray limits `diffuselimit`, `reflectlimit`… as floats, `varianceaa_*`, `xformsamples`, `geosamples`). `karma --all-properties` lists every setting Karma has, for adding more.
 
 **Arnold:** arnold-usd reads Arnold's options from `arnold:global:` attributes on the RenderSettings prim, each with the option's own name (`AA_samples`, `GI_diffuse_depth`, `enable_adaptive_sampling`).
 
@@ -157,7 +157,7 @@ def Scope "Render"
         uniform bool disableDepthOfField = false
         uniform bool disableMotionBlur = false
         uniform token[] includedPurposes = ["default", "render"]
-        int karma:global:pathtracedsamples = 1
+        int karma:global:pathtracedsamples = 128
         int karma:global:samplesperpixel = 9
         uniform float pixelAspectRatio = 1
         uniform int2 resolution = (1920, 1080)

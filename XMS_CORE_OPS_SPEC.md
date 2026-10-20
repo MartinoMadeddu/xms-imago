@@ -383,7 +383,7 @@ In Imago: **RenderScene Settings** (what is rendered) and **Render Settings** (h
 - **Custom:** a name field for the renderer, used as the namespace; its settings are rows of name, type and value (`rray` with `spp` and `bounce` writes `rray:spp` and `rray:bounce`).
 - **AOVs tab:** the renderer's standard AOVs as checkboxes, by group (the beauty ticked). Each ticked AOV is a RenderVar beside the product (`/Render/Products/Vars/<name>`), added to its `orderedVars`.
 - **USD mapping:** `UsdRenderSettings`, renderer settings as namespaced attributes on it.
-- **Status:** **Partial.** Not yet: the `renderSettingsPrimPath` of a file read (a file's first RenderSettings prim is taken), several RenderSettings prims chosen between, settings that change over time. Karma's setting names other than `cacheratio`, `geosamples` and `dicingquality` follow Houdini's Karma Render Settings but are marked unconfirmed in the definition until checked against `karma --all-properties`.
+- **Status:** **Partial.** Not yet: the `renderSettingsPrimPath` of a file read (a file's first RenderSettings prim is taken), several RenderSettings prims chosen between, settings that change over time. Karma's settings and AOVs are those Houdini 20.5's Karma Render Settings writes (checked against a Houdini stage); a few AOVs not in that stage are marked unconfirmed. Rendered with husk from Imago: done (Martino, 20/10/2026).
 
 ### 11.2 Render Product
 - **Parameters:** output path (`productName`); product type; ordered render vars
