@@ -548,7 +548,7 @@ fn console_view(ui: &mut egui::Ui, node: NodeId, run: Option<&crate::core::comma
 /// A run's output as a terminal shows it, `height` high: light text on
 /// black, the command lines run in green, errors and warnings in amber, a
 /// Copy button above. Render Command's Console tab, the Image Viewer's log.
-pub fn console(ui: &mut egui::Ui, id: impl std::hash::Hash, run: Option<&crate::core::command::Snapshot>, height: f32, empty: &str) {
+pub fn console(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, run: Option<&crate::core::command::Snapshot>, height: f32, empty: &str) {
     use egui::Color32;
     let black = Color32::from_rgb(12, 12, 12);
     let text = Color32::from_rgb(208, 208, 208);
