@@ -349,7 +349,7 @@ pub fn bind(scene: Option<&EvalResult>, materials: &[Option<Arc<Material>>], lib
         .filter(|(_, row)| !row.trim().is_empty())
         .filter_map(|(k, row)| chosen(k, to, &places).map(|m| (row.as_str(), m)))
         .collect();
-    for p in prims.iter_mut().filter(|p| p.shading.is_none() && p.camera.is_none() && p.instancing.is_none()) {
+    for p in prims.iter_mut().filter(|p| p.shading.is_none() && p.camera.is_none() && p.render.is_none() && p.instancing.is_none()) {
         if let Some((_, m)) = wanted.iter().rev().find(|(row, _)| crate::core::locations::matches(row, &p.path)) {
             p.material = Some(m.clone());
             p.look = looks.get(m).cloned();

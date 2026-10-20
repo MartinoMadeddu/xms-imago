@@ -211,6 +211,15 @@ pub fn draw_properties(
         _ => (vec![], vec![]),
     };
     let port_names: Vec<Option<String>> = binding_ports.iter().map(|m| m.as_ref().map(|m| m.name.clone())).collect();
+    // What reaches a render operator: the scene's cameras, products and
+    // RenderSettings prim.
+    let render_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
+        Some(NodeType::RenderSceneSettings { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }) => {
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+            graph.eval_render_context(sel_id, &pass)
+        }
+        _ => Default::default(),
+    };
     // What reaches a Body Collide node: its clip and its collider.
     let collide_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::Ragdoll { .. }) => graph.ragdoll_inputs(sel_id),
@@ -509,6 +518,10 @@ pub fn draw_properties(
         NodeType::MaterialBinding { library, inputs, .. } => {
             resync |= binding_rows(ui, library, inputs, &binding_ports, crate::core::locations::rows(&node.locations).count());
         }
+        // ── Render ───────────────────────────────────────────────────────────
+        NodeType::RenderSceneSettings { scene } => super::render::scene_settings_rows(ui, scene, &render_in),
+        NodeType::RenderSettings { renderer } => super::render::renderer_rows(ui, renderer, &render_in, sel_id),
+        NodeType::RenderVariables { vars } => super::render::variables_rows(ui, vars, &render_in),
         NodeType::UnpackPrims => group(ui, "Unpack", Some("Nodes that need one mesh do this on their own. Unpack makes it explicit, or drops a pick"), |f| {
             f.value("In", format!("{} primitives", prim_paths.len()));
             f.value("Out", "One mesh");

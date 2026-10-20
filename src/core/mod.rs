@@ -27,6 +27,9 @@ pub mod instancing;
 pub mod material;
 /// Cameras: a UsdGeomCamera's values, looked through by the Viewer.
 pub mod camera;
+/// Rendering: the UsdRender prims (RenderSettings, RenderProduct,
+/// RenderVar) the render operators make, and renderer definitions.
+pub mod render;
 pub mod uv;
 pub mod sequences;
 pub mod manip;

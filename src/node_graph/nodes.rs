@@ -65,6 +65,11 @@ pub fn evaluate_node_type(
             let materials: Vec<_> = inputs.iter().filter_map(|r| match r { EvalResult::Material(m) => Some(Some(m.clone())), _ => None }).collect();
             Some(crate::core::material::bind(scene, &materials, library, &[], bindings))
         }
+        // ── Render ───────────────────────────────────────────────────────────
+        // The scene coming in, with its render prims added or changed.
+        NodeType::RenderSceneSettings { scene } => Some(crate::core::render::scene_settings(inputs.first(), scene)),
+        NodeType::RenderSettings { renderer } => Some(crate::core::render::renderer_settings(inputs.first(), renderer)),
+        NodeType::RenderVariables { vars } => Some(crate::core::render::render_variables(inputs.first(), vars)),
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::set_attribute::set_attributes(r, rows, &[])),
 
@@ -273,7 +278,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None,
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None,
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>
@@ -439,6 +444,7 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
             })),
             shading: None,
             camera: None,
+            render: None,
         })
     }).collect();
     // Each point instancer, a points primitive of its own. One nested in
@@ -454,7 +460,7 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
         instanced_by: i.by.as_ref().and_then(|(outer, index, inside)| by_path.get(outer.as_str()).map(|o| Arc::new(crate::types::InstancedBy {
             instancer: point(&o.path), index: *index, inside: *inside, hidden: o.hidden.clone(), geo: o.geo.clone(), place: o.place.clone(),
         }))),
-        shading: None, camera: None,
+        shading: None, camera: None, render: None,
     })));
     // Each camera, a primitive with no geometry. Its geometry is the same
     // empty one as when loaded, so only its placement can be an edit.

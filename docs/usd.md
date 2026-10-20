@@ -226,6 +226,7 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | A point instancer's points or their attributes | `positions`, `orientations`, `scales`, `protoIndices`, `ids` |
 | Set Attribute values | Object: `primvars:name` with `interpolation = "constant"`. Property: an attribute (`token visibility`, `uniform bool doubleSided`, `uniform token subdivisionScheme`, any other name with its type) or metadata (`active`, `kind`, `instanceable`). On any prim of the stage: a group, a camera, a light |
 | A camera made by the Camera operator | `def Camera` with `xformOp:transform`, `projection`, `focalLength`, the apertures, `clippingRange`, and `fStop`, `focusDistance` and the offsets when set |
+| Render prims the render operators made | `def RenderSettings`, `def RenderProduct`, `def RenderVar` under `def Scope` parents, with their attributes and relationships; the layer names the RenderSettings prim (`renderSettingsPrimPath`). One of a loaded file: an `over`, its relationships appended. See [Rendering](render.md) |
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
 
 The layer's `defaultPrim` is the first root prim of the first stage, or, with no stage, the first prim made in Imago (`cube` for a lone Cube). A layer with no stage is Y up in metres, as Imago is; next to a stage, prims made in Imago are written in the stage's axes and unit.

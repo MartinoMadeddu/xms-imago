@@ -1,6 +1,6 @@
 # XMS Core Operator Specification
 
-**Status:** Draft v0.3 (15/10/2026), checked against `main` at 30a928e
+**Status:** Draft v0.4 (20/10/2026), checked against `main` at c05c497
 **Scope:** The minimum operator set needed to load, modify, author and render OpenUSD scenes.
 **Principle:** One operator per USD concept (prims, properties, composition arcs, collections, render prims). Operators edit a USD scene; they do not translate it into a separate scene format.
 
@@ -364,24 +364,45 @@ All take **Primitive Locations** where they edit prims.
 
 ## 11. Rendering
 
-Status for the whole section: **Not yet.** The plan is rray as Imago's render delegate, taking the scene plus its edits (see `ARCHITECTURE.md`).
+Status for the section: **Partial.** Three operators author the UsdRender prims a renderer reads (11.1 to 11.3), in the **Render** category of the add menu; Write USD writes them. Nothing renders from Imago yet (11.4): the layer is rendered by husk, kick or any UsdRender-aware renderer. The plan for rendering inside Imago is rray as its render delegate (see `ARCHITECTURE.md`).
+
+The render prims are primitives with no geometry (`Prim::render`, `core::render`), listed in the Scene Explorer and the Primitive Inspector, not drawn. Each operator takes the scene on one input and hands it on with its render prims added or changed. A render prim that comes from a file is changed with an `over`; relationships on it are appended (`append rel`) since Imago does not read the file's targets.
 
 ### 11.1 Render Settings
-- **Parameters:** resolution; pixel aspect ratio; camera (relationship); sampling settings; included purposes; motion blur
-- **USD mapping:** `UsdRenderSettings`
+In Imago: **RenderScene Settings** (what is rendered) and **Render Settings** (how a renderer renders it).
+
+**RenderScene Settings**
+- **Primitive Location:** `/Render/Settings` by default. It is the RenderSettings prim the layer names (`renderSettingsPrimPath`).
+- **Parameters:** camera (the relationship; empty: the first camera coming in, picked from a list); resolution, with presets; pixel aspect ratio; aspect ratio conform policy; overscan, as `dataWindowNDC` from -overscan to 1 + overscan; motion blur and depth of field on or off (`disableMotionBlur`, `disableDepthOfField`); included purposes; the product's path and output image.
+- **Makes:** a RenderProduct (`/Render/Products/beauty`) with `productName` and `productType = "raster"`, in the settings' `products`. Filtering and bit depth are per RenderVar, or the renderer's own settings: not here.
+
+**Render Settings**
+- **Finds** the RenderSettings prim of the scene coming in, without following wires: the one the layer names (RenderScene Settings'), else the first made in Imago, else the first of a file (changed with an `over`), else it makes one at its Primitive Location (`/Render/Settings`).
+- **Renderer:** Karma, Arnold, any renderer with a definition file, or **Custom**. A definition is a JSON file: the renderer's namespace and its settings (namespaced attribute name, type, default, group, label, help, range, choices), and its standard AOVs (name, `sourceName`, `sourceType`, `dataType`, group, whether ticked by default). Karma's and Arnold's come with Imago (`assets/renderers`); files in the renderers folder (`$XMS_RENDERERS`, else `renderers` in Imago's config folder) add renderers or replace one of the same name.
+- **Settings tab:** the definition's settings, by group, written as namespaced attributes on the RenderSettings prim (`karma:global:bucketsize`, `arnold:global:AA_samples`). Every setting is written, changed or not. Extra rows add settings the definition does not list, under its namespace unless the name has one.
+- **Custom:** a name field for the renderer, used as the namespace; its settings are rows of name, type and value (`rray` with `spp` and `bounce` writes `rray:spp` and `rray:bounce`).
+- **AOVs tab:** the renderer's standard AOVs as checkboxes, by group (the beauty ticked). Each ticked AOV is a RenderVar beside the product (`/Render/Products/Vars/<name>`), added to its `orderedVars`.
+- **USD mapping:** `UsdRenderSettings`, renderer settings as namespaced attributes on it.
+- **Status:** **Partial.** Not yet: the `renderSettingsPrimPath` of a file read (a file's first RenderSettings prim is taken), several RenderSettings prims chosen between, settings that change over time. Karma's setting names other than `cacheratio`, `geosamples` and `dicingquality` follow Houdini's Karma Render Settings but are marked unconfirmed in the definition until checked against `karma --all-properties`.
 
 ### 11.2 Render Product
-- **Parameters:** output path; product type; camera override; ordered render vars
+- **Parameters:** output path (`productName`); product type; ordered render vars
 - **USD mapping:** `UsdRenderProduct`
+- **Status:** **Partial.** Made by RenderScene Settings (output path, `raster`), its RenderVars added by Render Settings' AOVs tab and Render Variables. Not yet: a camera or resolution override per product, several products from one operator.
 
 ### 11.3 Render Var
-- **Parameters:** AOV name; source type; source name; data type
-- **USD mapping:** `UsdRenderVar`
+In Imago: **Render Variables**.
+- **Product:** a path, picked from the products coming in. Empty: the RenderSettings prim's first product, else the first coming in, else `/Render/Products/beauty` (made, and added to the scene's RenderSettings prim).
+- **Rows:** one RenderVar each: on or off, name, `sourceName` (empty: the name), `sourceType` (raw, lpe, primvar, intrinsic), `dataType`, and extras: other attributes the renderer reads on it, picked or typed (`driver:parameters:aov:format`, `arnold:filter`, `arnold:width`). A row can be filled from any renderer's standard AOVs.
+- **Replace:** on, the product holds these RenderVars alone, in order; off, they are added to its own, a row replacing the RenderVar of its name. A row turned off is taken off the product.
+- **USD mapping:** `UsdRenderVar`, at `<product's parent>/Vars/<name>`
+- **Status:** **Partial.** Not yet: RenderVars shared by name between products listed as such.
 
 ### 11.4 Render
 - **Purpose:** Trigger the render.
 - **Parameters:** frame range; output mode (local / farm); denoise on/off
 - **Inputs:** scene (must contain Render Settings)
+- **Status:** **Not yet.** Render the layer Write USD writes with husk, kick or another UsdRender-aware renderer.
 
 ---
 
@@ -417,6 +438,6 @@ Enough for a complete load, edit, bind, render loop:
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
 | 10 | Light | Not yet (read only) |
 | 11 | Camera | Partial (Camera operator, file cameras, looked through in the Viewer) |
-| 12 | Render Settings | Not yet |
+| 12 | Render Settings | Partial (RenderScene Settings, Render Settings with Karma, Arnold and Custom, Render Variables) |
 | 13 | Render | Not yet |
 | 14 | Write USD (Save) | Partial (override layer in `usda`) |
