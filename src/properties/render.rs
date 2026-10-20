@@ -327,7 +327,9 @@ fn aov_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Definition
             for a in def.aovs.iter().filter(|a| a.group == g) {
                 let mut on = ticked.contains(&a.name);
                 let label = if a.label.is_empty() { a.name.as_str() } else { a.label.as_str() };
-                let hint = format!("RenderVar {}\nsourceName {}  ({})\ndataType {}", a.name, a.source_name, a.source_type, a.data_type);
+                let mut hint = format!("RenderVar {}\nsourceName {}  ({})\ndataType {}", a.name, a.source_name, a.source_type, a.data_type);
+                if !a.format.is_empty() { hint.push_str(&format!("\nformat {}", a.format)); }
+                if a.unconfirmed { hint.push_str("\n(Source not confirmed against the renderer)"); }
                 let changed = f.wide(|ui| ui.horizontal(|ui| {
                     let c = form::check(ui, &mut on).changed();
                     let l = ui.add(egui::Label::new(egui::RichText::new(label).color(ink::LABEL())).sense(egui::Sense::click()));

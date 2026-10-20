@@ -464,6 +464,28 @@ pub struct Aov {
     #[serde(default)] pub label:   String,
     /// Ticked on a new Render Settings operator.
     #[serde(default)] pub default: bool,
+    /// The channels' format in the file (`driver:parameters:aov:format`:
+    /// `color4h`, `float3`…). Empty: not written.
+    #[serde(default)] pub format: String,
+    /// Filtered over the pixel's samples (`driver:parameters:aov:multiSampled`).
+    #[serde(default, rename = "multiSampled")] pub multi_sampled: Option<bool>,
+    /// Other attributes on its RenderVar.
+    #[serde(default)] pub extras: Vec<Param>,
+    /// Its source is the renderer's as far as Imago knows, not seen in one of its files.
+    #[serde(default)] pub unconfirmed: bool,
+}
+
+impl Aov {
+    /// What its RenderVar carries beyond its source and type: the
+    /// definition's defaults for every RenderVar, its format, its sampling,
+    /// its own extras; a later one of the same name wins.
+    pub fn var_extras(&self, def: &Definition) -> Vec<(String, Value)> {
+        let mut out: Vec<(String, Value)> = def.var_defaults.iter().map(|p| (p.name.clone(), p.default_value())).collect();
+        if !self.format.trim().is_empty() { out.push(("driver:parameters:aov:format".into(), Value::Token(self.format.trim().into()))); }
+        if let Some(m) = self.multi_sampled { out.push(("driver:parameters:aov:multiSampled".into(), Value::Bool(m))); }
+        out.extend(self.extras.iter().map(|p| (p.name.clone(), p.default_value())));
+        out
+    }
 }
 
 fn raw() -> String { "raw".into() }
@@ -483,6 +505,9 @@ pub struct Definition {
     #[serde(default)] pub about:  String,
     #[serde(default)] pub params: Vec<Param>,
     #[serde(default)] pub aovs:   Vec<Aov>,
+    /// Attributes every RenderVar of its AOVs carries (Karma's
+    /// `driver:parameters:aov:clearValue`, `…:karma:filter`).
+    #[serde(default)] pub var_defaults: Vec<Param>,
 }
 
 const EMBEDDED: [&str; 2] = [
@@ -697,9 +722,10 @@ pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> Ev
         st.target("products", &product);
         let mut pr = take(&prims, &product, RenderKind::Product);
         let root = vars_root(&product);
+        let d = def.as_ref().expect("AOVs come from a definition");
         for a in ticked {
             let var = format!("{root}/{}", var_name(&a.name));
-            let v = var_prim(&prims, &var, &a.name, &a.source_name, &a.source_type, &a.data_type, &[]);
+            let v = var_prim(&prims, &var, &a.name, &a.source_name, &a.source_type, &a.data_type, &a.var_extras(d));
             put(&mut prims, &var, v);
             pr.target("orderedVars", &var);
         }
@@ -1006,6 +1032,23 @@ mod tests {
         assert!(n.lines().contains(&"uniform token dataType = \"normal3f\"".to_string()));
         assert!(n.lines().contains(&"uniform string sourceName = \"N\"".to_string()));
         assert!(n.lines().contains(&"string driver:parameters:aov:name = \"N\"".to_string()), "husk needs it: {:?}", n.lines());
+    }
+
+    /// Karma's RenderVars as Houdini 20.5 writes them: the beauty a light
+    /// path expression, with format, filter and multi-sampling.
+    #[test]
+    fn karma_aovs_are_written_as_houdini_writes_them() {
+        let mut r = RendererSettings::default();
+        r.tick(&definition("karma").unwrap(), "P", true);
+        let prims = named(renderer_settings(None, &r));
+        let c = at(&prims, "/Render/Products/Vars/C").lines();
+        for l in ["uniform string sourceName = \"C.*[LO]\"", "uniform token sourceType = \"lpe\"", "uniform token dataType = \"color4f\"",
+            "token driver:parameters:aov:format = \"color4h\"", "bool driver:parameters:aov:multiSampled = true", "int driver:parameters:aov:clearValue = 0",
+            "string driver:parameters:aov:karma:filter = \"[\\\"ubox\\\",{}]\"", "string driver:parameters:aov:name = \"C\""] {
+            assert!(c.contains(&l.to_string()), "{l} in {c:#?}");
+        }
+        let p = at(&prims, "/Render/Products/Vars/P").lines();
+        assert!(p.contains(&"uniform string sourceName = \"ray:hitP\"".to_string()) && p.contains(&"token driver:parameters:aov:format = \"float3\"".to_string()), "{p:#?}");
     }
 
     #[test]

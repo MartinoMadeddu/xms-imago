@@ -66,6 +66,10 @@ A renderer is a JSON file: its name, label and namespace, its settings and its s
 
 Types: `bool`, `int`, `float`, `double`, `string`, `token`, `asset`, `float2`, `float3`, `float4`, `color3f`. A setting with `"unconfirmed": true` says so in its tooltip: its name follows the renderer's documentation as far as Imago knows, but was not checked against the renderer.
 
+An AOV can also give its RenderVar's `format` (`driver:parameters:aov:format`: `color4h`, `float3`), `multiSampled`, and `extras`; `var_defaults` lists attributes every RenderVar of the renderer carries. Karma's carry `clearValue` and `karma:filter` (`["ubox",{}]`), as Houdini writes them.
+
+**Karma's AOVs** follow what Houdini 20.5's Karma Render Settings writes: the beauty `C` is the light path expression `C.*[LO]` (color4f, written as `color4h`), the light path AOVs `color3h`, P `ray:hitP` and P (Camera Space) `ray:hitP_camera` as `float3`, UV the `st` primvar. Those not seen in a Houdini file are marked unconfirmed in their tooltip.
+
 **Karma:** the names follow Houdini's Karma Render Settings. `karma:global:cacheratio`, `karma:object:geosamples` and `karma:object:dicingquality` are in SideFX's documentation; the others are marked unconfirmed. `karma --all-properties` lists every one with its type and default: correct the file from it, or put a corrected copy in the renderers folder.
 
 **Arnold:** arnold-usd reads Arnold's options from `arnold:global:` attributes on the RenderSettings prim, each with the option's own name (`AA_samples`, `GI_diffuse_depth`, `enable_adaptive_sampling`).
@@ -128,9 +132,13 @@ def Scope "Render"
             def RenderVar "C"
             {
                 uniform token dataType = "color4f"
+                int driver:parameters:aov:clearValue = 0
+                token driver:parameters:aov:format = "color4h"
+                string driver:parameters:aov:karma:filter = "[\"ubox\",{}]"
+                bool driver:parameters:aov:multiSampled = true
                 string driver:parameters:aov:name = "C"
-                uniform string sourceName = "C"
-                uniform token sourceType = "raw"
+                uniform string sourceName = "C.*[LO]"
+                uniform token sourceType = "lpe"
             }
         }
 
