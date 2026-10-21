@@ -1334,8 +1334,8 @@ mod tests {
                 // The blank mocap template has no folder yet.
                 if t.name == "Mocap split" { break; }
                 // A material is not geometry: Material Binding puts it on some.
-                // Nor is a camera: a primitive with no geometry.
-                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::MaterialX { .. } | NodeType::Camera { .. }) { continue; }
+                // Nor is a camera or a light: a primitive with no geometry.
+                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::MaterialX { .. } | NodeType::Camera { .. } | NodeType::Light { .. }) { continue; }
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1)).map(|o| g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
                     .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0)).max().unwrap_or(0);

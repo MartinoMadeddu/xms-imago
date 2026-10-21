@@ -76,7 +76,7 @@ fn shown<'a>(prims: &'a [Prim], paths: &[String]) -> Vec<(&'a Prim, bool)> {
     };
     let mut seen: std::collections::HashSet<*const MeshData> = std::collections::HashSet::new();
     // A material has no geometry: its inputs are in the Properties tab.
-    prims.iter().filter(|x| x.shading.is_none() && x.camera.is_none() && x.render.is_none() && wanted(x)).filter_map(|p| {
+    prims.iter().filter(|x| x.is_geometry() && wanted(x)).filter_map(|p| {
         if !instanced(p) { return Some((p, true)); }
         seen.insert(std::sync::Arc::as_ptr(&p.mesh)).then_some((p, false))
     }).collect()
@@ -204,6 +204,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
             (None, Some(p)) => match p.geo.as_ref().map(|g| &g.topology) {
                 _ if p.shading.is_some() => "Material".into(),
                 _ if p.camera.is_some() => "Camera".into(),
+                _ if p.light.is_some() => p.light.as_ref().map(|l| l.kind.usd()).unwrap_or_default().into(),
                 _ if p.render.is_some() => p.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                 Some(crate::core::geo::Topology::Points) => "Points".into(),
@@ -283,6 +284,10 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                 if let Some(c) = &p.camera {
                     for (name, value) in c.properties() { row(&name, value, made_here()); }
                 }
+                // A light: every value it has, the schema's where none is set.
+                if let Some(l) = &p.light {
+                    for (name, value) in l.properties() { row(&name, value, made_here()); }
+                }
                 let bound = p.material.clone().unwrap_or_else(|| "none".into());
                 let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
                 let from = match bound_by(graph, view, path).filter(|_| p.material.is_some()) {
@@ -290,7 +295,7 @@ pub fn scene_properties(graph: &crate::node_graph::NodeGraphState, view: NodeId,
                     None if rebound => ("Imago".into(), None),
                     None => made_here(),
                 };
-                if p.camera.is_none() { row("material:binding", bound, from); }
+                if p.camera.is_none() && p.light.is_none() { row("material:binding", bound, from); }
             }
             // A group: its purpose as its file authors it or Set Attribute set it
             // (listed below), else what it inherits from a group above.
@@ -401,6 +406,7 @@ fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str)
         NodeType::CreateSphere { location, .. } => Some(prim_location(location, "/sphere")),
         NodeType::CreateGrid { location, .. } => Some(prim_location(location, "/grid")),
         NodeType::Camera { location, .. } => Some(prim_location(location, "/camera")),
+        NodeType::Light { location, light, .. } => Some(prim_location(location, &crate::core::light::default_location(light))),
         _ => None,
     };
     upstream(graph, view, |n| at(n).is_some_and(|p| p == path || p.starts_with(&format!("{path}/")))).map(|n| n.id)

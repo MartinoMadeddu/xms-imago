@@ -337,6 +337,7 @@ pub fn draw_properties(
             });
         }
         NodeType::Camera { location, translate, rotate, camera } => camera_rows(ui, location, translate, rotate, camera),
+        NodeType::Light { location, translate, rotate, light } => super::light::light_rows(ui, location, translate, rotate, light),
         NodeType::TestClip { seconds, fps_num, fps_den } => group(ui, "Clip", Some("A procedural walk on the spot, starting at 01:00:00:00"), |f| {
             f.slider("Length", None, seconds, 0.5..=60.0, " s");
             rate_row(f, fps_num, fps_den);
@@ -1799,7 +1800,10 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, io: &mut PanelIo) {
             k.projection.token(), k.focal_length, k.horizontal_aperture, k.vertical_aperture, k.clipping_range[0], k.clipping_range[1], at[0], at[1], at[2]))
     }).collect());
     list(ui, format!("Skeletons ({})", scene.skeletons.len()), scene.skeletons.iter().map(|s| (leaf(&s.path), format!("{} joints", s.joints.len()))).collect());
-    list(ui, format!("Lights ({})", scene.lights.len()), scene.lights.iter().map(|(p, k)| (leaf(p), k.clone())).collect());
+    list(ui, format!("Lights ({})", scene.lights.len()), scene.lights.iter().map(|l| {
+        let at = l.place.matrices().first().map(|m| m.w_axis.truncate().to_array()).unwrap_or([0.0; 3]);
+        (leaf(&l.path), format!("{}, intensity {}, at {:.2} {:.2} {:.2}", l.light.kind.usd(), l.light.float("inputs:intensity"), at[0], at[1], at[2]))
+    }).collect());
     if !scene.notes.is_empty() {
         ui.add_space(form::GAP);
         group(ui, "Not read in full", None, |f| { for n in &scene.notes { f.status(Status::Info, n.clone()); } });

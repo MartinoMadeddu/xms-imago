@@ -949,7 +949,7 @@ fn draw_node(
 }
 
 /// The palette node bodies take, by add-menu category.
-const CATEGORY_COLOURS: [(&str, [u8; 3]); 9] = [
+const CATEGORY_COLOURS: [(&str, [u8; 3]); 10] = [
     // The pastel palette at 80%, one colour per category.
     ("Create",     [0xAE, 0xC0, 0x96]),   // light green   (#DAF0BB)
     ("Modify",     [0x96, 0xA2, 0xC0]),   // light blue    (#BCCAF0)
@@ -960,6 +960,7 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 9] = [
     ("Mocap",      [0xAB, 0x98, 0xBA]),   // mauve         (#D6BEE8)
     ("Materials",  [0xC0, 0x96, 0xA8]),   // rose          (#F0BCD2)
     ("Render",     [0x96, 0xBA, 0xC0]),   // light cyan    (#BBE8F0)
+    ("Lights",     [0xC0, 0xB8, 0x78]),   // pale yellow   (#F0E696)
 ];
 
 /// The ICE node's own colour, whatever its category: the teal of
@@ -1072,6 +1073,15 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Material { surface: Default::default() }, "A UsdPreviewSurface material: colour, roughness, metallic, opacity and textures. Named by the node"),
             (NodeType::materialx(), "A material made from a graph of MaterialX nodes: standard_surface, open_pbr_surface, textures, maths. Double-click it to open its graph. Named by the node"),
             (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
+        ]),
+        ("💡", "Lights", vec![
+            (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Dome)), "Light from every direction, from an environment image (an HDR): the sky and everything around"),
+            (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Rect)), "A rectangle that emits from one side, along its -Z: a softbox, a window"),
+            (NodeType::light(crate::core::light::Light::point()), "A point: light from one place in every direction (a sphere light treated as a point)"),
+            (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Sphere)), "A sphere that emits from its surface: a bulb"),
+            (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Disk)), "A disk that emits from one side, along its -Z: a spot's lens"),
+            (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Cylinder)), "A cylinder along its X: a tube"),
+            (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Distant)), "Parallel light from far away, along its -Z: the sun"),
         ]),
         ("📽", "Render", vec![
             (NodeType::RenderSceneSettings { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),

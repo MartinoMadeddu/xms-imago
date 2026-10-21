@@ -61,6 +61,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `source` | the prim as loaded (geo, place, material, purpose): what edits are measured against |
 | `stage` | `Arc<StageTree>` |
 | `material`, `look`, `purpose`, `picked` | |
+| `light` | a light (`core::light::Light`: a UsdLux type and the values set beyond the schema's): the prim is one, with no geometry, placed. A file's carry the shared empty geometry as cameras do, so only a move is an edit |
 | `camera` | a camera (`core::camera::Camera`, USD's values): the prim is one, with no geometry, placed. A file's carry the shared empty geometry (`nodes::no_geometry`) as geo and source, so only a move is an edit |
 | `shading` | a material Material Binding put in the scene: the prim is it, with no geometry. Not drawn, listed as `Material`, written as `def Material` (`usd_write::new_prim`) |
 | `render` | a render prim (`core::render::RenderPrim`): RenderSettings, RenderProduct or RenderVar, with no geometry; its attributes as `.usda` writes them (`RAttr`) and its relationships (`RRel`, appended on an `over`). Not drawn, listed by its type, written by `usd_write::new_prim` |
@@ -176,6 +177,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
 | `src/core/properties.rs` | Properties: values and their types, Object and Property contexts, the properties Imago knows and how each is written, opinions on prims without geometry, inheritance (visibility, purpose, Object values) |
 | `src/core/render.rs`, `assets/renderers/` | Rendering as UsdRender has it: render prims (`RenderPrim`), the RenderScene Settings, Render Settings and Render Variables operators' work, finding the RenderSettings prim, renderer definitions (Karma, Arnold as JSON; more from the renderers folder). Their panels: `src/properties/render.rs` |
 | `src/core/command.rs` | Command lines run on the system (Render Command): tokens (`expand`), progress read from output, runs in the background by operator id (`start`, `stop`, `snapshot`), each in its own process group so Stop ends what it started. Pure std. `main::run_command` writes the layer first (`NodeGraphState::upstream_write_usd`) |
+| `src/core/light.rs`, `assets/usdlux.json` | Lights as UsdLux has them: `LightType`, `Light` (values kept where they differ from the schema's fallbacks), the definitions read from `usdlux.json` (LightAPI's attributes, each type's, written from OpenUSD's schemas), `.usda` lines, a blackbody tint. A file's lights come from the scene layer through `usd_stage::light_of`. The Light operator's panel: `src/properties/light.rs` |
 | `src/core/set_attribute.rs` | The Set Attribute operator: its rows, and setting them on the prims its Prims Location tab names |
 | `src/core/locations.rs` | Primitive Locations: matching paths, picking by a list, pruning |
 | `src/types.rs` | `Prim`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |

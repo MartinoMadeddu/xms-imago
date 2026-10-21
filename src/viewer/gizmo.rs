@@ -49,7 +49,7 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
                 uniform, scales: true,
             })
         }
-        NodeType::Camera { translate, rotate, .. } => Some(Target {
+        NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => Some(Target {
             node: id, pivot: Vec3::from(*translate),
             base: (Vec3::from(*translate), Quat::from_euler(EulerRot::XYZ, rotate[0].to_radians(), rotate[1].to_radians(), rotate[2].to_radians()), Vec3::ONE),
             uniform: true, scales: false,
@@ -69,7 +69,7 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
             Delta::Rotate(_) => { let e = euler(); if *rotation != e { *rotation = e; } }
             Delta::Scale(_) => if *scale != s { *scale = s; },
         },
-        NodeType::Camera { translate, rotate, .. } => match delta {
+        NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => match delta {
             Delta::Translate(_) => if *translate != t.to_array() { *translate = t.to_array(); },
             Delta::Rotate(_) => { let e = euler(); let d = [e.x.to_degrees(), e.y.to_degrees(), e.z.to_degrees()]; if *rotate != d { *rotate = d; } }
             Delta::Scale(_) => {}

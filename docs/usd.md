@@ -36,7 +36,8 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 | Other authored values | `kind` and `instanceable`, and every attribute a prim authors with one value (`doubleSided`, `subdivisionScheme`, a light's `inputs:intensity`, `userProperties:*`…), listed in the Primitive Inspector's Properties tab as coming from the file |
 | Materials | Listed in the node's Parameters: colour, roughness, metallic, opacity, and the texture behind each input. UsdPreviewSurface, OpenPBR and Standard Surface. A material whose shaders are MaterialX or UsdPreviewSurface ones has **→ MaterialX**: a MaterialX operator with its network, to edit and bind in its place (see [MaterialX](materialx.md#from-a-usd-stage)) |
 | Cameras | Primitives with no geometry: projection, focal length, aperture and offsets, clipping range, f-stop, focus distance, where they are. Moved by Transform, looked through in the Viewer |
-| Skeletons, lights | Listed by name |
+| Lights | Primitives with no geometry: every UsdLux type (Dome, Rect, Sphere, Disk, Cylinder, Distant), with its values (intensity, exposure, colour, temperature, size, texture, shaping), where it is and which way it faces. Moved by Transform, listed in the Primitive Inspector (see [Lights](#lights)) |
+| Skeletons | Listed by name |
 | Time samples | Read at the stage's start time |
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked beside itself so its textures are files the Viewer can read.
@@ -205,6 +206,20 @@ A camera is a primitive with no geometry: its lens and gate as USD has them, and
 - The Primitive Inspector's Properties tab lists a camera's values; Go to Operator selects the Camera operator that made it.
 - Write USD writes a camera made in Imago as `def Camera` with its transform and lens (`projection`, `focalLength`, `horizontalAperture`, `verticalAperture` and `clippingRange` always, the rest when set), and a file's camera that moved as its new transform. A pruned camera is deactivated.
 
+## Lights
+
+A light is a primitive with no geometry, as a camera is: its UsdLux type, its values, and its placement, Rect, Disk and Distant lights emitting along their -Z. Load USD gives a file's lights; the **Light** operator makes one.
+
+**The Light operator** is one operator with a **Type**: Dome, Rect, Point, Sphere, Disk, Cylinder, Distant (a point light is a sphere light with **Treat as Point** on, as USD has it: UsdLux has no point light of its own). The add menu's **Lights** category has an entry for each, the same operator set to that type: Dome Light, Rect Light, Point Light… Changing its Type keeps the values both types have, and its Primitive Location when it was the type's own (`/lights/dome` becomes `/lights/rect`).
+
+- **Primitive Location**: `/lights/dome`, `/lights/rect`, `/lights/point`… by type. **Translate** and **Rotate**, as the Camera's, with the Viewer's handles. A new light is 2 m up and 4 m back, turned 30° down; a dome at the origin (where a dome is does not matter, its rotation turns the environment).
+- **Light**: Intensity, Exposure (stops), Colour, Use Temperature and Temperature (kelvin), Normalize. **Contribution**: Diffuse and Specular multipliers. **Shape**: the type's own: a dome's Texture, Format (automatic, latlong, mirroredBall, angular, cubeMapVerticalCross), Pole Axis and Guide Radius; a rect's Width, Height and Texture; a sphere's Radius and Treat as Point; a disk's Radius; a cylinder's Length, Radius and Treat as Line; a distant light's Angle.
+- Each value starts at UsdLux's fallback (1 for intensity, 50000 for a distant light's, 6500 K, 0.53° for the sun's angle); one changed has a dot after its label and its fallback in its tooltip. **Reset to the schema's** puts them all back.
+
+The parameters are laid out from `assets/usdlux.json`, written from OpenUSD's schemas: LightAPI's attributes, then each type's, with their USD names, types, fallbacks, groups and help. Write USD writes a light made in Imago as its type (`def DomeLight "dome"`) with its transform and every value (`float inputs:intensity = 1`, `uniform token poleAxis = "scene"`…), an empty texture left out; a file's light that moved, as its new transform. The Primitive Inspector's Properties tab lists a light's values; Go to Operator selects the Light operator that made it.
+
+Not yet: the lights drawn in the Viewer (their shapes come next), lighting the Viewer with them, a dome's image as its environment, a file's light's values edited, ShapingAPI, ShadowAPI and portals in the operator.
+
 ## Write USD
 
 Write USD writes what the scene graph changed as a `.usda` override layer. The layer sublayers the file each sublayered stage was read from, references or payloads each stage loaded that way on its prim, and holds only opinions over them, so opened on its own (in usdview, rray, or Imago) it gives what Imago shows. It repeats the first sublayered file's `upAxis` and `metersPerUnit`, which USD reads from the layer that is opened; with none, it is Y up in metres.
@@ -225,6 +240,7 @@ Set a path and press **Write**. The panel then says what was written, and lists 
 | A material Material Binding put in the scene | `def Material` with its `UsdPreviewSurface`, `UsdUVTexture` and `UsdPrimvarReader_float2` shaders, under `def Scope` parents |
 | A point instancer's points or their attributes | `positions`, `orientations`, `scales`, `protoIndices`, `ids` |
 | Set Attribute values | Object: `primvars:name` with `interpolation = "constant"`. Property: an attribute (`token visibility`, `uniform bool doubleSided`, `uniform token subdivisionScheme`, any other name with its type) or metadata (`active`, `kind`, `instanceable`). On any prim of the stage: a group, a camera, a light |
+| A light made by the Light operator | `def DomeLight`, `def RectLight`… with `xformOp:transform` and every UsdLux value |
 | A camera made by the Camera operator | `def Camera` with `xformOp:transform`, `projection`, `focalLength`, the apertures, `clippingRange`, and `fStop`, `focusDistance` and the offsets when set |
 | Render prims the render operators made | `def RenderSettings`, `def RenderProduct`, `def RenderVar` under `def Scope` parents, with their attributes and relationships; the layer names the RenderSettings prim (`renderSettingsPrimPath`). One of a loaded file: an `over`, its relationships appended. See [Rendering](render.md) |
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |

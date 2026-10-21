@@ -19,6 +19,9 @@
 //! - Material binding and purpose changes are written as such. Materials
 //!   Material Binding put in the scene are written as `def Material`s with
 //!   their shaders, under `def Scope` parents.
+//! - Lights the Light operator made are written as `def DomeLight`,
+//!   `def RectLight`… with their transform and every UsdLux value; a
+//!   file's light that moved, as its new transform.
 //! - Render prims the render operators made are written as
 //!   `def RenderSettings`, `def RenderProduct` and `def RenderVar` under
 //!   `def Scope` parents (an `over` where the prim is a file's), and the
@@ -364,6 +367,21 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
     if let Some(r) = &p.render {
         spec.def = if r.over { None } else { Some(r.kind.usd()) };
         spec.lines.extend(r.lines());
+        for (name, value) in p.props.iter() { property(spec, name, value); }
+        return;
+    }
+    // A light: where it is, which way it faces, and every value it has.
+    if let Some(l) = &p.light {
+        spec.def = Some(l.kind.usd());
+        let place = match &p.place { Placement::One(m) => root.as_dmat4().inverse() * m.as_dmat4(), _ => root.as_dmat4().inverse() };
+        if place != DMat4::IDENTITY {
+            spec.lines.push(format!("matrix4d xformOp:transform = {}", matrix(&place)));
+            spec.lines.push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
+        }
+        if p.purpose != Purpose::Default {
+            spec.lines.push(format!("uniform token purpose = \"{}\"", purpose_token(p.purpose)));
+        }
+        spec.lines.extend(l.usda_lines(true));
         for (name, value) in p.props.iter() { property(spec, name, value); }
         return;
     }
@@ -867,6 +885,58 @@ def Scope "Render" {{
             assert!(text.contains(line), "{line} missing in\n{text}");
         }
         assert!(!text.contains("def RenderSettings") && !text.contains("renderSettingsPrimPath"), "the file's prim is not made again:\n{text}");
+    }
+
+    /// A light the Light operator made is written as its UsdLux type with
+    /// every value; a file's lights are read with their values, and one
+    /// moved by a Transform is written as its new transform.
+    #[test]
+    fn lights_are_written_and_read_back() {
+        use crate::core::light::{Light, LightType};
+        use crate::core::properties::Value;
+        let pass = |_: crate::types::IceGraphId, g: &Geo, _: Option<&Geo>| g.clone();
+        let mut rect = Light::new(LightType::Rect);
+        rect.set("inputs:width", Value::Float(2.0));
+        rect.set("inputs:intensity", Value::Float(5.0));
+        let mut made = vec![];
+        for l in [Light::new(LightType::Dome), rect, Light::point()] {
+            let Some(EvalResult::Named(p)) = crate::node_graph::nodes::evaluate_node_type(&crate::types::NodeType::light(l), &[], &pass, 0) else { panic!() };
+            made.extend(p);
+        }
+        let out = std::env::temp_dir().join("xms_usd_write_test/lights.usda");
+        let report = write_override(&made, &out).unwrap();
+        assert_eq!(report.added, 3);
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in ["def Xform \"lights\"", "def DomeLight \"dome\"", "uniform token poleAxis = \"scene\"", "def RectLight \"rect\"", "float inputs:width = 2",
+            "float inputs:intensity = 5", "def SphereLight \"point\"", "bool treatAsPoint = true", "matrix4d xformOp:transform"] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        let back = crate::usd_scene::load(&out).unwrap();
+        let find = |p: &str| back.lights.iter().find(|l| l.path == p).unwrap_or_else(|| panic!("{p} read back"));
+        assert_eq!(find("/lights/dome").light.kind, LightType::Dome);
+        let r = find("/lights/rect");
+        assert_eq!((r.light.float("inputs:width"), r.light.float("inputs:intensity")), (2.0, 5.0));
+        assert!(find("/lights/point").light.is_point());
+
+        // A file's light, moved.
+        let (path, _) = load("with_light.usda", &format!(r#"#usda 1.0
+def Xform "set" {{
+    def Mesh "card" {{{QUAD}    }}
+    def DistantLight "sun" {{
+        float inputs:angle = 1
+    }}
+}}
+"#));
+        let scene = crate::usd_scene::load(&path).unwrap();
+        let mut prims = crate::node_graph::nodes::stage_prims(&scene, crate::usd_scene::LoadMode::Sublayer, "", "").unwrap();
+        let k = prims.iter().position(|p| p.path == "/set/sun").expect("the file's light is a primitive");
+        let sun = prims[k].light.clone().unwrap();
+        assert_eq!((sun.kind, sun.float("inputs:angle"), sun.float("inputs:intensity")), (LightType::Distant, 1.0, 50000.0), "UsdLux's fallback for a distant light");
+        prims[k].place = prims[k].place.moved(Mat4::from_translation(glam::Vec3::new(0.0, 5.0, 0.0)));
+        let out = std::env::temp_dir().join("xms_usd_write_test/light_moved.usda");
+        let (text, report) = override_layer(&prims, &out).unwrap();
+        assert_eq!((report.changed, report.added), (1, 0), "only its transform: {report:?}\n{text}");
+        assert!(text.contains("over \"sun\"") && text.contains("xformOp:transform") && !text.contains("DistantLight"), "{text}");
     }
 
     #[test]

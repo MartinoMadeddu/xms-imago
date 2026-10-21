@@ -287,7 +287,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 .filter(|p| p.instancing.is_none())
                 // A material is worn, not drawn; a camera is drawn above; a render
                 // prim is not drawn.
-                .filter(|p| p.shading.is_none() && p.camera.is_none() && p.render.is_none())
+                .filter(|p| p.is_geometry())
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {
@@ -432,7 +432,7 @@ fn ghosts(
             s.meshes.push(MeshDraw { geometry, instances: inst, blend: false, edges: true, material: None });
         };
         match r {
-            Some(EvalResult::Named(prims)) => for p in prims.iter().filter(|p| p.camera.is_none() && p.shading.is_none() && p.render.is_none()) {
+            Some(EvalResult::Named(prims)) => for p in prims.iter().filter(|p| p.is_geometry()) {
                 let identity = [Mat4::IDENTITY];
                 draw(&p.mesh, if p.place.is_placed() { p.place.matrices() } else { &identity });
             },

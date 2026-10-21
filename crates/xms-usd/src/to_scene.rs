@@ -1099,7 +1099,8 @@ impl<'s> Translator<'s> {
         };
         rs::Light {
             kind,
-            intensity: self.sampled_f32(prim, &["inputs:intensity", "intensity"], 1.0),
+            // UsdLux's fallback: 50000 for a distant light (the sun), 1 for the others.
+            intensity: self.sampled_f32(prim, &["inputs:intensity", "intensity"], if ty.starts_with("DistantLight") { 50000.0 } else { 1.0 }),
             exposure: self.sampled_f32(prim, &["inputs:exposure", "exposure"], 0.0),
             color,
             normalize: f("normalize", 0.0) != 0.0,

@@ -12,7 +12,7 @@ use super::form::{self, group, group_with, ink, FieldExt, Rows, Status};
 
 /// A value's field, filling the value column. `range`: the lowest and
 /// highest a number may be. Whether it changed.
-fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, f64)>) -> bool {
+pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, f64)>) -> bool {
     let h = ui.spacing().interact_size.y;
     let w = ui.available_width();
     let speed = |r: Option<(f64, f64)>| r.map_or(0.01, |(a, b)| ((b - a) / 300.0).clamp(0.001, 10.0));

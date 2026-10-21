@@ -78,6 +78,16 @@ impl UsdCamera {
     }
 }
 
+/// A UsdLux light of the stage.
+#[derive(Clone, Debug, Default)]
+pub struct UsdLight {
+    pub path:    String,
+    pub light:   crate::core::light::Light,
+    /// Its world placement (root correction included).
+    pub place:   crate::types::Placement,
+    pub purpose: crate::types::Purpose,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct UsdMaterial {
     pub path:      String,
@@ -258,8 +268,7 @@ pub struct UsdScene {
     pub cameras:         Vec<UsdCamera>,
     pub materials:       Vec<UsdMaterial>,
     pub skeletons:       Vec<UsdSkeleton>,
-    /// Path and type of each light.
-    pub lights:          Vec<(String, String)>,
+    pub lights:          Vec<UsdLight>,
     pub up_axis:         String,
     pub meters_per_unit: Option<f64>,
     /// The `defaultPrim` the file names, if it names one.
@@ -611,7 +620,11 @@ fn read_scene(data: Layer) -> UsdScene {
                 }
                 "GeomSubset" => subsets += 1,
                 "PointInstancer" => instanced += 1,
-                k if k.ends_with("Light") => scene.lights.push((prim.clone(), k.to_string())),
+                // The root layer on its own: the light's type, where it is; its values are the schema's.
+                k if crate::core::light::LightType::from_usd(k).is_some() => scene.lights.push(UsdLight {
+                    path: prim.clone(), light: crate::core::light::Light::new(crate::core::light::LightType::from_usd(k).unwrap_or_default()),
+                    place: crate::types::Placement::One(world), purpose: Default::default(),
+                }),
                 _ => {}
             }
             // Materials are read whole above; nothing under them is geometry.
