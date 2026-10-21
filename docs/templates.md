@@ -33,6 +33,12 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 |---|---|
 | ICE graph: spherify | A cube subdivided three times, then an ICE graph: Get Data reads P, Normalize sets every point to unit length, Multiply scales by 1.2, Set Data writes P back, run by the ICE Execution Ports. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
 
+## XMS: Lighting & Rendering
+
+| Template | Shows |
+|---|---|
+| DeLorean: lit and rendered with Karma | Martino's render scene: the DeLorean and a Camera (50 mm, 3 m up and 11.6 m back, looking 12 degrees down) merged, then a DomeLight (intensity 0.1, lit by `examples/hdri/sky.hdr` as latlong, drawn 1 m across) and a blue RectLight (exposure 5, normalized) merged in. RenderScene Settings (1920 by 1080, overscan 1, no motion blur or depth of field) and Karma's Render Settings (path traced, bucket, 32 path-traced samples, 3 per pixel, variance AA 3 to 12, diffuse limit 2, refraction limit 8; ten AOVs: C, the combined diffuse, glossy reflection and emission, glossy transmission, P, depth, N, Ng, UV), viewed; Write USD and a Render Command running husk on Karma CPU for frame 1, the layer and `render/beauty.0001.exr` in the temporary folder. husk must be on the PATH, or pick its full path in the command's presets. The Image Viewer renders the same scene |
+
 ## Simon: Basics
 
 | Template | Shows |
@@ -113,6 +119,7 @@ In the `examples` folder:
 | `stage/forest.usda` | A PointInstancer of 4,900 copies of two prototypes |
 | `stage/tables.usda` | 64 instanceable references to `table.usda` |
 | `stage/lamps.usda` | Three lamps with render, proxy and guide purposes |
+| `hdri/sky.hdr` | A sky for dome lights, 256 by 128, latlong: blue zenith, warm horizon, a sun 35 degrees up. Made by `hdri/make_sky.py` |
 | `mocap/novasci/*.fbx` | Four clips of the Novasci Free Motion Pack on the Mixamo skeleton (66 joints, 30 fps): ComeHere1, HandsOnHead, Celebrate1, GoAwayAngry. CC0. See `examples/mocap/novasci/README.md` |
 | `usd/teapot/Teapot.usd` | The USD Working Group's teapot, 2,472 triangles, with its texture. See `examples/usd/teapot/README_source.md` |
 | `usd/mini_car_kit/` | The USD Working Group's mini car kit: vehicles assembled from parts with variant sets. See `examples/usd/mini_car_kit/README_source.md` |

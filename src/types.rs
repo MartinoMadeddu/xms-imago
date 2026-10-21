@@ -395,7 +395,8 @@ impl NodeType {
 
     /// A light of this kind at its default Primitive Location, 2 m up and
     /// 4 m back, turned 30° down, facing the origin (a dome sits at the origin).
-    pub fn light(light: crate::core::light::Light) -> Self {
+    pub fn light(mut light: crate::core::light::Light) -> Self {
+        light.operator_defaults();
         let dome = light.kind == crate::core::light::LightType::Dome;
         NodeType::Light {
             location: crate::core::light::default_location(&light),

@@ -907,7 +907,7 @@ def Scope "Render" {{
         let report = write_override(&made, &out).unwrap();
         assert_eq!(report.added, 3);
         let text = std::fs::read_to_string(&out).unwrap();
-        for line in ["def Xform \"lights\"", "def DomeLight \"dome\"", "uniform token poleAxis = \"scene\"", "def RectLight \"rect\"", "float inputs:width = 2",
+        for line in ["def Xform \"lights\"", "def DomeLight \"dome\"", "uniform token poleAxis = \"scene\"", "float guideRadius = 1", "def RectLight \"rect\"", "float inputs:width = 2",
             "float inputs:intensity = 5", "def SphereLight \"point\"", "bool treatAsPoint = true", "matrix4d xformOp:transform"] {
             assert!(text.contains(line), "{line} missing in\n{text}");
         }

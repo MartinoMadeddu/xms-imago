@@ -134,6 +134,19 @@
     "cameras": 0,
     "cook_ms": 5
   },
+  "DeLorean: lit and rendered with Karma": {
+    "nodes": 10,
+    "viewed": "RenderSettings",
+    "output": 0,
+    "kind": "prims",
+    "prims": 58,
+    "copies": 58,
+    "points": 376537,
+    "triangles": 461595,
+    "materials": 30,
+    "cameras": 1,
+    "cook_ms": 0
+  },
   "Edit Poly: bolt": {
     "nodes": 2,
     "viewed": "Bolt",

@@ -133,6 +133,16 @@ impl Light {
         let old = std::mem::take(&mut self.values);
         self.kind = kind;
         for (k, v) in old { if self.params().iter().any(|p| p.name == k) { self.set(&k, v); } }
+        self.operator_defaults();
+    }
+
+    /// What the Light operator starts with where UsdLux's fallback is not
+    /// what is wanted: a dome drawn 1 m across (`guideRadius` 1, its
+    /// fallback a kilometre).
+    pub fn operator_defaults(&mut self) {
+        if self.kind == LightType::Dome && !self.values.contains_key("guideRadius") {
+            self.values.insert("guideRadius".into(), Value::Float(1.0));
+        }
     }
 
     /// A float attribute, or its fallback.
@@ -172,14 +182,29 @@ impl Light {
 
 // ── Drawn ──────────────────────────────────────────────────────────────────
 
-/// How far a dome is drawn at most, in metres: its guide radius (1 km by
-/// default) would be past the Viewer's far plane.
+/// How far a dome is drawn at most, in metres: a file's dome at UsdLux's
+/// guide radius (1 km) would be past the Viewer's far plane.
 pub const DOME_DRAWN: f32 = 12.0;
 
 /// Points of a circle of radius `r` in a plane, `n` segments, as lines.
 fn circle(centre: Vec3, a: Vec3, b: Vec3, r: f32, n: usize, out: &mut Vec<[Vec3; 2]>) {
     let at = |k: usize| { let t = k as f32 / n as f32 * std::f32::consts::TAU; centre + (a * t.cos() + b * t.sin()) * r };
     for k in 0..n { out.push([at(k), at(k + 1)]); }
+}
+
+/// A letter of the compass, `s` high, at `at` in the ground plane: its
+/// strokes in a unit box, right along +X, up along -Z (north), so it reads
+/// from above.
+fn letter(c: char, at: Vec3, s: f32, out: &mut Vec<[Vec3; 2]>) {
+    let strokes: &[&[(f32, f32)]] = match c {
+        'N' => &[&[(-0.5, -0.5), (-0.5, 0.5), (0.5, -0.5), (0.5, 0.5)][..]],
+        'E' => &[&[(0.5, 0.5), (-0.5, 0.5), (-0.5, -0.5), (0.5, -0.5)][..], &[(-0.5, 0.0), (0.3, 0.0)][..]],
+        'S' => &[&[(0.5, 0.5), (-0.5, 0.5), (-0.5, 0.0), (0.5, 0.0), (0.5, -0.5), (-0.5, -0.5)][..]],
+        'W' => &[&[(-0.5, 0.5), (-0.25, -0.5), (0.0, 0.2), (0.25, -0.5), (0.5, 0.5)][..]],
+        _ => &[],
+    };
+    let at2 = |(u, v): (f32, f32)| at + (Vec3::X * u * 0.6 - Vec3::Z * v) * s;
+    for line in strokes { for w in line.windows(2) { out.push([at2(w[0]), at2(w[1])]); } }
 }
 
 /// An arrow from `from` along `dir`, `len` long, with a small head.
@@ -192,8 +217,9 @@ fn arrow(from: Vec3, dir: Vec3, side: Vec3, len: f32, out: &mut Vec<[Vec3; 2]>) 
 }
 
 impl Light {
-    /// Its shape as lines in its own space, before its placement: a dome's
-    /// sphere (at its guide radius, at most `DOME_DRAWN`), a rectangle or a
+    /// Its shape as lines in its own space, before its placement: a dome,
+    /// half a sphere over a ground circle with the compass's points (at its
+    /// guide radius, at most `DOME_DRAWN`; its pole on Z when `poleAxis` is), a rectangle or a
     /// disk with the way it emits (-Z), a sphere, a point's star, a
     /// cylinder along X, a distant light's parallel arrows.
     pub fn glyph_local(&self) -> Vec<[Vec3; 2]> {
@@ -202,16 +228,30 @@ impl Light {
         let (x, y, z) = (Vec3::X, Vec3::Y, Vec3::Z);
         match self.kind {
             LightType::Dome => {
-                let r = self.float("guideRadius").clamp(0.5, DOME_DRAWN);
+                let r = self.float("guideRadius").clamp(0.05, DOME_DRAWN);
+                // The ground circle, and the half above: two arches across
+                // it and a ring at 45 degrees.
                 circle(o, x, z, r, 64, &mut out);
-                circle(o, x, y, r, 64, &mut out);
-                circle(o, y, z, r, 64, &mut out);
-                // Rings of latitude, and the pole.
-                for lat in [-0.5f32, 0.5] {
-                    let (s, c) = (lat * std::f32::consts::FRAC_PI_2).sin_cos();
-                    circle(y * r * s, x, z, r * c, 48, &mut out);
-                }
+                let arch = |a: Vec3, out: &mut Vec<[Vec3; 2]>| {
+                    let at = |k: usize| { let t = k as f32 / 32.0 * std::f32::consts::PI; (a * t.cos() + y * t.sin()) * r };
+                    for k in 0..32 { out.push([at(k), at(k + 1)]); }
+                };
+                arch(x, &mut out);
+                arch(z, &mut out);
+                let (s, c) = std::f32::consts::FRAC_PI_4.sin_cos();
+                circle(y * r * s, x, z, r * c, 48, &mut out);
                 out.push([y * r, y * r * 1.08]);
+                // The compass: north along -Z, east along +X, a tick out of
+                // the circle at each and its letter beyond.
+                for (c, d) in [('N', -z), ('E', x), ('S', z), ('W', -x)] {
+                    let tick = if c == 'N' { 0.16 } else { 0.08 };
+                    out.push([d * r, d * r * (1.0 + tick)]);
+                    letter(c, d * r * 1.28, r * 0.12, &mut out);
+                }
+                if self.value("poleAxis") == Some(Value::Token("Z".into())) {
+                    let up = glam::Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                    for l in &mut out { *l = [up * l[0], up * l[1]]; }
+                }
             }
             LightType::Rect => {
                 let (w, h) = (self.float("inputs:width") * 0.5, self.float("inputs:height") * 0.5);
@@ -370,7 +410,31 @@ mod tests {
         let at = glam::Mat4::from_scale_rotation_translation(Vec3::splat(100.0), glam::Quat::IDENTITY, Vec3::new(0.0, 3.0, 0.0));
         let dome = Light::new(LightType::Dome).glyph(at);
         let far = dome.iter().map(|[a, _]| (*a - Vec3::new(0.0, 3.0, 0.0)).length()).fold(0.0f32, f32::max);
-        assert!(far <= DOME_DRAWN * 1.1, "{far}");
+        assert!(far <= DOME_DRAWN * 1.5, "{far}");
+        // A dome is half a sphere, on the ground: nothing below it.
+        let mut d = Light::new(LightType::Dome);
+        d.set("guideRadius", Value::Float(2.0));
+        let g = d.glyph_local();
+        assert!(g.iter().flatten().all(|p| p.y > -1e-4), "nothing below the ground circle");
+        assert!(g.iter().flatten().any(|p| (p.y - 2.0).abs() < 1e-3), "its top at the radius");
+        assert!(g.iter().flatten().any(|p| p.z < -2.4), "north's letter past the circle, along -Z");
+        // Its pole on Z: the top along +Z.
+        d.set("poleAxis", Value::Token("Z".into()));
+        assert!(d.glyph_local().iter().flatten().any(|p| (p.z - 2.0).abs() < 1e-3));
+    }
+
+    #[test]
+    fn the_operator_draws_a_dome_a_metre_across() {
+        let mut d = Light::new(LightType::Dome);
+        assert_eq!(d.float("guideRadius"), 100000.0, "UsdLux's fallback, a file's dome");
+        d.operator_defaults();
+        assert_eq!(d.float("guideRadius"), 1.0);
+        let mut r = Light::new(LightType::Rect);
+        r.set_kind(LightType::Dome);
+        assert_eq!(r.float("guideRadius"), 1.0, "a Light turned into a dome too");
+        r.set("guideRadius", Value::Float(5.0));
+        r.set_kind(LightType::Dome);
+        assert_eq!(r.float("guideRadius"), 5.0, "one set is kept");
     }
 
     #[test]
