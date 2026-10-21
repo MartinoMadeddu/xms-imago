@@ -52,8 +52,9 @@ pub struct Scheme {
     #[serde(default = "unset_text_weight")]
     pub text_weight: u8,
     /// Fields you type in (text, numbers) dark grey with light text, in
-    /// the Parameters pane. Off by default; not a colour, so it is kept
-    /// across presets and Reset, and does not make a scheme "edited".
+    /// the Parameters pane. On in the Light preset, off in Dark and ADHD:
+    /// choosing a preset takes its setting. Not a colour, so Reset keeps it
+    /// and it does not make a scheme "edited".
     /// `DARK_FIELD_BG` overrides it: see `dark_fields`.
     #[serde(default)]
     pub dark_fields: bool,
@@ -72,7 +73,7 @@ impl Scheme {
     pub const fn preset(preset: Preset) -> Scheme {
         match preset {
             Preset::Light => Scheme { preset, low: [112, 112, 110], high: [206, 206, 202], text: [10, 10, 10],
-                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT, dark_fields: false },
+                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT, dark_fields: true },
             Preset::Dark  => Scheme { preset, low: [12, 12, 12], high: [64, 64, 64], text: [234, 234, 234],
                                       dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96], text_weight: DARK_TEXT_WEIGHT, dark_fields: false },
             Preset::Adhd  => Scheme { preset, low: [6, 12, 28], high: [36, 56, 96], text: [246, 238, 224],
@@ -80,7 +81,7 @@ impl Scheme {
         }
     }
     /// Its colours or text weight differ from its preset's.
-    pub fn is_edited(&self) -> bool { Scheme { dark_fields: false, ..*self } != Scheme::preset(self.preset) }
+    pub fn is_edited(&self) -> bool { Scheme { dark_fields: Scheme::preset(self.preset).dark_fields, ..*self } != Scheme::preset(self.preset) }
     /// Its preset, keeping its dark fields setting.
     fn reset(&self) -> Scheme { Scheme { dark_fields: self.dark_fields, ..Scheme::preset(self.preset) } }
     /// A text weight not set in the file becomes the preset's.
@@ -377,7 +378,7 @@ pub fn menu(ui: &mut egui::Ui) {
     for p in Preset::ALL {
         let label = if now.preset == p && now.is_edited() { format!("{} (edited)", p.label()) } else { p.label().to_string() };
         if ui.radio(now.preset == p, label).on_hover_text(p.hint()).clicked() {
-            if now.preset != p { set_scheme(ui.ctx(), Scheme { dark_fields: now.dark_fields, ..Scheme::preset(p) }); }
+            if now.preset != p { set_scheme(ui.ctx(), Scheme::preset(p)); }
             ui.close();
         }
     }
@@ -399,7 +400,7 @@ pub fn editor(ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.label("Start from:");
             for p in Preset::ALL {
-                if ui.selectable_label(s.preset == p, p.label()).on_hover_text(p.hint()).clicked() { s = Scheme { dark_fields: s.dark_fields, ..Scheme::preset(p) }; }
+                if ui.selectable_label(s.preset == p, p.label()).on_hover_text(p.hint()).clicked() { s = Scheme::preset(p); }
             }
         });
         ui.separator();
@@ -480,16 +481,18 @@ mod tests {
         assert_ne!(OLD_LIGHT, s);
     }
 
-    /// Dark fields: off in every preset, read as off from a file saved
-    /// without it, kept by Reset and not counted as an edit.
+    /// Dark fields: on in Light, off in Dark and ADHD; read as off from a
+    /// file saved without it, kept by Reset and not counted as an edit.
     #[test]
     fn dark_fields_are_a_switch_not_a_colour() {
-        for p in Preset::ALL { assert!(!Scheme::preset(p).dark_fields); }
+        assert!(Scheme::preset(Preset::Light).dark_fields);
+        assert!(!Scheme::preset(Preset::Dark).dark_fields && !Scheme::preset(Preset::Adhd).dark_fields);
         let old = r#"{"preset":"Dark","low":[12,12,12],"high":[64,64,64],"text":[234,234,234],"dim":[182,182,182],"accent":[60,110,170],"outline":[96,96,96],"text_weight":80}"#;
         let read: Scheme = serde_json::from_str(old).unwrap();
         assert!(!read.dark_fields && !read.is_edited());
         let on = Scheme { dark_fields: true, ..Scheme::preset(Preset::Light) };
         assert!(!on.is_edited());
+        assert!(!Scheme { dark_fields: false, ..Scheme::preset(Preset::Light) }.is_edited(), "turned off: still the preset");
         let edited = Scheme { text_weight: 20, ..on };
         assert!(edited.is_edited() && edited.reset().dark_fields && !edited.reset().is_edited());
     }

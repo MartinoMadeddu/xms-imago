@@ -12,7 +12,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | A node of the scene graph | node | **operator** | Each takes the scene coming in and changes it, hence the Operator Stack. "Node" stays the generic word for any graph element. |
 | A step inside Edit Poly | operation | **operation** (unchanged) | Distinct from operator: an operator holds operations. |
 | A node's settings | properties | **parameters** | Not to be confused with USD properties (a prim's attributes and relationships). |
-| Text and number fields drawn dark grey with light text | dark field background | **Dark fields** (`DARK_FIELD_BG`) | A switch in the colour editor, not a colour of the scheme: it stays across presets. The variable keeps the name it was asked for under. |
+| Text and number fields drawn dark grey with light text | dark field background | **Dark fields** (`DARK_FIELD_BG`) | A switch in the colour editor, not a colour of the scheme: on in the Light preset, off in Dark and ADHD; Reset keeps it. The variable keeps the name it was asked for under. |
 | Per-element data on geometry | attributes / primvars | **attributes** | One word everywhere: UI, docs, code, ICE. Attributes are written to USD as primvars, with their interpolation. |
 | Where attribute values live (UI, ICE and code) | Constant, Vertex, Polygon, FaceVarying (UI) · Object, Point, Primitive, Corner (code) | **Object, Point, Face, Corner** | One set of names everywhere. "Primitive" now means a stage object, and one value per primitive is the Object context, so the per-polygon context becomes Face. Face also covers curves (one value per curve). |
 | Cube, sphere, grid | primitives | **shapes** | Frees "primitive" for stage objects. |
