@@ -66,8 +66,8 @@ pub struct ImageViewerState {
 /// The command lines the ⚙ menu fills in: name, line, what it does.
 /// Custom is any other line.
 pub const VIEWER_PRESETS: [(&str, &str, &str); 2] = [
-    ("husk", "husk -R $DELEGATE -s \"$SETTINGS\" -c \"$CAMERA\" -f $F -n 1 -V 2a --snapshot 2 -o \"$IMAGE\" \"$USD\"",
-        "Houdini's husk: Karma, or Arnold with its delegate for Arnold settings; a snapshot every two seconds"),
+    ("husk", "husk -R $DELEGATE -s \"$SETTINGS\" -c \"$CAMERA\" -f $F -n 1 -V 2a --snapshot 2 --snapshot-suffix \"\" -o \"$IMAGE\" \"$USD\"",
+        "Houdini's husk: Karma, or Arnold with its delegate for Arnold settings; a snapshot every two seconds, written to the image itself"),
     ("kick", "kick -i \"$USD\" -frame $F -c \"$CAMERA\" -o \"$IMAGE\" -dw -dp -v 2",
         "Arnold's kick, reading the layer (arnold-usd's procedural): the image comes in when the frame is done"),
 ];
@@ -331,6 +331,7 @@ fn start(st: &mut ImageViewerState, graph: &NodeGraphState, subnets: &crate::ice
     let frame = graph.frame().round() as i64;
     let image = dir.join(format!("render.{frame:04}.exr"));
     let _ = std::fs::remove_file(&image);
+    let _ = std::fs::remove_file(part_of(&image));
     let line = line_for(&st.line().clone(), settings, &st.camera, frame, &image, &layer);
     command::start(RUN_KEY, vec![line], Some(dir), vec![]);
     // What comes in is shown, whatever snapshot was.
@@ -352,15 +353,36 @@ fn line_for(template: &str, settings: &SettingsInfo, camera: &str, frame: i64, i
     command::expand(&command::without_empty(template, &t), &t)
 }
 
+/// Where husk writes its snapshots unless told otherwise: the image's name
+/// with `_part` before its extension (`render.0012_part.exr`).
+fn part_of(image: &Path) -> PathBuf {
+    let stem = image.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = image.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    image.with_file_name(format!("{stem}_part{ext}"))
+}
+
+/// The image or its snapshot, whichever was written last, and when: a line
+/// that writes snapshots beside the image (husk's `_part`) shows them too.
+/// The image wins a tie: it is the finished frame.
+fn newest(image: &Path) -> Option<(PathBuf, SystemTime)> {
+    let at = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let part = part_of(image);
+    match (at(image), at(&part)) {
+        (Some(i), Some(p)) if p > i => Some((part, p)),
+        (Some(i), _) => Some((image.to_path_buf(), i)),
+        (None, Some(p)) => Some((part, p)),
+        (None, None) => None,
+    }
+}
+
 /// A render's image read again when the file changes, until it is finished.
 fn poll(st: &mut ImageViewerState) {
     let Some(r) = &st.run else { return };
     if r.finished || st.busy { return; }
     let running = command::snapshot(RUN_KEY, 0).is_some_and(|s| s.state == State::Running);
-    let written = std::fs::metadata(&r.image).and_then(|m| m.modified()).ok();
-    match written {
-        Some(w) if r.seen != Some(w) => {
-            let (path, title) = (r.image.clone(), r.title.clone());
+    match newest(&r.image) {
+        Some((path, w)) if r.seen != Some(w) => {
+            let title = r.title.clone();
             st.read(path, title, Some(w));
         }
         // Up to date: done once the render is.
@@ -393,7 +415,7 @@ mod tests {
         let (husk, kick) = (VIEWER_PRESETS[0].1, VIEWER_PRESETS[1].1);
         let s = SettingsInfo { path: "/Render/Settings".into(), camera: None, renderer: "karma", named: true };
         let line = line_for(husk, &s, "", 12, Path::new("/tmp/r/render.0012.exr"), Path::new("/tmp/r/scene.usda"));
-        assert_eq!(line, "husk -s \"/Render/Settings\" -f 12 -n 1 -V 2a --snapshot 2 -o \"/tmp/r/render.0012.exr\" \"/tmp/r/scene.usda\"", "Karma, no camera known: no -R, no -c");
+        assert_eq!(line, "husk -s \"/Render/Settings\" -f 12 -n 1 -V 2a --snapshot 2 --snapshot-suffix \"\" -o \"/tmp/r/render.0012.exr\" \"/tmp/r/scene.usda\"", "Karma, no camera known: no -R, no -c");
         let arnold = SettingsInfo { renderer: "arnold", camera: Some("/cam".into()), ..s };
         let line = line_for(husk, &arnold, "/shot/cam2", 1, Path::new("o.exr"), Path::new("l.usda"));
         assert!(line.starts_with("husk -R HdArnoldRendererPlugin -s \"/Render/Settings\" -c \"/shot/cam2\" -f 1"), "{line}");
@@ -401,5 +423,25 @@ mod tests {
         assert_eq!(line, "kick -i \"l.usda\" -frame 3 -c \"/cam\" -o \"o.exr\" -dw -dp -v 2", "the settings' camera when none is chosen");
         let line = line_for("/opt/my/render $USD $F4 > $HOME/log", &arnold, "", 7, Path::new("o.exr"), Path::new("l.usda"));
         assert_eq!(line, "/opt/my/render l.usda 0007 > $HOME/log", "a custom line");
+    }
+
+    /// husk's snapshots, beside the image as `_part` (an older husk line),
+    /// or the image itself: whichever was written last is shown.
+    #[test]
+    fn the_newest_of_the_image_and_its_snapshot_is_shown() {
+        let dir = std::env::temp_dir().join(format!("xms_viewer_newest_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("render.0012.exr");
+        assert_eq!(part_of(&image), dir.join("render.0012_part.exr"));
+        assert!(newest(&image).is_none());
+        std::fs::write(part_of(&image), "snapshot").unwrap();
+        assert_eq!(newest(&image).unwrap().0, part_of(&image), "only the snapshot yet");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&image, "frame").unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options().write(true).open(&image).unwrap().set_modified(later).unwrap();
+        assert_eq!(newest(&image).unwrap().0, image, "the finished frame, written after");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
