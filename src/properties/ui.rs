@@ -337,7 +337,7 @@ pub fn draw_properties(
             });
         }
         NodeType::Camera { location, translate, rotate, camera } => camera_rows(ui, location, translate, rotate, camera),
-        NodeType::Light { location, translate, rotate, light } => super::light::light_rows(ui, location, translate, rotate, light),
+        NodeType::Light { location, translate, rotate, light } => super::light::light_rows(ui, location, translate, rotate, light, io, sel_id),
         NodeType::TestClip { seconds, fps_num, fps_den } => group(ui, "Clip", Some("A procedural walk on the spot, starting at 01:00:00:00"), |f| {
             f.slider("Length", None, seconds, 0.5..=60.0, " s");
             rate_row(f, fps_num, fps_den);

@@ -218,7 +218,21 @@ A light is a primitive with no geometry, as a camera is: its UsdLux type, its va
 
 The parameters are laid out from `assets/usdlux.json`, written from OpenUSD's schemas: LightAPI's attributes, then each type's, with their USD names, types, fallbacks, groups and help. Write USD writes a light made in Imago as its type (`def DomeLight "dome"`) with its transform and every value (`float inputs:intensity = 1`, `uniform token poleAxis = "scene"`…), an empty texture left out; a file's light that moved, as its new transform. The Primitive Inspector's Properties tab lists a light's values; Go to Operator selects the Light operator that made it.
 
-Not yet: the lights drawn in the Viewer (their shapes come next), lighting the Viewer with them, a dome's image as its environment, a file's light's values edited, ShapingAPI, ShadowAPI and portals in the operator.
+**In the Viewer**, each light is drawn as its shape, in its colour (times its temperature's when that is on, brought to full brightness so a dim light still shows):
+
+| Type | Drawn as |
+|---|---|
+| Dome | A sphere of three great circles and two rings of latitude, at its guide radius but at most 12 m (its 1 km default would be past the far plane), with its pole; its placement's scale is not a size |
+| Rect | Its rectangle, width by height, with its diagonals and an arrow along -Z, the way it emits |
+| Point | A small star |
+| Sphere | Three circles at its radius |
+| Disk | Its circle, and an arrow along -Z |
+| Cylinder | A circle at each end, along X, and four lines between |
+| Distant | A small circle and five parallel arrows along -Z |
+
+Click a light's lines to select it, as a mesh is selected; selected, its lines turn the selection's colour, and a Light operator selected has the Move and Rotate handles. Cameras are picked by their pyramid the same way. A file field (a dome's Texture, a rect's) has 📂 to browse for the image (EXR, HDR, PNG, JPEG, TIFF, TGA) and ✕ to clear it.
+
+Not yet: lighting the Viewer with them, a dome's image as its environment, a file's light's values edited, ShapingAPI, ShadowAPI and portals in the operator.
 
 ## Write USD
 

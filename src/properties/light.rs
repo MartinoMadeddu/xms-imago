@@ -7,11 +7,14 @@ use crate::core::render::Param;
 
 use super::form::{group, FieldExt, Rows, Status};
 
+/// The images a light's file can be: what the Viewer and renderers read.
+const TEXTURES: &[&str] = &["exr", "hdr", "png", "jpg", "jpeg", "tif", "tiff", "tga"];
+
 /// The Type menu: the six UsdLux types and Point, a sphere treated as one.
 #[derive(Clone, Copy, PartialEq)]
 enum Pick { Kind(LightType), Point }
 
-pub fn light_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3], rotate: &mut [f32; 3], light: &mut Light) {
+pub fn light_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3], rotate: &mut [f32; 3], light: &mut Light, io: &mut super::ui::PanelIo, node: crate::types::NodeId) {
     let fallback = default_location(light);
     let path = crate::types::prim_location(location, &fallback);
     group(ui, "Primitive", Some("Where the light is in the scene. Its parents are Xforms"), |f| {
@@ -56,7 +59,7 @@ pub fn light_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32
     for p in &params { if !groups.contains(&p.group.as_str()) { groups.push(&p.group); } }
     for g in groups {
         group(ui, g, None, |f| {
-            for p in params.iter().filter(|p| p.group == g) { param_row(f, light, p); }
+            for p in params.iter().filter(|p| p.group == g) { param_row(f, light, *p, io, node); }
         });
     }
     let set = light.values.len();
@@ -74,8 +77,9 @@ pub fn light_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32
 }
 
 /// One value: set when it differs from the schema's, dropped when not.
-fn param_row(f: &mut Rows, light: &mut Light, p: &Param) {
+fn param_row(f: &mut Rows, light: &mut Light, p: &'static Param, io: &mut super::ui::PanelIo, node: crate::types::NodeId) {
     let fallback = light.fallback(p);
+    let light_label = light.label();
     let mut v = light.value(&p.name).unwrap_or_else(|| fallback.clone());
     let before = v.clone();
     let mut hint = String::new();
@@ -94,7 +98,15 @@ fn param_row(f: &mut Rows, light: &mut Light, p: &Param) {
         Value::Bool(b) => { f.toggle(&label, Some(hint.as_str()), b); }
         Value::Asset(s) => {
             f.row(&label, Some(hint.as_str()), |ui| {
-                ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/image.exr").desired_width(ui.available_width()));
+                ui.horizontal(|ui| {
+                    let w = (ui.available_width() - if s.is_empty() { 34.0 } else { 62.0 }).max(40.0);
+                    ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/image.exr").desired_width(w));
+                    if ui.button("📂").on_hover_text("Browse").clicked() {
+                        io.browser.open(crate::file_browser::BrowseTarget::LightFile(node, p.name.as_str()), crate::file_browser::BrowseMode::File,
+                            &format!("{} for {}", p.shown(), light_label), TEXTURES, "");
+                    }
+                    if !s.is_empty() && ui.button("✕").on_hover_text("No file").clicked() { s.clear(); }
+                });
             });
             if !s.trim().is_empty() && !crate::core::sequences::texture_exists(s) { f.status(Status::Bad, "Not found"); }
         }

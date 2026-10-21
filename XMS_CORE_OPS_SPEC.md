@@ -156,7 +156,7 @@ Cube, Sphere, Cylinder, Cone, Capsule, Plane.
 Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
 - **Parameters:** intensity; exposure; color/temperature; shaping (cone, focus); texture (dome); size
 - **USD mapping:** `UsdLux*` schemas, `LightAPI`, `ShapingAPI`, `ShadowAPI`
-- **Status:** **Partial.** Lights are primitives with no geometry (`Prim::light`, `core::light`): a file's, read with every value (LightAPI's, each type's, cone shaping), moved by Transform and written back, and the **Light** operator's: one operator with a Type (Dome, Rect, Point, Sphere, Disk, Cylinder, Distant), an add-menu entry per type, its parameters laid out from `assets/usdlux.json` (OpenUSD's schemas), written as `def DomeLight` and so on with every value. Not yet: lights drawn in the Viewer, lighting with them, Portal, ShapingAPI and ShadowAPI in the operator, a file's light's values edited.
+- **Status:** **Partial.** Lights are primitives with no geometry (`Prim::light`, `core::light`): a file's, read with every value (LightAPI's, each type's, cone shaping), moved by Transform and written back, and the **Light** operator's: one operator with a Type (Dome, Rect, Point, Sphere, Disk, Cylinder, Distant), an add-menu entry per type, its parameters laid out from `assets/usdlux.json` (OpenUSD's schemas), written as `def DomeLight` and so on with every value; drawn in the Viewer as their shapes, in their colour, picked by them. Not yet: lighting with them, Portal, ShapingAPI and ShadowAPI in the operator, a file's light's values edited.
 
 ### 3.7 Point Instancer
 - **Parameters:** prototypes (relationship); proto indices; positions; orientations; scales; velocities; angular velocities; ids
@@ -436,7 +436,7 @@ Enough for a complete load, edit, bind, render loop:
 | 7 | Reference | Partial (Load USD's Reference and Payload modes) |
 | 8 | Variant Select | Not yet (read only) |
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
-| 10 | Light | Partial (Light operator, every type; files' lights read and moved; not drawn in the Viewer yet) |
+| 10 | Light | Partial (Light operator, every type; files' lights read and moved; drawn and picked in the Viewer; no lighting yet) |
 | 11 | Camera | Partial (Camera operator, file cameras, looked through in the Viewer) |
 | 12 | Render Settings | Partial (RenderScene Settings, Render Settings with Karma, Arnold and Custom, Render Variables) |
 | 13 | Render | Partial (Render Command runs husk on the written layer) |

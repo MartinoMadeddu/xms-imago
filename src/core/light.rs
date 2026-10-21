@@ -15,6 +15,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use glam::Vec3;
+
 use crate::core::properties::Value;
 use crate::core::render::Param;
 
@@ -168,6 +170,125 @@ impl Light {
     }
 }
 
+// ── Drawn ──────────────────────────────────────────────────────────────────
+
+/// How far a dome is drawn at most, in metres: its guide radius (1 km by
+/// default) would be past the Viewer's far plane.
+pub const DOME_DRAWN: f32 = 12.0;
+
+/// Points of a circle of radius `r` in a plane, `n` segments, as lines.
+fn circle(centre: Vec3, a: Vec3, b: Vec3, r: f32, n: usize, out: &mut Vec<[Vec3; 2]>) {
+    let at = |k: usize| { let t = k as f32 / n as f32 * std::f32::consts::TAU; centre + (a * t.cos() + b * t.sin()) * r };
+    for k in 0..n { out.push([at(k), at(k + 1)]); }
+}
+
+/// An arrow from `from` along `dir`, `len` long, with a small head.
+fn arrow(from: Vec3, dir: Vec3, side: Vec3, len: f32, out: &mut Vec<[Vec3; 2]>) {
+    let tip = from + dir * len;
+    out.push([from, tip]);
+    let h = len * 0.25;
+    out.push([tip, tip - dir * h + side * h * 0.5]);
+    out.push([tip, tip - dir * h - side * h * 0.5]);
+}
+
+impl Light {
+    /// Its shape as lines in its own space, before its placement: a dome's
+    /// sphere (at its guide radius, at most `DOME_DRAWN`), a rectangle or a
+    /// disk with the way it emits (-Z), a sphere, a point's star, a
+    /// cylinder along X, a distant light's parallel arrows.
+    pub fn glyph_local(&self) -> Vec<[Vec3; 2]> {
+        let mut out = vec![];
+        let o = Vec3::ZERO;
+        let (x, y, z) = (Vec3::X, Vec3::Y, Vec3::Z);
+        match self.kind {
+            LightType::Dome => {
+                let r = self.float("guideRadius").clamp(0.5, DOME_DRAWN);
+                circle(o, x, z, r, 64, &mut out);
+                circle(o, x, y, r, 64, &mut out);
+                circle(o, y, z, r, 64, &mut out);
+                // Rings of latitude, and the pole.
+                for lat in [-0.5f32, 0.5] {
+                    let (s, c) = (lat * std::f32::consts::FRAC_PI_2).sin_cos();
+                    circle(y * r * s, x, z, r * c, 48, &mut out);
+                }
+                out.push([y * r, y * r * 1.08]);
+            }
+            LightType::Rect => {
+                let (w, h) = (self.float("inputs:width") * 0.5, self.float("inputs:height") * 0.5);
+                let c = [Vec3::new(-w, -h, 0.0), Vec3::new(w, -h, 0.0), Vec3::new(w, h, 0.0), Vec3::new(-w, h, 0.0)];
+                for k in 0..4 { out.push([c[k], c[(k + 1) % 4]]); }
+                out.push([c[0], c[2]]);
+                out.push([c[1], c[3]]);
+                arrow(o, -z, x, (w.max(h) * 0.8).max(0.2), &mut out);
+            }
+            LightType::Sphere if self.is_point() => {
+                let s = 0.12;
+                for d in [x, y, z, (x + y).normalize(), (x - y).normalize(), (y + z).normalize(), (y - z).normalize()] { out.push([-d * s, d * s]); }
+            }
+            LightType::Sphere => {
+                let r = self.float("inputs:radius").max(0.01);
+                circle(o, x, y, r, 48, &mut out);
+                circle(o, x, z, r, 48, &mut out);
+                circle(o, y, z, r, 48, &mut out);
+            }
+            LightType::Disk => {
+                let r = self.float("inputs:radius").max(0.01);
+                circle(o, x, y, r, 48, &mut out);
+                arrow(o, -z, x, (r * 1.6).max(0.2), &mut out);
+            }
+            LightType::Cylinder => {
+                let (l, r) = (self.float("inputs:length") * 0.5, self.float("inputs:radius").max(0.01));
+                circle(x * l, y, z, r, 32, &mut out);
+                circle(-x * l, y, z, r, 32, &mut out);
+                for d in [y, -y, z, -z] { out.push([x * l + d * r, -x * l + d * r]); }
+            }
+            LightType::Distant => {
+                let r = 0.25;
+                circle(o, x, y, r, 32, &mut out);
+                for side in [x * r * 0.6, -x * r * 0.6, y * r * 0.6, -y * r * 0.6, o] { arrow(side, -z, x, 0.8, &mut out); }
+            }
+        }
+        out
+    }
+
+    /// Its shape where it is: `glyph_local` through its placement, the
+    /// dome's size kept (its scale is the environment's, not a size).
+    pub fn glyph(&self, world: glam::Mat4) -> Vec<[Vec3; 2]> {
+        let m = if self.kind == LightType::Dome {
+            let (_, r, t) = world.to_scale_rotation_translation();
+            glam::Mat4::from_rotation_translation(r, t)
+        } else { world };
+        self.glyph_local().into_iter().map(|[a, b]| [m.transform_point3(a), m.transform_point3(b)]).collect()
+    }
+
+    /// The colour it is drawn in: its colour, times its temperature's when
+    /// that is on, brought to full brightness so a dim light still shows.
+    pub fn tint(&self) -> [f32; 3] {
+        let c = match self.value("inputs:color") { Some(Value::Color3f(c)) => c, _ => [1.0; 3] };
+        let c = match (self.value("inputs:enableColorTemperature"), self.value("inputs:colorTemperature")) {
+            (Some(Value::Bool(true)), Some(Value::Float(k))) => { let t = blackbody(k); [c[0] * t[0], c[1] * t[1], c[2] * t[2]] }
+            _ => c,
+        };
+        let top = c[0].max(c[1]).max(c[2]);
+        if top <= 1e-6 { [0.3; 3] } else { [c[0] / top, c[1] / top, c[2] / top] }
+    }
+}
+
+/// An approximate blackbody colour for a temperature in kelvin, white at
+/// 6500 K: enough to tint what is drawn.
+pub fn blackbody(kelvin: f32) -> [f32; 3] {
+    // Tanner Helland's fit, divided by 6500 K's.
+    fn raw(k: f32) -> [f32; 3] {
+        let t = (k / 100.0).clamp(10.0, 400.0);
+        let r = if t <= 66.0 { 255.0 } else { 329.698_73 * (t - 60.0).powf(-0.133_204_76) };
+        let g = if t <= 66.0 { 99.470_8 * t.ln() - 161.119_57 } else { 288.122_16 * (t - 60.0).powf(-0.075_514_85) };
+        let b = if t >= 66.0 { 255.0 } else if t <= 19.0 { 0.0 } else { 138.517_73 * (t - 10.0).ln() - 305.044_8 };
+        [r.clamp(0.0, 255.0) / 255.0, g.clamp(0.0, 255.0) / 255.0, b.clamp(0.0, 255.0) / 255.0]
+    }
+    let (c, w) = (raw(kelvin), raw(6500.0));
+    [c[0] / w[0].max(1e-3), c[1] / w[1].max(1e-3), c[2] / w[2].max(1e-3)]
+}
+
 /// A primitive that is a light, at a placement.
 pub fn light_prim(path: &str, light: Light, place: crate::types::Placement) -> crate::types::Prim {
     crate::types::Prim { place, light: Some(Arc::new(light)), ..crate::types::Prim::new(path.to_string(), crate::types::MeshData::default()) }
@@ -232,4 +353,36 @@ mod tests {
         assert_eq!(default_location(&l), "/lights/disk");
     }
 
+    #[test]
+    fn every_type_has_a_shape_in_its_place() {
+        for t in LightType::ALL {
+            let l = Light::new(t);
+            assert!(l.glyph_local().len() >= 4, "{t:?}");
+        }
+        assert!(Light::point().glyph_local().len() < Light::new(LightType::Sphere).glyph_local().len(), "a point is a star, not a sphere");
+        // A rect of 2 by 1: its corners at ±1, ±0.5, emitting along -Z.
+        let mut r = Light::new(LightType::Rect);
+        r.set("inputs:width", Value::Float(2.0));
+        let g = r.glyph_local();
+        assert!(g.iter().any(|[a, _]| (*a - Vec3::new(-1.0, -0.5, 0.0)).length() < 1e-6));
+        assert!(g.iter().any(|[_, b]| b.z < -0.5), "the arrow points down -Z");
+        // Placed: moved; a dome keeps its size whatever the scale.
+        let at = glam::Mat4::from_scale_rotation_translation(Vec3::splat(100.0), glam::Quat::IDENTITY, Vec3::new(0.0, 3.0, 0.0));
+        let dome = Light::new(LightType::Dome).glyph(at);
+        let far = dome.iter().map(|[a, _]| (*a - Vec3::new(0.0, 3.0, 0.0)).length()).fold(0.0f32, f32::max);
+        assert!(far <= DOME_DRAWN * 1.1, "{far}");
+    }
+
+    #[test]
+    fn temperature_tints() {
+        let w = blackbody(6500.0);
+        assert!(w.iter().all(|c| (c - 1.0).abs() < 1e-3), "{w:?}");
+        let warm = blackbody(3000.0);
+        assert!(warm[0] > warm[2], "warm is red: {warm:?}");
+        let mut l = Light::new(LightType::Rect);
+        l.set("inputs:enableColorTemperature", Value::Bool(true));
+        l.set("inputs:colorTemperature", Value::Float(3000.0));
+        let t = l.tint();
+        assert!(t[0] > t[2] && (t[0] - 1.0).abs() < 1e-6, "{t:?}");
+    }
 }

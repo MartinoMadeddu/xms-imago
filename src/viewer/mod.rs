@@ -195,6 +195,10 @@ impl Viewer {
                     edit::line(&mut overlay.top, corners[a], corners[b], c);
                 }
             }
+            // Lights and cameras: their own lines, in the selection's colour.
+            for [a, b] in pick::selected_glyphs(&prims, input.hierarchy.selected_paths()) {
+                edit::line(&mut overlay.top, a, b, c);
+            }
         }
     }
 

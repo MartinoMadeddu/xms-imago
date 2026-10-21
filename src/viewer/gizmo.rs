@@ -1,5 +1,5 @@
 //! Manipulators for operators that place something: the selected Transform
-//! or Camera node gets the move, rotate and scale handles in the Viewer,
+//! Camera or Light node gets the move, rotate and scale handles in the Viewer,
 //! the same ones Edit Poly has (`core::manip`), and a drag writes straight
 //! into the node's parameters. Q, W, E, R choose the tool; with Select the
 //! pivot is shown as a small tripod, so it is clear where the handles would
