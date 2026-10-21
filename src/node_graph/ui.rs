@@ -1084,7 +1084,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Distant)), "Parallel light from far away, along its -Z: the sun"),
         ]),
         ("📽", "Render", vec![
-            (NodeType::RenderSceneSettings { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),
+            (NodeType::RenderCommons { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),
             (NodeType::RenderSettings { renderer: Default::default() }, "A renderer's settings (Karma, Arnold, or a Custom one typed in) on the scene's RenderSettings prim, and its standard AOVs as RenderVars"),
             (NodeType::RenderVariables { vars: Default::default() }, "RenderVars (AOVs) of a product: add or override them row by row: name, source, type, format, filter"),
         ]),

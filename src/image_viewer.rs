@@ -57,7 +57,9 @@ pub struct ImageViewerState {
     busy:      bool,
     message:   String,
     show_log:  bool,
-    /// A file to open, typed in the ⚙ menu.
+    /// The ⚙ window is open.
+    show_settings: bool,
+    /// A file to open, typed in the ⚙ window.
     open_path: String,
 }
 
@@ -253,46 +255,11 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
         }
         if !st.message.is_empty() { ui.label(egui::RichText::new(st.message.clone()).color(crate::properties::form::ink::BAD())); }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            crate::menus::menu(ui, "⚙", |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Command");
-                    let line = st.line().clone();
-                    let current = VIEWER_PRESETS.iter().find(|(_, l, _)| *l == line).map(|(n, _, _)| *n).unwrap_or("Custom");
-                    egui::ComboBox::from_id_salt("image_viewer_command").width(100.0).selected_text(current).show_ui(ui, |ui| {
-                        for (name, l, about) in VIEWER_PRESETS {
-                            if ui.selectable_label(current == name, name).on_hover_text(about).clicked() { *st.line() = l.to_string(); st.save_line(); }
-                        }
-                        // Custom: the line as it is, to change.
-                        let _ = ui.selectable_label(current == "Custom", "Custom").on_hover_text("Your own line: change it below. Any line that is not a preset's is Custom");
-                    }).response.on_hover_text("husk, kick, or your own line");
-                });
-                let tokens = VIEWER_TOKENS.iter().map(|(t, what)| format!("{t}  {what}")).collect::<Vec<_>>().join("\n");
-                let r = ui.add(egui::TextEdit::multiline(st.line()).code_editor().desired_rows(3).desired_width(420.0))
-                    .on_hover_text(format!("Run through the system's shell, in the render folder. Tokens:\n{tokens}"));
-                if r.changed() { st.save_line(); }
-                if let Some(s) = &chosen {
-                    let (template, dir) = (st.line().clone(), render_dir());
-                    let frame = graph.frame().round() as i64;
-                    let shown = line_for(&template, s, &st.camera, frame, &dir.join(format!("render.{frame:04}.exr")), &dir.join("scene.usda"));
-                    ui.add(egui::Label::new(egui::RichText::new(shown).monospace().small().color(crate::properties::form::ink::DIM())).wrap());
-                }
-                ui.label(egui::RichText::new("On macOS a program started from the Dock does not see your shell's PATH: give the renderer's full path (…/Houdini.framework/Versions/Current/Resources/bin/husk, …/Arnold/bin/kick)").small());
-                ui.separator();
-                ui.label("Open an image");
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut st.open_path).desired_width(300.0).hint_text("/path/to/image.exr"));
-                    if ui.button("Open").clicked() && !st.open_path.trim().is_empty() {
-                        let p = PathBuf::from(st.open_path.trim());
-                        let title = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        st.message.clear();
-                        st.read(p, title, None);
-                        ui.close();
-                    }
-                });
-            });
+            ui.toggle_value(&mut st.show_settings, "⚙").on_hover_text("Its command line (husk, kick or your own), and opening an image: in a window of its own");
             ui.toggle_value(&mut st.show_log, "Log").on_hover_text("What the command prints");
         });
     });
+    settings_window(ui.ctx(), st, graph, chosen.as_ref());
     // ── The view's own controls, then the image ───────────────────────────
     ui.horizontal(|ui| st.view.controls(ui));
     ui.separator();
@@ -305,6 +272,51 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
     if st.show_log {
         crate::properties::render::console(ui, "image_viewer_log", run.as_ref(), 150.0, "Nothing yet: press Render");
     }
+}
+
+/// ⚙: a floating window, so its menus (the presets) open inside it rather
+/// than closing it as a menu would. Its command line, and an image to open.
+fn settings_window(ctx: &egui::Context, st: &mut ImageViewerState, graph: &NodeGraphState, chosen: Option<&SettingsInfo>) {
+    let mut open = st.show_settings;
+    egui::Window::new("Image Viewer: render command").id(egui::Id::new("image_viewer_settings_window"))
+        .open(&mut open).collapsible(false).resizable(true).default_width(460.0)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Command");
+                let line = st.line().clone();
+                let current = VIEWER_PRESETS.iter().find(|(_, l, _)| *l == line).map(|(n, _, _)| *n).unwrap_or("Custom");
+                egui::ComboBox::from_id_salt("image_viewer_command").width(100.0).selected_text(current).show_ui(ui, |ui| {
+                    for (name, l, about) in VIEWER_PRESETS {
+                        if ui.selectable_label(current == name, name).on_hover_text(about).clicked() { *st.line() = l.to_string(); st.save_line(); }
+                    }
+                    // Custom: the line as it is, to change.
+                    let _ = ui.selectable_label(current == "Custom", "Custom").on_hover_text("Your own line: change it below. Any line that is not a preset's is Custom");
+                }).response.on_hover_text("husk, kick, or your own line");
+            });
+            let tokens = VIEWER_TOKENS.iter().map(|(t, what)| format!("{t}  {what}")).collect::<Vec<_>>().join("\n");
+            let r = ui.add(egui::TextEdit::multiline(st.line()).code_editor().desired_rows(3).desired_width(420.0))
+                .on_hover_text(format!("Run through the system's shell, in the render folder. Tokens:\n{tokens}"));
+            if r.changed() { st.save_line(); }
+            if let Some(s) = chosen {
+                let (template, dir) = (st.line().clone(), render_dir());
+                let frame = graph.frame().round() as i64;
+                let shown = line_for(&template, s, &st.camera, frame, &dir.join(format!("render.{frame:04}.exr")), &dir.join("scene.usda"));
+                ui.add(egui::Label::new(egui::RichText::new(shown).monospace().small().color(crate::properties::form::ink::DIM())).wrap());
+            }
+            ui.label(egui::RichText::new("On macOS a program started from the Dock does not see your shell's PATH: give the renderer's full path (…/Houdini.framework/Versions/Current/Resources/bin/husk, …/Arnold/bin/kick)").small());
+            ui.separator();
+            ui.label("Open an image");
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut st.open_path).desired_width(300.0).hint_text("/path/to/image.exr"));
+                if ui.button("Open").clicked() && !st.open_path.trim().is_empty() {
+                    let p = PathBuf::from(st.open_path.trim());
+                    let title = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    st.message.clear();
+                    st.read(p, title, None);
+                }
+            });
+        });
+    st.show_settings = open;
 }
 
 /// Starts rendering the current frame of the scene with these settings.

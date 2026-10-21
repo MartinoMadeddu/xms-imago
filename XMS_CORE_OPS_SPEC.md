@@ -369,15 +369,15 @@ Status for the section: **Partial.** Three operators author the UsdRender prims 
 The render prims are primitives with no geometry (`Prim::render`, `core::render`), listed in the Scene Explorer and the Primitive Inspector, not drawn. Each operator takes the scene on one input and hands it on with its render prims added or changed. A render prim that comes from a file is changed with an `over`; relationships on it are appended (`append rel`) since Imago does not read the file's targets.
 
 ### 11.1 Render Settings
-In Imago: **RenderScene Settings** (what is rendered) and **Render Settings** (how a renderer renders it).
+In Imago: **Render Commons** (what is rendered) and **Render Settings** (how a renderer renders it).
 
-**RenderScene Settings**
+**Render Commons**
 - **Primitive Location:** `/Render/Settings` by default. It is the RenderSettings prim the layer names (`renderSettingsPrimPath`).
 - **Parameters:** camera (the relationship; empty: the first camera coming in, picked from a list); resolution, with presets; pixel aspect ratio; aspect ratio conform policy; overscan, as `dataWindowNDC` from -overscan to 1 + overscan; motion blur and depth of field on or off (`disableMotionBlur`, `disableDepthOfField`); included purposes; the product's path and output image.
 - **Makes:** a RenderProduct (`/Render/Products/beauty`) with `productName` and `productType = "raster"`, in the settings' `products`. Filtering and bit depth are per RenderVar, or the renderer's own settings: not here.
 
 **Render Settings**
-- **Finds** the RenderSettings prim of the scene coming in, without following wires: the one the layer names (RenderScene Settings'), else the first made in Imago, else the first of a file (changed with an `over`), else it makes one at its Primitive Location (`/Render/Settings`).
+- **Finds** the RenderSettings prim of the scene coming in, without following wires: the one the layer names (Render Commons'), else the first made in Imago, else the first of a file (changed with an `over`), else it makes one at its Primitive Location (`/Render/Settings`).
 - **Renderer:** Karma, Arnold, any renderer with a definition file, or **Custom**. A definition is a JSON file: the renderer's namespace and its settings (namespaced attribute name, type, default, group, label, help, range, choices), and its standard AOVs (name, `sourceName`, `sourceType`, `dataType`, group, whether ticked by default). Karma's and Arnold's come with Imago (`assets/renderers`); files in the renderers folder (`$XMS_RENDERERS`, else `renderers` in Imago's config folder) add renderers or replace one of the same name.
 - **Settings tab:** the definition's settings, by group, written as namespaced attributes on the RenderSettings prim (`karma:global:bucketsize`, `arnold:global:AA_samples`). Every setting is written, changed or not. Extra rows add settings the definition does not list, under its namespace unless the name has one.
 - **Custom:** a name field for the renderer, used as the namespace; its settings are rows of name, type and value (`rray` with `spp` and `bounce` writes `rray:spp` and `rray:bounce`).
@@ -388,7 +388,7 @@ In Imago: **RenderScene Settings** (what is rendered) and **Render Settings** (h
 ### 11.2 Render Product
 - **Parameters:** output path (`productName`); product type; ordered render vars
 - **USD mapping:** `UsdRenderProduct`
-- **Status:** **Partial.** Made by RenderScene Settings (output path, `raster`), its RenderVars added by Render Settings' AOVs tab and Render Variables. Not yet: a camera or resolution override per product, several products from one operator.
+- **Status:** **Partial.** Made by Render Commons (output path, `raster`), its RenderVars added by Render Settings' AOVs tab and Render Variables. Not yet: a camera or resolution override per product, several products from one operator.
 
 ### 11.3 Render Var
 In Imago: **Render Variables**.
@@ -438,6 +438,6 @@ Enough for a complete load, edit, bind, render loop:
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
 | 10 | Light | Partial (Light operator, every type; files' lights read and moved; drawn and picked in the Viewer; no lighting yet) |
 | 11 | Camera | Partial (Camera operator, file cameras, looked through in the Viewer) |
-| 12 | Render Settings | Partial (RenderScene Settings, Render Settings with Karma, Arnold and Custom, Render Variables) |
+| 12 | Render Settings | Partial (Render Commons, Render Settings with Karma, Arnold and Custom, Render Variables) |
 | 13 | Render | Partial (Render Command runs husk on the written layer) |
 | 14 | Write USD (Save) | Partial (override layer in `usda`) |

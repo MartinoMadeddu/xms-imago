@@ -124,7 +124,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: SIMON, group: "FBX and characters", name: "Human Limits", build: human_limits,
         hint: "An elbow turned the wrong way by Fix Pose, put back by the Body Collide node's human pass" },
     Template { by: XMS, group: "Lighting & Rendering", name: "DeLorean: lit and rendered with Karma", build: delorean_render,
-        hint: "The DeLorean under a dome (a sky HDR) and a blue rect light, a camera, RenderScene Settings, Karma's Render Settings and AOVs, Write USD and a husk Render Command" },
+        hint: "The DeLorean under a dome (a sky HDR) and a blue rect light, a camera, Render Commons, Karma's Render Settings and AOVs, Write USD and a husk Render Command" },
 ];
 
 impl Template {
@@ -449,7 +449,7 @@ fn bolt(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 // ── Lighting & Rendering ─────────────────────────────────────────────────────
 
 /// Martino's DeLorean scene: the car, a camera, a dome lit by the examples'
-/// sky and a blue rect light, merged; RenderScene Settings and Karma's
+/// sky and a blue rect light, merged; Render Commons and Karma's
 /// Render Settings after them, then Write USD and a husk Render Command.
 /// The layer and the frames go to the temporary folder.
 fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
@@ -477,7 +477,7 @@ fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
 
     let dir = std::env::temp_dir().join("xms_lighting_rendering");
     let at = |f: &str| dir.join(f).to_string_lossy().to_string();
-    let scene = g.add_node("RenderSceneSettings".into(), NodeType::RenderSceneSettings { scene: SceneSettings {
+    let scene = g.add_node("RenderCommons".into(), NodeType::RenderCommons { scene: SceneSettings {
         motion_blur: false, depth_of_field: false, output: at("render/beauty.$F4.exr"), ..Default::default() } }, p(420.0, 360.0));
     let mut karma = RendererSettings::default();
     for (k, v) in [
@@ -1357,7 +1357,7 @@ mod tests {
         assert_eq!(dome.float("guideRadius"), 1.0);
         assert!(matches!(dome.value("inputs:texture:file"), Some(crate::core::properties::Value::Asset(f)) if f.ends_with("sky.hdr")));
         let id = |f: fn(&NodeType) -> bool| g.nodes.iter().find(|n| f(&n.node_type)).unwrap().id;
-        let (scene, settings, write, render) = (id(|t| matches!(t, NodeType::RenderSceneSettings { .. })), id(|t| matches!(t, NodeType::RenderSettings { .. })),
+        let (scene, settings, write, render) = (id(|t| matches!(t, NodeType::RenderCommons { .. })), id(|t| matches!(t, NodeType::RenderSettings { .. })),
             id(|t| matches!(t, NodeType::WriteUsd { .. })), id(|t| matches!(t, NodeType::RenderCommand { .. })));
         let above = |n: NodeId| g.nodes.iter().find(|x| x.id == n).unwrap().inputs[0].connected_output.map(|(a, _)| a);
         assert_eq!((above(settings), above(write), above(render)), (Some(scene), Some(settings), Some(write)));

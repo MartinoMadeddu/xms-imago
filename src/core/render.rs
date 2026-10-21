@@ -15,7 +15,7 @@
 //! Three operators make them, each passing the scene that comes in through
 //! with its render prims added or changed:
 //!
-//! - **RenderScene Settings** (`SceneSettings`): the RenderSettings prim and
+//! - **Render Commons** (`SceneSettings`): the RenderSettings prim and
 //!   a default RenderProduct. The one the layer names (`renderSettingsPrimPath`).
 //! - **Render Settings** (`RendererSettings`): a renderer's settings, from
 //!   its definition (`Definition`, a JSON file), on the RenderSettings prim
@@ -97,7 +97,7 @@ pub struct RenderPrim {
     /// A prim of a file, changed: written as an `over`.
     pub over:    bool,
     /// The RenderSettings prim the layer names (`renderSettingsPrimPath`):
-    /// the one RenderScene Settings made last.
+    /// the one Render Commons made last.
     pub primary: bool,
     pub attrs:   BTreeMap<String, RAttr>,
     pub rels:    BTreeMap<String, RRel>,
@@ -190,7 +190,7 @@ pub fn cameras(prims: &[Prim]) -> Vec<String> {
 /// Where the RenderSettings prim an operator works on comes from.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Found {
-    /// The one the layer names: made by RenderScene Settings.
+    /// The one the layer names: made by Render Commons.
     Named(String),
     /// The first one coming in, made in Imago.
     First(String),
@@ -216,7 +216,7 @@ impl Found {
 }
 
 /// The RenderSettings prim of a scene, without following wires: the one
-/// named (`renderSettingsPrimPath`, which RenderScene Settings sets), else
+/// named (`renderSettingsPrimPath`, which Render Commons sets), else
 /// the first made in Imago, else the first of a file, else `fallback`.
 pub fn find_settings(prims: &[Prim], fallback: &str) -> Found {
     let settings = |p: &&Prim| p.render.as_ref().is_some_and(|r| r.kind == RenderKind::Settings);
@@ -304,7 +304,7 @@ pub fn var_name(name: &str) -> String {
     prim_location(name, "var").trim_start_matches('/').replace('/', "_")
 }
 
-// ── RenderScene Settings ───────────────────────────────────────────────────
+// ── Render Commons ───────────────────────────────────────────────────
 
 /// The `aspectRatioConformPolicy` values, as UsdRender has them.
 pub const CONFORM: [(&str, &str); 5] = [
@@ -329,7 +329,7 @@ pub const RESOLUTIONS: [(&str, [u32; 2]); 7] = [
     ("Square 2K", [2048, 2048]),
 ];
 
-/// RenderScene Settings: what is rendered, whatever renders it.
+/// Render Commons: what is rendered, whatever renders it.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SceneSettings {
@@ -1054,7 +1054,7 @@ mod tests {
 
     #[test]
     fn render_settings_find_the_settings_without_a_wire() {
-        // Made by RenderScene Settings somewhere else in the scene.
+        // Made by Render Commons somewhere else in the scene.
         let s = SceneSettings { location: "/shot/rs".into(), product: "/shot/out/main".into(), ..Default::default() };
         let scene = scene_settings(None, &s);
         let mut r = RendererSettings::for_renderer("arnold");
@@ -1112,7 +1112,7 @@ mod tests {
         let lines = st.lines();
         assert!(lines.contains(&"int rray:spp = 64".to_string()) && lines.contains(&"int rray:bounce = 4".to_string()), "{lines:?}");
         assert!(lines.contains(&"float other:thing = 1".to_string()), "a name with a namespace stays");
-        assert!(!st.primary, "only RenderScene Settings names one");
+        assert!(!st.primary, "only Render Commons names one");
     }
 
     #[test]
@@ -1191,5 +1191,14 @@ mod tests {
         assert_eq!(per, vec![false, false, false, true, true, false], "husk's range ones no, husk one frame and kick yes, echo no");
         assert!(!one_frame_a_run("render $FEND"));
         assert!(one_frame_a_run("render out.$F4.exr"));
+    }
+
+    /// Render Commons was RenderScene Settings: a graph saved then opens.
+    #[test]
+    fn render_commons_opens_under_its_old_name() {
+        let old = r#"{"RenderSceneSettings":{"scene":{"location":"/Render/Settings","overscan":0.0}}}"#;
+        let n: crate::types::NodeType = serde_json::from_str(old).unwrap();
+        assert!(matches!(n, crate::types::NodeType::RenderCommons { .. }));
+        assert!(serde_json::to_string(&n).unwrap().starts_with(r#"{"RenderCommons""#), "saved under its new name");
     }
 }

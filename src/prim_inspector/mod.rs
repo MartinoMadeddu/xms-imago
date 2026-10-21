@@ -382,7 +382,7 @@ fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &s
 /// values are shown as coming from. Its id and name.
 fn render_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, _path: &str) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
-    upstream(graph, view, |n| matches!(n.node_type, NodeType::RenderSceneSettings { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }))
+    upstream(graph, view, |n| matches!(n.node_type, NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }))
         .map(|n| (n.id, n.name.clone()))
 }
 

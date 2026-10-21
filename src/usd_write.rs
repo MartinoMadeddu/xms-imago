@@ -197,7 +197,7 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
     let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
     if let Some(name) = &default_prim { let _ = writeln!(text, "    defaultPrim = \"{name}\""); }
     // The RenderSettings prim a renderer uses when told none: the one
-    // RenderScene Settings made.
+    // Render Commons made.
     if let Some(path) = crate::core::render::layer_settings(prims) { let _ = writeln!(text, "    renderSettingsPrimPath = \"{path}\""); }
     match sublayered.first() {
         Some(t) => {

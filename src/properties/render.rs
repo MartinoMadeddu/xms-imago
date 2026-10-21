@@ -1,4 +1,4 @@
-//! The render operators' parameters: RenderScene Settings, Render Settings
+//! The render operators' parameters: Render Commons, Render Settings
 //! (a renderer's settings from its definition, and its AOVs), Render
 //! Variables. See `core::render`.
 
@@ -118,7 +118,7 @@ fn path_pick(f: &mut Rows, label: &str, hint: &str, value: &mut String, placehol
     });
 }
 
-// ── RenderScene Settings ───────────────────────────────────────────────────
+// ── Render Commons ───────────────────────────────────────────────────
 
 pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Context) {
     let path = s.path();

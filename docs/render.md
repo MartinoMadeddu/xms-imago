@@ -3,12 +3,12 @@
 Imago authors what a renderer needs to render the scene, as USD has it (UsdRender): a **RenderSettings** prim, a **RenderProduct** for each image, and a **RenderVar** for each AOV. Three operators make them, in the **Render** category of the add menu. Write USD writes them with the scene; **Render Command** then runs husk (or any command line) on that layer. Imago does not render inside itself yet.
 
 ```
-Scene ─► RenderScene Settings ─► Render Settings ─► Render Variables ─► Write USD ─► Render Command
+Scene ─► Render Commons ─► Render Settings ─► Render Variables ─► Write USD ─► Render Command
 ```
 
-Each operator takes the scene on its one input and hands it on with its render prims added or changed, so they can sit anywhere in the graph. Render Settings and Render Variables do not need RenderScene Settings wired into them: they find the RenderSettings prim in the scene coming in.
+Each operator takes the scene on its one input and hands it on with its render prims added or changed, so they can sit anywhere in the graph. Render Settings and Render Variables do not need Render Commons wired into them: they find the RenderSettings prim in the scene coming in.
 
-## RenderScene Settings
+## Render Commons
 
 What is rendered, whatever renders it. It makes the RenderSettings prim (`/Render/Settings` by default) and a RenderProduct (`/Render/Products/beauty`), under Scopes.
 
@@ -31,7 +31,7 @@ Filtering and bit depth are not here: they belong to each RenderVar, or are the 
 
 How a renderer renders it. Choose the **Renderer** from its menu: **Karma**, **Arnold**, any renderer with a definition file, or **Custom**.
 
-**Which RenderSettings prim:** the one the scene names (made by RenderScene Settings), else the first one made in Imago, else the first one of a loaded file (changed with an `over`), else it makes one at its own Primitive Location (`/Render/Settings`). The panel says which.
+**Which RenderSettings prim:** the one the scene names (made by Render Commons), else the first one made in Imago, else the first one of a loaded file (changed with an `over`), else it makes one at its own Primitive Location (`/Render/Settings`). The panel says which.
 
 **Settings tab:** the renderer's settings, by group (Sampling, Limits, Ray Depth, System…), each with its label, its range and a tooltip with the attribute's name. They are written as namespaced attributes on the RenderSettings prim: `karma:global:bucketsize`, `arnold:global:AA_samples`. Every setting is written, changed or not; a changed one has a dot after its label, and **Reset to defaults** puts them all back. Each renderer keeps its own values: switching from Arnold to Karma and back finds Arnold's again.
 
@@ -122,7 +122,7 @@ A pane of its own (a tab behind the Viewer in the default layout; Window menu ot
 - **RenderSettings** menu: the scene's RenderSettings prims, the one it names first (marked "the scene's").
 - **Camera** menu: the RenderSettings prim's own camera, or any camera of the scene.
 - **Render** writes the scene as a layer in a folder of Imago's own under the system's temporary folder (deleted when Imago closes, and, after a crash, when it next starts) and runs its command line on the current frame of it there, in the background. **Stop** ends it. The progress shows beside the buttons (from the percentages it prints), **Log** shows what it prints.
-- **⚙ → Command:** the line it runs, to change, with presets: **husk** (`husk -R $DELEGATE -s "$SETTINGS" -c "$CAMERA" -f $F -n 1 -V 2a --snapshot 2 -o "$IMAGE" "$USD"`: it saves the image every two seconds while it renders, and each save comes into the view, then the finished frame), **kick** (`kick -i "$USD" -frame $F -c "$CAMERA" -o "$IMAGE" -dw -dp -v 2`, Arnold reading the layer through arnold-usd: the image comes in when the frame is done) and **Custom** (any other line: your renderer, a wrapper script). Under it, the line as it will run now. It is kept in Imago's config folder (`image_viewer_command.txt`); a husk path given before it existed starts the husk line. Tokens:
+- **⚙** opens a small floating window of its own (a menu closed when its preset list opened). **Command:** the line it runs, to change, with presets: **husk** (`husk -R $DELEGATE -s "$SETTINGS" -c "$CAMERA" -f $F -n 1 -V 2a --snapshot 2 -o "$IMAGE" "$USD"`: it saves the image every two seconds while it renders, and each save comes into the view, then the finished frame), **kick** (`kick -i "$USD" -frame $F -c "$CAMERA" -o "$IMAGE" -dw -dp -v 2`, Arnold reading the layer through arnold-usd: the image comes in when the frame is done) and **Custom** (any other line: your renderer, a wrapper script). Under it, the line as it will run now. It is kept in Imago's config folder (`image_viewer_command.txt`); a husk path given before it existed starts the husk line. Tokens:
 
 | Token | Is |
 |---|---|

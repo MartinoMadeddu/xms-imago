@@ -111,7 +111,9 @@ pub enum NodeType {
     /// The RenderSettings prim (what is rendered: camera, resolution,
     /// overscan, motion blur, depth of field, purposes) and a RenderProduct
     /// (the image file). The one the layer names. See `core::render`.
-    RenderSceneSettings { #[serde(default)] scene: crate::core::render::SceneSettings },
+    /// Was RenderScene Settings: graphs saved with that name still open.
+    #[serde(alias = "RenderSceneSettings")]
+    RenderCommons { #[serde(default)] scene: crate::core::render::SceneSettings },
     /// A renderer's settings (Karma, Arnold, one from a definition file, or
     /// Custom with settings typed in) on the RenderSettings prim the scene
     /// has, and its standard AOVs ticked as RenderVars.
@@ -453,7 +455,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Material { .. }      => "🎨",
         NodeType::MaterialX { .. }     => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
-        NodeType::RenderSceneSettings { .. } => "📽",
+        NodeType::RenderCommons { .. } => "📽",
         NodeType::RenderSettings { .. } => "⚙",
         NodeType::RenderVariables { .. } => "📑",
         NodeType::RenderCommand { .. } => "🖥",
@@ -517,7 +519,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Material { .. }      => "Material",
         NodeType::MaterialX { .. }     => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",
-        NodeType::RenderSceneSettings { .. } => "RenderScene Settings",
+        NodeType::RenderCommons { .. } => "Render Commons",
         NodeType::RenderSettings { .. } => "Render Settings",
         NodeType::RenderVariables { .. } => "Render Variables",
         NodeType::RenderCommand { .. } => "Render Command",
