@@ -49,7 +49,7 @@ mod pal {
     // Node colours, by kind.
     pub fn GREEN() -> Color32 { Color32::from_rgb(152, 196,  98) }     // data, constants, maths, generators
     pub fn BLUE() -> Color32  { Color32::from_rgb(102, 150, 204) }     // get / set geometry
-    pub fn PORTS() -> Color32 { Color32::from_rgb( 52,  52,  52) }     // ICE Execution Ports: dark grey, as MaterialX's material
+    pub fn PORTS() -> Color32 { Color32::from_rgb( 52,  52,  52) }     // Execution Ports: dark grey, as MaterialX's material
 
     // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
@@ -64,7 +64,7 @@ struct Layout {
 }
 
 /// The title: the node type's full name in PascalCase (`GetData`,
-/// `CrossProduct`, `ICEExecutionPorts`).
+/// `CrossProduct`, `ExecutionPorts`).
 fn title_text(node: &IceGraphNode) -> String {
     crate::types::subnet_node_label(&node.node_type)
         .split_whitespace()
@@ -154,7 +154,7 @@ fn output_socket_pos(node: &IceGraphNode, idx: usize, collapsed: &HashSet<NodeId
 }
 
 /// The text colours that read on a node's colour: black on light ones,
-/// white on dark ones (ICE Execution Ports). The name's, then the type line's.
+/// white on dark ones (Execution Ports). The name's, then the type line's.
 fn inks(body: egui::Color32) -> (egui::Color32, egui::Color32) {
     let lum = 0.299 * body.r() as f32 + 0.587 * body.g() as f32 + 0.114 * body.b() as f32;
     if lum > 110.0 { (pal::INK(), pal::INK_TYPE()) }
@@ -544,7 +544,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     use xms_ice::{Math, Value};
     let mut out = vec![
         ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points)"),
-        ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the ICE Execution Ports"),
+        ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the Execution Ports"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Float(0.0) }, "A number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Int(0) }, "A whole number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Vec2([0.0; 2]) }, "Two numbers"),

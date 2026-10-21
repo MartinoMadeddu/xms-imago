@@ -6,7 +6,7 @@
 - [Edit Poly](edit-poly.md): polygon modelling in one node
 - [UV](uv.md): unwrapping, island editing, the UV Editor pane
 - [USD](usd.md): composed stages, primitives and instancing, the Scene Explorer and the Viewer, Write USD
-- [ICE graphs](ice.md): Get Data, Set Data and maths run by the ICE Execution Ports over every point, face or corner, compiled and run in parallel
+- [ICE graphs](ice.md): Get Data, Set Data and maths run by the Execution Ports over every point, face or corner, compiled and run in parallel
 - [MaterialX](materialx.md): the MaterialX node library and the MaterialX operator
 - [Rendering](render.md): Render Commons, Render Settings (Karma, Arnold, Custom, renderer definition files, AOVs), Render Variables, as UsdRender prims Write USD writes
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and how edits are found. For anyone writing a node

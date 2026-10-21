@@ -8,6 +8,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | --- | --- | --- | --- |
 | An object in the USD stage, and Imago's piece for it | prim / packed primitive | **primitive** (prim for short) | One word for the stage object and the piece that carries it. "Packed" was an implementation detail. |
 | The top-level graph | node graph / scene network | **scene graph** (the **root scene graph**) | Names the graph that builds the scene. In USD, "scene graph" often means the prim hierarchy, which in Imago is the Scene Explorer: the docs say so once. |
+| The operator holding an ICE graph | ICE | **ICreationEngine** (ICE for short) | Its name in the add menu, on the node and in its parameters, after Softimage's ICE, the Interactive Creative Environment. |
 | The graph inside an ICE node | subnet / ICE tree | **ICE graph** | Matches "scene graph". "Subnet" was a code term. |
 | A node of the scene graph | node | **operator** | Each takes the scene coming in and changes it, hence the Operator Stack. "Node" stays the generic word for any graph element. |
 | A step inside Edit Poly | operation | **operation** (unchanged) | Distinct from operator: an operator holds operations. |
@@ -46,7 +47,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | The operator running a render command on the system | Shell (Houdini ROP), SystemCommand (Gaffer), Terminal | **Render Command** | Made for rendering the layer (`$USD`); a general Shell or System Command can follow. It runs when **Run** is pressed, never on cook. |
 | A texture of one file per UV tile | UDIM set, tiled texture | **UDIM tiles**, named by a **`<UDIM>` path** (`body.<UDIM>.exr`; `<udim>` read too) | The tag USD, Mari and Substance write. |
 | Files numbered alike, listed as one | image sequence, file sequence | **sequence** (`shot.####.exr`) | One word, shown in the file browser with Collapse sequences. |
-| An ICE graph's end node | SubnetInput / SubnetOutput, GraphInput / GraphOutput, ICE Tree | **ICE Execution Ports** (the node named ICEExectPorts) | Softimage's ICETree: one root with ordered Execute ports. Renamed so it says what it is. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
+| An ICE graph's end node | SubnetInput / SubnetOutput, GraphInput / GraphOutput, ICE Tree | **Execution Ports** (the node named ExecutionPorts) | Softimage's ICETree: one root with ordered Execute ports. Renamed so it says what it is. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
 
 ### Contexts and USD
 
@@ -83,7 +84,7 @@ The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 | Pick Primitives, Prune Primitives, Unpack | unchanged | "Primitive" now means exactly what these act on. |
 | "Primitives" menu category | Primitives (unchanged) | As above. |
 | Cube, Sphere, Grid under "Create" | **Shapes** group under "Create" | "Primitive" is no longer used for shapes. |
-| SubnetInput, SubnetOutput (ICE); ICE Tree | **ICE Execution Ports** (root) | The new engine: Get Data and Set Data instead of a mesh going in and out. |
+| SubnetInput, SubnetOutput (ICE); ICE Tree | **Execution Ports** (root) | The new engine: Get Data and Set Data instead of a mesh going in and out. |
 
 ## Code renames
 

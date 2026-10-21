@@ -528,7 +528,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Merge { .. }         => "Merge",
         NodeType::LocalAnimation { .. } => "Local Animation",
         NodeType::MergeAnimation { .. } => "Merge Animation",
-        NodeType::Ice { .. }        => "ICE",
+        NodeType::Ice { .. }        => "ICreationEngine",
         NodeType::Placeholder { .. }   => "Placeholder",
         NodeType::PassThrough          => "Pass Through",
         NodeType::LoadFbx { .. }       => "Load FBX",
@@ -611,7 +611,7 @@ impl IceGraphNodeType {
 pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
     use xms_ice::{Math, Value};
     match t {
-        IceGraphNodeType::Root { .. } => "ICE Execution Ports",
+        IceGraphNodeType::Root { .. } => "Execution Ports",
         IceGraphNodeType::GetData { .. } => "Get Data",
         IceGraphNodeType::SetData { .. } => "Set Data",
         IceGraphNodeType::Constant { value } => match value {
