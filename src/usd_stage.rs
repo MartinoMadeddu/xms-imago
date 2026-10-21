@@ -28,7 +28,7 @@ use xms_scene as rs;
 
 use crate::core::geo::{self, Attr, Column, Context, Geo, Kind, Role, Subdiv, Topology};
 use crate::types::{MeshData, Placement, Purpose};
-use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdMaterial, UsdMesh, UsdScene, UsdSkeleton};
+use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdLight, UsdMaterial, UsdMesh, UsdScene, UsdSkeleton};
 
 /// Read a composed stage. `layer` is the root layer (a `.usdz` is unpacked
 /// beforehand, so its textures are files on disk).
@@ -264,7 +264,12 @@ impl Walk<'_> {
                 place:   Placement::One(world.as_mat4()),
                 purpose,
             }),
-            rs::PrimKind::Light(_) if !under_instance => self.scene.lights.push((shown.clone(), type_name.clone())),
+            rs::PrimKind::Light(l) if !under_instance => self.scene.lights.push(UsdLight {
+                path: shown.clone(),
+                light: light_of(l, &type_name, t),
+                place: Placement::One(world.as_mat4()),
+                purpose,
+            }),
             rs::PrimKind::Instancer(i) => {
                 // Nested in another instancer's prototype: drawn through it
                 // (`instancer_at`), at each of its copies.
@@ -679,6 +684,57 @@ fn color(v: &rs::ShaderValue) -> Option<[f32; 3]> {
         rs::ShaderValue::Float(f) => Some([*f; 3]),
         _ => None,
     }
+}
+
+/// A light of the scene layer as Imago holds it: its type, and the values
+/// the file sets, at time `t`. Values the schema has as fallback are not kept.
+fn light_of(l: &rs::Light, type_name: &str, t: f64) -> crate::core::light::Light {
+    use crate::core::light::{Light, LightType};
+    use crate::core::properties::Value;
+    let kind = LightType::from_usd(type_name).unwrap_or(match &l.kind {
+        rs::LightKind::Distant { .. } => LightType::Distant,
+        rs::LightKind::Sphere { .. } => LightType::Sphere,
+        rs::LightKind::Rect { .. } => LightType::Rect,
+        rs::LightKind::Disk { .. } => LightType::Disk,
+        rs::LightKind::Cylinder { .. } => LightType::Cylinder,
+        rs::LightKind::Dome { .. } => LightType::Dome,
+    });
+    let mut out = Light::new(kind);
+    if let Some(v) = l.intensity.at(t) { out.set("inputs:intensity", Value::Float(v)); }
+    if let Some(v) = l.exposure.at(t) { out.set("inputs:exposure", Value::Float(v)); }
+    if let Some(c) = l.color.first() { out.set("inputs:color", Value::Color3f(*c)); }
+    out.set("inputs:normalize", Value::Bool(l.normalize));
+    out.set("inputs:enableColorTemperature", Value::Bool(l.enable_color_temperature));
+    out.set("inputs:colorTemperature", Value::Float(l.color_temperature));
+    let asset = |s: &Option<String>| s.clone().filter(|s| !s.is_empty()).map(Value::Asset);
+    match &l.kind {
+        rs::LightKind::Distant { angle } => out.set("inputs:angle", Value::Float(*angle)),
+        rs::LightKind::Sphere { radius, treat_as_point } => {
+            out.set("inputs:radius", Value::Float(*radius));
+            out.set("treatAsPoint", Value::Bool(*treat_as_point));
+        }
+        rs::LightKind::Rect { width, height, texture } => {
+            out.set("inputs:width", Value::Float(*width));
+            out.set("inputs:height", Value::Float(*height));
+            if let Some(v) = asset(texture) { out.set("inputs:texture:file", v); }
+        }
+        rs::LightKind::Disk { radius } => out.set("inputs:radius", Value::Float(*radius)),
+        rs::LightKind::Cylinder { radius, length, treat_as_line } => {
+            out.set("inputs:radius", Value::Float(*radius));
+            out.set("inputs:length", Value::Float(*length));
+            out.set("treatAsLine", Value::Bool(*treat_as_line));
+        }
+        rs::LightKind::Dome { texture, format, pole_axis } => {
+            if let Some(v) = asset(texture) { out.set("inputs:texture:file", v); }
+            if let Some(f) = format { out.set("inputs:texture:format", Value::Token(f.clone())); }
+            if let Some(p) = pole_axis { out.set("poleAxis", Value::Token(p.clone())); }
+        }
+    }
+    // Shaping, which the definitions do not list yet: kept, listed, written back.
+    if let Some(a) = l.cone_angle { out.values.insert("inputs:shaping:cone:angle".into(), Value::Float(a)); }
+    if let Some(s) = l.cone_softness { out.values.insert("inputs:shaping:cone:softness".into(), Value::Float(s)); }
+    if let Some(f) = l.focus { out.values.insert("inputs:shaping:focus".into(), Value::Float(f)); }
+    out
 }
 
 #[cfg(test)]

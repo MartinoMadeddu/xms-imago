@@ -58,6 +58,17 @@ pub enum NodeType {
         #[serde(default)] rotate: [f32; 3],
         #[serde(default)] camera: crate::core::camera::Camera,
     },
+    /// A UsdLux light at its Primitive Location (`/lights/dome` and so on
+    /// by default), placed by `translate` and `rotate` (degrees, X then Y
+    /// then Z): Dome, Rect, Sphere (a point light when treated as one),
+    /// Disk, Cylinder, Distant, chosen by its Type. The add menu has an
+    /// entry per type, each this operator set to it. See `core::light`.
+    Light {
+        #[serde(default)] location: String,
+        #[serde(default)] translate: [f32; 3],
+        #[serde(default)] rotate: [f32; 3],
+        #[serde(default)] light: crate::core::light::Light,
+    },
     /// A USD file. `mode`: sublayered at its own paths, or one prim of it
     /// (`prim`, else its default prim) referenced or payloaded at `location`
     /// (`/root` by default). Graphs saved before the modes sublayer.
@@ -382,6 +393,19 @@ impl NodeType {
         NodeType::Camera { location: camera_location(), translate: [0.0, 1.5, 6.0], rotate: [-12.0, 0.0, 0.0], camera: Default::default() }
     }
 
+    /// A light of this kind at its default Primitive Location, 2 m up and
+    /// 4 m back, turned 30° down, facing the origin (a dome sits at the origin).
+    pub fn light(mut light: crate::core::light::Light) -> Self {
+        light.operator_defaults();
+        let dome = light.kind == crate::core::light::LightType::Dome;
+        NodeType::Light {
+            location: crate::core::light::default_location(&light),
+            translate: if dome { [0.0; 3] } else { [0.0, 2.0, 4.0] },
+            rotate: if dome { [0.0; 3] } else { [-30.0, 0.0, 0.0] },
+            light,
+        }
+    }
+
     /// Load USD on a file, sublayered.
     pub fn load_usd(path: String) -> Self {
         NodeType::LoadUsd { path, mode: Default::default(), location: reference_location(), prim: String::new() }
@@ -420,6 +444,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::CreateSphere { .. }  => "⚪",
         NodeType::CreateGrid { .. }    => "⊞",
         NodeType::Camera { .. }        => "🎥",
+        NodeType::Light { .. }         => "💡",
         NodeType::LoadUsd { .. }       => "📂",
         NodeType::WriteUsd { .. }      => "📤",
         NodeType::PickPrims { .. }     => "👆",
@@ -483,6 +508,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::CreateSphere { .. }  => "Sphere",
         NodeType::CreateGrid { .. }    => "Grid",
         NodeType::Camera { .. }        => "Camera",
+        NodeType::Light { light, .. }  => light.label(),
         NodeType::LoadUsd { .. }       => "Load USD",
         NodeType::WriteUsd { .. }      => "Write USD",
         NodeType::PickPrims { .. }     => "Pick Primitives",
@@ -900,6 +926,9 @@ pub struct Prim {
     /// A render prim: this prim is a RenderSettings, RenderProduct or
     /// RenderVar, with no geometry (`core::render`). `None` for the rest.
     pub render: Option<std::sync::Arc<crate::core::render::RenderPrim>>,
+    /// A light: this prim is one (a UsdLux light), with no geometry; where
+    /// it is and which way it faces is its placement. `None` for the rest.
+    pub light: Option<std::sync::Arc<crate::core::light::Light>>,
 }
 
 /// Which instancer a prototype mesh is drawn by, and what its placements
@@ -1014,7 +1043,13 @@ pub struct Look {
 
 impl Prim {
     pub fn new(path: String, mesh: MeshData) -> Self {
-        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None }
+        Self { path, mesh: std::sync::Arc::new(mesh), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Purpose::Default, props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None, light: None }
+    }
+
+    /// Whether it is geometry, drawn and bound to materials: not a material,
+    /// a camera, a render prim or a light.
+    pub fn is_geometry(&self) -> bool {
+        self.shading.is_none() && self.camera.is_none() && self.render.is_none() && self.light.is_none()
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -1179,7 +1214,7 @@ impl EvalResult {
                 for p in prims {
                     if !p.picked { out.push(p.clone()); continue; }
                     if let Some(mesh) = result.take() {
-                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone(), camera: p.camera.clone(), render: p.render.clone() });
+                        out.push(Prim { path: p.path.clone(), mesh: std::sync::Arc::new(mesh), picked: true, material: p.material.clone(), look: p.look.clone(), stage: p.stage.clone(), geo: None, source: p.source.clone(), place: Placement::InPlace, purpose: p.purpose, props: p.props.clone(), above: p.above.clone(), instancing: p.instancing.clone(), instanced_by: p.instanced_by.clone(), shading: p.shading.clone(), camera: p.camera.clone(), render: p.render.clone(), light: p.light.clone() });
                     }
                 }
                 EvalResult::Named(out)
@@ -1376,7 +1411,7 @@ fn stage_icon(n: &crate::usd_scene::StageNode, has_children: bool) -> &'static s
         "Material" => "🎨",
         "Camera" => "🎥",
         "Skeleton" | "SkelRoot" => "🦴",
-        t if t.ends_with("Light") => "💡",
+        t if t.ends_with("Light") || t.ends_with("Light_1") => "💡",
         _ => prim_icon(&n.name, has_children),
     }
 }
@@ -1800,7 +1835,7 @@ impl SceneHierarchy {
                         self.objects.push(SceneObject {
                             id,
                             name:         leaf_name.clone(),
-                            icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" }
+                            icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" } else if prim.light.is_some() { "💡" }
                                           else if let Some(r) = &prim.render { render_icon(r.kind) } else { prim_icon(&leaf_name, false) },
                             depth:        leaf_depth,
                             has_children: false,
@@ -1812,6 +1847,7 @@ impl SceneHierarchy {
                                 _ if prim.instancing.is_some() => "PointInstancer".into(),
                                 _ if prim.shading.is_some() => "Material".into(),
                                 _ if prim.camera.is_some() => "Camera".into(),
+                                _ if prim.light.is_some() => prim.light.as_ref().map(|l| l.kind.usd()).unwrap_or_default().into(),
                                 _ if prim.render.is_some() => prim.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
                                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                                 Some(crate::core::geo::Topology::Points) => "Points".into(),

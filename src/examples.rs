@@ -16,6 +16,9 @@ pub const TABLE_USD:  &str = "table.usda";
 /// A production-size model: 43 mesh prims, 461,595 triangles, 30 materials.
 /// By VTX (https://sketchfab.com/VTX_car), CC BY-NC-SA 4.0.
 pub const DELOREAN_USD: &str = "DeLorean.usdz";
+/// A sky, 256 by 128, latitude-longitude: a blue zenith, a warm horizon, a
+/// sun 35 degrees up. Made for the program (`hdri/README.md`).
+pub const SKY_HDR: &str = "hdri/sky.hdr";
 
 /// The take and the set of the Ragdoll template, in the program's own
 /// compact formats: as FBX they are too large for the repository.

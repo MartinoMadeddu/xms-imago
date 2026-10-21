@@ -47,11 +47,39 @@ fn ray_mesh(o: Vec3, d: Vec3, mesh: &crate::types::MeshData, m: &Mat4) -> Option
     best.map(|t| (m.transform_point3(lo + ld * t) - o).dot(d.normalize_or_zero()))
 }
 
-/// The path of the primitive under `pixel`, among `prims`.
+/// The lines a primitive without geometry is drawn with: a light's shape,
+/// a camera's pyramid. Empty for the rest.
+pub fn glyph_lines(p: &Prim) -> Vec<[Vec3; 2]> {
+    let world = p.place.matrices().first().copied().unwrap_or(Mat4::IDENTITY);
+    if let Some(l) = &p.light { return l.glyph(world); }
+    if let Some(c) = &p.camera { return c.glyph(world); }
+    vec![]
+}
+
+/// How near the pointer has to be to a light's or a camera's lines, in pixels.
+const NEAR_LINE: f32 = 6.0;
+
+/// Distance from a point to a segment, in 2D.
+fn to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let t = if ab.length_squared() < 1e-9 { 0.0 } else { ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) };
+    (a + ab * t).distance(p)
+}
+
+/// The path of the primitive under `pixel`, among `prims`: a mesh the
+/// ray hits, or a light or a camera whose lines pass near it, the nearest.
 pub fn prim_at(view: &PickView, pixel: Vec2, prims: &[Prim]) -> Option<String> {
     let (o, d) = view.ray(pixel);
     let d = d.normalize_or_zero();
     let mut best: Option<(f32, &str)> = None;
+    for p in prims.iter().filter(|p| p.light.is_some() || p.camera.is_some()) {
+        for [a, b] in glyph_lines(p) {
+            let (Some(sa), Some(sb)) = (view.project(a), view.project(b)) else { continue };
+            if to_segment(pixel, sa, sb) > NEAR_LINE { continue; }
+            let t = (a.lerp(b, 0.5) - o).dot(d);
+            if t > 0.0 && best.is_none_or(|x| t < x.0) { best = Some((t, p.path.as_str())); }
+        }
+    }
     for p in prims {
         if p.mesh.indices.is_empty() { continue; }
         let Some(local) = bounds::local_bounds(&p.mesh) else { continue };
@@ -65,6 +93,12 @@ pub fn prim_at(view: &PickView, pixel: Vec2, prims: &[Prim]) -> Option<String> {
         }
     }
     best.map(|(_, path)| path.to_string())
+}
+
+/// The lines of the selected lights and cameras, drawn in the selection's
+/// colour: they have no bounds to outline.
+pub fn selected_glyphs(prims: &[Prim], selected: &[String]) -> Vec<[Vec3; 2]> {
+    prims.iter().filter(|p| selected.iter().any(|s| *s == p.path)).flat_map(glyph_lines).collect()
 }
 
 /// The world bounds of the primitives whose paths are selected, to outline.
@@ -107,5 +141,22 @@ mod tests {
         let b = selected_bounds(&three, &["/right".into(), "/front".into()]);
         assert_eq!(b.len(), 2);
         assert!((b[0].1.y - 3.5).abs() < 1e-5, "{:?}", b[0]);
+    }
+
+    /// A light is picked by its lines: the pointer on its rectangle's edge,
+    /// not in the empty middle; selected, its lines are what is outlined.
+    #[test]
+    fn a_light_is_picked_by_its_shape() {
+        use crate::core::light::{Light, LightType};
+        let rect = crate::core::light::light_prim("/lights/rect", Light::new(LightType::Rect), Placement::One(Mat4::IDENTITY));
+        let v = view();
+        let shown = [rect];
+        // The rectangle's left edge, half way up (1 by 1, in the XY plane).
+        let edge = v.project(Vec3::new(-0.5, 0.2, 0.0)).unwrap();
+        assert_eq!(prim_at(&v, edge, &shown).as_deref(), Some("/lights/rect"));
+        let off = v.project(Vec3::new(-1.5, 1.5, 0.0)).unwrap();
+        assert_eq!(prim_at(&v, off, &shown), None);
+        assert!(!selected_glyphs(&shown, &["/lights/rect".into()]).is_empty());
+        assert!(selected_glyphs(&shown, &[]).is_empty());
     }
 }

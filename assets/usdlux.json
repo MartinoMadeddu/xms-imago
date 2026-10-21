@@ -1,0 +1,42 @@
+{
+  "about": "UsdLux, as OpenUSD's schemas define it: the attributes every light has (LightAPI) and each type's own, with their fallback values. Imago lays the Light operator's parameters out from this file and writes them as they are named here.",
+  "common": [
+    {"name": "inputs:intensity", "type": "float", "default": 1.0, "min": 0.0, "max": 100000.0, "group": "Light", "label": "Intensity", "help": "How bright it is, before exposure."},
+    {"name": "inputs:exposure", "type": "float", "default": 0.0, "min": -20.0, "max": 20.0, "group": "Light", "label": "Exposure", "help": "Stops: each one doubles the intensity."},
+    {"name": "inputs:color", "type": "color3f", "default": [1.0, 1.0, 1.0], "group": "Light", "label": "Colour", "help": "The light's colour, multiplied by its temperature's when that is on."},
+    {"name": "inputs:enableColorTemperature", "type": "bool", "default": false, "group": "Light", "label": "Use Temperature", "help": "Colour it by a blackbody temperature as well."},
+    {"name": "inputs:colorTemperature", "type": "float", "default": 6500.0, "min": 1000.0, "max": 20000.0, "group": "Light", "label": "Temperature", "help": "Kelvin: 6500 is white (D65), lower is warmer, higher cooler."},
+    {"name": "inputs:normalize", "type": "bool", "default": false, "group": "Light", "label": "Normalize", "help": "Divide the power by the light's area, so its size does not change how bright it is."},
+    {"name": "inputs:diffuse", "type": "float", "default": 1.0, "min": 0.0, "max": 10.0, "group": "Contribution", "label": "Diffuse", "help": "A multiplier on what it gives diffuse surfaces."},
+    {"name": "inputs:specular", "type": "float", "default": 1.0, "min": 0.0, "max": 10.0, "group": "Contribution", "label": "Specular", "help": "A multiplier on what it gives specular reflections."}
+  ],
+  "types": [
+    {"name": "DomeLight", "label": "Dome Light", "params": [
+        {"name": "inputs:texture:file", "type": "asset", "default": "", "group": "Shape", "label": "Texture", "help": "An environment image, usually an HDR (EXR, HDR): light from every direction."},
+        {"name": "inputs:texture:format", "type": "token", "default": "automatic", "choices": ["automatic", "latlong", "mirroredBall", "angular", "cubeMapVerticalCross"], "group": "Shape", "label": "Format", "help": "How the image maps onto the sphere. Automatic goes by its aspect."},
+        {"name": "poleAxis", "type": "token", "default": "scene", "choices": ["scene", "Y", "Z"], "uniform": true, "group": "Shape", "label": "Pole Axis", "help": "Which axis the image's poles are on: the stage's up axis, Y or Z."},
+        {"name": "guideRadius", "type": "float", "default": 100000.0, "min": 0.0, "max": 10000000.0, "group": "Shape", "label": "Guide Radius", "help": "How big it is drawn, in scene units. Not how it lights."}
+    ]},
+    {"name": "RectLight", "label": "Rect Light", "params": [
+        {"name": "inputs:width", "type": "float", "default": 1.0, "min": 0.0, "max": 1000.0, "group": "Shape", "label": "Width", "help": "Along its X axis. It emits along -Z, from one side."},
+        {"name": "inputs:height", "type": "float", "default": 1.0, "min": 0.0, "max": 1000.0, "group": "Shape", "label": "Height", "help": "Along its Y axis."},
+        {"name": "inputs:texture:file", "type": "asset", "default": "", "group": "Shape", "label": "Texture", "help": "An image on the rectangle, colouring what it emits."}
+    ]},
+    {"name": "SphereLight", "label": "Sphere Light", "params": [
+        {"name": "inputs:radius", "type": "float", "default": 0.5, "min": 0.0, "max": 1000.0, "group": "Shape", "label": "Radius", "help": "The sphere's radius."},
+        {"name": "treatAsPoint", "type": "bool", "default": false, "group": "Shape", "label": "Treat as Point", "help": "A point light: a sphere of no size, where the renderer can do one."}
+    ]},
+    {"name": "DiskLight", "label": "Disk Light", "params": [
+        {"name": "inputs:radius", "type": "float", "default": 0.5, "min": 0.0, "max": 1000.0, "group": "Shape", "label": "Radius", "help": "The disk's radius, in its XY plane. It emits along -Z."}
+    ]},
+    {"name": "CylinderLight", "label": "Cylinder Light", "params": [
+        {"name": "inputs:length", "type": "float", "default": 1.0, "min": 0.0, "max": 1000.0, "group": "Shape", "label": "Length", "help": "Along its X axis."},
+        {"name": "inputs:radius", "type": "float", "default": 0.5, "min": 0.0, "max": 1000.0, "group": "Shape", "label": "Radius", "help": "The cylinder's radius."},
+        {"name": "treatAsLine", "type": "bool", "default": false, "group": "Shape", "label": "Treat as Line", "help": "A line light: a cylinder of no radius, where the renderer can do one."}
+    ]},
+    {"name": "DistantLight", "label": "Distant Light", "params": [
+        {"name": "inputs:angle", "type": "float", "default": 0.53, "min": 0.0, "max": 180.0, "group": "Shape", "label": "Angle", "help": "Degrees across the source as seen from the scene: 0.53 is the sun's. It shines along -Z."}
+    ]}
+  ],
+  "defaults": {"DistantLight": {"inputs:intensity": 50000.0}}
+}

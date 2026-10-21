@@ -26,12 +26,19 @@ pub fn evaluate_node_type(
             ..Prim::new(crate::types::prim_location(location, &crate::types::camera_location()), MeshData::default())
         }])),
 
+        // A light: a primitive with no geometry, placed.
+        NodeType::Light { location, translate, rotate, light } => Some(EvalResult::Named(vec![crate::core::light::light_prim(
+            &crate::types::prim_location(location, &crate::core::light::default_location(light)),
+            light.clone(),
+            Placement::One(transform_matrix(Vec3::from(*translate), Vec3::from(rotate.map(f32::to_radians)), Vec3::ONE)),
+        )])),
+
         NodeType::LoadUsd { path, mode, location, prim } => {
             if path.is_empty() { return None; }
             // Packed primitives: one per mesh prim, shared with the cached stage.
             match crate::usd_scene::load_cached(path) {
-                // Nothing to show: no geometry, instancer or camera.
-                Ok(scene) if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() => None,
+                // Nothing to show: no geometry, instancer, camera or light.
+                Ok(scene) if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() => None,
                 Ok(scene) => stage_prims(&scene, *mode, location, prim).map(EvalResult::Named),
                 Err(_) => None,
             }
@@ -278,7 +285,7 @@ pub fn evaluate_node_type(
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
             Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None,
+                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None, light: None,
             }).collect()))
         }
         NodeType::Calamari { hulls, detail } =>
@@ -444,7 +451,7 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
             })),
             shading: None,
             camera: None,
-            render: None,
+            render: None, light: None,
         })
     }).collect();
     // Each point instancer, a points primitive of its own. One nested in
@@ -460,7 +467,7 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
         instanced_by: i.by.as_ref().and_then(|(outer, index, inside)| by_path.get(outer.as_str()).map(|o| Arc::new(crate::types::InstancedBy {
             instancer: point(&o.path), index: *index, inside: *inside, hidden: o.hidden.clone(), geo: o.geo.clone(), place: o.place.clone(),
         }))),
-        shading: None, camera: None, render: None,
+        shading: None, camera: None, render: None, light: None,
     })));
     // Each camera, a primitive with no geometry. Its geometry is the same
     // empty one as when loaded, so only its placement can be an edit.
@@ -470,6 +477,14 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
         source: Some(Arc::new(crate::types::Source { geo: empty.clone(), place: c.place.clone(), material: None, purpose: c.purpose })),
         place: c.place.clone(), purpose: c.purpose,
         camera: Some(Arc::new(c.camera.clone())),
+        ..Prim::new(String::new(), MeshData::default())
+    })));
+    // Each light, as each camera: a primitive with no geometry, placed.
+    prims.extend(scene.lights.iter().filter_map(|l| Some(Prim {
+        path: place(&l.path)?, stage: Some(tree.clone()), geo: Some(empty.clone()),
+        source: Some(Arc::new(crate::types::Source { geo: empty.clone(), place: l.place.clone(), material: None, purpose: l.purpose })),
+        place: l.place.clone(), purpose: l.purpose,
+        light: Some(Arc::new(l.light.clone())),
         ..Prim::new(String::new(), MeshData::default())
     })));
     Some(prims)

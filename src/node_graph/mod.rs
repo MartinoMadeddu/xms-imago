@@ -375,7 +375,7 @@ impl NodeGraphState {
             | NodeType::SetAttribute { .. }
                 => (vec![i("Prims")], vec![o("Prims")]),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
-            NodeType::Camera { .. }         => (vec![], vec![o("Scene")]),
+            NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderSceneSettings { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }
             | NodeType::RenderCommand { .. }
                 => (vec![i("Scene")], vec![o("Scene")]),

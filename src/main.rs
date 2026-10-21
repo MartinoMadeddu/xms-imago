@@ -135,6 +135,12 @@ pub(crate) fn draw_ui(
                     surface.textures.insert(input.to_string(), text);
                 }
             }
+            // A file for one of a Light operator's values.
+            BrowseTarget::LightFile(id, name) => {
+                if let Some(NodeType::Light { light, .. }) = graph.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type) {
+                    light.set(name, crate::core::properties::Value::Asset(text));
+                }
+            }
             // A file name input of a node in a MaterialX graph.
             BrowseTarget::MatxFile(op, node, input) => {
                 if let Some(NodeType::MaterialX { graph: g }) = graph.nodes.iter_mut().find(|n| n.id == op).map(|n| &mut n.node_type) {

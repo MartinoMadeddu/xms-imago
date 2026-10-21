@@ -438,6 +438,8 @@ pub struct Param {
     #[serde(default)] pub choices: Vec<String>,
     /// The name is the renderer's as far as Imago knows, not checked against it.
     #[serde(default)] pub unconfirmed: bool,
+    /// Written `uniform` (a schema attribute that does not change over time).
+    #[serde(default)] pub uniform: bool,
 }
 
 impl Param {

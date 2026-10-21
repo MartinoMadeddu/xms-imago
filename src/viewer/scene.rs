@@ -277,6 +277,16 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     s.lines.extend_from_slice(&b.to_array()); s.lines.extend_from_slice(&cam_ink);
                 }
             }
+            // Lights: their shapes, in their colour (see `Light::glyph`).
+            for p in prims.iter().filter(|p| !crate::core::properties::invisible(p)) {
+                let (Some(l), Some(world)) = (&p.light, p.place.matrices().first()) else { continue };
+                let c = linear_f(l.tint());
+                let col = [c[0], c[1], c[2], 1.0];
+                for [a, b] in l.glyph(*world) {
+                    s.lines.extend_from_slice(&a.to_array()); s.lines.extend_from_slice(&col);
+                    s.lines.extend_from_slice(&b.to_array()); s.lines.extend_from_slice(&col);
+                }
+            }
             // Purposes the Scene Explorer's toggles leave out are not drawn.
             let prims: Vec<Prim> = prims.into_iter()
                 // Its purpose, or the one it inherits from a prim above it.
@@ -287,7 +297,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 .filter(|p| p.instancing.is_none())
                 // A material is worn, not drawn; a camera is drawn above; a render
                 // prim is not drawn.
-                .filter(|p| p.shading.is_none() && p.camera.is_none() && p.render.is_none())
+                .filter(|p| p.is_geometry())
                 .collect();
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {
@@ -432,7 +442,7 @@ fn ghosts(
             s.meshes.push(MeshDraw { geometry, instances: inst, blend: false, edges: true, material: None });
         };
         match r {
-            Some(EvalResult::Named(prims)) => for p in prims.iter().filter(|p| p.camera.is_none() && p.shading.is_none() && p.render.is_none()) {
+            Some(EvalResult::Named(prims)) => for p in prims.iter().filter(|p| p.is_geometry()) {
                 let identity = [Mat4::IDENTITY];
                 draw(&p.mesh, if p.place.is_placed() { p.place.matrices() } else { &identity });
             },

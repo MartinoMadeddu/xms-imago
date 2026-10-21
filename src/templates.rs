@@ -21,11 +21,13 @@ pub struct Template {
 
 pub const MARTINO: &str = "Martino";
 pub const SIMON:   &str = "Simon";
+pub const XMS:     &str = "XMS";
 
 /// The Templates menu: whose work, then the groups of each.
-pub const MENU: [(&str, &[&str]); 2] = [
+pub const MENU: [(&str, &[&str]); 3] = [
     (MARTINO, &["USD stages", "ICE"]),
     (SIMON,   &["Basics", "Modelling", "UV", "USD", "Animation & Mocap", "FBX and characters"]),
+    (XMS,     &["Lighting & Rendering"]),
 ];
 
 pub const TEMPLATES: &[Template] = &[
@@ -121,6 +123,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A folder of raw takes, each actor placed and retargeted onto a skinned character, kept out of the set by Body Collide, and written as skinned FBX. Write FBX with All files solves and writes every take" },
     Template { by: SIMON, group: "FBX and characters", name: "Human Limits", build: human_limits,
         hint: "An elbow turned the wrong way by Fix Pose, put back by the Body Collide node's human pass" },
+    Template { by: XMS, group: "Lighting & Rendering", name: "DeLorean: lit and rendered with Karma", build: delorean_render,
+        hint: "The DeLorean under a dome (a sky HDR) and a blue rect light, a camera, RenderScene Settings, Karma's Render Settings and AOVs, Write USD and a husk Render Command" },
 ];
 
 impl Template {
@@ -440,6 +444,71 @@ fn bolt(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(cube, 0, ep, 0);
     finish(g, ep, ep);
     "Edit Poly bolt: chamfer, slice, outline, vertex extrude and hinge. Change the hinge angle in the last operation.".into()
+}
+
+// ── Lighting & Rendering ─────────────────────────────────────────────────────
+
+/// Martino's DeLorean scene: the car, a camera, a dome lit by the examples'
+/// sky and a blue rect light, merged; RenderScene Settings and Karma's
+/// Render Settings after them, then Write USD and a husk Render Command.
+/// The layer and the frames go to the temporary folder.
+fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::camera::Camera;
+    use crate::core::light::{Light, LightType};
+    use crate::core::properties::Value;
+    use crate::core::render::{CommandSettings, RendererSettings, SceneSettings};
+    let car = load_delorean(g);
+    let camera = g.add_node("Camera".into(), NodeType::Camera { location: "/scene/camera".into(), translate: [0.0, 3.0, 11.6], rotate: [-12.0, 0.0, 0.0],
+        camera: Camera { focal_length: 50.0, horizontal_aperture: 23.76, vertical_aperture: 13.37, clipping_range: [1.0, 1_000_000.0], ..Default::default() } }, p(420.0, 20.0));
+    let shot = g.add_node("Merge".into(), NodeType::Merge { mode: MergeMode::Auto, inputs: 3 }, p(300.0, 120.0));
+
+    let mut dome = Light::new(LightType::Dome);
+    dome.set("inputs:intensity", Value::Float(0.1));
+    dome.set("inputs:texture:file", Value::Asset(examples::path(examples::SKY_HDR)));
+    dome.set("inputs:texture:format", Value::Token("latlong".into()));
+    let dome = g.add_node("DomeLight".into(), NodeType::light(dome), p(640.0, 120.0));
+    let mut rect = Light::new(LightType::Rect);
+    rect.set("inputs:color", Value::Color3f([0.2502537, 0.46810228, 0.63512963]));
+    rect.set("inputs:exposure", Value::Float(5.0));
+    rect.set("inputs:normalize", Value::Bool(true));
+    let rect = g.add_node("RectLight".into(), NodeType::Light { location: "/lights/rect".into(),
+        translate: [3.2311358, 2.9668941, 2.390841], rotate: [-55.98229, 52.89807, 49.75959], light: rect }, p(860.0, 120.0));
+    let lit = g.add_node("Merge2".into(), NodeType::Merge { mode: MergeMode::Auto, inputs: 4 }, p(420.0, 240.0));
+
+    let dir = std::env::temp_dir().join("xms_lighting_rendering");
+    let at = |f: &str| dir.join(f).to_string_lossy().to_string();
+    let scene = g.add_node("RenderSceneSettings".into(), NodeType::RenderSceneSettings { scene: SceneSettings {
+        overscan: 1.0, motion_blur: false, depth_of_field: false, output: at("render/beauty.$F4.exr"), ..Default::default() } }, p(420.0, 360.0));
+    let mut karma = RendererSettings::default();
+    for (k, v) in [
+        ("karma:global:convergence_mode", Value::Token("Path Traced".into())),
+        ("karma:global:imagemode", Value::Token("Bucket".into())),
+        ("karma:global:pathtracedsamples", Value::Int(32)),
+        ("karma:global:samplesperpixel", Value::Int(3)),
+        ("karma:object:diffuselimit", Value::Float(2.0)),
+        ("karma:object:refractlimit", Value::Float(8.0)),
+        ("karma:object:varianceaa_maxsamples", Value::Int(12)),
+        ("karma:object:varianceaa_minsamples", Value::Int(3)),
+    ] { karma.values.insert(k.into(), v); }
+    karma.aovs.insert("karma".into(), ["C", "combineddiffuse", "combinedglossyreflection", "glossytransmission", "P", "depth", "N", "Ng", "UV", "combinedemission"]
+        .iter().map(|s| s.to_string()).collect());
+    let settings = g.add_node("RenderSettings".into(), NodeType::RenderSettings { renderer: karma }, p(420.0, 460.0));
+    let write = g.add_node("WriteUSD".into(), NodeType::WriteUsd { path: at("delorean_karma.usda") }, p(420.0, 560.0));
+    let render = g.add_node("RenderCommand".into(), NodeType::RenderCommand { command: CommandSettings {
+        custom_range: true, start: 1, end: 1, ..Default::default() } }, p(420.0, 660.0));
+
+    g.add_connection(car, 0, shot, 0);
+    g.add_connection(camera, 0, shot, 1);
+    g.add_connection(shot, 0, lit, 0);
+    g.add_connection(dome, 0, lit, 1);
+    g.add_connection(rect, 0, lit, 2);
+    g.add_connection(lit, 0, scene, 0);
+    g.add_connection(scene, 0, settings, 0);
+    g.add_connection(settings, 0, write, 0);
+    g.add_connection(write, 0, render, 0);
+    finish(g, settings, render);
+    format!("The DeLorean lit by a dome (the examples' sky) and a blue rect light, through Camera at 1920 by 1080. Render on the Render Command runs husk (Houdini's bin folder on the PATH; pick your own in its presets) and writes {}; the Image Viewer renders it too.{}",
+        at("render/beauty.0001.exr"), missing_examples())
 }
 
 // ── USD ──────────────────────────────────────────────────────────────────────
@@ -1274,6 +1343,31 @@ mod tests {
         }
     }
 
+    /// The DeLorean render: the car, a camera and two lights merged, then
+    /// the render chain in order, viewed at Render Settings; its dome drawn
+    /// a metre across and lit by the sky in the examples.
+    #[test]
+    fn the_delorean_render_is_a_chain_to_husk() {
+        let t = TEMPLATES.iter().find(|t| t.by == XMS).unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        (t.build)(&mut g, &mut store);
+        let lights: Vec<_> = g.nodes.iter().filter_map(|n| match &n.node_type { NodeType::Light { light, .. } => Some(light.clone()), _ => None }).collect();
+        assert_eq!(lights.len(), 2);
+        let dome = lights.iter().find(|l| l.kind == crate::core::light::LightType::Dome).unwrap();
+        assert_eq!(dome.float("guideRadius"), 1.0);
+        assert!(matches!(dome.value("inputs:texture:file"), Some(crate::core::properties::Value::Asset(f)) if f.ends_with("sky.hdr")));
+        let id = |f: fn(&NodeType) -> bool| g.nodes.iter().find(|n| f(&n.node_type)).unwrap().id;
+        let (scene, settings, write, render) = (id(|t| matches!(t, NodeType::RenderSceneSettings { .. })), id(|t| matches!(t, NodeType::RenderSettings { .. })),
+            id(|t| matches!(t, NodeType::WriteUsd { .. })), id(|t| matches!(t, NodeType::RenderCommand { .. })));
+        let above = |n: NodeId| g.nodes.iter().find(|x| x.id == n).unwrap().inputs[0].connected_output.map(|(a, _)| a);
+        assert_eq!((above(settings), above(write), above(render)), (Some(scene), Some(settings), Some(write)));
+        assert_eq!(g.view_flag, Some(settings));
+        if examples::existing(examples::SKY_HDR).is_some() {
+            let bytes = std::fs::read(examples::path(examples::SKY_HDR)).unwrap();
+            assert!(bytes.starts_with(b"#?RADIANCE"));
+        }
+    }
+
     #[test]
     fn every_template_is_laid_out_in_clear_rows() {
         use crate::node_graph::ui::{NODE_HEIGHT, NODE_WIDTH};
@@ -1334,8 +1428,8 @@ mod tests {
                 // The blank mocap template has no folder yet.
                 if t.name == "Mocap split" { break; }
                 // A material is not geometry: Material Binding puts it on some.
-                // Nor is a camera: a primitive with no geometry.
-                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::MaterialX { .. } | NodeType::Camera { .. }) { continue; }
+                // Nor is a camera or a light: a primitive with no geometry.
+                if matches!(n.node_type, NodeType::WriteFbx { .. } | NodeType::Material { .. } | NodeType::MaterialX { .. } | NodeType::Camera { .. } | NodeType::Light { .. }) { continue; }
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1)).map(|o| g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
                     .map(|r| r.into_mesh()).map(|m| m.vertices.len() + m.points.len()).unwrap_or(0)).max().unwrap_or(0);
