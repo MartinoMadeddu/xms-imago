@@ -145,7 +145,7 @@ fn input_row(f: &mut crate::properties::form::Rows, op: NodeId, id: u32, index: 
             ui.horizontal(|ui| {
                 let text = if output == "out" { format!("← {from}") } else { format!("← {from}.{output}") };
                 let text = egui::RichText::new(text).monospace();
-                ui.label(if ok { text } else { text.color(egui::Color32::from_rgb(235, 140, 120)) });
+                ui.label(if ok { text } else { text.color(crate::properties::form::ink::BAD()) });
                 if ui.small_button("✕").on_hover_text("Take the connection off").clicked() { off = true; }
             });
         });
@@ -270,7 +270,7 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
                 if ui.button("📂").on_hover_text("Browse").clicked() { *browse = true; }
             });
             if !s.trim().is_empty() && !crate::core::sequences::texture_exists(s) {
-                ui.label(egui::RichText::new("file not found").small().color(egui::Color32::from_rgb(235, 140, 120)));
+                ui.label(egui::RichText::new("file not found").small().color(crate::properties::form::ink::BAD()));
             }
             changed
         }

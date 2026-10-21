@@ -35,8 +35,21 @@ pub mod ink {
     pub fn LOCATION() -> Color32 {
         if crate::theme::dark_fields() { Color32::from_gray(70) } else { crate::theme::c(140, 140, 140) }
     }
-    pub fn OK() -> Color32 { Color32::from_rgb(150, 210, 150) }
-    pub fn BAD() -> Color32 { Color32::from_rgb(235, 140, 120) }
+    /// Done, found, written: green. Dark on a light panel, light on a dark
+    /// one, so it reads on the group behind it in every theme.
+    pub fn OK() -> Color32 { if light_groups() { Color32::from_rgb(0, 60, 15) } else { Color32::from_rgb(170, 240, 170) } }
+    /// Failed, missing: red, likewise.
+    pub fn BAD() -> Color32 { if light_groups() { Color32::from_rgb(110, 0, 0) } else { Color32::from_rgb(255, 185, 170) } }
+
+    /// Whether the groups are light enough that dark text reads better on
+    /// them than light text: their luminance over 18%.
+    pub fn light_groups() -> bool { luminance(GROUP_BG()) > 0.18 }
+
+    /// Relative luminance (Rec. 709, linear light) of a colour.
+    pub fn luminance(c: Color32) -> f32 {
+        let lin = |v: u8| { let x = v as f32 / 255.0; if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) } };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
 }
 
 /// Space between groups.
@@ -297,4 +310,31 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
         });
     }
     options.iter().position(|o| o.0 == *v) != before
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ink::luminance;
+    use egui::Color32;
+
+    /// Contrast as WCAG has it: (lighter + 0.05) / (darker + 0.05).
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// The status colours read on the greys the groups take, light or dark:
+    /// 2.75 to 1 at the least, at the middle grey where dark and light read
+    /// alike, far more away from it; the old ones were under 2 on light greys.
+    #[test]
+    fn status_colours_read_on_the_groups() {
+        let pick = |bg: Color32, dark: Color32, light: Color32| if luminance(bg) > 0.18 { dark } else { light };
+        for g in [40u8, 60, 80, 100, 108, 118, 125, 130, 150, 170, 190, 210] {
+            let bg = Color32::from_gray(g);
+            let ok = pick(bg, Color32::from_rgb(0, 60, 15), Color32::from_rgb(170, 240, 170));
+            let bad = pick(bg, Color32::from_rgb(110, 0, 0), Color32::from_rgb(255, 185, 170));
+            assert!(contrast(ok, bg) >= 2.75, "green on grey {g}: {}", contrast(ok, bg));
+            assert!(contrast(bad, bg) >= 2.75, "red on grey {g}: {}", contrast(bad, bg));
+        }
+    }
 }

@@ -211,16 +211,16 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
             Some(r) => {
                 let secs = r.elapsed.as_secs_f64();
                 let (text, colour) = match &r.state {
-                    State::Done => (format!("Done in {secs:.1} s"), egui::Color32::from_rgb(150, 210, 150)),
+                    State::Done => (format!("Done in {secs:.1} s"), crate::properties::form::ink::OK()),
                     State::Stopped => ("Stopped".to_string(), egui::Color32::from_gray(200)),
-                    State::Failed(why) => (why.clone(), egui::Color32::from_rgb(235, 140, 120)),
+                    State::Failed(why) => (why.clone(), crate::properties::form::ink::BAD()),
                     State::Running => (String::new(), egui::Color32::WHITE),
                 };
                 ui.label(egui::RichText::new(text).color(colour));
             }
             None => {}
         }
-        if !st.message.is_empty() { ui.label(egui::RichText::new(st.message.clone()).color(egui::Color32::from_rgb(235, 140, 120))); }
+        if !st.message.is_empty() { ui.label(egui::RichText::new(st.message.clone()).color(crate::properties::form::ink::BAD())); }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             crate::menus::menu(ui, "⚙", |ui| {
                 ui.label("husk");
