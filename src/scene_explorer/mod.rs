@@ -78,6 +78,3 @@ impl OperatorStack {
         }
     }
 }
-
-// Keep the old name as an alias so call sites don't break immediately
-pub type SceneEntry = StackEntry;

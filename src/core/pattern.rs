@@ -53,6 +53,7 @@ pub fn error(text: &str) -> Option<String> {
 pub fn exact(name: &str) -> String { format!("^{}$", regex::escape(name)) }
 
 /// True when `text` holds the exact part for `name`.
+#[cfg(test)]
 pub fn has_exact(text: &str, name: &str) -> bool {
     let e = exact(name);
     parts(text).iter().any(|p| *p == e)

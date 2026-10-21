@@ -5,6 +5,9 @@
 //! Generated, like the other USD examples, by `examples::write_all`:
 //!
 //!     cargo test write_example_files -- --ignored
+//!
+//! The generators run from the tests; the program itself only names the files.
+#![cfg_attr(not(test), allow(dead_code))]
 
 use std::fmt::Write as _;
 

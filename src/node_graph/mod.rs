@@ -761,14 +761,6 @@ impl NodeGraphState {
         self.eval_node_out(id, self.viewed_output(), &mut HashMap::new(), eval_subnet)
     }
 
-    /// The same, as one mesh.
-    pub fn evaluate_for_viewport(
-        &self,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
-    ) -> Option<MeshData> {
-        self.evaluate_for_viewport_packed(eval_subnet).map(|r| r.into_mesh())
-    }
-
     /// The operator the Viewer shows.
     pub fn display_source(&self) -> Option<NodeId> { self.view_flag }
 
@@ -1081,11 +1073,6 @@ impl NodeGraphState {
             node = self.nodes.iter().find(|n| n.id == id)?;
         }
         None
-    }
-
-    /// What the viewport draws of the character: set on that Body Collide node.
-    pub fn body_view(&self) -> Option<BodyView> {
-        match &self.body_collide_node()?.node_type { NodeType::Ragdoll { view, .. } => Some(*view), _ => None }
     }
 
     /// The mesh the viewed clip was kept out of, to draw with it: the

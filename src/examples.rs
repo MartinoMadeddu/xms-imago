@@ -5,7 +5,7 @@
 //!
 //!     cargo test write_example_files -- --ignored
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Folder of takes for the mocap templates.
 pub const TAKES_DIR:  &str = "takes";
@@ -56,6 +56,7 @@ pub fn dir() -> Option<PathBuf> {
 }
 
 /// Path of an example file when the examples folder is there.
+#[cfg(test)]
 pub fn existing(name: &str) -> Option<String> {
     let p = dir()?.join(name);
     p.is_file().then(|| p.to_string_lossy().to_string())
@@ -68,6 +69,7 @@ pub fn path(name: &str) -> String {
 }
 
 /// A few polygon meshes under transforms, as USD text.
+#[cfg(test)]
 pub fn shapes_usda() -> String {
     r#"#usda 1.0
 (
@@ -107,6 +109,7 @@ def Xform "Shapes"
 }
 
 /// A table: a top and four legs, each its own mesh under one transform.
+#[cfg(test)]
 pub fn table_usda() -> String {
     // A box as eight points and six quads.
     let boxed = |name: &str, c: [f32; 3], h: [f32; 3]| -> String {
@@ -132,7 +135,8 @@ pub fn table_usda() -> String {
 }
 
 /// Write the generated example files (the USD ones) into `dir`.
-pub fn write_all(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+#[cfg(test)]
+pub fn write_all(dir: &std::path::Path) -> std::io::Result<Vec<PathBuf>> {
     std::fs::create_dir_all(dir)?;
     let mut out = vec![];
     let mut files = vec![(SHAPES_USD, shapes_usda()), (TABLE_USD, table_usda())];

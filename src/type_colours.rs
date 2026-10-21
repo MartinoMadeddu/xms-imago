@@ -39,6 +39,7 @@ pub enum DataType {
 }
 
 /// Every data type, in the order the docs list them.
+#[cfg(test)]
 pub const ALL: [DataType; 11] = [
     DataType::Float, DataType::Integer, DataType::Boolean, DataType::Vector, DataType::Vector4,
     DataType::Colour, DataType::Matrix, DataType::String, DataType::Material, DataType::Closure, DataType::Other,
@@ -63,7 +64,8 @@ impl DataType {
         Color32::from_rgb(r, g, b)
     }
 
-    /// The name the docs and tooltips give it.
+    /// The name the docs give it.
+    #[cfg(test)]
     pub fn name(self) -> &'static str {
         match self {
             DataType::Float => "Float",

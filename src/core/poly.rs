@@ -81,6 +81,7 @@ impl PolyMesh {
     }
 
     /// Volume enclosed by a closed mesh (signed: positive when normals point out).
+    #[cfg(test)]
     pub fn volume(&self) -> f32 {
         let mut v = 0.0;
         for poly in &self.polys {
@@ -94,6 +95,7 @@ impl PolyMesh {
 
     /// True when every edge is used by exactly two polygons, in opposite
     /// directions: a closed surface with consistent normals.
+    #[cfg(test)]
     pub fn is_closed(&self) -> bool {
         let mut dir: HashMap<(u32, u32), u32> = HashMap::new();
         for poly in &self.polys {

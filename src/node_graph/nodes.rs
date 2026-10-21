@@ -3,8 +3,6 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::types::{EvalResult, MeshData, MergeMode, Prim, NodeType, Placement, RetimeMode, IceGraphId};
 use crate::core::anim::{self, AnimData, FrameRate};
 use std::sync::Arc;
-use crate::usd_loader::load_usd_meshes;
-use std::path::Path;
 
 /// Evaluate one node given its already-resolved upstream inputs.
 /// Returns an `EvalResult` — either a single merged mesh or a list of named prims.

@@ -636,6 +636,7 @@ impl Default for RendererSettings {
 
 impl RendererSettings {
     /// A Render Settings operator for a renderer.
+    #[cfg(test)]
     pub fn for_renderer(name: &str) -> Self { RendererSettings { renderer: name.into(), ..Default::default() } }
 
     pub fn path(&self) -> String { prim_location(&self.location, "/Render/Settings") }

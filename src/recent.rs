@@ -36,11 +36,6 @@ impl Recent {
         self.save();
     }
 
-    pub fn remove(&mut self, path: &Path) {
-        self.files.retain(|f| f != path);
-        self.save();
-    }
-
     pub fn clear(&mut self) {
         self.files.clear();
         self.save();

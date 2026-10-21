@@ -194,6 +194,8 @@ impl Kind {
 
 pub struct Step {
     pub label:  String,
+    /// What kind of change it was. Read by the tests that check a history.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub kind:   Kind,
     /// Icon of the node an edit changed, else of the kind of change.
     pub icon:   &'static str,

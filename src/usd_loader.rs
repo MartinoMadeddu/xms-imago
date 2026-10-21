@@ -9,7 +9,7 @@
 /// appear at correct world-space positions.
 
 use std::path::Path;
-use glam::{Mat4, Vec3, Vec4, Quat};
+use glam::{Mat4, Vec3, Quat};
 use crate::types::MeshData;
 
 // ── Public result type ────────────────────────────────────────────────────────

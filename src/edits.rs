@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn each_kind_of_change_is_found_and_nothing_else() {
         let tree = stage();
-        let (mut a, mut b, c) = (loaded("/a", &tree), loaded("/b", &tree), loaded("/c", &tree));
+        let (mut a, mut b, _c) = (loaded("/a", &tree), loaded("/b", &tree), loaded("/c", &tree));
         // a: points moved, so only `points` is new.
         let mut g = (**a.geo.as_ref().unwrap()).clone();
         g.points_mut()[0] = [0.0, 0.0, 1.0];

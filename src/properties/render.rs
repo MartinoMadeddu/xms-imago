@@ -434,7 +434,12 @@ pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: No
         let time = if secs < 60.0 { format!("{secs:.1} s") } else { format!("{}m {:02}s", (secs / 60.0) as u64, secs as u64 % 60) };
         let of = if r.at.1 > 1 { format!(", run {} of {}", r.at.0, r.at.1) } else { String::new() };
         match &r.state {
-            State::Running => f.status(Status::Info, format!("Running{of}: {time}")),
+            State::Running => {
+                f.status(Status::Info, format!("Running{of}: {time}"));
+                if !r.command.is_empty() {
+                    f.wide(|ui| ui.label(egui::RichText::new(format!("$ {}", r.command)).monospace().small().color(ink::DIM())));
+                }
+            }
             State::Done => f.status(Status::Ok, format!("Done in {time}")),
             State::Stopped => f.status(Status::Info, format!("Stopped after {time}")),
             State::Failed(why) => f.status(Status::Bad, format!("{why}{of}")),

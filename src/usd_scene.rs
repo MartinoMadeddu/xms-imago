@@ -679,6 +679,7 @@ fn open(path: &Path) -> Result<Layer, String> {
 }
 
 /// Read a USD file. Not cached: see `load_cached`.
+#[cfg(test)]
 pub fn load(path: &Path) -> Result<UsdScene, String> {
     load_phased(path, |_| {})
 }

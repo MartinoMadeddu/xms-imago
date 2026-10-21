@@ -786,8 +786,6 @@ impl MeshData {
     /// Total number of faces (triangles after triangulation).
     pub fn num_faces(&self) -> usize { self.face_count }
 
-    /// Total number of face-varying elements (3 per triangle).
-    pub fn num_face_varying(&self) -> usize { self.indices.len() }
 
     /// Every point, numbered as the Primitive Inspector lists them: polygon
     /// vertices, then curve control points, then free points.
@@ -1134,6 +1132,7 @@ impl EvalResult {
     }
 
     /// True when this is packed primitives with at least one picked.
+    #[cfg(test)]
     pub fn has_picked(&self) -> bool {
         matches!(self, EvalResult::Named(prims) if prims.iter().any(|p| p.picked))
     }
@@ -1194,6 +1193,7 @@ impl EvalResult {
     }
 
     /// Paths of the packed primitives, in order.
+    #[cfg(test)]
     pub fn prim_paths(&self) -> Vec<String> {
         match self { EvalResult::Named(prims) => prims.iter().map(|p| p.path.clone()).collect(), _ => vec![] }
     }
@@ -1451,6 +1451,7 @@ impl SceneHierarchy {
     }
 
     /// Open or close a prim of a composed stage by its path.
+    #[cfg(test)]
     pub fn set_expanded(&mut self, path: &str, open: bool) {
         self.expanded.insert(path.to_string(), open);
         for o in self.objects.iter_mut().filter(|o| o.key == path) { o.expanded = open; }

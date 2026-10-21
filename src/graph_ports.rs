@@ -30,6 +30,7 @@ pub enum Picked<N, P> {
 
 impl<N: Copy + PartialEq, P: PartialEq> Picked<N, P> {
     /// The node the port is on.
+    #[cfg(test)]
     pub fn node(&self) -> N {
         match self { Picked::Input(n, _) | Picked::Output(n, _) => *n }
     }

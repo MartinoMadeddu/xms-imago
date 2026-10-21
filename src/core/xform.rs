@@ -18,14 +18,6 @@ impl Transform {
         Transform { translation, ..Self::IDENTITY }
     }
 
-    pub fn from_rotation(rotation: Quat) -> Self {
-        Transform { rotation, ..Self::IDENTITY }
-    }
-
-    pub fn from_scale(scale: Vec3) -> Self {
-        Transform { scale, ..Self::IDENTITY }
-    }
-
     /// Split a matrix into translation, rotation and scale.
     pub fn from_matrix(m: Mat4) -> Self {
         let (scale, rotation, translation) = m.to_scale_rotation_translation();

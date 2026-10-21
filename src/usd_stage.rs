@@ -32,6 +32,7 @@ use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdMaterial, UsdMesh, Us
 
 /// Read a composed stage. `layer` is the root layer (a `.usdz` is unpacked
 /// beforehand, so its textures are files on disk).
+#[cfg(test)]
 pub fn read(layer: &Path) -> Result<UsdScene, String> {
     read_phased(layer, |_| {})
 }

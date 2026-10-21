@@ -324,6 +324,7 @@ impl IceGraph {
     /// What Get Data can read on the geometry the graph last ran on: by
     /// context, each attribute's name and kind, stored ones then those made
     /// from the topology, as the Primitive Inspector lists them.
+    #[cfg(test)]
     pub fn readable(&self) -> Vec<(Context, String, String)> { readable(&self.last_input) }
 }
 

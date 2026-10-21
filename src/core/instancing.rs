@@ -16,7 +16,7 @@ use std::sync::Arc;
 use glam::{Mat4, Quat, Vec3};
 
 use crate::core::geo::{Context, Geo};
-use crate::types::{EvalResult, InstancedBy, Placement, Prim};
+use crate::types::{EvalResult, InstancedBy, Placement};
 
 /// The scene with each prototype's placements made again where its
 /// instancer changed since they were made. An instancer nested in another's
@@ -76,6 +76,7 @@ pub fn copies(geo: &Geo, place: &Placement, by: &InstancedBy) -> Vec<Mat4> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Prim;
     use crate::core::geo_mesh::GeoMesh;
     use crate::core::geo::{Attr, Column, Role};
     use crate::types::MeshData;

@@ -319,6 +319,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
 }
 
 /// One component tab of a mesh.
+#[cfg(test)]
 pub fn mesh_table(mesh: &MeshData, tab: &PrimInspectorTab) -> InspectorTable {
     parts_table(std::slice::from_ref(mesh), tab)
 }

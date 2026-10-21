@@ -289,7 +289,8 @@ impl FileSpace {
     /// a clip that did not come from a file.
     pub fn y_up_cm() -> Self { Self::new((1, 1), (2, 1), (0, 1), 1.0) }
 
-    /// Z up, -Y front, +X right, centimetres: Unreal's space.
+    /// Z up, -Y front, +X right, centimetres: Unreal's space. Tests write in it.
+    #[cfg(test)]
     pub fn z_up_cm() -> Self { Self::new((2, 1), (1, -1), (0, 1), 1.0) }
 }
 

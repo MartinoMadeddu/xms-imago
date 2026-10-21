@@ -104,6 +104,8 @@ impl Settings {
 pub struct Rig {
     /// Joint of each body.
     pub joints: Vec<usize>,
+    /// What each body is, and its side. Read by the tests that check a rig.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub roles:  Vec<(Role, Side)>,
     pub defs:   Vec<BodyDef>,
     /// The bodies where the skin was bound.
@@ -406,9 +408,6 @@ impl Solved {
     fn stride(&self) -> usize { 3 + 4 * self.joints.len() }
     fn root(&self, f: usize) -> Vec3 { let d = &self.data[f * self.stride()..]; Vec3::new(d[0], d[1], d[2]) }
     fn rot(&self, f: usize, b: usize) -> Quat { let d = &self.data[f * self.stride() + 3 + 4 * b..]; Quat::from_xyzw(d[0], d[1], d[2], d[3]) }
-    /// Collision weight of a frame: 0 where the clip was left as captured.
-    pub fn weight(&self, f: usize) -> f32 { self.stats.get(f).map(|s| s[0]).unwrap_or(1.0) }
-    pub fn deviation(&self, f: usize) -> f32 { self.stats.get(f).map(|s| s[2]).unwrap_or(0.0) }
 
     fn report_from_stats(&mut self) {
         let mut r = BakeReport { frames: self.frames, ..Default::default() };
