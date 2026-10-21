@@ -130,7 +130,7 @@ When a graph needs a node the program does not have, put a **Placeholder** in it
 
 ### The add menu
 
-Nine categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does. A node is coloured by its category, but for the ICE node (teal) and the Camera (dark grey), which stand apart.
+Twelve categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does. A node is coloured by its category, but for the ICE node (teal) and the Camera (mid grey), which stand apart; System Commands are black with green text, as a 90s terminal.
 
 The menu opens with a search line, ready to type in: what is typed finds the nodes whose name, category or description has every word (`mat` finds Material, MaterialX and Material Binding; `usd write` finds Write USD), ↓ and ↑ move the highlight through what is found, and Enter adds the highlighted node (the first, until an arrow is pressed).
 
@@ -138,12 +138,15 @@ A node with a graph inside, the ICE node and the MaterialX operator, always wear
 
 | Category | Nodes |
 |---|---|
-| Placeholder | Placeholder |
 | Create | Cube, Sphere, Grid, Camera, Test Clip |
+| Placeholder | Placeholder |
+| Organise | Pass Through |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
-| Materials | Material, Material Binding |
+| Materials | Material, MaterialX, Material Binding |
+| Render | RenderScene Settings, Render Settings, Render Variables |
+| System Commands | Render Command |
 | UV | UV Unwrap, UV Transform, UV Edit |
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |
 | Mocap | Split Characters, Characterize, Retarget, Reach, Human Limits, Capture, Skin, Auto T-Pose, Fix Pose, Proxy Skin, Body Collide |

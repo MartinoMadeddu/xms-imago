@@ -966,8 +966,11 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 9] = [
 /// Softimage's ICETree, at the same 80% as the palette.
 const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B];   // teal          (#70BA9A)
 
-/// Cameras stand apart from the shapes they are listed with: dark grey.
-const CAMERA_NODE_COLOUR: [u8; 3] = [0x3C, 0x3C, 0x3C];
+/// Cameras stand apart from the shapes they are listed with: mid grey.
+const CAMERA_NODE_COLOUR: [u8; 3] = [0x6E, 0x6E, 0x6E];
+
+/// System Commands look like a 90s terminal: black, green text.
+const SYSTEM_NODE: ([u8; 3], [u8; 3], [u8; 3]) = ([0x0C, 0x0C, 0x0C], [0x4C, 0xF0, 0x4C], [0x2E, 0xB0, 0x2E]);
 
 /// A node's body colour, and the text colours that read on it: black on
 /// the light colours, white on the dark ones. The ICE node has its own
@@ -982,6 +985,10 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
         let [r, g, b] = CAMERA_NODE_COLOUR;
         return colours_on(r, g, b);
     }
+    if is_system_command(t) {
+        let rgb = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
+        return (rgb(SYSTEM_NODE.0), rgb(SYSTEM_NODE.1), rgb(SYSTEM_NODE.2));
+    }
     use std::sync::OnceLock;
     type Table = Vec<(std::mem::Discriminant<NodeType>, [u8; 3])>;
     static TABLE: OnceLock<Table> = OnceLock::new();
@@ -995,6 +1002,15 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
         return (xsi::NODE_BODY(), xsi::TEXT(), xsi::TEXT_DIM());
     };
     colours_on(r, g, b)
+}
+
+/// Whether a node is in the System Commands category of the add menu.
+fn is_system_command(t: &NodeType) -> bool {
+    use std::sync::OnceLock;
+    static KINDS: OnceLock<Vec<std::mem::Discriminant<NodeType>>> = OnceLock::new();
+    KINDS.get_or_init(|| catalog().into_iter().filter(|(_, c, _)| *c == "System Commands")
+        .flat_map(|(_, _, nodes)| nodes.into_iter().map(|(n, _)| std::mem::discriminant(&n))).collect())
+        .contains(&std::mem::discriminant(t))
 }
 
 /// A body colour and the text colours that read on it.
@@ -1059,6 +1075,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::RenderSceneSettings { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),
             (NodeType::RenderSettings { renderer: Default::default() }, "A renderer's settings (Karma, Arnold, or a Custom one typed in) on the scene's RenderSettings prim, and its standard AOVs as RenderVars"),
             (NodeType::RenderVariables { vars: Default::default() }, "RenderVars (AOVs) of a product: add or override them row by row: name, source, type, format, filter"),
+        ]),
+        ("🖥", "System Commands", vec![
             (NodeType::RenderCommand { command: Default::default() }, "Run a command line on the system: husk on the layer the Write USD above writes ($USD), over the scene's frames. Runs when you press Run, never on cook"),
         ]),
         ("🗺", "UV", vec![

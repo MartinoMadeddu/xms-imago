@@ -91,6 +91,8 @@ RenderVars of a product, set or overridden row by row.
 
 ## Render Command
 
+In the **System Commands** category of the add menu, drawn as a 90s terminal: a black node with green text.
+
 Runs a command line on the system: husk on the layer the Write USD above it writes, say. Put it after that Write USD:
 
 ```
