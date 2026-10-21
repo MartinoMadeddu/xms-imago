@@ -102,7 +102,7 @@ Runs a command line on the system: husk on the layer the Write USD above it writ
 It runs **only when Run is pressed**, never while the graph cooks; on cook it hands on what comes in.
 
 - **Scene:** what `$USD` is, the file of the nearest Write USD above it. **Write First** (on) writes that layer before running, so the render sees the scene as it is now; if it cannot be written, nothing runs and the panel says why. **Make Output Folders** (on) makes the folders the scene's RenderProducts write into before running (`render/` for `render/beauty.$F4.exr`, next to the layer as husk takes it): renderers do not make them.
-- **Command:** the command line, with **Presets** to start from: husk with Karma CPU, Karma XPU, Arnold (arnold-usd's `HdArnoldRendererPlugin`), one husk per frame, and an `echo` to try the tokens. The line under it shows it with its tokens put in. husk renders the RenderSettings prim the layer names, so the presets do not give one (add `-s /Render/Settings` to choose).
+- **Command:** the command line, with **Presets** to start from: husk with Karma CPU, Karma XPU, Arnold (arnold-usd's `HdArnoldRendererPlugin`), one husk per frame, Arnold's **kick** (`kick -i "$USD" -frame $F -dw -dp -v 2`, one frame a run: it reads the layer's RenderSettings, camera and products through arnold-usd; add `-c` and `-o` to choose them), and an `echo` to try the tokens. A preset of one frame (`$F`, not `$FSTART`) turns Run Per Frame on, one of a range turns it off. The line under it shows it with its tokens put in. husk renders the RenderSettings prim the layer names, so the presets do not give one (add `-s /Render/Settings` to choose).
 - **Tokens:** `$USD` the layer, `$NAME` the operator's name, `$F` the frame, `$F4` the frame in four digits (`$F2` to `$F9` likewise), `$FSTART`, `$FEND` and `$N` the range and how many frames; `${USD}` works too, and `$$` is a `$`. Any other `$` is left to the shell (`$HOME`). Put quotes around `"$USD"` for paths with spaces.
 - **Frames:** the scene range, or a custom one. **Run Per Frame** runs the line once per frame, `$F` that frame, one after the other; off, it runs once for the range (husk renders ranges itself).
 - **Environment:** the folder it runs in (empty: the layer's folder), and variables on top of Imago's (`HOUDINI_PATH`, `ARNOLD_PLUGIN_PATH`, licences). The program has to be on the `PATH` Imago was started with, or named by its full path.
@@ -121,8 +121,20 @@ A pane of its own (a tab behind the Viewer in the default layout; Window menu ot
 
 - **RenderSettings** menu: the scene's RenderSettings prims, the one it names first (marked "the scene's").
 - **Camera** menu: the RenderSettings prim's own camera, or any camera of the scene.
-- **Render** writes the scene as a layer in a folder of Imago's own under the system's temporary folder (deleted when Imago closes, and, after a crash, when it next starts) and runs husk on the current frame of it there, in the background: `husk -s <settings> [-c <camera>] -f <frame> -n 1 -V 2a --snapshot 2 -o <image> <layer>` (with `-R HdArnoldRendererPlugin` when the settings are Arnold's). husk saves the image every two seconds while it renders, and each save comes into the view, then the finished frame. **Stop** ends it. The progress shows beside the buttons, **Log** shows what husk prints.
-- **⚙**: where husk is (its name on the PATH, or its full path: a program started from the macOS Dock does not see the shell's PATH), kept in Imago's config folder; and a file to open (any EXR, PNG, JPEG, TIFF, TGA, HDR).
+- **Render** writes the scene as a layer in a folder of Imago's own under the system's temporary folder (deleted when Imago closes, and, after a crash, when it next starts) and runs its command line on the current frame of it there, in the background. **Stop** ends it. The progress shows beside the buttons (from the percentages it prints), **Log** shows what it prints.
+- **⚙ → Command:** the line it runs, to change, with presets: **husk** (`husk -R $DELEGATE -s "$SETTINGS" -c "$CAMERA" -f $F -n 1 -V 2a --snapshot 2 -o "$IMAGE" "$USD"`: it saves the image every two seconds while it renders, and each save comes into the view, then the finished frame), **kick** (`kick -i "$USD" -frame $F -c "$CAMERA" -o "$IMAGE" -dw -dp -v 2`, Arnold reading the layer through arnold-usd: the image comes in when the frame is done) and **Custom** (any other line: your renderer, a wrapper script). Under it, the line as it will run now. It is kept in Imago's config folder (`image_viewer_command.txt`); a husk path given before it existed starts the husk line. Tokens:
+
+| Token | Is |
+|---|---|
+| `$USD` | The scene, written as `scene.usda` in the render folder |
+| `$IMAGE` | The image to write: `render.<frame>.exr` in the render folder. The view reads it |
+| `$F`, `$F4`… | The frame, padded to that many digits |
+| `$SETTINGS` | The RenderSettings prim chosen |
+| `$CAMERA` | The camera chosen, else the settings' own. With none known, its option (`-c "$CAMERA"`) is left out, so the renderer takes the settings' |
+| `$DELEGATE` | husk's `-R`: `HdArnoldRendererPlugin` for Arnold settings; for Karma nothing, and `-R` is left out (husk's own, Karma) |
+| `$$` | A `$`; any other `$` is the shell's (`$HOME`) |
+
+- **⚙**, also: a file to open (any EXR, PNG, JPEG, TIFF, TGA, HDR). A program started from the macOS Dock does not see the shell's PATH: give the renderer's full path in the line (`…/Houdini.framework/Versions/Current/Resources/bin/husk`, `…/Arnold/bin/kick`).
 
 **Looking at it.**
 

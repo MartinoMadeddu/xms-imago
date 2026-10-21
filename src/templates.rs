@@ -478,7 +478,7 @@ fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     let dir = std::env::temp_dir().join("xms_lighting_rendering");
     let at = |f: &str| dir.join(f).to_string_lossy().to_string();
     let scene = g.add_node("RenderSceneSettings".into(), NodeType::RenderSceneSettings { scene: SceneSettings {
-        overscan: 1.0, motion_blur: false, depth_of_field: false, output: at("render/beauty.$F4.exr"), ..Default::default() } }, p(420.0, 360.0));
+        motion_blur: false, depth_of_field: false, output: at("render/beauty.$F4.exr"), ..Default::default() } }, p(420.0, 360.0));
     let mut karma = RendererSettings::default();
     for (k, v) in [
         ("karma:global:convergence_mode", Value::Token("Path Traced".into())),

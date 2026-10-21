@@ -913,7 +913,7 @@ impl CommandSettings {
     /// The command lines a run runs, tokens put in: one, or one per frame.
     pub fn lines(&self, usd: &str, name: &str, scene: (i64, i64)) -> Vec<String> {
         let (start, end) = self.range(scene);
-        let t = crate::core::command::Tokens { usd: usd.to_string(), name: name.to_string(), start, end, frame: start };
+        let t = crate::core::command::Tokens { usd: usd.to_string(), name: name.to_string(), start, end, frame: start, more: vec![] };
         if self.per_frame {
             (start..=end).map(|frame| crate::core::command::expand(&self.line, &crate::core::command::Tokens { frame, ..t.clone() })).collect()
         } else {
@@ -945,13 +945,20 @@ pub fn output_folders(prims: &[Prim], base: &std::path::Path) -> Vec<std::path::
 
 /// Command lines to start from: name, line, what it does. husk takes the
 /// RenderSettings prim the layer names, so none is given.
-pub const COMMAND_PRESETS: [(&str, &str, &str); 5] = [
+pub const COMMAND_PRESETS: [(&str, &str, &str); 6] = [
     ("husk: Karma CPU", "husk --engine cpu -f $FSTART -n $N -V 2a \"$USD\"", "Karma's CPU engine, through husk (Houdini's bin folder on the PATH)"),
     ("husk: Karma XPU", "husk --engine xpu -f $FSTART -n $N -V 2a \"$USD\"", "Karma XPU, through husk"),
     ("husk: Arnold", "husk -R HdArnoldRendererPlugin -f $FSTART -n $N -V 2a \"$USD\"", "Arnold through husk, with arnold-usd's render delegate installed"),
-    ("husk: one frame each", "husk -f $F -n 1 -V 2a \"$USD\"", "One husk per frame: turn on Run per frame"),
+    ("husk: one frame each", "husk -f $F -n 1 -V 2a \"$USD\"", "One husk per frame: turns on Run per frame"),
+    ("kick: Arnold", "kick -i \"$USD\" -frame $F -dw -dp -v 2", "Arnold's kick, one per frame (turns on Run per frame): it renders one frame a run. The layer's RenderSettings, camera and products are read by arnold-usd; add -c and -o to choose them yourself"),
     ("Test: echo", "echo Rendering \"$USD\", frames $FSTART to $FEND", "Prints what it would render: to try the tokens"),
 ];
+
+/// Whether a command line renders one frame a run: it has `$F` (or `$F4`…)
+/// and not the range's `$FSTART`.
+pub fn one_frame_a_run(line: &str) -> bool {
+    !line.contains("$FSTART") && line.match_indices("$F").any(|(k, _)| !line[k + 2..].starts_with("END") && !line[k + 2..].starts_with("START"))
+}
 
 /// A RenderSettings prim of the scene, as the Image Viewer offers it.
 #[derive(Clone, Debug, PartialEq)]
@@ -1176,5 +1183,13 @@ mod tests {
         assert_eq!(r.lines(), vec!["append rel orderedVars = [</Render/Vars/a>]".to_string()]);
         r.targets("orderedVars", vec!["/Render/Vars/b".into()]);
         assert_eq!(r.lines(), vec!["rel orderedVars = </Render/Vars/b>".to_string()]);
+    }
+
+    #[test]
+    fn presets_of_one_frame_run_per_frame() {
+        let per: Vec<bool> = COMMAND_PRESETS.iter().map(|(_, l, _)| one_frame_a_run(l)).collect();
+        assert_eq!(per, vec![false, false, false, true, true, false], "husk's range ones no, husk one frame and kick yes, echo no");
+        assert!(!one_frame_a_run("render $FEND"));
+        assert!(one_frame_a_run("render out.$F4.exr"));
     }
 }

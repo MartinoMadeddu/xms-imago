@@ -4,14 +4,15 @@
 //! or Render Command in the graph: choose the RenderSettings prim (the one
 //! the scene names to start with) and the camera (the settings' own, or
 //! any camera of the scene), press Render. The scene is written as a layer
-//! in a folder of its own under the system's temporary folder and husk
-//! renders the current frame of it there, in the background
-//! (`core::command`), saving a snapshot every two seconds; each snapshot,
+//! in a folder of its own under the system's temporary folder and its
+//! command line (⚙: husk, kick or your own, with tokens) renders the
+//! current frame of it there, in the background (`core::command`); husk
+//! saves a snapshot every two seconds; each snapshot,
 //! and the finished frame, comes into the view as it is written. Stop ends
 //! it. Under the bar: the layer (AOV), channel, exposure and gamma of the
 //! view, then the image, zoomed and panned, with the values under the
 //! pointer; under it the snapshots bar (Snap keeps the image, to go back
-//! and forth between it and the next render). Its log shows what husk prints.
+//! and forth between it and the next render). Its log shows what the command prints.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -46,8 +47,9 @@ pub struct ImageViewerState {
     pub settings: String,
     /// The camera chosen. Empty: the RenderSettings prim's.
     pub camera: String,
-    /// husk: its name on the PATH, or its full path. Kept in Imago's config folder.
-    husk:      Option<String>,
+    /// The command line rendering a frame, with tokens (`VIEWER_TOKENS`).
+    /// Kept in Imago's config folder.
+    line:      Option<String>,
     /// The scene's RenderSettings prims and cameras, by the graph's revision.
     lists:     Option<(u64, Vec<SettingsInfo>, Vec<String>)>,
     run:       Option<Run>,
@@ -59,19 +61,48 @@ pub struct ImageViewerState {
     open_path: String,
 }
 
+/// The command lines the ⚙ menu fills in: name, line, what it does.
+/// Custom is any other line.
+pub const VIEWER_PRESETS: [(&str, &str, &str); 2] = [
+    ("husk", "husk -R $DELEGATE -s \"$SETTINGS\" -c \"$CAMERA\" -f $F -n 1 -V 2a --snapshot 2 -o \"$IMAGE\" \"$USD\"",
+        "Houdini's husk: Karma, or Arnold with its delegate for Arnold settings; a snapshot every two seconds"),
+    ("kick", "kick -i \"$USD\" -frame $F -c \"$CAMERA\" -o \"$IMAGE\" -dw -dp -v 2",
+        "Arnold's kick, reading the layer (arnold-usd's procedural): the image comes in when the frame is done"),
+];
+
+/// The tokens of its command line: token, what it is.
+pub const VIEWER_TOKENS: [(&str, &str); 7] = [
+    ("$USD", "the scene, written as a layer in the render folder"),
+    ("$IMAGE", "the image to write, in the render folder"),
+    ("$F", "the frame; $F4 four digits (0001)"),
+    ("$SETTINGS", "the RenderSettings prim chosen"),
+    ("$CAMERA", "the camera chosen, else the settings' own; with none, its option is left out"),
+    ("$DELEGATE", "husk's -R for the settings' renderer: HdArnoldRendererPlugin for Arnold; for Karma none, its option left out"),
+    ("$$", "a $; any other $ is the shell's ($HOME)"),
+];
+
+fn line_file() -> Option<PathBuf> { crate::file_browser::config_path("image_viewer_command.txt") }
+/// Where husk's path was kept before the command line was: read once, to
+/// start the line from it.
 fn husk_file() -> Option<PathBuf> { crate::file_browser::config_path("husk_path.txt") }
 
 impl ImageViewerState {
-    fn husk(&mut self) -> &mut String {
-        self.husk.get_or_insert_with(|| {
-            husk_file().and_then(|f| std::fs::read_to_string(f).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "husk".into())
+    /// Its command line: the one saved, else husk's preset (with husk's
+    /// path, when one was given before).
+    fn line(&mut self) -> &mut String {
+        self.line.get_or_insert_with(|| {
+            let saved = line_file().and_then(|f| std::fs::read_to_string(f).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            saved.unwrap_or_else(|| {
+                let husk = husk_file().and_then(|f| std::fs::read_to_string(f).ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && s != "husk");
+                let preset = VIEWER_PRESETS[0].1;
+                match husk { Some(h) => format!("\"{h}\"{}", &preset["husk".len()..]), None => preset.to_string() }
+            })
         })
     }
 
-    fn save_husk(&mut self) {
-        let value = self.husk().clone();
-        if let Some(f) = husk_file() {
+    fn save_line(&mut self) {
+        let value = self.line().clone();
+        if let Some(f) = line_file() {
             if let Some(dir) = f.parent() { let _ = std::fs::create_dir_all(dir); }
             let _ = std::fs::write(f, value);
         }
@@ -197,7 +228,7 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
         });
         ui.separator();
         let can = chosen.is_some() && !running;
-        if ui.add_enabled(can, egui::Button::new("▶ Render")).on_hover_text("The current frame of the scene the view flag shows, with husk, in the background").clicked() {
+        if ui.add_enabled(can, egui::Button::new("▶ Render")).on_hover_text("The current frame of the scene the view flag shows, with the command line in ⚙, in the background").clicked() {
             if let Some(s) = &chosen { start(st, graph, subnets, s); }
         }
         if ui.add_enabled(running, egui::Button::new("⏹ Stop")).clicked() { command::stop(RUN_KEY); }
@@ -223,11 +254,29 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
         if !st.message.is_empty() { ui.label(egui::RichText::new(st.message.clone()).color(crate::properties::form::ink::BAD())); }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             crate::menus::menu(ui, "⚙", |ui| {
-                ui.label("husk");
-                let husk = st.husk();
-                let r = ui.add(egui::TextEdit::singleline(husk).desired_width(360.0).hint_text("husk, or its full path"));
-                if r.lost_focus() || r.changed() { st.save_husk(); }
-                ui.label(egui::RichText::new("On macOS a program started from the Dock does not see your shell's PATH: give husk's full path (…/Houdini.framework/Versions/Current/Resources/bin/husk)").small());
+                ui.horizontal(|ui| {
+                    ui.label("Command");
+                    let line = st.line().clone();
+                    let current = VIEWER_PRESETS.iter().find(|(_, l, _)| *l == line).map(|(n, _, _)| *n).unwrap_or("Custom");
+                    egui::ComboBox::from_id_salt("image_viewer_command").width(100.0).selected_text(current).show_ui(ui, |ui| {
+                        for (name, l, about) in VIEWER_PRESETS {
+                            if ui.selectable_label(current == name, name).on_hover_text(about).clicked() { *st.line() = l.to_string(); st.save_line(); }
+                        }
+                        // Custom: the line as it is, to change.
+                        let _ = ui.selectable_label(current == "Custom", "Custom").on_hover_text("Your own line: change it below. Any line that is not a preset's is Custom");
+                    }).response.on_hover_text("husk, kick, or your own line");
+                });
+                let tokens = VIEWER_TOKENS.iter().map(|(t, what)| format!("{t}  {what}")).collect::<Vec<_>>().join("\n");
+                let r = ui.add(egui::TextEdit::multiline(st.line()).code_editor().desired_rows(3).desired_width(420.0))
+                    .on_hover_text(format!("Run through the system's shell, in the render folder. Tokens:\n{tokens}"));
+                if r.changed() { st.save_line(); }
+                if let Some(s) = &chosen {
+                    let (template, dir) = (st.line().clone(), render_dir());
+                    let frame = graph.frame().round() as i64;
+                    let shown = line_for(&template, s, &st.camera, frame, &dir.join(format!("render.{frame:04}.exr")), &dir.join("scene.usda"));
+                    ui.add(egui::Label::new(egui::RichText::new(shown).monospace().small().color(crate::properties::form::ink::DIM())).wrap());
+                }
+                ui.label(egui::RichText::new("On macOS a program started from the Dock does not see your shell's PATH: give the renderer's full path (…/Houdini.framework/Versions/Current/Resources/bin/husk, …/Arnold/bin/kick)").small());
                 ui.separator();
                 ui.label("Open an image");
                 ui.horizontal(|ui| {
@@ -241,7 +290,7 @@ pub fn draw(ui: &mut egui::Ui, st: &mut ImageViewerState, graph: &NodeGraphState
                     }
                 });
             });
-            ui.toggle_value(&mut st.show_log, "Log").on_hover_text("What husk prints");
+            ui.toggle_value(&mut st.show_log, "Log").on_hover_text("What the command prints");
         });
     });
     // ── The view's own controls, then the image ───────────────────────────
@@ -270,7 +319,7 @@ fn start(st: &mut ImageViewerState, graph: &NodeGraphState, subnets: &crate::ice
     let frame = graph.frame().round() as i64;
     let image = dir.join(format!("render.{frame:04}.exr"));
     let _ = std::fs::remove_file(&image);
-    let line = husk_line(&st.husk().clone(), settings, &st.camera, frame, &image, &layer);
+    let line = line_for(&st.line().clone(), settings, &st.camera, frame, &image, &layer);
     command::start(RUN_KEY, vec![line], Some(dir), vec![]);
     // What comes in is shown, whatever snapshot was.
     st.view.show_active();
@@ -278,13 +327,17 @@ fn start(st: &mut ImageViewerState, graph: &NodeGraphState, subnets: &crate::ice
     st.run = Some(Run { image, seen: None, title: format!("frame {frame}   {}   {camera}", settings.path), finished: false });
 }
 
-/// The husk command line rendering one frame of a layer to an image,
-/// saving a snapshot every two seconds.
-fn husk_line(husk: &str, settings: &SettingsInfo, camera: &str, frame: i64, image: &Path, layer: &Path) -> String {
-    let renderer = if settings.renderer == "arnold" { " -R HdArnoldRendererPlugin" } else { "" };
-    let camera = if camera.is_empty() { String::new() } else { format!(" -c \"{camera}\"") };
-    format!("\"{husk}\"{renderer} -s \"{}\"{camera} -f {frame} -n 1 -V 2a --snapshot 2 -o \"{}\" \"{}\"",
-        settings.path, image.display(), layer.display())
+/// The command line rendering one frame of a layer to an image: its
+/// template with the tokens put in, an option whose token stands for
+/// nothing (no camera, Karma's delegate) left out.
+fn line_for(template: &str, settings: &SettingsInfo, camera: &str, frame: i64, image: &Path, layer: &Path) -> String {
+    let camera = if camera.is_empty() { settings.camera.clone().unwrap_or_default() } else { camera.to_string() };
+    let delegate = if settings.renderer == "arnold" { "HdArnoldRendererPlugin" } else { "" };
+    let t = command::Tokens {
+        usd: layer.display().to_string(), name: "ImageViewer".into(), start: frame, end: frame, frame,
+        more: vec![("IMAGE", image.display().to_string()), ("SETTINGS", settings.path.clone()), ("CAMERA", camera), ("DELEGATE", delegate.into())],
+    };
+    command::expand(&command::without_empty(template, &t), &t)
 }
 
 /// A render's image read again when the file changes, until it is finished.
@@ -325,11 +378,16 @@ mod tests {
 
     #[test]
     fn a_frame_is_rendered_with_the_settings_and_camera_chosen() {
-        let s = SettingsInfo { path: "/Render/Settings".into(), camera: Some("/cam".into()), renderer: "karma", named: true };
-        let line = husk_line("/opt/hfs/bin/husk", &s, "", 12, Path::new("/tmp/r/render.0012.exr"), Path::new("/tmp/r/scene.usda"));
-        assert_eq!(line, "\"/opt/hfs/bin/husk\" -s \"/Render/Settings\" -f 12 -n 1 -V 2a --snapshot 2 -o \"/tmp/r/render.0012.exr\" \"/tmp/r/scene.usda\"");
-        let arnold = SettingsInfo { renderer: "arnold", ..s };
-        let line = husk_line("husk", &arnold, "/shot/cam2", 1, Path::new("o.exr"), Path::new("l.usda"));
-        assert!(line.starts_with("\"husk\" -R HdArnoldRendererPlugin -s \"/Render/Settings\" -c \"/shot/cam2\" -f 1"), "{line}");
+        let (husk, kick) = (VIEWER_PRESETS[0].1, VIEWER_PRESETS[1].1);
+        let s = SettingsInfo { path: "/Render/Settings".into(), camera: None, renderer: "karma", named: true };
+        let line = line_for(husk, &s, "", 12, Path::new("/tmp/r/render.0012.exr"), Path::new("/tmp/r/scene.usda"));
+        assert_eq!(line, "husk -s \"/Render/Settings\" -f 12 -n 1 -V 2a --snapshot 2 -o \"/tmp/r/render.0012.exr\" \"/tmp/r/scene.usda\"", "Karma, no camera known: no -R, no -c");
+        let arnold = SettingsInfo { renderer: "arnold", camera: Some("/cam".into()), ..s };
+        let line = line_for(husk, &arnold, "/shot/cam2", 1, Path::new("o.exr"), Path::new("l.usda"));
+        assert!(line.starts_with("husk -R HdArnoldRendererPlugin -s \"/Render/Settings\" -c \"/shot/cam2\" -f 1"), "{line}");
+        let line = line_for(kick, &arnold, "", 3, Path::new("o.exr"), Path::new("l.usda"));
+        assert_eq!(line, "kick -i \"l.usda\" -frame 3 -c \"/cam\" -o \"o.exr\" -dw -dp -v 2", "the settings' camera when none is chosen");
+        let line = line_for("/opt/my/render $USD $F4 > $HOME/log", &arnold, "", 7, Path::new("o.exr"), Path::new("l.usda"));
+        assert_eq!(line, "/opt/my/render l.usda 0007 > $HOME/log", "a custom line");
     }
 }
