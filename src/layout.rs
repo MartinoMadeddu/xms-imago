@@ -499,10 +499,10 @@ mod tests {
         let (dock, locked) = from_json(&json).expect("a layout saved before the upgrade loads");
         assert!(locked);
         let l = Layout { dock, locked, saved: json, sized: vec![], tab_drag: None };
-        // Every pane of that time; the Graph Editor came later, and is
-        // ticked in the Window menu.
-        assert_eq!(open(&l), ALL - 1);
-        assert!(!l.is_open(Pane::GraphEditor));
+        // Every pane of that time; the Graph Editor and the Image Viewer
+        // came later, and are ticked in the Window menu.
+        assert_eq!(open(&l), ALL - 2);
+        assert!(!l.is_open(Pane::GraphEditor) && !l.is_open(Pane::ImageViewer));
         assert!(l.is_floating(Pane::Parameters) && !l.is_floating(Pane::Viewer));
         let tree = &l.dock[egui_dock::SurfaceIndex::main()];
         match &tree[NodeIndex::root()] {
