@@ -1,4 +1,4 @@
-//! The render operators' parameters: RenderScene Settings, Render Settings
+//! The render operators' parameters: Render Commons, Render Settings
 //! (a renderer's settings from its definition, and its AOVs), Render
 //! Variables. See `core::render`.
 
@@ -118,7 +118,7 @@ fn path_pick(f: &mut Rows, label: &str, hint: &str, value: &mut String, placehol
     });
 }
 
-// ── RenderScene Settings ───────────────────────────────────────────────────
+// ── Render Commons ───────────────────────────────────────────────────
 
 pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Context) {
     let path = s.path();
@@ -485,7 +485,11 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
         f.row("Presets", None, |ui| {
             egui::ComboBox::from_id_salt(("command_presets", node.0)).width(ui.available_width() - 8.0).selected_text("Fill in…").show_ui(ui, |ui| {
                 for (label, line, about) in render::COMMAND_PRESETS {
-                    if ui.selectable_label(c.line == line, label).on_hover_text(about).clicked() { c.line = line.to_string(); }
+                    if ui.selectable_label(c.line == line, label).on_hover_text(about).clicked() {
+                        c.line = line.to_string();
+                        // A line of one frame ($F, not the range's) runs once a frame.
+                        c.per_frame = crate::core::render::one_frame_a_run(line);
+                    }
                 }
             });
         });

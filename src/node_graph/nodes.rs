@@ -72,7 +72,7 @@ pub fn evaluate_node_type(
         }
         // ── Render ───────────────────────────────────────────────────────────
         // The scene coming in, with its render prims added or changed.
-        NodeType::RenderSceneSettings { scene } => Some(crate::core::render::scene_settings(inputs.first(), scene)),
+        NodeType::RenderCommons { scene } => Some(crate::core::render::scene_settings(inputs.first(), scene)),
         NodeType::RenderSettings { renderer } => Some(crate::core::render::renderer_settings(inputs.first(), renderer)),
         NodeType::RenderVariables { vars } => Some(crate::core::render::render_variables(inputs.first(), vars)),
         // Runs when asked, from its panel: on cook, what comes in goes on.

@@ -217,7 +217,7 @@ pub fn draw_properties(
     // What reaches a render operator: the scene's cameras, products and
     // RenderSettings prim.
     let render_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
-        Some(NodeType::RenderSceneSettings { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }) => {
+        Some(NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }) => {
             let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
             graph.eval_render_context(sel_id, &pass)
         }
@@ -535,7 +535,7 @@ pub fn draw_properties(
             resync |= binding_rows(ui, library, inputs, &binding_ports, crate::core::locations::rows(&node.locations).count());
         }
         // ── Render ───────────────────────────────────────────────────────────
-        NodeType::RenderSceneSettings { scene } => super::render::scene_settings_rows(ui, scene, &render_in),
+        NodeType::RenderCommons { scene } => super::render::scene_settings_rows(ui, scene, &render_in),
         NodeType::RenderSettings { renderer } => super::render::renderer_rows(ui, renderer, &render_in, sel_id),
         NodeType::RenderVariables { vars } => super::render::variables_rows(ui, vars, &render_in),
         NodeType::RenderCommand { command } => super::render::command_rows(ui, command, sel_id, &node.name, &command_in, io),

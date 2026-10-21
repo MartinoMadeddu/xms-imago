@@ -146,7 +146,7 @@ A node with a graph inside, the ICE node and the MaterialX operator, always wear
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
 | Materials | Material, MaterialX, Material Binding |
 | Lights | Dome Light, Rect Light, Point Light, Sphere Light, Disk Light, Cylinder Light, Distant Light: one Light operator, set to each type |
-| Render | RenderScene Settings, Render Settings, Render Variables |
+| Render | Render Commons, Render Settings, Render Variables |
 | System Commands | Render Command |
 | UV | UV Unwrap, UV Transform, UV Edit |
 | Animation | Rename Joints, Trim, Retime, Set Timecode, Time Warp, Blend, Loop, Mirror, Smooth, In Place, Floor, Prune Joints |

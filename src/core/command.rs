@@ -31,6 +31,9 @@ pub struct Tokens {
     pub end:   i64,
     /// The frame `$F` is: the run's, one per frame, else the first.
     pub frame: i64,
+    /// Tokens of the caller's own (the Image Viewer's `$IMAGE`, `$CAMERA`…),
+    /// by name without the `$`.
+    pub more:  Vec<(&'static str, String)>,
 }
 
 /// The tokens Render Command knows, for its panel: token, what it is.
@@ -74,6 +77,7 @@ pub fn expand(line: &str, t: &Tokens) -> String {
 
 /// A token's value, or `None` for a name that is not one.
 fn value(name: &str, t: &Tokens) -> Option<String> {
+    if let Some((_, v)) = t.more.iter().find(|(n, _)| *n == name) { return Some(v.clone()); }
     Some(match name {
         "USD" => t.usd.clone(),
         "NAME" => t.name.clone(),
@@ -87,6 +91,39 @@ fn value(name: &str, t: &Tokens) -> Option<String> {
             if t.frame < 0 { format!("-{:0width$}", -t.frame, width = width) } else { format!("{:0width$}", t.frame, width = width) }
         }
     })
+}
+
+/// A command line without the options whose value is one of `t.more`'s
+/// tokens standing for nothing: `-c "$CAMERA"`, `-camera $CAMERA`, with no
+/// camera, are left out (the flag too), so the renderer takes its own.
+pub fn without_empty(line: &str, t: &Tokens) -> String {
+    let mut out = line.to_string();
+    for (name, _) in t.more.iter().filter(|(_, v)| v.is_empty()) {
+        for form in [format!("\"${name}\""), format!("\"${{{name}}}\""), format!("${{{name}}}"), format!("${name}")] {
+            while let Some(k) = find_token(&out, &form) {
+                let mut start = k;
+                // The spaces before, and the flag before them.
+                let before = out[..start].trim_end();
+                let flag = before.rsplit(char::is_whitespace).next().unwrap_or("");
+                if flag.starts_with('-') && flag.len() > 1 { start = before.len() - flag.len(); } else { start = before.len(); }
+                let start = out[..start].trim_end().len();
+                out.replace_range(start..k + form.len(), "");
+            }
+        }
+    }
+    out
+}
+
+/// Where `form` is in `s` as a whole token: not followed by a letter, a
+/// digit or `_` (`$CAMERA` is not in `$CAMERAS`).
+fn find_token(s: &str, form: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(k) = s[from..].find(form).map(|k| k + from) {
+        let next = s[k + form.len()..].chars().next();
+        if !next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') { return Some(k); }
+        from = k + form.len();
+    }
+    None
 }
 
 /// A percentage a line of output gives: `ALF_PROGRESS 45%`, `45.5%`,
@@ -321,7 +358,19 @@ pub fn clear(key: usize) {
 mod tests {
     use super::*;
 
-    fn t() -> Tokens { Tokens { usd: "/shots/a b.usda".into(), name: "Render".into(), start: 1, end: 24, frame: 7 } }
+    fn t() -> Tokens { Tokens { usd: "/shots/a b.usda".into(), name: "Render".into(), start: 1, end: 24, frame: 7, more: vec![] } }
+
+    #[test]
+    fn a_callers_own_tokens_and_options_with_nothing() {
+        let t = Tokens { more: vec![("IMAGE", "/r/a.exr".into()), ("CAMERA", String::new()), ("SETTINGS", "/Render/S".into())], ..t() };
+        assert_eq!(expand("-o \"$IMAGE\" -s $SETTINGS -f $F", &t), "-o \"/r/a.exr\" -s /Render/S -f 7");
+        let line = "husk -s \"$SETTINGS\" -c \"$CAMERA\" -f $F \"$USD\"";
+        assert_eq!(without_empty(line, &t), "husk -s \"$SETTINGS\" -f $F \"$USD\"", "no camera: no -c");
+        assert_eq!(without_empty("kick -i x -camera ${CAMERA} -dw", &t), "kick -i x -dw");
+        assert_eq!(without_empty("echo $CAMERAS $CAMERA", &t), "echo $CAMERAS", "a whole token only");
+        let with = Tokens { more: vec![("CAMERA", "/cam".into())], ..t.clone() };
+        assert_eq!(without_empty(line, &with), line, "a camera: kept");
+    }
 
     #[test]
     fn tokens_are_put_in() {
