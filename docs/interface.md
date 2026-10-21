@@ -130,7 +130,7 @@ When a graph needs a node the program does not have, put a **Placeholder** in it
 
 ### The add menu
 
-Twelve categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does. A node is coloured by its category, but for the ICE node (teal) and the Camera (mid grey), which stand apart; System Commands are black with green text, as a 90s terminal.
+Twelve categories, each a submenu, each item a node. A node has one name, the same in the menu, on the node and at the top of its parameters. Hover an item for a line on what it does. A node is coloured by its category, but for the ICE node (teal) and the Camera (mid grey, dark text), which stand apart; System Commands are black with green text, as a 90s terminal.
 
 The menu opens with a search line, ready to type in: what is typed finds the nodes whose name, category or description has every word (`mat` finds Material, MaterialX and Material Binding; `usd write` finds Write USD), ↓ and ↑ move the highlight through what is found, and Enter adds the highlighted node (the first, until an arrow is pressed).
 

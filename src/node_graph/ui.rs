@@ -966,7 +966,8 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 9] = [
 /// Softimage's ICETree, at the same 80% as the palette.
 const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B];   // teal          (#70BA9A)
 
-/// Cameras stand apart from the shapes they are listed with: mid grey.
+/// Cameras stand apart from the shapes they are listed with: mid grey,
+/// with dark text as the other nodes have.
 const CAMERA_NODE_COLOUR: [u8; 3] = [0x6E, 0x6E, 0x6E];
 
 /// System Commands look like a 90s terminal: black, green text.
@@ -983,7 +984,8 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     }
     if matches!(t, NodeType::Camera { .. }) {
         let [r, g, b] = CAMERA_NODE_COLOUR;
-        return colours_on(r, g, b);
+        // Dark text on its mid grey, a darker dim than on the light colours.
+        return (egui::Color32::from_rgb(r, g, b), egui::Color32::from_rgb(10, 10, 10), egui::Color32::from_rgb(38, 38, 38));
     }
     if is_system_command(t) {
         let rgb = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);

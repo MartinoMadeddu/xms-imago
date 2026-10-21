@@ -262,3 +262,4 @@ Load USD brings a file in as USD would: sublayered, at its own paths, or its def
 - 21/10/2026: status lines (found, written, failed) dark green and dark red on light groups, light ones on dark groups, chosen by the group's luminance, so they read in every theme; the Image Viewer and MaterialX parameters use the same (Martino: too bright to read).
 - 21/10/2026: Dark fields on in the Light preset, off in Dark and ADHD; choosing a preset takes its setting, Reset keeps it (Martino).
 - 21/10/2026: a System Commands category in the add menu, Render Command in it, its nodes black with green text as a 90s terminal; the Camera node mid grey, lighter than before (Martino).
+- 21/10/2026: the Camera node's text dark, as the other nodes' (Martino).
