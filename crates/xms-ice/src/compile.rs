@@ -751,7 +751,7 @@ impl Lower<'_> {
         }
         let path = path.trim();
         if path.is_empty() || path.ends_with('/') || path.contains("//") {
-            return error(node, "The Instancer needs the path of the instancer it makes (relative: beside the primitive)");
+            return error(node, "The Instancer needs a Primitive Location: where the instancer is made (a name alone: beside the primitive)");
         }
         let positions = self.input(node, 0, None)?;
         if positions.ty != Ty::Vec3 || !positions.array {
