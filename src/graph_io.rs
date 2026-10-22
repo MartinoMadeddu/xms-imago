@@ -730,7 +730,7 @@ mod tests {
 
         // Into an empty graph: the added graph's view comes with it.
         let mut e = NodeGraphState::default();
-        assert_eq!(add_graph(&mut e, &mut subnets, &other), added);
+        assert_eq!(add_graph(&mut e, &mut subnets, &other, &IceGraphStore::default()), added);
         let viewed = e.nodes.iter().find(|n| Some(n.id) == e.view_flag).unwrap();
         assert!(matches!(viewed.node_type, NodeType::CreateCube { .. }));
 
@@ -738,7 +738,7 @@ mod tests {
         let mut g = NodeGraphState::default();
         let mine = g.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
         assert_eq!(g.view_flag, Some(mine), "the first operator of a graph is viewed");
-        assert_eq!(add_graph(&mut g, &mut subnets, &other), added);
+        assert_eq!(add_graph(&mut g, &mut subnets, &other, &IceGraphStore::default()), added);
         assert_eq!(g.nodes.len(), 1 + added);
         let right = g.nodes.iter().find(|n| n.id == mine).unwrap().position.x + crate::node_graph::ui::NODE_WIDTH;
         assert!(g.nodes.iter().filter(|n| g.selected_nodes.contains(&n.id)).all(|n| n.position.x > right));
