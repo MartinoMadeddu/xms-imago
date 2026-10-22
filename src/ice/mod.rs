@@ -201,22 +201,27 @@ impl IceGraph {
                 };
                 (inputs, vec![output("Result", "Any")])
             }
-            // A count of 0: one value per element.
+            // A count of 0: one value per element. The Seed, unwired: each
+            // element's own number.
             IceGraphNodeType::Random { .. } => (
-                vec![input("Min", 0.0), input("Max", 1.0), IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) }],
+                vec![input("Min", 0.0), input("Max", 1.0), IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) },
+                     IceGraphInputSocket { value: None, ..input("Seed", 0.0) }],
                 vec![output("Value", "Any")],
             ),
+            IceGraphNodeType::Concat => (vec![array_port(1), array_port(2)], vec![output("Array", "Any")]),
             // Outputs in `xms_ice::SCATTER_*`'s order.
             IceGraphNodeType::Scatter { .. } => (
                 vec![IceGraphInputSocket { value: Some(Value::Int(1000)), ..input("Count", 0.0) }],
                 vec![output("Positions", "Any"), output("Normals", "Any"), output("Surface Samples", "Any")],
             ),
             IceGraphNodeType::GetDataAt { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) }], vec![output("Value", "Any")]),
-            // Normals +Y (none) and a random turn about it, when not wired.
+            // Normals +Y (none) and a random turn about it, when not wired;
+            // a count of 0, one per element (or per normal of an array).
             IceGraphNodeType::RandomOrientation { .. } => (vec![
-                IceGraphInputSocket { value: None, ..input("Positions", 0.0) },
                 IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Normals", 0.0) },
                 IceGraphInputSocket { value: Some(Value::Vec3([0.0, 360.0, 0.0])), ..input("Random Rotation", 0.0) },
+                IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) },
+                IceGraphInputSocket { value: None, ..input("Seed", 0.0) },
             ], vec![output("Orientations", "Any")]),
             IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
             // A PointInstancer's attributes; one orientation and scale for
@@ -244,10 +249,15 @@ impl IceGraph {
             if let Some(inp) = n.inputs.get_mut(to_in) {
                 inp.connected_output = Some((from, from_out));
             }
-            // The root keeps one Execute port free, as Softimage's ICETree does.
-            if matches!(n.node_type, IceGraphNodeType::Root { .. }) && n.inputs.iter().all(|i| i.connected_output.is_some()) {
+            // The root keeps one Execute port free, as Softimage's ICETree
+            // does; Concatenate Arrays one input.
+            if n.inputs.iter().all(|i| i.connected_output.is_some()) {
                 let next = n.inputs.len() + 1;
-                n.inputs.push(execute_port(next));
+                match n.node_type {
+                    IceGraphNodeType::Root { .. } => n.inputs.push(execute_port(next)),
+                    IceGraphNodeType::Concat => n.inputs.push(array_port(next)),
+                    _ => {}
+                }
             }
         }
         self.connections.push(IceGraphConnection {
@@ -323,6 +333,7 @@ impl IceGraph {
                 IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
                 IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
                 IceGraphNodeType::RandomOrientation { seed } => Op::RandomOrientation { seed: *seed },
+                IceGraphNodeType::Concat => Op::Concat,
                 // Rows as they are: `evaluate` turns them into the paths they
                 // name on the reference input.
                 IceGraphNodeType::GetReference { input, paths } => Op::GetReference {
@@ -479,6 +490,11 @@ impl IceGraph {
 }
 
 /// The root's Execute port number `n`.
+/// Concatenate Arrays' input `n` (from 1).
+pub(crate) fn array_port(n: usize) -> IceGraphInputSocket {
+    IceGraphInputSocket { name: format!("Array {n}"), value_hint: "Any", connected_output: None, value: None }
+}
+
 pub(crate) fn execute_port(n: usize) -> IceGraphInputSocket {
     IceGraphInputSocket { name: format!("Port {n}"), value_hint: "Execute", connected_output: None, value: None }
 }
@@ -640,6 +656,30 @@ mod tests {
         let readable = g.readable();
         assert!(readable.iter().any(|(c, n, _)| *c == Context::Face && n == "firstCorner"), "{readable:?}");
         assert!(readable.iter().any(|(c, n, _)| *c == Context::Point && n == POINTS));
+    }
+
+    /// Concatenate Arrays keeps an input free, as the root does: two Get
+    /// References joined, then a third input to join another.
+    #[test]
+    fn concatenate_arrays_keeps_an_input_free_and_joins_paths() {
+        let mut g = IceGraph::new(IceGraphId(0), "join".into());
+        let root = g.root().unwrap();
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) { n.node_type = IceGraphNodeType::Root { context: Context::Object }; }
+        let a = g.add_node("A".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), IceGraphNodeType::GetReference { input: 2, paths: vec![] }, egui::pos2(0.0, 0.0));
+        let join = g.add_node("Join".into(), IceGraphNodeType::Concat, egui::pos2(0.0, 0.0));
+        g.add_connection(a, 0, join, 0);
+        g.add_connection(b, 0, join, 1);
+        assert_eq!(g.nodes.iter().find(|n| n.id == join).unwrap().inputs.len(), 3, "one free");
+        let size = g.add_node("Size".into(), IceGraphNodeType::Array { op: xms_ice::ArrayOp::Size }, egui::pos2(0.0, 0.0));
+        let set = g.add_node("Set".into(), IceGraphNodeType::set("n"), egui::pos2(0.0, 0.0));
+        g.add_connection(join, 0, size, 0);
+        g.add_connection(size, 0, set, 0);
+        g.add_connection(set, 0, root, 0);
+        let refs = vec![vec!["/a".to_string()], vec!["/b".to_string(), "/c".into()]];
+        let out = g.evaluate(&Geo::from_points(vec![[0.0; 3]]), &refs);
+        assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
+        assert_eq!(out.attr(Context::Object, "n").unwrap().column.ints().unwrap(), &[3]);
     }
 
     #[test]

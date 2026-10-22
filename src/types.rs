@@ -612,9 +612,12 @@ pub enum IceGraphNodeType {
     /// Get Data at Samples: an attribute read at surface samples (see
     /// `xms_ice::Op::GetDataAt`).
     GetDataAt { name: String },
-    /// Random rotations, one per element of an array, up along normals
-    /// (see `xms_ice::Op::RandomOrientation`).
+    /// Random rotations up along normals, one per element or an array (see
+    /// `xms_ice::Op::RandomOrientation`).
     RandomOrientation { seed: u32 },
+    /// Arrays one after the other (see `xms_ice::Op::Concat`); it keeps
+    /// one input free.
+    Concat,
     /// Prims on the operator's reference input `input` (from 1): every one,
     /// or those its rows name, in their order. A row is a path, or a
     /// pattern as in Primitive Locations (`*`, `?`, `**`), naming the prim
@@ -677,6 +680,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
         IceGraphNodeType::GetDataAt { .. } => "Get Data at Samples",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
+        IceGraphNodeType::Concat => "Concatenate Arrays",
         IceGraphNodeType::GetReference { .. } => "Get Reference",
         IceGraphNodeType::Instancer { .. } => "Instancer",
         IceGraphNodeType::Array { op } => match op {
@@ -699,6 +703,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Scatter { .. } => "⁘",
         IceGraphNodeType::GetDataAt { .. } => "▶",
         IceGraphNodeType::RandomOrientation { .. } => "⟳",
+        IceGraphNodeType::Concat => "⧺",
         IceGraphNodeType::GetReference { .. } => "⇲",
         IceGraphNodeType::Instancer { .. } => "❖",
         IceGraphNodeType::Array { .. } => "▤",

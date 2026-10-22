@@ -110,8 +110,11 @@ pub(crate) enum Ins {
     /// An int as a float, where an int meets a float.
     ToFloat { dst: usize, src: usize },
     /// Random values between `args[0]` and `args[1]`: one per element, or,
-    /// when `array`, an array of `args[2]` (an int) of them.
-    Random { dst: usize, seed: u32, args: [usize; 3], array: bool },
+    /// when `array`, an array of `args[2]` (an int; `NO_COUNT`, as many as
+    /// the keys in `args[3]`) of them. `key`: what each is drawn for.
+    Random { dst: usize, seed: u32, args: [usize; 4], array: bool, key: Key },
+    /// Arrays (or single values) one after the other.
+    Concat { dst: usize, srcs: Vec<usize> },
     /// An array's size, element `args[1]`, sum or average.
     Array { op: ArrayOp, dst: usize, args: [usize; 2] },
     /// `count` (a register) places on the surface; `weight`, a read scaling
@@ -119,9 +122,11 @@ pub(crate) enum Ins {
     Scatter { dst: usize, seed: u32, count: usize, weight: Option<usize> },
     /// Read number `read` at the surface samples in register `loc`.
     AtLocation { dst: usize, read: usize, loc: usize },
-    /// Random rotations, as many as `args[0]` holds, up along the normals
-    /// in `args[1]`, turned at random up to `args[2]` degrees.
-    RandomOrient { dst: usize, seed: u32, args: [usize; 3] },
+    /// Random rotations up along the normals in `args[0]`, turned at random
+    /// up to `args[1]` degrees: one per element, or, when `array`, as many
+    /// as the normals (an array) or `args[2]` (a count; `NO_COUNT`, as many
+    /// as the keys in `args[3]`). `key`: what each is drawn for.
+    RandomOrient { dst: usize, seed: u32, args: [usize; 4], array: bool, key: Key },
     /// The paths of reference input `input` (from 1): all, or those of
     /// `paths` that are there.
     Reference { dst: usize, input: usize, paths: Option<Vec<String>> },
@@ -231,6 +236,16 @@ fn array_ty(op: ArrayOp, of: Ty) -> Option<Ty> {
     }
 }
 
+/// What a random value is drawn for: the element (or the array's index),
+/// unless a Seed is wired. One seed for all moves every value at once; a
+/// seed per element (`ptIndex`, an `id`, a face's index from its points)
+/// draws each for its seed, so elements of one seed get one value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Key { Element, One, Each }
+
+/// No count register: an array as long as its keys.
+pub(crate) const NO_COUNT: usize = usize::MAX;
+
 /// A value in a register: of a type, in one of the two programs, and in
 /// the uniform one possibly an array (one register of many values).
 #[derive(Clone, Copy, Debug)]
@@ -329,6 +344,7 @@ impl Lower<'_> {
             Op::Scatter { seed, weight } => self.scatter(node, *seed, weight)?,
             Op::GetDataAt { name } => self.at_location(node, name)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
+            Op::Concat => self.concat(node)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
                 if *input == 0 { return error(node, "Reference inputs are numbered from 1"); }
@@ -455,6 +471,37 @@ impl Lower<'_> {
         }
     }
 
+    /// A Seed input (input `i`): unwired, the element's own number; wired,
+    /// an int, one for all or one per element (or per element of an array).
+    fn seed_input(&mut self, node: usize, i: usize) -> Result<Option<Val>, CompileError> {
+        let graph = self.graph;
+        match graph.nodes[node].inputs.get(i) {
+            Some(Input::Wire { node: from, output }) => {
+                let v = self.wired(*from, *output)?;
+                if v.ty != Ty::Int { return error(node, format!("The Seed is an int (ptIndex, faceIndex, an id), not a {}", v.ty.name())); }
+                Ok(Some(v))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// The count of an array of random values (input `i`): `None` for 0
+    /// (one per element), else one int for the whole graph.
+    fn count_input(&mut self, node: usize, i: usize) -> Result<Option<Val>, CompileError> {
+        let graph = self.graph;
+        let count = match &graph.nodes[node].inputs[i] {
+            Input::Value(Value::Int(c)) if *c <= 0 => None,
+            Input::Value(Value::Float(c)) if *c <= 0.0 => None,
+            _ => Some(self.input(node, i, Some(Ty::Int))?),
+        };
+        if let Some(c) = count {
+            if c.ty != Ty::Int || !c.uniform || c.array {
+                return error(node, "The count is one int for the whole graph (a value, a parameter, an Object attribute)");
+            }
+        }
+        Ok(count)
+    }
+
     fn random(&mut self, node: usize, seed: u32) -> Result<Val, CompileError> {
         let graph = self.graph;
         let inputs = &graph.nodes[node].inputs;
@@ -474,31 +521,43 @@ impl Lower<'_> {
             return error(node, format!("Random takes two numbers or vectors of one type, not {:?} and {:?}", lo.ty, hi.ty));
         }
         if lo.array || hi.array { return error(node, "Random's min and max are single values"); }
-        // A count of 0 (or none): one value per element.
-        let count = match &inputs[2] {
-            Input::Value(Value::Int(c)) if *c <= 0 => None,
-            Input::Value(Value::Float(c)) if *c <= 0.0 => None,
-            _ => Some(self.input(node, 2, Some(Ty::Int))?),
-        };
-        match count {
-            Some(c) => {
-                if c.ty != Ty::Int || !c.uniform || c.array {
-                    return error(node, "Random's count is one int for the whole graph (a value, a parameter, an Object attribute)");
-                }
-                if !(lo.uniform && hi.uniform) { return error(node, "An array of random values takes one min and one max"); }
-                let mut v = self.emit(true, lo.ty, |dst| Ins::Random { dst, seed, args: [lo.reg, hi.reg, c.reg], array: true });
-                v.array = true;
-                Ok(v)
+        let count = self.count_input(node, 2)?;
+        let key = self.seed_input(node, 3)?;
+        let ty = lo.ty;
+        self.drawn(node, ty, [Some(lo), Some(hi)], count, key, None, |dst, args, array, key| Ins::Random { dst, seed, args, array, key })
+    }
+
+    /// A random value of `ty` from `vals` (registers taken one per element
+    /// or one for all): an array when there is a count, a seed per element
+    /// of an array, or (`array_of`) an array to take the length of; else
+    /// one per element of the graph's context (one, per Object).
+    #[allow(clippy::too_many_arguments)]
+    fn drawn(&mut self, node: usize, ty: Ty, vals: [Option<Val>; 2], count: Option<Val>, key: Option<Val>, array_of: Option<Val>,
+             make: impl FnOnce(usize, [usize; 4], bool, Key) -> Ins) -> Result<Val, CompileError> {
+        let key_kind = match key { None => Key::Element, Some(k) if k.uniform && !k.array => Key::One, Some(_) => Key::Each };
+        let array = count.is_some() || array_of.is_some() || key.is_some_and(|k| k.array);
+        if array {
+            // In the graph's one-value part: everything one value, or arrays.
+            if vals.iter().flatten().chain(key.iter()).any(|v| !v.uniform) {
+                return error(node, "An array of random values takes one value per input, or arrays (Object graphs); per-element inputs give one value per element: set the Count to 0");
             }
-            // In an Object graph one value per element is one value.
-            None if self.plan.context == Context::Object && lo.uniform && hi.uniform => {
-                Ok(self.emit(true, lo.ty, |dst| Ins::Random { dst, seed, args: [lo.reg, hi.reg, 0], array: false }))
-            }
-            None => {
-                let args = [self.varying(lo), self.varying(hi), 0];
-                Ok(self.emit(false, lo.ty, |dst| Ins::Random { dst, seed, args, array: false }))
-            }
+            let k = key.map(|k| k.reg).unwrap_or(0);
+            let c = match (count, array_of) { (Some(c), _) => c.reg, (None, Some(a)) => a.reg, (None, None) => NO_COUNT };
+            let regs = vals.map(|v| v.map(|v| v.reg).unwrap_or(0));
+            let mut v = self.emit(true, ty, |dst| make(dst, [regs[0], regs[1], c, k], true, key_kind));
+            v.array = true;
+            return Ok(v);
         }
+        // One value, in an Object graph: its one element.
+        if self.plan.context == Context::Object && vals.iter().flatten().chain(key.iter()).all(|v| v.uniform) {
+            let regs = vals.map(|v| v.map(|v| v.reg).unwrap_or(0));
+            let k = key.map(|k| k.reg).unwrap_or(0);
+            return Ok(self.emit(true, ty, |dst| make(dst, [regs[0], regs[1], 0, k], false, key_kind)));
+        }
+        // One per element.
+        let regs = [vals[0].map(|v| self.varying(v)).unwrap_or(0), vals[1].map(|v| self.varying(v)).unwrap_or(0)];
+        let k = match key { Some(k) => self.varying(k), None => 0 };
+        Ok(self.emit(false, ty, |dst| make(dst, [regs[0], regs[1], 0, k], false, key_kind)))
     }
 
     /// A read of `name` in `ctx`, at surface samples: stored or derived.
@@ -567,19 +626,36 @@ impl Lower<'_> {
         Ok(self.emit(true, ty, |dst| Ins::Array { op, dst, args: [a.reg, b.reg] }))
     }
 
-    /// Random Orientation: rotations, as many as its first input holds.
+    /// Random Orientation: a rotation per element, or arrays of them (as
+    /// long as its normals, or its count).
     fn random_orientation(&mut self, node: usize, seed: u32) -> Result<Val, CompileError> {
-        if self.plan.context != Context::Object {
-            return error(node, "Random Orientation gives an array: set the Execution Ports to Object");
+        let normals = self.input(node, 0, Some(Ty::Vec3))?;
+        let turn = self.input(node, 1, Some(Ty::Vec3))?;
+        if normals.ty != Ty::Vec3 { return error(node, "The normals are 3D vectors (N, Scatter's normals)"); }
+        if turn.ty != Ty::Vec3 || turn.array { return error(node, "The random rotation is a 3D vector of degrees"); }
+        let count = self.count_input(node, 2)?;
+        let key = self.seed_input(node, 3)?;
+        let array_of = normals.array.then_some(normals);
+        self.drawn(node, Ty::Quat, [Some(normals), Some(turn)], count, key, array_of, |dst, args, array, key| Ins::RandomOrient { dst, seed, args, array, key })
+    }
+
+    /// Concatenate Arrays: its wired inputs one after the other, arrays or
+    /// single values, all of one type.
+    fn concat(&mut self, node: usize) -> Result<Val, CompileError> {
+        let graph = self.graph;
+        let mut parts: Vec<Val> = vec![];
+        for input in &graph.nodes[node].inputs {
+            if let Input::Wire { node: from, output } = input { parts.push(self.wired(*from, *output)?); }
         }
-        let of = self.input(node, 0, None)?;
-        if !of.array { return error(node, "Random Orientation makes one rotation per element of an array (Scatter's positions, say)"); }
-        let normals = self.input(node, 1, Some(Ty::Vec3))?;
-        let turn = self.input(node, 2, Some(Ty::Vec3))?;
-        if normals.ty != Ty::Vec3 || !normals.uniform { return error(node, "The normals are a 3D vector, or an array of them (Scatter's normals)"); }
-        if turn.ty != Ty::Vec3 || !turn.uniform || turn.array { return error(node, "The random rotation is one 3D vector of degrees"); }
-        let args = [of.reg, normals.reg, turn.reg];
-        let mut v = self.emit(true, Ty::Quat, |dst| Ins::RandomOrient { dst, seed, args });
+        let Some(first) = parts.first().copied() else { return error(node, "Concatenate Arrays joins what is wired into it: nothing is") };
+        if let Some(other) = parts.iter().find(|v| v.ty != first.ty) {
+            return error(node, format!("Concatenate Arrays joins arrays of one type: {} and {}", first.ty.name(), other.ty.name()));
+        }
+        if parts.iter().any(|v| !v.uniform) {
+            return error(node, "Concatenate Arrays joins arrays, in the graph's one-value part (an Object graph): per-element values are not arrays");
+        }
+        let srcs: Vec<usize> = parts.iter().map(|v| v.reg).collect();
+        let mut v = self.emit(true, first.ty, |dst| Ins::Concat { dst, srcs });
         v.array = true;
         Ok(v)
     }
@@ -774,6 +850,10 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         // Its samples; its positions and normals by `wire_ty`.
         Op::Scatter { .. } => Some(Ty::Sample),
         Op::RandomOrientation { .. } => Some(Ty::Quat),
+        Op::Concat => n.inputs.iter().find_map(|i| match i {
+            Input::Wire { node: from, output } => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
+            Input::Value(_) => None,
+        }),
         Op::GetReference { .. } => Some(Ty::Token),
         Op::GetDataAt { name } => [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty),
@@ -815,13 +895,22 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
     memo[node] = Some(false);
     let n = &graph.nodes[node];
     let a = match &n.op {
-        Op::Scatter { .. } | Op::GetReference { .. } | Op::RandomOrientation { .. } => true,
-        Op::Random { .. } => match n.inputs.get(2) {
-            Some(Input::Value(Value::Int(c))) => *c > 0,
-            Some(Input::Value(Value::Float(c))) => *c > 0.0,
-            Some(Input::Wire { .. }) => true,
-            _ => false,
-        },
+        Op::Scatter { .. } | Op::GetReference { .. } | Op::Concat => true,
+        // A count, a seed per element of an array; Random Orientation's
+        // normals as an array too.
+        Op::Random { .. } | Op::RandomOrientation { .. } => {
+            let counted = match n.inputs.get(2) {
+                Some(Input::Value(Value::Int(c))) => *c > 0,
+                Some(Input::Value(Value::Float(c))) => *c > 0.0,
+                Some(Input::Wire { .. }) => true,
+                _ => false,
+            };
+            let from_array = |i: usize, memo: &mut Vec<Option<bool>>| match n.inputs.get(i) {
+                Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),
+                _ => false,
+            };
+            counted || from_array(3, memo) || (matches!(n.op, Op::RandomOrientation { .. }) && from_array(0, memo))
+        }
         Op::Math(_) | Op::GetDataAt { .. } => {
             let mut any = false;
             for input in &n.inputs {

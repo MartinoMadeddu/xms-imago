@@ -14,7 +14,7 @@ use rayon::prelude::*;
 
 use xms_geo::{Attr, Column, Context, Geo, Topology};
 
-use super::compile::{InstancerPlan, Ins, Plan, Program, Write};
+use super::compile::{InstancerPlan, Ins, Key, Plan, Program, Write, NO_COUNT};
 use super::graph::{ArrayOp, Math, Reduce};
 use super::types::{Loc, Ty, Value};
 
@@ -567,16 +567,16 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 if let Reg::Int(v) = &regs[src] { floats(&mut out).extend(v.iter().map(|&i| i as f32)); }
                 regs[dst] = out;
             }
-            Ins::Random { dst, seed, args, array } => {
+            Ins::Random { dst, seed, args, array, key } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
-                // An array of `count`, numbered from 0; else one per element,
-                // numbered as the elements are.
-                let (base, n) = if array {
-                    (0, value_at(&regs[args[2]], 0).as_i32().max(0) as usize)
-                } else {
-                    (start, len)
-                };
-                random(seed, base, n, &regs[args[0]], &regs[args[1]], &mut out);
+                let (base, n) = drawn_span(regs, args, array, key, start, len);
+                let keys = Keys::of(regs, key, args[3]);
+                random(seed, base, n, &keys, &regs[args[0]], &regs[args[1]], &mut out);
+                regs[dst] = out;
+            }
+            Ins::Concat { dst, ref srcs } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                concat(srcs.iter().map(|&r| &regs[r]), &mut out);
                 regs[dst] = out;
             }
             Ins::Scatter { dst, seed, count, weight } => {
@@ -589,11 +589,13 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 if let Reg::Sample(at) = &regs[loc] { at_location(env.geo, &env.sources[read], at, &mut out); }
                 regs[dst] = out;
             }
-            Ins::RandomOrient { dst, seed, args } => {
+            Ins::RandomOrient { dst, seed, args, array, key } => {
                 let made = {
-                    let normals: &[Vec3] = match &regs[args[1]] { Reg::Vec3(v) => v, _ => &[] };
-                    let turn = match &regs[args[2]] { Reg::Vec3(v) => v.first().copied().unwrap_or_default(), _ => Vec3::ZERO };
-                    random_orientations(seed, regs[args[0]].len(), normals, turn)
+                    let (base, n) = drawn_span(regs, args, array, key, start, len);
+                    let keys = Keys::of(regs, key, args[3]);
+                    let normals: &[Vec3] = match &regs[args[0]] { Reg::Vec3(v) => v, _ => &[] };
+                    let turns: &[Vec3] = match &regs[args[1]] { Reg::Vec3(v) => v, _ => &[] };
+                    random_orientations(seed, base, n, &keys, normals, turns)
                 };
                 *quats(&mut regs[dst]) = made;
             }
@@ -666,21 +668,94 @@ fn instances(p: &InstancerPlan, regs: &[Reg]) -> Instances {
     out
 }
 
-/// `n` rotations: each one's +Y along its normal (element `i` of
-/// `normals`, or the one there is; +Y when none), then turned in its own
-/// frame at random, up to `turn` degrees about each axis, either way. The
-/// same for the same seed. In parallel: each is its own hash.
-fn random_orientations(seed: u32, n: usize, normals: &[Vec3], turn: Vec3) -> Vec<Quat> {
-    let half = turn * 0.5;
-    (0..n).into_par_iter().map(|i| {
+/// What random values are drawn for (see `compile::Key`), read from the
+/// seed register.
+struct Keys<'a> { kind: Key, values: &'a [i32] }
+
+impl<'a> Keys<'a> {
+    fn of(regs: &'a [Reg], kind: Key, reg: usize) -> Self {
+        let values: &[i32] = match (kind, regs.get(reg)) { (Key::Element, _) => &[], (_, Some(Reg::Int(v))) => v, _ => &[] };
+        Keys { kind, values }
+    }
+
+    /// The seed and the number value `i` (of `base + i`) is drawn for: its
+    /// own number; its own number with one seed mixed into the node's; or
+    /// its seed's.
+    fn at(&self, seed: u32, base: usize, i: usize) -> (u32, usize) {
+        match self.kind {
+            Key::Element => (seed, base + i),
+            Key::One => (seed ^ (self.values.first().copied().unwrap_or(0) as u32).wrapping_mul(0x9E37_79B1), base + i),
+            Key::Each => (seed, self.values.get(i).copied().unwrap_or(0) as u32 as usize),
+        }
+    }
+}
+
+/// Where a draw's values are numbered from, and how many: an array's (its
+/// count, its normals', or its seeds'), else the batch's elements.
+fn drawn_span(regs: &[Reg], args: [usize; 4], array: bool, key: Key, start: usize, len: usize) -> (usize, usize) {
+    if !array { return (start, len); }
+    let n = match regs.get(args[2]) {
+        _ if args[2] == NO_COUNT => if key == Key::Element { 0 } else { regs[args[3]].len() },
+        Some(Reg::Int(c)) => c.first().copied().unwrap_or(0).max(0) as usize,
+        Some(other) => other.len(),
+        None => 0,
+    };
+    (0, n)
+}
+
+/// Arrays (or single values) one after the other, into `out`.
+fn concat<'a>(parts: impl Iterator<Item = &'a Reg>, out: &mut Reg) {
+    let mut first = true;
+    for part in parts {
+        // `out` takes the first part's type, emptied.
+        if first {
+            match part {
+                Reg::Bool(_) => { bools(out); }
+                Reg::Int(_) => { ints(out); }
+                Reg::Float(_) => { floats(out); }
+                Reg::Vec2(_) => { vec2s(out); }
+                Reg::Vec3(_) => { vec3s(out); }
+                Reg::Vec4(_) => { vec4s(out); }
+                Reg::Quat(_) => { quats(out); }
+                Reg::Sample(_) => { locs(out); }
+                Reg::Token(_) => { tokens(out); }
+            }
+            first = false;
+        }
+        match (&mut *out, part) {
+            (Reg::Bool(o), Reg::Bool(p)) => o.extend_from_slice(p),
+            (Reg::Int(o), Reg::Int(p)) => o.extend_from_slice(p),
+            (Reg::Float(o), Reg::Float(p)) => o.extend_from_slice(p),
+            (Reg::Vec2(o), Reg::Vec2(p)) => o.extend_from_slice(p),
+            (Reg::Vec3(o), Reg::Vec3(p)) => o.extend_from_slice(p),
+            (Reg::Vec4(o), Reg::Vec4(p)) => o.extend_from_slice(p),
+            (Reg::Quat(o), Reg::Quat(p)) => o.extend_from_slice(p),
+            (Reg::Sample(o), Reg::Sample(p)) => o.extend_from_slice(p),
+            (Reg::Token(o), Reg::Token(p)) => o.extend(p.iter().cloned()),
+            _ => {}
+        }
+    }
+}
+
+/// `n` rotations, numbered from `base`: each one's +Y along its normal
+/// (element `i` of `normals`, or the one there is; +Y when none), then
+/// turned in its own frame at random, up to its turn (element `i` of
+/// `turns`, or the one there is) in degrees about each axis, either way.
+/// The same for the same seed. In parallel: each is its own hash.
+fn random_orientations(seed: u32, base: usize, n: usize, keys: &Keys, normals: &[Vec3], turns: &[Vec3]) -> Vec<Quat> {
+    let one = |i: usize| {
+        let (s, e) = keys.at(seed, base, i);
         let normal = normals.get(i).or(normals.first()).copied().unwrap_or(Vec3::Y);
+        let half = turns.get(i).or(turns.first()).copied().unwrap_or(Vec3::ZERO) * 0.5;
         let up = Quat::from_rotation_arc(Vec3::Y, normal.try_normalize().unwrap_or(Vec3::Y));
         let spin = Quat::from_euler(glam::EulerRot::XYZ,
-            ((unit(seed, i, 1) * 2.0 - 1.0) * half.x).to_radians(),
-            ((unit(seed, i, 2) * 2.0 - 1.0) * half.y).to_radians(),
-            ((unit(seed, i, 3) * 2.0 - 1.0) * half.z).to_radians());
+            ((unit(s, e, 1) * 2.0 - 1.0) * half.x).to_radians(),
+            ((unit(s, e, 2) * 2.0 - 1.0) * half.y).to_radians(),
+            ((unit(s, e, 3) * 2.0 - 1.0) * half.z).to_radians());
         (up * spin).normalize()
-    }).collect()
+    };
+    // A batch is already one thread's: only a large array is split.
+    if n >= BATCH { (0..n).into_par_iter().map(one).collect() } else { (0..n).map(one).collect() }
 }
 
 /// Run `plan` over `geo`. `params` gives values to the graph's parameters
@@ -814,11 +889,11 @@ fn unit(seed: u32, element: usize, lane: u32) -> f32 {
 
 /// `n` random values between `lo` and `hi` (each one value, or one per
 /// element), for elements numbered from `base`. Ints include `hi`.
-fn random(seed: u32, base: usize, n: usize, lo: &Reg, hi: &Reg, out: &mut Reg) {
+fn random(seed: u32, base: usize, n: usize, keys: &Keys, lo: &Reg, hi: &Reg, out: &mut Reg) {
     // Element `i` of a register one value long, or one per element.
     fn at<T: Copy>(v: &[T], i: usize) -> T { v[i.min(v.len() - 1)] }
     if lo.len() == 0 || hi.len() == 0 { return; }
-    let u = |i: usize, lane: u32| unit(seed, base + i, lane);
+    let u = |i: usize, lane: u32| { let (s, e) = keys.at(seed, base, i); unit(s, e, lane) };
     match (lo, hi) {
         (Reg::Int(a), Reg::Int(b)) => ints(out).extend((0..n).map(|i| {
             let (x, y) = (at(a, i), at(b, i));

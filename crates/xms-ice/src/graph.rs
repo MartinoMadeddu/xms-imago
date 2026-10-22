@@ -52,7 +52,14 @@ pub enum Op {
     /// time for the same seed and element. Input 2 (an int) is a count:
     /// 0 gives one value per element; more gives an array of that many (in
     /// a graph's one-value part: an Object graph, or from one-value inputs).
+    /// Input 3, the Seed: unwired, each value is drawn for its element (its
+    /// index in an array); wired, an int, one for all (every value moves)
+    /// or one per element (`ptIndex`, an `id`, a face's index read from its
+    /// points: elements of one seed get one value). `seed` is mixed in.
     Random { seed: u32 },
+    /// Arrays one after the other (single values count as one element),
+    /// all of one type: every wired input, in order; the free one is not.
+    Concat,
     /// What arrays give: their size, an element, their sum or average.
     Array(ArrayOp),
     /// Places on the mesh's surface, spread evenly by area: input 0 (an
@@ -68,12 +75,13 @@ pub enum Op {
     /// face's that face's, the object's its one value. `P` is the points;
     /// `N` the normals, or the face's own when there are none.
     GetDataAt { name: String },
-    /// Random rotations, an array as long as input 0 (any array: Scatter's
-    /// positions, say): each one's +Y turned along input 1 (a normal, one
-    /// for all or an array of them, as Scatter's normals; +Y, none), then
-    /// turned at random in its own frame up to input 2 (a vector of
-    /// degrees) about each axis, either way. The same for the same seed.
-    /// What a PointInstancer's `orientations` takes.
+    /// Random rotations: each one's +Y turned along input 0 (a normal), then
+    /// turned at random in its own frame up to input 1 (a vector of degrees)
+    /// about each axis, either way; the same for the same seed. In any
+    /// context, one per element (N per point, per face); an array as long
+    /// as the normals when they are an array (Scatter's), or of input 2's
+    /// count. Input 3, the Seed, as Random's. What a PointInstancer's
+    /// `orientations` takes, and an `orient` attribute.
     RandomOrientation { seed: u32 },
     /// Paths on the operator's reference input number `input` (from 1): all
     /// of them, or (`paths`) those listed that are there, in the list's
@@ -177,10 +185,12 @@ impl Op {
             Op::GetData { .. } | Op::Parameter { .. } | Op::Constant(_) => Some(0),
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
-            Op::Random { .. } => Some(3),
+            Op::Random { .. } => Some(4),
+            // As many as it has.
+            Op::Concat => None,
             Op::Array(a) => Some(a.arity()),
             Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
-            Op::RandomOrientation { .. } => Some(3),
+            Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } => Some(0),
             Op::Instancer { .. } => Some(5),
         }

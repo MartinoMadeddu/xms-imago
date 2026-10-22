@@ -107,7 +107,7 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             n => format!("Reference {input}: {n} rows"),
         }),
         IceGraphNodeType::Instancer { path, seed } => Some(format!("{path}, seed {seed}")),
-        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } => None,
+        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => None,
     }
 }
 
@@ -180,7 +180,7 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Root { .. } => pal::PORTS(),
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. }
-            | IceGraphNodeType::RandomOrientation { .. } => pal::GREEN(),
+            | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat => pal::GREEN(),
         IceGraphNodeType::Scatter { .. } | IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::Instancer { .. } => pal::BLUE(),
     }
 }
@@ -301,7 +301,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
             f.text("Path", Some("The point instancer's path: absolute (/set/trees), or relative, beside the primitive the graph runs on (scatter on /set/ground is /set/scatter). Its prototypes go under it, in Prototypes"), path, "scatter");
             f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
         }),
-        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } => {}
+        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => {}
     }
     // What each input holds while nothing is wired to it.
     let free: Vec<usize> = node.inputs.iter().enumerate()
@@ -604,16 +604,17 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: Value::Vec4([0.0; 4]) }, "Four numbers"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Bool(false) }, "True or false"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Quat([0.0, 0.0, 0.0, 1.0]) }, "A rotation (i, j, k, real); none by default"),
-        ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many"),
+        ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there and the surface samples, each an array"),
         ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at surface samples (Scatter on Surface's third output): P, N, UVs or any other, blended across the surface"),
-        ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations, one per element of an array (Scatter's positions), up along the normals given and turned at random: an Instancer's orientations"),
+        ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0 }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at a path you choose; an Execute"),
     ];
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
     }
+    out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"))
     for op in Math::ALL {
         out.push(("Math", IceGraphNodeType::Math { op }, ""));
     }

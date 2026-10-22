@@ -394,7 +394,87 @@ fn object_value(mut g: Graph, value: usize, name: &str, geo: &Geo) -> Column {
 }
 
 fn random(g: &mut Graph, seed: u32, min: Value, max: Value, count: i32) -> usize {
-    g.add(Op::Random { seed }, vec![Input::Value(min), Input::Value(max), Input::Value(Value::Int(count))])
+    g.add(Op::Random { seed }, vec![Input::Value(min), Input::Value(max), Input::Value(Value::Int(count)), Input::Value(Value::Int(0))])
+}
+
+/// A random value per point drawn for a seed per point: `seed` wired from
+/// an attribute, or (None) unwired.
+fn random_by(geo: &Geo, seed_from: Option<&str>) -> Vec<f32> {
+    let mut g = Graph::default();
+    let seed = match seed_from {
+        Some(name) => wire(g.add(Op::get(name), vec![])),
+        None => Input::Value(Value::Int(0)),
+    };
+    let r = g.add(Op::Random { seed: 3 }, vec![Input::Value(Value::Float(0.0)), Input::Value(Value::Float(1.0)), Input::Value(Value::Int(0)), seed]);
+    let set = g.add(Op::set("r"), vec![wire(r)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    let out = run(&compile(&g, geo).unwrap(), geo, &no_params(), &[]).geo;
+    out.attr(Context::Point, "r").unwrap().column.floats().unwrap().to_vec()
+}
+
+/// The Seed: unwired, each point is drawn for its own number, as ptIndex
+/// wired is; wired from a group, the points of one group get one value.
+#[test]
+fn a_seed_per_element_draws_each_for_its_seed() {
+    let mut geo = cloud(6);
+    geo.set(Context::Point, "group", Attr::new(Column::Int(Arc::new(vec![0, 0, 0, 1, 1, 1])), Role::None));
+    assert_eq!(random_by(&geo, None), random_by(&geo, Some("ptIndex")), "unwired is the point's own number");
+    let by_group = random_by(&geo, Some("group"));
+    assert!(by_group[0] == by_group[1] && by_group[1] == by_group[2] && by_group[3] == by_group[5]);
+    assert_ne!(by_group[0], by_group[3]);
+}
+
+/// Random Orientation per point: N per point, an orient per point.
+#[test]
+fn random_orientations_per_point() {
+    let geo = cloud(500);
+    let mut g = Graph::default();
+    let n = g.add(Op::get("N"), vec![]);
+    let turn = g.add(Op::RandomOrientation { seed: 2 }, vec![
+        wire(n), Input::Value(Value::Vec3([0.0, 360.0, 0.0])), Input::Value(Value::Int(0)), Input::Value(Value::Int(0)),
+    ]);
+    let set = g.add(Op::set("orient"), vec![wire(turn)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    let q = out.attr(Context::Point, "orient").unwrap().column.quats().unwrap().to_vec();
+    assert_eq!(q.len(), 500);
+    // Up along N (+Y), turned about it: each its own turn.
+    assert!(q.iter().all(|q| ((glam::Quat::from_array(*q) * glam::Vec3::Y).y - 1.0).abs() < 1e-4));
+    assert_ne!(q[0], q[1]);
+}
+
+/// Concatenate Arrays: the paths of two reference inputs, one after the
+/// other; arrays of two types do not join.
+#[test]
+fn arrays_are_concatenated_in_order() {
+    let geo = cloud(1);
+    let refs = vec![vec!["/a".to_string(), "/b".into()], vec!["/c".to_string()]];
+    let mut g = Graph::default();
+    let one = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let two = g.add(Op::GetReference { input: 2, paths: None }, vec![]);
+    // The free input (a value) is not joined.
+    let all = g.add(Op::Concat, vec![wire(one), wire(two), Input::Value(Value::Float(0.0))]);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(all)]);
+    let set = g.add(Op::set("n"), vec![wire(size)]);
+    g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs).geo;
+    assert_eq!(out.attr(Context::Object, "n").unwrap().column.ints().unwrap(), &[3]);
+    // Numbers: an array then a single value.
+    let mut g = Graph::default();
+    let arr = random(&mut g, 0, Value::Float(5.0), Value::Float(5.0), 4);
+    let one = g.add(Op::Constant(Value::Float(1.0)), vec![]);
+    let all = g.add(Op::Concat, vec![wire(arr), wire(one)]);
+    let sum = g.add(Op::Array(ArrayOp::Sum), vec![wire(all)]);
+    assert_eq!(object_value(g, sum, "s", &geo).floats().unwrap(), &[21.0]);
+    // A path and a number do not join.
+    let mut g = Graph::default();
+    let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let num = g.add(Op::Constant(Value::Float(1.0)), vec![]);
+    let bad = g.add(Op::Concat, vec![wire(paths), wire(num)]);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(bad)]);
+    let set = g.add(Op::set("n"), vec![wire(size)]);
+    g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, bad);
 }
 
 #[test]
@@ -620,7 +700,7 @@ fn scatter_gives_positions_normals_and_samples() {
     assert_eq!(compile(&g, &geo).unwrap_err().node, bad);
 }
 
-/// Random Orientation: one per element of the array it is given, +Y along
+/// Random Orientation: one per element of the normals it is given, +Y along
 /// each normal, turned about it at random; the same for the same seed.
 #[test]
 fn random_orientations_follow_the_normals() {
@@ -629,8 +709,8 @@ fn random_orientations_follow_the_normals() {
         let mut g = Graph::default();
         let at = g.add(Op::Scatter { seed: 1, weight: String::new() }, vec![Input::Value(Value::Int(300))]);
         let turn = g.add(Op::RandomOrientation { seed }, vec![
-            Input::Wire { node: at, output: SCATTER_POSITIONS }, Input::Wire { node: at, output: SCATTER_NORMALS },
-            Input::Value(Value::Vec3([0.0, 360.0, 0.0])),
+            Input::Wire { node: at, output: SCATTER_NORMALS }, Input::Value(Value::Vec3([0.0, 360.0, 0.0])),
+            Input::Value(Value::Int(0)), Input::Value(Value::Int(0)),
         ]);
         let protos = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
         let inst = g.add(Op::Instancer { path: "scatter".into(), seed: 0 }, vec![
