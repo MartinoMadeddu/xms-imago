@@ -653,8 +653,8 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),
     ];
-    out.push(("Math", IceGraphNodeType::Decompose { op: xms_ice::Decompose::Vec3 }, "A vector taken apart, an output per part: into its numbers, or a smaller vector and a number; a rotation into its numbers, or its axis and angle. Choose in its parameters"));
     out.push(("Math", IceGraphNodeType::Compose { op: xms_ice::Compose::Vec3 }, "A vector from its parts: numbers into a 2D, 3D or 4D vector, a vector and a number into a bigger one, numbers into a rotation. Choose in its parameters"));
+    out.push(("Math", IceGraphNodeType::Decompose { op: xms_ice::Decompose::Vec3 }, "A vector taken apart, an output per part: into its numbers, or a smaller vector and a number; a rotation into its numbers, or its axis and angle. Choose in its parameters"));
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
     }

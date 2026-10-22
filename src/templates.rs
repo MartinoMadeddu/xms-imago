@@ -43,6 +43,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Lamps with render, proxy and guide geometry. Switch them with the render, proxy and guide toggles of the Scene Explorer" },
     Template { by: MARTINO, group: "ICE", name: "ICE graph: spherify", build: spherify,
         hint: "A subdivided cube pushed onto a sphere by an ICE graph. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
+    Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
+        hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
         hint: "Cube, sphere and grid, each moved with a Transform and joined with Merge" },
     Template { by: SIMON, group: "Basics", name: "USD import", build: usd,
@@ -1178,6 +1180,67 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(dense, 0, tree, 0);
     finish(g, tree, tree);
     "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply), and written back as P (Set Data, run by the ExecutionPorts node). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change Multiply's B in its parameters.".into()
+}
+
+/// Martino's instancing graph: a 40 m grid as the scene; a cube and a
+/// sphere (lifted to sit on the ground) on Reference 1, the DeLorean on
+/// Reference 2. Inside, per Object: Scatter on Surface (240 places) gives
+/// the positions; Random Orientation turns each up along the normals and at
+/// random about them; Random Value scales each, as many as the positions;
+/// two Get References joined by Concatenate Arrays are the prototypes; the
+/// Instancer makes /root/instancer.
+fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use xms_ice::Value;
+    crate::graph_io::clear(g);
+    // Its default prim at /protos/delorean: one prototype.
+    let car = g.add_node("DeLorean".into(), NodeType::LoadUsd {
+        path: examples::path(examples::DELOREAN_USD), mode: crate::usd_scene::LoadMode::Reference, location: "/protos/delorean".into(), prim: String::new(),
+    }, p(520.0, 20.0));
+    let id = store.create_subnet("Instancing".into());
+    if let Some(sub) = store.get_mut(id) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let set = |sub: &mut crate::ice::IceGraph, id: NodeId, input: usize, v: Value| {
+            if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == id) { n.inputs[input].value = Some(v); }
+        };
+        let scatter = sub.add_node("Scatter".into(), IceGraphNodeType::Scatter { seed: 7, weight: String::new() }, p(60.0, 120.0));
+        set(&mut *sub, scatter, 0, Value::Int(240));
+        let shapes = sub.add_node("Shapes".into(), IceGraphNodeType::GetReference { input: 1, paths: vec!["/protos/cube".into(), "/protos/sphere".into()] }, p(60.0, 360.0));
+        let car = sub.add_node("Car".into(), IceGraphNodeType::GetReference { input: 2, paths: vec!["/protos/delorean".into()] }, p(60.0, 460.0));
+        let join = sub.add_node("Prototypes".into(), IceGraphNodeType::Concat, p(300.0, 400.0));
+        let turn = sub.add_node("Turn".into(), IceGraphNodeType::RandomOrientation { seed: 3 }, p(300.0, 120.0));
+        let size = sub.add_node("Size".into(), IceGraphNodeType::Random { seed: 5 }, p(300.0, 260.0));
+        set(&mut *sub, size, 0, Value::Float(0.6));
+        set(&mut *sub, size, 1, Value::Float(1.4));
+        let inst = sub.add_node("Instancer".into(), IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 11, draw_mode: crate::types::DrawMode::Default }, p(560.0, 220.0));
+        sub.add_connection(scatter, xms_ice::SCATTER_NORMALS, turn, 0);
+        sub.add_connection(scatter, xms_ice::SCATTER_POSITIONS, size, 2);
+        sub.add_connection(shapes, 0, join, 0);
+        sub.add_connection(car, 0, join, 1);
+        sub.add_connection(scatter, xms_ice::SCATTER_POSITIONS, inst, 0);
+        sub.add_connection(join, 0, inst, 1);
+        sub.add_connection(turn, 0, inst, 3);
+        sub.add_connection(size, 0, inst, 4);
+        sub.add_connection(inst, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root { context: crate::core::geo::Context::Object };
+            n.position = p(800.0, 220.0);
+        }
+    }
+    let ground = g.add_node("Ground".into(), NodeType::CreateGrid { rows: 20, cols: 20, size: 40.0, location: "/root/ground".into() }, p(40.0, 20.0));
+    let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/protos/cube".into() }, p(240.0, 20.0));
+    let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 0.5, segments: 24, location: "/protos/sphere".into() }, p(380.0, 20.0));
+    let shapes = g.add_node("Shapes".into(), NodeType::Merge { mode: MergeMode::Auto, inputs: 2 }, p(300.0, 120.0));
+    // On the ground: each instance stands where it is placed.
+    let lift = g.add_node("OnTheGround".into(), transform([0.0, 0.5, 0.0], [0.0; 3], [1.0; 3]), p(300.0, 220.0));
+    let ice = g.add_node("Instancing".into(), NodeType::Ice { id, name: "Instancing".into(), references: 2 }, p(240.0, 340.0));
+    g.add_connection(cube, 0, shapes, 0);
+    g.add_connection(sphere, 0, shapes, 1);
+    g.add_connection(shapes, 0, lift, 0);
+    g.add_connection(ground, 0, ice, 0);
+    g.add_connection(lift, 0, ice, 1);
+    g.add_connection(car, 0, ice, 2);
+    finish(g, ice, ice);
+    format!("ICE instancing: 240 cubes, spheres and DeLoreans on a 40 m grid, each turned at random about the ground's normal and scaled from 0.6 to 1.4. Go inside the Instancing node (down arrow): Scatter on Surface gives the positions and normals, two Get References joined by Concatenate Arrays the prototypes. The cars are past the Viewer's triangle budget, so they are drawn as boxes (right-click /root/instancer in the Scene Explorer to choose).{}", missing_examples())
 }
 
 fn mocap_example(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {

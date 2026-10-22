@@ -32,6 +32,7 @@ Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer li
 | Template | Shows |
 |---|---|
 | ICE graph: spherify | A cube subdivided three times, then an ICE graph: Get Data reads P, Normalize sets every point to unit length, Multiply scales by 1.2, Set Data writes P back, run by the Execution Ports. Select the Spherify node and press the down arrow to go inside, the up arrow to come back |
+| ICE: instancing | A 40 m grid as the scene, a cube and a sphere (lifted to stand on the ground) on Reference 1 and the DeLorean (Load USD as a reference, at `/protos/delorean`) on Reference 2. Inside the Instancing node, per Object: Scatter on Surface puts 240 places on the grid; Random Orientation turns each up along the normals and at random about them; Random Value, its Count the positions, scales each from 0.6 to 1.4; two Get References joined by Concatenate Arrays are the prototypes, one picked at random for each; the Instancer makes `/root/instancer`. The cars are past the Viewer's triangle budget, so they are drawn as boxes |
 
 ## XMS: Lighting & Rendering
 
