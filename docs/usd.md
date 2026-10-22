@@ -164,7 +164,7 @@ The **guide**, **proxy** and **render** toggles in the explorer's header choose 
 
 Curves are drawn as lines through their basis, points as small crosses sized by their width.
 
-**Draw modes.** A prim whose `model:drawMode` says so is drawn as its bounding box (`bounds`; `cards` too) or as axes at its origin (`origin`), at every copy, as USD viewers draw it; it applies below it too, the nearest prim with one deciding. Set Attribute offers `model:drawMode` and `model:applyDrawMode`; an ICE Instancer's Draw Mode sets them on its prototypes. A right-click on a row of the Scene Explorer chooses for the Viewer alone, over what the scene says, and is not written. Past 20 million triangles a frame the heaviest prims are drawn as boxes (see [Interface](interface.md#the-viewers-triangle-budget)).
+**Draw modes.** A prim whose `model:drawMode` says so is drawn as its bounding box (`bounds`; `cards` too) or as axes at its origin (`origin`), at every copy, as USD viewers draw it; a point instancer's prototype is drawn as one box (or one origin) per instance, around all its prims; it applies below it too, the nearest prim with one deciding. Set Attribute offers `model:drawMode` and `model:applyDrawMode`; an ICE Instancer's Draw Mode sets them on its prototypes. A right-click on a row of the Scene Explorer chooses for the Viewer alone, over what the scene says, and is not written. Past 20 million triangles a frame the heaviest prims are drawn as boxes (see [Interface](interface.md#the-viewers-triangle-budget)).
 
 ## Materials in the Viewer
 

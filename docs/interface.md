@@ -344,7 +344,7 @@ Each prim's type (`Xform`, `Mesh`, `PointInstancer`, `Material`, `Camera`…) is
 
 ## The Viewer's triangle budget
 
-The Viewer draws at most 20 million triangles and line segments a frame, every copy counted: curves count by the segments they are drawn with, points three each. Past that, the heaviest prims are drawn as their bounding boxes, at every copy, until the rest fits, and the Viewer says so at its bottom left ("1.0 billion triangles: 2 of the heaviest drawn as boxes…"). Two thousand copies of a statue of half a million triangles would be a billion. A prim set to Geometry in the Scene Explorer is always drawn as geometry. Boxes are drawn in one draw for every copy of every prim, and picked by their box, not their triangles.
+The Viewer draws at most 20 million triangles and line segments a frame, every copy counted: curves count by the segments they are drawn with, points three each. Past that, the heaviest prims are drawn as their bounding boxes, at every copy, until the rest fits, and the Viewer says so at its bottom left ("1.0 billion triangles: 2 of the heaviest drawn as boxes…"). Two thousand copies of a statue of half a million triangles would be a billion. A prim set to Geometry in the Scene Explorer is always drawn as geometry. A point instancer's prototype is one box per instance, around all its prims, however many there are, and the budget boxes its prims together. Boxes are drawn in one draw for every copy of every prim, and picked by their box, not their triangles.
 
 ## Operator Stack
 

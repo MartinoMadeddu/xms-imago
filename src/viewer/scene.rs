@@ -155,8 +155,9 @@ fn unit_axes() -> Arc<Geometry> {
 
 /// How each prim is drawn: as the Scene Explorer says, else as the scene
 /// says (`model:drawMode`), else as geometry; then, past the triangle
-/// budget, the heaviest drawn as geometry are drawn as boxes instead. The
-/// modes, and what the budget did, to say.
+/// budget, the heaviest drawn as geometry are drawn as boxes instead: a
+/// prototype's meshes together, as the one box each instance is drawn
+/// with. The modes, and what the budget did, to say.
 pub fn draw_modes(prims: &[Prim], hierarchy: &crate::types::SceneHierarchy, budget: u64) -> (Vec<crate::types::DrawMode>, Option<String>) {
     use crate::types::DrawMode;
     let chosen: Vec<Option<DrawMode>> = prims.iter().map(|p| hierarchy.draw_override(&p.path)).collect();
@@ -167,19 +168,34 @@ pub fn draw_modes(prims: &[Prim], hierarchy: &crate::types::SceneHierarchy, budg
     let mut total: u64 = prims.iter().zip(&modes).filter(|(_, m)| **m == DrawMode::Default).map(|(p, _)| cost(p)).sum();
     if total <= budget { return (modes, None); }
     let all = total;
-    // Geometry chosen in the explorer stays geometry.
-    let mut heaviest: Vec<usize> = (0..prims.len()).filter(|&i| modes[i] == DrawMode::Default && chosen[i].is_none()).collect();
-    heaviest.sort_by_key(|&i| std::cmp::Reverse(cost(&prims[i])));
+    // Geometry chosen in the explorer stays geometry. What may be boxed, a
+    // prototype's meshes as one.
+    let mut units: Vec<(Option<(&str, u32)>, Vec<usize>, u64)> = vec![];
+    for i in (0..prims.len()).filter(|&i| modes[i] == DrawMode::Default && chosen[i].is_none()) {
+        let proto = prims[i].instanced_by.as_ref().map(|by| (by.instancer.as_str(), by.index));
+        match units.iter_mut().find(|u| proto.is_some() && u.0 == proto) {
+            Some(u) => { u.1.push(i); u.2 += cost(&prims[i]); }
+            None => units.push((proto, vec![i], cost(&prims[i]))),
+        }
+    }
+    units.sort_by_key(|u| std::cmp::Reverse(u.2));
     let mut boxed = 0usize;
-    for i in heaviest {
+    for (_, members, weight) in units {
         if total <= budget { break; }
-        total -= cost(&prims[i]);
-        modes[i] = DrawMode::Bounds;
+        total -= weight;
+        for i in members { modes[i] = DrawMode::Bounds; }
         boxed += 1;
     }
     if boxed == 0 { return (modes, None); }
     let millions = |n: u64| if n >= 1_000_000_000 { format!("{:.1} billion", n as f64 / 1e9) } else { format!("{:.0} million", n as f64 / 1e6) };
     (modes, Some(format!("{} triangles and line segments: {boxed} of the heaviest drawn as boxes, to stay under {} (right-click a row of the Scene Explorer to choose)", millions(all), millions(budget))))
+}
+
+/// The box `lo`..`hi` moved by `m`: the box around its eight corners.
+fn corners_in(m: Mat4, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
+    (0..8).map(|k| m.transform_point3(Vec3::new(
+        if k & 1 == 0 { lo.x } else { hi.x }, if k & 2 == 0 { lo.y } else { hi.y }, if k & 4 == 0 { lo.z } else { hi.z })))
+        .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), c| (a.min(c), b.max(c)))
 }
 
 /// Geometry made from a `MeshData`, kept while the mesh lives, so a scene
@@ -399,18 +415,34 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             struct Key { mesh: usize, kind: Kind, look: usize, blend: bool }
             let mut groups: Vec<(Key, Arc<MeshData>, Vec<f32>, Option<usize>)> = vec![];
             let mut looks: Vec<(usize, usize)> = vec![];
-            for (p, draw) in prims.iter().zip(&modes) {
+            // A box around `lo`..`hi`, or axes at the origin sized to it.
+            let standin = |draw: crate::types::DrawMode, lo: Vec3, hi: Vec3| if draw == crate::types::DrawMode::Bounds {
+                (true, Mat4::from_scale_rotation_translation((hi - lo).max(Vec3::splat(1e-4)), glam::Quat::IDENTITY, (lo + hi) * 0.5))
+            } else {
+                (false, Mat4::from_scale(Vec3::splat(((hi - lo).length() * 0.25).max(0.05))))
+            };
+            // A prototype's meshes drawn as stand-ins: one box (or origin)
+            // around them all, in the prototype's space, at each instance.
+            // The prototype, the box, and a member to place it by.
+            let mut protos: Vec<((&str, u32, crate::types::DrawMode), Vec3, Vec3, usize)> = vec![];
+            for (i, (p, draw)) in prims.iter().zip(&modes).enumerate() {
                 let identity = [Mat4::IDENTITY];
                 let places: &[Mat4] = if p.place.is_placed() { p.place.matrices() } else { &identity };
                 // Its box, or axes at its origin, at every copy: one draw for all.
                 if *draw != crate::types::DrawMode::Default {
                     let Some((lo, hi)) = crate::viewport::bounds::local_bounds(&p.mesh) else { continue };
                     s.standins.insert(p.path.clone());
-                    let (out, local) = if *draw == crate::types::DrawMode::Bounds {
-                        (&mut boxes, Mat4::from_scale_rotation_translation((hi - lo).max(Vec3::splat(1e-4)), glam::Quat::IDENTITY, (lo + hi) * 0.5))
-                    } else {
-                        (&mut axes, Mat4::from_scale(Vec3::splat(((hi - lo).length() * 0.25).max(0.05))))
-                    };
+                    if let Some(by) = p.instanced_by.as_ref().filter(|_| p.place.is_placed()) {
+                        let (a, b) = corners_in(by.inside, lo, hi);
+                        let key = (by.instancer.as_str(), by.index, *draw);
+                        match protos.iter_mut().find(|x| x.0 == key) {
+                            Some(x) => { x.1 = x.1.min(a); x.2 = x.2.max(b); }
+                            None => protos.push((key, a, b, i)),
+                        }
+                        continue;
+                    }
+                    let (is_box, local) = standin(*draw, lo, hi);
+                    let out = if is_box { &mut boxes } else { &mut axes };
                     for m in places { push_instance_with(out, &(*m * local), standin_ink, [0.0; 4]); }
                     continue;
                 }
@@ -460,6 +492,16 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     }
                     _ => add(Kind::Surface, surface_grey, [1.0, 0.0, 0.0, 0.0], 0, None, false),
                 }
+            }
+            // A member's copies are each instance's matrix then its place in
+            // the prototype: undone, they are where the instances are.
+            for ((_, _, draw), lo, hi, i) in protos {
+                let p = &prims[i];
+                let Some(by) = p.instanced_by.as_ref() else { continue };
+                let (is_box, local) = standin(draw, lo, hi);
+                let back = by.inside.inverse() * local;
+                let out = if is_box { &mut boxes } else { &mut axes };
+                for m in p.place.matrices() { push_instance_with(out, &(*m * back), standin_ink, [0.0; 4]); }
             }
             for (key, md, instances, material) in groups {
                 let geometry = cache.get(&md, key.kind, &mut used);
@@ -624,6 +666,28 @@ mod draw_mode_tests {
         h.set_draw_mode("/sign", Some(DrawMode::Bounds));
         let (modes, _) = draw_modes(&prims, &h, 100);
         assert_eq!(modes, vec![DrawMode::Default, DrawMode::Bounds, DrawMode::Bounds], "the forest kept, the rock boxed in its place");
+    }
+
+    /// A prototype of several meshes is boxed as one: past the budget all
+    /// its meshes go to boxes together, and the box around them all is
+    /// what each instance is drawn as.
+    #[test]
+    fn a_prototype_is_boxed_as_one() {
+        let cube = Arc::new(crate::node_graph::nodes::create_cube(1.0));
+        let at: Vec<Mat4> = (0..100).map(|i| Mat4::from_translation(Vec3::new(i as f32 * 10.0, 0.0, 0.0))).collect();
+        let member = |name: &str, inside: Mat4| {
+            let by = crate::types::InstancedBy { instancer: "/scatter".into(), index: 0, inside, hidden: Default::default(), geo: Default::default(), place: Placement::InPlace };
+            Prim { mesh: cube.clone(), place: Placement::Many(at.iter().map(|m| *m * inside).collect::<Vec<_>>().into()), instanced_by: Some(Arc::new(by)),
+                   ..Prim::new(format!("/scatter/Prototypes/car/{name}"), MeshData::default()) }
+        };
+        let up = Mat4::from_translation(Vec3::new(0.0, 3.0, 0.0));
+        let prims = vec![member("body", Mat4::IDENTITY), member("roof", up)];
+        let (modes, notice) = draw_modes(&prims, &SceneHierarchy::default(), 1);
+        assert_eq!(modes, vec![DrawMode::Bounds, DrawMode::Bounds]);
+        assert!(notice.is_some_and(|n| n.contains("1 of the heaviest")), "one prototype boxed");
+        // The roof's box, put in the prototype's space, reaches above the body.
+        let (lo, hi) = corners_in(up, Vec3::splat(-0.5), Vec3::splat(0.5));
+        assert_eq!((lo.y, hi.y), (2.5, 3.5));
     }
 
     /// Curves count by their line segments: a groom past the budget is
