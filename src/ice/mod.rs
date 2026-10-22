@@ -137,7 +137,7 @@ pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
         xms_ice::Ty::Vec3 => "Vec3",
         xms_ice::Ty::Vec4 => "Vec4",
         xms_ice::Ty::Quat => "Quat",
-        xms_ice::Ty::Location => "Location",
+        xms_ice::Ty::Sample => "Sample",
         xms_ice::Ty::Token => "Token",
     }
 }
@@ -206,20 +206,27 @@ impl IceGraph {
                 vec![input("Min", 0.0), input("Max", 1.0), IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) }],
                 vec![output("Value", "Any")],
             ),
+            // Outputs in `xms_ice::SCATTER_*`'s order.
             IceGraphNodeType::Scatter { .. } => (
                 vec![IceGraphInputSocket { value: Some(Value::Int(1000)), ..input("Count", 0.0) }],
-                vec![output("Locations", "Any")],
+                vec![output("Positions", "Any"), output("Normals", "Any"), output("Surface Samples", "Any")],
             ),
-            IceGraphNodeType::GetDataAt { .. } => (vec![IceGraphInputSocket { value: None, ..input("Locations", 0.0) }], vec![output("Value", "Any")]),
-            IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
-            IceGraphNodeType::Instancer { .. } => (vec![
-                IceGraphInputSocket { value: None, ..input("Locations", 0.0) },
-                IceGraphInputSocket { value: None, ..input("Prototypes", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Int(-1)), ..input("Prototype Index", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Bool(true)), ..input("Align to Surface", 0.0) },
+            IceGraphNodeType::GetDataAt { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) }], vec![output("Value", "Any")]),
+            // Normals +Y (none) and a random turn about it, when not wired.
+            IceGraphNodeType::RandomOrientation { .. } => (vec![
+                IceGraphInputSocket { value: None, ..input("Positions", 0.0) },
+                IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Normals", 0.0) },
                 IceGraphInputSocket { value: Some(Value::Vec3([0.0, 360.0, 0.0])), ..input("Random Rotation", 0.0) },
-                input("Scale Min", 1.0),
-                input("Scale Max", 1.0),
+            ], vec![output("Orientations", "Any")]),
+            IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
+            // A PointInstancer's attributes; one orientation and scale for
+            // all when not wired, a prototype picked at random (-1).
+            IceGraphNodeType::Instancer { .. } => (vec![
+                IceGraphInputSocket { value: None, ..input("Positions", 0.0) },
+                IceGraphInputSocket { value: None, ..input("Prototypes", 0.0) },
+                IceGraphInputSocket { value: Some(Value::Int(-1)), ..input("Proto Indices", 0.0) },
+                IceGraphInputSocket { value: Some(Value::Quat([0.0, 0.0, 0.0, 1.0])), ..input("Orientations", 0.0) },
+                input("Scales", 1.0),
             ], vec![output("Execute", "Execute")]),
             IceGraphNodeType::Array { op } => {
                 let mut inputs = vec![IceGraphInputSocket { value: None, ..input("Array", 0.0) }];
@@ -315,13 +322,14 @@ impl IceGraph {
                 IceGraphNodeType::Array { op } => Op::Array(*op),
                 IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
                 IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
+                IceGraphNodeType::RandomOrientation { seed } => Op::RandomOrientation { seed: *seed },
                 // Rows as they are: `evaluate` turns them into the paths they
                 // name on the reference input.
                 IceGraphNodeType::GetReference { input, paths } => Op::GetReference {
                     input: *input as usize,
                     paths: crate::core::locations::is_set(paths).then(|| paths.clone()),
                 },
-                IceGraphNodeType::Instancer { name, seed } => Op::Instancer { name: name.clone(), seed: *seed },
+                IceGraphNodeType::Instancer { path, seed } => Op::Instancer { path: path.clone(), seed: *seed },
             };
             let inputs = n.inputs.iter().filter_map(|i| {
                 let wired = i.connected_output.and_then(|(from, output)| {
@@ -429,6 +437,8 @@ impl IceGraph {
             "Execute" => None,
             _ => match &n.node_type {
                 IceGraphNodeType::Constant { value } => Some(value.ty()),
+                // Positions and normals, then the samples.
+                IceGraphNodeType::Scatter { .. } => Some(if output == xms_ice::SCATTER_SAMPLES { xms_ice::Ty::Sample } else { xms_ice::Ty::Vec3 }),
                 _ => self.types.lock().ok()?.get(&node).copied(),
             },
         }
@@ -693,7 +703,7 @@ mod tests {
             let at = g.add_node("Scatter".into(), IceGraphNodeType::Scatter { seed: 1, weight: String::new() }, egui::pos2(0.0, 0.0));
             if let Some(n) = g.nodes.iter_mut().find(|n| n.id == at) { n.inputs[0].value = Some(Value::Int(12)); }
             let protos = g.add_node("Get".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
-            let inst = g.add_node("Instancer".into(), IceGraphNodeType::Instancer { name: "scatter".into(), seed: 0 }, egui::pos2(0.0, 0.0));
+            let inst = g.add_node("Instancer".into(), IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0 }, egui::pos2(0.0, 0.0));
             g.add_connection(at, 0, inst, 0);
             g.add_connection(protos, 0, inst, 1);
             g.add_connection(inst, 0, root, 0);
@@ -707,10 +717,17 @@ mod tests {
         graph.add_connection(proto, 0, ice, 1);
         let eval = |sid: IceGraphId, mesh: &Geo, refs: &[Reference]| subnets.get(sid).map(|sg| sg.evaluate(mesh, refs)).unwrap_or_else(|| mesh.clone());
         let Some(EvalResult::Named(prims)) = graph.eval_node_out(ice, 0, &mut HashMap::new(), &eval) else { panic!("prims come out") };
-        // The scene's cube, then the prototype's cube drawn 12 times under it.
-        let made: Vec<_> = prims.iter().filter(|p| p.path.contains("/scatter/")).collect();
-        assert_eq!(made.len(), 1, "{:?}", prims.iter().map(|p| &p.path).collect::<Vec<_>>());
-        assert!(matches!(&made[0].place, Placement::Many(m) if m.len() == 12));
-        assert!(made[0].path.starts_with(&prims[0].path), "under the primitive it was scattered on: {}", made[0].path);
+        // The scene's cube; beside it a point instancer of 12 points, and the
+        // prototype's cube under it, drawn at each of them.
+        let ground_path = prims[0].path.clone();
+        let parent = ground_path.rsplit_once('/').map(|(p, _)| p.to_string()).unwrap_or_default();
+        let inst = prims.iter().find(|p| p.instancing.is_some()).expect("a point instancer");
+        assert_eq!(inst.path, format!("{parent}/scatter"), "beside the primitive, not under it");
+        assert_eq!(inst.geo.as_ref().unwrap().points().len(), 12);
+        let protos: Vec<_> = prims.iter().filter(|p| p.instanced_by.is_some()).collect();
+        assert_eq!(protos.len(), 1, "{:?}", prims.iter().map(|p| &p.path).collect::<Vec<_>>());
+        assert!(protos[0].path.starts_with(&format!("{}/Prototypes/", inst.path)), "{}", protos[0].path);
+        assert!(matches!(&protos[0].place, Placement::Many(m) if m.len() == 12));
+        assert_eq!(inst.instancing.as_ref().unwrap().len(), 1);
     }
 }

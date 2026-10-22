@@ -32,7 +32,7 @@ pub(crate) enum Reg {
     Vec3(Vec<Vec3>),
     Vec4(Vec<Vec4>),
     Quat(Vec<Quat>),
-    Location(Vec<Loc>),
+    Sample(Vec<Loc>),
     /// Paths: only ever an array, in the uniform program.
     Token(Vec<Arc<str>>),
 }
@@ -47,7 +47,7 @@ impl Reg {
             Reg::Vec3(v) => v.len(),
             Reg::Vec4(v) => v.len(),
             Reg::Quat(v) => v.len(),
-            Reg::Location(v) => v.len(),
+            Reg::Sample(v) => v.len(),
             Reg::Token(v) => v.len(),
         }
     }
@@ -71,7 +71,7 @@ reg_access!(vec2s, Vec2, Vec2);
 reg_access!(vec3s, Vec3, Vec3);
 reg_access!(vec4s, Vec4, Vec4);
 reg_access!(quats, Quat, Quat);
-reg_access!(locs, Location, Loc);
+reg_access!(locs, Sample, Loc);
 reg_access!(tokens, Token, Arc<str>);
 
 fn registers(p: &Program) -> Vec<Reg> {
@@ -83,7 +83,7 @@ fn registers(p: &Program) -> Vec<Reg> {
         Ty::Vec3 => Reg::Vec3(vec![]),
         Ty::Vec4 => Reg::Vec4(vec![]),
         Ty::Quat => Reg::Quat(vec![]),
-        Ty::Location => Reg::Location(vec![]),
+        Ty::Sample => Reg::Sample(vec![]),
         Ty::Token => Reg::Token(vec![]),
     }).collect()
 }
@@ -99,7 +99,7 @@ fn value_at(reg: &Reg, i: usize) -> Value {
         Reg::Vec3(v) => Value::Vec3(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Vec4(v) => Value::Vec4(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Quat(v) => Value::Quat(v.get(i).copied().unwrap_or_default().to_array()),
-        Reg::Location(v) => Value::Location(v.get(i).copied().unwrap_or_default()),
+        Reg::Sample(v) => Value::Sample(v.get(i).copied().unwrap_or_default()),
         Reg::Token(_) => unreachable!("a path is never one value: the compiler refuses"),
     }
 }
@@ -113,7 +113,7 @@ fn fill(reg: &mut Reg, value: Value, len: usize) {
         Ty::Vec3 => vec3s(reg).resize(len, value.as_vec3()),
         Ty::Vec4 => vec4s(reg).resize(len, value.as_vec4()),
         Ty::Quat => quats(reg).resize(len, value.as_quat()),
-        Ty::Location => locs(reg).resize(len, value.as_loc()),
+        Ty::Sample => locs(reg).resize(len, value.as_loc()),
         Ty::Token => unreachable!("a path is never one value: the compiler refuses"),
     }
 }
@@ -358,7 +358,7 @@ fn zero(ty: Ty) -> Value {
         Ty::Vec3 => Value::Vec3([0.0; 3]),
         Ty::Vec4 => Value::Vec4([0.0; 4]),
         Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
-        Ty::Location => Value::Location(Loc::default()),
+        Ty::Sample => Value::Sample(Loc::default()),
         Ty::Token => unreachable!("a path is never one value: the compiler refuses"),
     }
 }
@@ -461,7 +461,7 @@ fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> b
                 Vec2(a) => map1(a, vec2s(out), |x| if abs { x.abs() } else { -x }),
                 Vec3(a) => map1(a, vec3s(out), |x| if abs { x.abs() } else { -x }),
                 Vec4(a) => map1(a, vec4s(out), |x| if abs { x.abs() } else { -x }),
-                Bool(_) | Quat(_) | Location(_) | Token(_) => return false,
+                Bool(_) | Quat(_) | Sample(_) | Token(_) => return false,
             }
         }
         Math::Sin => match a { Float(a) => map1(a, floats(out), f32::sin), _ => return false },
@@ -533,7 +533,7 @@ struct Env<'a> {
     sources:  Vec<Source<'a>>,
     params:   Vec<Value>,
     uniforms: Vec<Reg>,
-    /// The geometry, for what reads its topology (scattering, locations).
+    /// The geometry, for what reads its topology (scattering, surface samples).
     geo:      &'a Geo,
     /// The paths of the primitives on each reference input, from input 1.
     references: &'a [Vec<String>],
@@ -586,8 +586,16 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
             }
             Ins::AtLocation { dst, read, loc } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
-                if let Reg::Location(at) = &regs[loc] { at_location(env.geo, &env.sources[read], at, &mut out); }
+                if let Reg::Sample(at) = &regs[loc] { at_location(env.geo, &env.sources[read], at, &mut out); }
                 regs[dst] = out;
+            }
+            Ins::RandomOrient { dst, seed, args } => {
+                let made = {
+                    let normals: &[Vec3] = match &regs[args[1]] { Reg::Vec3(v) => v, _ => &[] };
+                    let turn = match &regs[args[2]] { Reg::Vec3(v) => v.first().copied().unwrap_or_default(), _ => Vec3::ZERO };
+                    random_orientations(seed, regs[args[0]].len(), normals, turn)
+                };
+                *quats(&mut regs[dst]) = made;
             }
             Ins::Reference { dst, input, ref paths } => {
                 let there = env.references.get(input - 1).map(Vec::as_slice).unwrap_or_default();
@@ -607,13 +615,15 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
     }
 }
 
-/// Instances an Instancer made: USD's PointInstancer, in the space of the
-/// geometry the graph ran on. Each instance `i` is prototype
+/// What an Instancer made: USD's PointInstancer, in the space of the
+/// geometry the graph ran on. Instance `i` is prototype
 /// `prototypes[proto_indices[i]]` at `positions[i]`, turned by
-/// `orientations[i]` (i, j, k, real) and scaled by `scales[i]`.
+/// `orientations[i]` (i, j, k, real) and scaled by `scales[i]`. `path`: the
+/// instancer prim's, as the Instancer was given it (relative: beside the
+/// primitive).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Instances {
-    pub name:          String,
+    pub path:          String,
     pub prototypes:    Vec<String>,
     pub proto_indices: Vec<i32>,
     pub positions:     Vec<[f32; 3]>,
@@ -627,38 +637,50 @@ pub struct Ran {
     pub instances: Vec<Instances>,
 }
 
-/// An Instancer's instances, from its inputs in the uniform registers.
+/// An Instancer's instances, from its inputs in the uniform registers: an
+/// array of a value gives instance `i` its element `i`, one value gives
+/// every instance that value.
 fn instances(p: &InstancerPlan, regs: &[Reg]) -> Instances {
-    let positions: Vec<Vec3> = match &regs[p.positions] { Reg::Vec3(v) => v.clone(), _ => vec![] };
-    let normals: Option<&[Vec3]> = p.normals.and_then(|r| match &regs[r] { Reg::Vec3(v) => Some(v.as_slice()), _ => None });
+    fn at<T: Copy>(v: &[T], i: usize, none: T) -> T { v.get(i).or(v.first()).copied().unwrap_or(none) }
+    let positions: &[Vec3] = match &regs[p.positions] { Reg::Vec3(v) => v, _ => &[] };
     let prototypes: Vec<String> = match &regs[p.protos] { Reg::Token(v) => v.iter().map(|t| t.to_string()).collect(), _ => vec![] };
-    let (n, kinds) = (positions.len(), prototypes.len());
-    if kinds == 0 { return Instances { name: p.name.clone(), ..Default::default() }; }
+    let kinds = prototypes.len();
+    if kinds == 0 { return Instances { path: p.path.clone(), ..Default::default() }; }
     let picks: &[i32] = match &regs[p.index] { Reg::Int(v) => v, _ => &[] };
-    let align = matches!(&regs[p.align], Reg::Bool(v) if v.first() == Some(&true));
-    let turn = match &regs[p.turn] { Reg::Vec3(v) => v.first().copied().unwrap_or_default(), _ => Vec3::ZERO };
-    let number = |r: usize| match &regs[r] { Reg::Float(v) => v.first().copied().unwrap_or(1.0), _ => 1.0 };
-    let (smin, smax) = (number(p.scale[0]), number(p.scale[1]));
-    let u = |i: usize, lane: u32| unit(p.seed, i, lane);
-    let mut out = Instances { name: p.name.clone(), prototypes, ..Default::default() };
-    for (i, pos) in positions.iter().enumerate() {
-        // An index per instance, one for all, or -1: picked at random.
-        let pick = picks.get(i).or(picks.first()).copied().unwrap_or(-1);
-        let pick = if pick < 0 { ((u(i, 7) * kinds as f32) as usize).min(kinds - 1) } else { (pick as usize).min(kinds - 1) };
-        // Up (+Y) along the normal, then a random turn in the prototype's
-        // own frame, up to `turn` degrees about each axis, either way.
-        let up = match normals { Some(nrm) if align => Quat::from_rotation_arc(Vec3::Y, nrm[i].try_normalize().unwrap_or(Vec3::Y)), _ => Quat::IDENTITY };
-        let half = turn * 0.5;
-        let spin = Quat::from_euler(glam::EulerRot::XYZ,
-            ((u(i, 1) * 2.0 - 1.0) * half.x).to_radians(), ((u(i, 2) * 2.0 - 1.0) * half.y).to_radians(), ((u(i, 3) * 2.0 - 1.0) * half.z).to_radians());
-        let s = smin + (smax - smin) * u(i, 4);
-        out.proto_indices.push(pick as i32);
-        out.positions.push(pos.to_array());
-        out.orientations.push((up * spin).normalize().to_array());
-        out.scales.push([s; 3]);
-    }
-    debug_assert_eq!(out.positions.len(), n);
+    let orients: &[Quat] = match &regs[p.orient] { Reg::Quat(v) => v, _ => &[] };
+    let n = positions.len();
+    let mut out = Instances { path: p.path.clone(), prototypes, ..Default::default() };
+    out.positions = positions.iter().map(|v| v.to_array()).collect();
+    // -1: picked at random, the same for the same seed.
+    out.proto_indices = (0..n).map(|i| {
+        let pick = at(picks, i, -1);
+        let k = if pick < 0 { ((unit(p.seed, i, 7) * kinds as f32) as usize).min(kinds - 1) } else { (pick as usize).min(kinds - 1) };
+        k as i32
+    }).collect();
+    out.orientations = (0..n).map(|i| at(orients, i, Quat::IDENTITY).normalize().to_array()).collect();
+    out.scales = match &regs[p.scale] {
+        Reg::Float(v) => (0..n).map(|i| [at(v, i, 1.0); 3]).collect(),
+        Reg::Vec3(v) => (0..n).map(|i| at(v, i, Vec3::ONE).to_array()).collect(),
+        _ => vec![[1.0; 3]; n],
+    };
     out
+}
+
+/// `n` rotations: each one's +Y along its normal (element `i` of
+/// `normals`, or the one there is; +Y when none), then turned in its own
+/// frame at random, up to `turn` degrees about each axis, either way. The
+/// same for the same seed. In parallel: each is its own hash.
+fn random_orientations(seed: u32, n: usize, normals: &[Vec3], turn: Vec3) -> Vec<Quat> {
+    let half = turn * 0.5;
+    (0..n).into_par_iter().map(|i| {
+        let normal = normals.get(i).or(normals.first()).copied().unwrap_or(Vec3::Y);
+        let up = Quat::from_rotation_arc(Vec3::Y, normal.try_normalize().unwrap_or(Vec3::Y));
+        let spin = Quat::from_euler(glam::EulerRot::XYZ,
+            ((unit(seed, i, 1) * 2.0 - 1.0) * half.x).to_radians(),
+            ((unit(seed, i, 2) * 2.0 - 1.0) * half.y).to_radians(),
+            ((unit(seed, i, 3) * 2.0 - 1.0) * half.z).to_radians());
+        (up * spin).normalize()
+    }).collect()
 }
 
 /// Run `plan` over `geo`. `params` gives values to the graph's parameters
@@ -676,7 +698,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
         .collect();
     let sources = plan.reads.iter().zip(&made).map(|(r, made)| {
         let attr = if r.derived { None } else { geo.attr(r.context, &r.name) };
-        // Read at locations: by the locations' corners and faces, not
+        // Read at surface samples: by their corners and faces, not
         // element by element.
         let map = if r.at_location { Arc::new(Map::Direct) } else {
             maps.entry(r.context).or_insert_with(|| Arc::new(mapping(geo, plan.context, r.context))).clone()
@@ -710,7 +732,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
         Ty::Vec3 => Out::Vec3(vec![[0.0; 3]; n]),
         Ty::Vec4 => Out::Vec4(vec![[0.0; 4]; n]),
         Ty::Quat => Out::Quat(vec![[0.0, 0.0, 0.0, 1.0]; n]),
-        Ty::Location | Ty::Token => unreachable!("locations and paths are not written: the compiler refuses"),
+        Ty::Sample | Ty::Token => unreachable!("surface samples and paths are not written: the compiler refuses"),
     }).collect();
     let batches = n.div_ceil(BATCH);
     let mut tasks: Vec<Vec<Slice>> = (0..batches).map(|_| Vec::with_capacity(cols.len())).collect();
@@ -773,7 +795,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
         Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Location(_) | Reg::Token(_) => unreachable!("locations and paths are not written: the compiler refuses"),
+        Reg::Sample(_) | Reg::Token(_) => unreachable!("surface samples and paths are not written: the compiler refuses"),
     }
 }
 
@@ -894,7 +916,8 @@ fn scatter(geo: &Geo, seed: u32, count: usize, weight: Option<&Source>) -> Vec<L
         first += n;
     }
     if total <= 0.0 || tris.is_empty() { return vec![]; }
-    (0..count).map(|i| {
+    // Each place is its own hash: made in parallel, the same either way.
+    (0..count).into_par_iter().map(|i| {
         let t = sums.partition_point(|&s| s <= unit(seed, i, 0) as f64 * total).min(tris.len() - 1);
         let (face, corners) = tris[t];
         // Uniform in the triangle: a point in the unit square, folded.
@@ -904,13 +927,13 @@ fn scatter(geo: &Geo, seed: u32, count: usize, weight: Option<&Source>) -> Vec<L
     }).collect()
 }
 
-/// An attribute at locations: a point's or a corner's weighted across the
-/// location's triangle, a face's that face's, the object's its one value.
+/// An attribute at surface samples: a point's or a corner's weighted
+/// across the sample's triangle, a face's that face's, the object's its one value.
 /// Numbers and vectors are blended; a rotation blended and made unit again;
 /// ints and bools take the nearest corner's.
 fn at_location(geo: &Geo, s: &Source, at: &[Loc], out: &mut Reg) {
     let (_, corner_point) = corner_points(geo);
-    // The elements a location reads, with their weights.
+    // The elements a sample reads, with their weights.
     let elements = |l: &Loc| -> [(usize, f32); 3] {
         let w = l.weights;
         match s.context {

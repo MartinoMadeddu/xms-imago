@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use xms_geo::{Attr, Column, Context, Geo, Role, POINTS};
 
-use super::graph::{wire, ArrayOp, Graph, Input, Math, Op};
+use super::graph::{wire, ArrayOp, Graph, Input, Math, Op, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
 use super::types::Value;
 use super::{compile, run};
 
@@ -522,7 +522,7 @@ fn small_and_big() -> Geo {
 fn scattered_average(geo: &Geo, seed: u32, count: i32, weight: &str, name: &str) -> Column {
     let mut g = Graph::default();
     let at = g.add(Op::Scatter { seed, weight: weight.into() }, vec![Input::Value(Value::Int(count))]);
-    let read = g.add(Op::GetDataAt { name: name.into() }, vec![wire(at)]);
+    let read = g.add(Op::GetDataAt { name: name.into() }, vec![Input::Wire { node: at, output: SCATTER_SAMPLES }]);
     let avg = g.add(Op::Array(ArrayOp::Average), vec![wire(read)]);
     object_value(g, avg, "avg", geo)
 }
@@ -594,49 +594,104 @@ fn which_outputs_are_arrays() {
     assert_eq!([arrays[one], arrays[many], arrays[twice], arrays[size], arrays[at], arrays[paths]], [false, true, true, false, true, true]);
 }
 
+/// Scatter's three outputs: its positions and normals are Get Data at
+/// Samples of `P` and `N` at its samples.
 #[test]
-fn the_instancer_places_prototypes_at_scattered_places_up_along_the_surface() {
+fn scatter_gives_positions_normals_and_samples() {
+    let geo = small_and_big();
+    let read = |output: usize, name: Option<&str>| {
+        let mut g = Graph::default();
+        let at = g.add(Op::Scatter { seed: 3, weight: String::new() }, vec![Input::Value(Value::Int(200))]);
+        let v = match name {
+            Some(n) => g.add(Op::GetDataAt { name: n.into() }, vec![Input::Wire { node: at, output }]),
+            None => g.add(Op::Array(ArrayOp::Average), vec![Input::Wire { node: at, output }]),
+        };
+        let v = if name.is_some() { g.add(Op::Array(ArrayOp::Average), vec![wire(v)]) } else { v };
+        object_value(g, v, "v", &geo).vec3s().unwrap()[0]
+    };
+    assert_eq!(read(SCATTER_POSITIONS, None), read(SCATTER_SAMPLES, Some("P")), "positions are P at the samples");
+    assert_eq!(read(SCATTER_NORMALS, None), read(SCATTER_SAMPLES, Some("N")), "normals are N at the samples");
+    // A position is not a sample: Get Data at Samples refuses it.
+    let mut g = Graph::default();
+    let at = g.add(Op::Scatter { seed: 3, weight: String::new() }, vec![Input::Value(Value::Int(5))]);
+    let bad = g.add(Op::GetDataAt { name: "P".into() }, vec![Input::Wire { node: at, output: SCATTER_POSITIONS }]);
+    let set = g.add(Op::set("v"), vec![wire(bad)]);
+    g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, bad);
+}
+
+/// Random Orientation: one per element of the array it is given, +Y along
+/// each normal, turned about it at random; the same for the same seed.
+#[test]
+fn random_orientations_follow_the_normals() {
+    let geo = small_and_big();
+    let make = |seed: u32| {
+        let mut g = Graph::default();
+        let at = g.add(Op::Scatter { seed: 1, weight: String::new() }, vec![Input::Value(Value::Int(300))]);
+        let turn = g.add(Op::RandomOrientation { seed }, vec![
+            Input::Wire { node: at, output: SCATTER_POSITIONS }, Input::Wire { node: at, output: SCATTER_NORMALS },
+            Input::Value(Value::Vec3([0.0, 360.0, 0.0])),
+        ]);
+        let protos = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+        let inst = g.add(Op::Instancer { path: "scatter".into(), seed: 0 }, vec![
+            Input::Wire { node: at, output: SCATTER_POSITIONS }, wire(protos), Input::Value(Value::Int(0)),
+            wire(turn), Input::Value(Value::Float(1.0)),
+        ]);
+        g.add(Op::Root { context: Context::Object }, vec![wire(inst)]);
+        run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[vec!["/p".to_string()]]).instances.remove(0)
+    };
+    let a = make(4);
+    assert_eq!(a.orientations.len(), 300);
+    for q in &a.orientations {
+        let up = glam::Quat::from_array(*q) * glam::Vec3::Y;
+        assert!((up.y.abs() - 1.0).abs() < 1e-4, "{up:?}");
+    }
+    assert_eq!(a, make(4), "the same seed, the same turns");
+    assert_ne!(a.orientations, make(5).orientations);
+}
+
+#[test]
+fn the_instancer_makes_usds_point_instancer_from_its_inputs() {
     let geo = small_and_big();
     let refs = vec![vec!["/assets/pine".to_string(), "/assets/rock".into()]];
     let mut g = Graph::default();
     let at = g.add(Op::Scatter { seed: 2, weight: String::new() }, vec![Input::Value(Value::Int(500))]);
     let protos = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
-    let inst = g.add(Op::Instancer { name: "scatter".into(), seed: 5 }, vec![
-        wire(at), wire(protos), Input::Value(Value::Int(-1)), Input::Value(Value::Bool(true)),
-        Input::Value(Value::Vec3([0.0, 360.0, 0.0])), Input::Value(Value::Float(0.5)), Input::Value(Value::Float(2.0)),
+    // Scales: an array of random numbers, one per instance.
+    let scales = random(&mut g, 9, Value::Float(0.5), Value::Float(2.0), 500);
+    let inst = g.add(Op::Instancer { path: "/set/scatter".into(), seed: 5 }, vec![
+        Input::Wire { node: at, output: SCATTER_POSITIONS }, wire(protos), Input::Value(Value::Int(-1)),
+        Input::Value(Value::Quat([0.0, 0.0, 0.0, 1.0])), wire(scales),
     ]);
     g.add(Op::Root { context: Context::Object }, vec![wire(inst)]);
     let ran = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs);
     let i = &ran.instances[0];
-    assert_eq!((i.name.as_str(), i.positions.len(), i.prototypes.len()), ("scatter", 500, 2));
-    // Both prototypes picked; every one on the ground, scaled in range.
+    assert_eq!((i.path.as_str(), i.positions.len(), i.prototypes.len()), ("/set/scatter", 500, 2));
+    assert_eq!((i.proto_indices.len(), i.orientations.len(), i.scales.len()), (500, 500, 500), "every array as long as the positions");
+    // Both prototypes picked at random; every one on the ground; a number scales evenly.
     assert!(i.proto_indices.contains(&0) && i.proto_indices.contains(&1));
     assert!(i.positions.iter().all(|p| p[1].abs() < 1e-6));
     assert!(i.scales.iter().all(|s| (0.5..=2.0).contains(&s[0]) && s[0] == s[1] && s[1] == s[2]));
-    // Up along the face's normal: each instance's +Y is straight up or down.
-    for q in &i.orientations {
-        let up = glam::Quat::from_array(*q) * glam::Vec3::Y;
-        assert!((up.y.abs() - 1.0).abs() < 1e-4, "{up:?}");
-    }
-    // The same seeds, the same instances.
-    assert_eq!(run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs).instances, ran.instances);
+    assert!(i.orientations.iter().all(|q| *q == [0.0, 0.0, 0.0, 1.0]), "one rotation for all");
+    assert_eq!(run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs).instances, ran.instances, "the same seeds, the same instances");
 }
 
 #[test]
-fn the_instancer_is_for_object_graphs_and_wants_paths() {
+fn the_instancer_is_for_object_graphs_and_wants_positions_and_paths() {
     let geo = small_and_big();
-    let make = |context: Context, protos_are_paths: bool| {
+    let make = |context: Context, output: usize, protos_are_paths: bool| {
         let mut g = Graph::default();
         let at = g.add(Op::Scatter { seed: 0, weight: String::new() }, vec![Input::Value(Value::Int(5))]);
         let protos = if protos_are_paths { g.add(Op::GetReference { input: 1, paths: None }, vec![]) } else { at };
-        let inst = g.add(Op::Instancer { name: "i".into(), seed: 0 }, vec![
-            wire(at), wire(protos), Input::Value(Value::Int(-1)), Input::Value(Value::Bool(false)),
-            Input::Value(Value::Vec3([0.0; 3])), Input::Value(Value::Float(1.0)), Input::Value(Value::Float(1.0)),
+        let inst = g.add(Op::Instancer { path: "i".into(), seed: 0 }, vec![
+            Input::Wire { node: at, output }, wire(protos), Input::Value(Value::Int(-1)),
+            Input::Value(Value::Quat([0.0, 0.0, 0.0, 1.0])), Input::Value(Value::Float(1.0)),
         ]);
         g.add(Op::Root { context }, vec![wire(inst)]);
         (compile(&g, &geo).err().map(|e| e.node), inst)
     };
-    let (err, inst) = make(Context::Object, false);
-    assert_eq!(err, Some(inst), "locations are not prototypes");
-    assert!(make(Context::Object, true).0.is_none());
+    let (err, inst) = make(Context::Object, SCATTER_POSITIONS, false);
+    assert_eq!(err, Some(inst), "positions are not prototypes");
+    assert_eq!(make(Context::Object, SCATTER_SAMPLES, true).0, Some(inst), "samples are not positions");
+    assert!(make(Context::Object, SCATTER_POSITIONS, true).0.is_none());
 }

@@ -142,13 +142,15 @@ pub fn evaluate_node_type(
                 EvalResult::Named(prims) => {
                     let any_picked = prims.iter().any(|p| p.picked);
                     let (mut out, mut made) = (Vec::with_capacity(prims.len()), vec![]);
+                    // Paths there are: an instancer made on one of them is numbered.
+                    let mut taken: std::collections::HashSet<String> = prims.iter().map(|p| p.path.clone()).collect();
                     for p in prims {
                         if any_picked && !p.picked { out.push(p.clone()); continue; }
                         let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
                         crate::ice::take_instances();
                         let g = eval_subnet(*id, &geo, &references);
-                        // What its Instancers made: prims of their own, after the others.
-                        for i in crate::ice::take_instances() { made.extend(instanced(p, &i, &inputs[1..])); }
+                        // What its Instancers made: point instancers, after the others.
+                        for i in crate::ice::take_instances() { made.extend(instanced(p, &i, &inputs[1..], &mut taken)); }
                         // The attributes stay in the geometry (see `to_mesh_lean`).
                         out.push(Prim { mesh: Arc::new(g.to_mesh_lean()), geo: Some(Arc::new(g)), ..p.clone() });
                     }
@@ -1001,46 +1003,78 @@ mod place_tests {
     }
 }
 
-/// The prims an Instancer made on `on`: for each prototype it used, every
-/// prim of it (the prim at its path and those below, from the reference
-/// inputs) drawn at each of its instances, as a point instancer's copies,
-/// sharing the prototype's geometry and material. At
-/// `<on>/<name>/<prototype>/…`, in the space `on` is placed in. A
-/// prototype's prims keep their own placement within it, so a prototype
-/// made at the origin of its file sits on each instance.
-fn instanced(on: &Prim, made: &xms_ice::Instances, references: &[EvalResult]) -> Vec<Prim> {
-    use glam::{Mat4, Quat, Vec3};
-    let base = match &on.place {
-        Placement::One(m) => *m,
-        Placement::Many(ms) => ms.first().copied().unwrap_or(Mat4::IDENTITY),
-        Placement::InPlace => Mat4::IDENTITY,
+/// The point instancer an Instancer made on `on`, as Imago keeps one (see
+/// `core::instancing`): a points prim at its path, one point per instance
+/// with `protoIndex`, `orient`, `scale` and `id`, placed as `on` is (the
+/// positions are in its space); then its prototypes, every prim of each
+/// (the prim at the prototype's path and the geometry below it, from the
+/// reference inputs) under `<instancer>/Prototypes/<name>`, each keeping
+/// its place within the prototype and drawn at its prototype's instances,
+/// sharing its geometry and material (nothing is copied). Write USD writes
+/// it as a `PointInstancer`. A relative path is beside `on` (not below it:
+/// USD has no prims under a mesh); a path that is `taken` is numbered.
+fn instanced(on: &Prim, made: &xms_ice::Instances, references: &[EvalResult], taken: &mut std::collections::HashSet<String>) -> Vec<Prim> {
+    use crate::core::geo::{Attr, Column, Context, Geo, Role};
+    use crate::types::InstancedBy;
+    use glam::Mat4;
+    let wanted = if made.path.starts_with('/') {
+        made.path.trim_end_matches('/').to_string()
+    } else {
+        let parent = on.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        format!("{parent}/{}", made.path.trim_matches('/'))
     };
-    let mut out = vec![];
+    let mut path = wanted.clone();
+    let mut k = 1;
+    while !taken.insert(path.clone()) { path = format!("{wanted}_{k}"); k += 1; }
+
+    let n = made.positions.len();
+    let mut geo = Geo::from_points(made.positions.clone());
+    for (name, column) in [
+        ("protoIndex", Column::Int(Arc::new(made.proto_indices.clone()))),
+        ("orient", Column::Quat(Arc::new(made.orientations.clone()))),
+        ("scale", Column::Vec3(Arc::new(made.scales.clone()))),
+        ("id", Column::Int(Arc::new((0..n as i32).collect()))),
+    ] {
+        geo.set(Context::Point, name, Attr::new(column, Role::None));
+    }
+    let geo = Arc::new(geo);
+    // Each prototype under the instancer, by its leaf's name; numbered
+    // where two share one.
+    let mut roots: Vec<String> = vec![];
+    for proto in &made.prototypes {
+        let leaf = proto.rsplit('/').next().filter(|l| !l.is_empty()).unwrap_or("prototype");
+        let mut root = format!("{path}/Prototypes/{leaf}");
+        let mut k = 1;
+        while roots.contains(&root) { root = format!("{path}/Prototypes/{leaf}_{k}"); k += 1; }
+        roots.push(root);
+    }
+    let place = on.place.clone();
+    let mut out = vec![Prim {
+        geo: Some(geo.clone()), place: place.clone(), instancing: Some(Arc::new(roots.clone())),
+        ..Prim::new(path.clone(), geo.to_mesh())
+    }];
+    let below = |proto: &str, p: &str| p == proto || p.strip_prefix(proto).is_some_and(|rest| rest.starts_with('/'));
     for (k, proto) in made.prototypes.iter().enumerate() {
-        let copies: Vec<Mat4> = made.proto_indices.iter().enumerate().filter(|(_, p)| **p as usize == k)
-            .map(|(i, _)| base * Mat4::from_scale_rotation_translation(
-                Vec3::from_array(made.scales[i]), Quat::from_array(made.orientations[i]), Vec3::from_array(made.positions[i])))
-            .collect();
-        if copies.is_empty() { continue; }
-        let leaf = proto.rsplit('/').next().unwrap_or(proto);
-        let below = |path: &str| path == proto || path.strip_prefix(proto.as_str()).is_some_and(|rest| rest.starts_with('/'));
         for r in references {
             let EvalResult::Named(prims) = r else { continue };
-            for q in prims.iter().filter(|q| below(&q.path)) {
-                let own = match &q.place {
+            for q in prims.iter().filter(|q| below(proto, &q.path) && q.is_geometry()) {
+                let inside = match &q.place {
                     Placement::One(m) => *m,
                     Placement::InPlace => Mat4::IDENTITY,
                     // A prototype that is itself instanced: not yet.
                     Placement::Many(_) => continue,
                 };
+                if q.instancing.is_some() { continue; }
+                let by = InstancedBy { instancer: path.clone(), index: k as u32, inside, hidden: Arc::new(vec![]), geo: geo.clone(), place: place.clone() };
+                let copies = crate::core::instancing::copies(&geo, &place, &by);
                 out.push(Prim {
-                    path: format!("{}/{}/{}{}", on.path, made.name, leaf, &q.path[proto.len()..]),
-                    place: Placement::Many(copies.iter().map(|c| *c * own).collect::<Vec<_>>().into()),
+                    path: format!("{}{}", roots[k], &q.path[proto.len()..]),
+                    place: Placement::Many(copies.into()),
+                    instanced_by: Some(Arc::new(by)),
                     picked: false,
                     stage: None,
                     source: None,
                     instancing: None,
-                    instanced_by: None,
                     ..q.clone()
                 });
             }

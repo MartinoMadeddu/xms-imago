@@ -48,6 +48,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | A texture of one file per UV tile | UDIM set, tiled texture | **UDIM tiles**, named by a **`<UDIM>` path** (`body.<UDIM>.exr`; `<udim>` read too) | The tag USD, Mari and Substance write. |
 | Files numbered alike, listed as one | image sequence, file sequence | **sequence** (`shot.####.exr`) | One word, shown in the file browser with Collapse sequences. |
 | An ICE graph's end node | SubnetInput / SubnetOutput, GraphInput / GraphOutput, ICE Tree | **Execution Ports** (the node named ExecutionPorts) | Softimage's ICETree: one root with ordered Execute ports. Renamed so it says what it is. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
+| A place on a mesh's surface in an ICE graph (a face, a triangle of it, where in it) | Location, PointLocator (Softimage), primuv (Houdini) | **Surface Sample** | Scatter on Surface's third output, read by Get Data at Samples. Not "location": in Imago a location is a prim path. Not a USD type: positions and normals are what reach USD. |
 
 ### Contexts and USD
 

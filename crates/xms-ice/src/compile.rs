@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
-use super::graph::{ArrayOp, Graph, Input, Math, Op, Reduce};
+use super::graph::{ArrayOp, Graph, Input, Math, Op, Reduce, SCATTER_NORMALS, SCATTER_SAMPLES};
 use super::types::{Ty, Value};
 
 /// A plan: what to read, the two programs, what to write. Made once per
@@ -38,15 +38,13 @@ pub struct Plan {
 /// inputs.
 #[derive(Clone, Debug)]
 pub(crate) struct InstancerPlan {
-    pub name:      String,
+    pub path:      String,
     pub seed:      u32,
     pub positions: usize,
-    pub normals:   Option<usize>,
     pub protos:    usize,
     pub index:     usize,
-    pub align:     usize,
-    pub turn:      usize,
-    pub scale:     [usize; 2],
+    pub orient:    usize,
+    pub scale:     usize,
 }
 
 impl Plan {
@@ -75,8 +73,9 @@ pub(crate) struct Read {
     pub reduce:  Reduce,
     /// Made from the topology when run (`derived`), not a stored column.
     pub derived: bool,
-    /// Read at locations (Get Data at Location, Scatter's weight), not
-    /// element by element: no mapping between contexts is made for it.
+    /// Read at surface samples (Get Data at Samples, Scatter's weight and
+    /// outputs), not element by element: no mapping between contexts is
+    /// made for it.
     pub at_location: bool,
 }
 
@@ -118,8 +117,11 @@ pub(crate) enum Ins {
     /// `count` (a register) places on the surface; `weight`, a read scaling
     /// how many land where.
     Scatter { dst: usize, seed: u32, count: usize, weight: Option<usize> },
-    /// Read number `read` at the locations in register `loc`.
+    /// Read number `read` at the surface samples in register `loc`.
     AtLocation { dst: usize, read: usize, loc: usize },
+    /// Random rotations, as many as `args[0]` holds, up along the normals
+    /// in `args[1]`, turned at random up to `args[2]` degrees.
+    RandomOrient { dst: usize, seed: u32, args: [usize; 3] },
     /// The paths of reference input `input` (from 1): all, or those of
     /// `paths` that are there.
     Reference { dst: usize, input: usize, paths: Option<Vec<String>> },
@@ -238,8 +240,10 @@ struct Lower<'a> {
     graph:     &'a Graph,
     geo:       &'a Geo,
     plan:      Plan,
-    /// Node outputs already lowered.
+    /// Node outputs already lowered: output 0 by node.
     done:      HashMap<usize, Val>,
+    /// Other outputs already lowered (Scatter's normals and samples' reads).
+    outs:      HashMap<(usize, usize), Val>,
     /// Nodes being lowered: meeting one again is a cycle.
     visiting:  HashSet<usize>,
     /// Batch registers holding a uniform register, so each is broadcast once.
@@ -273,7 +277,32 @@ impl Lower<'_> {
         self.emit(true, value.ty(), |dst| Ins::Const { dst, value })
     }
 
-    /// The value of a node's output.
+    /// The value of output `output` of a node: Scatter on Surface's
+    /// positions and normals are read at its samples (once each); every
+    /// other node has one output.
+    fn wired(&mut self, node: usize, output: usize) -> Result<Val, CompileError> {
+        let graph = self.graph;
+        if !matches!(graph.nodes.get(node).map(|n| &n.op), Some(Op::Scatter { .. })) || output == SCATTER_SAMPLES {
+            return self.value(node);
+        }
+        if let Some(v) = self.outs.get(&(node, output)) { return Ok(*v); }
+        let samples = self.value(node)?;
+        let read = if output == SCATTER_NORMALS {
+            // The mesh's normals where it has some, else each face's own.
+            let found = [Context::Point, Context::Corner, Context::Face].into_iter()
+                .find_map(|c| find_in(self.geo, c, "N").filter(|f| f.ty == Some(Ty::Vec3)).map(|f| (c, f.derived)));
+            let Some((c, derived)) = found else { return error(node, "No normals to give: the mesh has none, nor faces") };
+            self.location_read(c, "N", derived)
+        } else {
+            self.location_read(Context::Point, "P", false)
+        };
+        let mut v = self.emit(true, Ty::Vec3, |dst| Ins::AtLocation { dst, read, loc: samples.reg });
+        v.array = true;
+        self.outs.insert((node, output), v);
+        Ok(v)
+    }
+
+    /// The value of a node's output (Scatter's: its samples).
     fn value(&mut self, node: usize) -> Result<Val, CompileError> {
         if let Some(v) = self.done.get(&node) { return Ok(*v); }
         if !self.visiting.insert(node) { return error(node, "This node feeds itself: a cycle"); }
@@ -299,6 +328,7 @@ impl Lower<'_> {
             Op::Array(op) => self.array(node, *op)?,
             Op::Scatter { seed, weight } => self.scatter(node, *seed, weight)?,
             Op::GetDataAt { name } => self.at_location(node, name)?,
+            Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
                 if *input == 0 { return error(node, "Reference inputs are numbered from 1"); }
@@ -372,7 +402,7 @@ impl Lower<'_> {
         // float of a scale or of a lerp's t.
         let mut vals: Vec<Option<Val>> = vec![None; inputs.len()];
         for (i, input) in inputs.iter().enumerate() {
-            if let Input::Wire { node: from, .. } = input { vals[i] = Some(self.value(*from)?); }
+            if let Input::Wire { node: from, output } = input { vals[i] = Some(self.wired(*from, *output)?); }
         }
         let wired = vals.iter().flatten().map(|v| v.ty).find(|t| *t != Ty::Float).or(vals.iter().flatten().map(|v| v.ty).next());
         for (i, input) in inputs.iter().enumerate() {
@@ -420,7 +450,7 @@ impl Lower<'_> {
     fn input(&mut self, node: usize, i: usize, ty: Option<Ty>) -> Result<Val, CompileError> {
         let graph = self.graph;
         match &graph.nodes[node].inputs[i] {
-            Input::Wire { node: from, .. } => self.value(*from),
+            Input::Wire { node: from, output } => self.wired(*from, *output),
             Input::Value(v) => Ok(self.constant(ty.and_then(|t| v.convert(t)).unwrap_or(*v))),
         }
     }
@@ -429,9 +459,9 @@ impl Lower<'_> {
         let graph = self.graph;
         let inputs = &graph.nodes[node].inputs;
         // Min and max meet at one type: what is wired, else the min's.
-        let wired = (0..2).find_map(|i| match &inputs[i] { Input::Wire { node: from, .. } => Some(*from), _ => None });
+        let wired = (0..2).find_map(|i| match &inputs[i] { Input::Wire { node: from, output } => Some((*from, *output)), _ => None });
         let ty = match wired {
-            Some(from) => Some(self.value(from)?.ty),
+            Some((from, output)) => Some(self.wired(from, output)?.ty),
             None => match (&inputs[0], &inputs[1]) {
                 // An int and a float meet as floats.
                 (Input::Value(a), Input::Value(b)) if a.ty() != b.ty() => Some(Ty::Float),
@@ -471,7 +501,7 @@ impl Lower<'_> {
         }
     }
 
-    /// A read of `name` in `ctx`, at locations: stored or derived.
+    /// A read of `name` in `ctx`, at surface samples: stored or derived.
     fn location_read(&mut self, ctx: Context, name: &str, derived: bool) -> usize {
         let column = if derived { name.to_string() } else { column_in(self.geo, ctx, name).to_string() };
         let key = format!("@{ctx:?}/{column}");
@@ -504,20 +534,20 @@ impl Lower<'_> {
                 }
             }
         };
-        let mut v = self.emit(true, Ty::Location, |dst| Ins::Scatter { dst, seed, count: count.reg, weight });
+        let mut v = self.emit(true, Ty::Sample, |dst| Ins::Scatter { dst, seed, count: count.reg, weight });
         v.array = true;
         Ok(v)
     }
 
     fn at_location(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
         let loc = self.input(node, 0, None)?;
-        if loc.ty != Ty::Location { return error(node, "Get Data at Location reads at locations (from Scatter on Surface)"); }
-        if name.trim().is_empty() { return error(node, "Get Data at Location needs the name of the attribute it reads"); }
+        if loc.ty != Ty::Sample { return error(node, "Get Data at Samples reads at surface samples (Scatter on Surface's Surface Samples)"); }
+        if name.trim().is_empty() { return error(node, "Get Data at Samples needs the name of the attribute it reads"); }
         // Per point first, then per corner, per face, the object's.
         let found = [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(self.geo, c, name).map(|f| (c, f)));
         let Some((ctx, found)) = found else { return error(node, format!("No attribute '{name}'")) };
-        let Some(ty) = found.ty.filter(|t| *t != Ty::Location) else {
+        let Some(ty) = found.ty.filter(|t| *t != Ty::Sample) else {
             return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)"));
         };
         let read = self.location_read(ctx, name, found.derived);
@@ -537,45 +567,56 @@ impl Lower<'_> {
         Ok(self.emit(true, ty, |dst| Ins::Array { op, dst, args: [a.reg, b.reg] }))
     }
 
+    /// Random Orientation: rotations, as many as its first input holds.
+    fn random_orientation(&mut self, node: usize, seed: u32) -> Result<Val, CompileError> {
+        if self.plan.context != Context::Object {
+            return error(node, "Random Orientation gives an array: set the Execution Ports to Object");
+        }
+        let of = self.input(node, 0, None)?;
+        if !of.array { return error(node, "Random Orientation makes one rotation per element of an array (Scatter's positions, say)"); }
+        let normals = self.input(node, 1, Some(Ty::Vec3))?;
+        let turn = self.input(node, 2, Some(Ty::Vec3))?;
+        if normals.ty != Ty::Vec3 || !normals.uniform { return error(node, "The normals are a 3D vector, or an array of them (Scatter's normals)"); }
+        if turn.ty != Ty::Vec3 || !turn.uniform || turn.array { return error(node, "The random rotation is one 3D vector of degrees"); }
+        let args = [of.reg, normals.reg, turn.reg];
+        let mut v = self.emit(true, Ty::Quat, |dst| Ins::RandomOrient { dst, seed, args });
+        v.array = true;
+        Ok(v)
+    }
+
     /// An Instancer, run from the root: its inputs worked out in the uniform
     /// program, the instances made from them once it has run.
-    fn instancer(&mut self, node: usize, name: &str, seed: u32) -> Result<(), CompileError> {
+    fn instancer(&mut self, node: usize, path: &str, seed: u32) -> Result<(), CompileError> {
         if self.plan.context != Context::Object {
-            return error(node, "The Instancer makes one set of instances for the whole primitive: set the Execution Ports to Object");
+            return error(node, "The Instancer makes one point instancer for the whole primitive: set the Execution Ports to Object");
         }
-        if name.trim().is_empty() || name.contains('/') { return error(node, "The Instancer needs a name (no slashes): its instances are a prim of that name"); }
-        let at = self.input(node, 0, None)?;
-        let (positions, normals) = match (at.ty, at.array) {
-            (Ty::Location, true) => {
-                let p = self.location_read(Context::Point, "P", false);
-                let pos = self.emit(true, Ty::Vec3, |dst| Ins::AtLocation { dst, read: p, loc: at.reg }).reg;
-                // The normals where there are some, else each face's own.
-                let found = [Context::Point, Context::Corner, Context::Face].into_iter()
-                    .find_map(|c| find_in(self.geo, c, "N").filter(|f| f.ty == Some(Ty::Vec3)).map(|f| (c, f.derived)));
-                let nrm = found.map(|(c, derived)| {
-                    let read = self.location_read(c, "N", derived);
-                    self.emit(true, Ty::Vec3, |dst| Ins::AtLocation { dst, read, loc: at.reg }).reg
-                });
-                (pos, nrm)
-            }
-            (Ty::Vec3, true) => (at.reg, None),
-            _ => return error(node, "The Instancer places instances at locations (Scatter on Surface) or positions: an array"),
-        };
+        let path = path.trim();
+        if path.is_empty() || path.ends_with('/') || path.contains("//") {
+            return error(node, "The Instancer needs the path of the instancer it makes (relative: beside the primitive)");
+        }
+        let positions = self.input(node, 0, None)?;
+        if positions.ty != Ty::Vec3 || !positions.array {
+            return error(node, "The Instancer's positions are an array of 3D vectors (Scatter on Surface's Positions)");
+        }
         let protos = self.input(node, 1, None)?;
         if protos.ty != Ty::Token || !protos.array { return error(node, "The Instancer's prototypes are paths (Get Reference)"); }
         let index = self.input(node, 2, Some(Ty::Int))?;
-        let align = self.input(node, 3, Some(Ty::Bool))?;
-        let turn = self.input(node, 4, Some(Ty::Vec3))?;
-        let smin = self.input(node, 5, Some(Ty::Float))?;
-        let smax = self.input(node, 6, Some(Ty::Float))?;
-        for (v, ty, what) in [(index, Ty::Int, "which prototype is an int"), (align, Ty::Bool, "aligning is true or false"),
-                              (turn, Ty::Vec3, "the random turn is a vector of degrees"), (smin, Ty::Float, "the scale is a number"), (smax, Ty::Float, "the scale is a number")] {
-            if v.ty != ty || !v.uniform { return error(node, format!("The Instancer's {what}")); }
+        let orient = self.input(node, 3, Some(Ty::Quat))?;
+        let scale = self.input(node, 4, None)?;
+        // An int scale is a number.
+        let scale = if scale.ty == Ty::Int {
+            let (src, array) = (scale.reg, scale.array);
+            let mut v = self.emit(true, Ty::Float, |dst| Ins::ToFloat { dst, src });
+            v.array = array;
+            v
+        } else { scale };
+        for (v, ok, what) in [(index, index.ty == Ty::Int, "proto indices are ints"), (orient, orient.ty == Ty::Quat, "orientations are rotations"),
+                              (scale, matches!(scale.ty, Ty::Float | Ty::Vec3), "scales are numbers or 3D vectors")] {
+            if !ok || !v.uniform { return error(node, format!("The Instancer's {what}, one for all or an array")); }
         }
-        if align.array || turn.array || smin.array || smax.array { return error(node, "Aligning, the random turn and the scale range are one value each"); }
         self.plan.instancers.push(InstancerPlan {
-            name: name.trim().to_string(), seed, positions, normals, protos: protos.reg, index: index.reg,
-            align: align.reg, turn: turn.reg, scale: [smin.reg, smax.reg],
+            path: path.to_string(), seed, positions: positions.reg, protos: protos.reg,
+            index: index.reg, orient: orient.reg, scale: scale.reg,
         });
         Ok(())
     }
@@ -583,9 +624,9 @@ impl Lower<'_> {
     /// A Set Data node, run from the root.
     fn set_data(&mut self, node: usize) -> Result<(), CompileError> {
         if !self.set.insert(node) { return Ok(()); }
-        if let Op::Instancer { name, seed } = &self.graph.nodes[node].op {
-            let (name, seed) = (name.clone(), *seed);
-            return self.instancer(node, &name, seed);
+        if let Op::Instancer { path, seed } = &self.graph.nodes[node].op {
+            let (path, seed) = (path.clone(), *seed);
+            return self.instancer(node, &path, seed);
         }
         let (graph, geo) = (self.graph, self.geo);
         let n = &graph.nodes[node];
@@ -600,12 +641,12 @@ impl Lower<'_> {
         }
         let column = column_in(geo, context, name).to_string();
         let mut v = match n.inputs.first() {
-            Some(Input::Wire { node: from, .. }) => self.value(*from)?,
+            Some(Input::Wire { node: from, output }) => self.wired(*from, *output)?,
             Some(Input::Value(value)) => self.constant(*value),
             None => return error(node, "Set Data takes a value"),
         };
         if v.array { return error(node, "An array is not written as an attribute (yet): it is one value of many"); }
-        if v.ty == Ty::Location { return error(node, "A location is not written as an attribute: read what is there with Get Data at Location"); }
+        if v.ty == Ty::Sample { return error(node, "A surface sample is not written as an attribute: read what is there with Get Data at Samples"); }
         if v.ty == Ty::Token { return error(node, "Paths are not written as attributes"); }
         let existing = geo.attr(context, &column);
         if let Some(t) = existing.and_then(|a| column_ty(&a.column)) {
@@ -647,7 +688,7 @@ pub fn compile(graph: &Graph, geo: &Geo) -> Result<Plan, CompileError> {
     let mut l = Lower {
         graph, geo,
         plan: Plan { context, reads: vec![], params: vec![], uniform: Program::default(), batch: Program::default(), writes: vec![], instancers: vec![] },
-        done: HashMap::new(), visiting: HashSet::new(), broadcast: HashMap::new(),
+        done: HashMap::new(), outs: HashMap::new(), visiting: HashSet::new(), broadcast: HashMap::new(),
         reads: HashMap::new(), written: HashMap::new(), set: HashSet::new(),
     };
     for input in &graph.nodes[root].inputs {
@@ -703,7 +744,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         }
         Op::Math(op) => {
             let wired: Vec<Option<Ty>> = n.inputs.iter().map(|i| match i {
-                Input::Wire { node: from, .. } => type_of(graph, geo, context, *from, memo, depth + 1),
+                Input::Wire { node: from, output } => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
                 Input::Value(_) => None,
             }).collect();
             // As `Lower::math`: values take the type of what they meet.
@@ -721,7 +762,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         }
         Op::Random { .. } => {
             let wired = n.inputs.iter().take(2).find_map(|i| match i {
-                Input::Wire { node: from, .. } => type_of(graph, geo, context, *from, memo, depth + 1),
+                Input::Wire { node: from, output } => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
                 Input::Value(_) => None,
             });
             wired.or_else(|| match (n.inputs.first(), n.inputs.get(1)) {
@@ -730,13 +771,15 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
                 _ => None,
             })
         }
-        Op::Scatter { .. } => Some(Ty::Location),
+        // Its samples; its positions and normals by `wire_ty`.
+        Op::Scatter { .. } => Some(Ty::Sample),
+        Op::RandomOrientation { .. } => Some(Ty::Quat),
         Op::GetReference { .. } => Some(Ty::Token),
         Op::GetDataAt { name } => [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty),
         Op::Array(op) => {
             let of = match n.inputs.first() {
-                Some(Input::Wire { node: from, .. }) => type_of(graph, geo, context, *from, memo, depth + 1),
+                Some(Input::Wire { node: from, output }) => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
                 _ => None,
             };
             of.and_then(|t| array_ty(*op, t))
@@ -746,10 +789,20 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
     t
 }
 
+/// The type of output `output` of a node: Scatter on Surface's positions
+/// and normals are 3D vectors, its samples samples; every other node has
+/// one output, `type_of`'s.
+fn wire_ty(graph: &Graph, geo: &Geo, context: Context, node: usize, output: usize, memo: &mut Vec<Option<Option<Ty>>>, depth: usize) -> Option<Ty> {
+    match graph.nodes.get(node).map(|n| &n.op) {
+        Some(Op::Scatter { .. }) if output != SCATTER_SAMPLES => Some(Ty::Vec3),
+        _ => type_of(graph, geo, context, node, memo, depth),
+    }
+}
+
 /// Whether each node's output is an array, by node, for the editor: an
 /// array is drawn and named apart from a single value. What makes one:
 /// Scatter on Surface, Get Reference, Random Value with a count; what
-/// keeps one: maths on an array, Get Data at locations.
+/// keeps one: maths on an array, Get Data at Samples; Random Orientation.
 pub fn output_arrays(graph: &Graph) -> Vec<bool> {
     let mut memo: Vec<Option<bool>> = vec![None; graph.nodes.len()];
     (0..graph.nodes.len()).map(|i| is_array(graph, i, &mut memo, 0)).collect()
@@ -762,7 +815,7 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
     memo[node] = Some(false);
     let n = &graph.nodes[node];
     let a = match &n.op {
-        Op::Scatter { .. } | Op::GetReference { .. } => true,
+        Op::Scatter { .. } | Op::GetReference { .. } | Op::RandomOrientation { .. } => true,
         Op::Random { .. } => match n.inputs.get(2) {
             Some(Input::Value(Value::Int(c))) => *c > 0,
             Some(Input::Value(Value::Float(c))) => *c > 0.0,

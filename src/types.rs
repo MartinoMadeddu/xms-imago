@@ -606,19 +606,24 @@ pub enum IceGraphNodeType {
     Random { seed: u32 },
     /// An array's size, an element, its sum or average.
     Array { op: xms_ice::ArrayOp },
-    /// Places on the surface, spread by area (see `xms_ice::Op::Scatter`).
+    /// Places on the surface, spread by area: their positions, the normals
+    /// there and the surface samples (see `xms_ice::Op::Scatter`).
     Scatter { seed: u32, #[serde(default)] weight: String },
-    /// An attribute read at locations (see `xms_ice::Op::GetDataAt`).
+    /// Get Data at Samples: an attribute read at surface samples (see
+    /// `xms_ice::Op::GetDataAt`).
     GetDataAt { name: String },
+    /// Random rotations, one per element of an array, up along normals
+    /// (see `xms_ice::Op::RandomOrientation`).
+    RandomOrientation { seed: u32 },
     /// Prims on the operator's reference input `input` (from 1): every one,
     /// or those its rows name, in their order. A row is a path, or a
     /// pattern as in Primitive Locations (`*`, `?`, `**`), naming the prim
     /// itself, a group as much as a mesh (see `xms_ice::Op::GetReference`).
     GetReference { input: u32, #[serde(default)] paths: Vec<String> },
-    /// Make instances, an Execute: prototypes at locations (see
-    /// `xms_ice::Op::Instancer`). `name`: the prim the instances are made
-    /// under.
-    Instancer { name: String, seed: u32 },
+    /// Make a point instancer, an Execute: prototypes at positions (see
+    /// `xms_ice::Op::Instancer`). `path`: the instancer's; relative,
+    /// beside the primitive the graph runs on.
+    Instancer { #[serde(alias = "name")] path: String, seed: u32 },
 }
 
 impl IceGraphNodeType {
@@ -646,7 +651,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             Value::Vec3(_) => "3D Vector",
             Value::Vec4(_) => "4D Vector",
             Value::Quat(_) => "Rotation",
-            Value::Location(_) => "Location",
+            Value::Sample(_) => "Surface Sample",
         },
         IceGraphNodeType::Math { op } => match op {
             Math::Add => "Add",
@@ -670,7 +675,8 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         },
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
-        IceGraphNodeType::GetDataAt { .. } => "Get Data at Location",
+        IceGraphNodeType::GetDataAt { .. } => "Get Data at Samples",
+        IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::GetReference { .. } => "Get Reference",
         IceGraphNodeType::Instancer { .. } => "Instancer",
         IceGraphNodeType::Array { op } => match op {
@@ -692,6 +698,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "⚂",
         IceGraphNodeType::Scatter { .. } => "⁘",
         IceGraphNodeType::GetDataAt { .. } => "▶",
+        IceGraphNodeType::RandomOrientation { .. } => "⟳",
         IceGraphNodeType::GetReference { .. } => "⇲",
         IceGraphNodeType::Instancer { .. } => "❖",
         IceGraphNodeType::Array { .. } => "▤",
