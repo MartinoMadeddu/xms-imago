@@ -1199,19 +1199,24 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     let id = store.create_subnet("Instancing".into());
     if let Some(sub) = store.get_mut(id) {
         let root = sub.root().expect("every ICE graph has a root");
+        // Each node named as adding it from the menu names it.
+        let add = |sub: &mut crate::ice::IceGraph, t: IceGraphNodeType, at: egui::Pos2| {
+            let name = crate::types::subnet_node_label(&t).to_string();
+            sub.add_node(name, t, at)
+        };
         let set = |sub: &mut crate::ice::IceGraph, id: NodeId, input: usize, v: Value| {
             if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == id) { n.inputs[input].value = Some(v); }
         };
-        let scatter = sub.add_node("Scatter".into(), IceGraphNodeType::Scatter { seed: 7, weight: String::new() }, p(60.0, 120.0));
+        let scatter = add(&mut *sub, IceGraphNodeType::Scatter { seed: 7, weight: String::new() }, p(60.0, 120.0));
         set(&mut *sub, scatter, 0, Value::Int(240));
-        let shapes = sub.add_node("Shapes".into(), IceGraphNodeType::GetReference { input: 1, paths: vec!["/protos/cube".into(), "/protos/sphere".into()] }, p(60.0, 360.0));
-        let car = sub.add_node("Car".into(), IceGraphNodeType::GetReference { input: 2, paths: vec!["/protos/delorean".into()] }, p(60.0, 460.0));
-        let join = sub.add_node("Prototypes".into(), IceGraphNodeType::Concat, p(300.0, 400.0));
-        let turn = sub.add_node("Turn".into(), IceGraphNodeType::RandomOrientation { seed: 3 }, p(300.0, 120.0));
-        let size = sub.add_node("Size".into(), IceGraphNodeType::Random { seed: 5 }, p(300.0, 260.0));
+        let shapes = add(&mut *sub, IceGraphNodeType::GetReference { input: 1, paths: vec!["/protos/cube".into(), "/protos/sphere".into()] }, p(60.0, 360.0));
+        let car = add(&mut *sub, IceGraphNodeType::GetReference { input: 2, paths: vec!["/protos/delorean".into()] }, p(60.0, 460.0));
+        let join = add(&mut *sub, IceGraphNodeType::Concat, p(300.0, 400.0));
+        let turn = add(&mut *sub, IceGraphNodeType::RandomOrientation { seed: 3 }, p(300.0, 120.0));
+        let size = add(&mut *sub, IceGraphNodeType::Random { seed: 5 }, p(300.0, 260.0));
         set(&mut *sub, size, 0, Value::Float(0.6));
         set(&mut *sub, size, 1, Value::Float(1.4));
-        let inst = sub.add_node("Instancer".into(), IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 11, draw_mode: crate::types::DrawMode::Default }, p(560.0, 220.0));
+        let inst = add(&mut *sub, IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 11, draw_mode: crate::types::DrawMode::Default }, p(560.0, 220.0));
         sub.add_connection(scatter, xms_ice::SCATTER_NORMALS, turn, 0);
         sub.add_connection(scatter, xms_ice::SCATTER_POSITIONS, size, 2);
         sub.add_connection(shapes, 0, join, 0);
