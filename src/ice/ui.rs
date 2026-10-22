@@ -118,6 +118,10 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             })
         }
         IceGraphNodeType::Compose { op } => Some(op.output().name().to_string()),
+        IceGraphNodeType::Decompose { op } => Some(match op {
+            xms_ice::Decompose::AxisAngle => "axis and angle".to_string(),
+            op => op.input().name().to_string(),
+        }),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => None,
     }
 }
@@ -191,7 +195,8 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Root { .. } => pal::PORTS(),
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. }
-            | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat | IceGraphNodeType::Compose { .. } => pal::GREEN(),
+            | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat | IceGraphNodeType::Compose { .. }
+            | IceGraphNodeType::Decompose { .. } => pal::GREEN(),
         IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
         // The Geometry category: what makes geometry.
         IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } => pal::ORANGE(),
@@ -328,9 +333,16 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
                 resync = true;
             }
         }),
+        IceGraphNodeType::Decompose { op } => group(ui, "Decompose", None, |f| {
+            let choices: Vec<(xms_ice::Decompose, &str)> = xms_ice::Decompose::ALL.iter().map(|d| (*d, d.label())).collect();
+            if f.choice("From", Some("What it takes apart, and into what: a vector into its numbers, or into a smaller vector and a number; a rotation into its numbers, or its axis and angle (degrees)"), op, &choices) {
+                resync = true;
+            }
+        }),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => {}
     }
-    // Compose's parts follow what it makes: its inputs again, wires kept by place.
+    // Compose's and Decompose's ports follow what they make or take apart:
+    // made again, wires kept by place.
     if resync { let id = node.id; graph.resync_sockets(id); return; }
     // What each input holds while nothing is wired to it.
     let free: Vec<usize> = node.inputs.iter().enumerate()
@@ -641,6 +653,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),
     ];
+    out.push(("Math", IceGraphNodeType::Decompose { op: xms_ice::Decompose::Vec3 }, "A vector taken apart, an output per part: into its numbers, or a smaller vector and a number; a rotation into its numbers, or its axis and angle. Choose in its parameters"));
     out.push(("Math", IceGraphNodeType::Compose { op: xms_ice::Compose::Vec3 }, "A vector from its parts: numbers into a 2D, 3D or 4D vector, a vector and a number into a bigger one, numbers into a rotation. Choose in its parameters"));
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));

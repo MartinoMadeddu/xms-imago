@@ -608,6 +608,8 @@ pub enum IceGraphNodeType {
     Array { op: xms_ice::ArrayOp },
     /// A vector from its parts (see `xms_ice::Compose`).
     Compose { op: xms_ice::Compose },
+    /// A vector taken apart, an output per part (see `xms_ice::Decompose`).
+    Decompose { op: xms_ice::Decompose },
     /// Places on the surface, spread by area: their positions, the normals
     /// there and the surface samples (see `xms_ice::Op::Scatter`).
     Scatter { seed: u32, #[serde(default)] weight: String },
@@ -693,6 +695,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::GetReference { .. } => "Get Reference",
         IceGraphNodeType::Instancer { .. } => "Instancer",
         IceGraphNodeType::Compose { .. } => "Compose",
+        IceGraphNodeType::Decompose { .. } => "Decompose",
         IceGraphNodeType::Array { op } => match op {
             xms_ice::ArrayOp::Size => "Array Size",
             xms_ice::ArrayOp::Element => "Select in Array",
@@ -719,6 +722,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Instancer { .. } => "❖",
         IceGraphNodeType::Array { .. } => "▤",
         IceGraphNodeType::Compose { .. } => "⊞",
+        IceGraphNodeType::Decompose { .. } => "⊟",
     }
 }
 

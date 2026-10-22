@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
-use super::graph::{ArrayOp, Compose, Graph, Input, Math, Op, Reduce, SCATTER_NORMALS, SCATTER_SAMPLES};
+use super::graph::{ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Reduce, SCATTER_NORMALS, SCATTER_SAMPLES};
 use super::types::{Ty, Value};
 
 /// A plan: what to read, the two programs, what to write. Made once per
@@ -123,6 +123,8 @@ pub(crate) enum Ins {
     Array { op: ArrayOp, dst: usize, args: [usize; 2] },
     /// A vector from its parts, in `args` (as many as `op` takes).
     Compose { op: Compose, dst: usize, args: [usize; 4] },
+    /// A vector taken apart, into `dsts` (as many as `op` gives).
+    Decompose { op: Decompose, dsts: [usize; 4], src: usize },
     /// `count` (a register) places on the surface; `weight`, a read scaling
     /// how many land where.
     Scatter { dst: usize, seed: u32, count: usize, weight: Option<usize> },
@@ -314,10 +316,16 @@ impl Lower<'_> {
     /// other node has one output.
     fn wired(&mut self, node: usize, output: usize) -> Result<Val, CompileError> {
         let graph = self.graph;
-        if !matches!(graph.nodes.get(node).map(|n| &n.op), Some(Op::Scatter { .. })) || output == SCATTER_SAMPLES {
-            return self.value(node);
-        }
         if let Some(v) = self.outs.get(&(node, output)) { return Ok(*v); }
+        match graph.nodes.get(node).map(|n| &n.op) {
+            // Lowered once, every output kept (in `outs`).
+            Some(Op::Decompose(_)) => {
+                self.value(node)?;
+                return self.outs.get(&(node, output)).copied().ok_or(CompileError { node, message: format!("No output {output}") });
+            }
+            Some(Op::Scatter { .. }) if output != SCATTER_SAMPLES => {}
+            _ => return self.value(node),
+        }
         let samples = self.value(node)?;
         let read = if output == SCATTER_NORMALS {
             // The mesh's normals where it has some, else each face's own.
@@ -359,6 +367,7 @@ impl Lower<'_> {
             Op::Random { seed } => self.random(node, *seed)?,
             Op::Array(op) => self.array(node, *op)?,
             Op::Compose(c) => self.compose(node, *c)?,
+            Op::Decompose(d) => self.decompose(node, *d)?,
             Op::Scatter { seed, weight } => self.scatter(node, *seed, weight)?,
             Op::GetDataAt { name } => self.at_location(node, name)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
@@ -752,6 +761,25 @@ impl Lower<'_> {
         Ok(out)
     }
 
+    /// Decompose: a vector taken apart, one register per part, all made by
+    /// one instruction; output 0 given back, every output kept in `outs`.
+    fn decompose(&mut self, node: usize, op: Decompose) -> Result<Val, CompileError> {
+        let v = self.input(node, 0, Some(op.input()))?;
+        if v.ty != op.input() { return error(node, format!("Decompose takes a {} here, not a {}", op.input().name(), v.ty.name())); }
+        if v.is_list() { return error(node, "Decompose works on values and the graph's arrays, not on lists per element yet"); }
+        let p = if v.uniform { &mut self.plan.uniform } else { &mut self.plan.batch };
+        let mut dsts = [0usize; 4];
+        for (k, (_, ty)) in op.outputs().iter().enumerate() {
+            dsts[k] = p.regs.len();
+            p.regs.push(*ty);
+        }
+        p.code.push(Ins::Decompose { op, dsts, src: v.reg });
+        for (k, (_, ty)) in op.outputs().iter().enumerate() {
+            self.outs.insert((node, k), Val { reg: dsts[k], uniform: v.uniform, ty: *ty, array: v.array, of: None });
+        }
+        Ok(self.outs[&(node, 0)])
+    }
+
     /// Concatenate Arrays: its wired inputs one after the other, arrays or
     /// single values, all of one type.
     fn concat(&mut self, node: usize) -> Result<Val, CompileError> {
@@ -979,6 +1007,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         Op::GetDataAt { name } => [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty),
         Op::Compose(c) => Some(c.output()),
+        Op::Decompose(d) => Some(d.outputs()[0].1),
         Op::Array(op) => {
             let of = match n.inputs.first() {
                 Some(Input::Wire { node: from, output }) => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
@@ -997,6 +1026,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
 fn wire_ty(graph: &Graph, geo: &Geo, context: Context, node: usize, output: usize, memo: &mut Vec<Option<Option<Ty>>>, depth: usize) -> Option<Ty> {
     match graph.nodes.get(node).map(|n| &n.op) {
         Some(Op::Scatter { .. }) if output != SCATTER_SAMPLES => Some(Ty::Vec3),
+        Some(Op::Decompose(d)) => d.outputs().get(output).map(|o| o.1),
         _ => type_of(graph, geo, context, node, memo, depth),
     }
 }
@@ -1033,7 +1063,7 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
             };
             counted || from_array(3, memo) || (matches!(n.op, Op::RandomOrientation { .. }) && from_array(0, memo))
         }
-        Op::Math(_) | Op::GetDataAt { .. } | Op::Compose(_) => {
+        Op::Math(_) | Op::GetDataAt { .. } | Op::Compose(_) | Op::Decompose(_) => {
             let mut any = false;
             for input in &n.inputs {
                 if let Input::Wire { node: from, .. } = input { any |= is_array(graph, *from, memo, depth + 1); }

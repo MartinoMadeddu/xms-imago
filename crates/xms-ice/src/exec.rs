@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use xms_geo::{Attr, Column, Context, Geo, Topology};
 
 use super::compile::{InstancerPlan, Ins, Key, Plan, Program, Write, NO_COUNT};
-use super::graph::{ArrayOp, Compose, Math, Reduce};
+use super::graph::{ArrayOp, Compose, Decompose, Math, Reduce};
 use super::types::{Loc, Ty, Value};
 
 /// Elements per batch: long enough that each instruction's loop does real
@@ -641,6 +641,10 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 compose(op, &args[..op.inputs().len()].iter().map(|&r| &regs[r]).collect::<Vec<_>>(), &mut out);
                 regs[dst] = out;
             }
+            Ins::Decompose { op, dsts, src } => {
+                let made = decompose(op, &regs[src]);
+                for (k, r) in made.into_iter().enumerate() { regs[dsts[k]] = r; }
+            }
             Ins::Array { op, dst, args } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
                 match &regs[args[0]] {
@@ -875,6 +879,31 @@ fn compose(op: Compose, parts: &[&Reg], out: &mut Reg) {
             let q = Vec4::new(f(0, i), f(1, i), f(2, i), f(3, i));
             if q.length_squared() > 0.0 { Quat::from_vec4(q).normalize() } else { Quat::IDENTITY }
         }).collect(),
+    }
+}
+
+/// A vector taken apart: one register per part, as `op.outputs()` lists
+/// them. A rotation's angle is in degrees, its axis unit (+X when none).
+fn decompose(op: Decompose, v: &Reg) -> Vec<Reg> {
+    let f = |it: Vec<f32>| Reg::Float(it);
+    match (op, v) {
+        (Decompose::Vec2, Reg::Vec2(v)) => vec![f(v.iter().map(|a| a.x).collect()), f(v.iter().map(|a| a.y).collect())],
+        (Decompose::Vec3, Reg::Vec3(v)) => vec![f(v.iter().map(|a| a.x).collect()), f(v.iter().map(|a| a.y).collect()), f(v.iter().map(|a| a.z).collect())],
+        (Decompose::Vec4, Reg::Vec4(v)) => vec![f(v.iter().map(|a| a.x).collect()), f(v.iter().map(|a| a.y).collect()),
+                                                f(v.iter().map(|a| a.z).collect()), f(v.iter().map(|a| a.w).collect())],
+        (Decompose::Vec3Z, Reg::Vec3(v)) => vec![Reg::Vec2(v.iter().map(|a| a.truncate()).collect()), f(v.iter().map(|a| a.z).collect())],
+        (Decompose::Vec4W, Reg::Vec4(v)) => vec![Reg::Vec3(v.iter().map(|a| a.truncate()).collect()), f(v.iter().map(|a| a.w).collect())],
+        (Decompose::Quat, Reg::Quat(v)) => vec![f(v.iter().map(|q| q.x).collect()), f(v.iter().map(|q| q.y).collect()),
+                                                f(v.iter().map(|q| q.z).collect()), f(v.iter().map(|q| q.w).collect())],
+        (Decompose::AxisAngle, Reg::Quat(v)) => {
+            let (axes, angles): (Vec<Vec3>, Vec<f32>) = v.iter().map(|q| {
+                let (axis, angle) = q.normalize().to_axis_angle();
+                (axis.try_normalize().unwrap_or(Vec3::X), angle.to_degrees())
+            }).unzip();
+            vec![Reg::Vec3(axes), f(angles)]
+        }
+        // Types the compiler has ruled out: empty parts.
+        _ => op.outputs().iter().map(|_| Reg::Float(vec![])).collect(),
     }
 }
 

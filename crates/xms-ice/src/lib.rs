@@ -32,7 +32,7 @@ pub mod types;
 
 pub use compile::{compile, output_arrays, output_types, CompileError, Plan};
 pub use exec::{run, Instances, Ran, BATCH};
-pub use graph::{ArrayOp, Compose, Graph, Input, Math, Node, Op, Reduce, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
+pub use graph::{ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Reduce, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
 pub use types::{Loc, Ty, Value};
 
 #[cfg(test)]

@@ -73,6 +73,9 @@ pub enum Op {
     /// vector and a number (see `Compose`). Per element, one value, or
     /// arrays element by element.
     Compose(Compose),
+    /// A vector (or a rotation) taken apart (see `Decompose`): one output
+    /// per part.
+    Decompose(Decompose),
     /// Places on the mesh's surface, spread evenly by area: input 0 (an
     /// int) of them, the same for the same seed. `weight`: the name of a
     /// per-face or per-point float that scales how many land where (0 none,
@@ -162,6 +165,65 @@ impl Compose {
             Compose::Vec2Z => "2D Vector and Float to 3D Vector",
             Compose::Vec3W => "3D Vector and Float to 4D Vector",
             Compose::Quat => "Floats to Rotation (i, j, k, real)",
+        }
+    }
+}
+
+/// What Decompose takes apart, and into what (see `Op::Decompose`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Decompose {
+    /// A 2D vector into X and Y.
+    Vec2,
+    /// A 3D vector into X, Y and Z.
+    Vec3,
+    /// A 4D vector into X, Y, Z and W.
+    Vec4,
+    /// A 3D vector into a 2D vector (XY) and Z.
+    Vec3Z,
+    /// A 4D vector into a 3D vector (XYZ) and W.
+    Vec4W,
+    /// A rotation into its I, J, K and real part.
+    Quat,
+    /// A rotation into its axis and its angle, in degrees.
+    AxisAngle,
+}
+
+impl Decompose {
+    pub const ALL: [Decompose; 7] = [Decompose::Vec2, Decompose::Vec3, Decompose::Vec4, Decompose::Vec3Z, Decompose::Vec4W, Decompose::Quat, Decompose::AxisAngle];
+
+    /// What it takes.
+    pub fn input(self) -> Ty {
+        match self {
+            Decompose::Vec2 => Ty::Vec2,
+            Decompose::Vec3 | Decompose::Vec3Z => Ty::Vec3,
+            Decompose::Vec4 | Decompose::Vec4W => Ty::Vec4,
+            Decompose::Quat | Decompose::AxisAngle => Ty::Quat,
+        }
+    }
+
+    /// Its outputs: name and type, in order.
+    pub fn outputs(self) -> &'static [(&'static str, Ty)] {
+        match self {
+            Decompose::Vec2 => &[("X", Ty::Float), ("Y", Ty::Float)],
+            Decompose::Vec3 => &[("X", Ty::Float), ("Y", Ty::Float), ("Z", Ty::Float)],
+            Decompose::Vec4 => &[("X", Ty::Float), ("Y", Ty::Float), ("Z", Ty::Float), ("W", Ty::Float)],
+            Decompose::Vec3Z => &[("XY", Ty::Vec2), ("Z", Ty::Float)],
+            Decompose::Vec4W => &[("XYZ", Ty::Vec3), ("W", Ty::Float)],
+            Decompose::Quat => &[("I", Ty::Float), ("J", Ty::Float), ("K", Ty::Float), ("Real", Ty::Float)],
+            Decompose::AxisAngle => &[("Axis", Ty::Vec3), ("Angle", Ty::Float)],
+        }
+    }
+
+    /// As its dropdown names it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Decompose::Vec2 => "2D Vector to Floats",
+            Decompose::Vec3 => "3D Vector to Floats",
+            Decompose::Vec4 => "4D Vector to Floats",
+            Decompose::Vec3Z => "3D Vector to 2D Vector and Float",
+            Decompose::Vec4W => "4D Vector to 3D Vector and Float",
+            Decompose::Quat => "Rotation to Floats (i, j, k, real)",
+            Decompose::AxisAngle => "Rotation to Axis and Angle",
         }
     }
 }
@@ -257,6 +319,7 @@ impl Op {
             Op::Concat => None,
             Op::Array(a) => Some(a.arity()),
             Op::Compose(c) => Some(c.inputs().len()),
+            Op::Decompose(_) => Some(1),
             Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
             Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } | Op::GetArrayData { .. } => Some(0),

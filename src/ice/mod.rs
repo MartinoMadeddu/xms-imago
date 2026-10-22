@@ -221,6 +221,18 @@ impl IceGraph {
                 };
                 IceGraphInputSocket { value: Some(value), ..input(name, 0.0) }
             }).collect(), vec![output("Vector", "Any")]),
+            // What it takes apart, zero (no rotation) when not wired; an
+            // output per part.
+            IceGraphNodeType::Decompose { op } => {
+                let (name, value) = match op.input() {
+                    xms_ice::Ty::Vec2 => ("Vector", Value::Vec2([0.0; 2])),
+                    xms_ice::Ty::Vec4 => ("Vector", Value::Vec4([0.0; 4])),
+                    xms_ice::Ty::Quat => ("Rotation", Value::Quat([0.0, 0.0, 0.0, 1.0])),
+                    _ => ("Vector", Value::Vec3([0.0; 3])),
+                };
+                (vec![IceGraphInputSocket { value: Some(value), ..input(name, 0.0) }],
+                 op.outputs().iter().map(|(n, _)| output(*n, "Any")).collect())
+            }
             // Outputs in `xms_ice::SCATTER_*`'s order.
             IceGraphNodeType::Scatter { .. } => (
                 vec![IceGraphInputSocket { value: Some(Value::Int(1000)), ..input("Count", 0.0) }],
@@ -254,17 +266,23 @@ impl IceGraph {
         }
     }
 
-    /// A node's inputs made again for what it now is (Compose changed what
-    /// it makes): the wires into inputs still there kept, the others taken
-    /// off.
+    /// A node's ports made again for what it now is (Compose changed what
+    /// it makes, Decompose what it takes apart): the wires into inputs and
+    /// out of outputs still there kept, the others taken off.
     pub fn resync_sockets(&mut self, id: NodeId) {
         let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
         let (mut inputs, outputs) = Self::create_sockets(&n.node_type);
         for (new, old) in inputs.iter_mut().zip(&n.inputs) { new.connected_output = old.connected_output; }
-        let kept = inputs.len();
+        let (ins, outs) = (inputs.len(), outputs.len());
         n.inputs = inputs;
         n.outputs = outputs;
-        self.connections.retain(|c| c.to_node != id || c.to_input < kept);
+        self.connections.retain(|c| (c.to_node != id || c.to_input < ins) && (c.from_node != id || c.from_output < outs));
+        // Inputs of other nodes wired to an output that is gone: free.
+        for other in self.nodes.iter_mut() {
+            for input in other.inputs.iter_mut() {
+                if input.connected_output.is_some_and(|(from, k)| from == id && k >= outs) { input.connected_output = None; }
+            }
+        }
     }
 
     pub fn add_connection(&mut self, from: NodeId, from_out: usize, to: NodeId, to_in: usize) {
@@ -357,6 +375,7 @@ impl IceGraph {
                 IceGraphNodeType::Random { seed } => Op::Random { seed: *seed },
                 IceGraphNodeType::Array { op } => Op::Array(*op),
                 IceGraphNodeType::Compose { op } => Op::Compose(*op),
+                IceGraphNodeType::Decompose { op } => Op::Decompose(*op),
                 IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
                 IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
                 IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData { name: name.clone(), context: *context },
@@ -478,6 +497,8 @@ impl IceGraph {
                 IceGraphNodeType::Constant { value } => Some(value.ty()),
                 // Positions and normals, then the samples.
                 IceGraphNodeType::Scatter { .. } => Some(if output == xms_ice::SCATTER_SAMPLES { xms_ice::Ty::Sample } else { xms_ice::Ty::Vec3 }),
+                // Each part its own type, whatever comes in.
+                IceGraphNodeType::Decompose { op } => op.outputs().get(output).map(|o| o.1),
                 _ => self.types.lock().ok()?.get(&node).copied(),
             },
         }

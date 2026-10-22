@@ -872,3 +872,40 @@ fn compose_makes_vectors_from_their_parts() {
     assert_eq!(compile(&g, &geo).unwrap_err().node, bad);
 }
 
+/// Decompose: P's parts per point, each its own output; a 4D vector into
+/// its 3D part and W; a rotation into its axis and angle in degrees.
+#[test]
+fn decompose_takes_vectors_apart_one_output_each() {
+    use super::graph::{Compose, Decompose};
+    let geo = cloud(3);
+    // P's x plus 10 times its z, from two outputs of one Decompose.
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let parts = g.add(Op::Decompose(Decompose::Vec3), vec![wire(p)]);
+    let z10 = g.add(Op::Math(Math::Multiply), vec![Input::Wire { node: parts, output: 2 }, Input::Value(Value::Float(10.0))]);
+    let sum = g.add(Op::Math(Math::Add), vec![Input::Wire { node: parts, output: 0 }, wire(z10)]);
+    let set = g.add(Op::set("v"), vec![wire(sum)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    assert_eq!(out.attr(Context::Point, "v").unwrap().column.floats().unwrap(), &[0.0, 1.0, 2.0]);
+    // A 4D vector's W, after its XYZ.
+    let mut g = Graph::default();
+    let v4 = g.add(Op::Constant(Value::Vec4([1.0, 2.0, 3.0, 4.0])), vec![]);
+    let parts = g.add(Op::Decompose(Decompose::Vec4W), vec![wire(v4)]);
+    let w = g.add(Op::Math(Math::Add), vec![Input::Wire { node: parts, output: 1 }, Input::Value(Value::Float(0.0))]);
+    assert_eq!(object_value(g, w, "w", &geo).floats().unwrap(), &[4.0]);
+    // 90 degrees about Y, back as its axis and angle.
+    let mut g = Graph::default();
+    let q = g.add(Op::Math(Math::AxisAngle), vec![Input::Value(Value::Vec3([0.0, 1.0, 0.0])), Input::Value(Value::Float(90.0))]);
+    let parts = g.add(Op::Decompose(Decompose::AxisAngle), vec![wire(q)]);
+    let angle = g.add(Op::Math(Math::Add), vec![Input::Wire { node: parts, output: 1 }, Input::Value(Value::Float(0.0))]);
+    let a = object_value(g, angle, "a", &geo).floats().unwrap()[0];
+    assert!((a - 90.0).abs() < 1e-3, "{a}");
+    // Composed and taken apart again: the same numbers.
+    let mut g = Graph::default();
+    let v = g.add(Op::Compose(Compose::Vec2), vec![Input::Value(Value::Float(3.0)), Input::Value(Value::Float(5.0))]);
+    let parts = g.add(Op::Decompose(Decompose::Vec2), vec![wire(v)]);
+    let y = g.add(Op::Math(Math::Add), vec![Input::Wire { node: parts, output: 1 }, Input::Value(Value::Float(0.0))]);
+    assert_eq!(object_value(g, y, "y", &geo).floats().unwrap(), &[5.0]);
+}
+
