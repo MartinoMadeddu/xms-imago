@@ -52,7 +52,7 @@ When the Viewer pane is closed or hidden behind another tab, the 3D view is not 
 
 ## Files
 
-The graph is saved as a JSON file. The top bar shows its name, and "(unsaved)" while it differs from the file.
+The graph is saved as a JSON file, every ICE node with its graph. The top bar shows its name, and "(unsaved)" while it differs from the file.
 
 | To | Do this |
 |---|---|
@@ -82,7 +82,7 @@ As in other programs, nothing is written over a file that exists without asking:
 
 Opening a graph is a step in the [history](undo.md): undo goes back to the graph before it.
 
-Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If nothing was viewed (the graph was empty), the added graph's viewed operator is. ICE graphs are not saved in graph files yet, so an ICE node added from a file comes with an empty tree (from a template, or copied and pasted, it keeps its tree).
+Adding a graph puts its nodes to the right of the ones there, selected, as one step in the history. The graph open stays the current file. If nothing was viewed (the graph was empty), the added graph's viewed operator is. An ICE node keeps its graph however it comes in: from a file, a template, or copied and pasted.
 
 Opening a graph (Open or Open Recent) or picking a template asks first whether to **Add** it to the graph, beside the nodes already there, or **Open as new** in place of the graph. On an empty graph it opens straight away.
 

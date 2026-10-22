@@ -210,7 +210,7 @@ pub(crate) fn draw_ui(
                 };
             }
             BrowseTarget::SaveGraph => {
-                save_graph(&graph, &path, &mut *graph_file, &mut *history, &mut *recent);
+                save_graph(&graph, &subnets, &path, &mut *graph_file, &mut *history, &mut *recent);
             }
             BrowseTarget::ImportGraph => {
                 graph_file.message = add_graph_file(&mut *graph, &mut *subnets, &path, &mut *recent);
@@ -334,7 +334,7 @@ pub(crate) fn draw_ui(
             FileCommand::OpenRecent(p) => save_first.load(Source::File(p)),
             FileCommand::Template(i) => save_first.load(Source::Template(i)),
             FileCommand::ClearRecent => recent.clear(),
-            FileCommand::Save => { save_or_ask(&graph, &mut *graph_file, &mut *history, &mut *recent, &mut *browser); }
+            FileCommand::Save => { save_or_ask(&graph, &subnets, &mut *graph_file, &mut *history, &mut *recent, &mut *browser); }
             FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut *browser),
             FileCommand::ImportGraph => browser.open(BrowseTarget::ImportGraph, BrowseMode::File, "Import graph", &["json"], ""),
             FileCommand::ImportFbx => browser.open(BrowseTarget::ImportFbx, BrowseMode::File, "Import FBX", &["fbx"], ""),
@@ -945,7 +945,8 @@ impl egui_dock::TabViewer for Panes<'_> {
 /// Undo and redo for one frame: the shortcuts, and a step recorded when the
 /// graph changed and nothing is being dragged or typed.
 pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
-    let AppState { graph, history, nav, browser, .. } = app;
+    let AppState { graph, history, nav, browser, subnets, .. } = app;
+    history.set_ice(subnets.content_hash());
     let typing = ctx.egui_wants_keyboard_input();
     if !typing && !browser.is_open() {
         let (redo, undo) = ctx.input_mut(|i| {
@@ -1011,9 +1012,13 @@ fn file_name(path: &std::path::Path) -> String {
 
 /// Open a saved graph. It replaces the scene as one undoable step, becomes
 /// the current file, and goes to the top of Recent.
-fn open_graph(graph: &mut NodeGraphState, path: &std::path::Path, file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent) {
-    match graph_io::load(graph, path) {
+fn open_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, path: &std::path::Path, file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent) {
+    // Its ICE graphs in a store of their own, taking the old one's place
+    // once the file has been read.
+    let mut fresh = IceGraphStore::default();
+    match graph_io::load(graph, &mut fresh, path) {
         Ok(()) => {
+            *subnets = fresh;
             history::note(format!("Open {}", file_name(path)));
             history.mark_clean();
             recent.add(path);
@@ -1273,10 +1278,10 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
 /// Add a saved graph to the one open, beside its nodes, as one undoable
 /// step. The current file stays the same.
 fn add_graph_file(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, path: &std::path::Path, recent: &mut recent::Recent) -> String {
-    let mut other = NodeGraphState::default();
-    match graph_io::load(&mut other, path) {
+    let (mut other, mut other_subnets) = (NodeGraphState::default(), IceGraphStore::default());
+    match graph_io::load(&mut other, &mut other_subnets, path) {
         Ok(()) => {
-            let n = graph_io::add_graph(graph, subnets, &other);
+            let n = graph_io::add_graph(graph, subnets, &other, &other_subnets);
             history::note(format!("Add {}", file_name(path)));
             recent.add(path);
             format!("Added {n} nodes from {}", path.display())
@@ -1287,13 +1292,10 @@ fn add_graph_file(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, path:
 
 /// Add a template to the graph open, beside its nodes.
 fn add_template(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, t: &templates::Template) -> String {
-    let mut other = NodeGraphState::default();
-    let message = t.load(&mut other, subnets);
-    let n = graph_io::add_graph(graph, subnets, &other);
-    // The added nodes have copies of the template's trees.
-    for node in &other.nodes {
-        if let NodeType::Ice { id, .. } = node.node_type { subnets.subnets.remove(&id); }
-    }
+    // Made apart, then added: the added nodes get copies of its ICE graphs.
+    let (mut other, mut other_subnets) = (NodeGraphState::default(), IceGraphStore::default());
+    let message = t.load(&mut other, &mut other_subnets);
+    let n = graph_io::add_graph(graph, subnets, &other, &other_subnets);
     history::note(format!("Add template: {}", t.name));
     format!("Added {n} nodes: {}. {message}", t.name).trim_end_matches(". ").to_string()
 }
@@ -1321,8 +1323,8 @@ fn paste_nodes(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, clipboar
 }
 
 /// Write the graph to `path`. Returns whether it was written.
-fn save_graph(graph: &NodeGraphState, path: &std::path::Path, file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent) -> bool {
-    match graph_io::save(graph, path) {
+fn save_graph(graph: &NodeGraphState, subnets: &IceGraphStore, path: &std::path::Path, file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent) -> bool {
+    match graph_io::save(graph, subnets, path) {
         Ok(()) => {
             history.mark_clean();
             recent.add(path);
@@ -1343,9 +1345,9 @@ fn ask_where_to_save(file: &GraphFile, browser: &mut FileBrowser) {
 
 /// Save to the current file, or ask where when there is none.
 /// Returns whether the graph was written now.
-fn save_or_ask(graph: &NodeGraphState, file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent, browser: &mut FileBrowser) -> bool {
+fn save_or_ask(graph: &NodeGraphState, subnets: &IceGraphStore, file: &mut GraphFile, history: &mut history::History, recent: &mut recent::Recent, browser: &mut FileBrowser) -> bool {
     match file.path.clone() {
-        Some(p) => save_graph(graph, &p, file, history, recent),
+        Some(p) => save_graph(graph, subnets, &p, file, history, recent),
         None => { ask_where_to_save(file, browser); false }
     }
 }
@@ -1461,7 +1463,7 @@ fn carry_out(after: After, graph: &mut NodeGraphState, subnets: &mut IceGraphSto
             file.path = None;
             file.message = "New graph".into();
         }
-        After::Open(path) => open_graph(graph, &path, file, history, recent),
+        After::Open(path) => open_graph(graph, subnets, &path, file, history, recent),
         After::Template(i) => {
             let t = &templates::TEMPLATES[i];
             file.message = t.load(graph, subnets);
@@ -1585,7 +1587,7 @@ fn save_first_step(ctx: &egui::Context, save_first: &mut SaveFirst, history: &mu
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) { choice = Some(2); }
         match choice {
             Some(0) => {
-                if save_or_ask(&graph, &mut *graph_file, &mut *history, &mut *recent, &mut *browser) {
+                if save_or_ask(&graph, &subnets, &mut *graph_file, &mut *history, &mut *recent, &mut *browser) {
                     go = true;
                 } else if browser.is_open() {
                     save_first.saving_as = true;

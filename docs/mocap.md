@@ -118,7 +118,7 @@ Every path field has a folder button that opens the file browser. It reopens in 
 
 ## Graphs
 
-The File menu (Open, Open Recent, Save, Save As, Import) reads and writes the graph as JSON. See [Interface](interface.md#files). The contents of ICE graphs are not saved.
+The File menu (Open, Open Recent, Save, Save As, Import) reads and writes the graph as JSON. See [Interface](interface.md#files). Each ICE node's graph is saved with it.
 
 ## Not done yet
 

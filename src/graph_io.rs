@@ -1,9 +1,9 @@
 //! Saving and loading the node graph as JSON, copying and pasting nodes,
 //! adding one graph to another, and ready-made graphs.
 //!
-//! The contents of ICE graphs are not saved in a graph file yet: a loaded
-//! ICE node starts with a fresh, empty graph. Copied nodes carry their ICE
-//! graphs.
+//! A graph file holds the scene graph's nodes and wires, and the graph of
+//! each ICE node (`trees`), as copied nodes carry them. A file saved before
+//! ICE graphs were saved opens with empty ones, as it did.
 
 use std::path::Path;
 
@@ -51,10 +51,35 @@ struct SavedGraph {
     /// default (1 to 120 at 24 fps).
     #[serde(default)]
     scene:       crate::node_graph::SceneRange,
+    /// The graph inside each ICE node, by the node's id. Left out when
+    /// there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    trees:       Vec<SavedTree>,
 }
 
-pub fn to_json(graph: &NodeGraphState) -> String {
+/// The graphs inside these nodes' ICE nodes, as saved.
+fn saved_trees(nodes: &[&crate::node_graph::GraphNode], subnets: &IceGraphStore) -> Vec<SavedTree> {
+    nodes.iter().filter_map(|n| match &n.node_type {
+        NodeType::Ice { id, .. } => subnets.get(*id).map(|sg| SavedTree {
+            node: n.id.0,
+            name: sg.name.clone(),
+            nodes: sg.nodes.iter().map(|t| SavedTreeNode {
+                id: t.id.0, name: t.name.clone(), position: [t.position.x, t.position.y],
+                node_type: serde_json::to_value(&t.node_type).unwrap_or_default(),
+                values: t.inputs.iter().map(|i| i.value).collect(),
+            }).collect(),
+            connections: sg.connections.iter().map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input]).collect(),
+        }),
+        _ => None,
+    }).collect()
+}
+
+/// The graph as a file's text: its nodes, wires and the graph of each ICE
+/// node, from `subnets`.
+pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
+    let all: Vec<&crate::node_graph::GraphNode> = graph.nodes.iter().collect();
     let saved = SavedGraph {
+        trees: saved_trees(&all, subnets),
         version: 1,
         nodes: graph.nodes.iter().map(|n| SavedNode {
             id:        n.id.0,
@@ -78,8 +103,8 @@ pub fn to_json(graph: &NodeGraphState) -> String {
 }
 
 /// Replace the contents of `graph` with a saved graph. View settings (pan,
-/// zoom) are kept.
-pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
+/// zoom) are kept. Each ICE node's graph is made in `subnets`.
+pub fn from_json(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, json: &str) -> Result<(), String> {
     let mut value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     upgrade_json(&mut value);
     let mut saved: SavedGraph = serde_json::from_value(value).map_err(|e| e.to_string())?;
@@ -87,7 +112,12 @@ pub fn from_json(graph: &mut NodeGraphState, json: &str) -> Result<(), String> {
     clear(graph);
     for n in saved.nodes {
         let mut node_type = n.node_type;
-        if let NodeType::Ice { id, .. } = &mut node_type { *id = IceGraphId(usize::MAX); }
+        // Its graph as saved; none saved (an older file), an empty one.
+        if let NodeType::Ice { id, name, .. } = &mut node_type {
+            *id = saved.trees.iter().find(|t| t.node == n.id)
+                .map(|t| restore_tree(t, name, subnets))
+                .unwrap_or(IceGraphId(usize::MAX));
+        }
         let id = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]));
         // Keep the saved ids so connections can be restored as written.
         if let Some(node) = graph.nodes.iter_mut().find(|x| x.id == id) { node.id = NodeId(n.id); node.bypassed = n.bypassed; node.frozen = n.frozen; node.ghost = n.ghost; node.channels = n.channels; node.locations = n.locations; }
@@ -225,13 +255,13 @@ fn upgrade(saved: &mut SavedGraph) {
     }
 }
 
-pub fn save(graph: &NodeGraphState, path: &Path) -> Result<(), String> {
-    std::fs::write(path, to_json(graph)).map_err(|e| e.to_string())
+pub fn save(graph: &NodeGraphState, subnets: &IceGraphStore, path: &Path) -> Result<(), String> {
+    std::fs::write(path, to_json(graph, subnets)).map_err(|e| e.to_string())
 }
 
-pub fn load(graph: &mut NodeGraphState, path: &Path) -> Result<(), String> {
+pub fn load(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, path: &Path) -> Result<(), String> {
     let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    from_json(graph, &json)
+    from_json(graph, subnets, &json)
 }
 
 // ── Copy, paste, and adding one graph to another ─────────────────────────────
@@ -297,19 +327,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
         .filter(|n| ids.contains(&n.id)).collect();
     if picked.is_empty() { return None; }
     let inside = |id: NodeId| picked.iter().any(|n| n.id == id);
-    let trees = picked.iter().filter_map(|n| match &n.node_type {
-        NodeType::Ice { id, .. } => subnets.get(*id).map(|sg| SavedTree {
-            node: n.id.0,
-            name: sg.name.clone(),
-            nodes: sg.nodes.iter().map(|t| SavedTreeNode {
-                id: t.id.0, name: t.name.clone(), position: [t.position.x, t.position.y],
-                node_type: serde_json::to_value(&t.node_type).unwrap_or_default(),
-                values: t.inputs.iter().map(|i| i.value).collect(),
-            }).collect(),
-            connections: sg.connections.iter().map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input]).collect(),
-        }),
-        _ => None,
-    }).collect();
+    let trees = saved_trees(&picked, subnets);
     Some(Fragment {
         xms_nodes: 1,
         nodes: picked.iter().map(|n| SavedNode {
@@ -329,7 +347,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
 pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: Fragment, at: Option<egui::Pos2>) -> Placed {
     let Fragment { nodes, connections, trees, .. } = fragment;
     // Nodes from an older version are brought up to date as a file is.
-    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0, scene: Default::default() };
+    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0, scene: Default::default(), trees: vec![] };
     upgrade(&mut saved);
     let corner = saved.nodes.iter().fold(egui::pos2(f32::MAX, f32::MAX), |c, n| egui::pos2(c.x.min(n.position[0]), c.y.min(n.position[1])));
     let shift = match at { Some(at) => at - corner, None => egui::vec2(40.0, 40.0) };
@@ -384,10 +402,16 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
     if sg.root().is_none() {
         sg.add_node(crate::ice::ROOT_NAME.into(), crate::types::IceGraphNodeType::Root { context: crate::core::geo::Context::Point }, egui::pos2(500.0, 200.0));
     }
-    // The root's ports, as many as the wires into it need.
-    if let Some(root) = sg.nodes.iter_mut().find(|n| matches!(n.node_type, crate::types::IceGraphNodeType::Root { .. })) {
-        let wanted = t.connections.iter().filter(|c| c[2] == root.id.0).map(|c| c[3] + 1).max().unwrap_or(0);
-        while root.inputs.len() < wanted { let n = root.inputs.len() + 1; root.inputs.push(crate::ice::execute_port(n)); }
+    // The root's ports, and Concatenate Arrays' inputs, as many as the
+    // wires into them need, whatever order the wires come in.
+    for node in sg.nodes.iter_mut() {
+        let port: fn(usize) -> crate::ice::IceGraphInputSocket = match node.node_type {
+            crate::types::IceGraphNodeType::Root { .. } => crate::ice::execute_port,
+            crate::types::IceGraphNodeType::Concat => crate::ice::array_port,
+            _ => continue,
+        };
+        let wanted = t.connections.iter().filter(|c| c[2] == node.id.0).map(|c| c[3] + 1).max().unwrap_or(0);
+        while node.inputs.len() < wanted { let n = node.inputs.len() + 1; node.inputs.push(port(n)); }
     }
     for &[from, out, to, input] in &t.connections {
         let ok = sg.nodes.iter().any(|n| n.id.0 == from && out < n.outputs.len())
@@ -397,13 +421,14 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
     sid
 }
 
-/// Add every node of `other` to `graph`, to the right of what is there.
+/// Add every node of `other` to `graph`, to the right of what is there,
+/// the graphs of its ICE nodes (in `other_subnets`) copied into `subnets`.
 /// When `graph` had nothing to view, the viewed operator of `other` is
 /// viewed. Returns how many nodes were added.
-pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other: &NodeGraphState) -> usize {
+pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other: &NodeGraphState, other_subnets: &IceGraphStore) -> usize {
     let had_view = graph.view_flag.is_some();
     let ids: Vec<NodeId> = other.nodes.iter().map(|n| n.id).collect();
-    let Some(fragment) = copy(other, subnets, &ids) else { return 0 };
+    let Some(fragment) = copy(other, other_subnets, &ids) else { return 0 };
     let count = fragment.len();
     let w = crate::node_graph::ui::NODE_WIDTH;
     let at = graph.nodes.iter()
@@ -549,15 +574,15 @@ mod tests {
             auto_collapse: true,
         }, egui::pos2(9.0, 9.0));
         g.add_connection(xf, 0, ep, 0);
-        let json = to_json(&g);
+        let json = to_json(&g, &IceGraphStore::default());
 
         let mut h = NodeGraphState::default();
-        from_json(&mut h, &json).unwrap();
+        from_json(&mut h, &mut IceGraphStore::default(), &json).unwrap();
         assert_eq!(h.nodes.len(), g.nodes.len());
         assert_eq!(h.connections.len(), g.connections.len());
         assert_eq!(h.view_flag, g.view_flag);
         assert!(h.nodes.iter().any(|n| n.bypassed));
-        assert_eq!(to_json(&h), json);
+        assert_eq!(to_json(&h, &IceGraphStore::default()), json);
         // Split keeps both outputs and their wires.
         let split = h.nodes.iter().find(|n| matches!(n.node_type, NodeType::SplitSkeleton { .. })).unwrap();
         assert_eq!(split.outputs.len(), 2);
@@ -576,9 +601,9 @@ mod tests {
         let take = g.add_node("Take".into(), NodeType::TestClip { seconds: 1.0, fps_num: 30, fps_den: 1 }, egui::pos2(0.0, 0.0));
         let who = g.add_node("Characterize".into(), NodeType::Characterize { picks: vec![(Slot::LeftHand, "Take01:LeftForeArm".into())] }, egui::pos2(0.0, 80.0));
         g.add_connection(take, 0, who, 0);
-        let json = to_json(&g);
+        let json = to_json(&g, &IceGraphStore::default());
         let mut back = NodeGraphState::default();
-        from_json(&mut back, &json).unwrap();
+        from_json(&mut back, &mut IceGraphStore::default(), &json).unwrap();
         let clip = back.eval_anim(who).unwrap();
         let h = Human::of(&clip);
         assert_eq!(h.get(Slot::LeftHand).map(|j| clip.joints[j].name.as_str()), Some("Take01:LeftForeArm"));
@@ -595,9 +620,35 @@ mod tests {
         g.add_node("Take".into(), NodeType::LoadFbx { path: "/home/x/examples/ragdoll/into_the_car.xmsclip".into(), take: 0 }, egui::pos2(0.0, 80.0));
         g.add_node("Other".into(), NodeType::LoadFbx { path: "/home/x/takes/car.fbx".into(), take: 0 }, egui::pos2(0.0, 160.0));
         let mut back = NodeGraphState::default();
-        from_json(&mut back, &to_json(&g)).unwrap();
+        from_json(&mut back, &mut IceGraphStore::default(), &to_json(&g, &IceGraphStore::default())).unwrap();
         let paths: Vec<String> = back.nodes.iter().filter_map(|n| match &n.node_type { NodeType::LoadFbx { path, .. } => Some(path.clone()), _ => None }).collect();
         assert_eq!(paths, ["/home/x/examples/ragdoll/car.fbx", "/home/x/examples/ragdoll/split/into_the_car_.fbx", "/home/x/takes/car.fbx"]);
+    }
+
+    /// A graph file keeps each ICE node's graph: saved and opened again,
+    /// the instancing template's graph is the same, every wire included.
+    #[test]
+    fn a_saved_graph_keeps_its_ice_graphs() {
+        let t = crate::templates::TEMPLATES.iter().find(|t| t.name == "ICE: instancing").unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        t.load(&mut g, &mut store);
+        let json = to_json(&g, &store);
+        let (mut back, mut theirs) = (NodeGraphState::default(), IceGraphStore::default());
+        from_json(&mut back, &mut theirs, &json).unwrap();
+        let ice = |g: &NodeGraphState| g.nodes.iter().find_map(|n| match n.node_type { NodeType::Ice { id, .. } => Some(id), _ => None }).unwrap();
+        let (a, b) = (store.get(ice(&g)).unwrap(), theirs.get(ice(&back)).unwrap());
+        assert_eq!(a.nodes.len(), b.nodes.len());
+        assert_eq!(a.connections.len(), b.connections.len(), "every wire, the Concatenate's included");
+        assert_eq!(a.content_hash(), b.content_hash());
+        // A file from before ICE graphs were saved opens with an empty one.
+        let old: serde_json::Value = {
+            let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            v.as_object_mut().unwrap().remove("trees");
+            v
+        };
+        let (mut older, mut none) = (NodeGraphState::default(), IceGraphStore::default());
+        from_json(&mut older, &mut none, &old.to_string()).unwrap();
+        assert!(none.subnets.is_empty());
     }
 
     /// Copied nodes come back through text (the clipboard) with their
@@ -728,10 +779,10 @@ mod tests {
     fn bad_json_leaves_graph_alone() {
         let mut g = NodeGraphState::default();
         mocap_split_template(&mut g);
-        let before = to_json(&g);
-        assert!(from_json(&mut g, "{ not json").is_err());
-        assert!(from_json(&mut g, r#"{"version":1}"#).is_err());
-        assert_eq!(to_json(&g), before);
+        let before = to_json(&g, &IceGraphStore::default());
+        assert!(from_json(&mut g, &mut IceGraphStore::default(), "{ not json").is_err());
+        assert!(from_json(&mut g, &mut IceGraphStore::default(), r#"{"version":1}"#).is_err());
+        assert_eq!(to_json(&g, &IceGraphStore::default()), before);
     }
 
     /// A graph saved before Body Collide had its display and Transform took
@@ -780,10 +831,10 @@ mod tests {
         g.sync_sockets(ph);
         assert!(!g.connections.iter().any(|c| c.from_node == ph && c.from_output == 1));
 
-        let json = to_json(&g);
+        let json = to_json(&g, &IceGraphStore::default());
         assert!(json.contains("Locks feet that should not slide."));
         let mut h = NodeGraphState::default();
-        from_json(&mut h, &json).unwrap();
+        from_json(&mut h, &mut IceGraphStore::default(), &json).unwrap();
         let back = h.nodes.iter().find(|n| n.name == "FootLocker").unwrap();
         assert!(matches!(&back.node_type, NodeType::Placeholder { inputs, outputs, description }
             if inputs.len() == 3 && outputs == &vec!["Mesh".to_string()] && description.starts_with("Locks")));
@@ -799,7 +850,7 @@ mod tests {
             {"id":3,"name":"Move","position":[0,100],"node_type":{"Transform":{"translation":[0.0,0.0,0.0],"rotation":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0]}}}
         ],"connections":[[2,0,3,0],[3,0,0,0]],"view_flag":null}"#;
         let mut g = NodeGraphState::default();
-        from_json(&mut g, json).unwrap();
+        from_json(&mut g, &mut IceGraphStore::default(), json).unwrap();
         let car = g.nodes.iter().find(|n| n.id == NodeId(2)).unwrap();
         assert!(matches!(&car.node_type, NodeType::LoadFbx { path, take: 0 } if path == "car.fbx"));
         assert_eq!(car.outputs.len(), 3);
@@ -821,7 +872,7 @@ mod tests {
             {"id":5,"name":"Hulls","position":[0,200],"node_type":{"Calamari":{"hulls":true,"detail":1}}}
         ],"connections":[[2,0,3,0],[3,0,4,0],[4,0,5,0],[5,0,0,0]],"view_flag":5}"#;
         let mut g = NodeGraphState::default();
-        from_json(&mut g, json).unwrap();
+        from_json(&mut g, &mut IceGraphStore::default(), json).unwrap();
         assert!(!g.nodes.iter().any(|n| matches!(n.node_type, NodeType::Calamari { .. } | NodeType::TransformClip { .. })));
         let rag = g.nodes.iter().find(|n| n.id == NodeId(4)).unwrap();
         assert!(matches!(rag.node_type, NodeType::Ragdoll { view: crate::types::BodyView::Hulls, .. }));
@@ -850,7 +901,7 @@ mod tests {
             {"id":5,"name":"Merge","position":[0,300],"node_type":"Merge"}
         ],"connections":[[1,0,2,0],[3,0,4,0],[2,0,4,1],[4,0,5,0],[1,0,5,1],[5,0,0,0]],"view_flag":null}"#;
         let mut g = NodeGraphState::default();
-        from_json(&mut g, json).unwrap();
+        from_json(&mut g, &mut IceGraphStore::default(), json).unwrap();
         let node = |id: usize| g.nodes.iter().find(|n| n.id == NodeId(id)).unwrap();
         assert_eq!(g.view_flag, Some(NodeId(5)), "what reached Output is viewed");
         assert!(matches!(&node(3).node_type, NodeType::CreateCube { location, .. } if location == "/cube"));
@@ -864,7 +915,7 @@ mod tests {
         assert_eq!(node(5).inputs[0].connected_output, Some((NodeId(4), 0)));
         // Saved again, it reads back the same.
         let mut again = NodeGraphState::default();
-        from_json(&mut again, &to_json(&g)).unwrap();
+        from_json(&mut again, &mut IceGraphStore::default(), &to_json(&g, &IceGraphStore::default())).unwrap();
         assert_eq!(again.nodes.len(), g.nodes.len());
     }
 
@@ -877,12 +928,12 @@ mod tests {
             {"id":1,"name":"Studio","position":[0,0],"node_type":{"LoadFbx":{"path":"studio.fbx","take":0}}}
         ],"connections":[[1,1,0,0]],"view_flag":null}"#;
         let mut g = NodeGraphState::default();
-        from_json(&mut g, json).unwrap();
+        from_json(&mut g, &mut IceGraphStore::default(), json).unwrap();
         assert_eq!(g.nodes.len(), 1);
         assert_eq!((g.view_flag, g.viewed_output()), (Some(NodeId(1)), 1));
         // Saved again, the output viewed is kept.
         let mut h = NodeGraphState::default();
-        from_json(&mut h, &to_json(&g)).unwrap();
+        from_json(&mut h, &mut IceGraphStore::default(), &to_json(&g, &IceGraphStore::default())).unwrap();
         assert_eq!((h.view_flag, h.viewed_output()), (Some(NodeId(1)), 1));
     }
 
@@ -923,10 +974,10 @@ mod tests {
         assert_eq!(prims(&g, prune).iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), vec!["/set/b"]);
 
         // Saved and opened: the lists are there; a node without one writes none.
-        let json = to_json(&g);
+        let json = to_json(&g, &IceGraphStore::default());
         assert_eq!(json.matches("\"locations\"").count(), 2);
         let mut h = NodeGraphState::default();
-        from_json(&mut h, &json).unwrap();
+        from_json(&mut h, &mut IceGraphStore::default(), &json).unwrap();
         assert_eq!(h.nodes.iter().find(|n| n.id == lift).unwrap().locations, vec!["/set/b".to_string()]);
         // Copied and pasted: the list comes along.
         let text = copy(&g, &IceGraphStore::default(), &[lift]).unwrap().to_text();
@@ -970,7 +1021,7 @@ mod tests {
 
         // Saved and opened: the rows and the list are there.
         let mut h = NodeGraphState::default();
-        from_json(&mut h, &to_json(&g)).unwrap();
+        from_json(&mut h, &mut IceGraphStore::default(), &to_json(&g, &IceGraphStore::default())).unwrap();
         let node = h.nodes.iter().find(|n| n.id == set).unwrap();
         assert_eq!(node.locations, vec!["/set/b".to_string()]);
         let NodeType::SetAttribute { rows } = &node.node_type else { panic!("Set Attribute") };

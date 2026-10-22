@@ -1271,7 +1271,7 @@ mod cook_tests {
         }
         // Saved and read back: still frozen, cooks once, then holds.
         let mut h = NodeGraphState::default();
-        crate::graph_io::from_json(&mut h, &crate::graph_io::to_json(&g)).unwrap();
+        crate::graph_io::from_json(&mut h, &mut Default::default(), &crate::graph_io::to_json(&g, &Default::default())).unwrap();
         assert!(h.nodes.iter().any(|n| n.name == "Place" && n.frozen));
         g.toggle_frozen(place);
         assert!((size(&g) - 3.0).abs() < 1e-5, "thawed");
@@ -1289,7 +1289,7 @@ mod cook_tests {
         let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/cube".into() }, egui::pos2(0.0, 0.0));
         g.toggle_ghost(cube);
         let mut h = NodeGraphState::default();
-        crate::graph_io::from_json(&mut h, &crate::graph_io::to_json(&g)).unwrap();
+        crate::graph_io::from_json(&mut h, &mut Default::default(), &crate::graph_io::to_json(&g, &Default::default())).unwrap();
         assert!(h.nodes[0].ghost && !h.nodes[0].frozen);
         let lines = crate::node_graph::ui::output_info(&g.eval_node(cube, &mut Default::default(), &pass));
         assert_eq!(lines[0], "1 primitive");

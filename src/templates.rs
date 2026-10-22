@@ -1555,16 +1555,13 @@ mod tests {
     #[test]
     fn the_ice_template_added_to_a_scene_still_spherifies() {
         let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();
+        let (mut other, mut theirs) = (NodeGraphState::default(), IceGraphStore::default());
+        t.load(&mut other, &mut theirs);
         let mut store = IceGraphStore::default();
-        let mut other = NodeGraphState::default();
-        t.load(&mut other, &mut store);
         let mut g = NodeGraphState::default();
         g.add_node("Cube".into(), NodeType::cube(1.0), p(0.0, 0.0));
-        let added = crate::graph_io::add_graph(&mut g, &mut store, &other);
+        let added = crate::graph_io::add_graph(&mut g, &mut store, &other, &theirs);
         assert_eq!(added, other.nodes.len());
-        for n in &other.nodes {
-            if let NodeType::Ice { id, .. } = n.node_type { store.subnets.remove(&id); }
-        }
         let ice = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Ice { .. })).unwrap().id;
         let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
             store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())

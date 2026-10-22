@@ -83,7 +83,6 @@ Templates → ICE → **ICE graph: spherify**: Get Data P → Normalize → Mult
 - Lists per element meeting Concatenate Arrays, Random or Set Data; neighbours as lists (a point's neighbouring points)
 - Neighbours in the same context (a point's neighbouring points, through the faces)
 - Snippets: code in a node, compiled to the same instructions
-- ICE graphs saved in graph files (copied nodes carry them)
 
 ## Tests
 

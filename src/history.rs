@@ -232,6 +232,9 @@ pub struct History {
     clean:   Option<u64>,
     clean_pending: bool,
     dirty:   bool,
+    /// What the ICE graphs compute, set every frame (`set_ice`): they are
+    /// saved with the graph, so changing one is a change to save too.
+    ice:     u64,
 }
 
 impl Default for History {
@@ -252,7 +255,7 @@ fn take_note() -> Option<(String, Kind)> { NOTE.lock().ok().and_then(|mut n| n.t
 impl History {
     pub fn with_budget(budget: usize) -> Self {
         Self { steps: vec![], root: 0, current: 0, bytes: 0, budget, request: None, only_selected: false, started: false,
-               clean: None, clean_pending: false, dirty: false }
+               clean: None, clean_pending: false, dirty: false, ice: 0 }
     }
 
     pub fn step(&self, i: usize) -> Option<&Step> { self.steps.get(i).and_then(|s| s.as_ref()) }
@@ -271,6 +274,13 @@ impl History {
     /// next `update`, once the frame's changes are in.
     pub fn mark_clean(&mut self) { self.clean_pending = true; }
 
+    /// What the ICE graphs compute now (`IceGraphStore::content_hash`).
+    /// Not undone with the graph; only told apart from what was saved.
+    pub fn set_ice(&mut self, hash: u64) { self.ice = hash; }
+
+    /// The document's hash with the ICE graphs': what is compared with the file.
+    fn with_ice(&self, core: u64) -> u64 { core ^ self.ice.wrapping_mul(0x9E37_79B9_7F4A_7C15) }
+
     fn redo_target(&self) -> Option<usize> {
         let s = self.step(self.current)?;
         s.redo.filter(|r| s.children.contains(r)).or_else(|| s.children.last().copied())
@@ -280,6 +290,7 @@ impl History {
     pub fn start(&mut self, g: &NodeGraphState) {
         let (doc, bytes) = Doc::capture(g, None);
         let (full, core) = doc_hashes(g);
+        let saved = self.with_ice(core);
         self.steps = vec![Some(Step {
             label: "Start".into(), kind: Kind::Start, icon: Kind::Start.icon(), nodes: vec![], when: Instant::now(), pinned: false,
             doc, full, core, bytes, parent: None, children: vec![], redo: None,
@@ -288,7 +299,7 @@ impl History {
         self.current = 0;
         self.bytes = bytes;
         self.started = true;
-        self.clean = Some(core);
+        self.clean = Some(saved);
         self.clean_pending = false;
         self.dirty = false;
         take_note();
@@ -308,7 +319,7 @@ impl History {
             Some(Request::Jump(i)) => self.jump(g, i),
             None => false,
         };
-        let core = doc_hashes(g).1;
+        let core = self.with_ice(doc_hashes(g).1);
         if self.clean_pending { self.clean = Some(core); self.clean_pending = false; }
         self.dirty = self.clean != Some(core);
         changed
@@ -1132,5 +1143,12 @@ mod tests {
         g.selected_node = None;
         h.update(&mut g, false);
         assert!(!h.is_dirty());
+        // Nor is an ICE graph left as saved; a change to one is.
+        h.set_ice(7);
+        h.update(&mut g, false);
+        assert!(h.is_dirty(), "an ICE graph changed");
+        h.mark_clean();
+        h.update(&mut g, false);
+        assert!(!h.is_dirty(), "saved with it");
     }
 }

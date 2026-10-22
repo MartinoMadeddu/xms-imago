@@ -227,7 +227,7 @@ mod tests {
 
         // Saved and read back.
         let mut h = NodeGraphState::default();
-        crate::graph_io::from_json(&mut h, &crate::graph_io::to_json(&g)).unwrap();
+        crate::graph_io::from_json(&mut h, &mut Default::default(), &crate::graph_io::to_json(&g, &Default::default())).unwrap();
         let n = h.nodes.iter().find(|n| n.name == "Move").unwrap();
         assert_eq!(n.channels, g.nodes.iter().find(|n| n.id == mv).unwrap().channels);
         assert_eq!(h.scene, g.scene);
