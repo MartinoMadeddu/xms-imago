@@ -619,7 +619,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
     }
-    out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"))
+    out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"));
     for op in Math::ALL {
         out.push(("Math", IceGraphNodeType::Math { op }, ""));
     }

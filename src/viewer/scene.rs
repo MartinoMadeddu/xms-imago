@@ -618,4 +618,3 @@ mod draw_mode_tests {
         assert_eq!(modes, vec![DrawMode::Default, DrawMode::Bounds, DrawMode::Bounds], "the forest kept, the rock boxed in its place");
     }
 }
-
