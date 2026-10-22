@@ -150,7 +150,7 @@ pub fn evaluate_node_type(
                         crate::ice::take_instances();
                         let g = eval_subnet(*id, &geo, &references);
                         // What its Instancers made: point instancers, after the others.
-                        for i in crate::ice::take_instances() { made.extend(instanced(p, &i, &inputs[1..], &mut taken)); }
+                        for (i, draw) in crate::ice::take_instances() { made.extend(instanced(p, &i, draw, &inputs[1..], &mut taken)); }
                         // The attributes stay in the geometry (see `to_mesh_lean`).
                         out.push(Prim { mesh: Arc::new(g.to_mesh_lean()), geo: Some(Arc::new(g)), ..p.clone() });
                     }
@@ -1013,7 +1013,7 @@ mod place_tests {
 /// sharing its geometry and material (nothing is copied). Write USD writes
 /// it as a `PointInstancer`. A relative path is beside `on` (not below it:
 /// USD has no prims under a mesh); a path that is `taken` is numbered.
-fn instanced(on: &Prim, made: &xms_ice::Instances, references: &[EvalResult], taken: &mut std::collections::HashSet<String>) -> Vec<Prim> {
+fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode, references: &[EvalResult], taken: &mut std::collections::HashSet<String>) -> Vec<Prim> {
     use crate::core::geo::{Attr, Column, Context, Geo, Role};
     use crate::types::InstancedBy;
     use glam::Mat4;
@@ -1054,6 +1054,18 @@ fn instanced(on: &Prim, made: &xms_ice::Instances, references: &[EvalResult], ta
         ..Prim::new(path.clone(), geo.to_mesh())
     }];
     let below = |proto: &str, p: &str| p == proto || p.strip_prefix(proto).is_some_and(|rest| rest.starts_with('/'));
+    // A draw mode chosen: on each prototype's root, as USD has it (a model,
+    // its mode applied), which Write USD writes there.
+    let drawn = |above: &Arc<std::collections::BTreeMap<String, crate::core::properties::Opinions>>, root: &str| {
+        if draw == crate::types::DrawMode::Default { return above.clone(); }
+        use crate::core::properties::Value;
+        let mut map = (**above).clone();
+        let o = map.entry(root.to_string()).or_default();
+        o.props.insert("kind".into(), Value::Token("component".into()));
+        o.props.insert("model:applyDrawMode".into(), Value::Bool(true));
+        o.props.insert("model:drawMode".into(), Value::Token(draw.token().into()));
+        Arc::new(map)
+    };
     for (k, proto) in made.prototypes.iter().enumerate() {
         for r in references {
             let EvalResult::Named(prims) = r else { continue };
@@ -1071,6 +1083,8 @@ fn instanced(on: &Prim, made: &xms_ice::Instances, references: &[EvalResult], ta
                     path: format!("{}{}", roots[k], &q.path[proto.len()..]),
                     place: Placement::Many(copies.into()),
                     instanced_by: Some(Arc::new(by)),
+                    // The reference's opinions above it were on its own paths.
+                    above: drawn(&Arc::default(), &roots[k]),
                     picked: false,
                     stage: None,
                     source: None,

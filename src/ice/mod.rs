@@ -26,12 +26,13 @@ thread_local! {
     /// evaluator's type gives back geometry only; the ICE operator, which
     /// runs a graph and then turns its instances into prims, takes them
     /// from here (`take_instances`).
-    static INSTANCES: std::cell::RefCell<Vec<xms_ice::Instances>> = const { std::cell::RefCell::new(Vec::new()) };
+    static INSTANCES: std::cell::RefCell<Vec<(xms_ice::Instances, crate::types::DrawMode)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The instances the last graph run on this thread made, taken: empty until
 /// another runs.
-pub fn take_instances() -> Vec<xms_ice::Instances> {
+/// Each with the draw mode its Instancer gives its prototypes.
+pub fn take_instances() -> Vec<(xms_ice::Instances, crate::types::DrawMode)> {
     INSTANCES.with(|i| std::mem::take(&mut *i.borrow_mut()))
 }
 
@@ -340,7 +341,7 @@ impl IceGraph {
                     input: *input as usize,
                     paths: crate::core::locations::is_set(paths).then(|| paths.clone()),
                 },
-                IceGraphNodeType::Instancer { path, seed } => Op::Instancer { path: path.clone(), seed: *seed },
+                IceGraphNodeType::Instancer { path, seed, .. } => Op::Instancer { path: path.clone(), seed: *seed },
             };
             let inputs = n.inputs.iter().filter_map(|i| {
                 let wired = i.connected_output.and_then(|(from, output)| {
@@ -478,7 +479,15 @@ impl IceGraph {
         if let Ok(mut last) = self.last_input.lock() { *last = Some(input.clone()); }
         let result = xms_ice::compile(&graph, input).map(|plan| {
             let ran = xms_ice::run(&plan, input, &HashMap::new(), references);
-            INSTANCES.with(|i| *i.borrow_mut() = ran.instances);
+            // Each with its Instancer's draw mode, found by its path.
+            let made = ran.instances.into_iter().map(|i| {
+                let mode = self.nodes.iter().find_map(|n| match &n.node_type {
+                    IceGraphNodeType::Instancer { path, draw_mode, .. } if path.trim() == i.path => Some(*draw_mode),
+                    _ => None,
+                }).unwrap_or_default();
+                (i, mode)
+            }).collect();
+            INSTANCES.with(|i| *i.borrow_mut() = made);
             ran.geo
         });
         let mut error = self.error.lock().unwrap_or_else(|e| e.into_inner());
@@ -743,7 +752,7 @@ mod tests {
             let at = g.add_node("Scatter".into(), IceGraphNodeType::Scatter { seed: 1, weight: String::new() }, egui::pos2(0.0, 0.0));
             if let Some(n) = g.nodes.iter_mut().find(|n| n.id == at) { n.inputs[0].value = Some(Value::Int(12)); }
             let protos = g.add_node("Get".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
-            let inst = g.add_node("Instancer".into(), IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0 }, egui::pos2(0.0, 0.0));
+            let inst = g.add_node("Instancer".into(), IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0, draw_mode: Default::default() }, egui::pos2(0.0, 0.0));
             g.add_connection(at, 0, inst, 0);
             g.add_connection(protos, 0, inst, 1);
             g.add_connection(inst, 0, root, 0);

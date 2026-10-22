@@ -106,7 +106,10 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             1 => format!("Reference {input}: {}", crate::core::locations::rows(paths).next().unwrap_or_default()),
             n => format!("Reference {input}: {n} rows"),
         }),
-        IceGraphNodeType::Instancer { path, seed } => Some(format!("{path}, seed {seed}")),
+        IceGraphNodeType::Instancer { path, seed, draw_mode } => Some(match draw_mode {
+            crate::types::DrawMode::Default => format!("{path}, seed {seed}"),
+            m => format!("{path}, seed {seed}, {}", m.label().to_lowercase()),
+        }),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => None,
     }
 }
@@ -297,7 +300,9 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
             let there = references.get((*input as usize).saturating_sub(1)).map(Vec::as_slice).unwrap_or_default();
             crate::properties::ui::locations_tab(ui, paths, there, selected, crate::properties::ui::TabKind::Names, None);
         }
-        IceGraphNodeType::Instancer { path, seed } => group(ui, "Instancer", None, |f| {
+        IceGraphNodeType::Instancer { path, seed, draw_mode } => group(ui, "Instancer", None, |f| {
+            f.choice("Draw Mode", Some("How viewports draw the prototypes: as geometry, as their bounding boxes, or as axes at their origins. Written as model:drawMode on each prototype, so other USD viewers draw them so too; the Scene Explorer's right-click chooses for the Viewer alone"),
+                     draw_mode, &[(crate::types::DrawMode::Default, "Geometry"), (crate::types::DrawMode::Bounds, "Bounding Box"), (crate::types::DrawMode::Origin, "Origin")]);
             f.text("Path", Some("The point instancer's path: absolute (/set/trees), or relative, beside the primitive the graph runs on (scatter on /set/ground is /set/scatter). Its prototypes go under it, in Prototypes"), path, "scatter");
             f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
         }),
@@ -609,7 +614,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at surface samples (Scatter on Surface's third output): P, N, UVs or any other, blended across the surface"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
-        ("Geometry", IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0 }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at a path you choose; an Execute"),
+        ("Geometry", IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at a path you choose; an Execute"),
     ];
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));

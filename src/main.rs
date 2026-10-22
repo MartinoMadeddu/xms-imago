@@ -725,7 +725,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         if is_edit_poly { modelling::input_mesh(self.graph, id, &eval) } else { None }
                     });
                     let mut tool = self.poly_tool.tool;
-                    let scene_paths = self.hierarchy.selected_paths().to_vec();
+                    let scene_paths = self.hierarchy.selected_prim_paths();
                     let mut io = PanelIo { browser: self.browser, batch: self.batch, action: None, poly_input, tool: &mut tool, scene_paths, add: vec![] };
                     // A keyed node shows its parameters at the playhead; a
                     // keyed number changed here is keyed there.
@@ -783,7 +783,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 // The scene at the view flag: the rows selected in the Scene
                 // Explorer and what is below them, or all of it.
                 let subnets = &*self.subnets;
-                let paths = self.hierarchy.selected_paths().to_vec();
+                let paths = self.hierarchy.selected_prim_paths();
                 let get_parts = |g: &NodeGraphState| -> Option<Vec<MeshData>> {
                     let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
@@ -812,7 +812,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 };
                 let source = prim_inspector::Source {
                     node: self.graph.display_source(),
-                    paths: self.hierarchy.selected_paths().to_vec(),
+                    paths: self.hierarchy.selected_prim_paths(),
                 };
                 let go_to = draw_prim_inspector(ui, self.graph, self.prim_state, source, self.revision, self.playback.time, &get_parts, &get_summary, &get_clip, &get_props);
                 // "Go to Operator" on a Properties row: select the operator the value comes from.

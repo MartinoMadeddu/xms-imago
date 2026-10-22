@@ -626,7 +626,10 @@ pub enum IceGraphNodeType {
     /// Make a point instancer, an Execute: prototypes at positions (see
     /// `xms_ice::Op::Instancer`). `path`: the instancer's; relative,
     /// beside the primitive the graph runs on.
-    Instancer { #[serde(alias = "name")] path: String, seed: u32 },
+    /// `draw_mode`: how viewports draw its prototypes (`model:drawMode`
+    /// on each, with `model:applyDrawMode` and kind component); Geometry
+    /// sets none.
+    Instancer { #[serde(alias = "name")] path: String, seed: u32, #[serde(default)] draw_mode: DrawMode },
 }
 
 impl IceGraphNodeType {
@@ -1526,6 +1529,43 @@ pub struct SceneHierarchy {
     /// Counts changes to what the viewport should draw (expansion, geometry
     /// toggles). The viewport redraws when it moves.
     pub display_revision:   u64,
+    /// How the Viewer draws a prim and what is below it, chosen in the
+    /// Scene Explorer (right-click): over what the scene says
+    /// (`model:drawMode`). Not part of the scene, not written.
+    draw_modes:             std::collections::HashMap<String, DrawMode>,
+}
+
+/// How the Viewer draws geometry, as USD's `model:drawMode` has it: as it
+/// is, as its bounding box, or as axes at its origin. (USD's `cards` are
+/// drawn as bounds.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+pub enum DrawMode {
+    #[default]
+    Default,
+    Bounds,
+    Origin,
+}
+
+impl DrawMode {
+    pub const ALL: [DrawMode; 3] = [DrawMode::Default, DrawMode::Bounds, DrawMode::Origin];
+
+    /// From `model:drawMode`'s token; `inherited` (or anything else) is none.
+    pub fn from_token(t: &str) -> Option<DrawMode> {
+        match t {
+            "default" => Some(DrawMode::Default),
+            "bounds" | "cards" => Some(DrawMode::Bounds),
+            "origin" => Some(DrawMode::Origin),
+            _ => None,
+        }
+    }
+
+    pub fn token(self) -> &'static str {
+        match self { DrawMode::Default => "default", DrawMode::Bounds => "bounds", DrawMode::Origin => "origin" }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self { DrawMode::Default => "Geometry", DrawMode::Bounds => "Bounding Box", DrawMode::Origin => "Origin" }
+    }
 }
 
 impl SceneHierarchy {
@@ -1553,12 +1593,48 @@ impl SceneHierarchy {
         self.display_revision += 1;
     }
 
-    /// Open or close a row.
+    /// Open or close a row. Opening a point instancer's Instances row
+    /// lists them: the explorer is rebuilt.
     pub fn toggle_expanded(&mut self, id: SceneObjectId) {
         let Some(obj) = self.objects.iter_mut().find(|o| o.id == id) else { return };
         obj.expanded = !obj.expanded;
         self.expanded.insert(obj.key.clone(), obj.expanded);
-        if obj.stage_path.is_some() { self.display_revision += 1; }
+        if obj.stage_path.is_some() || obj.key.starts_with(INSTANCES_KEY) { self.display_revision += 1; }
+    }
+
+    /// The draw mode chosen in the explorer for a prim: on it, or on the
+    /// nearest prim above it with one.
+    pub fn draw_override(&self, path: &str) -> Option<DrawMode> {
+        if self.draw_modes.is_empty() { return None; }
+        let mut at = path;
+        loop {
+            if let Some(m) = self.draw_modes.get(at) { return Some(*m); }
+            match at.rsplit_once('/') { Some((up, _)) if !up.is_empty() => at = up, _ => return None }
+        }
+    }
+
+    /// Choose how a prim and what is below it are drawn; `None`, as the
+    /// scene says.
+    pub fn set_draw_mode(&mut self, path: &str, mode: Option<DrawMode>) {
+        match mode {
+            Some(m) => { self.draw_modes.insert(path.to_string(), m); }
+            None => { self.draw_modes.remove(path); }
+        }
+        self.display_revision += 1;
+    }
+
+    /// The draw mode chosen on this very row, if any.
+    pub fn draw_mode_set(&self, path: &str) -> Option<DrawMode> { self.draw_modes.get(path).copied() }
+
+    /// The selected paths as prims: an instance (`/forest/trees[12]`) is its
+    /// point instancer. For the Primitive Inspector and Prims Location tabs.
+    pub fn selected_prim_paths(&self) -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        for p in &self.selected_paths {
+            let prim = crate::core::instancing::instance_path(p).map(|(i, _)| i.to_string()).unwrap_or_else(|| p.clone());
+            if !out.contains(&prim) { out.push(prim); }
+        }
+        out
     }
 
     /// Draw a prim of a composed stage as geometry, or as a box again.
@@ -1662,6 +1738,127 @@ impl SceneHierarchy {
         }
     }
 
+    /// Prims made in Imago (and those of no stage), as the tree of their
+    /// paths: in the order their paths are first met, parents first.
+    fn push_paths(&mut self, prims: &[&Prim], holds_geometry: &std::collections::HashSet<String>) {
+        use std::collections::HashMap;
+        let mut order: Vec<String> = vec![];
+        let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut prim_at: HashMap<&str, &Prim> = HashMap::new();
+        for &p in prims {
+            let segs: Vec<&str> = p.path.trim_start_matches('/').split('/').collect();
+            for n in 1..segs.len() {
+                let up = format!("/{}", segs[..n].join("/"));
+                if known.insert(up.clone()) { order.push(up); }
+            }
+            if known.insert(p.path.clone()) { order.push(p.path.clone()); }
+            prim_at.insert(p.path.as_str(), p);
+        }
+        let parent = |path: &str| -> Option<String> {
+            path.rsplit_once('/').map(|(up, _)| up.to_string()).filter(|up| !up.is_empty() && known.contains(up))
+        };
+        let mut children: HashMap<Option<String>, Vec<&str>> = HashMap::new();
+        for path in &order { children.entry(parent(path)).or_default().push(path.as_str()); }
+        let mut todo: Vec<&str> = children.get(&None).map(|v| v.iter().rev().copied().collect()).unwrap_or_default();
+        while let Some(path) = todo.pop() {
+            let kids = children.get(&Some(path.to_string()));
+            let has_children = kids.is_some_and(|k| !k.is_empty());
+            let depth = path.trim_start_matches('/').split('/').count().max(1);
+            let name = path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("mesh").to_string();
+            let id = self.next_id();
+            match prim_at.get(path) {
+                Some(prim) => {
+                    let key = format!("seg:{path}");
+                    let expanded = *self.expanded.get(&key).unwrap_or(&true);
+                    self.objects.push(SceneObject {
+                        id,
+                        icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" } else if prim.light.is_some() { "💡" }
+                                      else if prim.instancing.is_some() { "⁘" }
+                                      else if let Some(r) = &prim.render { render_icon(r.kind) } else { prim_icon(&name, has_children) },
+                        name,
+                        depth,
+                        has_children,
+                        expanded,
+                        key,
+                        stage_path:   None,
+                        path:         Some(path.to_string()),
+                        type_name:    match prim.geo.as_ref().map(|g| &g.topology) {
+                            _ if prim.instancing.is_some() => "PointInstancer".into(),
+                            _ if prim.shading.is_some() => "Material".into(),
+                            _ if prim.camera.is_some() => "Camera".into(),
+                            _ if prim.light.is_some() => prim.light.as_ref().map(|l| l.kind.usd()).unwrap_or_default().into(),
+                            _ if prim.render.is_some() => prim.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
+                            Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
+                            Some(crate::core::geo::Topology::Points) => "Points".into(),
+                            _ => "Mesh".into(),
+                        },
+                    });
+                }
+                None => {
+                    let bare = path.trim_start_matches('/');
+                    let key = format!("seg:{bare}");
+                    let expanded = *self.expanded.get(&key).unwrap_or(&true);
+                    self.objects.push(SceneObject {
+                        id,
+                        icon:         prim_icon(&name, true),
+                        name,
+                        depth,
+                        has_children,
+                        expanded,
+                        key,
+                        stage_path:   None,
+                        path:         Some(path.to_string()),
+                        type_name:    if holds_geometry.contains(bare) { "Xform".into() } else { "Scope".into() },
+                    });
+                }
+            }
+            if let Some(k) = kids { todo.extend(k.iter().rev().copied()); }
+        }
+    }
+
+    /// Under each point instancer's row, an Instances row (closed to start
+    /// with) and, when it is open, a row per instance: `[12] pine`, its path
+    /// `/forest/trees[12]`. Its count shows on the instancer's row. Rows
+    /// are only made for an Instances row opened, so a hundred thousand
+    /// instances cost nothing until asked for.
+    fn push_instances(&mut self, prims: &[Prim]) {
+        let instancers: std::collections::HashMap<&str, &Prim> = prims.iter()
+            .filter(|p| p.instancing.is_some()).map(|p| (p.path.as_str(), p)).collect();
+        if instancers.is_empty() { return; }
+        let rows = std::mem::take(&mut self.objects);
+        for mut row in rows {
+            let inst = row.path.as_deref().and_then(|p| instancers.get(p)).copied();
+            let Some(inst) = inst else { self.objects.push(row); continue };
+            let points = inst.geo.as_ref().map_or(0, |g| g.points().len());
+            row.type_name = format!("PointInstancer · {}", thousands(points));
+            if points == 0 { self.objects.push(row); continue; }
+            row.has_children = true;
+            let depth = row.depth;
+            self.objects.push(row);
+            let key = format!("{INSTANCES_KEY}{}", inst.path);
+            let open = *self.expanded.get(&key).unwrap_or(&false);
+            let id = self.next_id();
+            self.objects.push(SceneObject {
+                id, name: format!("Instances ({})", thousands(points)), icon: "⁘", depth: depth + 1,
+                has_children: points > 0, expanded: open, key, stage_path: None, path: None, type_name: String::new(),
+            });
+            if !open { continue; }
+            let geo = inst.geo.as_ref().expect("an instancer has points");
+            let index = geo.attr(crate::core::geo::Context::Point, "protoIndex").and_then(|a| a.column.ints());
+            let protos = inst.instancing.as_ref().expect("an instancer");
+            for i in 0..points {
+                let k = index.and_then(|ix| ix.get(i)).copied().unwrap_or(0).max(0) as usize;
+                let proto = protos.get(k).and_then(|p| p.rsplit('/').next()).unwrap_or("?");
+                let id = self.next_id();
+                self.objects.push(SceneObject {
+                    id, name: format!("[{i}] {proto}"), icon: "·", depth: depth + 2, has_children: false, expanded: true,
+                    key: format!("instance:{}[{i}]", inst.path), stage_path: None,
+                    path: Some(crate::core::instancing::instance_name(&inst.path, i)), type_name: "instance".into(),
+                });
+            }
+        }
+    }
+
     /// Rebuild from the scene at the view flag (or what reaches Output): the
     /// operator it is read from, its name and what it puts out. The rows are
     /// the scene's own tree, as USD has it: no row for the operator. Only a
@@ -1678,8 +1875,10 @@ impl SceneHierarchy {
         }
         // A selected path stays selected while it is in the scene.
         let present: std::collections::HashSet<&str> = self.objects.iter().filter_map(|o| o.path.as_deref()).collect();
-        let kept: Vec<String> = self.selected_paths.iter().filter(|p| present.contains(p.as_str())).cloned().collect();
-        if self.anchor.as_deref().is_some_and(|a| !present.contains(a)) { self.anchor = None; }
+        // An instance, while its instancer is (its row may be closed).
+        let here = |p: &str| present.contains(p) || crate::core::instancing::instance_path(p).is_some_and(|(i, _)| present.contains(i));
+        let kept: Vec<String> = self.selected_paths.iter().filter(|p| here(p)).cloned().collect();
+        if self.anchor.as_deref().is_some_and(|a| !here(a)) { self.anchor = None; }
         self.selected_paths = kept;
     }
 
@@ -1846,9 +2045,9 @@ impl SceneHierarchy {
                         self.push_stage(tree, &present, &mut listed);
                     }
 
-                    // Everything else by the segments of its path.
-                    let mut seen_parents: std::collections::HashSet<String> =
-                        std::collections::HashSet::new();
+                    // Everything else as the tree of its paths: each prim at its
+                    // path, the groups above it once, a prim with prims below
+                    // it (a point instancer and its prototypes) their parent.
                     // Groups with geometry below them are Xforms; those with
                     // materials or render prims alone (the Material Library
                     // Location, /Render) Scopes.
@@ -1857,69 +2056,30 @@ impl SceneHierarchy {
                         .flat_map(|p| { let segs: Vec<&str> = p.path.trim_start_matches('/').split('/').collect();
                             (1..segs.len()).map(move |n| segs[..n].join("/")).collect::<Vec<_>>() })
                         .collect();
-
-                    for prim in prims.iter().filter(|p| !listed.contains(&p.path)) {
-                        let segs: Vec<&str> = prim.path
-                            .trim_start_matches('/')
-                            .split('/')
-                            .collect();
-
-                        // Every parent on the path, as an Xform row:
-                        // `/root/asset/cube1` lists root, asset,
-                        // then cube1 under them.
-                        for seg_depth in 0..segs.len().saturating_sub(1) {
-                            let parent_key = segs[..=seg_depth].join("/");
-                            if seen_parents.insert(parent_key.clone()) {
-                                let key = format!("seg:{parent_key}");
-                                let exp = *self.expanded.get(&key).unwrap_or(&true);
-                                let id = self.next_id();
-                                self.objects.push(SceneObject {
-                                    id,
-                                    name:         segs[seg_depth].to_string(),
-                                    icon:         prim_icon(segs[seg_depth], true),
-                                    depth:        seg_depth + 1,
-                                    has_children: true,
-                                    expanded:     exp,
-                                    key,
-                                    stage_path:   None,
-                                    path:         Some(format!("/{parent_key}")),
-                                    type_name:    if holds_geometry.contains(&parent_key) { "Xform".into() } else { "Scope".into() },
-                                });
-                            }
-                        }
-
-                        // Leaf mesh entry — store the full prim path
-                        let leaf_depth = segs.len().max(1);
-                        let leaf_name  = segs.last().unwrap_or(&"mesh").to_string();
-                        let id = self.next_id();
-                        self.objects.push(SceneObject {
-                            id,
-                            name:         leaf_name.clone(),
-                            icon:         if prim.shading.is_some() { "🎨" } else if prim.camera.is_some() { "🎥" } else if prim.light.is_some() { "💡" }
-                                          else if let Some(r) = &prim.render { render_icon(r.kind) } else { prim_icon(&leaf_name, false) },
-                            depth:        leaf_depth,
-                            has_children: false,
-                            expanded:     true,
-                            key:          format!("seg:{}", prim.path),
-                            stage_path:   None,
-                            path:         Some(prim.path.clone()),
-                            type_name:    match prim.geo.as_ref().map(|g| &g.topology) {
-                                _ if prim.instancing.is_some() => "PointInstancer".into(),
-                                _ if prim.shading.is_some() => "Material".into(),
-                                _ if prim.camera.is_some() => "Camera".into(),
-                                _ if prim.light.is_some() => prim.light.as_ref().map(|l| l.kind.usd()).unwrap_or_default().into(),
-                                _ if prim.render.is_some() => prim.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
-                                Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
-                                Some(crate::core::geo::Topology::Points) => "Points".into(),
-                                _ => "Mesh".into(),
-                            },
-                        });
-                    }
+                    let rest: Vec<&Prim> = prims.iter().filter(|p| !listed.contains(&p.path)).collect();
+                    self.push_paths(&rest, &holds_geometry);
+                    // Point instancers: their instances under them, listed
+                    // when asked.
+                    self.push_instances(&prims);
                 }
             }
         }
     }
 }
+/// The key of a point instancer's Instances row, before its path.
+const INSTANCES_KEY: &str = "instances:";
+
+/// A count with thousands marked: 12,000.
+fn thousands(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 { out.push(','); }
+        out.push(c);
+    }
+    out
+}
+
 /// A render prim's icon in the Scene Explorer.
 fn render_icon(kind: crate::core::render::RenderKind) -> &'static str {
     use crate::core::render::RenderKind;
@@ -1929,6 +2089,56 @@ fn render_icon(kind: crate::core::render::RenderKind) -> &'static str {
 fn yes() -> bool { true }
 
 fn one_tile() -> u32 { 1 }
+
+#[cfg(test)]
+mod explorer_tests {
+    use super::*;
+    use crate::core::geo::{Attr, Column, Context, Geo, Role};
+
+    /// A point instancer and its prototype under it: one row each, the
+    /// prototype under the instancer (not a second row of its name), and
+    /// its instances under an Instances row, listed once that is opened.
+    #[test]
+    fn an_instancer_is_one_row_with_its_prototypes_and_instances_under_it() {
+        let mut geo = Geo::from_points(vec![[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+        geo.set(Context::Point, "protoIndex", Attr::new(Column::Int(std::sync::Arc::new(vec![0, 0, 0])), Role::None));
+        let geo = std::sync::Arc::new(geo);
+        let inst = Prim { geo: Some(geo.clone()), instancing: Some(std::sync::Arc::new(vec!["/root/trees/Prototypes/cube".into()])),
+            ..Prim::new("/root/trees".into(), geo.to_mesh()) };
+        let proto = Prim::new("/root/trees/Prototypes/cube".into(), MeshData::default());
+        let sphere = Prim::new("/sphere".into(), MeshData::default());
+        let mut h = SceneHierarchy::default();
+        let scene = || Some((NodeId(0), "ICE".to_string(), EvalResult::Named(vec![sphere.clone(), inst.clone(), proto.clone()])));
+        h.rebuild_scene(scene());
+        let rows = |h: &SceneHierarchy| h.objects.iter().map(|o| (o.depth, o.name.clone(), o.type_name.clone())).collect::<Vec<_>>();
+        assert_eq!(rows(&h), vec![
+            (0, "sphere".into(), "Mesh".into()),
+            (0, "root".into(), "Xform".into()),
+            (1, "trees".into(), "PointInstancer · 3".into()),
+            (2, "Instances (3)".into(), String::new()),
+            (2, "Prototypes".into(), "Xform".into()),
+            (3, "cube".into(), "Mesh".into()),
+        ]);
+        let open = h.objects.iter().find(|o| o.name.starts_with("Instances")).unwrap().id;
+        h.toggle_expanded(open);
+        h.rebuild_scene(scene());
+        let instance = h.objects.iter().find(|o| o.name == "[2] cube").expect("its instances, listed");
+        assert_eq!(instance.path.as_deref(), Some("/root/trees[2]"));
+        // Selected, an instance is its instancer for the Inspector.
+        h.click("/root/trees[2]", false, false, &[]);
+        assert_eq!(h.selected_prim_paths(), vec!["/root/trees".to_string()]);
+    }
+
+    #[test]
+    fn a_draw_mode_chosen_on_a_group_reaches_below_it() {
+        let mut h = SceneHierarchy::default();
+        h.set_draw_mode("/root/trees", Some(DrawMode::Bounds));
+        assert_eq!(h.draw_override("/root/trees/Prototypes/cube"), Some(DrawMode::Bounds));
+        assert_eq!(h.draw_override("/root/other"), None);
+        h.set_draw_mode("/root/trees", None);
+        assert_eq!(h.draw_override("/root/trees/Prototypes/cube"), None);
+    }
+}
 
 #[cfg(test)]
 mod purpose_tests {

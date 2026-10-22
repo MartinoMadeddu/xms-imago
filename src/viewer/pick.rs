@@ -68,31 +68,45 @@ fn to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
 
 /// The path of the primitive under `pixel`, among `prims`: a mesh the
 /// ray hits, or a light or a camera whose lines pass near it, the nearest.
+#[cfg(test)]
 pub fn prim_at(view: &PickView, pixel: Vec2, prims: &[Prim]) -> Option<String> {
+    prim_at_drawn(view, pixel, prims, &Default::default())
+}
+
+/// As `prim_at`, for the scene as drawn: a prim drawn as its box or its
+/// origin (`standins`) is picked by its box, not its triangles; a copy of
+/// a point instancer's prototype picks that instance (`/forest/trees[12]`).
+pub fn prim_at_drawn(view: &PickView, pixel: Vec2, prims: &[Prim], standins: &std::collections::HashSet<String>) -> Option<String> {
     let (o, d) = view.ray(pixel);
     let d = d.normalize_or_zero();
-    let mut best: Option<(f32, &str)> = None;
+    // The nearest hit: the prim, and which of its copies.
+    let mut best: Option<(f32, &Prim, usize)> = None;
     for p in prims.iter().filter(|p| p.light.is_some() || p.camera.is_some()) {
         for [a, b] in glyph_lines(p) {
             let (Some(sa), Some(sb)) = (view.project(a), view.project(b)) else { continue };
             if to_segment(pixel, sa, sb) > NEAR_LINE { continue; }
             let t = (a.lerp(b, 0.5) - o).dot(d);
-            if t > 0.0 && best.is_none_or(|x| t < x.0) { best = Some((t, p.path.as_str())); }
+            if t > 0.0 && best.is_none_or(|x| t < x.0) { best = Some((t, p, 0)); }
         }
     }
     for p in prims {
         if p.mesh.indices.is_empty() { continue; }
         let Some(local) = bounds::local_bounds(&p.mesh) else { continue };
         let matrices: &[Mat4] = if p.place.is_placed() { p.place.matrices() } else { &[Mat4::IDENTITY] };
-        for m in matrices {
-            // Cheap first: the copy's box.
-            if ray_box(o, d, bounds::moved_bounds(local, m)).is_none() { continue; }
-            if let Some(t) = ray_mesh(o, d, &p.mesh, m) {
-                if t > 0.0 && best.is_none_or(|b| t < b.0) { best = Some((t, p.path.as_str())); }
+        let boxed = standins.contains(&p.path);
+        for (k, m) in matrices.iter().enumerate() {
+            // Cheap first: the copy's box; drawn as a box, the box is it.
+            let Some(entry) = ray_box(o, d, bounds::moved_bounds(local, m)) else { continue };
+            let hit = if boxed { Some(entry) } else { ray_mesh(o, d, &p.mesh, m) };
+            if let Some(t) = hit {
+                if t > 0.0 && best.is_none_or(|b| t < b.0) { best = Some((t, p, k)); }
             }
         }
     }
-    best.map(|(_, path)| path.to_string())
+    best.map(|(_, p, copy)| match p.instanced_by.as_ref().and_then(|by| crate::core::instancing::point_of_copy(by, copy).map(|i| (by, i))) {
+        Some((by, i)) => crate::core::instancing::instance_name(&by.instancer, i),
+        None => p.path.clone(),
+    })
 }
 
 /// The lines of the selected lights and cameras, drawn in the selection's
@@ -101,9 +115,24 @@ pub fn selected_glyphs(prims: &[Prim], selected: &[String]) -> Vec<[Vec3; 2]> {
     prims.iter().filter(|p| selected.iter().any(|s| *s == p.path)).flat_map(glyph_lines).collect()
 }
 
-/// The world bounds of the primitives whose paths are selected, to outline.
+/// The world bounds of the primitives whose paths are selected, to outline;
+/// a selected instance (`/forest/trees[12]`), the box of each prim of its
+/// prototype where that instance is.
 pub fn selected_bounds(prims: &[Prim], selected: &[String]) -> Vec<Bounds> {
-    prims.iter().filter(|p| selected.iter().any(|s| *s == p.path)).filter_map(bounds::world_bounds).collect()
+    let mut out: Vec<Bounds> = prims.iter().filter(|p| selected.iter().any(|s| *s == p.path)).filter_map(bounds::world_bounds).collect();
+    for (inst, i) in selected.iter().filter_map(|s| crate::core::instancing::instance_path(s)) {
+        let Some(instancer) = prims.iter().find(|p| p.path == inst && p.instancing.is_some()) else { continue };
+        let Some(geo) = &instancer.geo else { continue };
+        let proto = geo.attr(crate::core::geo::Context::Point, "protoIndex").and_then(|a| a.column.ints())
+            .and_then(|ix| ix.get(i)).copied().unwrap_or(0);
+        let at = crate::core::instancing::instance_matrices(geo, &instancer.place, i);
+        for p in prims {
+            let Some(by) = p.instanced_by.as_ref().filter(|by| by.instancer == inst && by.index as i32 == proto) else { continue };
+            let Some(local) = bounds::local_bounds(&p.mesh) else { continue };
+            out.extend(at.iter().map(|m| bounds::moved_bounds(local, &(*m * by.inside))));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
