@@ -609,6 +609,9 @@ pub enum IceGraphNodeType {
     /// Places on the surface, spread by area: their positions, the normals
     /// there and the surface samples (see `xms_ice::Op::Scatter`).
     Scatter { seed: u32, #[serde(default)] weight: String },
+    /// Get Array Data: an attribute read as a list per element, every value
+    /// it touches in `context` kept (see `xms_ice::Op::GetArrayData`).
+    GetArrayData { name: String, #[serde(default)] context: Option<crate::core::geo::Context> },
     /// Get Data at Samples: an attribute read at surface samples (see
     /// `xms_ice::Op::GetDataAt`).
     GetDataAt { name: String },
@@ -682,6 +685,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
         IceGraphNodeType::GetDataAt { .. } => "Get Data at Samples",
+        IceGraphNodeType::GetArrayData { .. } => "Get Array Data",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::Concat => "Concatenate Arrays",
         IceGraphNodeType::GetReference { .. } => "Get Reference",
@@ -705,6 +709,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "⚂",
         IceGraphNodeType::Scatter { .. } => "⁘",
         IceGraphNodeType::GetDataAt { .. } => "▶",
+        IceGraphNodeType::GetArrayData { .. } => "▶",
         IceGraphNodeType::RandomOrientation { .. } => "⟳",
         IceGraphNodeType::Concat => "⧺",
         IceGraphNodeType::GetReference { .. } => "⇲",

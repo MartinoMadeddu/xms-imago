@@ -57,6 +57,13 @@ pub enum Op {
     /// or one per element (`ptIndex`, an `id`, a face's index read from its
     /// points: elements of one seed get one value). `seed` is mixed in.
     Random { seed: u32 },
+    /// The values of an attribute each element touches in `context` (its
+    /// own when `None`), kept, not made one: a face's points' positions, its
+    /// point numbers (`ptIndices`, Point `ptIndex`), a point's faces
+    /// (`faceIndices`). A list per element, worked on by maths item by item
+    /// and by the array nodes (size, an item, sum, average); in an Object
+    /// graph the one list is an array.
+    GetArrayData { name: String, context: Option<Context> },
     /// Arrays one after the other (single values count as one element),
     /// all of one type: every wired input, in order; the free one is not.
     Concat,
@@ -191,7 +198,7 @@ impl Op {
             Op::Array(a) => Some(a.arity()),
             Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
             Op::RandomOrientation { .. } => Some(4),
-            Op::GetReference { .. } => Some(0),
+            Op::GetReference { .. } | Op::GetArrayData { .. } => Some(0),
             Op::Instancer { .. } => Some(5),
         }
     }

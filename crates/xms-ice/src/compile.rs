@@ -115,6 +115,10 @@ pub(crate) enum Ins {
     Random { dst: usize, seed: u32, args: [usize; 4], array: bool, key: Key },
     /// Arrays (or single values) one after the other.
     Concat { dst: usize, srcs: Vec<usize> },
+    /// Read number `read` as lists: what each element touches in the read's
+    /// context, every value kept. `flat`: in the one-value program, the one
+    /// element's list as an array.
+    LoadList { dst: usize, read: usize, flat: bool },
     /// An array's size, element `args[1]`, sum or average.
     Array { op: ArrayOp, dst: usize, args: [usize; 2] },
     /// `count` (a register) places on the surface; `weight`, a read scaling
@@ -249,7 +253,18 @@ pub(crate) const NO_COUNT: usize = usize::MAX;
 /// A value in a register: of a type, in one of the two programs, and in
 /// the uniform one possibly an array (one register of many values).
 #[derive(Clone, Copy, Debug)]
-struct Val { reg: usize, uniform: bool, ty: Ty, array: bool }
+struct Val {
+    reg: usize, uniform: bool, ty: Ty, array: bool,
+    /// A list per element (`array` and not `uniform`, from Get Array Data):
+    /// the context its items come from. Lists of one context have the same
+    /// lengths, element by element, and meet in maths.
+    of: Option<Context>,
+}
+
+impl Val {
+    /// A list per element, not the graph's one array.
+    fn is_list(&self) -> bool { self.array && !self.uniform }
+}
 
 struct Lower<'a> {
     graph:     &'a Graph,
@@ -276,7 +291,7 @@ impl Lower<'_> {
         let reg = p.regs.len();
         p.regs.push(ty);
         p.code.push(make(reg));
-        Val { reg, uniform, ty, array: false }
+        Val { reg, uniform, ty, array: false, of: None }
     }
 
     /// `v` in a batch register. Never an array: the compiler checks before.
@@ -345,6 +360,7 @@ impl Lower<'_> {
             Op::GetDataAt { name } => self.at_location(node, name)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
             Op::Concat => self.concat(node)?,
+            Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
                 if *input == 0 { return error(node, "Reference inputs are numbered from 1"); }
@@ -436,9 +452,10 @@ impl Lower<'_> {
         // plus 0.5).
         if vals.iter().any(|v| v.ty == Ty::Float) {
             for v in vals.iter_mut().filter(|v| v.ty == Ty::Int) {
-                let (src, array) = (v.reg, v.array);
+                let (src, array, of) = (v.reg, v.array, v.of);
                 *v = self.emit(v.uniform, Ty::Float, |dst| Ins::ToFloat { dst, src });
                 v.array = array;
+                v.of = of;
             }
         }
         let tys: Vec<Ty> = vals.iter().map(|v| v.ty).collect();
@@ -447,9 +464,19 @@ impl Lower<'_> {
         };
         let uniform = vals.iter().all(|v| v.uniform);
         // An array is one value of the graph's one-value part, worked on
-        // element by element; per-element values do not meet it (yet).
+        // element by element. A list per element (Get Array Data) is worked
+        // on item by item, a per-element value meeting each of its items;
+        // lists meet lists of the same context.
         let array = vals.iter().any(|v| v.array);
-        if array && !uniform {
+        let list = vals.iter().find(|v| v.is_list()).and_then(|v| v.of);
+        if let Some(of) = list {
+            if vals.iter().any(|v| v.array && v.uniform) {
+                return error(node, "An Object array and a list per element do not meet");
+            }
+            if vals.iter().any(|v| v.is_list() && v.of != Some(of)) {
+                return error(node, "Lists from two contexts do not meet: their lengths differ element by element (a face's points and the faces around a point)");
+            }
+        } else if array && !uniform {
             return error(node, "An array meets per-element values: arrays work in the graph's one-value part (an Object graph) for now");
         }
         let mut args = [0usize; 3];
@@ -458,6 +485,7 @@ impl Lower<'_> {
         }
         let mut out = self.emit(uniform, ty, |dst| Ins::Math { op, dst, args });
         out.array = array;
+        out.of = list;
         Ok(out)
     }
 
@@ -486,13 +514,20 @@ impl Lower<'_> {
     }
 
     /// The count of an array of random values (input `i`): `None` for 0
-    /// (one per element), else one int for the whole graph.
+    /// (one per element), else one int for the whole graph, or an array
+    /// wired in (Scatter's positions): as many as it holds.
     fn count_input(&mut self, node: usize, i: usize) -> Result<Option<Val>, CompileError> {
         let graph = self.graph;
         let count = match &graph.nodes[node].inputs[i] {
             Input::Value(Value::Int(c)) if *c <= 0 => None,
             Input::Value(Value::Float(c)) if *c <= 0.0 => None,
             _ => Some(self.input(node, i, Some(Ty::Int))?),
+        };
+        // An array: its size.
+        let count = match count {
+            Some(a) if a.array && a.uniform => Some(self.emit(true, Ty::Int, |dst| Ins::Array { op: ArrayOp::Size, dst, args: [a.reg, a.reg] })),
+            Some(a) if a.is_list() => return error(node, "The count is one int, or the graph's array (Object graphs); a list per element is not"),
+            other => other,
         };
         if let Some(c) = count {
             if c.ty != Ty::Int || !c.uniform || c.array {
@@ -560,6 +595,45 @@ impl Lower<'_> {
         Ok(self.emit(false, ty, |dst| make(dst, [regs[0], regs[1], 0, k], false, key_kind)))
     }
 
+    /// Get Array Data: the values of `name` each element touches in `from`
+    /// (its own context when not given), kept as a list: a face's points'
+    /// positions, its point numbers (`ptIndices`). In an Object graph, the
+    /// one list, as the graph's array.
+    fn get_array_data(&mut self, node: usize, name: &str, from: Option<Context>) -> Result<Val, CompileError> {
+        let (geo, context) = (self.geo, self.plan.context);
+        // The intrinsic lists by their own names: a face's points, a
+        // point's faces.
+        let (name, from) = match (name.trim(), from) {
+            ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
+            ("faceIndices", None) => ("faceIndex", Some(Context::Face)),
+            (n, f) => (n, f),
+        };
+        if name.is_empty() { return error(node, "Get Array Data needs the name of the attribute it reads"); }
+        let Some(from) = from.or_else(|| context_of(geo, name)) else { return error(node, format!("No attribute '{name}'")) };
+        let Some(found) = find_in(geo, from, name) else {
+            return match context_of(geo, name) {
+                Some(other) => error(node, format!("'{name}' is per {other:?}, not per {from:?}")),
+                None => error(node, format!("No attribute '{name}'")),
+            };
+        };
+        let Some(ty) = found.ty else { return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)")) };
+        let column = if found.derived { name.to_string() } else { column_in(geo, from, name).to_string() };
+        let key = format!("list:{from:?}/{column}");
+        let read = match self.reads.get(&key) {
+            Some(&r) => r,
+            None => {
+                self.plan.reads.push(Read { name: column, context: from, reduce: Reduce::Average, derived: found.derived, at_location: false });
+                self.reads.insert(key, self.plan.reads.len() - 1);
+                self.plan.reads.len() - 1
+            }
+        };
+        let flat = context == Context::Object;
+        let mut v = self.emit(flat, ty, |dst| Ins::LoadList { dst, read, flat });
+        v.array = true;
+        if !flat { v.of = Some(from); }
+        Ok(v)
+    }
+
     /// A read of `name` in `ctx`, at surface samples: stored or derived.
     fn location_read(&mut self, ctx: Context, name: &str, derived: bool) -> usize {
         let column = if derived { name.to_string() } else { column_in(self.geo, ctx, name).to_string() };
@@ -617,9 +691,18 @@ impl Lower<'_> {
 
     fn array(&mut self, node: usize, op: ArrayOp) -> Result<Val, CompileError> {
         let a = self.input(node, 0, None)?;
-        if !a.array { return error(node, format!("{op:?} takes an array (from Random with a count)")); }
+        if !a.array { return error(node, format!("{op:?} takes an array (Get Array Data, Random with a count)")); }
         let Some(ty) = array_ty(op, a.ty) else { return error(node, format!("{op:?} does not take an array of {:?}", a.ty)) };
         let b = if op.arity() > 1 { self.input(node, 1, Some(Ty::Int))? } else { a };
+        // A list per element: one result per element, its index one for all
+        // or one per element.
+        if a.is_list() {
+            if op == ArrayOp::Element && (b.ty != Ty::Int || b.array) {
+                return error(node, "The element's index is an int, one for all or one per element");
+            }
+            let b = if op == ArrayOp::Element { self.varying(b) } else { a.reg };
+            return Ok(self.emit(false, ty, |dst| Ins::Array { op, dst, args: [a.reg, b] }));
+        }
         if op == ArrayOp::Element && (b.ty != Ty::Int || !b.uniform || b.array) {
             return error(node, "The element's index is one int");
         }
@@ -849,6 +932,14 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         }
         // Its samples; its positions and normals by `wire_ty`.
         Op::Scatter { .. } => Some(Ty::Sample),
+        Op::GetArrayData { name, context: from } => {
+            let (name, from) = match (name.trim(), from) {
+                ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
+                ("faceIndices", None) => ("faceIndex", Some(Context::Face)),
+                (n, f) => (n, *f),
+            };
+            from.or_else(|| context_of(geo, name)).and_then(|c| find_in(geo, c, name)).and_then(|f| f.ty)
+        }
         Op::RandomOrientation { .. } => Some(Ty::Quat),
         Op::Concat => n.inputs.iter().find_map(|i| match i {
             Input::Wire { node: from, output } => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
@@ -895,7 +986,7 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
     memo[node] = Some(false);
     let n = &graph.nodes[node];
     let a = match &n.op {
-        Op::Scatter { .. } | Op::GetReference { .. } | Op::Concat => true,
+        Op::Scatter { .. } | Op::GetReference { .. } | Op::Concat | Op::GetArrayData { .. } => true,
         // A count, a seed per element of an array; Random Orientation's
         // normals as an array too.
         Op::Random { .. } | Op::RandomOrientation { .. } => {

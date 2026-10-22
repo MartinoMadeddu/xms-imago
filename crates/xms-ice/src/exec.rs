@@ -35,6 +35,9 @@ pub(crate) enum Reg {
     Sample(Vec<Loc>),
     /// Paths: only ever an array, in the uniform program.
     Token(Vec<Arc<str>>),
+    /// A list per element (Get Array Data): element `e`'s items are
+    /// `items[offsets[e]..offsets[e + 1]]`.
+    List(Vec<u32>, Box<Reg>),
 }
 
 impl Reg {
@@ -49,6 +52,7 @@ impl Reg {
             Reg::Quat(v) => v.len(),
             Reg::Sample(v) => v.len(),
             Reg::Token(v) => v.len(),
+            Reg::List(offsets, _) => offsets.len().saturating_sub(1),
         }
     }
 }
@@ -101,6 +105,7 @@ fn value_at(reg: &Reg, i: usize) -> Value {
         Reg::Quat(v) => Value::Quat(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Sample(v) => Value::Sample(v.get(i).copied().unwrap_or_default()),
         Reg::Token(_) => unreachable!("a path is never one value: the compiler refuses"),
+        Reg::List(..) => unreachable!("a list is never one value: the compiler refuses"),
     }
 }
 
@@ -461,7 +466,7 @@ fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> b
                 Vec2(a) => map1(a, vec2s(out), |x| if abs { x.abs() } else { -x }),
                 Vec3(a) => map1(a, vec3s(out), |x| if abs { x.abs() } else { -x }),
                 Vec4(a) => map1(a, vec4s(out), |x| if abs { x.abs() } else { -x }),
-                Bool(_) | Quat(_) | Sample(_) | Token(_) => return false,
+                Bool(_) | Quat(_) | Sample(_) | Token(_) | List(..) => return false,
             }
         }
         Math::Sin => match a { Float(a) => map1(a, floats(out), f32::sin), _ => return false },
@@ -547,6 +552,20 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
             Ins::Param { dst, index } => fill(&mut regs[dst], env.params[index], len),
             Ins::Load { dst, read } => load(&env.sources[read], start, len, &mut regs[dst], program.regs[dst]),
             Ins::Broadcast { dst, from } => fill(&mut regs[dst], value_at(&env.uniforms[from], 0), len),
+            // Lists: item by item, a per-element value meeting each item.
+            Ins::Math { op, dst, args } if args[..op.arity()].iter().any(|&r| matches!(regs[r], Reg::List(..))) => {
+                let arity = op.arity();
+                let offsets = args[..arity].iter().find_map(|&r| match &regs[r] { Reg::List(o, _) => Some(o.clone()), _ => None }).unwrap_or_default();
+                let spread: Vec<Option<Reg>> = args[..arity].iter().map(|&r| match &regs[r] { Reg::List(..) => None, one => Some(per_item(one, &offsets)) }).collect();
+                let arg = |k: usize| (k < arity).then(|| match (&spread[k], &regs[args[k]]) {
+                    (Some(s), _) => s,
+                    (None, Reg::List(_, items)) => &**items,
+                    (None, other) => other,
+                });
+                let mut items = Reg::Bool(vec![]);
+                math(op, arg(0).expect("every operation takes an input"), arg(1), arg(2), &mut items);
+                regs[dst] = Reg::List(offsets, Box::new(items));
+            }
             Ins::Math { op, dst, args } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
                 // An array meeting one value (in the uniform program): the
@@ -564,8 +583,18 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
             }
             Ins::ToFloat { dst, src } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
-                if let Reg::Int(v) = &regs[src] { floats(&mut out).extend(v.iter().map(|&i| i as f32)); }
+                match &regs[src] {
+                    Reg::Int(v) => floats(&mut out).extend(v.iter().map(|&i| i as f32)),
+                    Reg::List(o, items) => if let Reg::Int(v) = &**items {
+                        out = Reg::List(o.clone(), Box::new(Reg::Float(v.iter().map(|&i| i as f32).collect())));
+                    },
+                    _ => {}
+                }
                 regs[dst] = out;
+            }
+            Ins::LoadList { dst, read, flat } => {
+                let (offsets, items) = load_list(&env.sources[read], start, len, program.regs[dst]);
+                regs[dst] = if flat { items } else { Reg::List(offsets, Box::new(items)) };
             }
             Ins::Random { dst, seed, args, array, key } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
@@ -609,7 +638,10 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
             }
             Ins::Array { op, dst, args } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
-                array_op(op, &regs[args[0]], &regs[args[1]], &mut out);
+                match &regs[args[0]] {
+                    Reg::List(offsets, items) => list_op(op, offsets, items, &regs[args[1]], &mut out),
+                    a => array_op(op, a, &regs[args[1]], &mut out),
+                }
                 regs[dst] = out;
             }
             Ins::Store { write, src } => store(&regs[src], &mut outs[write]),
@@ -703,6 +735,118 @@ fn drawn_span(regs: &[Reg], args: [usize; 4], array: bool, key: Key, start: usiz
     (0, n)
 }
 
+/// What each of elements `start..start + len` touches in the source's
+/// context, every value kept: the lists' offsets (from 0) and their items.
+fn load_list(s: &Source, start: usize, len: usize, ty: Ty) -> (Vec<u32>, Reg) {
+    let mut offsets = Vec::with_capacity(len + 1);
+    offsets.push(0u32);
+    let mut elems: Vec<usize> = vec![];
+    for e in start..start + len {
+        match &*s.map {
+            // The same element; the one Object value.
+            Map::Direct => elems.push(if s.context == Context::Object { 0 } else { e }),
+            Map::One(m) => elems.extend(m.get(e).map(|&i| i as usize)),
+            Map::Many { offsets: o, items } => {
+                let (a, b) = (o.get(e).copied().unwrap_or(0) as usize, o.get(e + 1).copied().unwrap_or(0) as usize);
+                elems.extend(items.get(a..b).unwrap_or(&[]).iter().map(|&i| i as usize));
+            }
+        }
+        offsets.push(elems.len() as u32);
+    }
+    (offsets, pick(s, &elems, ty))
+}
+
+/// The values of a source's column at these elements (through its indices).
+fn pick(s: &Source, elems: &[usize], ty: Ty) -> Reg {
+    fn at<T: Copy, U>(v: &[T], ix: Option<&[u32]>, elems: &[usize], zero: U, conv: impl Fn(T) -> U) -> Vec<U> where U: Copy {
+        elems.iter().map(|&e| value_index(ix, e).and_then(|i| v.get(i)).map_or(zero, |&x| conv(x))).collect()
+    }
+    let ix = s.indices;
+    match s.column {
+        Some(Column::Bool(v)) => Reg::Bool(at(v, ix, elems, false, |x| x)),
+        Some(Column::Int(v)) => Reg::Int(at(v, ix, elems, 0, |x| x)),
+        Some(Column::Float(v)) => Reg::Float(at(v, ix, elems, 0.0, |x| x)),
+        Some(Column::Vec2(v)) => Reg::Vec2(at(v, ix, elems, Vec2::ZERO, Vec2::from_array)),
+        Some(Column::Vec3(v)) => Reg::Vec3(at(v, ix, elems, Vec3::ZERO, Vec3::from_array)),
+        Some(Column::Vec4(v)) => Reg::Vec4(at(v, ix, elems, Vec4::ZERO, Vec4::from_array)),
+        Some(Column::Quat(v)) => Reg::Quat(at(v, ix, elems, Quat::IDENTITY, Quat::from_array)),
+        // Not there in this geometry (it was when compiled): zeros.
+        _ => { let mut r = Reg::Bool(vec![]); fill(&mut r, zero(ty), elems.len()); r }
+    }
+}
+
+/// A value per element as a value per item of the lists `offsets` gives:
+/// element `e`'s value once for each of its items.
+fn per_item(reg: &Reg, offsets: &[u32]) -> Reg {
+    fn spread<T: Copy>(v: &[T], offsets: &[u32]) -> Vec<T> {
+        let mut out = Vec::with_capacity(offsets.last().copied().unwrap_or(0) as usize);
+        for e in 0..offsets.len().saturating_sub(1) {
+            let Some(&x) = v.get(e).or(v.last()) else { break };
+            out.extend(std::iter::repeat_n(x, (offsets[e + 1] - offsets[e]) as usize));
+        }
+        out
+    }
+    match reg {
+        Reg::Bool(v) => Reg::Bool(spread(v, offsets)),
+        Reg::Int(v) => Reg::Int(spread(v, offsets)),
+        Reg::Float(v) => Reg::Float(spread(v, offsets)),
+        Reg::Vec2(v) => Reg::Vec2(spread(v, offsets)),
+        Reg::Vec3(v) => Reg::Vec3(spread(v, offsets)),
+        Reg::Vec4(v) => Reg::Vec4(spread(v, offsets)),
+        Reg::Quat(v) => Reg::Quat(spread(v, offsets)),
+        Reg::Sample(v) => Reg::Sample(spread(v, offsets)),
+        Reg::Token(_) | Reg::List(..) => Reg::Bool(vec![]),
+    }
+}
+
+/// An array node on lists: one result per element, from its items (its
+/// count, the item at the index, their sum or average). An empty list
+/// gives zero, or no rotation.
+fn list_op(op: ArrayOp, offsets: &[u32], items: &Reg, index: &Reg, out: &mut Reg) {
+    let n = offsets.len().saturating_sub(1);
+    let range = |e: usize| offsets[e] as usize..offsets[e + 1] as usize;
+    let index_at = |e: usize| match index { Reg::Int(v) => v.get(e).or(v.last()).copied().unwrap_or(0), _ => 0 };
+    macro_rules! item {
+        ($v:expr, $zero:expr) => {
+            (0..n).map(|e| {
+                let r = range(e);
+                if r.is_empty() { $zero } else { $v[r.start + (index_at(e).max(0) as usize).min(r.len() - 1)] }
+            }).collect()
+        };
+    }
+    macro_rules! total {
+        ($v:expr, $zero:expr, $div:expr) => {
+            (0..n).map(|e| {
+                let r = range(e);
+                let s = $v[r.clone()].iter().fold($zero, |a, &b| a + b);
+                if op == ArrayOp::Average && !r.is_empty() { ($div)(s, r.len()) } else { s }
+            }).collect()
+        };
+    }
+    *out = match op {
+        ArrayOp::Size => Reg::Int((0..n).map(|e| range(e).len() as i32).collect()),
+        ArrayOp::Element => match items {
+            Reg::Bool(v) => Reg::Bool(item!(v, false)),
+            Reg::Int(v) => Reg::Int(item!(v, 0)),
+            Reg::Float(v) => Reg::Float(item!(v, 0.0)),
+            Reg::Vec2(v) => Reg::Vec2(item!(v, Vec2::ZERO)),
+            Reg::Vec3(v) => Reg::Vec3(item!(v, Vec3::ZERO)),
+            Reg::Vec4(v) => Reg::Vec4(item!(v, Vec4::ZERO)),
+            Reg::Quat(v) => Reg::Quat(item!(v, Quat::IDENTITY)),
+            Reg::Sample(v) => Reg::Sample(item!(v, Loc::default())),
+            Reg::Token(_) | Reg::List(..) => Reg::Bool(vec![]),
+        },
+        ArrayOp::Sum | ArrayOp::Average => match items {
+            Reg::Int(v) => Reg::Int(total!(v, 0i32, |s: i32, n: usize| s / n as i32)),
+            Reg::Float(v) => Reg::Float(total!(v, 0.0f32, |s: f32, n: usize| s / n as f32)),
+            Reg::Vec2(v) => Reg::Vec2(total!(v, Vec2::ZERO, |s: Vec2, n: usize| s / n as f32)),
+            Reg::Vec3(v) => Reg::Vec3(total!(v, Vec3::ZERO, |s: Vec3, n: usize| s / n as f32)),
+            Reg::Vec4(v) => Reg::Vec4(total!(v, Vec4::ZERO, |s: Vec4, n: usize| s / n as f32)),
+            _ => Reg::Bool(vec![]),
+        },
+    };
+}
+
 /// Arrays (or single values) one after the other, into `out`.
 fn concat<'a>(parts: impl Iterator<Item = &'a Reg>, out: &mut Reg) {
     let mut first = true;
@@ -719,6 +863,7 @@ fn concat<'a>(parts: impl Iterator<Item = &'a Reg>, out: &mut Reg) {
                 Reg::Quat(_) => { quats(out); }
                 Reg::Sample(_) => { locs(out); }
                 Reg::Token(_) => { tokens(out); }
+                Reg::List(..) => {}
             }
             first = false;
         }
@@ -870,7 +1015,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
         Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Sample(_) | Reg::Token(_) => unreachable!("surface samples and paths are not written: the compiler refuses"),
+        Reg::Sample(_) | Reg::Token(_) | Reg::List(..) => unreachable!("surface samples, paths and lists are not written: the compiler refuses"),
     }
 }
 

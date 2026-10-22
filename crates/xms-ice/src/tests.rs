@@ -775,3 +775,69 @@ fn the_instancer_is_for_object_graphs_and_wants_positions_and_paths() {
     assert_eq!(make(Context::Object, SCATTER_SAMPLES, true).0, Some(inst), "samples are not positions");
     assert!(make(Context::Object, SCATTER_POSITIONS, true).0.is_none());
 }
+
+/// A per-face graph's value of `out` (a node), set as `name`.
+fn face_value(mut g: Graph, out: usize, geo: &Geo) -> Column {
+    let set = g.add(Op::set("v"), vec![wire(out)]);
+    g.add(Op::Root { context: Context::Face }, vec![wire(set)]);
+    let out = run(&compile(&g, geo).unwrap(), geo, &no_params(), &[]).geo;
+    out.attr(Context::Face, "v").unwrap().column.clone()
+}
+
+/// Get Array Data per face: its point numbers (ptIndices), how many, the
+/// first; its points' positions, worked on item by item, then averaged.
+#[test]
+fn get_array_data_keeps_what_each_face_touches() {
+    let geo = small_and_big();
+    let list = |g: &mut Graph, name: &str, from: Option<Context>| g.add(Op::GetArrayData { name: name.into(), context: from }, vec![]);
+    // How many, and the first of each: faces 0 1 2 3 and 1 4 5 2.
+    let mut g = Graph::default();
+    let ix = list(&mut g, "ptIndices", None);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(ix)]);
+    assert_eq!(face_value(g, size, &geo).ints().unwrap(), &[4, 4]);
+    let mut g = Graph::default();
+    let ix = list(&mut g, "ptIndices", None);
+    let second = g.add(Op::Array(ArrayOp::Element), vec![wire(ix), Input::Value(Value::Int(1))]);
+    assert_eq!(face_value(g, second, &geo).ints().unwrap(), &[1, 4]);
+    // The points' positions doubled, item by item, then averaged: twice
+    // the face's centre.
+    let mut g = Graph::default();
+    let p = list(&mut g, "P", Some(Context::Point));
+    let twice = g.add(Op::Math(Math::Multiply), vec![wire(p), Input::Value(Value::Float(2.0))]);
+    let avg = g.add(Op::Array(ArrayOp::Average), vec![wire(twice)]);
+    let c = face_value(g, avg, &geo).vec3s().unwrap().to_vec();
+    assert!((c[0][0] - 1.0).abs() < 1e-5 && (c[0][2] - 1.0).abs() < 1e-5, "{c:?}");
+    assert!((c[1][0] - 5.0).abs() < 1e-5, "{c:?}");
+    // A per-face value meets each item: the points' x plus the face's id.
+    let mut g = Graph::default();
+    let p = list(&mut g, "P", Some(Context::Point));
+    let id = g.add(Op::get("id"), vec![]);
+    let x = g.add(Op::Math(Math::Dot), vec![wire(p), Input::Value(Value::Vec3([1.0, 0.0, 0.0]))]);
+    let plus = g.add(Op::Math(Math::Add), vec![wire(x), wire(id)]);
+    let sum = g.add(Op::Array(ArrayOp::Sum), vec![wire(plus)]);
+    assert_eq!(face_value(g, sum, &geo).floats().unwrap(), &[2.0, 14.0], "0+1+1+0, then 1+4+4+1 plus 4 x 1");
+    // A list is not written as an attribute.
+    let mut g = Graph::default();
+    let ix = list(&mut g, "ptIndices", None);
+    let set = g.add(Op::set("v"), vec![wire(ix)]);
+    g.add(Op::Root { context: Context::Face }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, set);
+}
+
+/// In an Object graph, Get Array Data gives every value as the graph's
+/// array; a Count takes an array's length.
+#[test]
+fn an_object_graph_reads_every_value_and_a_count_takes_an_arrays_length() {
+    let geo = small_and_big();
+    let mut g = Graph::default();
+    let p = g.add(Op::GetArrayData { name: "P".into(), context: None }, vec![]);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(p)]);
+    assert_eq!(object_value(g, size, "n", &geo).ints().unwrap(), &[6]);
+    let mut g = Graph::default();
+    let at = g.add(Op::Scatter { seed: 0, weight: String::new() }, vec![Input::Value(Value::Int(37))]);
+    let r = g.add(Op::Random { seed: 0 }, vec![Input::Value(Value::Float(0.0)), Input::Value(Value::Float(1.0)),
+        Input::Wire { node: at, output: SCATTER_POSITIONS }, Input::Value(Value::Int(0))]);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(r)]);
+    assert_eq!(object_value(g, size, "n", &geo).ints().unwrap(), &[37], "as many as the positions");
+}
+

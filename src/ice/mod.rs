@@ -225,6 +225,7 @@ impl IceGraph {
                 IceGraphInputSocket { value: None, ..input("Seed", 0.0) },
             ], vec![output("Orientations", "Any")]),
             IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
+            IceGraphNodeType::GetArrayData { .. } => (vec![], vec![output("Array", "Any")]),
             // A PointInstancer's attributes; one orientation and scale for
             // all when not wired, a prototype picked at random (-1).
             IceGraphNodeType::Instancer { .. } => (vec![
@@ -333,6 +334,7 @@ impl IceGraph {
                 IceGraphNodeType::Array { op } => Op::Array(*op),
                 IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
                 IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
+                IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData { name: name.clone(), context: *context },
                 IceGraphNodeType::RandomOrientation { seed } => Op::RandomOrientation { seed: *seed },
                 IceGraphNodeType::Concat => Op::Concat,
                 // Rows as they are: `evaluate` turns them into the paths they

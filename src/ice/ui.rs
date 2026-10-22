@@ -49,6 +49,7 @@ mod pal {
     // Node colours, by kind.
     pub fn GREEN() -> Color32 { Color32::from_rgb(152, 196,  98) }     // data, constants, maths, generators
     pub fn BLUE() -> Color32  { Color32::from_rgb(102, 150, 204) }     // get / set geometry
+    pub fn ORANGE() -> Color32 { Color32::from_rgb(224, 150,  72) }    // what makes geometry: scattering, instancing
     pub fn PORTS() -> Color32 { Color32::from_rgb( 52,  52,  52) }     // Execution Ports: dark grey, as MaterialX's material
 
     // Data types: the colours every graph of XMS gives them (`type_colours`).
@@ -100,6 +101,8 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::Scatter { seed, weight } if weight.trim().is_empty() => Some(format!("seed {seed}")),
         IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
         IceGraphNodeType::GetDataAt { name } => Some(format!("self.{name} at samples")),
+        IceGraphNodeType::GetArrayData { name, context: Some(c) } => Some(format!("{}.{name}[]", context_word(*c))),
+        IceGraphNodeType::GetArrayData { name, context: None } => Some(format!("{name}[]")),
         IceGraphNodeType::RandomOrientation { seed } => Some(format!("seed {seed}")),
         IceGraphNodeType::GetReference { input, paths } => Some(match crate::core::locations::rows(paths).count() {
             0 => format!("Reference {input}: all"),
@@ -184,7 +187,9 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. }
             | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat => pal::GREEN(),
-        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::Instancer { .. } => pal::BLUE(),
+        IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
+        // The Geometry category: what makes geometry.
+        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } => pal::ORANGE(),
     }
 }
 
@@ -284,6 +289,11 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
         IceGraphNodeType::Scatter { seed, weight } => group(ui, "Scatter", None, |f| {
             f.row("Seed", Some("Another seed, other places; the same seed gives the same places every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
             f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
+        }),
+        IceGraphNodeType::GetArrayData { name, context } => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("The attribute each element reads as a list, every value it touches kept: P from Point, a face's points' positions; ptIndices, a face's point numbers; faceIndices, a point's faces"), name, "ptIndices");
+            f.choice("Context", Some("Where the values are read from. Auto: where the attribute is (ptIndices: Point, faceIndices: Face). A face reads its points or corners, a point the faces or corners around it, a corner its point or face (a list of one); in an Object graph, every one, as the graph's array"),
+                     context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
         }),
         IceGraphNodeType::GetDataAt { name } => group(ui, "Attribute", None, |f| {
             f.text("Name", Some("P is the position, N the normal (the face's own when there are none); any other attribute (uv, a colour), blended across the triangle each sample is in"), name, "P");
@@ -611,6 +621,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: Value::Quat([0.0, 0.0, 0.0, 1.0]) }, "A rotation (i, j, k, real); none by default"),
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there and the surface samples, each an array"),
+        ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item"),
         ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at surface samples (Scatter on Surface's third output): P, N, UVs or any other, blended across the surface"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
