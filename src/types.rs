@@ -1840,6 +1840,13 @@ impl SceneHierarchy {
         if instancers.is_empty() { return; }
         let rows = std::mem::take(&mut self.objects);
         for mut row in rows {
+            // A made instancer's Prototypes start closed: its prototypes'
+            // hierarchy (a whole asset) is long, and they are seen at the
+            // instances, not here.
+            if row.stage_path.is_none() && !self.expanded.contains_key(&row.key)
+                && row.path.as_deref().and_then(|p| p.strip_suffix("/Prototypes")).is_some_and(|i| instancers.contains_key(i)) {
+                row.expanded = false;
+            }
             let inst = row.path.as_deref().and_then(|p| instancers.get(p)).copied();
             let Some(inst) = inst else { self.objects.push(row); continue };
             let points = inst.geo.as_ref().map_or(0, |g| g.points().len());
@@ -2132,6 +2139,7 @@ mod explorer_tests {
             (2, "Prototypes".into(), "Xform".into()),
             (3, "cube".into(), "Mesh".into()),
         ]);
+        assert!(!h.objects.iter().find(|o| o.name == "Prototypes").unwrap().expanded, "the prototypes start closed");
         let open = h.objects.iter().find(|o| o.name.starts_with("Instances")).unwrap().id;
         h.toggle_expanded(open);
         h.rebuild_scene(scene());

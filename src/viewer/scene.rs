@@ -112,11 +112,19 @@ pub struct Scene {
     pub notice:     Option<String>,
 }
 
-/// Triangles drawn in a frame at most, copies counted: past it, the
-/// heaviest prims are drawn as their boxes, and the Viewer says so. Two
-/// thousand copies of a statue of half a million triangles would be a
-/// billion a frame.
+/// Triangles and line segments (curves, points) drawn in a frame at most,
+/// copies counted: past it, the heaviest prims are drawn as their boxes,
+/// and the Viewer says so. Two thousand copies of a statue of half a
+/// million triangles would be a billion a frame; a groom of a million
+/// curves, tens of millions of segments.
 pub const TRIANGLE_BUDGET: u64 = 20_000_000;
+
+/// What a prim costs to draw once: its triangles, and its curves' and
+/// points' line segments.
+fn draw_cost(p: &Prim) -> u64 {
+    let strands = if crate::strands::has_strands(&p.mesh) { crate::strands::segments(&p.mesh) } else { 0 };
+    (p.mesh.indices.len() / 3 + strands) as u64
+}
 
 /// A cube from -0.5 to 0.5, as its twelve edges: a box drawn at every copy
 /// of what it stands in for, scaled to its bounds, in one draw.
@@ -155,7 +163,7 @@ pub fn draw_modes(prims: &[Prim], hierarchy: &crate::types::SceneHierarchy, budg
     let mut modes: Vec<DrawMode> = prims.iter().zip(&chosen)
         .map(|(p, c)| c.or_else(|| crate::core::properties::draw_mode(p)).unwrap_or_default())
         .collect();
-    let cost = |p: &Prim| (p.mesh.indices.len() / 3) as u64 * p.place.copies().max(1) as u64;
+    let cost = |p: &Prim| draw_cost(p) * p.place.copies().max(1) as u64;
     let mut total: u64 = prims.iter().zip(&modes).filter(|(_, m)| **m == DrawMode::Default).map(|(p, _)| cost(p)).sum();
     if total <= budget { return (modes, None); }
     let all = total;
@@ -171,7 +179,7 @@ pub fn draw_modes(prims: &[Prim], hierarchy: &crate::types::SceneHierarchy, budg
     }
     if boxed == 0 { return (modes, None); }
     let millions = |n: u64| if n >= 1_000_000_000 { format!("{:.1} billion", n as f64 / 1e9) } else { format!("{:.0} million", n as f64 / 1e6) };
-    (modes, Some(format!("{} triangles: {boxed} of the heaviest drawn as boxes, to stay under {} (right-click a row of the Scene Explorer to choose)", millions(all), millions(budget))))
+    (modes, Some(format!("{} triangles and line segments: {boxed} of the heaviest drawn as boxes, to stay under {} (right-click a row of the Scene Explorer to choose)", millions(all), millions(budget))))
 }
 
 /// Geometry made from a `MeshData`, kept while the mesh lives, so a scene
@@ -616,5 +624,19 @@ mod draw_mode_tests {
         h.set_draw_mode("/sign", Some(DrawMode::Bounds));
         let (modes, _) = draw_modes(&prims, &h, 100);
         assert_eq!(modes, vec![DrawMode::Default, DrawMode::Bounds, DrawMode::Bounds], "the forest kept, the rock boxed in its place");
+    }
+
+    /// Curves count by their line segments: a groom past the budget is
+    /// boxed as a heavy mesh is.
+    #[test]
+    fn curves_count_against_the_budget() {
+        let mut groom = MeshData::default();
+        groom.curve_points = vec![[0.0; 3]; 4000];
+        groom.curve_counts = vec![4; 1000];
+        let groom = Prim { mesh: Arc::new(groom), ..Prim::new("/groom".into(), MeshData::default()) };
+        assert!(draw_cost(&groom) >= 4000, "{}", draw_cost(&groom));
+        let (modes, notice) = draw_modes(&[groom], &SceneHierarchy::default(), 1000);
+        assert_eq!(modes, vec![DrawMode::Bounds]);
+        assert!(notice.is_some());
     }
 }

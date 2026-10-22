@@ -111,6 +111,14 @@ pub fn has_strands(md: &MeshData) -> bool {
 }
 
 /// Curves and points as line segments: positions and pairs of indices.
+/// About how many line segments `lines` makes, without making them: each
+/// curve span in `STEPS` (a dense groom as it is), three per point. What
+/// the Viewer's budget counts for curves and points.
+pub fn segments(md: &MeshData) -> usize {
+    let curves = if md.curve_points.len() > DENSE { md.curve_points.len() } else { md.curve_points.len() * STEPS };
+    curves + md.points.len() * 3
+}
+
 pub fn lines(md: &MeshData) -> (Vec<[f32; 3]>, Vec<u32>) {
     let (mut pos, mut idx): (Vec<[f32; 3]>, Vec<u32>) = (vec![], vec![]);
     let dense = md.curve_points.len() > DENSE;
