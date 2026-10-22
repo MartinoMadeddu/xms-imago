@@ -16,12 +16,12 @@
       "rate": "30/1",
       "skin": 32334,
       "hips_end": [
-        0.53,
-        0.51,
-        -1.072
+        0.488,
+        0.426,
+        -1.104
       ]
     },
-    "cook_ms": 5442
+    "cook_ms": 1388
   },
   "Body Collide: obstacle course": {
     "nodes": 20,
@@ -40,12 +40,12 @@
       "rate": "30/1",
       "skin": 32334,
       "hips_end": [
-        0.478,
-        0.537,
-        -1.055
+        0.491,
+        0.468,
+        -1.079
       ]
     },
-    "cook_ms": 115
+    "cook_ms": 1
   },
   "Cameras": {
     "nodes": 8,
@@ -82,7 +82,7 @@
         1.057
       ]
     },
-    "cook_ms": 1863
+    "cook_ms": 921
   },
   "Clip basics": {
     "nodes": 5,
@@ -119,7 +119,7 @@
     "triangles": 282,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 8
+    "cook_ms": 12
   },
   "Curves and points": {
     "nodes": 1,
@@ -132,7 +132,7 @@
     "triangles": 0,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 5
+    "cook_ms": 3
   },
   "DeLorean: lit and rendered with Karma": {
     "nodes": 10,
@@ -210,7 +210,7 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 8
+    "cook_ms": 2
   },
   "Edit Poly: tower": {
     "nodes": 2,
@@ -260,7 +260,7 @@
         1.028
       ]
     },
-    "cook_ms": 112
+    "cook_ms": 67
   },
   "Human Limits": {
     "nodes": 3,
@@ -284,7 +284,7 @@
         0.0
       ]
     },
-    "cook_ms": 11
+    "cook_ms": 6
   },
   "ICE graph: spherify": {
     "nodes": 3,
@@ -298,6 +298,19 @@
     "materials": 0,
     "cameras": 0,
     "cook_ms": 0
+  },
+  "ICE: instancing": {
+    "nodes": 7,
+    "viewed": "Instancing",
+    "output": 0,
+    "kind": "prims",
+    "prims": 47,
+    "copies": 3476,
+    "points": 29037667,
+    "triangles": 35624231,
+    "materials": 30,
+    "cameras": 0,
+    "cook_ms": 62
   },
   "Keys: a bouncing ball": {
     "nodes": 4,
@@ -349,7 +362,7 @@
     "triangles": 4308,
     "materials": 3,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 0
   },
   "MaterialX: three shaders": {
     "nodes": 12,
@@ -362,7 +375,7 @@
     "triangles": 13824,
     "materials": 3,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 0
   },
   "Mocap folder: retarget, skin, collide, write": {
     "nodes": 15,
@@ -386,7 +399,7 @@
         1.057
       ]
     },
-    "cook_ms": 132
+    "cook_ms": 46
   },
   "Mocap split": {
     "nodes": 12,
@@ -447,7 +460,7 @@
         1.026
       ]
     },
-    "cook_ms": 4
+    "cook_ms": 1
   },
   "Native instances: a hall of tables": {
     "nodes": 1,
@@ -460,7 +473,7 @@
     "triangles": 3852,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 11
+    "cook_ms": 7
   },
   "Novasci clip onto the character": {
     "nodes": 3,
@@ -484,57 +497,55 @@
         0.062
       ]
     },
-    "cook_ms": 576
+    "cook_ms": 387
   },
   "Novasci clip: thumbs up (download)": {
     "nodes": 3,
     "viewed": "Retarget",
     "output": 0,
-    "kind": "clip",
+    "kind": "none",
     "prims": 0,
     "copies": 0,
     "points": 0,
     "triangles": 0,
     "materials": 0,
     "cameras": 0,
-    "clip": {
-      "frames": 85,
-      "joints": 342,
-      "rate": "30/1",
-      "skin": 32334,
-      "hips_end": [
-        0.004,
-        0.982,
-        0.062
-      ]
-    },
-    "cook_ms": 545
+    "missing": [
+      "mocap/novasci/ThumbsUp1.fbx"
+    ],
+    "cook_ms": 378
   },
   "Open assets: carbon frame bike (download)": {
     "nodes": 1,
     "viewed": "Bike",
     "output": 0,
-    "kind": "prims",
-    "prims": 331,
-    "copies": 331,
-    "points": 175462,
-    "triangles": 135648,
-    "materials": 31,
+    "kind": "none",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
     "cameras": 0,
-    "cook_ms": 703
+    "missing": [
+      "usd/carbon_frame_bike/CarbonFrameBike.usdz"
+    ],
+    "cook_ms": 0
   },
   "Open assets: elephant with monochord (download)": {
     "nodes": 1,
     "viewed": "Elephant",
     "output": 0,
-    "kind": "prims",
-    "prims": 3,
-    "copies": 3,
-    "points": 1972,
-    "triangles": 2762,
-    "materials": 2,
+    "kind": "none",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
     "cameras": 0,
-    "cook_ms": 9
+    "missing": [
+      "usd/elephant/SoC-ElephantWithMonochord.usdc"
+    ],
+    "cook_ms": 4
   },
   "Open assets: teapot and car kit": {
     "nodes": 4,
@@ -547,7 +558,7 @@
     "triangles": 4460,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 35
+    "cook_ms": 22
   },
   "Point instancer: a forest": {
     "nodes": 2,
@@ -560,7 +571,7 @@
     "triangles": 415006,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 24
+    "cook_ms": 12
   },
   "Purposes: street lamps": {
     "nodes": 1,
@@ -573,7 +584,7 @@
     "triangles": 1218,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 5
+    "cook_ms": 3
   },
   "Retarget": {
     "nodes": 5,
@@ -597,7 +608,7 @@
         1.032
       ]
     },
-    "cook_ms": 7
+    "cook_ms": 0
   },
   "Retarget onto a character": {
     "nodes": 5,
@@ -621,7 +632,7 @@
         1.057
       ]
     },
-    "cook_ms": 214
+    "cook_ms": 91
   },
   "Shapes": {
     "nodes": 7,
@@ -671,7 +682,7 @@
     "triangles": 1108,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 4
+    "cook_ms": 2
   },
   "USD import": {
     "nodes": 4,
@@ -684,7 +695,7 @@
     "triangles": 82,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 2
+    "cook_ms": 1
   },
   "USD: heavy model": {
     "nodes": 1,
@@ -697,7 +708,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 170
+    "cook_ms": 0
   },
   "USD: material binding": {
     "nodes": 4,
@@ -710,7 +721,7 @@
     "triangles": 461595,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 0
   },
   "USD: pick and edit": {
     "nodes": 4,
@@ -723,7 +734,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 19
+    "cook_ms": 3
   },
   "USD: prune": {
     "nodes": 2,
@@ -736,7 +747,7 @@
     "triangles": 72240,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 48
   },
   "USD: set attribute": {
     "nodes": 3,
@@ -749,7 +760,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 3
+    "cook_ms": 1
   },
   "Unwrap the sea mine": {
     "nodes": 3,
@@ -762,6 +773,6 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 356
+    "cook_ms": 221
   }
 }
