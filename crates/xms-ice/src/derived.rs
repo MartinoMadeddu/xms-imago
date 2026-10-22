@@ -4,6 +4,8 @@
 //!
 //! | Context | Name               | Type  | What                                        |
 //! |---------|--------------------|-------|---------------------------------------------|
+//! | Point   | `ptIndex`          | Int   | the point's own number (points too)         |
+//! | Face    | `faceIndex`        | Int   | the face's own number                       |
 //! | Face    | `corners`          | Int   | corners of the polygon (control points of a curve) |
 //! | Face    | `firstCorner`      | Int   | its first corner: the others follow it      |
 //! | Face    | `N`                | Vec3  | the polygon's normal (polygons only)        |
@@ -23,6 +25,8 @@ use super::types::Ty;
 
 /// Every derived attribute: its context, name and type.
 pub const DERIVED: &[(Context, &str, Ty)] = &[
+    (Context::Point, "ptIndex", Ty::Int),
+    (Context::Face, "faceIndex", Ty::Int),
     (Context::Face, "corners", Ty::Int),
     (Context::Face, "firstCorner", Ty::Int),
     (Context::Face, "N", Ty::Vec3),
@@ -39,6 +43,8 @@ fn polygons_only(name: &str) -> bool { matches!(name, "N" | "area") }
 /// topology has it.
 pub fn ty(geo: &Geo, ctx: Context, name: &str) -> Option<Ty> {
     let (_, _, t) = DERIVED.iter().find(|(c, n, _)| *c == ctx && *n == name)?;
+    // Every geometry has points, numbered.
+    if ctx == Context::Point { return Some(*t); }
     match &geo.topology {
         Topology::Points => None,
         Topology::Curves { .. } if polygons_only(name) => None,
@@ -70,6 +76,8 @@ pub fn column(geo: &Geo, ctx: Context, name: &str) -> Option<Column> {
     let (counts, corner_point) = faces(geo);
     let int = |v: Vec<i32>| Some(Column::Int(Arc::new(v)));
     match (ctx, name) {
+        (Context::Point, "ptIndex") => int((0..geo.points().len() as i32).collect()),
+        (Context::Face, "faceIndex") => int((0..counts.len() as i32).collect()),
         (Context::Face, "corners") => int(counts.iter().map(|&c| c as i32).collect()),
         (Context::Face, "firstCorner") => int(counts.iter().scan(0i32, |at, &c| { let s = *at; *at += c as i32; Some(s) }).collect()),
         (Context::Face, "N") | (Context::Face, "area") => {

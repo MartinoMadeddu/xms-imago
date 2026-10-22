@@ -54,7 +54,7 @@ pub struct InputMesh {
 pub fn input_mesh(
     graph:       &NodeGraphState,
     id:          NodeId,
-    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
 ) -> Option<InputMesh> {
     use std::sync::{Arc, Mutex};
     static KEPT: Mutex<Vec<InputMesh>> = Mutex::new(Vec::new());
@@ -90,7 +90,7 @@ pub fn input_mesh(
 /// Stage of the selected node, if it is an Edit Poly node with a mesh.
 pub fn stage(
     graph:       &NodeGraphState,
-    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
 ) -> Option<Stage> {
     let id   = graph.selected_node?;
     let node = graph.nodes.iter().find(|n| n.id == id)?;

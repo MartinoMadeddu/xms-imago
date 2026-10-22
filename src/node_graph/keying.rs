@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::types::EvalResult;
 
-    fn pass(_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo { m.clone() }
 
     /// Two keys on a Transform's translate X: the result moves with the
     /// playhead, the graph's content too; editing at the playhead keys the

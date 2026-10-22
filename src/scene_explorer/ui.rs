@@ -66,6 +66,8 @@ pub fn draw_scene_explorer(
 
             let mut toggle_id = None;
             let mut geometry_toggle: Option<String> = None;
+            // A draw mode chosen with a right-click: the row's path, and the mode.
+            let mut draw_set: Option<(String, Option<crate::types::DrawMode>)> = None;
             // The row clicked, with Ctrl (Cmd) and Shift.
             let mut clicked: Option<(Option<String>, bool, bool)> = None;
 
@@ -126,13 +128,29 @@ pub fn draw_scene_explorer(
                         // row when the one dragged is selected, else that one.
                         if row_resp.drag_started() {
                             if let Some(path) = &obj.path {
-                                let paths = if is_sel { hierarchy.selected_paths().to_vec() } else { vec![path.clone()] };
+                                // An instance goes as its instancer: a prim path.
+                                let prim = crate::core::instancing::instance_path(path).map(|(i, _)| i.to_string()).unwrap_or_else(|| path.clone());
+                                let paths = if is_sel { hierarchy.selected_prim_paths() } else { vec![prim] };
                                 egui::DragAndDrop::set_payload(ui.ctx(), crate::types::DraggedPrims(paths));
                             }
                         }
                         if row_resp.clicked() {
                             let m = ui.input(|i| i.modifiers);
                             clicked = Some((obj.path.clone(), m.command, m.shift));
+                        }
+                        // Right-click a prim: how the Viewer draws it and what
+                        // is below it (not an instance: its instancer's row).
+                        if let Some(path) = obj.path.as_ref().filter(|p| crate::core::instancing::instance_path(p).is_none()) {
+                            let set_here = hierarchy.draw_mode_set(path);
+                            row_resp.context_menu(|ui| {
+                                ui.label(egui::RichText::new("Draw in the Viewer as").small());
+                                for m in crate::types::DrawMode::ALL {
+                                    if ui.selectable_label(set_here == Some(m), m.label()).clicked() { draw_set = Some((path.clone(), Some(m))); ui.close(); }
+                                }
+                                if ui.selectable_label(set_here.is_none(), "As the scene says").on_hover_text("The prim's model:drawMode, or the one above it; geometry when none says").clicked() {
+                                    draw_set = Some((path.clone(), None)); ui.close();
+                                }
+                            });
                         }
 
                         let line_col  = xsi::DIVIDER();
@@ -219,8 +237,13 @@ pub fn draw_scene_explorer(
                         // ── Type, in a column at the right, before the
                         // geometry square ─────────────────────────────────
                         let type_right = row_rect.max.x - 24.0;
-                        let type_left = if obj.type_name.is_empty() { type_right } else {
-                            painter.text(egui::pos2(type_right, mid_y), egui::Align2::RIGHT_CENTER, &obj.type_name,
+                        // A draw mode chosen here shows before the type.
+                        let type_text = match obj.path.as_deref().and_then(|p| hierarchy.draw_mode_set(p)) {
+                            Some(m) => format!("{} · {}", m.label(), obj.type_name),
+                            None => obj.type_name.clone(),
+                        };
+                        let type_left = if type_text.is_empty() { type_right } else {
+                            painter.text(egui::pos2(type_right, mid_y), egui::Align2::RIGHT_CENTER, &type_text,
                                 egui::FontId::proportional(10.5), xsi::TYPE_LABEL()).min.x
                         };
                         // The name stops short of it.
@@ -255,6 +278,9 @@ pub fn draw_scene_explorer(
             }
             if let Some(path) = &geometry_toggle {
                 hierarchy.toggle_geometry(path);
+            }
+            if let Some((path, mode)) = draw_set.take() {
+                hierarchy.set_draw_mode(&path, mode);
             }
             // A click on the geometry square is not a click on the row.
             // What is being dragged, under the pointer, over every pane: the

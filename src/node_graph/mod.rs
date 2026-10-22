@@ -310,6 +310,30 @@ impl Default for NodeGraphState {
 #[derive(Default)]
 pub struct GraphRevision(pub u64);
 
+/// Every prim of the scene the primitives make, in order: the hierarchy of
+/// the stages they come from (groups, cameras and lights too), the Xforms
+/// Imago makes above primitives made outside a stage, and the primitives.
+pub fn scene_paths(prims: &[crate::types::Prim]) -> Vec<String> {
+    let mut trees: Vec<&std::sync::Arc<crate::usd_scene::StageTree>> = vec![];
+    for p in prims {
+        if let Some(t) = &p.stage { if !trees.iter().any(|x| std::sync::Arc::ptr_eq(x, t)) { trees.push(t); } }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut paths = vec![];
+    for n in trees.iter().flat_map(|t| t.nodes.iter()) {
+        if seen.insert(n.path.clone()) { paths.push(n.path.clone()); }
+    }
+    for p in prims.iter().filter(|p| p.stage.is_none()) {
+        for path in crate::core::properties::parents(&p.path).into_iter().chain([p.path.clone()]) {
+            if seen.insert(path.clone()) { paths.push(path); }
+        }
+    }
+    for p in prims {
+        if seen.insert(p.path.clone()) { paths.push(p.path.clone()); }
+    }
+    paths
+}
+
 impl NodeGraphState {
     /// Hash of everything evaluation and display depend on: nodes with their
     /// parameters, wires, the view flag and the selection. Node positions,
@@ -404,7 +428,13 @@ impl NodeGraphState {
                 inputs.iter().map(|n| InputSocket { name: n.clone(), connected_output: None }).collect(),
                 outputs.iter().map(|n| OutputSocket { name: n.clone() }).collect(),
             ),
-            NodeType::Ice { .. }         => (vec![i("Geometry"), i("Template")], vec![o("Out")]),
+            // The scene, then references numbered from 1, one kept free.
+            NodeType::Ice { references, .. } => (
+                std::iter::once(i("Scene"))
+                    .chain((1..=(*references).max(1)).map(|k| InputSocket { name: format!("Reference {k}"), connected_output: None }))
+                    .collect(),
+                vec![o("Out")],
+            ),
             NodeType::PassThrough           => (vec![i("In")], vec![o("Out")]),
             NodeType::TestClip { .. }       => (vec![], vec![o("Clip")]),
             NodeType::RenameJoints { .. }
@@ -620,7 +650,7 @@ impl NodeGraphState {
     /// every frame.
     pub fn eval_packed(
         &self, id: NodeId, output: usize,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<Vec<(String, bool)>> {
         type Kept = (u64, usize, usize, Option<Vec<(String, bool)>>);
         static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
@@ -642,7 +672,7 @@ impl NodeGraphState {
     /// name prims of any kind (Set Attribute) can name.
     pub fn eval_scene_paths(
         &self, id: NodeId, output: usize,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<Vec<String>> {
         type Kept = (u64, usize, usize, Option<Vec<String>>);
         static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
@@ -651,27 +681,7 @@ impl NodeGraphState {
             if let Some((k, i, o, value)) = &*last { if *k == key && *i == id.0 && *o == output { return value.clone(); } }
         }
         let value = match self.eval_node_out(id, output, &mut HashMap::new(), eval_subnet) {
-            Some(EvalResult::Named(prims)) => {
-                let mut trees: Vec<&std::sync::Arc<crate::usd_scene::StageTree>> = vec![];
-                for p in &prims {
-                    if let Some(t) = &p.stage { if !trees.iter().any(|x| std::sync::Arc::ptr_eq(x, t)) { trees.push(t); } }
-                }
-                let mut seen = std::collections::HashSet::new();
-                let mut paths = vec![];
-                for n in trees.iter().flat_map(|t| t.nodes.iter()) {
-                    if seen.insert(n.path.clone()) { paths.push(n.path.clone()); }
-                }
-                // Primitives made outside a stage, with the Xforms Imago makes above them.
-                for p in prims.iter().filter(|p| p.stage.is_none()) {
-                    for path in crate::core::properties::parents(&p.path).into_iter().chain([p.path.clone()]) {
-                        if seen.insert(path.clone()) { paths.push(path); }
-                    }
-                }
-                for p in &prims {
-                    if seen.insert(p.path.clone()) { paths.push(p.path.clone()); }
-                }
-                Some(paths)
-            }
+            Some(EvalResult::Named(prims)) => Some(scene_paths(&prims)),
             _ => None,
         };
         if let Ok(mut last) = LAST.lock() { *last = Some((key, id.0, output, value.clone())); }
@@ -683,7 +693,7 @@ impl NodeGraphState {
     /// Properties panel. Kept until the graph changes.
     pub fn eval_render_context(
         &self, id: NodeId,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> crate::core::render::Context {
         type Kept = (u64, usize, crate::core::render::Context);
         static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
@@ -755,7 +765,7 @@ impl NodeGraphState {
     /// keep their materials. The viewed output of the viewed operator.
     pub fn evaluate_for_viewport_packed(
         &self,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         let id = self.view_flag?;
         self.eval_node_out(id, self.viewed_output(), &mut HashMap::new(), eval_subnet)
@@ -772,7 +782,7 @@ impl NodeGraphState {
 
     /// Clip on one output socket of a node.
     pub fn eval_anim_out(&self, id: NodeId, output: usize) -> Option<std::sync::Arc<crate::core::anim::AnimData>> {
-        let passthrough = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+        let passthrough = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: &[crate::ice::Reference]| mesh.clone();
         let mut cache = HashMap::new();
         match self.eval_anim_node(id, output, &mut cache, &passthrough)? {
             EvalResult::Anim(a) => Some(a),
@@ -787,7 +797,7 @@ impl NodeGraphState {
         id:          NodeId,
         output:      usize,
         cache:       &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         let node = self.nodes.iter().find(|n| n.id == id)?;
         match &node.node_type {
@@ -819,7 +829,7 @@ impl NodeGraphState {
         &self,
         id:          NodeId,
         cache:       &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         self.eval_node_out(id, 0, cache, eval_subnet)
     }
@@ -890,7 +900,7 @@ impl NodeGraphState {
         id:          NodeId,
         output:      usize,
         cache:       &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         if let Some(cached) = cache.get(&(id, output)) { return cached.clone(); }
         // A frozen node gives what it held, cooking once if it holds nothing
@@ -920,7 +930,7 @@ impl NodeGraphState {
         id:          NodeId,
         output:      usize,
         cache:       &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         let node = self.nodes.iter().find(|n| n.id == id)?;
         // Operators that place things in time.
@@ -950,7 +960,7 @@ impl NodeGraphState {
         id:          NodeId,
         output:      usize,
         cache:       &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
         as_type:     Option<&NodeType>,
     ) -> Option<EvalResult> {
         let node = self.nodes.iter().find(|n| n.id == id)?;
@@ -968,9 +978,14 @@ impl NodeGraphState {
             return result;
         }
 
+        // An ICE operator's inputs keep their numbers (its references are
+        // read by number): one with nothing wired is no primitives.
+        let ice = matches!(node_type, NodeType::Ice { .. });
         let inputs: Vec<EvalResult> = node.inputs.iter()
-            .filter_map(|s| s.connected_output
-                .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet)))
+            .filter_map(|s| {
+                let r = s.connected_output.and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet));
+                if ice { Some(r.unwrap_or(EvalResult::Named(vec![]))) } else { r }
+            })
             .collect();
         // Its own time: from when its inputs are in.
         let started = std::time::Instant::now();
@@ -1028,7 +1043,7 @@ impl NodeGraphState {
     /// Inspector shows it.
     pub fn evaluate_scene(
         &self,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<(NodeId, String, EvalResult)> {
         let id = self.display_source()?;
         let name = self.nodes.iter().find(|n| n.id == id)?.name.clone();
@@ -1081,14 +1096,14 @@ impl NodeGraphState {
     pub fn display_collider(&self) -> Option<std::sync::Arc<MeshData>> {
         let node = self.body_collide_node()?;
         let (src, out) = node.inputs.get(1)?.connected_output?;
-        let passthrough = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+        let passthrough = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: &[crate::ice::Reference]| mesh.clone();
         self.eval_node_out(src, out, &mut HashMap::new(), &passthrough).map(|r| r.shared_mesh())
     }
 
     /// The clip and the collider that reach a Ragdoll node.
     pub fn ragdoll_inputs(&self, id: NodeId) -> (Option<std::sync::Arc<crate::core::anim::AnimData>>, Option<std::sync::Arc<MeshData>>) {
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return (None, None) };
-        let passthrough = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+        let passthrough = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: &[crate::ice::Reference]| mesh.clone();
         let mut cache = HashMap::new();
         let input = |k: usize, cache: &mut EvalCache| node.inputs.get(k).and_then(|s| s.connected_output)
             .and_then(|(src, out)| self.eval_node_out(src, out, cache, &passthrough));
@@ -1097,8 +1112,8 @@ impl NodeGraphState {
         (clip, collider)
     }
 
-    /// Merge and Material Binding keep an input free: wiring the last one
-    /// adds another.
+    /// Merge, Material Binding and the ICE operator keep an input free:
+    /// wiring the last one adds another.
     pub fn keep_an_input_free(&mut self, id: NodeId) {
         let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
         let full = node.inputs.last().is_some_and(|s| s.connected_output.is_some());
@@ -1107,6 +1122,8 @@ impl NodeGraphState {
             // Its inputs after the scene are materials.
             NodeType::MaterialBinding { inputs, .. } if full && n > 1 => *inputs = n,
             NodeType::Merge { inputs, .. } | NodeType::MergeAnimation { inputs, .. } if full => *inputs = n + 1,
+            // The geometry, then its references: one more reference.
+            NodeType::Ice { references, .. } if full => *references = n,
             _ => return,
         }
         self.sync_sockets(id);
@@ -1117,7 +1134,7 @@ impl NodeGraphState {
     /// path: what its rows can bind.
     pub fn binding_inputs(
         &self, id: NodeId,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> (Vec<Option<std::sync::Arc<crate::core::material::Material>>>, Vec<String>) {
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return (vec![], vec![]) };
         let mut cache = HashMap::new();
@@ -1157,7 +1174,7 @@ mod cook_tests {
     use super::*;
     use std::sync::Arc;
 
-    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo { m.clone() }
 
     /// A Pass Through hands on what comes in, geometry or a clip, unchanged;
     /// with nothing in, nothing comes out.

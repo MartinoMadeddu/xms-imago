@@ -74,7 +74,7 @@ pub fn snapshot(t: &crate::templates::Template) -> Snapshot {
 
 /// Measure a graph at its view flag.
 pub fn measure(g: &NodeGraphState, store: &IceGraphStore) -> Snapshot {
-    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
         store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
     let mut s = Snapshot { nodes: g.nodes.len(), ..Default::default() };

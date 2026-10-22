@@ -73,6 +73,52 @@ pub fn copies(geo: &Geo, place: &Placement, by: &InstancedBy) -> Vec<Mat4> {
     at.iter().flat_map(|a| local.iter().map(move |p| *a * *p)).collect()
 }
 
+/// An instance's path: its instancer's, with its number (`/forest/trees[12]`).
+/// What the Scene Explorer lists and the Viewer picks; not a prim.
+pub fn instance_name(instancer: &str, i: usize) -> String { format!("{instancer}[{i}]") }
+
+/// An instance's path taken apart: its instancer's path and its number.
+pub fn instance_path(path: &str) -> Option<(&str, usize)> {
+    let (inst, rest) = path.strip_suffix(']')?.rsplit_once('[')?;
+    Some((inst, rest.parse().ok()?))
+}
+
+/// The instancer's points a prototype mesh is drawn at, in the order of its
+/// copies (`copies`' `local`): those of its prototype, not hidden.
+fn points_of(geo: &Geo, by: &InstancedBy) -> Vec<usize> {
+    let index = geo.attr(Context::Point, "protoIndex").and_then(|a| a.column.ints());
+    let ids = geo.attr(Context::Point, "id").and_then(|a| a.column.ints());
+    (0..geo.points().len())
+        .filter(|&k| index.map_or(by.index == 0, |ix| ix.get(k).copied() == Some(by.index as i32)))
+        .filter(|&k| {
+            let id = ids.and_then(|i| i.get(k).copied()).map_or(k as i64, |i| i as i64);
+            !by.hidden.contains(&id)
+        })
+        .collect()
+}
+
+/// Which point of its instancer copy `copy` of a prototype mesh is drawn
+/// at: the instance a click on that copy picks.
+pub fn point_of_copy(by: &InstancedBy, copy: usize) -> Option<usize> {
+    let points = points_of(&by.geo, by);
+    if points.is_empty() { return None; }
+    points.get(copy % points.len()).copied()
+}
+
+/// Where instance `i` of an instancer is: its point's placement (scaled,
+/// turned, moved) at every copy of the instancer. A prototype mesh of it is
+/// drawn there, after its own place within the prototype.
+pub fn instance_matrices(geo: &Geo, place: &Placement, i: usize) -> Vec<Mat4> {
+    let Some(p) = geo.points().get(i) else { return vec![] };
+    let attr = |name: &str| geo.attr(Context::Point, name);
+    let s = attr("scale").and_then(|a| a.column.vec3s()).and_then(|v| v.get(i)).copied().unwrap_or([1.0; 3]);
+    let q = attr("orient").and_then(|a| a.column.quats()).and_then(|v| v.get(i))
+        .map(|q| Quat::from_xyzw(q[0], q[1], q[2], q[3]).normalize()).unwrap_or(Quat::IDENTITY);
+    let local = Mat4::from_scale_rotation_translation(Vec3::from(s), q, Vec3::from(*p));
+    let at: Vec<Mat4> = match place { Placement::InPlace => vec![Mat4::IDENTITY], placed => placed.matrices().to_vec() };
+    at.iter().map(|a| *a * local).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +196,18 @@ mod tests {
         prims[0].place = prims[0].place.moved(Mat4::from_translation(Vec3::new(0.0, 0.0, 3.0)));
         let EvalResult::Named(out) = sync(EvalResult::Named(prims)) else { panic!() };
         assert!(out[1].place.matrices().iter().all(|m| m.w_axis.z == 3.0));
+    }
+
+    #[test]
+    fn instances_are_named_and_found_by_their_copies() {
+        assert_eq!(instance_name("/forest/trees", 12), "/forest/trees[12]");
+        assert_eq!(instance_path("/forest/trees[12]"), Some(("/forest/trees", 12)));
+        assert_eq!(instance_path("/forest/trees"), None);
+        assert_eq!(instance_path("/a[b]"), None);
+        let prims = scene();
+        let by = prims[1].instanced_by.clone().unwrap();
+        // Copies 0 and 1 are points 0 and 2: point 1 (id 11) is hidden.
+        assert_eq!((point_of_copy(&by, 0), point_of_copy(&by, 1)), (Some(0), Some(2)));
+        assert_eq!(instance_matrices(prims[0].geo.as_ref().unwrap(), &prims[0].place, 2)[0].w_axis.x, 9.0);
     }
 }

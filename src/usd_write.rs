@@ -400,6 +400,27 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
         for (name, value) in p.props.iter() { property(spec, name, value); }
         return;
     }
+    // A point instancer made in Imago (an ICE Instancer): USD's
+    // PointInstancer, its points and their attributes its arrays, and its
+    // prototypes, which are below it.
+    if let Some(protos) = &p.instancing {
+        spec.def = Some("PointInstancer");
+        let place = match &p.place { Placement::One(m) => root.as_dmat4().inverse() * m.as_dmat4(), _ => root.as_dmat4().inverse() };
+        if place != DMat4::IDENTITY {
+            spec.lines.push(format!("matrix4d xformOp:transform = {}", matrix(&place)));
+            spec.lines.push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
+        }
+        if p.purpose != Purpose::Default {
+            spec.lines.push(format!("uniform token purpose = \"{}\"", purpose_token(p.purpose)));
+        }
+        let targets: Vec<String> = protos.iter().map(|t| format!("<{t}>")).collect();
+        spec.lines.push(format!("rel prototypes = [{}]", targets.join(", ")));
+        if let Some(geo) = &p.geo {
+            for (name, attr) in geo.attrs(Context::Point) { instancer_array(spec, Context::Point, name, attr); }
+        }
+        for (name, value) in p.props.iter() { property(spec, name, value); }
+        return;
+    }
     let geo = p.geo.as_deref().cloned().unwrap_or_else(|| Geo::from_mesh(&p.mesh));
     spec.def = Some(match geo.topology {
         Topology::Mesh { .. } => "Mesh",
@@ -407,7 +428,13 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
         Topology::Points => "Points",
     });
     // Its placement, without the root correction the file's axes do not have.
-    let place = match &p.place { Placement::One(m) => root.as_dmat4().inverse() * m.as_dmat4(), _ => root.as_dmat4().inverse() };
+    // A prototype of a point instancer made in Imago: its place within the
+    // prototype, which the instancer places at each instance.
+    let place = match (&p.instanced_by, &p.place) {
+        (Some(by), _) => by.inside.as_dmat4(),
+        (None, Placement::One(m)) => root.as_dmat4().inverse() * m.as_dmat4(),
+        (None, _) => root.as_dmat4().inverse(),
+    };
     if place != DMat4::IDENTITY {
         spec.lines.push(format!("matrix4d xformOp:transform = {}", matrix(&place)));
         spec.lines.push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
@@ -786,7 +813,7 @@ def Xform "set" {{
     /// transform. Read back, both are where Imago showed them.
     #[test]
     fn cameras_are_written_and_read_back() {
-        let pass = |_: crate::types::IceGraphId, g: &Geo, _: Option<&Geo>| g.clone();
+        let pass = |_: crate::types::IceGraphId, g: &Geo, _: &[crate::ice::Reference]| g.clone();
         let Some(EvalResult::Named(made)) = crate::node_graph::nodes::evaluate_node_type(&crate::types::NodeType::camera(), &[], &pass, 0) else { panic!() };
         let out = std::env::temp_dir().join("xms_usd_write_test/camera_over.usda");
         let report = write_override(&made, &out).unwrap();
@@ -894,7 +921,7 @@ def Scope "Render" {{
     fn lights_are_written_and_read_back() {
         use crate::core::light::{Light, LightType};
         use crate::core::properties::Value;
-        let pass = |_: crate::types::IceGraphId, g: &Geo, _: Option<&Geo>| g.clone();
+        let pass = |_: crate::types::IceGraphId, g: &Geo, _: &[crate::ice::Reference]| g.clone();
         let mut rect = Light::new(LightType::Rect);
         rect.set("inputs:width", Value::Float(2.0));
         rect.set("inputs:intensity", Value::Float(5.0));
@@ -1038,6 +1065,41 @@ def Xform "set" {{
         let back = crate::usd_scene::load(&out).unwrap();
         let paths: Vec<&str> = back.meshes.iter().map(|m| m.path.as_str()).collect();
         assert_eq!(paths, vec!["/root/other"], "{text}");
+    }
+
+    /// A point instancer made in Imago (an ICE Instancer): written as a
+    /// `PointInstancer` with its prototypes below it, and read back with
+    /// its instances where they were.
+    #[test]
+    fn a_point_instancer_made_in_imago_is_written_whole() {
+        use crate::core::geo::{Attr, Column, Context, Geo, Role};
+        use crate::types::InstancedBy;
+        let mut geo = Geo::from_points(vec![[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]]);
+        geo.set(Context::Point, "protoIndex", Attr::new(Column::Int(Arc::new(vec![0, 0])), Role::None));
+        geo.set(Context::Point, "orient", Attr::new(Column::Quat(Arc::new(vec![[0.0, 0.0, 0.0, 1.0]; 2])), Role::None));
+        geo.set(Context::Point, "scale", Attr::new(Column::Vec3(Arc::new(vec![[1.0; 3], [2.0; 3]])), Role::None));
+        let geo = Arc::new(geo);
+        let place = Placement::One(Mat4::IDENTITY);
+        let instancer = Prim { geo: Some(geo.clone()), place: place.clone(), instancing: Some(Arc::new(vec!["/set/scatter/Prototypes/box".into()])),
+            ..Prim::new("/set/scatter".into(), geo.to_mesh()) };
+        let by = InstancedBy { instancer: "/set/scatter".into(), index: 0, inside: Mat4::IDENTITY, hidden: Arc::new(vec![]), geo: geo.clone(), place: place.clone() };
+        let quad = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]], vec![4], vec![0, 1, 2, 3]);
+        let proto = Prim { geo: Some(Arc::new(quad.clone())), place: Placement::Many(crate::core::instancing::copies(&geo, &place, &by).into()),
+            instanced_by: Some(Arc::new(by)), ..Prim::new("/set/scatter/Prototypes/box".into(), quad.to_mesh()) };
+        let out = std::env::temp_dir().join("xms_usd_write_test/made_instancer.usda");
+        write_override(&[instancer, proto], &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in ["def PointInstancer \"scatter\"", "rel prototypes = [</set/scatter/Prototypes/box>]", "int[] protoIndices = [0, 0]",
+                     "point3f[] positions = [(0, 0, 0), (5, 0, 0)]", "quath[] orientations = [(1, 0, 0, 0), (1, 0, 0, 0)]", "float3[] scales",
+                     "def Mesh \"box\""] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        // The prototype is not placed at the instances: its own place only.
+        let after = &text[text.find("def Mesh \"box\"").unwrap()..];
+        assert!(!after.contains("xformOp:transform"), "{text}");
+        let back = crate::usd_scene::load(&out).unwrap();
+        assert_eq!(back.instancers.len(), 1, "{text}");
+        assert_eq!(back.instancers[0].geo.points(), &[[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]]);
     }
 
     /// A point instancer whose points moved: its positions are written, its

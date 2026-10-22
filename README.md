@@ -51,7 +51,8 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 
 - **Composed stages:** sublayers, references, payloads, inherits, specializes and variants, in text and binary files, resolved as usdview would
 - **Primitives:** one piece per mesh, curves or points prim, in its own space with every primvar, placed by its transform and passed along without copying
-- **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the Viewer draws thousands of copies in one call
+- **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the Viewer draws thousands of copies in one call. ICE's Instancer makes point instancers, written as USD's `PointInstancer`
+- **Draw modes and a triangle budget:** prims drawn as geometry, bounding boxes or axes at their origin, as USD's `model:drawMode` says or as a right-click in the Scene Explorer chooses; past 20 million triangles a frame the heaviest are drawn as boxes, and the Viewer says so. A point instancer's instances are listed in the Scene Explorer when asked, picked and outlined one by one
 - **Light by default:** the Scene Explorer drives the Viewer with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
 - **Each operator says what it works on:** Transform, Edit Poly and Prune list their Primitive Locations in a Prims Location tab, as paths with wildcards, filled by dragging prims from the Scene Explorer. The pieces listed are edited, each staying itself, and the rest pass through. Pick Primitives does it for the operators after it
 - **Set values on any prim:** Set Attribute sets primvars for rendering and properties such as visibility, purpose, kind and active, on meshes, groups, cameras or lights, one row per value

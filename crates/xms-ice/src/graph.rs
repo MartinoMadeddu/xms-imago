@@ -48,6 +48,78 @@ pub enum Op {
     Parameter { name: String, default: Value },
     Constant(Value),
     Math(Math),
+    /// A random value between input 0 (min) and input 1 (max), the same each
+    /// time for the same seed and element. Input 2 (an int) is a count:
+    /// 0 gives one value per element; more gives an array of that many (in
+    /// a graph's one-value part: an Object graph, or from one-value inputs).
+    /// Input 3, the Seed: unwired, each value is drawn for its element (its
+    /// index in an array); wired, an int, one for all (every value moves)
+    /// or one per element (`ptIndex`, an `id`, a face's index read from its
+    /// points: elements of one seed get one value). `seed` is mixed in.
+    Random { seed: u32 },
+    /// The values of an attribute each element touches in `context` (its
+    /// own when `None`), kept, not made one: a face's points' positions, its
+    /// point numbers (`ptIndices`, Point `ptIndex`), a point's faces
+    /// (`faceIndices`). A list per element, worked on by maths item by item
+    /// and by the array nodes (size, an item, sum, average); in an Object
+    /// graph the one list is an array.
+    GetArrayData { name: String, context: Option<Context> },
+    /// Arrays one after the other (single values count as one element),
+    /// all of one type: every wired input, in order; the free one is not.
+    Concat,
+    /// What arrays give: their size, an element, their sum or average.
+    Array(ArrayOp),
+    /// Places on the mesh's surface, spread evenly by area: input 0 (an
+    /// int) of them, the same for the same seed. `weight`: the name of a
+    /// per-face or per-point float that scales how many land where (0 none,
+    /// 2 twice as many); empty, none. In an Object graph. Three outputs,
+    /// each an array: 0 the positions (USD's `point3f[]`), 1 the normals
+    /// there (the mesh's, or each face's own), 2 the surface samples
+    /// themselves (`Ty::Sample`), for Get Data at Samples.
+    Scatter { seed: u32, weight: String },
+    /// An attribute read at surface samples (input 0): a point's or a
+    /// corner's interpolated across the triangle the sample is in, a
+    /// face's that face's, the object's its one value. `P` is the points;
+    /// `N` the normals, or the face's own when there are none.
+    GetDataAt { name: String },
+    /// Random rotations: each one's +Y turned along input 0 (a normal), then
+    /// turned at random in its own frame up to input 1 (a vector of degrees)
+    /// about each axis, either way; the same for the same seed. In any
+    /// context, one per element (N per point, per face); an array as long
+    /// as the normals when they are an array (Scatter's), or of input 2's
+    /// count. Input 3, the Seed, as Random's. What a PointInstancer's
+    /// `orientations` takes, and an `orient` attribute.
+    RandomOrientation { seed: u32 },
+    /// Paths on the operator's reference input number `input` (from 1): all
+    /// of them, or (`paths`) those listed that are there, in the list's
+    /// order. An array; none wired, none. (The app turns its rows, which
+    /// may hold patterns, into this list.)
+    GetReference { input: usize, paths: Option<Vec<String>> },
+    /// Make a point instancer: an Execute, run from the root, in an Object
+    /// graph. Its inputs are USD's PointInstancer's: 0 the positions (an
+    /// array of 3D vectors), 1 the prototypes (an array of paths), 2 which
+    /// prototype each takes (`protoIndices`: an int for all, or an array;
+    /// -1, picked at random, the same for the same seed), 3 the
+    /// orientations (a rotation for all, or an array), 4 the scales (a
+    /// number or a 3D vector, for all or an array). `path`: the instancer
+    /// prim's path; relative, beside the primitive the graph runs on.
+    Instancer { path: String, seed: u32 },
+}
+
+/// Operations on an array (see `Op::Array`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ArrayOp {
+    /// How many it holds.
+    Size,
+    /// The element at input 1 (clamped to the array; zero when empty).
+    Element,
+    Sum,
+    Average,
+}
+
+impl ArrayOp {
+    pub const ALL: [ArrayOp; 4] = [ArrayOp::Size, ArrayOp::Element, ArrayOp::Sum, ArrayOp::Average];
+    pub fn arity(self) -> usize { if self == ArrayOp::Element { 2 } else { 1 } }
 }
 
 /// How the values an element touches in another context become one: a
@@ -85,20 +157,27 @@ pub enum Math {
     Cross,
     Length,
     Normalize,
+    /// A vector (input 1) turned by a rotation (input 0).
+    Rotate,
+    /// A rotation about an axis (input 0) by an angle in degrees (input 1).
+    AxisAngle,
+    /// A rotation from Euler angles in degrees (X, then Y, then Z).
+    Euler,
 }
 
 impl Math {
     /// Every operation, in the order the add menu lists them.
-    pub const ALL: [Math; 15] = [
+    pub const ALL: [Math; 18] = [
         Math::Add, Math::Subtract, Math::Multiply, Math::Divide, Math::Min, Math::Max, Math::Lerp,
         Math::Negate, Math::Abs, Math::Sin, Math::Cos,
         Math::Dot, Math::Cross, Math::Length, Math::Normalize,
+        Math::Rotate, Math::AxisAngle, Math::Euler,
     ];
 
     pub fn arity(self) -> usize {
         match self {
             Math::Lerp => 3,
-            Math::Negate | Math::Abs | Math::Sin | Math::Cos | Math::Length | Math::Normalize => 1,
+            Math::Negate | Math::Abs | Math::Sin | Math::Cos | Math::Length | Math::Normalize | Math::Euler => 1,
             _ => 2,
         }
     }
@@ -113,9 +192,22 @@ impl Op {
             Op::GetData { .. } | Op::Parameter { .. } | Op::Constant(_) => Some(0),
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
+            Op::Random { .. } => Some(4),
+            // As many as it has.
+            Op::Concat => None,
+            Op::Array(a) => Some(a.arity()),
+            Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
+            Op::RandomOrientation { .. } => Some(4),
+            Op::GetReference { .. } | Op::GetArrayData { .. } => Some(0),
+            Op::Instancer { .. } => Some(5),
         }
     }
 }
+
+/// Scatter on Surface's outputs (see `Op::Scatter`).
+pub const SCATTER_POSITIONS: usize = 0;
+pub const SCATTER_NORMALS: usize = 1;
+pub const SCATTER_SAMPLES: usize = 2;
 
 impl Op {
     /// Get Data of an attribute in the graph's own context.

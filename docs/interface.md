@@ -189,7 +189,7 @@ A MaterialX operator holds a graph of MaterialX nodes, opened like an ICE graph:
 
 ### ICE graphs
 
-An ICE node holds a graph of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene graph. Inside, the graph is drawn after Softimage ICE: nodes coloured by kind, each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.
+An ICE node holds a graph of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene graph. Inside, the graph is drawn after Softimage ICE: nodes coloured by kind (reading and writing data blue, values, maths and random green, what makes geometry, Scatter on Surface and the Instancer, orange, the Execution Ports dark grey), each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.
 
 | | |
 |---|---|
@@ -336,7 +336,15 @@ The Scene Explorer lists the scene at the operator with the view flag as its own
 
 Clicking a row shows that prim, or that group and everything below it, in the Primitive Inspector. Ctrl+click (Cmd+click on macOS) adds a row to the selection or takes it out; Shift+click selects every row from the last one clicked. Rows dragged out go together when the one dragged is selected (see [Parameters](#parameters)). Clicking the only selected row again shows the whole scene there again, and so does a selected prim leaving the scene (moving the view flag, or a Prune). Selecting a row does not select an operator. For a stage, opening and closing prims also decides what the Viewer draws as geometry and what as boxes, and the guide, proxy and render toggles in the header choose which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer). Only the rows in view are laid out, so a stage of tens of thousands of prims scrolls as easily as a cube.
 
-Each prim's type (`Xform`, `Mesh`, `PointInstancer`, `Material`, `Camera`…) is shown in a column at the right of its row, before the geometry square; a name too long for the row stops short of it.
+Each prim's type (`Xform`, `Mesh`, `PointInstancer`, `Material`, `Camera`…) is shown in a column at the right of its row, before the geometry square; a name too long for the row stops short of it. A prim with prims below it (a point instancer, its prototypes under it) is one row, with them under it.
+
+**Point instancers** show their count on their row (`PointInstancer · 2,000`). Under it, an **Instances** row, closed to start with, lists them when opened, one row each (`[12] pine`, the prototype it takes); nothing is listed until it is opened, so a hundred thousand instances cost nothing until asked for. Clicking an instance outlines it in the Viewer, its prototype's box where it is; clicking an instance in the Viewer selects it the same way (`/forest/trees[12]`). The Primitive Inspector shows its instancer, whose points are its instances.
+
+**Right-click a row** to choose how the Viewer draws that prim and everything below it: **Geometry**, **Bounding Box**, **Origin** (axes at its origin) or **As the scene says** (the prim's `model:drawMode`, see [USD](usd.md)). The choice shows before the type in the row. It is for the Viewer alone: it is not part of the scene and is not written; to write it, use Set Attribute's `model:drawMode`, or an ICE Instancer's Draw Mode.
+
+## The Viewer's triangle budget
+
+The Viewer draws at most 20 million triangles a frame, every copy counted. Past that, the heaviest prims are drawn as their bounding boxes, at every copy, until the rest fits, and the Viewer says so at its bottom left ("1.0 billion triangles: 2 of the heaviest drawn as boxes…"). Two thousand copies of a statue of half a million triangles would be a billion. A prim set to Geometry in the Scene Explorer is always drawn as geometry. Boxes are drawn in one draw for every copy of every prim, and picked by their box, not their triangles.
 
 ## Operator Stack
 

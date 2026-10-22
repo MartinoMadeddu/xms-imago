@@ -8,7 +8,10 @@
 //! Loosely modelled after Softimage ICE and Houdini VOPs: ICE's contexts and
 //! per-element attribute arrays, VOPs' compile step.
 //!
-//! - `types`: the types values have (bool, int, float, vectors).
+//! - `types`: the types values have (bool, int, float, vectors, rotations).
+//!   A value is one per element, or (in a graph's one-value part, an Object
+//!   graph's for one) an array: arrays come from Random with a count, and
+//!   maths works on them element by element.
 //! - `graph`: the graph as the engine sees it: nodes, wires, values on
 //!   unconnected inputs, a root whose Execute inputs run in order.
 //! - `compile`: graph to plan. Types and contexts are resolved and checked;
@@ -27,10 +30,10 @@ pub mod exec;
 pub mod graph;
 pub mod types;
 
-pub use compile::{compile, output_types, CompileError, Plan};
-pub use exec::{run, BATCH};
-pub use graph::{Graph, Input, Math, Node, Op, Reduce};
-pub use types::{Ty, Value};
+pub use compile::{compile, output_arrays, output_types, CompileError, Plan};
+pub use exec::{run, Instances, Ran, BATCH};
+pub use graph::{ArrayOp, Graph, Input, Math, Node, Op, Reduce, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
+pub use types::{Loc, Ty, Value};
 
 #[cfg(test)]
 mod tests;

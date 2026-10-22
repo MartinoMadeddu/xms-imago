@@ -501,7 +501,7 @@ mod tests {
         use crate::core::properties::{SetContext, Value};
         use crate::core::set_attribute::SetRow;
         use crate::types::NodeType;
-        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
         let mut g = crate::node_graph::NodeGraphState::default();
         let cube = g.add_node("Cube".into(), NodeType::CreateCube { size: 1.0, location: "/root/geo/cube".into() }, egui::pos2(0.0, 0.0));
         let set = g.add_node("Hide".into(), NodeType::SetAttribute { rows: vec![

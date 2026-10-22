@@ -104,6 +104,74 @@ pub struct Scene {
     pub cameras:    Vec<(String, Mat4, crate::core::camera::Camera)>,
     /// Changes whenever the scene does: the GPU uploads again only then.
     pub generation: u64,
+    /// The prims drawn as their box or their origin (by their draw mode,
+    /// or past the triangle budget): picked by their box, not their
+    /// triangles.
+    pub standins:   std::collections::HashSet<String>,
+    /// What the Viewer says over the picture: what the budget left out.
+    pub notice:     Option<String>,
+}
+
+/// Triangles drawn in a frame at most, copies counted: past it, the
+/// heaviest prims are drawn as their boxes, and the Viewer says so. Two
+/// thousand copies of a statue of half a million triangles would be a
+/// billion a frame.
+pub const TRIANGLE_BUDGET: u64 = 20_000_000;
+
+/// A cube from -0.5 to 0.5, as its twelve edges: a box drawn at every copy
+/// of what it stands in for, scaled to its bounds, in one draw.
+fn unit_box() -> Arc<Geometry> {
+    static BOX: std::sync::OnceLock<Arc<Geometry>> = std::sync::OnceLock::new();
+    BOX.get_or_init(|| {
+        let mut vertices = vec![];
+        for k in 0..8 {
+            let c = [if k & 1 == 0 { -0.5 } else { 0.5 }, if k & 2 == 0 { -0.5 } else { 0.5 }, if k & 4 == 0 { -0.5 } else { 0.5 }];
+            vertices.extend_from_slice(&c); vertices.extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 0.0]);
+        }
+        let indices = vec![0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
+        Arc::new(Geometry { vertices, indices })
+    }).clone()
+}
+
+/// Three unit axes from the origin: a prim drawn as its origin.
+fn unit_axes() -> Arc<Geometry> {
+    static AXES: std::sync::OnceLock<Arc<Geometry>> = std::sync::OnceLock::new();
+    AXES.get_or_init(|| {
+        let mut vertices = vec![];
+        for p in [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]] {
+            vertices.extend_from_slice(&p); vertices.extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 0.0]);
+        }
+        Arc::new(Geometry { vertices, indices: (0..6).collect() })
+    }).clone()
+}
+
+/// How each prim is drawn: as the Scene Explorer says, else as the scene
+/// says (`model:drawMode`), else as geometry; then, past the triangle
+/// budget, the heaviest drawn as geometry are drawn as boxes instead. The
+/// modes, and what the budget did, to say.
+pub fn draw_modes(prims: &[Prim], hierarchy: &crate::types::SceneHierarchy, budget: u64) -> (Vec<crate::types::DrawMode>, Option<String>) {
+    use crate::types::DrawMode;
+    let chosen: Vec<Option<DrawMode>> = prims.iter().map(|p| hierarchy.draw_override(&p.path)).collect();
+    let mut modes: Vec<DrawMode> = prims.iter().zip(&chosen)
+        .map(|(p, c)| c.or_else(|| crate::core::properties::draw_mode(p)).unwrap_or_default())
+        .collect();
+    let cost = |p: &Prim| (p.mesh.indices.len() / 3) as u64 * p.place.copies().max(1) as u64;
+    let mut total: u64 = prims.iter().zip(&modes).filter(|(_, m)| **m == DrawMode::Default).map(|(p, _)| cost(p)).sum();
+    if total <= budget { return (modes, None); }
+    let all = total;
+    // Geometry chosen in the explorer stays geometry.
+    let mut heaviest: Vec<usize> = (0..prims.len()).filter(|&i| modes[i] == DrawMode::Default && chosen[i].is_none()).collect();
+    heaviest.sort_by_key(|&i| std::cmp::Reverse(cost(&prims[i])));
+    let mut boxed = 0usize;
+    for i in heaviest {
+        if total <= budget { break; }
+        total -= cost(&prims[i]);
+        modes[i] = DrawMode::Bounds;
+        boxed += 1;
+    }
+    if boxed == 0 { return (modes, None); }
+    let millions = |n: u64| if n >= 1_000_000_000 { format!("{:.1} billion", n as f64 / 1e9) } else { format!("{:.0} million", n as f64 / 1e6) };
+    (modes, Some(format!("{} triangles: {boxed} of the heaviest drawn as boxes, to stay under {} (right-click a row of the Scene Explorer to choose)", millions(all), millions(budget))))
 }
 
 /// Geometry made from a `MeshData`, kept while the mesh lives, so a scene
@@ -213,7 +281,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 
     let graph = input.graph;
     let subnets = input.subnets;
-    let eval_subnet = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+    let eval_subnet = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
 
@@ -310,6 +378,11 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 push_lines(&mut s.lines, &points, &pairs, &Mat4::IDENTITY, [c[0], c[1], c[2], 1.0]);
                 shown
             } else { prims };
+            // How each is drawn: geometry, its box or its origin.
+            let (modes, notice) = draw_modes(&prims, input.hierarchy, TRIANGLE_BUDGET);
+            s.notice = notice;
+            let standin_ink = { let c = ink(crate::theme::c(215, 215, 215)); [c[0], c[1], c[2], 1.0] };
+            let (mut boxes, mut axes): (Vec<f32>, Vec<f32>) = (vec![], vec![]);
             // Every primitive drawn at each of its placements; copies of
             // one mesh share it. In Textured mode a primitive takes its
             // material: colour and opacity, colour and emissive textures,
@@ -318,9 +391,21 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             struct Key { mesh: usize, kind: Kind, look: usize, blend: bool }
             let mut groups: Vec<(Key, Arc<MeshData>, Vec<f32>, Option<usize>)> = vec![];
             let mut looks: Vec<(usize, usize)> = vec![];
-            for p in &prims {
+            for (p, draw) in prims.iter().zip(&modes) {
                 let identity = [Mat4::IDENTITY];
                 let places: &[Mat4] = if p.place.is_placed() { p.place.matrices() } else { &identity };
+                // Its box, or axes at its origin, at every copy: one draw for all.
+                if *draw != crate::types::DrawMode::Default {
+                    let Some((lo, hi)) = crate::viewport::bounds::local_bounds(&p.mesh) else { continue };
+                    s.standins.insert(p.path.clone());
+                    let (out, local) = if *draw == crate::types::DrawMode::Bounds {
+                        (&mut boxes, Mat4::from_scale_rotation_translation((hi - lo).max(Vec3::splat(1e-4)), glam::Quat::IDENTITY, (lo + hi) * 0.5))
+                    } else {
+                        (&mut axes, Mat4::from_scale(Vec3::splat(((hi - lo).length() * 0.25).max(0.05))))
+                    };
+                    for m in places { push_instance_with(out, &(*m * local), standin_ink, [0.0; 4]); }
+                    continue;
+                }
                 let look = p.look.as_deref().filter(|_| mode == DisplayMode::Textured);
                 let mut add = |kind: Kind, colour: [f32; 4], flags: [f32; 4], look_key: usize, material: Option<usize>, blend: bool| {
                     let key = Key { mesh: Arc::as_ptr(&p.mesh) as usize, kind, look: look_key, blend };
@@ -371,6 +456,9 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             for (key, md, instances, material) in groups {
                 let geometry = cache.get(&md, key.kind, &mut used);
                 s.meshes.push(MeshDraw { geometry, instances, blend: key.blend, edges: matches!(key.kind, Kind::Edges | Kind::Strands), material });
+            }
+            for (geometry, instances) in [(unit_box(), boxes), (unit_axes(), axes)] {
+                if !instances.is_empty() { s.meshes.push(MeshDraw { geometry, instances, blend: false, edges: true, material: None }); }
             }
         }
         other => {
@@ -426,7 +514,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 fn ghosts(
     s:     &mut Scene,
     graph: &crate::node_graph::NodeGraphState,
-    eval_subnet: &impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     time:  f64,
     cache: &mut GeometryCache,
     used:  &mut Vec<(usize, Kind)>,
@@ -495,5 +583,38 @@ fn skeleton(out: &mut Vec<f32>, clip: &crate::core::anim::AnimData, time: f64) {
             let at = |k: usize| { let a = k as f32 / 8.0 * std::f32::consts::TAU; pos[j] + (u * a.cos() + v * a.sin()) * r };
             for k in 0..8 { seg(at(k), at(k + 1), joint); }
         }
+    }
+}
+
+#[cfg(test)]
+mod draw_mode_tests {
+    use super::*;
+    use crate::types::{DrawMode, Placement, SceneHierarchy};
+
+    /// The explorer's choice first, then the scene's `model:drawMode`, then
+    /// geometry; past the budget the heaviest is boxed, but not one the
+    /// explorer chose to draw as geometry.
+    #[test]
+    fn the_budget_boxes_the_heaviest_and_the_explorer_decides_first() {
+        let cube = Arc::new(crate::node_graph::nodes::create_cube(1.0));
+        let many: Vec<Mat4> = (0..1000).map(|i| Mat4::from_translation(Vec3::new(i as f32, 0.0, 0.0))).collect();
+        let heavy = Prim { mesh: cube.clone(), place: Placement::Many(many.into()), ..Prim::new("/forest/tree".into(), MeshData::default()) };
+        let light = Prim { mesh: cube.clone(), ..Prim::new("/rock".into(), MeshData::default()) };
+        let mut props = std::collections::BTreeMap::new();
+        props.insert("model:drawMode".to_string(), crate::core::properties::Value::Token("origin".into()));
+        let marked = Prim { mesh: cube.clone(), props: Arc::new(props), ..Prim::new("/sign".into(), MeshData::default()) };
+        let prims = vec![heavy, light, marked];
+        let mut h = SceneHierarchy::default();
+        let (modes, notice) = draw_modes(&prims, &h, 100);
+        assert_eq!(modes, vec![DrawMode::Bounds, DrawMode::Default, DrawMode::Origin]);
+        assert!(notice.is_some_and(|n| n.contains("1 of the heaviest")));
+        let (modes, notice) = draw_modes(&prims, &h, u64::MAX);
+        assert_eq!((modes[0], notice), (DrawMode::Default, None), "under the budget: as it is");
+        // Chosen in the explorer, on a group above: it wins, and geometry
+        // chosen is kept whatever the budget.
+        h.set_draw_mode("/forest", Some(DrawMode::Default));
+        h.set_draw_mode("/sign", Some(DrawMode::Bounds));
+        let (modes, _) = draw_modes(&prims, &h, 100);
+        assert_eq!(modes, vec![DrawMode::Default, DrawMode::Bounds, DrawMode::Bounds], "the forest kept, the rock boxed in its place");
     }
 }

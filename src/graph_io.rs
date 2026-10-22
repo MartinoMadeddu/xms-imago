@@ -336,7 +336,7 @@ pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: 
     let mut placed = Placed::new();
     for n in saved.nodes {
         let mut node_type = n.node_type;
-        if let NodeType::Ice { id, name } = &mut node_type {
+        if let NodeType::Ice { id, name, .. } = &mut node_type {
             *id = trees.iter().find(|t| t.node == n.id)
                 .map(|t| restore_tree(t, name, subnets))
                 .unwrap_or(IceGraphId(usize::MAX));
@@ -505,7 +505,7 @@ mod tests {
             rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE,
         }, egui::pos2(0.0, 0.0));
         g.add_connection(cube, 0, xf, 0);
-        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
         let max_x = |g: &NodeGraphState| g.eval_node(xf, &mut Default::default(), &pass).unwrap().into_mesh()
             .vertices.iter().map(|p| p[0]).fold(f32::MIN, f32::max);
         assert!((max_x(&g) - 6.0).abs() < 1e-5);
@@ -623,7 +623,7 @@ mod tests {
             sg.add_connection(grow, 0, set, 0);
             sg.add_connection(set, 0, root, 0);
         }
-        let ice = g.add_node("ICreationEngine".into(), NodeType::Ice { id: sid, name: "Spherify".into() }, egui::pos2(100.0, 100.0));
+        let ice = g.add_node("ICreationEngine".into(), NodeType::Ice { id: sid, name: "Spherify".into(), references: 1 }, egui::pos2(100.0, 100.0));
         g.add_connection(cube, 0, ice, 0);
         g.toggle_bypass(cube);
         g.set_view_flag(ice);
@@ -751,7 +751,7 @@ mod tests {
         }, egui::pos2(100.0, 100.0));
         g.add_connection(cube, 0, ph, 0);
         g.add_connection(walk, 0, ph, 1);
-        let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
         let mesh = g.eval_node_out(ph, 0, &mut Default::default(), &pass).unwrap().into_mesh();
         assert_eq!(mesh.vertices.len(), 8);
         let clip = g.eval_anim_out(ph, 1).unwrap();
@@ -890,7 +890,7 @@ mod tests {
     /// the operators after it do not inherit the list, and the list is saved.
     #[test]
     fn an_operator_works_on_its_primitive_locations() {
-        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
         let mut g = NodeGraphState::default();
         let a = g.add_node("A".into(), NodeType::CreateCube { size: 1.0, location: "/set/a".into() }, egui::pos2(0.0, 0.0));
         let b = g.add_node("B".into(), NodeType::CreateCube { size: 1.0, location: "/set/b".into() }, egui::pos2(200.0, 0.0));
@@ -940,7 +940,7 @@ mod tests {
     fn set_attribute_sets_its_rows_on_the_prims_it_names() {
         use crate::core::properties::{SetContext, Value};
         use crate::core::set_attribute::SetRow;
-        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
         let mut g = NodeGraphState::default();
         let a = g.add_node("A".into(), NodeType::CreateCube { size: 1.0, location: "/set/a".into() }, egui::pos2(0.0, 0.0));
         let b = g.add_node("B".into(), NodeType::CreateCube { size: 1.0, location: "/set/b".into() }, egui::pos2(200.0, 0.0));

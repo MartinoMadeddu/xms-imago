@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub fn evaluate_node_type(
     node_type:   &NodeType,
     inputs:      &[EvalResult],
-    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     output:      usize,
 ) -> Option<EvalResult> {
     match node_type {
@@ -127,9 +127,13 @@ pub fn evaluate_node_type(
         }
 
         NodeType::Ice { id, .. } => {
-            // First input is the main geometry, second (if any) the template,
-            // as one geometry where it is drawn.
-            let template = inputs.get(1).map(|r| crate::core::geo::Geo::from_mesh(&r.as_mesh()));
+            // The first input is the scene; the others, numbered from 1, are
+            // references: every prim of the scene wired there (groups too),
+            // for Get Reference.
+            let references: Vec<crate::ice::Reference> = inputs.iter().skip(1).map(|r| match r {
+                EvalResult::Named(prims) => crate::node_graph::scene_paths(prims),
+                _ => vec![],
+            }).collect();
             match inputs.first()? {
                 // Packed primitives: the tree runs on each one (the picked
                 // ones, when some are), in its own space, as ICE does on an
@@ -137,17 +141,25 @@ pub fn evaluate_node_type(
                 // whatever the tree does not write stays shared.
                 EvalResult::Named(prims) => {
                     let any_picked = prims.iter().any(|p| p.picked);
-                    Some(EvalResult::Named(prims.iter().map(|p| {
-                        if any_picked && !p.picked { return p.clone(); }
+                    let (mut out, mut made) = (Vec::with_capacity(prims.len()), vec![]);
+                    // Paths there are: an instancer made on one of them is numbered.
+                    let mut taken: std::collections::HashSet<String> = prims.iter().map(|p| p.path.clone()).collect();
+                    for p in prims {
+                        if any_picked && !p.picked { out.push(p.clone()); continue; }
                         let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
-                        let out = eval_subnet(*id, &geo, template.as_ref());
+                        crate::ice::take_instances();
+                        let g = eval_subnet(*id, &geo, &references);
+                        // What its Instancers made: point instancers, after the others.
+                        for (i, draw) in crate::ice::take_instances() { made.extend(instanced(p, &i, draw, &inputs[1..], &mut taken)); }
                         // The attributes stay in the geometry (see `to_mesh_lean`).
-                        Prim { mesh: Arc::new(out.to_mesh_lean()), geo: Some(Arc::new(out)), ..p.clone() }
-                    }).collect()))
+                        out.push(Prim { mesh: Arc::new(g.to_mesh_lean()), geo: Some(Arc::new(g)), ..p.clone() });
+                    }
+                    out.extend(made);
+                    Some(EvalResult::Named(out))
                 }
                 other => {
                     let geo = crate::core::geo::Geo::from_mesh(&other.as_mesh());
-                    Some(EvalResult::Single(eval_subnet(*id, &geo, template.as_ref()).to_mesh()))
+                    Some(EvalResult::Single(eval_subnet(*id, &geo, &references).to_mesh()))
                 }
             }
         }
@@ -759,7 +771,7 @@ mod packed_tests {
     use super::*;
     use crate::types::{NodeType, IceGraphId};
 
-    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo { m.clone() }
     fn run(node: NodeType, input: &EvalResult) -> EvalResult {
         evaluate_node_type(&node, std::slice::from_ref(input), &pass, 0).unwrap()
     }
@@ -989,4 +1001,98 @@ mod place_tests {
         assert_eq!(mirrored.primvars[0].values, m.primvars[0].values);
         assert_eq!(mirrored.primvars[1].values, vec![vec![3.0], vec![2.0], vec![1.0]]);
     }
+}
+
+/// The point instancer an Instancer made on `on`, as Imago keeps one (see
+/// `core::instancing`): a points prim at its path, one point per instance
+/// with `protoIndex`, `orient`, `scale` and `id`, placed as `on` is (the
+/// positions are in its space); then its prototypes, every prim of each
+/// (the prim at the prototype's path and the geometry below it, from the
+/// reference inputs) under `<instancer>/Prototypes/<name>`, each keeping
+/// its place within the prototype and drawn at its prototype's instances,
+/// sharing its geometry and material (nothing is copied). Write USD writes
+/// it as a `PointInstancer`. A relative path is beside `on` (not below it:
+/// USD has no prims under a mesh); a path that is `taken` is numbered.
+fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode, references: &[EvalResult], taken: &mut std::collections::HashSet<String>) -> Vec<Prim> {
+    use crate::core::geo::{Attr, Column, Context, Geo, Role};
+    use crate::types::InstancedBy;
+    use glam::Mat4;
+    let wanted = if made.path.starts_with('/') {
+        made.path.trim_end_matches('/').to_string()
+    } else {
+        let parent = on.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        format!("{parent}/{}", made.path.trim_matches('/'))
+    };
+    let mut path = wanted.clone();
+    let mut k = 1;
+    while !taken.insert(path.clone()) { path = format!("{wanted}_{k}"); k += 1; }
+
+    let n = made.positions.len();
+    let mut geo = Geo::from_points(made.positions.clone());
+    for (name, column) in [
+        ("protoIndex", Column::Int(Arc::new(made.proto_indices.clone()))),
+        ("orient", Column::Quat(Arc::new(made.orientations.clone()))),
+        ("scale", Column::Vec3(Arc::new(made.scales.clone()))),
+        ("id", Column::Int(Arc::new((0..n as i32).collect()))),
+    ] {
+        geo.set(Context::Point, name, Attr::new(column, Role::None));
+    }
+    let geo = Arc::new(geo);
+    // Each prototype under the instancer, by its leaf's name; numbered
+    // where two share one.
+    let mut roots: Vec<String> = vec![];
+    for proto in &made.prototypes {
+        let leaf = proto.rsplit('/').next().filter(|l| !l.is_empty()).unwrap_or("prototype");
+        let mut root = format!("{path}/Prototypes/{leaf}");
+        let mut k = 1;
+        while roots.contains(&root) { root = format!("{path}/Prototypes/{leaf}_{k}"); k += 1; }
+        roots.push(root);
+    }
+    let place = on.place.clone();
+    let mut out = vec![Prim {
+        geo: Some(geo.clone()), place: place.clone(), instancing: Some(Arc::new(roots.clone())),
+        ..Prim::new(path.clone(), geo.to_mesh())
+    }];
+    let below = |proto: &str, p: &str| p == proto || p.strip_prefix(proto).is_some_and(|rest| rest.starts_with('/'));
+    // A draw mode chosen: on each prototype's root, as USD has it (a model,
+    // its mode applied), which Write USD writes there.
+    let drawn = |above: &Arc<std::collections::BTreeMap<String, crate::core::properties::Opinions>>, root: &str| {
+        if draw == crate::types::DrawMode::Default { return above.clone(); }
+        use crate::core::properties::Value;
+        let mut map = (**above).clone();
+        let o = map.entry(root.to_string()).or_default();
+        o.props.insert("kind".into(), Value::Token("component".into()));
+        o.props.insert("model:applyDrawMode".into(), Value::Bool(true));
+        o.props.insert("model:drawMode".into(), Value::Token(draw.token().into()));
+        Arc::new(map)
+    };
+    for (k, proto) in made.prototypes.iter().enumerate() {
+        for r in references {
+            let EvalResult::Named(prims) = r else { continue };
+            for q in prims.iter().filter(|q| below(proto, &q.path) && q.is_geometry()) {
+                let inside = match &q.place {
+                    Placement::One(m) => *m,
+                    Placement::InPlace => Mat4::IDENTITY,
+                    // A prototype that is itself instanced: not yet.
+                    Placement::Many(_) => continue,
+                };
+                if q.instancing.is_some() { continue; }
+                let by = InstancedBy { instancer: path.clone(), index: k as u32, inside, hidden: Arc::new(vec![]), geo: geo.clone(), place: place.clone() };
+                let copies = crate::core::instancing::copies(&geo, &place, &by);
+                out.push(Prim {
+                    path: format!("{}{}", roots[k], &q.path[proto.len()..]),
+                    place: Placement::Many(copies.into()),
+                    instanced_by: Some(Arc::new(by)),
+                    // The reference's opinions above it were on its own paths.
+                    above: drawn(&Arc::default(), &roots[k]),
+                    picked: false,
+                    stage: None,
+                    source: None,
+                    instancing: None,
+                    ..q.clone()
+                });
+            }
+        }
+    }
+    out
 }

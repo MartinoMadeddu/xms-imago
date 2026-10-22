@@ -232,6 +232,10 @@ pub const PROPERTY_PRESETS: &[Preset] = &[
         hint: "On meshes: the subdivision the renderer does. Edit Poly's Subdivide changes the mesh instead" },
     Preset { name: "doubleSided", ty: ValueType::Bool, tokens: &[], written: Written::Uniform,
         hint: "On: both sides of each face are drawn" },
+    Preset { name: "model:drawMode", ty: ValueType::Token, tokens: &["default", "bounds", "origin", "cards", "inherited"], written: Written::Uniform,
+        hint: "How viewports draw the prim and what is below it: as geometry, as its bounding box, as axes at its origin. The Viewer draws cards as bounds. Set with model:applyDrawMode on, on a model (kind component)" },
+    Preset { name: "model:applyDrawMode", ty: ValueType::Bool, tokens: &[], written: Written::Uniform,
+        hint: "On: viewports draw this model as its model:drawMode says" },
 ];
 
 /// The common Object values.
@@ -317,6 +321,15 @@ pub fn above(p: &Prim) -> Vec<(&str, &Opinions)> {
 pub fn invisible(p: &Prim) -> bool {
     let off = |v: Option<&Value>| v.and_then(Value::token) == Some("invisible");
     off(p.props.get("visibility")) || above(p).iter().any(|(_, o)| off(o.props.get("visibility")))
+}
+
+/// How the scene says a primitive is drawn: USD's `model:drawMode`, on it
+/// or on the nearest prim above it that has one (`inherited` passes on to
+/// the one above). `None`: nothing says.
+pub fn draw_mode(p: &Prim) -> Option<crate::types::DrawMode> {
+    let mode = |o: &BTreeMap<String, Value>| o.get("model:drawMode").and_then(Value::token).and_then(crate::types::DrawMode::from_token);
+    if let Some(m) = mode(p.props.as_ref()) { return Some(m); }
+    above(p).iter().rev().find_map(|(_, o)| mode(&o.props))
 }
 
 /// Where a primitive's purpose comes from.

@@ -1173,7 +1173,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     let all = || PolySelection { source: SelSource::All, ..Default::default() };
     let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(180.0, 20.0));
     let dense = g.add_node("Subdivide".into(), edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()), p(180.0, 130.0));
-    let tree = g.add_node("Spherify".into(), NodeType::Ice { id, name: "Spherify".into() }, p(180.0, 240.0));
+    let tree = g.add_node("Spherify".into(), NodeType::Ice { id, name: "Spherify".into(), references: 1 }, p(180.0, 240.0));
     g.add_connection(cube, 0, dense, 0);
     g.add_connection(dense, 0, tree, 0);
     finish(g, tree, tree);
@@ -1420,7 +1420,7 @@ mod tests {
             // One operator viewed, and it is there.
             assert!(g.view_flag.is_some_and(|v| g.nodes.iter().any(|n| n.id == v)), "{}", t.name);
 
-            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                 store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
             };
             // Every node cooks: a clip or a mesh with vertices.
@@ -1451,7 +1451,7 @@ mod tests {
             let mut g = NodeGraphState::default();
             (t.build)(&mut g, &mut IceGraphStore::default());
             let node = g.selected_node.unwrap();
-            let eval = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+            let eval = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: &[crate::ice::Reference]| mesh.clone();
             let mesh = g.eval_node(node, &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
             assert_eq!(mesh.uvs.len(), mesh.indices.len(), "{name}");
             assert!(mesh.uvs.iter().all(|uv| uv[0].is_finite() && uv[1].is_finite()), "{name}");
@@ -1471,7 +1471,7 @@ mod tests {
         let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();
         let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
         (t.build)(&mut g, &mut store);
-        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
             store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mesh = g.eval_node(g.selected_node.unwrap(), &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
@@ -1498,7 +1498,7 @@ mod tests {
             if let NodeType::Ice { id, .. } = n.node_type { store.subnets.remove(&id); }
         }
         let ice = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::Ice { .. })).unwrap().id;
-        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
             store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mesh = g.eval_node(ice, &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
@@ -1515,7 +1515,7 @@ mod tests {
             let mut g = NodeGraphState::default();
             (t.build)(&mut g, &mut IceGraphStore::default());
             let ep = g.nodes.iter().find(|n| matches!(n.node_type, NodeType::EditPoly { .. })).unwrap().id;
-            let eval = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| mesh.clone();
+            let eval = |_: IceGraphId, mesh: &crate::core::geo::Geo, _: &[crate::ice::Reference]| mesh.clone();
             let mesh = g.eval_node(ep, &mut std::collections::HashMap::new(), &eval).unwrap().into_mesh();
             let poly = PolyMesh::from_mesh(&mesh);
             assert!(poly.verts.len() >= verts_at_least, "{name}: {} vertices", poly.verts.len());

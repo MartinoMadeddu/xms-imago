@@ -149,6 +149,14 @@ impl Viewer {
         ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(rect, gpu::ViewerPaint(frame)));
         self.origin_label(ui, rect, view_proj);
         if let Some((path, _, cam)) = &looking { gate(ui, rect, &path, cam); }
+        // What the triangle budget drew as boxes, at the bottom left.
+        if let Some(text) = &self.scene.notice {
+            let painter = ui.painter_at(rect);
+            let galley = painter.layout(text.clone(), egui::FontId::proportional(11.5), egui::Color32::from_gray(235), (rect.width() - 24.0).max(80.0));
+            let at = egui::pos2(rect.min.x + 10.0, rect.max.y - 10.0 - galley.size().y);
+            painter.rect_filled(egui::Rect::from_min_size(at, galley.size()).expand(5.0), 3.0, egui::Color32::from_black_alpha(150));
+            painter.galley(at, galley, egui::Color32::from_gray(235));
+        }
     }
 
     /// A click on a primitive selects it in the Scene Explorer (Ctrl adds
@@ -166,7 +174,7 @@ impl Viewer {
         ));
         if pressed { self.press = if free && !editing && input.tool.hot.is_none() && self.gizmo_drag.is_none() { pos } else { None }; }
         let subnets = input.subnets;
-        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let prims = match input.graph.evaluate_for_viewport_packed(&eval) {
@@ -177,7 +185,7 @@ impl Viewer {
             if let (Some(start), Some(end)) = (self.press.take(), pos) {
                 if start.distance(end) <= 4.0 && free {
                     let origin = Vec2::new(rect.min.x, rect.min.y);
-                    match pick::prim_at(view, Vec2::new(end.x, end.y) - origin, &prims) {
+                    match pick::prim_at_drawn(view, Vec2::new(end.x, end.y) - origin, &prims, &self.scene.standins) {
                         Some(path) => input.hierarchy.click(&path, ctrl, false, &[]),
                         None => if !ctrl { input.hierarchy.clear_selection() },
                     }
@@ -264,7 +272,7 @@ impl Viewer {
         if !(selection || all) || held || !pointer.is_some_and(|p| rect.contains(p)) { return; }
 
         let subnets = input.subnets;
-        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mut target: Option<(Vec3, f32)> = None;
