@@ -3,7 +3,7 @@
 
 use xms_geo::Context;
 
-use super::types::Value;
+use super::types::{Ty, Value};
 
 /// Nodes by position in `nodes`; wires point at a node's position and output.
 #[derive(Clone, Debug, Default)]
@@ -69,6 +69,10 @@ pub enum Op {
     Concat,
     /// What arrays give: their size, an element, their sum or average.
     Array(ArrayOp),
+    /// A vector (or a rotation) from its parts: numbers, or a smaller
+    /// vector and a number (see `Compose`). Per element, one value, or
+    /// arrays element by element.
+    Compose(Compose),
     /// Places on the mesh's surface, spread evenly by area: input 0 (an
     /// int) of them, the same for the same seed. `weight`: the name of a
     /// per-face or per-point float that scales how many land where (0 none,
@@ -104,6 +108,62 @@ pub enum Op {
     /// number or a 3D vector, for all or an array). `path`: the instancer
     /// prim's path; relative, beside the primitive the graph runs on.
     Instancer { path: String, seed: u32 },
+}
+
+/// What Compose makes, and from what (see `Op::Compose`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Compose {
+    /// X and Y: a 2D vector.
+    Vec2,
+    /// X, Y and Z: a 3D vector.
+    Vec3,
+    /// X, Y, Z and W: a 4D vector.
+    Vec4,
+    /// A 2D vector and Z: a 3D vector.
+    Vec2Z,
+    /// A 3D vector and W: a 4D vector.
+    Vec3W,
+    /// I, J, K and the real part: a rotation (a quaternion, as USD's
+    /// `quatf`), made unit.
+    Quat,
+}
+
+impl Compose {
+    pub const ALL: [Compose; 6] = [Compose::Vec2, Compose::Vec3, Compose::Vec4, Compose::Vec2Z, Compose::Vec3W, Compose::Quat];
+
+    /// Its inputs: name and type.
+    pub fn inputs(self) -> &'static [(&'static str, Ty)] {
+        match self {
+            Compose::Vec2 => &[("X", Ty::Float), ("Y", Ty::Float)],
+            Compose::Vec3 => &[("X", Ty::Float), ("Y", Ty::Float), ("Z", Ty::Float)],
+            Compose::Vec4 => &[("X", Ty::Float), ("Y", Ty::Float), ("Z", Ty::Float), ("W", Ty::Float)],
+            Compose::Vec2Z => &[("XY", Ty::Vec2), ("Z", Ty::Float)],
+            Compose::Vec3W => &[("XYZ", Ty::Vec3), ("W", Ty::Float)],
+            Compose::Quat => &[("I", Ty::Float), ("J", Ty::Float), ("K", Ty::Float), ("Real", Ty::Float)],
+        }
+    }
+
+    /// What it makes.
+    pub fn output(self) -> Ty {
+        match self {
+            Compose::Vec2 => Ty::Vec2,
+            Compose::Vec3 | Compose::Vec2Z => Ty::Vec3,
+            Compose::Vec4 | Compose::Vec3W => Ty::Vec4,
+            Compose::Quat => Ty::Quat,
+        }
+    }
+
+    /// As its dropdown names it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Compose::Vec2 => "Floats to 2D Vector",
+            Compose::Vec3 => "Floats to 3D Vector",
+            Compose::Vec4 => "Floats to 4D Vector",
+            Compose::Vec2Z => "2D Vector and Float to 3D Vector",
+            Compose::Vec3W => "3D Vector and Float to 4D Vector",
+            Compose::Quat => "Floats to Rotation (i, j, k, real)",
+        }
+    }
 }
 
 /// Operations on an array (see `Op::Array`).
@@ -196,6 +256,7 @@ impl Op {
             // As many as it has.
             Op::Concat => None,
             Op::Array(a) => Some(a.arity()),
+            Op::Compose(c) => Some(c.inputs().len()),
             Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
             Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } | Op::GetArrayData { .. } => Some(0),

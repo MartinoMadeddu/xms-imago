@@ -189,7 +189,7 @@ A MaterialX operator holds a graph of MaterialX nodes, opened like an ICE graph:
 
 ### ICE graphs
 
-An ICE node holds a graph of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene graph. Inside, the graph is drawn after Softimage ICE: nodes coloured by kind (reading and writing data blue, values, maths and random green, what makes geometry, Scatter on Surface and the Instancer, orange, the Execution Ports dark grey), each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.
+An ICE node holds a graph of its own. Double-click it, or select it and press ↓, to open it; ↑ or the path at the top goes back up to the scene graph. Inside, the graph is drawn after Softimage ICE: nodes coloured by kind (reading and writing data blue, values, maths, random and arrays the cyan-green of MaterialX's geometric nodes, what makes geometry, Scatter on Surface and the Instancer, orange, the Execution Ports dark grey), each with its name over its type, a row per port, ports and wires coloured by the type of data they carry.
 
 | | |
 |---|---|

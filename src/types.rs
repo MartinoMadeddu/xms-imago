@@ -606,6 +606,8 @@ pub enum IceGraphNodeType {
     Random { seed: u32 },
     /// An array's size, an element, its sum or average.
     Array { op: xms_ice::ArrayOp },
+    /// A vector from its parts (see `xms_ice::Compose`).
+    Compose { op: xms_ice::Compose },
     /// Places on the surface, spread by area: their positions, the normals
     /// there and the surface samples (see `xms_ice::Op::Scatter`).
     Scatter { seed: u32, #[serde(default)] weight: String },
@@ -690,6 +692,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Concat => "Concatenate Arrays",
         IceGraphNodeType::GetReference { .. } => "Get Reference",
         IceGraphNodeType::Instancer { .. } => "Instancer",
+        IceGraphNodeType::Compose { .. } => "Compose",
         IceGraphNodeType::Array { op } => match op {
             xms_ice::ArrayOp::Size => "Array Size",
             xms_ice::ArrayOp::Element => "Select in Array",
@@ -715,6 +718,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::GetReference { .. } => "⇲",
         IceGraphNodeType::Instancer { .. } => "❖",
         IceGraphNodeType::Array { .. } => "▤",
+        IceGraphNodeType::Compose { .. } => "⊞",
     }
 }
 

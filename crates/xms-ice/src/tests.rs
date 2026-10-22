@@ -841,3 +841,34 @@ fn an_object_graph_reads_every_value_and_a_count_takes_an_arrays_length() {
     assert_eq!(object_value(g, size, "n", &geo).ints().unwrap(), &[37], "as many as the positions");
 }
 
+/// Compose: a vector from numbers per point (an int taken as a number), a
+/// 4D vector from P and a number, a rotation made unit.
+#[test]
+fn compose_makes_vectors_from_their_parts() {
+    use super::graph::Compose;
+    let geo = cloud(3);
+    let run_point = |g: &mut Graph, out: usize| {
+        let set = g.add(Op::set("v"), vec![wire(out)]);
+        g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+        run(&compile(g, &geo).unwrap(), &geo, &no_params(), &[]).geo.attr(Context::Point, "v").unwrap().column.clone()
+    };
+    let mut g = Graph::default();
+    let heat = g.add(Op::get("heat"), vec![]);
+    let v = g.add(Op::Compose(Compose::Vec3), vec![wire(heat), Input::Value(Value::Int(2)), Input::Value(Value::Float(0.5))]);
+    assert_eq!(run_point(&mut g, v).vec3s().unwrap(), &[[0.0, 2.0, 0.5], [1.0, 2.0, 0.5], [2.0, 2.0, 0.5]]);
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let v = g.add(Op::Compose(Compose::Vec3W), vec![wire(p), Input::Value(Value::Float(1.0))]);
+    assert_eq!(run_point(&mut g, v).vec4s().unwrap()[2], [2.0, 0.0, 0.0, 1.0]);
+    let mut g = Graph::default();
+    let q = g.add(Op::Compose(Compose::Quat), vec![Input::Value(Value::Float(0.0)), Input::Value(Value::Float(0.0)), Input::Value(Value::Float(0.0)), Input::Value(Value::Float(2.0))]);
+    assert_eq!(object_value(g, q, "q", &geo).quats().unwrap(), &[[0.0, 0.0, 0.0, 1.0]], "made unit");
+    // A part of the wrong type says so on the node.
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let bad = g.add(Op::Compose(Compose::Vec2), vec![wire(p), Input::Value(Value::Float(0.0))]);
+    let set = g.add(Op::set("v"), vec![wire(bad)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, bad);
+}
+

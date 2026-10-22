@@ -47,7 +47,7 @@ mod pal {
     pub fn PORT_RIM() -> Color32 { Color32::from_rgb( 30,  30,  30) }
 
     // Node colours, by kind.
-    pub fn GREEN() -> Color32 { Color32::from_rgb(152, 196,  98) }     // data, constants, maths, generators
+    pub fn GREEN() -> Color32 { Color32::from_rgb(112, 186, 154) }     // constants, maths, random, arrays: the cyan-green of MaterialX's geometric nodes
     pub fn BLUE() -> Color32  { Color32::from_rgb(102, 150, 204) }     // get / set geometry
     pub fn ORANGE() -> Color32 { Color32::from_rgb(192, 140,  92) }    // what makes geometry: scattering, instancing
     pub fn PORTS() -> Color32 { Color32::from_rgb( 52,  52,  52) }     // Execution Ports: dark grey, as MaterialX's material
@@ -117,6 +117,7 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
                 m => format!("{name}, seed {seed}, {}", m.label().to_lowercase()),
             })
         }
+        IceGraphNodeType::Compose { op } => Some(op.output().name().to_string()),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => None,
     }
 }
@@ -190,7 +191,7 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Root { .. } => pal::PORTS(),
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. }
-            | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat => pal::GREEN(),
+            | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat | IceGraphNodeType::Compose { .. } => pal::GREEN(),
         IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
         // The Geometry category: what makes geometry.
         IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } => pal::ORANGE(),
@@ -238,6 +239,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
     // from it into another.
     let runs_over = graph.nodes.iter().find_map(|n| match n.node_type { IceGraphNodeType::Root { context } => Some(context), _ => None })
         .unwrap_or(Context::Point);
+    let mut resync = false;
     let Some(node) = graph.selected_node.and_then(|s| graph.nodes.iter_mut().find(|n| n.id == s)) else {
         ui.label("Select a node to see its parameters.");
         return;
@@ -320,8 +322,16 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
             f.text("Primitive Location", Some("Where the point instancer is made: a path (/root/instancer), or a name alone, beside the primitive the graph runs on (scatter on /set/ground is /set/scatter). Its prototypes go under it, in Prototypes"), path, "/root/instancer");
             f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
         }),
+        IceGraphNodeType::Compose { op } => group(ui, "Compose", None, |f| {
+            let choices: Vec<(xms_ice::Compose, &str)> = xms_ice::Compose::ALL.iter().map(|c| (*c, c.label())).collect();
+            if f.choice("Makes", Some("What it makes, and from what: numbers into a vector, a vector and a number into a bigger one, numbers into a rotation"), op, &choices) {
+                resync = true;
+            }
+        }),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => {}
     }
+    // Compose's parts follow what it makes: its inputs again, wires kept by place.
+    if resync { let id = node.id; graph.resync_sockets(id); return; }
     // What each input holds while nothing is wired to it.
     let free: Vec<usize> = node.inputs.iter().enumerate()
         .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
@@ -631,6 +641,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),
     ];
+    out.push(("Math", IceGraphNodeType::Compose { op: xms_ice::Compose::Vec3 }, "A vector from its parts: numbers into a 2D, 3D or 4D vector, a vector and a number into a bigger one, numbers into a rotation. Choose in its parameters"));
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
     }

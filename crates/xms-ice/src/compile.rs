@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
-use super::graph::{ArrayOp, Graph, Input, Math, Op, Reduce, SCATTER_NORMALS, SCATTER_SAMPLES};
+use super::graph::{ArrayOp, Compose, Graph, Input, Math, Op, Reduce, SCATTER_NORMALS, SCATTER_SAMPLES};
 use super::types::{Ty, Value};
 
 /// A plan: what to read, the two programs, what to write. Made once per
@@ -121,6 +121,8 @@ pub(crate) enum Ins {
     LoadList { dst: usize, read: usize, flat: bool },
     /// An array's size, element `args[1]`, sum or average.
     Array { op: ArrayOp, dst: usize, args: [usize; 2] },
+    /// A vector from its parts, in `args` (as many as `op` takes).
+    Compose { op: Compose, dst: usize, args: [usize; 4] },
     /// `count` (a register) places on the surface; `weight`, a read scaling
     /// how many land where.
     Scatter { dst: usize, seed: u32, count: usize, weight: Option<usize> },
@@ -356,6 +358,7 @@ impl Lower<'_> {
             Op::Math(op) => self.math(node, *op)?,
             Op::Random { seed } => self.random(node, *seed)?,
             Op::Array(op) => self.array(node, *op)?,
+            Op::Compose(c) => self.compose(node, *c)?,
             Op::Scatter { seed, weight } => self.scatter(node, *seed, weight)?,
             Op::GetDataAt { name } => self.at_location(node, name)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
@@ -722,6 +725,33 @@ impl Lower<'_> {
         self.drawn(node, Ty::Quat, [Some(normals), Some(turn)], count, key, array_of, |dst, args, array, key| Ins::RandomOrient { dst, seed, args, array, key })
     }
 
+    /// Compose: a vector from its parts, each taken as its type (an int as
+    /// a number). One value, per element, or arrays element by element.
+    fn compose(&mut self, node: usize, op: Compose) -> Result<Val, CompileError> {
+        let mut vals: Vec<Val> = vec![];
+        for (i, &(name, ty)) in op.inputs().iter().enumerate() {
+            let mut v = self.input(node, i, Some(ty))?;
+            if v.ty == Ty::Int && ty == Ty::Float {
+                let (src, array) = (v.reg, v.array);
+                v = self.emit(v.uniform, Ty::Float, |dst| Ins::ToFloat { dst, src });
+                v.array = array;
+            }
+            if v.ty != ty { return error(node, format!("{name} is a {}, not a {}", ty.name(), v.ty.name())); }
+            if v.is_list() { return error(node, "Compose works on values and the graph's arrays, not on lists per element yet"); }
+            vals.push(v);
+        }
+        let uniform = vals.iter().all(|v| v.uniform);
+        let array = vals.iter().any(|v| v.array);
+        if array && !uniform {
+            return error(node, "An array meets per-element values: arrays work in the graph's one-value part (an Object graph) for now");
+        }
+        let mut args = [0usize; 4];
+        for (i, v) in vals.iter().enumerate() { args[i] = if uniform { v.reg } else { self.varying(*v) }; }
+        let mut out = self.emit(uniform, op.output(), |dst| Ins::Compose { op, dst, args });
+        out.array = array;
+        Ok(out)
+    }
+
     /// Concatenate Arrays: its wired inputs one after the other, arrays or
     /// single values, all of one type.
     fn concat(&mut self, node: usize) -> Result<Val, CompileError> {
@@ -948,6 +978,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         Op::GetReference { .. } => Some(Ty::Token),
         Op::GetDataAt { name } => [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty),
+        Op::Compose(c) => Some(c.output()),
         Op::Array(op) => {
             let of = match n.inputs.first() {
                 Some(Input::Wire { node: from, output }) => wire_ty(graph, geo, context, *from, *output, memo, depth + 1),
@@ -1002,7 +1033,7 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
             };
             counted || from_array(3, memo) || (matches!(n.op, Op::RandomOrientation { .. }) && from_array(0, memo))
         }
-        Op::Math(_) | Op::GetDataAt { .. } => {
+        Op::Math(_) | Op::GetDataAt { .. } | Op::Compose(_) => {
             let mut any = false;
             for input in &n.inputs {
                 if let Input::Wire { node: from, .. } = input { any |= is_array(graph, *from, memo, depth + 1); }

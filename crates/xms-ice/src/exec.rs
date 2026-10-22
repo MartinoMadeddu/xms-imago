@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use xms_geo::{Attr, Column, Context, Geo, Topology};
 
 use super::compile::{InstancerPlan, Ins, Key, Plan, Program, Write, NO_COUNT};
-use super::graph::{ArrayOp, Math, Reduce};
+use super::graph::{ArrayOp, Compose, Math, Reduce};
 use super::types::{Loc, Ty, Value};
 
 /// Elements per batch: long enough that each instruction's loop does real
@@ -636,6 +636,11 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                     Some(list) => out.extend(list.iter().filter(|p| there.contains(p)).map(|p| Arc::from(p.as_str()))),
                 }
             }
+            Ins::Compose { op, dst, args } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                compose(op, &args[..op.inputs().len()].iter().map(|&r| &regs[r]).collect::<Vec<_>>(), &mut out);
+                regs[dst] = out;
+            }
             Ins::Array { op, dst, args } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
                 match &regs[args[0]] {
@@ -845,6 +850,32 @@ fn list_op(op: ArrayOp, offsets: &[u32], items: &Reg, index: &Reg, out: &mut Reg
             _ => Reg::Bool(vec![]),
         },
     };
+}
+
+/// A vector from its parts: element `i` of each (one value meets every
+/// element of the arrays or batch it is with).
+fn compose(op: Compose, parts: &[&Reg], out: &mut Reg) {
+    fn at<T: Copy + Default>(v: &[T], i: usize) -> T { v.get(i).or(v.last()).copied().unwrap_or_default() }
+    let n = parts.iter().map(|r| r.len()).max().unwrap_or(0);
+    let f = |k: usize, i: usize| match parts.get(k) { Some(Reg::Float(v)) => at(v, i), _ => 0.0 };
+    match op {
+        Compose::Vec2 => *vec2s(out) = (0..n).map(|i| Vec2::new(f(0, i), f(1, i))).collect(),
+        Compose::Vec3 => *vec3s(out) = (0..n).map(|i| Vec3::new(f(0, i), f(1, i), f(2, i))).collect(),
+        Compose::Vec4 => *vec4s(out) = (0..n).map(|i| Vec4::new(f(0, i), f(1, i), f(2, i), f(3, i))).collect(),
+        Compose::Vec2Z => {
+            let xy: &[Vec2] = match parts.first() { Some(Reg::Vec2(v)) => v, _ => &[] };
+            *vec3s(out) = (0..n).map(|i| at(xy, i).extend(f(1, i))).collect();
+        }
+        Compose::Vec3W => {
+            let xyz: &[Vec3] = match parts.first() { Some(Reg::Vec3(v)) => v, _ => &[] };
+            *vec4s(out) = (0..n).map(|i| at(xyz, i).extend(f(1, i))).collect();
+        }
+        // Made unit; all zeros, no rotation.
+        Compose::Quat => *quats(out) = (0..n).map(|i| {
+            let q = Vec4::new(f(0, i), f(1, i), f(2, i), f(3, i));
+            if q.length_squared() > 0.0 { Quat::from_vec4(q).normalize() } else { Quat::IDENTITY }
+        }).collect(),
+    }
 }
 
 /// Arrays (or single values) one after the other, into `out`.

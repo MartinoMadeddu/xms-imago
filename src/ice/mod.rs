@@ -210,6 +210,17 @@ impl IceGraph {
                 vec![output("Value", "Any")],
             ),
             IceGraphNodeType::Concat => (vec![array_port(1), array_port(2)], vec![output("Array", "Any")]),
+            // Its parts, by what it makes: numbers 0 (a rotation's real
+            // part 1: none), vectors zero.
+            IceGraphNodeType::Compose { op } => (op.inputs().iter().map(|&(name, ty)| {
+                let value = match ty {
+                    xms_ice::Ty::Vec2 => Value::Vec2([0.0; 2]),
+                    xms_ice::Ty::Vec3 => Value::Vec3([0.0; 3]),
+                    _ if name == "Real" => Value::Float(1.0),
+                    _ => Value::Float(0.0),
+                };
+                IceGraphInputSocket { value: Some(value), ..input(name, 0.0) }
+            }).collect(), vec![output("Vector", "Any")]),
             // Outputs in `xms_ice::SCATTER_*`'s order.
             IceGraphNodeType::Scatter { .. } => (
                 vec![IceGraphInputSocket { value: Some(Value::Int(1000)), ..input("Count", 0.0) }],
@@ -241,6 +252,19 @@ impl IceGraph {
                 (inputs, vec![output("Result", "Any")])
             }
         }
+    }
+
+    /// A node's inputs made again for what it now is (Compose changed what
+    /// it makes): the wires into inputs still there kept, the others taken
+    /// off.
+    pub fn resync_sockets(&mut self, id: NodeId) {
+        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
+        let (mut inputs, outputs) = Self::create_sockets(&n.node_type);
+        for (new, old) in inputs.iter_mut().zip(&n.inputs) { new.connected_output = old.connected_output; }
+        let kept = inputs.len();
+        n.inputs = inputs;
+        n.outputs = outputs;
+        self.connections.retain(|c| c.to_node != id || c.to_input < kept);
     }
 
     pub fn add_connection(&mut self, from: NodeId, from_out: usize, to: NodeId, to_in: usize) {
@@ -332,6 +356,7 @@ impl IceGraph {
                 IceGraphNodeType::Math { op } => Op::Math(*op),
                 IceGraphNodeType::Random { seed } => Op::Random { seed: *seed },
                 IceGraphNodeType::Array { op } => Op::Array(*op),
+                IceGraphNodeType::Compose { op } => Op::Compose(*op),
                 IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
                 IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
                 IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData { name: name.clone(), context: *context },
