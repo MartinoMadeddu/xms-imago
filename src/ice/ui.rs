@@ -87,14 +87,19 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             Value::Float(f) => short(*f),
             Value::Vec2(v) => list(v),
             Value::Vec3(v) => list(v),
-            Value::Vec4(v) => list(v),
+            Value::Vec4(v) | Value::Quat(v) => list(v),
+            Value::Location(l) => format!("face {}", l.face),
         }),
         // Across contexts: where from, and how the values become one.
         IceGraphNodeType::GetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
         IceGraphNodeType::SetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
         IceGraphNodeType::GetData { name, .. } | IceGraphNodeType::SetData { name, .. } => Some(format!("self.{name}")),
         IceGraphNodeType::Root { context } => Some(format!("per {context:?}")),
-        IceGraphNodeType::Math { .. } => None,
+        IceGraphNodeType::Random { seed } => Some(format!("seed {seed}")),
+        IceGraphNodeType::Scatter { seed, weight } if weight.trim().is_empty() => Some(format!("seed {seed}")),
+        IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
+        IceGraphNodeType::GetDataAt { name } => Some(format!("self.{name} at location")),
+        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } => None,
     }
 }
 
@@ -166,7 +171,8 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
     match t {
         IceGraphNodeType::Root { .. } => pal::PORTS(),
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
-        IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } => pal::GREEN(),
+        IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. } => pal::GREEN(),
+        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::GetDataAt { .. } => pal::BLUE(),
     }
 }
 
@@ -256,7 +262,17 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
             }
         }),
         IceGraphNodeType::Constant { value } => group(ui, "Value", None, |f| { value_row(f, "Value", value); }),
-        IceGraphNodeType::Math { .. } => {}
+        IceGraphNodeType::Random { seed } => group(ui, "Random", None, |f| {
+            f.row("Seed", Some("Another seed, other values; the same seed gives the same values every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
+        }),
+        IceGraphNodeType::Scatter { seed, weight } => group(ui, "Scatter", None, |f| {
+            f.row("Seed", Some("Another seed, other places; the same seed gives the same places every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
+            f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
+        }),
+        IceGraphNodeType::GetDataAt { name } => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("P is the position, N the normal (the face's own when there are none); any other attribute, blended across the triangle each location is in"), name, "P");
+        }),
+        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } => {}
     }
     // What each input holds while nothing is wired to it.
     let free: Vec<usize> = node.inputs.iter().enumerate()
@@ -269,10 +285,15 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
                 let Some(value) = input.value.as_mut() else { continue };
                 let mut kind = value.ty();
                 if f.choice(&format!("{} type", input.name), None, &mut kind,
-                            &[(xms_ice::Ty::Float, "Scalar"), (xms_ice::Ty::Int, "Integer"), (xms_ice::Ty::Vec3, "3D Vector"), (xms_ice::Ty::Bool, "Boolean")]) {
+                            &[(xms_ice::Ty::Float, "Scalar"), (xms_ice::Ty::Int, "Integer"), (xms_ice::Ty::Vec2, "2D Vector"), (xms_ice::Ty::Vec3, "3D Vector"),
+                              (xms_ice::Ty::Vec4, "4D Vector"), (xms_ice::Ty::Quat, "Rotation"), (xms_ice::Ty::Bool, "Boolean")]) {
                     *value = match kind {
                         xms_ice::Ty::Int => Value::Int(0),
+                        xms_ice::Ty::Vec2 => value.convert(xms_ice::Ty::Vec2).unwrap_or(Value::Vec2([0.0; 2])),
                         xms_ice::Ty::Vec3 => value.convert(xms_ice::Ty::Vec3).unwrap_or(Value::Vec3([0.0; 3])),
+                        xms_ice::Ty::Vec4 => value.convert(xms_ice::Ty::Vec4).unwrap_or(Value::Vec4([0.0; 4])),
+                        // No rotation: (0, 0, 0, 1).
+                        xms_ice::Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
                         xms_ice::Ty::Bool => Value::Bool(false),
                         _ => value.convert(xms_ice::Ty::Float).unwrap_or(Value::Float(0.0)),
                     };
@@ -292,9 +313,11 @@ fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms
         Value::Float(x) => { f.drag(label, None, x, 0.01, ""); }
         Value::Vec2(v) => { f.uv(label, None, v, 0.01); }
         Value::Vec3(v) => { f.xyz(label, None, v, 0.01, ""); }
-        Value::Vec4(v) => {
+        Value::Vec4(v) | Value::Quat(v) => {
             f.row(label, None, |ui| for c in v.iter_mut() { ui.add(egui::DragValue::new(c).speed(0.01)); });
         }
+        // Made by Scatter on Surface, never typed in.
+        Value::Location(_) => {}
     }
 }
 
@@ -551,7 +574,14 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: Value::Vec3([0.0; 3]) }, "Three numbers: a position, a direction, a colour"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Vec4([0.0; 4]) }, "Four numbers"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Bool(false) }, "True or false"),
+        ("Constants", IceGraphNodeType::Constant { value: Value::Quat([0.0, 0.0, 0.0, 1.0]) }, "A rotation (i, j, k, real); none by default"),
+        ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many"),
+        ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute): an array of locations, in an Object graph"),
+        ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at locations: P, N, UVs or any other, blended across the surface"),
     ];
+    for op in xms_ice::ArrayOp::ALL {
+        out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
+    }
     for op in Math::ALL {
         out.push(("Math", IceGraphNodeType::Math { op }, ""));
     }
@@ -614,8 +644,9 @@ fn ty_colour(t: Option<xms_ice::Ty>) -> egui::Color32 {
         Some(Ty::Int) => DataType::Integer,
         Some(Ty::Bool) => DataType::Boolean,
         Some(Ty::Vec2 | Ty::Vec3) => DataType::Vector,
-        // Four numbers: a quaternion, a rotation.
-        Some(Ty::Vec4) => DataType::Vector4,
+        // Four numbers, and a rotation (a quaternion).
+        Some(Ty::Vec4 | Ty::Quat) => DataType::Vector4,
+        Some(Ty::Location) => DataType::Other,
         None => DataType::Other,
     }.colour()
 }

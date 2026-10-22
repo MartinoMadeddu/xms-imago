@@ -115,6 +115,8 @@ pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
         xms_ice::Ty::Vec2 => "Vec2",
         xms_ice::Ty::Vec3 => "Vec3",
         xms_ice::Ty::Vec4 => "Vec4",
+        xms_ice::Ty::Quat => "Quat",
+        xms_ice::Ty::Location => "Location",
     }
 }
 
@@ -167,9 +169,28 @@ impl IceGraph {
                 let inputs = match op {
                     Math::Multiply | Math::Divide => vec![input("A", 1.0), input("B", 1.0)],
                     Math::Lerp => vec![input("A", 0.0), input("B", 1.0), input("T", 0.5)],
+                    Math::Rotate => vec![IceGraphInputSocket { value: Some(Value::Quat([0.0, 0.0, 0.0, 1.0])), ..input("Rotation", 0.0) },
+                                         IceGraphInputSocket { value: Some(Value::Vec3([1.0, 0.0, 0.0])), ..input("Vector", 0.0) }],
+                    Math::AxisAngle => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Axis", 0.0) }, input("Angle", 0.0)],
+                    Math::Euler => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Angles", 0.0) }],
                     op if op.arity() == 1 => vec![input("Value", 0.0)],
                     _ => vec![input("A", 0.0), input("B", 0.0)],
                 };
+                (inputs, vec![output("Result", "Any")])
+            }
+            // A count of 0: one value per element.
+            IceGraphNodeType::Random { .. } => (
+                vec![input("Min", 0.0), input("Max", 1.0), IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) }],
+                vec![output("Value", "Any")],
+            ),
+            IceGraphNodeType::Scatter { .. } => (
+                vec![IceGraphInputSocket { value: Some(Value::Int(1000)), ..input("Count", 0.0) }],
+                vec![output("Locations", "Any")],
+            ),
+            IceGraphNodeType::GetDataAt { .. } => (vec![IceGraphInputSocket { value: None, ..input("Locations", 0.0) }], vec![output("Value", "Any")]),
+            IceGraphNodeType::Array { op } => {
+                let mut inputs = vec![IceGraphInputSocket { value: None, ..input("Array", 0.0) }];
+                if *op == xms_ice::ArrayOp::Element { inputs.push(IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Index", 0.0) }); }
                 (inputs, vec![output("Result", "Any")])
             }
         }
@@ -257,6 +278,10 @@ impl IceGraph {
                 IceGraphNodeType::SetData { name, context, reduce } => Op::SetData { name: name.clone(), context: *context, reduce: *reduce },
                 IceGraphNodeType::Constant { value } => Op::Constant(*value),
                 IceGraphNodeType::Math { op } => Op::Math(*op),
+                IceGraphNodeType::Random { seed } => Op::Random { seed: *seed },
+                IceGraphNodeType::Array { op } => Op::Array(*op),
+                IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
+                IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
             };
             let inputs = n.inputs.iter().filter_map(|i| {
                 let wired = i.connected_output.and_then(|(from, output)| {

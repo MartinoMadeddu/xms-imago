@@ -598,6 +598,15 @@ pub enum IceGraphNodeType {
     },
     Constant { value: xms_ice::Value },
     Math { op: xms_ice::Math },
+    /// Random values between a min and a max: one per element, or an array
+    /// of a count (see `xms_ice::Op::Random`).
+    Random { seed: u32 },
+    /// An array's size, an element, its sum or average.
+    Array { op: xms_ice::ArrayOp },
+    /// Places on the surface, spread by area (see `xms_ice::Op::Scatter`).
+    Scatter { seed: u32, #[serde(default)] weight: String },
+    /// An attribute read at locations (see `xms_ice::Op::GetDataAt`).
+    GetDataAt { name: String },
 }
 
 impl IceGraphNodeType {
@@ -621,6 +630,8 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             Value::Vec2(_) => "2D Vector",
             Value::Vec3(_) => "3D Vector",
             Value::Vec4(_) => "4D Vector",
+            Value::Quat(_) => "Rotation",
+            Value::Location(_) => "Location",
         },
         IceGraphNodeType::Math { op } => match op {
             Math::Add => "Add",
@@ -638,6 +649,18 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             Math::Cross => "Cross Product",
             Math::Length => "Length",
             Math::Normalize => "Normalize",
+            Math::Rotate => "Rotate Vector",
+            Math::AxisAngle => "Rotation from Axis and Angle",
+            Math::Euler => "Rotation from Euler Angles",
+        },
+        IceGraphNodeType::Random { .. } => "Random Value",
+        IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
+        IceGraphNodeType::GetDataAt { .. } => "Get Data at Location",
+        IceGraphNodeType::Array { op } => match op {
+            xms_ice::ArrayOp::Size => "Array Size",
+            xms_ice::ArrayOp::Element => "Select in Array",
+            xms_ice::ArrayOp::Sum => "Array Sum",
+            xms_ice::ArrayOp::Average => "Array Average",
         },
     }
 }
@@ -649,6 +672,10 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::SetData { .. } => "■",
         IceGraphNodeType::Constant { .. } => "●",
         IceGraphNodeType::Math { .. } => "±",
+        IceGraphNodeType::Random { .. } => "⚂",
+        IceGraphNodeType::Scatter { .. } => "⁘",
+        IceGraphNodeType::GetDataAt { .. } => "▶",
+        IceGraphNodeType::Array { .. } => "▤",
     }
 }
 

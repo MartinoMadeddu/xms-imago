@@ -48,6 +48,39 @@ pub enum Op {
     Parameter { name: String, default: Value },
     Constant(Value),
     Math(Math),
+    /// A random value between input 0 (min) and input 1 (max), the same each
+    /// time for the same seed and element. Input 2 (an int) is a count:
+    /// 0 gives one value per element; more gives an array of that many (in
+    /// a graph's one-value part: an Object graph, or from one-value inputs).
+    Random { seed: u32 },
+    /// What arrays give: their size, an element, their sum or average.
+    Array(ArrayOp),
+    /// Places on the mesh's surface, spread evenly by area: input 0 (an
+    /// int) of them, an array, the same for the same seed. `weight`: the
+    /// name of a per-face or per-point float that scales how many land
+    /// where (0 none, 2 twice as many); empty, none. In an Object graph.
+    Scatter { seed: u32, weight: String },
+    /// An attribute read at locations (input 0): a point's or a corner's
+    /// interpolated across the triangle the location is in, a face's that
+    /// face's, the object's its one value. `P` is the points; `N` the
+    /// normals, or the face's own when there are none.
+    GetDataAt { name: String },
+}
+
+/// Operations on an array (see `Op::Array`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ArrayOp {
+    /// How many it holds.
+    Size,
+    /// The element at input 1 (clamped to the array; zero when empty).
+    Element,
+    Sum,
+    Average,
+}
+
+impl ArrayOp {
+    pub const ALL: [ArrayOp; 4] = [ArrayOp::Size, ArrayOp::Element, ArrayOp::Sum, ArrayOp::Average];
+    pub fn arity(self) -> usize { if self == ArrayOp::Element { 2 } else { 1 } }
 }
 
 /// How the values an element touches in another context become one: a
@@ -85,20 +118,27 @@ pub enum Math {
     Cross,
     Length,
     Normalize,
+    /// A vector (input 1) turned by a rotation (input 0).
+    Rotate,
+    /// A rotation about an axis (input 0) by an angle in degrees (input 1).
+    AxisAngle,
+    /// A rotation from Euler angles in degrees (X, then Y, then Z).
+    Euler,
 }
 
 impl Math {
     /// Every operation, in the order the add menu lists them.
-    pub const ALL: [Math; 15] = [
+    pub const ALL: [Math; 18] = [
         Math::Add, Math::Subtract, Math::Multiply, Math::Divide, Math::Min, Math::Max, Math::Lerp,
         Math::Negate, Math::Abs, Math::Sin, Math::Cos,
         Math::Dot, Math::Cross, Math::Length, Math::Normalize,
+        Math::Rotate, Math::AxisAngle, Math::Euler,
     ];
 
     pub fn arity(self) -> usize {
         match self {
             Math::Lerp => 3,
-            Math::Negate | Math::Abs | Math::Sin | Math::Cos | Math::Length | Math::Normalize => 1,
+            Math::Negate | Math::Abs | Math::Sin | Math::Cos | Math::Length | Math::Normalize | Math::Euler => 1,
             _ => 2,
         }
     }
@@ -113,6 +153,9 @@ impl Op {
             Op::GetData { .. } | Op::Parameter { .. } | Op::Constant(_) => Some(0),
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
+            Op::Random { .. } => Some(3),
+            Op::Array(a) => Some(a.arity()),
+            Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
         }
     }
 }

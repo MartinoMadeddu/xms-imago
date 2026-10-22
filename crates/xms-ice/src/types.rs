@@ -1,6 +1,6 @@
 //! The types of values in an ICE graph.
 
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Quat, Vec2, Vec3, Vec4};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Ty {
@@ -10,11 +10,28 @@ pub enum Ty {
     Vec2,
     Vec3,
     Vec4,
+    /// A rotation (i, j, k, real), as USD's `quatf`: made from an axis and an
+    /// angle or from Euler angles, combined by multiplying, applied to vectors.
+    Quat,
+    /// A place on the surface: where Scatter on Surface puts points, read
+    /// by Get Data at Location.
+    Location,
+}
+
+/// A place on a mesh's surface: a face, the three corners of the triangle
+/// of it the place is in (the face's fan from its first corner), and the
+/// place's weights on those corners (they sum to 1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Loc {
+    pub face:    u32,
+    pub corners: [u32; 3],
+    pub weights: [f32; 3],
 }
 
 impl Ty {
     pub fn is_vector(self) -> bool { matches!(self, Ty::Vec2 | Ty::Vec3 | Ty::Vec4) }
-    pub fn is_numeric(self) -> bool { self != Ty::Bool }
+    /// Added, subtracted, scaled: a number or a vector, not a bool or a rotation.
+    pub fn is_numeric(self) -> bool { !matches!(self, Ty::Bool | Ty::Quat | Ty::Location) }
 }
 
 /// One value: a constant, a parameter, or what an unconnected input holds.
@@ -26,6 +43,9 @@ pub enum Value {
     Vec2([f32; 2]),
     Vec3([f32; 3]),
     Vec4([f32; 4]),
+    /// i, j, k, real.
+    Quat([f32; 4]),
+    Location(Loc),
 }
 
 impl Value {
@@ -37,6 +57,8 @@ impl Value {
             Value::Vec2(_) => Ty::Vec2,
             Value::Vec3(_) => Ty::Vec3,
             Value::Vec4(_) => Ty::Vec4,
+            Value::Quat(_) => Ty::Quat,
+            Value::Location(_) => Ty::Location,
         }
     }
 
@@ -65,4 +87,6 @@ impl Value {
     pub(crate) fn as_vec2(&self) -> Vec2 { if let Value::Vec2(v) = self { Vec2::from_array(*v) } else { Vec2::ZERO } }
     pub(crate) fn as_vec3(&self) -> Vec3 { if let Value::Vec3(v) = self { Vec3::from_array(*v) } else { Vec3::ZERO } }
     pub(crate) fn as_vec4(&self) -> Vec4 { if let Value::Vec4(v) = self { Vec4::from_array(*v) } else { Vec4::ZERO } }
+    pub(crate) fn as_quat(&self) -> Quat { if let Value::Quat(q) = self { Quat::from_array(*q) } else { Quat::IDENTITY } }
+    pub(crate) fn as_loc(&self) -> Loc { if let Value::Location(l) = self { *l } else { Loc::default() } }
 }

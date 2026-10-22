@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use xms_geo::{Attr, Column, Context, Geo, Role, POINTS};
 
-use super::graph::{wire, Graph, Input, Math, Op};
+use super::graph::{wire, ArrayOp, Graph, Input, Math, Op};
 use super::types::Value;
 use super::{compile, run};
 
@@ -383,4 +383,182 @@ fn a_new_attribute_is_made_beside_p() {
     g.add(Op::Root { context: Context::Point }, vec![wire(set_p), wire(set_t)]);
     let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
     assert_eq!(out.attr(Context::Point, "test").unwrap().column.floats().unwrap(), &[2.5; 4]);
+}
+
+/// root(Object) <- Set Data `name` <- `value`; the one value set on the object.
+fn object_value(mut g: Graph, value: usize, name: &str, geo: &Geo) -> Column {
+    let set = g.add(Op::set(name), vec![wire(value)]);
+    g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
+    let out = run(&compile(&g, geo).unwrap(), geo, &no_params());
+    out.attr(Context::Object, name).unwrap().column.clone()
+}
+
+fn random(g: &mut Graph, seed: u32, min: Value, max: Value, count: i32) -> usize {
+    g.add(Op::Random { seed }, vec![Input::Value(min), Input::Value(max), Input::Value(Value::Int(count))])
+}
+
+#[test]
+fn random_values_are_in_range_different_per_element_and_the_same_every_run() {
+    let geo = cloud(10_000);
+    let run_with = |seed: u32| {
+        let mut g = Graph::default();
+        let r = random(&mut g, seed, Value::Float(2.0), Value::Float(3.0), 0);
+        let set = g.add(Op::set("r"), vec![wire(r)]);
+        g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+        let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+        out.attr(Context::Point, "r").unwrap().column.floats().unwrap().to_vec()
+    };
+    let a = run_with(7);
+    assert!(a.iter().all(|x| (2.0..3.0).contains(x)));
+    let mean = a.iter().sum::<f32>() / a.len() as f32;
+    assert!((mean - 2.5).abs() < 0.02, "evenly spread: mean {mean}");
+    assert_eq!(a, run_with(7), "the same seed, the same values");
+    assert_ne!(a, run_with(8), "another seed, other values");
+}
+
+#[test]
+fn random_ints_include_both_ends() {
+    let geo = cloud(5_000);
+    let mut g = Graph::default();
+    let r = random(&mut g, 1, Value::Int(0), Value::Int(3), 0);
+    let set = g.add(Op::set("pick"), vec![wire(r)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let picks = out.attr(Context::Point, "pick").unwrap().column.ints().unwrap().to_vec();
+    for k in 0..=3 { assert!(picks.contains(&k), "{k} is picked"); }
+    assert!(picks.iter().all(|k| (0..=3).contains(k)));
+}
+
+#[test]
+fn an_object_graph_makes_an_array_and_works_on_it_element_by_element() {
+    let geo = cloud(3);
+    // 10,000 values from 0 to 1, each times 4: their average is near 2.
+    let mut g = Graph::default();
+    let arr = random(&mut g, 3, Value::Float(0.0), Value::Float(1.0), 10_000);
+    let times = g.add(Op::Math(Math::Multiply), vec![wire(arr), Input::Value(Value::Float(4.0))]);
+    let avg = g.add(Op::Array(ArrayOp::Average), vec![wire(times)]);
+    let mean = object_value(g, avg, "mean", &geo).floats().unwrap()[0];
+    assert!((mean - 2.0).abs() < 0.05, "{mean}");
+
+    let mut g = Graph::default();
+    let arr = random(&mut g, 3, Value::Vec3([0.0; 3]), Value::Vec3([1.0; 3]), 250);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(arr)]);
+    assert_eq!(object_value(g, size, "n", &geo).ints().unwrap(), &[250]);
+
+    // Two equal arrays (min = max) added: each element doubled.
+    let mut g = Graph::default();
+    let a = random(&mut g, 0, Value::Float(1.5), Value::Float(1.5), 4);
+    let b = random(&mut g, 9, Value::Float(1.5), Value::Float(1.5), 4);
+    let sum = g.add(Op::Math(Math::Add), vec![wire(a), wire(b)]);
+    let total = g.add(Op::Array(ArrayOp::Sum), vec![wire(sum)]);
+    assert_eq!(object_value(g, total, "total", &geo).floats().unwrap(), &[12.0]);
+    let mut g = Graph::default();
+    let a = random(&mut g, 0, Value::Float(1.5), Value::Float(1.5), 4);
+    let third = g.add(Op::Array(ArrayOp::Element), vec![wire(a), Input::Value(Value::Int(2))]);
+    assert_eq!(object_value(g, third, "third", &geo).floats().unwrap(), &[1.5]);
+}
+
+#[test]
+fn arrays_stay_in_the_one_value_part_for_now() {
+    let geo = cloud(3);
+    // An array set as an attribute.
+    let mut g = Graph::default();
+    let arr = random(&mut g, 0, Value::Float(0.0), Value::Float(1.0), 8);
+    let set = g.add(Op::set("a"), vec![wire(arr)]);
+    g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, set);
+    // An array meeting per-point values.
+    let mut g = Graph::default();
+    let arr = random(&mut g, 0, Value::Float(0.0), Value::Float(1.0), 8);
+    let heat = g.add(Op::get("heat"), vec![]);
+    let add = g.add(Op::Math(Math::Add), vec![wire(arr), wire(heat)]);
+    let set = g.add(Op::set("b"), vec![wire(add)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, add);
+}
+
+#[test]
+fn rotations_from_euler_angles_and_from_an_axis_turn_vectors_alike() {
+    let geo = cloud(3);
+    let turned = |make: &dyn Fn(&mut Graph) -> usize| {
+        let mut g = Graph::default();
+        let q = make(&mut g);
+        let v = g.add(Op::Math(Math::Rotate), vec![wire(q), Input::Value(Value::Vec3([1.0, 0.0, 0.0]))]);
+        object_value(g, v, "v", &geo).vec3s().unwrap()[0]
+    };
+    let euler = turned(&|g| g.add(Op::Math(Math::Euler), vec![Input::Value(Value::Vec3([0.0, 90.0, 0.0]))]));
+    let axis = turned(&|g| g.add(Op::Math(Math::AxisAngle), vec![Input::Value(Value::Vec3([0.0, 1.0, 0.0])), Input::Value(Value::Float(90.0))]));
+    for v in [euler, axis] {
+        assert!((v[0]).abs() < 1e-5 && (v[1]).abs() < 1e-5 && (v[2] + 1.0).abs() < 1e-5, "{v:?}");
+    }
+}
+
+#[test]
+fn a_rotation_attribute_turns_each_point() {
+    let mut geo = cloud(2);
+    let quarter = glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2).to_array();
+    geo.set(Context::Point, "orient", Attr::new(Column::Quat(Arc::new(vec![quarter; 2])), Role::None));
+    let mut g = Graph::default();
+    let q = g.add(Op::get("orient"), vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let v = g.add(Op::Math(Math::Rotate), vec![wire(q), wire(p)]);
+    let g = setting_p(g, v);
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let p1 = points(&out)[1];
+    assert!(p1[0].abs() < 1e-5 && (p1[1] - 1.0).abs() < 1e-5, "{p1:?}");
+}
+
+/// Two squares side by side on the ground: one of area 1 (x 0 to 1), one of
+/// area 3 (x 1 to 4), each with its number as a per-face `id`.
+fn small_and_big() -> Geo {
+    let pts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0], [4.0, 0.0, 0.0], [4.0, 0.0, 1.0]];
+    let mut g = Geo::from_polygons(pts, vec![4, 4], vec![0, 1, 2, 3, 1, 4, 5, 2]);
+    g.set(Context::Face, "id", Attr::new(Column::Float(Arc::new(vec![0.0, 1.0])), Role::None));
+    g
+}
+
+/// Scatter `count` places with `seed` (and `weight`), read `name` there,
+/// and average it.
+fn scattered_average(geo: &Geo, seed: u32, count: i32, weight: &str, name: &str) -> Column {
+    let mut g = Graph::default();
+    let at = g.add(Op::Scatter { seed, weight: weight.into() }, vec![Input::Value(Value::Int(count))]);
+    let read = g.add(Op::GetDataAt { name: name.into() }, vec![wire(at)]);
+    let avg = g.add(Op::Array(ArrayOp::Average), vec![wire(read)]);
+    object_value(g, avg, "avg", geo)
+}
+
+#[test]
+fn scattered_places_spread_by_area_and_lie_on_the_surface() {
+    let geo = small_and_big();
+    // Three in four land on the big square.
+    let share = scattered_average(&geo, 1, 20_000, "", "id").floats().unwrap()[0];
+    assert!((share - 0.75).abs() < 0.02, "{share}");
+    // On the ground, around the area-weighted centre (2, 0, 0.5).
+    let c = scattered_average(&geo, 1, 20_000, "", "P").vec3s().unwrap()[0];
+    assert!((c[0] - 2.0).abs() < 0.05 && c[1].abs() < 1e-6 && (c[2] - 0.5).abs() < 0.02, "{c:?}");
+    // The face's normal where there are no normals: straight up or down.
+    let n = scattered_average(&geo, 1, 100, "", "N").vec3s().unwrap()[0];
+    assert!((n[1].abs() - 1.0).abs() < 1e-5, "{n:?}");
+}
+
+#[test]
+fn a_weight_moves_where_places_land_and_a_seed_keeps_them() {
+    let mut geo = small_and_big();
+    geo.set(Context::Face, "w", Attr::new(Column::Float(Arc::new(vec![1.0, 0.0])), Role::None));
+    assert_eq!(scattered_average(&geo, 1, 1_000, "w", "id").floats().unwrap(), &[0.0], "none on the big square");
+    let a = scattered_average(&geo, 4, 50, "", "P");
+    assert_eq!(a.vec3s(), scattered_average(&geo, 4, 50, "", "P").vec3s(), "the same seed, the same places");
+    assert_ne!(a.vec3s(), scattered_average(&geo, 5, 50, "", "P").vec3s(), "another seed, other places");
+}
+
+#[test]
+fn scattering_is_for_the_whole_primitive() {
+    let geo = small_and_big();
+    let mut g = Graph::default();
+    let at = g.add(Op::Scatter { seed: 0, weight: String::new() }, vec![Input::Value(Value::Int(10))]);
+    let read = g.add(Op::GetDataAt { name: "P".into() }, vec![wire(at)]);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(read)]);
+    let set = g.add(Op::set("n"), vec![wire(size)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    assert_eq!(compile(&g, &geo).unwrap_err().node, at);
 }

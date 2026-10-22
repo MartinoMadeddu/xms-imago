@@ -9,20 +9,21 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Quat, Vec2, Vec3, Vec4};
 use rayon::prelude::*;
 
 use xms_geo::{Attr, Column, Context, Geo, Topology};
 
 use super::compile::{Ins, Plan, Program, Write};
-use super::graph::{Math, Reduce};
-use super::types::{Ty, Value};
+use super::graph::{ArrayOp, Math, Reduce};
+use super::types::{Loc, Ty, Value};
 
 /// Elements per batch: long enough that each instruction's loop does real
 /// work, short enough that a thread's registers stay in cache.
 pub const BATCH: usize = 4096;
 
-/// One register: a value per element of the batch (one, in the uniform program).
+/// One register: a value per element of the batch; in the uniform program
+/// one value, or an array's values.
 pub(crate) enum Reg {
     Bool(Vec<bool>),
     Int(Vec<i32>),
@@ -30,6 +31,23 @@ pub(crate) enum Reg {
     Vec2(Vec<Vec2>),
     Vec3(Vec<Vec3>),
     Vec4(Vec<Vec4>),
+    Quat(Vec<Quat>),
+    Location(Vec<Loc>),
+}
+
+impl Reg {
+    fn len(&self) -> usize {
+        match self {
+            Reg::Bool(v) => v.len(),
+            Reg::Int(v) => v.len(),
+            Reg::Float(v) => v.len(),
+            Reg::Vec2(v) => v.len(),
+            Reg::Vec3(v) => v.len(),
+            Reg::Vec4(v) => v.len(),
+            Reg::Quat(v) => v.len(),
+            Reg::Location(v) => v.len(),
+        }
+    }
 }
 
 macro_rules! reg_access {
@@ -49,6 +67,8 @@ reg_access!(floats, Float, f32);
 reg_access!(vec2s, Vec2, Vec2);
 reg_access!(vec3s, Vec3, Vec3);
 reg_access!(vec4s, Vec4, Vec4);
+reg_access!(quats, Quat, Quat);
+reg_access!(locs, Location, Loc);
 
 fn registers(p: &Program) -> Vec<Reg> {
     p.regs.iter().map(|t| match t {
@@ -58,18 +78,23 @@ fn registers(p: &Program) -> Vec<Reg> {
         Ty::Vec2 => Reg::Vec2(vec![]),
         Ty::Vec3 => Reg::Vec3(vec![]),
         Ty::Vec4 => Reg::Vec4(vec![]),
+        Ty::Quat => Reg::Quat(vec![]),
+        Ty::Location => Reg::Location(vec![]),
     }).collect()
 }
 
-/// The value at element 0: a uniform register's value.
-fn first(reg: &Reg) -> Value {
+/// The value at element `i` (zero, or no rotation, past the end): element
+/// 0 of a uniform register is its value.
+fn value_at(reg: &Reg, i: usize) -> Value {
     match reg {
-        Reg::Bool(v) => Value::Bool(v.first().copied().unwrap_or_default()),
-        Reg::Int(v) => Value::Int(v.first().copied().unwrap_or_default()),
-        Reg::Float(v) => Value::Float(v.first().copied().unwrap_or_default()),
-        Reg::Vec2(v) => Value::Vec2(v.first().copied().unwrap_or_default().to_array()),
-        Reg::Vec3(v) => Value::Vec3(v.first().copied().unwrap_or_default().to_array()),
-        Reg::Vec4(v) => Value::Vec4(v.first().copied().unwrap_or_default().to_array()),
+        Reg::Bool(v) => Value::Bool(v.get(i).copied().unwrap_or_default()),
+        Reg::Int(v) => Value::Int(v.get(i).copied().unwrap_or_default()),
+        Reg::Float(v) => Value::Float(v.get(i).copied().unwrap_or_default()),
+        Reg::Vec2(v) => Value::Vec2(v.get(i).copied().unwrap_or_default().to_array()),
+        Reg::Vec3(v) => Value::Vec3(v.get(i).copied().unwrap_or_default().to_array()),
+        Reg::Vec4(v) => Value::Vec4(v.get(i).copied().unwrap_or_default().to_array()),
+        Reg::Quat(v) => Value::Quat(v.get(i).copied().unwrap_or_default().to_array()),
+        Reg::Location(v) => Value::Location(v.get(i).copied().unwrap_or_default()),
     }
 }
 
@@ -81,6 +106,8 @@ fn fill(reg: &mut Reg, value: Value, len: usize) {
         Ty::Vec2 => vec2s(reg).resize(len, value.as_vec2()),
         Ty::Vec3 => vec3s(reg).resize(len, value.as_vec3()),
         Ty::Vec4 => vec4s(reg).resize(len, value.as_vec4()),
+        Ty::Quat => quats(reg).resize(len, value.as_quat()),
+        Ty::Location => locs(reg).resize(len, value.as_loc()),
     }
 }
 
@@ -91,6 +118,8 @@ struct Source<'a> {
     indices: Option<&'a [u32]>,
     map:     Arc<Map>,
     reduce:  Reduce,
+    /// The context the column is in.
+    context: Context,
 }
 
 /// How an element of the plan's context reaches the elements of the
@@ -191,7 +220,8 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
             (Some(Column::Float(v)), _) => gather(v, ix, start, len, floats(reg), 0.0, |x| x),
             (Some(Column::Vec2(v)), _) => gather(v, ix, start, len, vec2s(reg), Vec2::ZERO, Vec2::from_array),
             (Some(Column::Vec3(v)), _) => gather(v, ix, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
-            (Some(Column::Vec4(v) | Column::Quat(v)), _) => gather(v, ix, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
+            (Some(Column::Vec4(v)), _) => gather(v, ix, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
+            (Some(Column::Quat(v)), _) => gather(v, ix, start, len, quats(reg), Quat::IDENTITY, Quat::from_array),
             // Not there in this geometry (it was when compiled): zeros.
             _ => fill(reg, zero(ty), len),
         },
@@ -201,7 +231,8 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
             (Some(Column::Float(v)), _) => through(v, ix, map, start, len, floats(reg), 0.0, |x| x),
             (Some(Column::Vec2(v)), _) => through(v, ix, map, start, len, vec2s(reg), Vec2::ZERO, Vec2::from_array),
             (Some(Column::Vec3(v)), _) => through(v, ix, map, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
-            (Some(Column::Vec4(v) | Column::Quat(v)), _) => through(v, ix, map, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
+            (Some(Column::Vec4(v)), _) => through(v, ix, map, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
+            (Some(Column::Quat(v)), _) => through(v, ix, map, start, len, quats(reg), Quat::IDENTITY, Quat::from_array),
             _ => fill(reg, zero(ty), len),
         },
         Map::Many { offsets, items } => {
@@ -219,7 +250,9 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
                 (Some(Column::Float(v)), _) => floats(reg).extend((start..start + len).map(|e| lists.reduce(v, e, 0.0, |x| x as f64, |x| x as f32))),
                 (Some(Column::Vec2(v)), _) => vec2s(reg).extend((start..start + len).map(|e| Vec2::from_array(lists.reduce_n(v, e)))),
                 (Some(Column::Vec3(v)), _) => vec3s(reg).extend((start..start + len).map(|e| Vec3::from_array(lists.reduce_n(v, e)))),
-                (Some(Column::Vec4(v) | Column::Quat(v)), _) => vec4s(reg).extend((start..start + len).map(|e| Vec4::from_array(lists.reduce_n(v, e)))),
+                (Some(Column::Vec4(v)), _) => vec4s(reg).extend((start..start + len).map(|e| Vec4::from_array(lists.reduce_n(v, e)))),
+                // Rotations averaged component by component, then made unit again.
+                (Some(Column::Quat(v)), _) => quats(reg).extend((start..start + len).map(|e| Quat::from_array(lists.reduce_n(v, e)).normalize())),
                 _ => fill(reg, zero(ty), len),
             }
         }
@@ -317,6 +350,8 @@ fn zero(ty: Ty) -> Value {
         Ty::Vec2 => Value::Vec2([0.0; 2]),
         Ty::Vec3 => Value::Vec3([0.0; 3]),
         Ty::Vec4 => Value::Vec4([0.0; 4]),
+        Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
+        Ty::Location => Value::Location(Loc::default()),
     }
 }
 
@@ -357,10 +392,31 @@ macro_rules! by_float {
 
 /// One maths instruction. `false` when the types do not fit, which the
 /// compiler has ruled out.
-fn math(op: Math, regs: &[Reg], args: [usize; 3], out: &mut Reg) -> bool {
+fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> bool {
     use Reg::*;
-    let (a, b, c) = (&regs[args[0]], regs.get(args[1]), regs.get(args[2]));
     match op {
+        // Rotations.
+        Math::Multiply if matches!(a, Quat(_)) => match (a, b) {
+            (Quat(a), Some(Quat(b))) => map2(a, b, quats(out), |x, y| x * y),
+            _ => return false,
+        },
+        Math::Normalize if matches!(a, Quat(_)) => match a { Quat(a) => map1(a, quats(out), |x| x.normalize()), _ => return false },
+        Math::Lerp if matches!(a, Quat(_)) => match (a, b, c) {
+            (Quat(a), Some(Quat(b)), Some(Float(t))) => map3(a, b, t, quats(out), |x, y, t| x.slerp(y, t)),
+            _ => return false,
+        },
+        Math::Rotate => match (a, b) {
+            (Quat(q), Some(Vec3(v))) => map2(q, v, vec3s(out), |q, v| q * v),
+            _ => return false,
+        },
+        Math::AxisAngle => match (a, b) {
+            (Vec3(axis), Some(Float(deg))) => map2(axis, deg, quats(out), |a, d| glam::Quat::from_axis_angle(a.try_normalize().unwrap_or(glam::Vec3::Y), d.to_radians())),
+            _ => return false,
+        },
+        Math::Euler => match a {
+            Vec3(e) => map1(e, quats(out), |e| glam::Quat::from_euler(glam::EulerRot::XYZ, e.x.to_radians(), e.y.to_radians(), e.z.to_radians())),
+            _ => return false,
+        },
         Math::Add | Math::Subtract | Math::Multiply | Math::Divide | Math::Min | Math::Max => match (a, b) {
             (Int(a), Some(Int(b))) => match op {
                 Math::Add => map2(a, b, ints(out), i32::wrapping_add),
@@ -397,7 +453,7 @@ fn math(op: Math, regs: &[Reg], args: [usize; 3], out: &mut Reg) -> bool {
                 Vec2(a) => map1(a, vec2s(out), |x| if abs { x.abs() } else { -x }),
                 Vec3(a) => map1(a, vec3s(out), |x| if abs { x.abs() } else { -x }),
                 Vec4(a) => map1(a, vec4s(out), |x| if abs { x.abs() } else { -x }),
-                Bool(_) => return false,
+                Bool(_) | Quat(_) | Location(_) => return false,
             }
         }
         Math::Sin => match a { Float(a) => map1(a, floats(out), f32::sin), _ => return false },
@@ -436,6 +492,7 @@ enum Out {
     Vec2(Vec<[f32; 2]>),
     Vec3(Vec<[f32; 3]>),
     Vec4(Vec<[f32; 4]>),
+    Quat(Vec<[f32; 4]>),
 }
 
 /// One batch's part of a written column.
@@ -446,6 +503,7 @@ enum Slice<'a> {
     Vec2(&'a mut [[f32; 2]]),
     Vec3(&'a mut [[f32; 3]]),
     Vec4(&'a mut [[f32; 4]]),
+    Quat(&'a mut [[f32; 4]]),
 }
 
 fn store(reg: &Reg, out: &mut Slice) {
@@ -456,6 +514,7 @@ fn store(reg: &Reg, out: &mut Slice) {
         (Reg::Vec2(r), Slice::Vec2(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
         (Reg::Vec3(r), Slice::Vec3(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
         (Reg::Vec4(r), Slice::Vec4(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
+        (Reg::Quat(r), Slice::Quat(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
         _ => {}
     }
 }
@@ -466,6 +525,8 @@ struct Env<'a> {
     sources:  Vec<Source<'a>>,
     params:   Vec<Value>,
     uniforms: Vec<Reg>,
+    /// The geometry, for what reads its topology (scattering, locations).
+    geo:      &'a Geo,
 }
 
 /// Run `program` for elements `start..start + len`.
@@ -475,10 +536,52 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
             Ins::Const { dst, value } => fill(&mut regs[dst], value, len),
             Ins::Param { dst, index } => fill(&mut regs[dst], env.params[index], len),
             Ins::Load { dst, read } => load(&env.sources[read], start, len, &mut regs[dst], program.regs[dst]),
-            Ins::Broadcast { dst, from } => fill(&mut regs[dst], first(&env.uniforms[from]), len),
+            Ins::Broadcast { dst, from } => fill(&mut regs[dst], value_at(&env.uniforms[from], 0), len),
             Ins::Math { op, dst, args } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
-                math(op, regs, args, &mut out);
+                // An array meeting one value (in the uniform program): the
+                // value spread over the array's length.
+                let arity = op.arity();
+                let n = args[..arity].iter().map(|&r| regs[r].len()).max().unwrap_or(0);
+                let spread: Vec<Option<Reg>> = args[..arity].iter().map(|&r| (regs[r].len() == 1 && n > 1).then(|| {
+                    let mut s = Reg::Bool(vec![]);
+                    fill(&mut s, value_at(&regs[r], 0), n);
+                    s
+                })).collect();
+                let arg = |k: usize| (k < arity).then(|| spread[k].as_ref().unwrap_or(&regs[args[k]]));
+                math(op, arg(0).expect("every operation takes an input"), arg(1), arg(2), &mut out);
+                regs[dst] = out;
+            }
+            Ins::ToFloat { dst, src } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                if let Reg::Int(v) = &regs[src] { floats(&mut out).extend(v.iter().map(|&i| i as f32)); }
+                regs[dst] = out;
+            }
+            Ins::Random { dst, seed, args, array } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                // An array of `count`, numbered from 0; else one per element,
+                // numbered as the elements are.
+                let (base, n) = if array {
+                    (0, value_at(&regs[args[2]], 0).as_i32().max(0) as usize)
+                } else {
+                    (start, len)
+                };
+                random(seed, base, n, &regs[args[0]], &regs[args[1]], &mut out);
+                regs[dst] = out;
+            }
+            Ins::Scatter { dst, seed, count, weight } => {
+                let n = value_at(&regs[count], 0).as_i32().max(0) as usize;
+                let made = scatter(env.geo, seed, n, weight.map(|w| &env.sources[w]));
+                *locs(&mut regs[dst]) = made;
+            }
+            Ins::AtLocation { dst, read, loc } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                if let Reg::Location(at) = &regs[loc] { at_location(env.geo, &env.sources[read], at, &mut out); }
+                regs[dst] = out;
+            }
+            Ins::Array { op, dst, args } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                array_op(op, &regs[args[0]], &regs[args[1]], &mut out);
                 regs[dst] = out;
             }
             Ins::Store { write, src } => store(&regs[src], &mut outs[write]),
@@ -499,17 +602,21 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
         .collect();
     let sources = plan.reads.iter().zip(&made).map(|(r, made)| {
         let attr = if r.derived { None } else { geo.attr(r.context, &r.name) };
-        let map = maps.entry(r.context).or_insert_with(|| Arc::new(mapping(geo, plan.context, r.context))).clone();
+        // Read at locations: by the locations' corners and faces, not
+        // element by element.
+        let map = if r.at_location { Arc::new(Map::Direct) } else {
+            maps.entry(r.context).or_insert_with(|| Arc::new(mapping(geo, plan.context, r.context))).clone()
+        };
         Source {
             column: made.as_ref().or(attr.map(|a| &a.column)),
             indices: attr.and_then(|a| a.indices.as_deref().map(|v| v.as_slice())),
-            map, reduce: r.reduce,
+            map, reduce: r.reduce, context: r.context,
         }
     }).collect();
     let params = plan.params.iter()
         .map(|(name, default)| params.get(name).and_then(|v| v.convert(default.ty())).unwrap_or(*default))
         .collect();
-    let mut env = Env { sources, params, uniforms: vec![] };
+    let mut env = Env { sources, params, uniforms: vec![], geo };
 
     // Once: what does not vary per element.
     let mut uniforms = registers(&plan.uniform);
@@ -527,6 +634,8 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
         Ty::Vec2 => Out::Vec2(vec![[0.0; 2]; n]),
         Ty::Vec3 => Out::Vec3(vec![[0.0; 3]; n]),
         Ty::Vec4 => Out::Vec4(vec![[0.0; 4]; n]),
+        Ty::Quat => Out::Quat(vec![[0.0, 0.0, 0.0, 1.0]; n]),
+        Ty::Location => unreachable!("locations are not written: the compiler refuses"),
     }).collect();
     let batches = n.div_ceil(BATCH);
     let mut tasks: Vec<Vec<Slice>> = (0..batches).map(|_| Vec::with_capacity(cols.len())).collect();
@@ -538,6 +647,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
             Out::Vec2(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Vec2(c))),
             Out::Vec3(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Vec3(c))),
             Out::Vec4(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Vec4(c))),
+            Out::Quat(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Quat(c))),
         }
     }
     let env = &env;
@@ -559,6 +669,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
             Out::Vec2(v) => Column::Vec2(Arc::new(v)),
             Out::Vec3(v) => Column::Vec3(Arc::new(v)),
             Out::Vec4(v) => Column::Vec4(Arc::new(v)),
+            Out::Quat(v) => Column::Quat(Arc::new(v)),
         };
         let column = if w.context == plan.context { column } else { carry(geo, &column, plan.context, w) };
         // One attribute of a name: set in one context, gone from the others
@@ -576,7 +687,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
     let n = geo.count(w.context);
     // The one Object value, for every element.
     let map = if from == Context::Object { Map::One(vec![0; n]) } else { mapping(geo, w.context, from) };
-    let source = Source { column: Some(column), indices: None, map: Arc::new(map), reduce: w.reduce };
+    let source = Source { column: Some(column), indices: None, map: Arc::new(map), reduce: w.reduce, context: from };
     let mut reg = Reg::Bool(vec![]);
     load(&source, 0, n, &mut reg, w.ty);
     match reg {
@@ -586,5 +697,170 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
         Reg::Vec2(v) => Column::Vec2(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Location(_) => unreachable!("locations are not written: the compiler refuses"),
+    }
+}
+
+/// A number in [0, 1) from a seed, an element (or array index) and a lane
+/// (a vector's component): the same for the same three, every time, on any
+/// machine (SplitMix64's finaliser).
+fn unit(seed: u32, element: usize, lane: u32) -> f32 {
+    let mut x = ((seed as u64) << 32 | lane as u64) ^ (element as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^= x >> 31;
+    (x >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// `n` random values between `lo` and `hi` (each one value, or one per
+/// element), for elements numbered from `base`. Ints include `hi`.
+fn random(seed: u32, base: usize, n: usize, lo: &Reg, hi: &Reg, out: &mut Reg) {
+    // Element `i` of a register one value long, or one per element.
+    fn at<T: Copy>(v: &[T], i: usize) -> T { v[i.min(v.len() - 1)] }
+    if lo.len() == 0 || hi.len() == 0 { return; }
+    let u = |i: usize, lane: u32| unit(seed, base + i, lane);
+    match (lo, hi) {
+        (Reg::Int(a), Reg::Int(b)) => ints(out).extend((0..n).map(|i| {
+            let (x, y) = (at(a, i), at(b, i));
+            let span = (y as i64 - x as i64 + 1).max(1);
+            (x as i64 + ((u(i, 0) as f64 * span as f64) as i64).min(span - 1)) as i32
+        })),
+        (Reg::Float(a), Reg::Float(b)) => floats(out).extend((0..n).map(|i| {
+            let (x, y) = (at(a, i), at(b, i));
+            x + (y - x) * u(i, 0)
+        })),
+        (Reg::Vec2(a), Reg::Vec2(b)) => vec2s(out).extend((0..n).map(|i| {
+            let (x, y) = (at(a, i), at(b, i));
+            x + (y - x) * Vec2::new(u(i, 0), u(i, 1))
+        })),
+        (Reg::Vec3(a), Reg::Vec3(b)) => vec3s(out).extend((0..n).map(|i| {
+            let (x, y) = (at(a, i), at(b, i));
+            x + (y - x) * Vec3::new(u(i, 0), u(i, 1), u(i, 2))
+        })),
+        (Reg::Vec4(a), Reg::Vec4(b)) => vec4s(out).extend((0..n).map(|i| {
+            let (x, y) = (at(a, i), at(b, i));
+            x + (y - x) * Vec4::new(u(i, 0), u(i, 1), u(i, 2), u(i, 3))
+        })),
+        _ => {}
+    }
+}
+
+/// An array's size, element (index in `b`, clamped), sum or average.
+fn array_op(op: ArrayOp, a: &Reg, b: &Reg, out: &mut Reg) {
+    let n = a.len();
+    match op {
+        ArrayOp::Size => ints(out).push(n as i32),
+        ArrayOp::Element => {
+            let i = value_at(b, 0).as_i32().clamp(0, n.saturating_sub(1) as i32) as usize;
+            let v = if n == 0 { zero(value_at(a, 0).ty()) } else { value_at(a, i) };
+            fill(out, v, 1);
+        }
+        ArrayOp::Sum | ArrayOp::Average => {
+            let avg = op == ArrayOp::Average && n > 0;
+            match a {
+                Reg::Int(v) => {
+                    let s: i64 = v.iter().map(|&x| x as i64).sum();
+                    ints(out).push(if avg { (s / n as i64) as i32 } else { s as i32 });
+                }
+                Reg::Float(v) => { let s: f32 = v.iter().sum(); floats(out).push(if avg { s / n as f32 } else { s }); }
+                Reg::Vec2(v) => { let s: Vec2 = v.iter().sum(); vec2s(out).push(if avg { s / n as f32 } else { s }); }
+                Reg::Vec3(v) => { let s: Vec3 = v.iter().sum(); vec3s(out).push(if avg { s / n as f32 } else { s }); }
+                Reg::Vec4(v) => { let s: Vec4 = v.iter().sum(); vec4s(out).push(if avg { s / n as f32 } else { s }); }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// The point each corner is at, and each face's first corner.
+fn corner_points(geo: &Geo) -> (&[u32], &[u32]) {
+    match &geo.topology {
+        Topology::Mesh { counts, indices, .. } => (counts.as_slice(), indices.as_slice()),
+        _ => (&[], &[]),
+    }
+}
+
+/// A number of a float or int column at element `e` (through its indices).
+fn number_at(s: &Source, e: usize) -> f32 {
+    let i = value_index(s.indices, e);
+    match s.column {
+        Some(Column::Float(v)) => i.and_then(|i| v.get(i)).copied().unwrap_or(0.0),
+        Some(Column::Int(v)) => i.and_then(|i| v.get(i)).map(|&x| x as f32).unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+/// `count` places on the mesh's surface, spread evenly by area (scaled by
+/// `weight`, per face or per point), the same for the same seed: each a
+/// triangle of a face's fan picked by area, then a point in it.
+fn scatter(geo: &Geo, seed: u32, count: usize, weight: Option<&Source>) -> Vec<Loc> {
+    let (counts, corner_point) = corner_points(geo);
+    let pts = geo.points();
+    let at = |c: u32| Vec3::from_array(corner_point.get(c as usize).and_then(|&p| pts.get(p as usize)).copied().unwrap_or_default());
+    let mut tris: Vec<(u32, [u32; 3])> = Vec::with_capacity(corner_point.len());
+    let mut sums: Vec<f64> = Vec::with_capacity(corner_point.len());
+    let (mut total, mut first) = (0.0f64, 0u32);
+    for (face, &n) in counts.iter().enumerate() {
+        for k in 1..n.saturating_sub(1) {
+            let c = [first, first + k, first + k + 1];
+            let area = (at(c[1]) - at(c[0])).cross(at(c[2]) - at(c[0])).length() * 0.5;
+            let scale = match weight {
+                None => 1.0,
+                Some(w) if w.context == Context::Face => number_at(w, face),
+                Some(w) => c.iter().map(|&c| number_at(w, corner_point.get(c as usize).copied().unwrap_or(0) as usize)).sum::<f32>() / 3.0,
+            };
+            total += (area * scale.max(0.0)) as f64;
+            tris.push((face as u32, c));
+            sums.push(total);
+        }
+        first += n;
+    }
+    if total <= 0.0 || tris.is_empty() { return vec![]; }
+    (0..count).map(|i| {
+        let t = sums.partition_point(|&s| s <= unit(seed, i, 0) as f64 * total).min(tris.len() - 1);
+        let (face, corners) = tris[t];
+        // Uniform in the triangle: a point in the unit square, folded.
+        let (mut a, mut b) = (unit(seed, i, 1), unit(seed, i, 2));
+        if a + b > 1.0 { (a, b) = (1.0 - a, 1.0 - b); }
+        Loc { face, corners, weights: [1.0 - a - b, a, b] }
+    }).collect()
+}
+
+/// An attribute at locations: a point's or a corner's weighted across the
+/// location's triangle, a face's that face's, the object's its one value.
+/// Numbers and vectors are blended; a rotation blended and made unit again;
+/// ints and bools take the nearest corner's.
+fn at_location(geo: &Geo, s: &Source, at: &[Loc], out: &mut Reg) {
+    let (_, corner_point) = corner_points(geo);
+    // The elements a location reads, with their weights.
+    let elements = |l: &Loc| -> [(usize, f32); 3] {
+        let w = l.weights;
+        match s.context {
+            Context::Point => std::array::from_fn(|k| (corner_point.get(l.corners[k] as usize).copied().unwrap_or(0) as usize, w[k])),
+            Context::Corner => std::array::from_fn(|k| (l.corners[k] as usize, w[k])),
+            Context::Face => [(l.face as usize, 1.0), (l.face as usize, 0.0), (l.face as usize, 0.0)],
+            Context::Object => [(0, 1.0), (0, 0.0), (0, 0.0)],
+        }
+    };
+    fn get<T: Copy + Default>(v: &[T], ix: Option<&[u32]>, e: usize) -> T {
+        value_index(ix, e).and_then(|i| v.get(i)).copied().unwrap_or_default()
+    }
+    let nearest = |l: &Loc| { let e = elements(l); e.iter().copied().fold(e[0], |b, x| if x.1 > b.1 { x } else { b }).0 };
+    let ix = s.indices;
+    match s.column {
+        Some(Column::Float(v)) => floats(out).extend(at.iter().map(|l| elements(l).iter().map(|&(e, w)| get(v, ix, e) * w).sum::<f32>())),
+        Some(Column::Vec2(v)) => vec2s(out).extend(at.iter().map(|l| elements(l).iter().map(|&(e, w)| Vec2::from_array(get(v, ix, e)) * w).sum::<Vec2>())),
+        Some(Column::Vec3(v)) => vec3s(out).extend(at.iter().map(|l| elements(l).iter().map(|&(e, w)| Vec3::from_array(get(v, ix, e)) * w).sum::<Vec3>())),
+        Some(Column::Vec4(v)) => vec4s(out).extend(at.iter().map(|l| elements(l).iter().map(|&(e, w)| Vec4::from_array(get(v, ix, e)) * w).sum::<Vec4>())),
+        Some(Column::Quat(v)) => quats(out).extend(at.iter().map(|l| {
+            let q = elements(l).iter().map(|&(e, w)| Vec4::from_array(get(v, ix, e)) * w).sum::<Vec4>();
+            Quat::from_vec4(q).normalize()
+        })),
+        Some(Column::Int(v)) => ints(out).extend(at.iter().map(|l| get(v, ix, nearest(l)))),
+        Some(Column::Bool(v)) => bools(out).extend(at.iter().map(|l| get(v, ix, nearest(l)))),
+        _ => {}
     }
 }
