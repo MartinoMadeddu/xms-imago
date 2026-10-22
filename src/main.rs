@@ -515,7 +515,7 @@ pub(crate) fn draw_ui(
                             if ui.radio(looking.is_none(), "Perspective").clicked() { viewer::camera::look_through(None); ui.close(); }
                             // The scene's cameras, looked for only while the menu is open.
                             let subnets_ref = &*subnets;
-                            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                            let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                                 subnets_ref.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                             };
                             let cameras: Vec<String> = match graph.evaluate_for_viewport_packed(&eval) {
@@ -717,7 +717,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                     let poly_input = self.graph.selected_node.and_then(|id| {
                         let subnets = &*self.subnets;
-                        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                         };
                         let is_edit_poly = self.graph.nodes.iter()
@@ -771,7 +771,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 let subnets = &*self.subnets;
                 let get_mesh = |g: &NodeGraphState| -> Option<MeshData> {
                     let id = g.selected_node?;
-                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
                     g.eval_node(id, &mut std::collections::HashMap::new(), &eval).map(|r| r.into_mesh())
@@ -785,7 +785,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 let subnets = &*self.subnets;
                 let paths = self.hierarchy.selected_paths().to_vec();
                 let get_parts = |g: &NodeGraphState| -> Option<Vec<MeshData>> {
-                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
                     let _t = crate::timings::span("primitive inspector: geometry for a tab");
@@ -793,7 +793,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     Some(prim_inspector::scene_parts(scene, &paths))
                 };
                 let get_summary = |g: &NodeGraphState| -> prim_inspector::Summary {
-                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
                     let _t = crate::timings::span("primitive inspector: counts");
@@ -801,7 +801,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 };
                 let get_clip = |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim_out(id, g.viewed_output()));
                 let get_props = |g: &NodeGraphState| -> Vec<prim_inspector::PropRow> {
-                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                     };
                     let _t = crate::timings::span("primitive inspector: properties");
@@ -893,7 +893,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     ui.allocate_rect(rect, egui::Sense::hover());
                     {
                         let subnets = &*self.subnets;
-                        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+                        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
                             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
                         };
                         crate::node_graph::ui::info_popup(ui.ctx(), self.graph, rect, &eval);
@@ -923,7 +923,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     }
 
                     for node in self.graph.nodes.iter_mut() {
-                        if let NodeType::Ice { id, name } = &mut node.node_type {
+                        if let NodeType::Ice { id, name, .. } = &mut node.node_type {
                             if *id == IceGraphId(usize::MAX) {
                                 let new_id = self.subnets.create_subnet(name.clone());
                                 *id = new_id;
@@ -1250,7 +1250,7 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
     }
     // The folders the products write into: renderers do not make them.
     if command.make_folders {
-        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let scene = node.inputs.first().and_then(|i| i.connected_output)
@@ -1628,7 +1628,7 @@ pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {
     if std::mem::replace(seen, revision.0) == revision.0 { return; }
 
     // Update the closure to accept template parameter
-    let eval_subnet = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+    let eval_subnet = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
         subnets
             .get(sid)
             .map(|sg| sg.evaluate(mesh, template))
@@ -1668,7 +1668,7 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         // Never boxes in place of geometry.
         if usd_scene::any_reading() { return Err("A stage is still being read: write when it is done".to_string()); }
         let (src, out) = node.inputs.first().and_then(|i| i.connected_output).ok_or("Nothing connected")?;
-        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         match graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval) {

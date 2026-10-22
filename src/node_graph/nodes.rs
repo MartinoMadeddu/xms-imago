@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub fn evaluate_node_type(
     node_type:   &NodeType,
     inputs:      &[EvalResult],
-    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     output:      usize,
 ) -> Option<EvalResult> {
     match node_type {
@@ -127,9 +127,13 @@ pub fn evaluate_node_type(
         }
 
         NodeType::Ice { id, .. } => {
-            // First input is the main geometry, second (if any) the template,
-            // as one geometry where it is drawn.
-            let template = inputs.get(1).map(|r| crate::core::geo::Geo::from_mesh(&r.as_mesh()));
+            // The first input is the scene; the others, numbered from 1, are
+            // references: every prim of the scene wired there (groups too),
+            // for Get Reference.
+            let references: Vec<crate::ice::Reference> = inputs.iter().skip(1).map(|r| match r {
+                EvalResult::Named(prims) => crate::node_graph::scene_paths(prims),
+                _ => vec![],
+            }).collect();
             match inputs.first()? {
                 // Packed primitives: the tree runs on each one (the picked
                 // ones, when some are), in its own space, as ICE does on an
@@ -137,17 +141,23 @@ pub fn evaluate_node_type(
                 // whatever the tree does not write stays shared.
                 EvalResult::Named(prims) => {
                     let any_picked = prims.iter().any(|p| p.picked);
-                    Some(EvalResult::Named(prims.iter().map(|p| {
-                        if any_picked && !p.picked { return p.clone(); }
+                    let (mut out, mut made) = (Vec::with_capacity(prims.len()), vec![]);
+                    for p in prims {
+                        if any_picked && !p.picked { out.push(p.clone()); continue; }
                         let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
-                        let out = eval_subnet(*id, &geo, template.as_ref());
+                        crate::ice::take_instances();
+                        let g = eval_subnet(*id, &geo, &references);
+                        // What its Instancers made: prims of their own, after the others.
+                        for i in crate::ice::take_instances() { made.extend(instanced(p, &i, &inputs[1..])); }
                         // The attributes stay in the geometry (see `to_mesh_lean`).
-                        Prim { mesh: Arc::new(out.to_mesh_lean()), geo: Some(Arc::new(out)), ..p.clone() }
-                    }).collect()))
+                        out.push(Prim { mesh: Arc::new(g.to_mesh_lean()), geo: Some(Arc::new(g)), ..p.clone() });
+                    }
+                    out.extend(made);
+                    Some(EvalResult::Named(out))
                 }
                 other => {
                     let geo = crate::core::geo::Geo::from_mesh(&other.as_mesh());
-                    Some(EvalResult::Single(eval_subnet(*id, &geo, template.as_ref()).to_mesh()))
+                    Some(EvalResult::Single(eval_subnet(*id, &geo, &references).to_mesh()))
                 }
             }
         }
@@ -759,7 +769,7 @@ mod packed_tests {
     use super::*;
     use crate::types::{NodeType, IceGraphId};
 
-    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo { m.clone() }
     fn run(node: NodeType, input: &EvalResult) -> EvalResult {
         evaluate_node_type(&node, std::slice::from_ref(input), &pass, 0).unwrap()
     }
@@ -989,4 +999,52 @@ mod place_tests {
         assert_eq!(mirrored.primvars[0].values, m.primvars[0].values);
         assert_eq!(mirrored.primvars[1].values, vec![vec![3.0], vec![2.0], vec![1.0]]);
     }
+}
+
+/// The prims an Instancer made on `on`: for each prototype it used, every
+/// prim of it (the prim at its path and those below, from the reference
+/// inputs) drawn at each of its instances, as a point instancer's copies,
+/// sharing the prototype's geometry and material. At
+/// `<on>/<name>/<prototype>/…`, in the space `on` is placed in. A
+/// prototype's prims keep their own placement within it, so a prototype
+/// made at the origin of its file sits on each instance.
+fn instanced(on: &Prim, made: &xms_ice::Instances, references: &[EvalResult]) -> Vec<Prim> {
+    use glam::{Mat4, Quat, Vec3};
+    let base = match &on.place {
+        Placement::One(m) => *m,
+        Placement::Many(ms) => ms.first().copied().unwrap_or(Mat4::IDENTITY),
+        Placement::InPlace => Mat4::IDENTITY,
+    };
+    let mut out = vec![];
+    for (k, proto) in made.prototypes.iter().enumerate() {
+        let copies: Vec<Mat4> = made.proto_indices.iter().enumerate().filter(|(_, p)| **p as usize == k)
+            .map(|(i, _)| base * Mat4::from_scale_rotation_translation(
+                Vec3::from_array(made.scales[i]), Quat::from_array(made.orientations[i]), Vec3::from_array(made.positions[i])))
+            .collect();
+        if copies.is_empty() { continue; }
+        let leaf = proto.rsplit('/').next().unwrap_or(proto);
+        let below = |path: &str| path == proto || path.strip_prefix(proto.as_str()).is_some_and(|rest| rest.starts_with('/'));
+        for r in references {
+            let EvalResult::Named(prims) = r else { continue };
+            for q in prims.iter().filter(|q| below(&q.path)) {
+                let own = match &q.place {
+                    Placement::One(m) => *m,
+                    Placement::InPlace => Mat4::IDENTITY,
+                    // A prototype that is itself instanced: not yet.
+                    Placement::Many(_) => continue,
+                };
+                out.push(Prim {
+                    path: format!("{}/{}/{}{}", on.path, made.name, leaf, &q.path[proto.len()..]),
+                    place: Placement::Many(copies.iter().map(|c| *c * own).collect::<Vec<_>>().into()),
+                    picked: false,
+                    stage: None,
+                    source: None,
+                    instancing: None,
+                    instanced_by: None,
+                    ..q.clone()
+                });
+            }
+        }
+    }
+    out
 }

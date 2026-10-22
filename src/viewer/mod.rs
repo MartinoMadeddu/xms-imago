@@ -166,7 +166,7 @@ impl Viewer {
         ));
         if pressed { self.press = if free && !editing && input.tool.hot.is_none() && self.gizmo_drag.is_none() { pos } else { None }; }
         let subnets = input.subnets;
-        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let prims = match input.graph.evaluate_for_viewport_packed(&eval) {
@@ -264,7 +264,7 @@ impl Viewer {
         if !(selection || all) || held || !pointer.is_some_and(|p| rect.contains(p)) { return; }
 
         let subnets = input.subnets;
-        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+        let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         let mut target: Option<(Vec3, f32)> = None;

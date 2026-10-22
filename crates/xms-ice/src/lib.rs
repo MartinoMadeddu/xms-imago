@@ -30,8 +30,8 @@ pub mod exec;
 pub mod graph;
 pub mod types;
 
-pub use compile::{compile, output_types, CompileError, Plan};
-pub use exec::{run, BATCH};
+pub use compile::{compile, output_arrays, output_types, CompileError, Plan};
+pub use exec::{run, Instances, Ran, BATCH};
 pub use graph::{ArrayOp, Graph, Input, Math, Node, Op, Reduce};
 pub use types::{Loc, Ty, Value};
 

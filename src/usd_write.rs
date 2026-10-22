@@ -786,7 +786,7 @@ def Xform "set" {{
     /// transform. Read back, both are where Imago showed them.
     #[test]
     fn cameras_are_written_and_read_back() {
-        let pass = |_: crate::types::IceGraphId, g: &Geo, _: Option<&Geo>| g.clone();
+        let pass = |_: crate::types::IceGraphId, g: &Geo, _: &[crate::ice::Reference]| g.clone();
         let Some(EvalResult::Named(made)) = crate::node_graph::nodes::evaluate_node_type(&crate::types::NodeType::camera(), &[], &pass, 0) else { panic!() };
         let out = std::env::temp_dir().join("xms_usd_write_test/camera_over.usda");
         let report = write_override(&made, &out).unwrap();
@@ -894,7 +894,7 @@ def Scope "Render" {{
     fn lights_are_written_and_read_back() {
         use crate::core::light::{Light, LightType};
         use crate::core::properties::Value;
-        let pass = |_: crate::types::IceGraphId, g: &Geo, _: Option<&Geo>| g.clone();
+        let pass = |_: crate::types::IceGraphId, g: &Geo, _: &[crate::ice::Reference]| g.clone();
         let mut rect = Light::new(LightType::Rect);
         rect.set("inputs:width", Value::Float(2.0));
         rect.set("inputs:intensity", Value::Float(5.0));

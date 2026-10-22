@@ -213,7 +213,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 
     let graph = input.graph;
     let subnets = input.subnets;
-    let eval_subnet = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+    let eval_subnet = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
 
@@ -426,7 +426,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 fn ghosts(
     s:     &mut Scene,
     graph: &crate::node_graph::NodeGraphState,
-    eval_subnet: &impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+    eval_subnet: &impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     time:  f64,
     cache: &mut GeometryCache,
     used:  &mut Vec<(usize, Kind)>,

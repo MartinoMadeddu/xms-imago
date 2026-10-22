@@ -30,6 +30,23 @@ pub struct Plan {
     pub(crate) uniform: Program,
     pub(crate) batch:   Program,
     pub(crate) writes:  Vec<Write>,
+    /// Instancers, made from uniform registers once the plan has run.
+    pub(crate) instancers: Vec<InstancerPlan>,
+}
+
+/// An Instancer as the plan runs it: the uniform registers holding its
+/// inputs.
+#[derive(Clone, Debug)]
+pub(crate) struct InstancerPlan {
+    pub name:      String,
+    pub seed:      u32,
+    pub positions: usize,
+    pub normals:   Option<usize>,
+    pub protos:    usize,
+    pub index:     usize,
+    pub align:     usize,
+    pub turn:      usize,
+    pub scale:     [usize; 2],
 }
 
 impl Plan {
@@ -103,6 +120,9 @@ pub(crate) enum Ins {
     Scatter { dst: usize, seed: u32, count: usize, weight: Option<usize> },
     /// Read number `read` at the locations in register `loc`.
     AtLocation { dst: usize, read: usize, loc: usize },
+    /// The paths of reference input `input` (from 1): all, or those of
+    /// `paths` that are there.
+    Reference { dst: usize, input: usize, paths: Option<Vec<String>> },
     /// Into write number `write`.
     Store { write: usize, src: usize },
 }
@@ -203,7 +223,8 @@ fn keeps_float(op: Math, i: usize) -> bool {
 fn array_ty(op: ArrayOp, of: Ty) -> Option<Ty> {
     match op {
         ArrayOp::Size => Some(Ty::Int),
-        ArrayOp::Element => Some(of),
+        // A path is never one value: it stays in its array.
+        ArrayOp::Element => (of != Ty::Token).then_some(of),
         ArrayOp::Sum | ArrayOp::Average => of.is_numeric().then_some(of),
     }
 }
@@ -278,6 +299,14 @@ impl Lower<'_> {
             Op::Array(op) => self.array(node, *op)?,
             Op::Scatter { seed, weight } => self.scatter(node, *seed, weight)?,
             Op::GetDataAt { name } => self.at_location(node, name)?,
+            Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
+            Op::GetReference { input, paths } => {
+                if *input == 0 { return error(node, "Reference inputs are numbered from 1"); }
+                let (input, paths) = (*input, paths.clone());
+                let mut v = self.emit(true, Ty::Token, |dst| Ins::Reference { dst, input, paths });
+                v.array = true;
+                v
+            }
         };
         self.visiting.remove(&node);
         self.done.insert(node, v);
@@ -508,9 +537,56 @@ impl Lower<'_> {
         Ok(self.emit(true, ty, |dst| Ins::Array { op, dst, args: [a.reg, b.reg] }))
     }
 
+    /// An Instancer, run from the root: its inputs worked out in the uniform
+    /// program, the instances made from them once it has run.
+    fn instancer(&mut self, node: usize, name: &str, seed: u32) -> Result<(), CompileError> {
+        if self.plan.context != Context::Object {
+            return error(node, "The Instancer makes one set of instances for the whole primitive: set the Execution Ports to Object");
+        }
+        if name.trim().is_empty() || name.contains('/') { return error(node, "The Instancer needs a name (no slashes): its instances are a prim of that name"); }
+        let at = self.input(node, 0, None)?;
+        let (positions, normals) = match (at.ty, at.array) {
+            (Ty::Location, true) => {
+                let p = self.location_read(Context::Point, "P", false);
+                let pos = self.emit(true, Ty::Vec3, |dst| Ins::AtLocation { dst, read: p, loc: at.reg }).reg;
+                // The normals where there are some, else each face's own.
+                let found = [Context::Point, Context::Corner, Context::Face].into_iter()
+                    .find_map(|c| find_in(self.geo, c, "N").filter(|f| f.ty == Some(Ty::Vec3)).map(|f| (c, f.derived)));
+                let nrm = found.map(|(c, derived)| {
+                    let read = self.location_read(c, "N", derived);
+                    self.emit(true, Ty::Vec3, |dst| Ins::AtLocation { dst, read, loc: at.reg }).reg
+                });
+                (pos, nrm)
+            }
+            (Ty::Vec3, true) => (at.reg, None),
+            _ => return error(node, "The Instancer places instances at locations (Scatter on Surface) or positions: an array"),
+        };
+        let protos = self.input(node, 1, None)?;
+        if protos.ty != Ty::Token || !protos.array { return error(node, "The Instancer's prototypes are paths (Get Reference)"); }
+        let index = self.input(node, 2, Some(Ty::Int))?;
+        let align = self.input(node, 3, Some(Ty::Bool))?;
+        let turn = self.input(node, 4, Some(Ty::Vec3))?;
+        let smin = self.input(node, 5, Some(Ty::Float))?;
+        let smax = self.input(node, 6, Some(Ty::Float))?;
+        for (v, ty, what) in [(index, Ty::Int, "which prototype is an int"), (align, Ty::Bool, "aligning is true or false"),
+                              (turn, Ty::Vec3, "the random turn is a vector of degrees"), (smin, Ty::Float, "the scale is a number"), (smax, Ty::Float, "the scale is a number")] {
+            if v.ty != ty || !v.uniform { return error(node, format!("The Instancer's {what}")); }
+        }
+        if align.array || turn.array || smin.array || smax.array { return error(node, "Aligning, the random turn and the scale range are one value each"); }
+        self.plan.instancers.push(InstancerPlan {
+            name: name.trim().to_string(), seed, positions, normals, protos: protos.reg, index: index.reg,
+            align: align.reg, turn: turn.reg, scale: [smin.reg, smax.reg],
+        });
+        Ok(())
+    }
+
     /// A Set Data node, run from the root.
     fn set_data(&mut self, node: usize) -> Result<(), CompileError> {
         if !self.set.insert(node) { return Ok(()); }
+        if let Op::Instancer { name, seed } = &self.graph.nodes[node].op {
+            let (name, seed) = (name.clone(), *seed);
+            return self.instancer(node, &name, seed);
+        }
         let (graph, geo) = (self.graph, self.geo);
         let n = &graph.nodes[node];
         let Op::SetData { name, context: to, reduce } = &n.op else { return error(node, "Only Execute outputs go into the root") };
@@ -530,6 +606,7 @@ impl Lower<'_> {
         };
         if v.array { return error(node, "An array is not written as an attribute (yet): it is one value of many"); }
         if v.ty == Ty::Location { return error(node, "A location is not written as an attribute: read what is there with Get Data at Location"); }
+        if v.ty == Ty::Token { return error(node, "Paths are not written as attributes"); }
         let existing = geo.attr(context, &column);
         if let Some(t) = existing.and_then(|a| column_ty(&a.column)) {
             if t != v.ty {
@@ -569,7 +646,7 @@ pub fn compile(graph: &Graph, geo: &Geo) -> Result<Plan, CompileError> {
     let Op::Root { context } = graph.nodes[root].op else { unreachable!() };
     let mut l = Lower {
         graph, geo,
-        plan: Plan { context, reads: vec![], params: vec![], uniform: Program::default(), batch: Program::default(), writes: vec![] },
+        plan: Plan { context, reads: vec![], params: vec![], uniform: Program::default(), batch: Program::default(), writes: vec![], instancers: vec![] },
         done: HashMap::new(), visiting: HashSet::new(), broadcast: HashMap::new(),
         reads: HashMap::new(), written: HashMap::new(), set: HashSet::new(),
     };
@@ -614,7 +691,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
     // Met again while looking: a cycle, no type.
     memo[node] = Some(None);
     let t = match &n.op {
-        Op::Root { .. } | Op::SetData { .. } => None,
+        Op::Root { .. } | Op::SetData { .. } | Op::Instancer { .. } => None,
         Op::Constant(v) => Some(v.ty()),
         Op::Parameter { default, .. } => Some(default.ty()),
         Op::GetData { name, context: from, .. } => {
@@ -654,6 +731,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
             })
         }
         Op::Scatter { .. } => Some(Ty::Location),
+        Op::GetReference { .. } => Some(Ty::Token),
         Op::GetDataAt { name } => [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty),
         Op::Array(op) => {
@@ -666,4 +744,40 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
     };
     memo[node] = Some(t);
     t
+}
+
+/// Whether each node's output is an array, by node, for the editor: an
+/// array is drawn and named apart from a single value. What makes one:
+/// Scatter on Surface, Get Reference, Random Value with a count; what
+/// keeps one: maths on an array, Get Data at locations.
+pub fn output_arrays(graph: &Graph) -> Vec<bool> {
+    let mut memo: Vec<Option<bool>> = vec![None; graph.nodes.len()];
+    (0..graph.nodes.len()).map(|i| is_array(graph, i, &mut memo, 0)).collect()
+}
+
+fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usize) -> bool {
+    if depth > 256 { return false; }
+    if let Some(a) = memo[node] { return a; }
+    // Met again while looking: a cycle, not an array.
+    memo[node] = Some(false);
+    let n = &graph.nodes[node];
+    let a = match &n.op {
+        Op::Scatter { .. } | Op::GetReference { .. } => true,
+        Op::Random { .. } => match n.inputs.get(2) {
+            Some(Input::Value(Value::Int(c))) => *c > 0,
+            Some(Input::Value(Value::Float(c))) => *c > 0.0,
+            Some(Input::Wire { .. }) => true,
+            _ => false,
+        },
+        Op::Math(_) | Op::GetDataAt { .. } => {
+            let mut any = false;
+            for input in &n.inputs {
+                if let Input::Wire { node: from, .. } = input { any |= is_array(graph, *from, memo, depth + 1); }
+            }
+            any
+        }
+        _ => false,
+    };
+    memo[node] = Some(a);
+    a
 }

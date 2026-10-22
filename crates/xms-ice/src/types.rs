@@ -16,6 +16,9 @@ pub enum Ty {
     /// A place on the surface: where Scatter on Surface puts points, read
     /// by Get Data at Location.
     Location,
+    /// A name or a path: the primitives of a reference input (Get
+    /// Reference), only ever as an array.
+    Token,
 }
 
 /// A place on a mesh's surface: a face, the three corners of the triangle
@@ -31,7 +34,22 @@ pub struct Loc {
 impl Ty {
     pub fn is_vector(self) -> bool { matches!(self, Ty::Vec2 | Ty::Vec3 | Ty::Vec4) }
     /// Added, subtracted, scaled: a number or a vector, not a bool or a rotation.
-    pub fn is_numeric(self) -> bool { !matches!(self, Ty::Bool | Ty::Quat | Ty::Location) }
+    pub fn is_numeric(self) -> bool { !matches!(self, Ty::Bool | Ty::Quat | Ty::Location | Ty::Token) }
+
+    /// How the editor names it: on ports, in errors.
+    pub fn name(self) -> &'static str {
+        match self {
+            Ty::Bool => "boolean",
+            Ty::Int => "integer",
+            Ty::Float => "scalar",
+            Ty::Vec2 => "2D vector",
+            Ty::Vec3 => "3D vector",
+            Ty::Vec4 => "4D vector",
+            Ty::Quat => "rotation",
+            Ty::Location => "location",
+            Ty::Token => "path",
+        }
+    }
 }
 
 /// One value: a constant, a parameter, or what an unconnected input holds.

@@ -54,6 +54,7 @@ mod pal {
     // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
     pub fn OTHER() -> Color32   { crate::type_colours::DataType::Other.colour() }   // execute and the rest: dark grey
+    pub fn ARRAY() -> Color32   { Color32::from_rgb(196, 120, 214) }   // an array, whatever it holds: violet
 }
 
 /// Where everything of a node sits, relative to its top-left corner.
@@ -99,6 +100,12 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::Scatter { seed, weight } if weight.trim().is_empty() => Some(format!("seed {seed}")),
         IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
         IceGraphNodeType::GetDataAt { name } => Some(format!("self.{name} at location")),
+        IceGraphNodeType::GetReference { input, paths } => Some(match crate::core::locations::rows(paths).count() {
+            0 => format!("Reference {input}: all"),
+            1 => format!("Reference {input}: {}", crate::core::locations::rows(paths).next().unwrap_or_default()),
+            n => format!("Reference {input}: {n} rows"),
+        }),
+        IceGraphNodeType::Instancer { name, seed } => Some(format!("{name}, seed {seed}")),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } => None,
     }
 }
@@ -172,7 +179,7 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Root { .. } => pal::PORTS(),
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. } => pal::GREEN(),
-        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::GetDataAt { .. } => pal::BLUE(),
+        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::Instancer { .. } => pal::BLUE(),
     }
 }
 
@@ -202,7 +209,11 @@ pub fn draw_breadcrumb(ui: &mut egui::Ui, subnet_name: &str) -> bool {
 
 /// The parameters of a node inside an ICE subnet, laid out like every
 /// other node's (see `properties::form`).
-pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
+/// The parameters of the node selected in an ICE graph. `references`: every
+/// prim on each of its operator's reference inputs, by path, from input 1
+/// (Get Reference picks from them); `selected`: the prims selected in the
+/// Scene Explorer (a Get Reference row adds them).
+pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, references: &[Vec<String>], selected: &[String]) {
     use crate::core::geo::Context;
     use crate::properties::form::group;
     use xms_ice::Value;
@@ -271,6 +282,19 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph) {
         }),
         IceGraphNodeType::GetDataAt { name } => group(ui, "Attribute", None, |f| {
             f.text("Name", Some("P is the position, N the normal (the face's own when there are none); any other attribute, blended across the triangle each location is in"), name, "P");
+        }),
+        IceGraphNodeType::GetReference { input, paths } => {
+            group(ui, "Reference", None, |f| {
+                f.row("Input", Some("Which of the operator's reference inputs: 1 is the first after the scene"),
+                      |ui| ui.add(egui::DragValue::new(input).range(1..=64).speed(0.05)));
+            });
+            // The prims on that input, to pick from, as in a Prims Location tab.
+            let there = references.get((*input as usize).saturating_sub(1)).map(Vec::as_slice).unwrap_or_default();
+            crate::properties::ui::locations_tab(ui, paths, there, selected, crate::properties::ui::TabKind::Names, None);
+        }
+        IceGraphNodeType::Instancer { name, seed } => group(ui, "Instancer", None, |f| {
+            f.text("Name", Some("The prim the instances are made under, below the primitive the graph runs on: /ground/scatter"), name, "scatter");
+            f.row("Seed", Some("Another seed, other picks, turns and scales; the same seed, the same every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
         }),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } => {}
     }
@@ -578,6 +602,8 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute): an array of locations, in an Object graph"),
         ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at locations: P, N, UVs or any other, blended across the surface"),
+        ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
+        ("Geometry", IceGraphNodeType::Instancer { name: "scatter".into(), seed: 0 }, "Instances of prototypes (paths) at locations, turned up along the surface and at random, scaled at random: a point instancer under the primitive, an Execute"),
     ];
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
@@ -646,14 +672,37 @@ fn ty_colour(t: Option<xms_ice::Ty>) -> egui::Color32 {
         Some(Ty::Vec2 | Ty::Vec3) => DataType::Vector,
         // Four numbers, and a rotation (a quaternion).
         Some(Ty::Vec4 | Ty::Quat) => DataType::Vector4,
-        Some(Ty::Location) => DataType::Other,
+        Some(Ty::Location | Ty::Token) => DataType::Other,
         None => DataType::Other,
     }.colour()
 }
 
-/// An output's colour: the type it gives, as the graph's last run found it.
+/// An output's colour: the type it gives, as the graph's last run found
+/// it; an array's own colour whatever it holds (its port says what).
 fn out_colour(graph: &IceGraph, node: NodeId, output: usize) -> egui::Color32 {
+    if graph.output_is_array(node, output) { return pal::ARRAY(); }
     ty_colour(graph.output_type(node, output))
+}
+
+/// What an output gives, for its port's tooltip: "3D vector", "array of
+/// locations"…
+fn out_text(graph: &IceGraph, node: NodeId, output: usize) -> String {
+    let Some(ty) = graph.output_type(node, output) else {
+        let execute = graph.nodes.iter().find(|n| n.id == node).and_then(|n| n.outputs.get(output)).is_some_and(|o| o.value_hint == "Execute");
+        return if execute { "execute".into() } else { "not known yet (the graph has not run)".into() };
+    };
+    if graph.output_is_array(node, output) { format!("array of {}s", ty.name()) } else { ty.name().into() }
+}
+
+/// What an input takes, for its port's tooltip: what is wired into it, or
+/// the type of its own value.
+fn in_text(graph: &IceGraph, input: &super::IceGraphInputSocket) -> String {
+    if input.value_hint == "Execute" { return "execute".into(); }
+    match (input.connected_output, input.value) {
+        (Some((from, out)), _) => out_text(graph, from, out),
+        (None, Some(v)) => format!("{} (its own value)", v.ty().name()),
+        (None, None) => "nothing wired".into(),
+    }
 }
 
 /// An input's colour: what is wired into it, or the value it holds.
@@ -737,7 +786,7 @@ fn draw_subnet_node(
     for (i, out) in node.outputs.iter().enumerate() {
         let sp  = np + lay.outputs[i] * z;
         let hit = egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0)));
-        let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag());
+        let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag()).on_hover_text(out_text(graph, id, i));
         let wiring = graph.connecting_from == Some((id, i));
         draw_port(painter, sp, out_colour(graph, id, i), sr.hovered() || wiring, z);
         if !folded {
@@ -787,7 +836,7 @@ fn draw_subnet_node(
     for (i, inp) in node.inputs.iter().enumerate() {
         let sp  = np + lay.inputs[i] * z;
         let hit = egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0)));
-        let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag());
+        let sr  = ui.allocate_rect(hit, egui::Sense::click_and_drag()).on_hover_text(in_text(graph, inp));
         // Hovered while a wire is being drawn: a target.
         let target = sr.hovered() && graph.connecting_from.is_some();
         draw_port(painter, sp, in_colour(graph, inp), target, z);

@@ -35,7 +35,7 @@ fn p_doubled_and_every_other_column_still_shared() {
     let g = setting_p(g, doubled);
 
     let plan = compile(&g, &geo).unwrap();
-    let out = run(&plan, &geo, &no_params());
+    let out = run(&plan, &geo, &no_params(), &[]).geo;
     assert_eq!(points(&out)[3], [6.0, 0.0, 0.0]);
     // Only P was read and only P written: N and heat are the same columns.
     assert_eq!(plan.reads().map(|(n, _)| n).collect::<Vec<_>>(), vec![POINTS]);
@@ -59,9 +59,9 @@ fn parameters_change_without_compiling_again_and_uniforms_are_computed_once() {
     let g = setting_p(g, moved);
 
     let plan = compile(&g, &geo).unwrap();
-    assert_eq!(points(&run(&plan, &geo, &no_params()))[2], [2.0, 2.0, 0.0]);
+    assert_eq!(points(&run(&plan, &geo, &no_params(), &[]).geo)[2], [2.0, 2.0, 0.0]);
     let params = HashMap::from([("amount".to_string(), Value::Float(0.25))]);
-    assert_eq!(points(&run(&plan, &geo, &params))[2], [2.0, 0.5, 0.0]);
+    assert_eq!(points(&run(&plan, &geo, &params, &[]).geo)[2], [2.0, 0.5, 0.0]);
     // amount × 2 does not vary per point: per batch it is one broadcast, not a multiply.
     assert_eq!(plan.batch_len(), 6, "load P, load N, broadcast, multiply, add, store");
 }
@@ -76,7 +76,7 @@ fn an_object_attribute_is_one_value_for_every_point() {
     let up = g.add(Op::Math(Math::Multiply), vec![Input::Value(Value::Vec3([0.0, 1.0, 0.0])), wire(lift)]);
     let moved = g.add(Op::Math(Math::Add), vec![wire(p), wire(up)]);
     let g = setting_p(g, moved);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(points(&out)[1], [1.0, 3.0, 0.0]);
 }
 
@@ -129,7 +129,7 @@ fn execute_ports_run_in_order() {
     let set_b = g.add(Op::set("b"), vec![wire(times)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set_a), wire(set_b)]);
 
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     let b = out.attr(Context::Point, "b").unwrap().column.floats().unwrap();
     assert_eq!(b, &[10.0, 20.0, 30.0]);
     assert_eq!(out.attr(Context::Point, "a").unwrap().column.floats().unwrap(), &[1.0, 2.0, 3.0]);
@@ -149,7 +149,7 @@ fn batches_cover_every_element_and_indexed_attributes_are_read_through_their_ind
     let set = g.add(Op::set("sum"), vec![wire(sum)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
 
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     let sum = out.attr(Context::Point, "sum").unwrap().column.floats().unwrap();
     assert_eq!(sum.len(), n);
     for (i, s) in sum.iter().enumerate() { assert_eq!(*s, i as f32 + (i % 2) as f32, "element {i}"); }
@@ -167,7 +167,7 @@ fn vector_maths() {
     let scaled = g.add(Op::Math(Math::Multiply), vec![wire(side), wire(len)]);
     let mixed = g.add(Op::Math(Math::Lerp), vec![wire(p), wire(scaled), Input::Value(Value::Float(0.5))]);
     let g = setting_p(g, mixed);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     // Point 1: P = (1,0,0), N × Z = (1,0,0), length 1: halfway between equals (1,0,0).
     assert_eq!(points(&out)[1], [1.0, 0.0, 0.0]);
 }
@@ -191,7 +191,7 @@ fn ice_engine_speed() {
     let plan = compile(&g, &geo).unwrap();
     let t = std::time::Instant::now();
     let runs = 20;
-    for _ in 0..runs { std::hint::black_box(run(&plan, &geo, &no_params())); }
+    for _ in 0..runs { std::hint::black_box(run(&plan, &geo, &no_params(), &[]).geo); }
     let each = t.elapsed().as_secs_f64() / runs as f64;
     println!("{n} points: {:.2} ms a run, {:.1} M points/s", each * 1e3, n as f64 / each / 1e6);
 }
@@ -245,7 +245,7 @@ fn reading(context: Context, name: &str, what: &str, from: Context, reduce: supe
 fn get_data_reads_across_contexts() {
     use super::graph::Reduce;
     let geo = two_quads();
-    let run_on = |g: &Graph| run(&compile(g, &geo).unwrap(), &geo, &no_params());
+    let run_on = |g: &Graph| run(&compile(g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
 
     // Each face: the average of its points, its centre.
     let out = run_on(&reading(Context::Face, "centre", "P", Context::Point, Reduce::Average));
@@ -287,7 +287,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     // Per point, the lowest first corner of its faces: points 1 and 4 are on
     // both quads, so 0; points 2 and 5 only on the second, so 4.
     let plan = compile(&reading(Context::Point, "fc", "firstCorner", Context::Face, Reduce::Min), &geo).unwrap();
-    let out = run(&plan, &geo, &no_params());
+    let out = run(&plan, &geo, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Point, "fc").unwrap().column.ints().unwrap(), &[0, 0, 4, 0, 0, 4]);
     // A face's corners, area and normal; a corner's point, face and place.
     for (ctx, what, from, want) in [
@@ -302,7 +302,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
         let f = g.add(Op::Math(Math::Add), vec![wire(get), Input::Value(Value::Float(0.0))]);
         let set = g.add(Op::set("out"), vec![wire(f)]);
         g.add(Op::Root { context: ctx }, vec![wire(set)]);
-        let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+        let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
         let got: Vec<f32> = match &out.attr(ctx, "out").unwrap().column {
             Column::Float(v) => v.to_vec(),
             Column::Int(v) => v.iter().map(|&i| i as f32).collect(),
@@ -312,7 +312,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     }
     // The face normal: the quads wind counter-clockwise seen from +Z.
     let plan = compile(&reading(Context::Face, "n", "N", Context::Face, Reduce::Average), &geo).unwrap();
-    let out = run(&plan, &geo, &no_params());
+    let out = run(&plan, &geo, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Face, "n").unwrap().column.vec3s().unwrap(), &[[0.0, 0.0, 1.0]; 2]);
     // Unset, the context finds it and says which to set.
     let mut g = Graph::default();
@@ -341,20 +341,20 @@ fn set_data_writes_across_contexts() {
     let p = g.add(Op::get("P"), vec![]);
     let x = g.add(Op::Math(Math::Dot), vec![wire(p), Input::Value(Value::Vec3([1.0, 0.0, 0.0]))]);
     let g = writing(g, Context::Point, "x", Context::Face, Reduce::Average, x);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Face, "x").unwrap().column.floats().unwrap(), &[0.5, 1.5]);
     assert!(out.attr(Context::Point, "x").is_none(), "written per face, not per point");
     // Per face, into each point: the most of the faces around it.
     let mut g = Graph::default();
     let heat = g.add(Op::get("heat"), vec![]);
     let g = writing(g, Context::Face, "hot", Context::Point, Reduce::Max, heat);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Point, "hot").unwrap().column.floats().unwrap(), &[1.0, 3.0, 3.0, 1.0, 3.0, 3.0]);
     // Per object, into every corner.
     let mut g = Graph::default();
     let seven = g.add(Op::Constant(Value::Int(7)), vec![]);
     let g = writing(g, Context::Object, "seven", Context::Corner, Reduce::Average, seven);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Corner, "seven").unwrap().column.ints().unwrap(), &[7; 8]);
     // Written per face, a name held per point goes: one attribute a name.
     let mut g = Graph::default();
@@ -362,7 +362,7 @@ fn set_data_writes_across_contexts() {
     let mut geo2 = two_quads();
     geo2.set(Context::Point, "x", Attr::new(Column::Float(Arc::new(vec![0.0; 6])), Role::None));
     let g = writing(g, Context::Point, "x", Context::Face, Reduce::Sum, one);
-    let out = run(&compile(&g, &geo2).unwrap(), &geo2, &no_params());
+    let out = run(&compile(&g, &geo2).unwrap(), &geo2, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Face, "x").unwrap().column.floats().unwrap(), &[4.0, 4.0]);
     assert!(out.attr(Context::Point, "x").is_none());
     // The points stay per point.
@@ -381,7 +381,7 @@ fn a_new_attribute_is_made_beside_p() {
     let k = g.add(Op::Constant(Value::Float(2.5)), vec![]);
     let set_t = g.add(Op::set("test"), vec![wire(k)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set_p), wire(set_t)]);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(out.attr(Context::Point, "test").unwrap().column.floats().unwrap(), &[2.5; 4]);
 }
 
@@ -389,7 +389,7 @@ fn a_new_attribute_is_made_beside_p() {
 fn object_value(mut g: Graph, value: usize, name: &str, geo: &Geo) -> Column {
     let set = g.add(Op::set(name), vec![wire(value)]);
     g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
-    let out = run(&compile(&g, geo).unwrap(), geo, &no_params());
+    let out = run(&compile(&g, geo).unwrap(), geo, &no_params(), &[]).geo;
     out.attr(Context::Object, name).unwrap().column.clone()
 }
 
@@ -405,7 +405,7 @@ fn random_values_are_in_range_different_per_element_and_the_same_every_run() {
         let r = random(&mut g, seed, Value::Float(2.0), Value::Float(3.0), 0);
         let set = g.add(Op::set("r"), vec![wire(r)]);
         g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
-        let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+        let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
         out.attr(Context::Point, "r").unwrap().column.floats().unwrap().to_vec()
     };
     let a = run_with(7);
@@ -423,7 +423,7 @@ fn random_ints_include_both_ends() {
     let r = random(&mut g, 1, Value::Int(0), Value::Int(3), 0);
     let set = g.add(Op::set("pick"), vec![wire(r)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     let picks = out.attr(Context::Point, "pick").unwrap().column.ints().unwrap().to_vec();
     for k in 0..=3 { assert!(picks.contains(&k), "{k} is picked"); }
     assert!(picks.iter().all(|k| (0..=3).contains(k)));
@@ -503,7 +503,7 @@ fn a_rotation_attribute_turns_each_point() {
     let p = g.add(Op::get("P"), vec![]);
     let v = g.add(Op::Math(Math::Rotate), vec![wire(q), wire(p)]);
     let g = setting_p(g, v);
-    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     let p1 = points(&out)[1];
     assert!(p1[0].abs() < 1e-5 && (p1[1] - 1.0).abs() < 1e-5, "{p1:?}");
 }
@@ -561,4 +561,82 @@ fn scattering_is_for_the_whole_primitive() {
     let set = g.add(Op::set("n"), vec![wire(size)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
     assert_eq!(compile(&g, &geo).unwrap_err().node, at);
+}
+
+#[test]
+fn a_reference_input_gives_its_paths_all_or_those_listed_in_order() {
+    let geo = cloud(1);
+    let refs = vec![vec!["/trees/pine_a".to_string(), "/trees/pine_b".into(), "/rocks/boulder".into()]];
+    let listed = |input: usize, paths: Option<Vec<&str>>| {
+        let mut g = Graph::default();
+        let paths = g.add(Op::GetReference { input, paths: paths.map(|v| v.into_iter().map(String::from).collect()) }, vec![]);
+        let size = g.add(Op::Array(ArrayOp::Size), vec![wire(paths)]);
+        let set = g.add(Op::set("n"), vec![wire(size)]);
+        g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
+        let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs).geo;
+        out.attr(Context::Object, "n").unwrap().column.ints().unwrap()[0]
+    };
+    assert_eq!(listed(1, None), 3, "all of them");
+    assert_eq!(listed(1, Some(vec!["/rocks/boulder", "/trees/pine_a", "/nowhere"])), 2, "those listed that are there");
+    assert_eq!(listed(2, None), 0, "nothing wired there");
+}
+
+#[test]
+fn which_outputs_are_arrays() {
+    let mut g = Graph::default();
+    let one = random(&mut g, 0, Value::Float(0.0), Value::Float(1.0), 0);
+    let many = random(&mut g, 0, Value::Float(0.0), Value::Float(1.0), 5);
+    let twice = g.add(Op::Math(Math::Multiply), vec![wire(many), Input::Value(Value::Float(2.0))]);
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(twice)]);
+    let at = g.add(Op::Scatter { seed: 0, weight: String::new() }, vec![Input::Value(Value::Int(3))]);
+    let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let arrays = super::output_arrays(&g);
+    assert_eq!([arrays[one], arrays[many], arrays[twice], arrays[size], arrays[at], arrays[paths]], [false, true, true, false, true, true]);
+}
+
+#[test]
+fn the_instancer_places_prototypes_at_scattered_places_up_along_the_surface() {
+    let geo = small_and_big();
+    let refs = vec![vec!["/assets/pine".to_string(), "/assets/rock".into()]];
+    let mut g = Graph::default();
+    let at = g.add(Op::Scatter { seed: 2, weight: String::new() }, vec![Input::Value(Value::Int(500))]);
+    let protos = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let inst = g.add(Op::Instancer { name: "scatter".into(), seed: 5 }, vec![
+        wire(at), wire(protos), Input::Value(Value::Int(-1)), Input::Value(Value::Bool(true)),
+        Input::Value(Value::Vec3([0.0, 360.0, 0.0])), Input::Value(Value::Float(0.5)), Input::Value(Value::Float(2.0)),
+    ]);
+    g.add(Op::Root { context: Context::Object }, vec![wire(inst)]);
+    let ran = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs);
+    let i = &ran.instances[0];
+    assert_eq!((i.name.as_str(), i.positions.len(), i.prototypes.len()), ("scatter", 500, 2));
+    // Both prototypes picked; every one on the ground, scaled in range.
+    assert!(i.proto_indices.contains(&0) && i.proto_indices.contains(&1));
+    assert!(i.positions.iter().all(|p| p[1].abs() < 1e-6));
+    assert!(i.scales.iter().all(|s| (0.5..=2.0).contains(&s[0]) && s[0] == s[1] && s[1] == s[2]));
+    // Up along the face's normal: each instance's +Y is straight up or down.
+    for q in &i.orientations {
+        let up = glam::Quat::from_array(*q) * glam::Vec3::Y;
+        assert!((up.y.abs() - 1.0).abs() < 1e-4, "{up:?}");
+    }
+    // The same seeds, the same instances.
+    assert_eq!(run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs).instances, ran.instances);
+}
+
+#[test]
+fn the_instancer_is_for_object_graphs_and_wants_paths() {
+    let geo = small_and_big();
+    let make = |context: Context, protos_are_paths: bool| {
+        let mut g = Graph::default();
+        let at = g.add(Op::Scatter { seed: 0, weight: String::new() }, vec![Input::Value(Value::Int(5))]);
+        let protos = if protos_are_paths { g.add(Op::GetReference { input: 1, paths: None }, vec![]) } else { at };
+        let inst = g.add(Op::Instancer { name: "i".into(), seed: 0 }, vec![
+            wire(at), wire(protos), Input::Value(Value::Int(-1)), Input::Value(Value::Bool(false)),
+            Input::Value(Value::Vec3([0.0; 3])), Input::Value(Value::Float(1.0)), Input::Value(Value::Float(1.0)),
+        ]);
+        g.add(Op::Root { context }, vec![wire(inst)]);
+        (compile(&g, &geo).err().map(|e| e.node), inst)
+    };
+    let (err, inst) = make(Context::Object, false);
+    assert_eq!(err, Some(inst), "locations are not prototypes");
+    assert!(make(Context::Object, true).0.is_none());
 }

@@ -65,6 +65,20 @@ pub enum Op {
     /// face's, the object's its one value. `P` is the points; `N` the
     /// normals, or the face's own when there are none.
     GetDataAt { name: String },
+    /// Paths on the operator's reference input number `input` (from 1): all
+    /// of them, or (`paths`) those listed that are there, in the list's
+    /// order. An array; none wired, none. (The app turns its rows, which
+    /// may hold patterns, into this list.)
+    GetReference { input: usize, paths: Option<Vec<String>> },
+    /// Make instances: an Execute, run from the root, in an Object graph.
+    /// Inputs: 0 where (an array of locations, or of positions), 1 the
+    /// prototypes (an array of paths), 2 which prototype each takes (an int,
+    /// or an array of them; -1, picked at random), 3 align to the surface
+    /// (a bool: the prototype's up, +Y, along the normal at each location),
+    /// 4 a random turn in degrees about each axis, up to it (a vector), 5
+    /// and 6 the smallest and largest random scale. The same for the same
+    /// seed. `name`: what the instances are called (the prim made for them).
+    Instancer { name: String, seed: u32 },
 }
 
 /// Operations on an array (see `Op::Array`).
@@ -156,6 +170,8 @@ impl Op {
             Op::Random { .. } => Some(3),
             Op::Array(a) => Some(a.arity()),
             Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
+            Op::GetReference { .. } => Some(0),
+            Op::Instancer { .. } => Some(7),
         }
     }
 }

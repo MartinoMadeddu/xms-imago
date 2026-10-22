@@ -14,7 +14,7 @@ use rayon::prelude::*;
 
 use xms_geo::{Attr, Column, Context, Geo, Topology};
 
-use super::compile::{Ins, Plan, Program, Write};
+use super::compile::{InstancerPlan, Ins, Plan, Program, Write};
 use super::graph::{ArrayOp, Math, Reduce};
 use super::types::{Loc, Ty, Value};
 
@@ -33,6 +33,8 @@ pub(crate) enum Reg {
     Vec4(Vec<Vec4>),
     Quat(Vec<Quat>),
     Location(Vec<Loc>),
+    /// Paths: only ever an array, in the uniform program.
+    Token(Vec<Arc<str>>),
 }
 
 impl Reg {
@@ -46,6 +48,7 @@ impl Reg {
             Reg::Vec4(v) => v.len(),
             Reg::Quat(v) => v.len(),
             Reg::Location(v) => v.len(),
+            Reg::Token(v) => v.len(),
         }
     }
 }
@@ -69,6 +72,7 @@ reg_access!(vec3s, Vec3, Vec3);
 reg_access!(vec4s, Vec4, Vec4);
 reg_access!(quats, Quat, Quat);
 reg_access!(locs, Location, Loc);
+reg_access!(tokens, Token, Arc<str>);
 
 fn registers(p: &Program) -> Vec<Reg> {
     p.regs.iter().map(|t| match t {
@@ -80,6 +84,7 @@ fn registers(p: &Program) -> Vec<Reg> {
         Ty::Vec4 => Reg::Vec4(vec![]),
         Ty::Quat => Reg::Quat(vec![]),
         Ty::Location => Reg::Location(vec![]),
+        Ty::Token => Reg::Token(vec![]),
     }).collect()
 }
 
@@ -95,6 +100,7 @@ fn value_at(reg: &Reg, i: usize) -> Value {
         Reg::Vec4(v) => Value::Vec4(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Quat(v) => Value::Quat(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Location(v) => Value::Location(v.get(i).copied().unwrap_or_default()),
+        Reg::Token(_) => unreachable!("a path is never one value: the compiler refuses"),
     }
 }
 
@@ -108,6 +114,7 @@ fn fill(reg: &mut Reg, value: Value, len: usize) {
         Ty::Vec4 => vec4s(reg).resize(len, value.as_vec4()),
         Ty::Quat => quats(reg).resize(len, value.as_quat()),
         Ty::Location => locs(reg).resize(len, value.as_loc()),
+        Ty::Token => unreachable!("a path is never one value: the compiler refuses"),
     }
 }
 
@@ -352,6 +359,7 @@ fn zero(ty: Ty) -> Value {
         Ty::Vec4 => Value::Vec4([0.0; 4]),
         Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
         Ty::Location => Value::Location(Loc::default()),
+        Ty::Token => unreachable!("a path is never one value: the compiler refuses"),
     }
 }
 
@@ -453,7 +461,7 @@ fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> b
                 Vec2(a) => map1(a, vec2s(out), |x| if abs { x.abs() } else { -x }),
                 Vec3(a) => map1(a, vec3s(out), |x| if abs { x.abs() } else { -x }),
                 Vec4(a) => map1(a, vec4s(out), |x| if abs { x.abs() } else { -x }),
-                Bool(_) | Quat(_) | Location(_) => return false,
+                Bool(_) | Quat(_) | Location(_) | Token(_) => return false,
             }
         }
         Math::Sin => match a { Float(a) => map1(a, floats(out), f32::sin), _ => return false },
@@ -527,6 +535,8 @@ struct Env<'a> {
     uniforms: Vec<Reg>,
     /// The geometry, for what reads its topology (scattering, locations).
     geo:      &'a Geo,
+    /// The paths of the primitives on each reference input, from input 1.
+    references: &'a [Vec<String>],
 }
 
 /// Run `program` for elements `start..start + len`.
@@ -579,6 +589,14 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 if let Reg::Location(at) = &regs[loc] { at_location(env.geo, &env.sources[read], at, &mut out); }
                 regs[dst] = out;
             }
+            Ins::Reference { dst, input, ref paths } => {
+                let there = env.references.get(input - 1).map(Vec::as_slice).unwrap_or_default();
+                let out = tokens(&mut regs[dst]);
+                match paths {
+                    None => out.extend(there.iter().map(|p| Arc::from(p.as_str()))),
+                    Some(list) => out.extend(list.iter().filter(|p| there.contains(p)).map(|p| Arc::from(p.as_str()))),
+                }
+            }
             Ins::Array { op, dst, args } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
                 array_op(op, &regs[args[0]], &regs[args[1]], &mut out);
@@ -589,10 +607,66 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
     }
 }
 
+/// Instances an Instancer made: USD's PointInstancer, in the space of the
+/// geometry the graph ran on. Each instance `i` is prototype
+/// `prototypes[proto_indices[i]]` at `positions[i]`, turned by
+/// `orientations[i]` (i, j, k, real) and scaled by `scales[i]`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Instances {
+    pub name:          String,
+    pub prototypes:    Vec<String>,
+    pub proto_indices: Vec<i32>,
+    pub positions:     Vec<[f32; 3]>,
+    pub orientations:  Vec<[f32; 4]>,
+    pub scales:        Vec<[f32; 3]>,
+}
+
+/// What a plan gives: the geometry, and the instances its Instancers made.
+pub struct Ran {
+    pub geo:       Geo,
+    pub instances: Vec<Instances>,
+}
+
+/// An Instancer's instances, from its inputs in the uniform registers.
+fn instances(p: &InstancerPlan, regs: &[Reg]) -> Instances {
+    let positions: Vec<Vec3> = match &regs[p.positions] { Reg::Vec3(v) => v.clone(), _ => vec![] };
+    let normals: Option<&[Vec3]> = p.normals.and_then(|r| match &regs[r] { Reg::Vec3(v) => Some(v.as_slice()), _ => None });
+    let prototypes: Vec<String> = match &regs[p.protos] { Reg::Token(v) => v.iter().map(|t| t.to_string()).collect(), _ => vec![] };
+    let (n, kinds) = (positions.len(), prototypes.len());
+    if kinds == 0 { return Instances { name: p.name.clone(), ..Default::default() }; }
+    let picks: &[i32] = match &regs[p.index] { Reg::Int(v) => v, _ => &[] };
+    let align = matches!(&regs[p.align], Reg::Bool(v) if v.first() == Some(&true));
+    let turn = match &regs[p.turn] { Reg::Vec3(v) => v.first().copied().unwrap_or_default(), _ => Vec3::ZERO };
+    let number = |r: usize| match &regs[r] { Reg::Float(v) => v.first().copied().unwrap_or(1.0), _ => 1.0 };
+    let (smin, smax) = (number(p.scale[0]), number(p.scale[1]));
+    let u = |i: usize, lane: u32| unit(p.seed, i, lane);
+    let mut out = Instances { name: p.name.clone(), prototypes, ..Default::default() };
+    for (i, pos) in positions.iter().enumerate() {
+        // An index per instance, one for all, or -1: picked at random.
+        let pick = picks.get(i).or(picks.first()).copied().unwrap_or(-1);
+        let pick = if pick < 0 { ((u(i, 7) * kinds as f32) as usize).min(kinds - 1) } else { (pick as usize).min(kinds - 1) };
+        // Up (+Y) along the normal, then a random turn in the prototype's
+        // own frame, up to `turn` degrees about each axis, either way.
+        let up = match normals { Some(nrm) if align => Quat::from_rotation_arc(Vec3::Y, nrm[i].try_normalize().unwrap_or(Vec3::Y)), _ => Quat::IDENTITY };
+        let half = turn * 0.5;
+        let spin = Quat::from_euler(glam::EulerRot::XYZ,
+            ((u(i, 1) * 2.0 - 1.0) * half.x).to_radians(), ((u(i, 2) * 2.0 - 1.0) * half.y).to_radians(), ((u(i, 3) * 2.0 - 1.0) * half.z).to_radians());
+        let s = smin + (smax - smin) * u(i, 4);
+        out.proto_indices.push(pick as i32);
+        out.positions.push(pos.to_array());
+        out.orientations.push((up * spin).normalize().to_array());
+        out.scales.push([s; 3]);
+    }
+    debug_assert_eq!(out.positions.len(), n);
+    out
+}
+
 /// Run `plan` over `geo`. `params` gives values to the graph's parameters
-/// by name; those not given take their defaults. The result shares every
-/// column the plan does not set with `geo`.
-pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
+/// by name; those not given take their defaults. `references`: the paths on
+/// each of the operator's reference inputs, from input 1 (what Get
+/// Reference reads). The geometry given back shares every column the plan
+/// does not set with `geo`.
+pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: &[Vec<String>]) -> Ran {
     // How the plan's elements reach each context read: made once per run,
     // shared by the reads of that context.
     let mut maps: HashMap<Context, Arc<Map>> = HashMap::new();
@@ -616,15 +690,16 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
     let params = plan.params.iter()
         .map(|(name, default)| params.get(name).and_then(|v| v.convert(default.ty())).unwrap_or(*default))
         .collect();
-    let mut env = Env { sources, params, uniforms: vec![], geo };
+    let mut env = Env { sources, params, uniforms: vec![], geo, references };
 
     // Once: what does not vary per element.
     let mut uniforms = registers(&plan.uniform);
     exec(&plan.uniform, &mut uniforms, &env, 0, 1, &mut []);
+    let made: Vec<Instances> = plan.instancers.iter().map(|p| instances(p, &uniforms)).collect();
     env.uniforms = uniforms;
 
     let n = geo.count(plan.context);
-    if plan.writes.is_empty() || n == 0 { return geo.clone(); }
+    if plan.writes.is_empty() || n == 0 { return Ran { geo: geo.clone(), instances: made }; }
 
     // The written columns, then each batch's slice of each.
     let mut cols: Vec<Out> = plan.writes.iter().map(|w| match w.ty {
@@ -635,7 +710,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
         Ty::Vec3 => Out::Vec3(vec![[0.0; 3]; n]),
         Ty::Vec4 => Out::Vec4(vec![[0.0; 4]; n]),
         Ty::Quat => Out::Quat(vec![[0.0, 0.0, 0.0, 1.0]; n]),
-        Ty::Location => unreachable!("locations are not written: the compiler refuses"),
+        Ty::Location | Ty::Token => unreachable!("locations and paths are not written: the compiler refuses"),
     }).collect();
     let batches = n.div_ceil(BATCH);
     let mut tasks: Vec<Vec<Slice>> = (0..batches).map(|_| Vec::with_capacity(cols.len())).collect();
@@ -677,7 +752,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>) -> Geo {
         for c in Context::ALL { if c != w.context { out.remove(c, &w.name); } }
         out.set(w.context, &w.name, Attr::new(column, w.role));
     }
-    out
+    Ran { geo: out, instances: made }
 }
 
 /// A column of the plan's elements carried into the context `w` writes:
@@ -698,7 +773,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
         Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Location(_) => unreachable!("locations are not written: the compiler refuses"),
+        Reg::Location(_) | Reg::Token(_) => unreachable!("locations and paths are not written: the compiler refuses"),
     }
 }
 

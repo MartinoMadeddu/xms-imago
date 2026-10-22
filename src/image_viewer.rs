@@ -124,7 +124,7 @@ impl ImageViewerState {
 
 /// The scene the view flag shows, as primitives.
 fn scene(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<Vec<crate::types::Prim>> {
-    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| -> crate::core::geo::Geo {
+    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
     match graph.evaluate_scene(&eval)?.2 {

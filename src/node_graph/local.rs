@@ -176,7 +176,7 @@ impl NodeGraphState {
         &self,
         la: &GraphNode,
         cache: &mut EvalCache,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         match self.local_override(la) {
             Some((src, out, t)) => self.cook_as(src, out, cache, eval_subnet, Some(&t)),
@@ -197,7 +197,7 @@ impl NodeGraphState {
     pub(crate) fn cook_merge_animation(
         &self,
         node: &GraphNode,
-        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<EvalResult> {
         let NodeType::MergeAnimation { match_rate, .. } = node.node_type else { return None };
         let f = self.frame();
@@ -294,7 +294,7 @@ impl NodeGraphState {
 mod tests {
     use super::*;
 
-    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo { m.clone() }
 
     fn centre(g: &NodeGraphState, id: NodeId, f: f64) -> Vec<glam::Vec3> {
         let mut g = g.clone();

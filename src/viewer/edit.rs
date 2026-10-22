@@ -75,7 +75,7 @@ pub fn run(
     tool:     &mut PolyTool,
     drag:     &mut Drag,
 ) -> Overlay {
-    let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: Option<&crate::core::geo::Geo>| {
+    let eval = |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
         subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
     let Some(stage) = modelling::stage(graph, &eval) else { *drag = Drag::Idle; tool.hot = None; return Overlay::default() };

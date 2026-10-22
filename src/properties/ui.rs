@@ -72,8 +72,17 @@ pub fn draw_properties_panel(
         .inner_margin(6.0)
         .show(ui, |ui| {
             if let Some(sid) = nav.current_subnet {
+                // Every prim on each reference input of the operator the
+                // ICE graph is in, from input 1: what Get Reference picks from.
+                let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let references: Vec<Vec<String>> = graph.nodes.iter()
+                    .find(|n| matches!(n.node_type, NodeType::Ice { id, .. } if id == sid))
+                    .map(|n| n.inputs.iter().skip(1).map(|i| i.connected_output
+                        .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
+                        .unwrap_or_default()).collect())
+                    .unwrap_or_default();
                 if let Some(sg) = subnets.get_mut(sid) {
-                    draw_subnet_node_properties(ui, sg);
+                    draw_subnet_node_properties(ui, sg, &references, &io.scene_paths);
                     return;
                 }
             }
@@ -189,7 +198,7 @@ pub fn draw_properties(
         .filter(|n| on_locations || matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::SetAttribute { .. }))
         .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
             graph.eval_packed(src, out, &pass)
         }).unwrap_or_default();
     let prim_paths: Vec<String> = packed_in.iter().map(|p| p.0.clone()).collect();
@@ -200,7 +209,7 @@ pub fn draw_properties(
         graph.nodes.iter().find(|n| n.id == sel_id)
             .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
             .and_then(|(src, out)| {
-                let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+                let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
                 graph.eval_scene_paths(src, out, &pass)
             }).unwrap_or_default()
     } else { vec![] };
@@ -208,7 +217,7 @@ pub fn draw_properties(
     // materials of the scene coming in.
     let (binding_ports, scene_materials) = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::MaterialBinding { .. }) => {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
             graph.binding_inputs(sel_id, &pass)
         }
         _ => (vec![], vec![]),
@@ -218,7 +227,7 @@ pub fn draw_properties(
     // RenderSettings prim.
     let render_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }) => {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: Option<&crate::core::geo::Geo>| m.clone();
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
             graph.eval_render_context(sel_id, &pass)
         }
         _ => Default::default(),
@@ -1938,7 +1947,7 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
 
 /// What an operator's Prims Location tab does with its paths.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TabKind {
+pub(crate) enum TabKind {
     /// The operator works on what a path matches and everything below it.
     Takes,
     /// As Takes, for removing: empty prunes nothing.
@@ -1951,7 +1960,7 @@ enum TabKind {
 
 /// Material Binding's Material column: what each row binds, the material
 /// on each input (its name), and the materials of the scene coming in.
-struct BindColumn<'a> {
+pub(crate) struct BindColumn<'a> {
     to:     &'a mut Vec<crate::core::material::BindTo>,
     inputs: &'a [Option<String>],
     scene:  &'a [String],
@@ -1959,7 +1968,7 @@ struct BindColumn<'a> {
 
 /// The Prims Location tab: the Primitive Locations an operator works on, one
 /// per row, each with how many of the primitives coming in it matches.
-fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], kind: TabKind, mut binds: Option<BindColumn>) {
+pub(crate) fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], kind: TabKind, mut binds: Option<BindColumn>) {
     use crate::core::locations;
     let names = kind == TabKind::Names;
     let prune = kind == TabKind::Prune;
