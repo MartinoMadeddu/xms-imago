@@ -5,7 +5,12 @@ use xms_geo::{Attr, Column, Context, Geo, Role, POINTS};
 
 use super::graph::{wire, ArrayOp, Graph, Input, Math, Op, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
 use super::types::Value;
-use super::{compile, run};
+use super::{compile, run, Reference};
+
+/// Reference inputs holding these paths, and no meshes.
+fn refs_of(paths: Vec<Vec<String>>) -> Vec<Reference> {
+    paths.into_iter().map(|paths| Reference { paths, meshes: vec![] }).collect()
+}
 
 /// A cloud of `n` points along X, with normals up and a per-point float.
 fn cloud(n: usize) -> Geo {
@@ -448,7 +453,7 @@ fn random_orientations_per_point() {
 #[test]
 fn arrays_are_concatenated_in_order() {
     let geo = cloud(1);
-    let refs = vec![vec!["/a".to_string(), "/b".into()], vec!["/c".to_string()]];
+    let refs = refs_of(vec![vec!["/a".to_string(), "/b".into()], vec!["/c".to_string()]]);
     let mut g = Graph::default();
     let one = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
     let two = g.add(Op::GetReference { input: 2, paths: None }, vec![]);
@@ -646,7 +651,7 @@ fn scattering_is_for_the_whole_primitive() {
 #[test]
 fn a_reference_input_gives_its_paths_all_or_those_listed_in_order() {
     let geo = cloud(1);
-    let refs = vec![vec!["/trees/pine_a".to_string(), "/trees/pine_b".into(), "/rocks/boulder".into()]];
+    let refs = refs_of(vec![vec!["/trees/pine_a".to_string(), "/trees/pine_b".into(), "/rocks/boulder".into()]]);
     let listed = |input: usize, paths: Option<Vec<&str>>| {
         let mut g = Graph::default();
         let paths = g.add(Op::GetReference { input, paths: paths.map(|v| v.into_iter().map(String::from).collect()) }, vec![]);
@@ -718,7 +723,7 @@ fn random_orientations_follow_the_normals() {
             wire(turn), Input::Value(Value::Float(1.0)),
         ]);
         g.add(Op::Root { context: Context::Object }, vec![wire(inst)]);
-        run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[vec!["/p".to_string()]]).instances.remove(0)
+        run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &refs_of(vec![vec!["/p".to_string()]])).instances.remove(0)
     };
     let a = make(4);
     assert_eq!(a.orientations.len(), 300);
@@ -733,7 +738,7 @@ fn random_orientations_follow_the_normals() {
 #[test]
 fn the_instancer_makes_usds_point_instancer_from_its_inputs() {
     let geo = small_and_big();
-    let refs = vec![vec!["/assets/pine".to_string(), "/assets/rock".into()]];
+    let refs = refs_of(vec![vec!["/assets/pine".to_string(), "/assets/rock".into()]]);
     let mut g = Graph::default();
     let at = g.add(Op::Scatter { seed: 2, weight: String::new() }, vec![Input::Value(Value::Int(500))]);
     let protos = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
@@ -911,3 +916,109 @@ fn decompose_takes_vectors_apart_one_output_each() {
     assert_eq!(object_value(g, y, "y", &geo).floats().unwrap(), &[5.0]);
 }
 
+
+/// A quad, two metres square, flat at y = 0, centred on the origin, with
+/// a UV per corner.
+fn floor() -> Geo {
+    let mut g = Geo::from_polygons(vec![[-1.0, 0.0, -1.0], [1.0, 0.0, -1.0], [1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]], vec![4], vec![0, 1, 2, 3]);
+    g.set(Context::Corner, "uv", Attr::new(Column::Vec2(Arc::new(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])), Role::TexCoord));
+    g
+}
+
+/// One reference input holding the floor at `/set/floor`, placed at `world`.
+fn floor_input(world: glam::Mat4) -> Vec<Reference> {
+    vec![Reference {
+        paths: vec!["/set".into(), "/set/floor".into()],
+        meshes: vec![super::RefMesh { path: "/set/floor".into(), world, geo: super::RefGeo::ready(Arc::new(floor())) }],
+    }]
+}
+
+/// Each point to the nearest place on the floor: Closest Point on Surface
+/// (the group names the mesh below it), then P read there, in the graph's
+/// space, the floor's placement taken in.
+#[test]
+fn closest_point_on_a_reference_mesh() {
+    let geo = Geo::from_points(vec![[0.25, 3.0, 0.5], [5.0, 1.0, 0.0], [-0.5, -2.0, -0.5]]);
+    let mut g = Graph::default();
+    let paths = g.add(Op::GetReference { input: 1, paths: Some(vec!["/set".into()]) }, vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))]);
+    let at = g.add(Op::GetDataAt { name: "P".into() }, vec![wire(near)]);
+    let far = g.add(Op::set("far"), vec![Input::Wire { node: near, output: super::CLOSEST_DISTANCE }]);
+    let set = g.add(Op::set("P"), vec![wire(at)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set), wire(far)]);
+    let refs = floor_input(glam::Mat4::from_translation(glam::Vec3::new(0.0, -1.0, 0.0)));
+    let plan = super::compile_with(&g, &geo, &refs).unwrap();
+    let out = run(&plan, &geo, &no_params(), &refs).geo;
+    let want = [[0.25, -1.0, 0.5], [1.0, -1.0, 0.0], [-0.5, -1.0, -0.5]];
+    for (got, want) in points(&out).iter().zip(want) {
+        for k in 0..3 { assert!((got[k] - want[k]).abs() < 1e-5, "{got:?} vs {want:?}"); }
+    }
+    let far = out.attr(Context::Point, "far").and_then(|a| a.column.floats()).unwrap();
+    assert!((far[0] - 4.0).abs() < 1e-5 && (far[1] - (16.0f32 + 4.0).sqrt()).abs() < 1e-5 && (far[2] - 1.0).abs() < 1e-5, "{far:?}");
+
+    // The graph's primitive placed too: the floor is taken into its space.
+    let moved = super::run_in(&plan, &geo, glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0, 0.0)), &no_params(), &refs).geo;
+    assert!((points(&moved)[0][1] - -3.0).abs() < 1e-5, "{:?}", points(&moved)[0]);
+}
+
+/// Within a radius only: beyond it, a sample of nothing (P reads zero) at
+/// the radius; the UVs there blended from the corners.
+#[test]
+fn closest_point_within_a_radius_and_uvs_there() {
+    let geo = Geo::from_points(vec![[0.0, 0.5, 0.0], [0.0, 5.0, 0.0]]);
+    let mut g = Graph::default();
+    let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(1.0))]);
+    let uv = g.add(Op::GetDataAt { name: "uv".into() }, vec![wire(near)]);
+    let set_uv = g.add(Op::set("st"), vec![wire(uv)]);
+    let far = g.add(Op::set("far"), vec![Input::Wire { node: near, output: super::CLOSEST_DISTANCE }]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set_uv), wire(far)]);
+    let refs = floor_input(glam::Mat4::IDENTITY);
+    let out = run(&super::compile_with(&g, &geo, &refs).unwrap(), &geo, &no_params(), &refs).geo;
+    let st = out.attr(Context::Point, "st").and_then(|a| a.column.vec2s()).unwrap();
+    assert!((st[0][0] - 0.5).abs() < 1e-5 && (st[0][1] - 0.5).abs() < 1e-5, "{st:?}");
+    assert_eq!(st[1], [0.0, 0.0], "nothing within the radius: zero");
+    let far = out.attr(Context::Point, "far").and_then(|a| a.column.floats()).unwrap();
+    assert_eq!(far[1], 1.0);
+}
+
+/// Get Array Data at Samples: the face the sample is on, its points kept
+/// as a list (four for the quad), their positions averaged back to its
+/// middle; a sample of nothing gives an empty list.
+#[test]
+fn array_data_at_samples() {
+    let geo = Geo::from_points(vec![[0.3, 1.0, 0.2]]);
+    let mut g = Graph::default();
+    let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))]);
+    let ids = g.add(Op::GetArrayDataAt { name: "ptIndices".into() }, vec![wire(near)]);
+    let n = g.add(Op::Array(ArrayOp::Size), vec![wire(ids)]);
+    let pts = g.add(Op::GetArrayDataAt { name: "P".into() }, vec![wire(near)]);
+    let mid = g.add(Op::Array(ArrayOp::Average), vec![wire(pts)]);
+    let set_n = g.add(Op::set("n"), vec![wire(n)]);
+    let set_mid = g.add(Op::set("mid"), vec![wire(mid)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set_n), wire(set_mid)]);
+    let refs = floor_input(glam::Mat4::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)));
+    let out = run(&super::compile_with(&g, &geo, &refs).unwrap(), &geo, &no_params(), &refs).geo;
+    assert_eq!(out.attr(Context::Point, "n").and_then(|a| a.column.ints()).unwrap(), &[4]);
+    let mid = out.attr(Context::Point, "mid").and_then(|a| a.column.vec3s()).unwrap()[0];
+    assert!((mid[0] - 1.0).abs() < 1e-5 && mid[1].abs() < 1e-5 && mid[2].abs() < 1e-5, "{mid:?}");
+}
+
+/// What it does not take: paths that are not Get Reference's, an origin
+/// that is not a vector.
+#[test]
+fn closest_point_says_what_it_takes() {
+    let geo = Geo::from_points(vec![[0.0; 3]]);
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(Op::ClosestPoint, vec![wire(p), wire(p), Input::Value(Value::Float(0.0))]);
+    let at = g.add(Op::GetDataAt { name: "P".into() }, vec![wire(near)]);
+    let set = g.add(Op::set("P"), vec![wire(at)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
+    let e = compile(&g, &geo).unwrap_err();
+    assert!(e.message.contains("Get Reference"), "{}", e.message);
+}

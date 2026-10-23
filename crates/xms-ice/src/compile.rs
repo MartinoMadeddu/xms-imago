@@ -15,7 +15,8 @@ use std::collections::{HashMap, HashSet};
 use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
-use super::graph::{ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Reduce, SCATTER_NORMALS, SCATTER_SAMPLES};
+use super::graph::{ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Reduce, CLOSEST_DISTANCE, SCATTER_NORMALS, SCATTER_SAMPLES};
+use super::surface::Reference;
 use super::types::{Ty, Value};
 
 /// A plan: what to read, the two programs, what to write. Made once per
@@ -32,6 +33,9 @@ pub struct Plan {
     pub(crate) writes:  Vec<Write>,
     /// Instancers, made from uniform registers once the plan has run.
     pub(crate) instancers: Vec<InstancerPlan>,
+    /// Surfaces Closest Point on Surface searches: the uniform register of
+    /// each one's paths (Get Reference's), made into a BVH when first run.
+    pub(crate) surfaces: Vec<usize>,
 }
 
 /// An Instancer as the plan runs it: the uniform registers holding its
@@ -77,6 +81,12 @@ pub(crate) struct Read {
     /// outputs), not element by element: no mapping between contexts is
     /// made for it.
     pub at_location: bool,
+    /// Read at samples of a surface, mesh by mesh: of the graph's own
+    /// geometry (`Some(None)`), or of surface `k` (`Some(Some(k))`): by
+    /// Get Data at Samples on Closest Point's samples, and by Get Array
+    /// Data at Samples. `name` is then the name as given (each mesh finds
+    /// its own column).
+    pub sampled: Option<Option<usize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +140,17 @@ pub(crate) enum Ins {
     Scatter { dst: usize, seed: u32, count: usize, weight: Option<usize> },
     /// Read number `read` at the surface samples in register `loc`.
     AtLocation { dst: usize, read: usize, loc: usize },
+    /// The samples of surface `surface` nearest the positions in `origin`,
+    /// within the distances in `radius` (0: anywhere), into `dst`, and how
+    /// far each is into `dist`.
+    Closest { dst: usize, dist: usize, surface: usize, origin: usize, radius: usize },
+    /// Read number `read` (a `sampled` one) at the samples in `loc`, on
+    /// surface `surface` (`None`: the graph's own geometry).
+    AtSurface { dst: usize, read: usize, loc: usize, surface: Option<usize> },
+    /// Read number `read` as lists at the samples in `loc`: the values of
+    /// the face each is on (its points', its corners'). `flat`: one sample,
+    /// its list as an array.
+    ListAt { dst: usize, read: usize, loc: usize, surface: Option<usize>, flat: bool },
     /// Random rotations up along the normals in `args[0]`, turned at random
     /// up to `args[1]` degrees: one per element, or, when `array`, as many
     /// as the normals (an array) or `args[2]` (a count; `NO_COUNT`, as many
@@ -154,13 +175,23 @@ fn error<T>(node: usize, message: impl Into<String>) -> Result<T, CompileError> 
     Err(CompileError { node, message: message.into() })
 }
 
+/// What a list per element holds the items of, for lists to meet in maths
+/// only when they are as long as each other, element by element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ListOf {
+    /// What each element touches in a context (Get Array Data).
+    Touch(Context),
+    /// The face of each sample in a register (Get Array Data at Samples).
+    Face(usize),
+}
+
 /// The name of an attribute's column: ICE's `P` is the points.
 fn column_name(name: &str) -> &str { if name == "P" { POINTS } else { name } }
 
 /// The column an attribute name reads in `ctx`: the name itself, else the
 /// short names ICE and Houdini use (`P` the points, `N` the normals, `uv`
 /// the first texture coordinates).
-fn column_in<'a>(geo: &'a Geo, ctx: Context, name: &'a str) -> &'a str {
+pub(crate) fn column_in<'a>(geo: &'a Geo, ctx: Context, name: &'a str) -> &'a str {
     if geo.attr(ctx, name).is_some() { return name; }
     match name {
         "P" => POINTS,
@@ -260,9 +291,12 @@ pub(crate) const NO_COUNT: usize = usize::MAX;
 struct Val {
     reg: usize, uniform: bool, ty: Ty, array: bool,
     /// A list per element (`array` and not `uniform`, from Get Array Data):
-    /// the context its items come from. Lists of one context have the same
-    /// lengths, element by element, and meet in maths.
-    of: Option<Context>,
+    /// what its items are. Lists of one kind have the same lengths, element
+    /// by element, and meet in maths.
+    of: Option<ListOf>,
+    /// Surface samples: the surface they are on (`plan.surfaces`), `None`
+    /// for the graph's own geometry.
+    surface: Option<usize>,
 }
 
 impl Val {
@@ -278,6 +312,9 @@ struct Lower<'a> {
     done:      HashMap<usize, Val>,
     /// Other outputs already lowered (Scatter's normals and samples' reads).
     outs:      HashMap<(usize, usize), Val>,
+    /// The reference inputs: their meshes, for the types of what is read
+    /// at their samples.
+    refs:      &'a [Reference],
     /// Nodes being lowered: meeting one again is a cycle.
     visiting:  HashSet<usize>,
     /// Batch registers holding a uniform register, so each is broadcast once.
@@ -295,7 +332,14 @@ impl Lower<'_> {
         let reg = p.regs.len();
         p.regs.push(ty);
         p.code.push(make(reg));
-        Val { reg, uniform, ty, array: false, of: None }
+        Val { reg, uniform, ty, array: false, of: None, surface: None }
+    }
+
+    /// A register of `ty`, filled by an instruction that fills others too.
+    fn alloc(&mut self, uniform: bool, ty: Ty) -> usize {
+        let p = if uniform { &mut self.plan.uniform } else { &mut self.plan.batch };
+        p.regs.push(ty);
+        p.regs.len() - 1
     }
 
     /// `v` in a batch register. Never an array: the compiler checks before.
@@ -320,6 +364,11 @@ impl Lower<'_> {
         match graph.nodes.get(node).map(|n| &n.op) {
             // Lowered once, every output kept (in `outs`).
             Some(Op::Decompose(_)) => {
+                self.value(node)?;
+                return self.outs.get(&(node, output)).copied().ok_or(CompileError { node, message: format!("No output {output}") });
+            }
+            // Its samples are its value; its distances kept in `outs`.
+            Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => {
                 self.value(node)?;
                 return self.outs.get(&(node, output)).copied().ok_or(CompileError { node, message: format!("No output {output}") });
             }
@@ -373,6 +422,8 @@ impl Lower<'_> {
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
             Op::Concat => self.concat(node)?,
             Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
+            Op::ClosestPoint => self.closest(node)?,
+            Op::GetArrayDataAt { name } => self.array_at(node, name)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
                 if *input == 0 { return error(node, "Reference inputs are numbered from 1"); }
@@ -430,7 +481,7 @@ impl Lower<'_> {
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
-                self.plan.reads.push(Read { name: column.to_string(), context: attr_context, reduce, derived: found.derived, at_location: false });
+                self.plan.reads.push(Read { name: column.to_string(), context: attr_context, reduce, derived: found.derived, at_location: false, sampled: None });
                 self.reads.insert(key, self.plan.reads.len() - 1);
                 self.plan.reads.len() - 1
             }
@@ -486,7 +537,7 @@ impl Lower<'_> {
                 return error(node, "An Object array and a list per element do not meet");
             }
             if vals.iter().any(|v| v.is_list() && v.of != Some(of)) {
-                return error(node, "Lists from two contexts do not meet: their lengths differ element by element (a face's points and the faces around a point)");
+                return error(node, "Lists of two kinds do not meet: their lengths differ element by element (a face's points and the faces around a point; a sample's face and an element's own)");
             }
         } else if array && !uniform {
             return error(node, "An array meets per-element values: arrays work in the graph's one-value part (an Object graph) for now");
@@ -634,7 +685,7 @@ impl Lower<'_> {
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
-                self.plan.reads.push(Read { name: column, context: from, reduce: Reduce::Average, derived: found.derived, at_location: false });
+                self.plan.reads.push(Read { name: column, context: from, reduce: Reduce::Average, derived: found.derived, at_location: false, sampled: None });
                 self.reads.insert(key, self.plan.reads.len() - 1);
                 self.plan.reads.len() - 1
             }
@@ -642,7 +693,7 @@ impl Lower<'_> {
         let flat = context == Context::Object;
         let mut v = self.emit(flat, ty, |dst| Ins::LoadList { dst, read, flat });
         v.array = true;
-        if !flat { v.of = Some(from); }
+        if !flat { v.of = Some(ListOf::Touch(from)); }
         Ok(v)
     }
 
@@ -651,7 +702,7 @@ impl Lower<'_> {
         let column = if derived { name.to_string() } else { column_in(self.geo, ctx, name).to_string() };
         let key = format!("@{ctx:?}/{column}");
         if let Some(&r) = self.reads.get(&key) { return r; }
-        self.plan.reads.push(Read { name: column, context: ctx, reduce: Reduce::Average, derived, at_location: true });
+        self.plan.reads.push(Read { name: column, context: ctx, reduce: Reduce::Average, derived, at_location: true, sampled: None });
         self.reads.insert(key, self.plan.reads.len() - 1);
         self.plan.reads.len() - 1
     }
@@ -686,8 +737,15 @@ impl Lower<'_> {
 
     fn at_location(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
         let loc = self.input(node, 0, None)?;
-        if loc.ty != Ty::Sample { return error(node, "Get Data at Samples reads at surface samples (Scatter on Surface's Surface Samples)"); }
+        if loc.ty != Ty::Sample { return error(node, "Get Data at Samples reads at surface samples (Scatter on Surface's, Closest Point on Surface's)"); }
         if name.trim().is_empty() { return error(node, "Get Data at Samples needs the name of the attribute it reads"); }
+        // Samples of reference meshes: read mesh by mesh, in the graph's space.
+        if let Some(s) = loc.surface {
+            let (read, ty) = self.sampled_read(node, name.trim(), Some(s), &[Context::Point, Context::Corner, Context::Face, Context::Object])?;
+            let mut v = self.emit(loc.uniform, ty, |dst| Ins::AtSurface { dst, read, loc: loc.reg, surface: Some(s) });
+            v.array = loc.array;
+            return Ok(v);
+        }
         // Per point first, then per corner, per face, the object's.
         let found = [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
             .find_map(|c| find_in(self.geo, c, name).map(|f| (c, f)));
@@ -698,6 +756,89 @@ impl Lower<'_> {
         let read = self.location_read(ctx, name, found.derived);
         let mut v = self.emit(loc.uniform, ty, |dst| Ins::AtLocation { dst, read, loc: loc.reg });
         v.array = loc.array;
+        Ok(v)
+    }
+
+    /// A read of `name` at samples of a surface (`None`: the graph's own),
+    /// in the first of `contexts` it is in (on the first mesh that has it,
+    /// for a reference surface): the read and its type.
+    fn sampled_read(&mut self, node: usize, name: &str, surface: Option<usize>, contexts: &[Context]) -> Result<(usize, Ty), CompileError> {
+        let found = match surface {
+            None => contexts.iter().find_map(|&c| find_in(self.geo, c, name).map(|f| (c, f))),
+            Some(_) => self.refs.iter().flat_map(|r| &r.meshes)
+                .find_map(|m| { let g = m.geo.get(); contexts.iter().find_map(|&c| find_in(g, c, name).map(|f| (c, f))) }),
+        };
+        let Some((ctx, found)) = found else {
+            let on = if surface.is_some() { " on the reference meshes" } else { "" };
+            return error(node, format!("No attribute '{name}'{on}"));
+        };
+        let Some(ty) = found.ty.filter(|t| *t != Ty::Sample) else {
+            return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)"));
+        };
+        let key = format!("@{surface:?}:{ctx:?}/{name}");
+        let read = match self.reads.get(&key) {
+            Some(&r) => r,
+            None => {
+                self.plan.reads.push(Read { name: name.to_string(), context: ctx, reduce: Reduce::Average, derived: found.derived, at_location: true, sampled: Some(surface) });
+                self.reads.insert(key, self.plan.reads.len() - 1);
+                self.plan.reads.len() - 1
+            }
+        };
+        Ok((read, ty))
+    }
+
+    /// Closest Point on Surface: the samples of the reference meshes
+    /// (input 0, their paths) nearest each origin (input 1), within the
+    /// radius (input 2; 0, anywhere); its second output how far each is.
+    fn closest(&mut self, node: usize) -> Result<Val, CompileError> {
+        let paths = self.input(node, 0, None)?;
+        if paths.ty != Ty::Token || !paths.uniform {
+            return error(node, "The Geometry is the paths of meshes on a reference input: wire Get Reference");
+        }
+        let origin = self.input(node, 1, Some(Ty::Vec3))?;
+        if origin.ty != Ty::Vec3 || origin.is_list() {
+            return error(node, "The Origin is a 3D vector: one per element (P), or an array in an Object graph");
+        }
+        let mut radius = self.input(node, 2, Some(Ty::Float))?;
+        if radius.ty == Ty::Int {
+            let src = radius.reg;
+            radius = self.emit(radius.uniform, Ty::Float, |dst| Ins::ToFloat { dst, src });
+        }
+        if radius.ty != Ty::Float || radius.array {
+            return error(node, "The Radius is one number, for all or per element; 0 searches without a limit");
+        }
+        let uniform = origin.uniform && radius.uniform;
+        if origin.array && !uniform { return error(node, "An array of origins takes one radius for all"); }
+        let surface = self.plan.surfaces.len();
+        self.plan.surfaces.push(paths.reg);
+        let (o, r) = if uniform { (origin.reg, radius.reg) } else { (self.varying(origin), self.varying(radius)) };
+        let dist = self.alloc(uniform, Ty::Float);
+        let mut v = self.emit(uniform, Ty::Sample, |dst| Ins::Closest { dst, dist, surface, origin: o, radius: r });
+        v.array = origin.array;
+        v.surface = Some(surface);
+        self.outs.insert((node, CLOSEST_DISTANCE), Val { reg: dist, uniform, ty: Ty::Float, array: origin.array, of: None, surface: None });
+        Ok(v)
+    }
+
+    /// Get Array Data at Samples: at each sample, the values of the face it
+    /// is on, kept as a list: its points' positions (P), their numbers
+    /// (ptIndices), its corners' UVs. One sample per element gives a list
+    /// per element; one sample in all, an array.
+    fn array_at(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
+        let loc = self.input(node, 0, None)?;
+        if loc.ty != Ty::Sample { return error(node, "Get Array Data at Samples reads at surface samples (Closest Point on Surface's)"); }
+        if loc.array { return error(node, "Get Array Data at Samples reads at one sample per element (Closest Point's, per point): an array of samples would give a list per sample, not yet"); }
+        let (name, contexts): (&str, &[Context]) = match name.trim() {
+            "ptIndices" => ("ptIndex", &[Context::Point]),
+            "" => return error(node, "Get Array Data at Samples needs the name of the attribute it reads"),
+            n => (n, &[Context::Point, Context::Corner, Context::Face, Context::Object]),
+        };
+        let (read, ty) = self.sampled_read(node, name, loc.surface, contexts)?;
+        let flat = loc.uniform;
+        let surface = loc.surface;
+        let mut v = self.emit(flat, ty, |dst| Ins::ListAt { dst, read, loc: loc.reg, surface, flat });
+        v.array = true;
+        if !flat { v.of = Some(ListOf::Face(loc.reg)); }
         Ok(v)
     }
 
@@ -713,12 +854,17 @@ impl Lower<'_> {
                 return error(node, "The element's index is an int, one for all or one per element");
             }
             let b = if op == ArrayOp::Element { self.varying(b) } else { a.reg };
-            return Ok(self.emit(false, ty, |dst| Ins::Array { op, dst, args: [a.reg, b] }));
+            let mut v = self.emit(false, ty, |dst| Ins::Array { op, dst, args: [a.reg, b] });
+            v.surface = a.surface;
+            return Ok(v);
         }
         if op == ArrayOp::Element && (b.ty != Ty::Int || !b.uniform || b.array) {
             return error(node, "The element's index is one int");
         }
-        Ok(self.emit(true, ty, |dst| Ins::Array { op, dst, args: [a.reg, b.reg] }))
+        // A sample picked out stays on its surface.
+        let mut v = self.emit(true, ty, |dst| Ins::Array { op, dst, args: [a.reg, b.reg] });
+        v.surface = a.surface;
+        Ok(v)
     }
 
     /// Random Orientation: a rotation per element, or arrays of them (as
@@ -775,7 +921,7 @@ impl Lower<'_> {
         }
         p.code.push(Ins::Decompose { op, dsts, src: v.reg });
         for (k, (_, ty)) in op.outputs().iter().enumerate() {
-            self.outs.insert((node, k), Val { reg: dsts[k], uniform: v.uniform, ty: *ty, array: v.array, of: None });
+            self.outs.insert((node, k), Val { reg: dsts[k], uniform: v.uniform, ty: *ty, array: v.array, of: None, surface: None });
         }
         Ok(self.outs[&(node, 0)])
     }
@@ -795,9 +941,14 @@ impl Lower<'_> {
         if parts.iter().any(|v| !v.uniform) {
             return error(node, "Concatenate Arrays joins arrays, in the graph's one-value part (an Object graph): per-element values are not arrays");
         }
+        // Samples join samples of the same surface.
+        if parts.iter().any(|v| v.surface != first.surface) {
+            return error(node, "Concatenate Arrays joins samples of one surface: these are of two");
+        }
         let srcs: Vec<usize> = parts.iter().map(|v| v.reg).collect();
         let mut v = self.emit(true, first.ty, |dst| Ins::Concat { dst, srcs });
         v.array = true;
+        v.surface = first.surface;
         Ok(v)
     }
 
@@ -898,13 +1049,19 @@ impl Lower<'_> {
 /// Compile `graph` for running on geometry laid out like `geo` (the same
 /// attributes, of the same types). Its root is the node with `Op::Root`.
 pub fn compile(graph: &Graph, geo: &Geo) -> Result<Plan, CompileError> {
+    compile_with(graph, geo, &[])
+}
+
+/// `compile`, with the operator's reference inputs: what is read at their
+/// meshes' samples is typed by them.
+pub fn compile_with(graph: &Graph, geo: &Geo, refs: &[Reference]) -> Result<Plan, CompileError> {
     let Some(root) = graph.nodes.iter().position(|n| matches!(n.op, Op::Root { .. })) else {
         return error(0, "The graph has no root");
     };
     let Op::Root { context } = graph.nodes[root].op else { unreachable!() };
     let mut l = Lower {
-        graph, geo,
-        plan: Plan { context, reads: vec![], params: vec![], uniform: Program::default(), batch: Program::default(), writes: vec![], instancers: vec![] },
+        graph, geo, refs,
+        plan: Plan { context, reads: vec![], params: vec![], uniform: Program::default(), batch: Program::default(), writes: vec![], instancers: vec![], surfaces: vec![] },
         done: HashMap::new(), outs: HashMap::new(), visiting: HashSet::new(), broadcast: HashMap::new(),
         reads: HashMap::new(), written: HashMap::new(), set: HashSet::new(),
     };
@@ -990,6 +1147,15 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         }
         // Its samples; its positions and normals by `wire_ty`.
         Op::Scatter { .. } => Some(Ty::Sample),
+        // Its samples; its distances by `wire_ty`.
+        Op::ClosestPoint => Some(Ty::Sample),
+        // Of the graph's own geometry when it has it; a reference mesh's is
+        // known when the graph runs.
+        Op::GetArrayDataAt { name } => {
+            let name = if name.trim() == "ptIndices" { "ptIndex" } else { name.trim() };
+            [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
+                .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty)
+        }
         Op::GetArrayData { name, context: from } => {
             let (name, from) = match (name.trim(), from) {
                 ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
@@ -1026,6 +1192,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
 fn wire_ty(graph: &Graph, geo: &Geo, context: Context, node: usize, output: usize, memo: &mut Vec<Option<Option<Ty>>>, depth: usize) -> Option<Ty> {
     match graph.nodes.get(node).map(|n| &n.op) {
         Some(Op::Scatter { .. }) if output != SCATTER_SAMPLES => Some(Ty::Vec3),
+        Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => Some(Ty::Float),
         Some(Op::Decompose(d)) => d.outputs().get(output).map(|o| o.1),
         _ => type_of(graph, geo, context, node, memo, depth),
     }
@@ -1047,7 +1214,12 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
     memo[node] = Some(false);
     let n = &graph.nodes[node];
     let a = match &n.op {
-        Op::Scatter { .. } | Op::GetReference { .. } | Op::Concat | Op::GetArrayData { .. } => true,
+        Op::Scatter { .. } | Op::GetReference { .. } | Op::Concat | Op::GetArrayData { .. } | Op::GetArrayDataAt { .. } => true,
+        // As its origins: an array of them, an array of samples.
+        Op::ClosestPoint => match n.inputs.get(1) {
+            Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),
+            _ => false,
+        },
         // A count, a seed per element of an array; Random Orientation's
         // normals as an array too.
         Op::Random { .. } | Op::RandomOrientation { .. } => {

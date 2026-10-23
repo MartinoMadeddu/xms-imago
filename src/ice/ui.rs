@@ -101,6 +101,8 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::Scatter { seed, weight } if weight.trim().is_empty() => Some(format!("seed {seed}")),
         IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
         IceGraphNodeType::GetDataAt { name } => Some(format!("self.{name} at samples")),
+        IceGraphNodeType::GetArrayDataAt { name } => Some(format!("{name}[] at samples")),
+        IceGraphNodeType::ClosestPoint => None,
         IceGraphNodeType::GetArrayData { name, context: Some(c) } => Some(format!("{}.{name}[]", context_word(*c))),
         IceGraphNodeType::GetArrayData { name, context: None } => Some(format!("{name}[]")),
         IceGraphNodeType::RandomOrientation { seed } => Some(format!("seed {seed}")),
@@ -197,9 +199,10 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. }
             | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat | IceGraphNodeType::Compose { .. }
             | IceGraphNodeType::Decompose { .. } => pal::GREEN(),
-        IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
-        // The Geometry category: what makes geometry.
-        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } => pal::ORANGE(),
+        IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. }
+            | IceGraphNodeType::GetArrayDataAt { .. } => pal::BLUE(),
+        // The Geometry category: what makes or queries geometry.
+        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } | IceGraphNodeType::ClosestPoint => pal::ORANGE(),
     }
 }
 
@@ -339,7 +342,10 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
                 resync = true;
             }
         }),
-        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => {}
+        IceGraphNodeType::GetArrayDataAt { name } => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("What each sample reads of the face it is on, kept as a list: P its points' positions, ptIndices their numbers, uv its corners'; a face's own attribute, a list of one"), name, "P");
+        }),
+        IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat | IceGraphNodeType::ClosestPoint => {}
     }
     // Compose's and Decompose's ports follow what they make or take apart:
     // made again, wires kept by place.
@@ -648,7 +654,9 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there and the surface samples, each an array"),
         ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item"),
-        ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at surface samples (Scatter on Surface's third output): P, N, UVs or any other, blended across the surface"),
+        ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at surface samples (Scatter on Surface's, Closest Point on Surface's): P, N, UVs or any other, blended across the surface, in the graph's space"),
+        ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): surface samples to read with Get Data at Samples, and how far each is. For deformers: shrink-wrap, stick to a body, blend by distance"),
+        ("Data Access", IceGraphNodeType::GetArrayDataAt { name: "P".into() }, "Read, at each surface sample, the values of the face it is on as a list: its points' positions (P), their numbers (ptIndices), its corners' UVs. Array Size, Select in Array, Sum and Average make one value; maths works item by item"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),

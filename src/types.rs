@@ -625,6 +625,13 @@ pub enum IceGraphNodeType {
     /// Get Data at Samples: an attribute read at surface samples (see
     /// `xms_ice::Op::GetDataAt`).
     GetDataAt { name: String },
+    /// Closest Point on Surface: the nearest places on reference meshes
+    /// (Geometry, Get Reference's paths) to each Origin, within a Radius,
+    /// and how far each is (see `xms_ice::Op::ClosestPoint`).
+    ClosestPoint,
+    /// Get Array Data at Samples: at each sample, the values of the face
+    /// it is on, kept as a list (see `xms_ice::Op::GetArrayDataAt`).
+    GetArrayDataAt { name: String },
     /// Random rotations up along normals, one per element or an array (see
     /// `xms_ice::Op::RandomOrientation`).
     RandomOrientation { seed: u32 },
@@ -695,6 +702,8 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
         IceGraphNodeType::GetDataAt { .. } => "Get Data at Samples",
+        IceGraphNodeType::ClosestPoint => "Closest Point on Surface",
+        IceGraphNodeType::GetArrayDataAt { .. } => "Get Array Data at Samples",
         IceGraphNodeType::GetArrayData { .. } => "Get Array Data",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::Concat => "Concatenate Arrays",
@@ -721,6 +730,8 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "⚂",
         IceGraphNodeType::Scatter { .. } => "⁘",
         IceGraphNodeType::GetDataAt { .. } => "▶",
+        IceGraphNodeType::ClosestPoint => "⌖",
+        IceGraphNodeType::GetArrayDataAt { .. } => "▶",
         IceGraphNodeType::GetArrayData { .. } => "▶",
         IceGraphNodeType::RandomOrientation { .. } => "⟳",
         IceGraphNodeType::Concat => "⧺",

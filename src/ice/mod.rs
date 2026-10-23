@@ -18,10 +18,16 @@ use crate::core::geo::{Context, Geo};
 use crate::types::{ConnectionId, IceGraphId, IceGraphNodeType, NodeId};
 
 /// What one of the ICE operator's reference inputs brings into its graph:
-/// every prim of the scene wired there, by path (Get Reference lists them).
-pub type Reference = Vec<String>;
+/// every prim of the scene wired there, by path (Get Reference lists them),
+/// and the meshes among them, where they are in the world (Closest Point
+/// on Surface searches them).
+pub type Reference = xms_ice::Reference;
 
 thread_local! {
+    /// Where the primitive the next graph runs on is in the world: the
+    /// reference meshes are taken into its space. Set by the ICE operator
+    /// before each primitive (`set_space`), taken by `evaluate`.
+    static SPACE: std::cell::Cell<glam::Mat4> = const { std::cell::Cell::new(glam::Mat4::IDENTITY) };
     /// What the Instancers of the last graph run on this thread made. The
     /// evaluator's type gives back geometry only; the ICE operator, which
     /// runs a graph and then turns its instances into prims, takes them
@@ -34,6 +40,11 @@ thread_local! {
 /// Each with the draw mode its Instancer gives its prototypes.
 pub fn take_instances() -> Vec<(xms_ice::Instances, crate::types::DrawMode)> {
     INSTANCES.with(|i| std::mem::take(&mut *i.borrow_mut()))
+}
+
+/// The next graph run on this thread runs on a primitive at `world`.
+pub fn set_space(world: glam::Mat4) {
+    SPACE.with(|s| s.set(world));
 }
 
 #[derive(Default)]
@@ -239,6 +250,14 @@ impl IceGraph {
                 vec![output("Positions", "Any"), output("Normals", "Any"), output("Surface Samples", "Any")],
             ),
             IceGraphNodeType::GetDataAt { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) }], vec![output("Value", "Any")]),
+            IceGraphNodeType::GetArrayDataAt { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) }], vec![output("Array", "Any")]),
+            // Outputs in `xms_ice::CLOSEST_*`'s order. The Origin, the
+            // points', is wired; a radius of 0: anywhere.
+            IceGraphNodeType::ClosestPoint => (vec![
+                IceGraphInputSocket { value: None, ..input("Geometry", 0.0) },
+                IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Origin", 0.0) },
+                input("Radius", 0.0),
+            ], vec![output("Surface Samples", "Any"), output("Distance", "Any")]),
             // Normals +Y (none) and a random turn about it, when not wired;
             // a count of 0, one per element (or per normal of an array).
             IceGraphNodeType::RandomOrientation { .. } => (vec![
@@ -378,6 +397,8 @@ impl IceGraph {
                 IceGraphNodeType::Decompose { op } => Op::Decompose(*op),
                 IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
                 IceGraphNodeType::GetDataAt { name } => Op::GetDataAt { name: name.clone() },
+                IceGraphNodeType::ClosestPoint => Op::ClosestPoint,
+                IceGraphNodeType::GetArrayDataAt { name } => Op::GetArrayDataAt { name: name.clone() },
                 IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData { name: name.clone(), context: *context },
                 IceGraphNodeType::RandomOrientation { seed } => Op::RandomOrientation { seed: *seed },
                 IceGraphNodeType::Concat => Op::Concat,
@@ -497,6 +518,8 @@ impl IceGraph {
                 IceGraphNodeType::Constant { value } => Some(value.ty()),
                 // Positions and normals, then the samples.
                 IceGraphNodeType::Scatter { .. } => Some(if output == xms_ice::SCATTER_SAMPLES { xms_ice::Ty::Sample } else { xms_ice::Ty::Vec3 }),
+                // The samples, then the distances.
+                IceGraphNodeType::ClosestPoint => Some(if output == xms_ice::CLOSEST_DISTANCE { xms_ice::Ty::Float } else { xms_ice::Ty::Sample }),
                 // Each part its own type, whatever comes in.
                 IceGraphNodeType::Decompose { op } => op.outputs().get(output).map(|o| o.1),
                 _ => self.types.lock().ok()?.get(&node).copied(),
@@ -513,7 +536,7 @@ impl IceGraph {
         // on its input each row names, row by row, each once.
         for node in &mut graph.nodes {
             if let Op::GetReference { input, paths: Some(rows) } = &mut node.op {
-                let there = references.get(*input - 1).map(Vec::as_slice).unwrap_or_default();
+                let there = references.get(*input - 1).map(|r| r.paths.as_slice()).unwrap_or_default();
                 let mut named: Vec<String> = vec![];
                 for row in crate::core::locations::rows(rows) {
                     for p in there.iter().filter(|p| crate::core::locations::names(row, p)) {
@@ -525,8 +548,10 @@ impl IceGraph {
         }
         // Kept for the editor: its columns are shared, not copied.
         if let Ok(mut last) = self.last_input.lock() { *last = Some(input.clone()); }
-        let result = xms_ice::compile(&graph, input).map(|plan| {
-            let ran = xms_ice::run(&plan, input, &HashMap::new(), references);
+        // Where the primitive is, once: the next graph starts in place.
+        let space = SPACE.with(|s| s.replace(glam::Mat4::IDENTITY));
+        let result = xms_ice::compile_with(&graph, input, references).map(|plan| {
+            let ran = xms_ice::run_in(&plan, input, space, &HashMap::new(), references);
             // Each with its Instancer's draw mode, found by its path.
             let made = ran.instances.into_iter().map(|i| {
                 let mode = self.nodes.iter().find_map(|n| match &n.node_type {
@@ -733,7 +758,8 @@ mod tests {
         g.add_connection(join, 0, size, 0);
         g.add_connection(size, 0, set, 0);
         g.add_connection(set, 0, root, 0);
-        let refs = vec![vec!["/a".to_string()], vec!["/b".to_string(), "/c".into()]];
+        let refs: Vec<Reference> = [vec!["/a".to_string()], vec!["/b".to_string(), "/c".into()]].into_iter()
+            .map(|paths| Reference { paths, meshes: vec![] }).collect();
         let out = g.evaluate(&Geo::from_points(vec![[0.0; 3]]), &refs);
         assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
         assert_eq!(out.attr(Context::Object, "n").unwrap().column.ints().unwrap(), &[3]);
@@ -776,13 +802,62 @@ mod tests {
         g.add_connection(size, 0, set, 0);
         g.add_connection(set, 0, root, 0);
         let geo = Geo::from_points(vec![[0.0; 3]]);
-        let refs = vec![vec!["/trees/pine".to_string(), "/trees/oak".into(), "/more/pine_2".into()]];
+        let refs = vec![Reference { paths: vec!["/trees/pine".to_string(), "/trees/oak".into(), "/more/pine_2".into()], meshes: vec![] }];
         let out = g.evaluate(&geo, &refs);
         assert_eq!(out.attr(Context::Object, "n").unwrap().column.ints().unwrap(), &[2]);
         // Its output is an array of paths, and says so.
         g.refresh_types();
         assert!(g.output_is_array(paths, 0) && !g.output_is_array(size, 0));
         assert_eq!(g.output_type(paths, 0), Some(xms_ice::Ty::Token));
+    }
+
+    /// A shrink-wrap: per point, Closest Point on Surface on the reference
+    /// input's mesh, then P there. The reference is placed in the world
+    /// and so is the primitive: the points land on the reference where the
+    /// Viewer shows it, in the primitive's own space.
+    #[test]
+    fn the_ice_operator_wraps_points_onto_a_placed_reference_mesh() {
+        use crate::node_graph::NodeGraphState;
+        use crate::types::{EvalResult, NodeType};
+        let mut subnets = IceGraphStore::default();
+        let sid = subnets.create_subnet("Wrap".into());
+        {
+            let g = subnets.get_mut(sid).unwrap();
+            let root = g.root().unwrap();
+            let refs = g.add_node("Get".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
+            let p = g.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
+            let near = g.add_node("Near".into(), IceGraphNodeType::ClosestPoint, egui::pos2(0.0, 0.0));
+            let at = g.add_node("At".into(), IceGraphNodeType::GetDataAt { name: "P".into() }, egui::pos2(0.0, 0.0));
+            let set = g.add_node("Set".into(), IceGraphNodeType::set("P"), egui::pos2(0.0, 0.0));
+            g.add_connection(refs, 0, near, 0);
+            g.add_connection(p, 0, near, 1);
+            g.add_connection(near, 0, at, 0);
+            g.add_connection(at, 0, set, 0);
+            g.add_connection(set, 0, root, 0);
+        }
+        // A small cube, moved up 3; the reference: a big cube, two metres a
+        // side, moved over 10 along X.
+        let mut graph = NodeGraphState::default();
+        let small = graph.add_node("Small".into(), NodeType::cube(0.5), egui::pos2(0.0, 0.0));
+        let up = graph.add_node("Up".into(), NodeType::Transform { translation: glam::Vec3::new(0.0, 3.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 0.0));
+        let big = graph.add_node("Big".into(), NodeType::cube(2.0), egui::pos2(0.0, 0.0));
+        let over = graph.add_node("Over".into(), NodeType::Transform { translation: glam::Vec3::new(10.0, 0.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 0.0));
+        let ice = graph.add_node("ICE".into(), NodeType::Ice { id: sid, name: "Wrap".into(), references: 1 }, egui::pos2(0.0, 0.0));
+        graph.add_connection(small, 0, up, 0);
+        graph.add_connection(big, 0, over, 0);
+        graph.add_connection(up, 0, ice, 0);
+        graph.add_connection(over, 0, ice, 1);
+        let eval = |sid: IceGraphId, mesh: &Geo, refs: &[Reference]| subnets.get(sid).map(|sg| sg.evaluate(mesh, refs)).unwrap_or_else(|| mesh.clone());
+        let Some(EvalResult::Named(prims)) = graph.eval_node_out(ice, 0, &mut HashMap::new(), &eval) else { panic!("prims come out") };
+        assert!(subnets.get(sid).unwrap().error.lock().unwrap().is_none(), "{:?}", subnets.get(sid).unwrap().error.lock().unwrap());
+        let p = &prims[0];
+        let world = p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY);
+        // Every point, in the world, on the big cube: on its faces at x = 9.
+        for q in p.geo.as_ref().unwrap().points() {
+            let w = world.transform_point3(glam::Vec3::from_array(*q));
+            assert!((w.x - 9.0).abs() < 1e-4, "{w}: on the big cube's near face");
+            assert!(w.y.abs() <= 1.0 + 1e-4 && w.z.abs() <= 1.0 + 1e-4, "{w}");
+        }
     }
 
     #[test]

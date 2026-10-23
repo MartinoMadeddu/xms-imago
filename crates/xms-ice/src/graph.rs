@@ -89,6 +89,21 @@ pub enum Op {
     /// face's that face's, the object's its one value. `P` is the points;
     /// `N` the normals, or the face's own when there are none.
     GetDataAt { name: String },
+    /// The nearest place on the meshes of a reference input: input 0 their
+    /// paths (Get Reference; a group names the meshes below it), input 1
+    /// the origin (a 3D vector: per element, P; one; or, in an Object
+    /// graph, an array), input 2 the radius searched within (a number for
+    /// all or per element; 0, anywhere). The meshes are taken into the
+    /// graph's space. Two outputs: 0 the surface samples (`Ty::Sample`),
+    /// for Get Data at Samples and Get Array Data at Samples, which read
+    /// the meshes' attributes there, in the graph's space; 1 how far each
+    /// is. Nothing within the radius: a sample of nothing (it reads as
+    /// zero) at the radius's distance.
+    ClosestPoint,
+    /// At surface samples (input 0, one per element), the values of the
+    /// face each is on, kept as a list: its points' (P, `ptIndices` their
+    /// numbers), its corners' (uv), the face's own (a list of one).
+    GetArrayDataAt { name: String },
     /// Random rotations: each one's +Y turned along input 0 (a normal), then
     /// turned at random in its own frame up to input 1 (a vector of degrees)
     /// about each axis, either way; the same for the same seed. In any
@@ -320,7 +335,8 @@ impl Op {
             Op::Array(a) => Some(a.arity()),
             Op::Compose(c) => Some(c.inputs().len()),
             Op::Decompose(_) => Some(1),
-            Op::Scatter { .. } | Op::GetDataAt { .. } => Some(1),
+            Op::Scatter { .. } | Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => Some(1),
+            Op::ClosestPoint => Some(3),
             Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } | Op::GetArrayData { .. } => Some(0),
             Op::Instancer { .. } => Some(5),
@@ -332,6 +348,10 @@ impl Op {
 pub const SCATTER_POSITIONS: usize = 0;
 pub const SCATTER_NORMALS: usize = 1;
 pub const SCATTER_SAMPLES: usize = 2;
+
+/// Closest Point on Surface's outputs (see `Op::ClosestPoint`).
+pub const CLOSEST_SAMPLES: usize = 0;
+pub const CLOSEST_DISTANCE: usize = 1;
 
 impl Op {
     /// Get Data of an attribute in the graph's own context.

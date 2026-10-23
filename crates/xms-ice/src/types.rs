@@ -13,9 +13,10 @@ pub enum Ty {
     /// A rotation (i, j, k, real), as USD's `quatf`: made from an axis and an
     /// angle or from Euler angles, combined by multiplying, applied to vectors.
     Quat,
-    /// A surface sample: a place on the surface, where Scatter on Surface
-    /// puts points (its third output), read by Get Data at Samples. Not a
-    /// USD type: what reaches USD is positions and normals.
+    /// A surface sample: a place on a surface, where Scatter on Surface
+    /// puts points (its third output) or where Closest Point on Surface
+    /// finds the nearest, read by Get Data at Samples. Not a USD type: what
+    /// reaches USD is positions and normals.
     #[serde(alias = "Location")]
     Sample,
     /// A name or a path: the primitives of a reference input (Get
@@ -25,12 +26,23 @@ pub enum Ty {
 
 /// A surface sample (`Ty::Sample`), a place on a mesh's surface: a face, the three corners of the triangle
 /// of it the place is in (the face's fan from its first corner), and the
-/// place's weights on those corners (they sum to 1).
+/// place's weights on those corners (they sum to 1). `mesh`: which mesh of
+/// the surface it is on (0 for the geometry the graph runs on, Scatter's;
+/// a reference mesh's number for Closest Point on Surface's); `NONE` for a
+/// sample that found nothing, which reads as zero.
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Loc {
     pub face:    u32,
     pub corners: [u32; 3],
     pub weights: [f32; 3],
+    #[serde(default)]
+    pub mesh:    u32,
+}
+
+impl Loc {
+    /// A sample on nothing: nothing was found.
+    pub const NONE: u32 = u32::MAX;
+    pub fn found(&self) -> bool { self.mesh != Loc::NONE }
 }
 
 impl Ty {

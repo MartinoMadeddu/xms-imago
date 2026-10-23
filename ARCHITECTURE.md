@@ -132,7 +132,7 @@ Edges are not a context: they are worked out from the topology (each pair of poi
    - Rayon over batches; tight per-instruction loops that auto-vectorise
    - group masks: only selected elements are iterated
    - an element writes only itself; writes elsewhere go through explicit **merge modes** (set, add, min, max, append), resolved deterministically after each batch
-   - spatial indices built once per evaluation and shared
+   - spatial indices built once per evaluation and shared: Closest Point on Surface's BVH (`xms_ice::spatial`, rray's binned-SAH builder with a point query) over a reference input's meshes (`xms_ice::surface`, taken from the world into the primitive's space: the app passes each reference input's meshes with their world matrices, `Reference`, and the primitive's placement, `run_in`), made the first time a run searches it, shared by every batch
 - **Snippet node** (wrangle-like inline code): compiles to the **same instructions** as nodes, so it's just as fast and uses the same plan.
 - **Promoted parameters,** value watches on wires, per-node timings.
 - **Simulation** (state across frames) comes later, as a separate mode.
