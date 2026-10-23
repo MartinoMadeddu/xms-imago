@@ -97,6 +97,8 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             Value::Vec2(v) => list(v),
             Value::Vec3(v) => list(v),
             Value::Vec4(v) | Value::Quat(v) => list(v),
+            Value::Mat4(m) if *m == glam::Mat4::IDENTITY.to_cols_array() => "identity".into(),
+            Value::Mat4(m) => format!("origin {}", list(&m[12..15])),
             Value::Sample(l) => format!("face {}", l.face),
         }),
         // Across contexts: where from, and how the values become one.
@@ -375,7 +377,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
                 let mut kind = value.ty();
                 if f.choice(&format!("{} type", input.name), None, &mut kind,
                             &[(xms_ice::Ty::Float, "Scalar"), (xms_ice::Ty::Int, "Integer"), (xms_ice::Ty::Vec2, "2D Vector"), (xms_ice::Ty::Vec3, "3D Vector"),
-                              (xms_ice::Ty::Vec4, "4D Vector"), (xms_ice::Ty::Quat, "Rotation"), (xms_ice::Ty::Bool, "Boolean")]) {
+                              (xms_ice::Ty::Vec4, "4D Vector"), (xms_ice::Ty::Quat, "Rotation"), (xms_ice::Ty::Mat4, "Matrix"), (xms_ice::Ty::Bool, "Boolean")]) {
                     *value = match kind {
                         xms_ice::Ty::Int => Value::Int(0),
                         xms_ice::Ty::Vec2 => value.convert(xms_ice::Ty::Vec2).unwrap_or(Value::Vec2([0.0; 2])),
@@ -383,6 +385,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
                         xms_ice::Ty::Vec4 => value.convert(xms_ice::Ty::Vec4).unwrap_or(Value::Vec4([0.0; 4])),
                         // No rotation: (0, 0, 0, 1).
                         xms_ice::Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
+                        xms_ice::Ty::Mat4 => super::identity(),
                         xms_ice::Ty::Bool => Value::Bool(false),
                         _ => value.convert(xms_ice::Ty::Float).unwrap_or(Value::Float(0.0)),
                     };
@@ -404,6 +407,14 @@ fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms
         Value::Vec3(v) => { f.xyz(label, None, v, 0.01, ""); }
         Value::Vec4(v) | Value::Quat(v) => {
             f.row(label, None, |ui| for c in v.iter_mut() { ui.add(egui::DragValue::new(c).speed(0.01)); });
+        }
+        // Its axes and origin, a row each (its columns).
+        Value::Mat4(m) => {
+            for (k, row) in ["X Axis", "Y Axis", "Z Axis", "Origin"].iter().enumerate() {
+                let mut v = [m[k * 4], m[k * 4 + 1], m[k * 4 + 2]];
+                f.xyz(&format!("{label} {row}"), None, &mut v, 0.01, "");
+                m[k * 4..k * 4 + 3].copy_from_slice(&v);
+            }
         }
         // Made by Scatter on Surface, never typed in.
         Value::Sample(_) => {}
@@ -688,6 +699,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: Value::Vec4([0.0; 4]) }, "Four numbers"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Bool(false) }, "True or false"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Quat([0.0, 0.0, 0.0, 1.0]) }, "A rotation (i, j, k, real); none by default"),
+        ("Constants", IceGraphNodeType::Constant { value: super::identity() }, "A matrix: three axes and an origin; the identity by default"),
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there and the surface samples, each an array"),
         ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire surface samples into its Samples to read, at each, the values of the face it is on (its points' P, ptIndices, its corners' uv)"),
@@ -702,8 +714,20 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
     }
     out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"));
+    out.push(("Matrix", IceGraphNodeType::Compose { op: xms_ice::Compose::Matrix }, "A matrix from three axes and an origin: a frame (tangent, normal, bitangent and a position). Its columns are the axes and the origin"));
+    out.push(("Matrix", IceGraphNodeType::Decompose { op: xms_ice::Decompose::Matrix }, "A matrix taken apart into its three axes and its origin"));
     for op in Math::ALL {
-        out.push(("Math", IceGraphNodeType::Math { op }, ""));
+        let about = match op {
+            Math::Distance => "How far apart two positions are",
+            Math::Invert => "A matrix's inverse: from its frame back to where it is from",
+            Math::Transpose => "A matrix's transpose: the inverse of a frame's turn (its axes unit and at right angles), cheaper than inverting",
+            Math::TransformPoint => "A position through a matrix: turned, scaled and moved (into the frame's parent space)",
+            Math::TransformVector => "A direction through a matrix: turned and scaled, not moved",
+            Math::Multiply => "Multiply numbers or vectors; scale a vector; combine two rotations, or two matrices (the right one applies first)",
+            _ => "",
+        };
+        let category = if matches!(op, Math::Invert | Math::Transpose | Math::TransformPoint | Math::TransformVector) { "Matrix" } else { "Math" };
+        out.push((category, IceGraphNodeType::Math { op }, about));
     }
     out
 }
@@ -766,6 +790,7 @@ fn ty_colour(t: Option<xms_ice::Ty>) -> egui::Color32 {
         Some(Ty::Vec2 | Ty::Vec3) => DataType::Vector,
         // Four numbers, and a rotation (a quaternion).
         Some(Ty::Vec4 | Ty::Quat) => DataType::Vector4,
+        Some(Ty::Mat4) => DataType::Matrix,
         Some(Ty::Sample | Ty::Token) => DataType::Other,
         None => DataType::Other,
     }.colour()

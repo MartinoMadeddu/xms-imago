@@ -1022,3 +1022,82 @@ fn closest_point_says_what_it_takes() {
     let e = compile(&g, &geo).unwrap_err();
     assert!(e.message.contains("Get Reference"), "{}", e.message);
 }
+
+/// A frame built by hand at each sample, as a binding deformer builds it:
+/// the triangle's points (`triP`) weighted by `bary` and summed give the
+/// place on the face (the same as P read there); tangent, normal and
+/// bitangent from its edges, composed into a matrix; the point taken into
+/// that frame (the transpose, for its turn) and back gives the point again.
+#[test]
+fn a_frame_from_the_triangle_under_each_point() {
+    let geo = Geo::from_points(vec![[0.3, 0.7, 0.2], [-0.4, 2.0, 0.6]]);
+    let mut g = Graph::default();
+    let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))]);
+    let tri = g.add(Op::GetArrayDataAt { name: "triP".into(), context: None }, vec![wire(near)]);
+    let bary = g.add(Op::GetArrayDataAt { name: "bary".into(), context: None }, vec![wire(near)]);
+    let weighted = g.add(Op::Math(Math::Multiply), vec![wire(tri), wire(bary)]);
+    let origin = g.add(Op::Array(ArrayOp::Sum), vec![wire(weighted)]);
+    let at = g.add(Op::GetDataAt { name: "P".into(), context: None }, vec![wire(near)]);
+    // The edges, from the triangle's points 0, 1 and 2.
+    let pick = |g: &mut Graph, k: i32| g.add(Op::Array(ArrayOp::Element), vec![wire(tri), Input::Value(Value::Int(k))]);
+    let (p0, p1, p2) = (pick(&mut g, 0), pick(&mut g, 1), pick(&mut g, 2));
+    let e1 = g.add(Op::Math(Math::Subtract), vec![wire(p1), wire(p0)]);
+    let e2 = g.add(Op::Math(Math::Subtract), vec![wire(p2), wire(p0)]);
+    let tangent = g.add(Op::Math(Math::Normalize), vec![wire(e1)]);
+    let cross = g.add(Op::Math(Math::Cross), vec![wire(e1), wire(e2)]);
+    let normal = g.add(Op::Math(Math::Normalize), vec![wire(cross)]);
+    let bitangent = g.add(Op::Math(Math::Cross), vec![wire(normal), wire(tangent)]);
+    let frame = g.add(Op::Compose(super::Compose::Matrix), vec![wire(tangent), wire(normal), wire(bitangent), wire(origin)]);
+    // Into the frame: the offset from the origin turned by the transpose.
+    let offset = g.add(Op::Math(Math::Subtract), vec![wire(p), wire(origin)]);
+    let back = g.add(Op::Math(Math::Transpose), vec![wire(frame)]);
+    let local = g.add(Op::Math(Math::TransformVector), vec![wire(back), wire(offset)]);
+    // And out again: through the frame, the point it was.
+    let again = g.add(Op::Math(Math::TransformPoint), vec![wire(frame), wire(local)]);
+    let far = g.add(Op::Math(Math::Distance), vec![wire(again), wire(p)]);
+    let gap = g.add(Op::Math(Math::Distance), vec![wire(origin), wire(at)]);
+    let sets = [("far", far), ("gap", gap), ("local", local), ("frame", frame)].map(|(n, v)| g.add(Op::set(n), vec![wire(v)]));
+    g.add(Op::Root { context: Context::Point }, sets.iter().map(|&s| wire(s)).collect());
+    let refs = floor_input(glam::Mat4::IDENTITY);
+    let out = run(&super::compile_with(&g, &geo, &refs).unwrap(), &geo, &no_params(), &refs).geo;
+    let floats = |n: &str| out.attr(Context::Point, n).and_then(|a| a.column.floats()).unwrap().to_vec();
+    for (k, d) in floats("far").iter().enumerate() { assert!(*d < 1e-5, "point {k} back where it was: {d}"); }
+    for (k, d) in floats("gap").iter().enumerate() { assert!(*d < 1e-5, "point {k}: triP by bary is P there: {d}"); }
+    // Above a flat floor, the local offset is straight up its normal (Y
+    // of the frame): the height, nothing along the tangent or bitangent.
+    let local = out.attr(Context::Point, "local").and_then(|a| a.column.vec3s()).unwrap();
+    assert!((local[0][1].abs() - 0.7).abs() < 1e-5 && local[0][0].abs() < 1e-5 && local[0][2].abs() < 1e-5, "{local:?}");
+    // The frame is written as a matrix attribute, as USD's matrix4d.
+    assert_eq!(out.attr(Context::Point, "frame").map(|a| a.column.len()), Some(2));
+}
+
+/// Matrices on their own: one from axes and an origin moves a point; its
+/// inverse brings it back; two multiply; one read from an attribute.
+#[test]
+fn matrix_maths() {
+    let mut geo = Geo::from_points(vec![[1.0, 0.0, 0.0]]);
+    let m = glam::Mat4::from_translation(glam::Vec3::new(0.0, 5.0, 0.0)).to_cols_array().map(|x| x as f64);
+    geo.set(Context::Point, "xform", Attr::new(Column::Mat4(Arc::new(vec![m])), Role::None));
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    // Turned a quarter about Y (X to -Z), moved up 2.
+    let frame = g.add(Op::Compose(super::Compose::Matrix), vec![
+        Input::Value(Value::Vec3([0.0, 0.0, -1.0])), Input::Value(Value::Vec3([0.0, 1.0, 0.0])),
+        Input::Value(Value::Vec3([1.0, 0.0, 0.0])), Input::Value(Value::Vec3([0.0, 2.0, 0.0]))]);
+    let moved = g.add(Op::Math(Math::TransformPoint), vec![wire(frame), wire(p)]);
+    let inv = g.add(Op::Math(Math::Invert), vec![wire(frame)]);
+    let back = g.add(Op::Math(Math::TransformPoint), vec![wire(inv), wire(moved)]);
+    let stored = g.add(Op::get("xform"), vec![]);
+    let both = g.add(Op::Math(Math::Multiply), vec![wire(stored), wire(frame)]);
+    let up = g.add(Op::Math(Math::TransformPoint), vec![wire(both), wire(p)]);
+    let sets = [("moved", moved), ("back", back), ("up", up)].map(|(n, v)| g.add(Op::set(n), vec![wire(v)]));
+    g.add(Op::Root { context: Context::Point }, sets.iter().map(|&s| wire(s)).collect());
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    let v = |n: &str| out.attr(Context::Point, n).and_then(|a| a.column.vec3s()).unwrap()[0];
+    let near = |a: [f32; 3], b: [f32; 3]| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-5);
+    assert!(near(v("moved"), [0.0, 2.0, -1.0]), "{:?}", v("moved"));
+    assert!(near(v("back"), [1.0, 0.0, 0.0]), "{:?}", v("back"));
+    assert!(near(v("up"), [0.0, 7.0, -1.0]), "the stored matrix after the frame: {:?}", v("up"));
+}

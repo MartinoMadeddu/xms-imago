@@ -139,6 +139,9 @@ pub struct IceGraph {
     pub last_input:         Arc<Mutex<Option<Geo>>>,
 }
 
+/// No transform: the identity matrix, as a value.
+pub fn identity() -> Value { Value::Mat4(glam::Mat4::IDENTITY.to_cols_array()) }
+
 /// The name a type goes by on ports and wires (and their colour).
 pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
     match ty {
@@ -149,6 +152,7 @@ pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
         xms_ice::Ty::Vec3 => "Vec3",
         xms_ice::Ty::Vec4 => "Vec4",
         xms_ice::Ty::Quat => "Quat",
+        xms_ice::Ty::Mat4 => "Mat4",
         xms_ice::Ty::Sample => "Sample",
         xms_ice::Ty::Token => "Token",
     }
@@ -209,6 +213,14 @@ impl IceGraph {
                                          IceGraphInputSocket { value: Some(Value::Vec3([1.0, 0.0, 0.0])), ..input("Vector", 0.0) }],
                     Math::AxisAngle => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Axis", 0.0) }, input("Angle", 0.0)],
                     Math::Euler => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Angles", 0.0) }],
+                    // A matrix, none (the identity) when not wired.
+                    Math::Invert | Math::Transpose => vec![IceGraphInputSocket { value: Some(identity()), ..input("Matrix", 0.0) }],
+                    Math::TransformPoint => vec![IceGraphInputSocket { value: Some(identity()), ..input("Matrix", 0.0) },
+                                                 IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Position", 0.0) }],
+                    Math::TransformVector => vec![IceGraphInputSocket { value: Some(identity()), ..input("Matrix", 0.0) },
+                                                  IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Vector", 0.0) }],
+                    Math::Distance => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("A", 0.0) },
+                                           IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("B", 0.0) }],
                     op if op.arity() == 1 => vec![input("Value", 0.0)],
                     _ => vec![input("A", 0.0), input("B", 0.0)],
                 };
@@ -226,6 +238,10 @@ impl IceGraph {
             // part 1: none), vectors zero.
             IceGraphNodeType::Compose { op } => (op.inputs().iter().map(|&(name, ty)| {
                 let value = match ty {
+                    // A matrix's axes, unwired: the world's.
+                    xms_ice::Ty::Vec3 if name == "X Axis" => Value::Vec3([1.0, 0.0, 0.0]),
+                    xms_ice::Ty::Vec3 if name == "Y Axis" => Value::Vec3([0.0, 1.0, 0.0]),
+                    xms_ice::Ty::Vec3 if name == "Z Axis" => Value::Vec3([0.0, 0.0, 1.0]),
                     xms_ice::Ty::Vec2 => Value::Vec2([0.0; 2]),
                     xms_ice::Ty::Vec3 => Value::Vec3([0.0; 3]),
                     _ if name == "Real" => Value::Float(1.0),
@@ -240,6 +256,7 @@ impl IceGraph {
                     xms_ice::Ty::Vec2 => ("Vector", Value::Vec2([0.0; 2])),
                     xms_ice::Ty::Vec4 => ("Vector", Value::Vec4([0.0; 4])),
                     xms_ice::Ty::Quat => ("Rotation", Value::Quat([0.0, 0.0, 0.0, 1.0])),
+                    xms_ice::Ty::Mat4 => ("Matrix", identity()),
                     _ => ("Vector", Value::Vec3([0.0; 3])),
                 };
                 (vec![IceGraphInputSocket { value: Some(value), ..input(name, 0.0) }],

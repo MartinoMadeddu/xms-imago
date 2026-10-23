@@ -149,10 +149,12 @@ pub enum Compose {
     /// I, J, K and the real part: a rotation (a quaternion, as USD's
     /// `quatf`), made unit.
     Quat,
+    /// Three axes and an origin: a matrix (a frame).
+    Matrix,
 }
 
 impl Compose {
-    pub const ALL: [Compose; 6] = [Compose::Vec2, Compose::Vec3, Compose::Vec4, Compose::Vec2Z, Compose::Vec3W, Compose::Quat];
+    pub const ALL: [Compose; 7] = [Compose::Vec2, Compose::Vec3, Compose::Vec4, Compose::Vec2Z, Compose::Vec3W, Compose::Quat, Compose::Matrix];
 
     /// Its inputs: name and type.
     pub fn inputs(self) -> &'static [(&'static str, Ty)] {
@@ -163,6 +165,7 @@ impl Compose {
             Compose::Vec2Z => &[("XY", Ty::Vec2), ("Z", Ty::Float)],
             Compose::Vec3W => &[("XYZ", Ty::Vec3), ("W", Ty::Float)],
             Compose::Quat => &[("I", Ty::Float), ("J", Ty::Float), ("K", Ty::Float), ("Real", Ty::Float)],
+            Compose::Matrix => &[("X Axis", Ty::Vec3), ("Y Axis", Ty::Vec3), ("Z Axis", Ty::Vec3), ("Origin", Ty::Vec3)],
         }
     }
 
@@ -173,6 +176,7 @@ impl Compose {
             Compose::Vec3 | Compose::Vec2Z => Ty::Vec3,
             Compose::Vec4 | Compose::Vec3W => Ty::Vec4,
             Compose::Quat => Ty::Quat,
+            Compose::Matrix => Ty::Mat4,
         }
     }
 
@@ -185,6 +189,7 @@ impl Compose {
             Compose::Vec2Z => "2D Vector and Float to 3D Vector",
             Compose::Vec3W => "3D Vector and Float to 4D Vector",
             Compose::Quat => "Floats to Rotation (i, j, k, real)",
+            Compose::Matrix => "Axes and Origin to Matrix",
         }
     }
 }
@@ -206,10 +211,12 @@ pub enum Decompose {
     Quat,
     /// A rotation into its axis and its angle, in degrees.
     AxisAngle,
+    /// A matrix into its three axes and its origin.
+    Matrix,
 }
 
 impl Decompose {
-    pub const ALL: [Decompose; 7] = [Decompose::Vec2, Decompose::Vec3, Decompose::Vec4, Decompose::Vec3Z, Decompose::Vec4W, Decompose::Quat, Decompose::AxisAngle];
+    pub const ALL: [Decompose; 8] = [Decompose::Vec2, Decompose::Vec3, Decompose::Vec4, Decompose::Vec3Z, Decompose::Vec4W, Decompose::Quat, Decompose::AxisAngle, Decompose::Matrix];
 
     /// What it takes.
     pub fn input(self) -> Ty {
@@ -218,6 +225,7 @@ impl Decompose {
             Decompose::Vec3 | Decompose::Vec3Z => Ty::Vec3,
             Decompose::Vec4 | Decompose::Vec4W => Ty::Vec4,
             Decompose::Quat | Decompose::AxisAngle => Ty::Quat,
+            Decompose::Matrix => Ty::Mat4,
         }
     }
 
@@ -231,6 +239,7 @@ impl Decompose {
             Decompose::Vec4W => &[("XYZ", Ty::Vec3), ("W", Ty::Float)],
             Decompose::Quat => &[("I", Ty::Float), ("J", Ty::Float), ("K", Ty::Float), ("Real", Ty::Float)],
             Decompose::AxisAngle => &[("Axis", Ty::Vec3), ("Angle", Ty::Float)],
+            Decompose::Matrix => &[("X Axis", Ty::Vec3), ("Y Axis", Ty::Vec3), ("Z Axis", Ty::Vec3), ("Origin", Ty::Vec3)],
         }
     }
 
@@ -244,6 +253,7 @@ impl Decompose {
             Decompose::Vec4W => "4D Vector to 3D Vector and Float",
             Decompose::Quat => "Rotation to Floats (i, j, k, real)",
             Decompose::AxisAngle => "Rotation to Axis and Angle",
+            Decompose::Matrix => "Matrix to Axes and Origin",
         }
     }
 }
@@ -305,21 +315,36 @@ pub enum Math {
     AxisAngle,
     /// A rotation from Euler angles in degrees (X, then Y, then Z).
     Euler,
+    /// How far apart two positions are.
+    Distance,
+    /// A matrix's inverse.
+    Invert,
+    /// A matrix's transpose: its inverse, for a frame (an orthonormal one,
+    /// its translation aside).
+    Transpose,
+    /// A position (input 1) through a matrix (input 0): turned, scaled and
+    /// moved.
+    TransformPoint,
+    /// A direction (input 1) through a matrix (input 0): turned and scaled,
+    /// not moved.
+    TransformVector,
 }
 
 impl Math {
     /// Every operation, in the order the add menu lists them.
-    pub const ALL: [Math; 18] = [
+    pub const ALL: [Math; 23] = [
         Math::Add, Math::Subtract, Math::Multiply, Math::Divide, Math::Min, Math::Max, Math::Lerp,
         Math::Negate, Math::Abs, Math::Sin, Math::Cos,
-        Math::Dot, Math::Cross, Math::Length, Math::Normalize,
+        Math::Dot, Math::Cross, Math::Length, Math::Normalize, Math::Distance,
         Math::Rotate, Math::AxisAngle, Math::Euler,
+        Math::Invert, Math::Transpose, Math::TransformPoint, Math::TransformVector,
     ];
 
     pub fn arity(self) -> usize {
         match self {
             Math::Lerp => 3,
-            Math::Negate | Math::Abs | Math::Sin | Math::Cos | Math::Length | Math::Normalize | Math::Euler => 1,
+            Math::Negate | Math::Abs | Math::Sin | Math::Cos | Math::Length | Math::Normalize | Math::Euler
+                | Math::Invert | Math::Transpose => 1,
             _ => 2,
         }
     }

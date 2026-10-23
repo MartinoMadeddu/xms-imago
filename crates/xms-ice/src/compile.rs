@@ -151,6 +151,12 @@ pub(crate) enum Ins {
     /// the face each is on (its points', its corners'). `flat`: one sample,
     /// its list as an array.
     ListAt { dst: usize, read: usize, loc: usize, surface: Option<usize>, flat: bool },
+    /// The weights of the samples in `loc` on their triangles' corners: a
+    /// 3D vector each, or (`list`) three numbers each.
+    Bary { dst: usize, loc: usize, list: bool },
+    /// The three points of each sample's triangle, in the graph's space:
+    /// a list each (`flat`: one sample's, as an array).
+    TriP { dst: usize, loc: usize, surface: Option<usize>, flat: bool },
     /// Random rotations up along the normals in `args[0]`, turned at random
     /// up to `args[1]` degrees: one per element, or, when `array`, as many
     /// as the normals (an array) or `args[2]` (a count; `NO_COUNT`, as many
@@ -183,6 +189,9 @@ enum ListOf {
     Touch(Context),
     /// The face of each sample in a register (Get Array Data at Samples).
     Face(usize),
+    /// The triangle of each sample in a register: three items (`triP`,
+    /// `bary` as a list).
+    Tri(usize),
 }
 
 /// The contexts an attribute read at samples is looked for in: the one
@@ -236,7 +245,8 @@ fn column_ty(c: &Column) -> Option<Ty> {
         Column::Vec3(_) => Ty::Vec3,
         Column::Vec4(_) => Ty::Vec4,
         Column::Quat(_) => Ty::Quat,
-        Column::Mat4(_) | Column::Token(_) => return None,
+        Column::Mat4(_) => Ty::Mat4,
+        Column::Token(_) => return None,
     })
 }
 
@@ -264,6 +274,12 @@ fn math_ty(op: Math, args: &[Ty]) -> Option<Ty> {
         (Math::Rotate, [Quat, Vec3]) => Some(Vec3),
         (Math::AxisAngle, [Vec3, Float]) => Some(Quat),
         (Math::Euler, [Vec3]) => Some(Quat),
+        (Math::Distance, [a, b]) if a == b && a.is_vector() => Some(Float),
+        // Matrices: combined by multiplying (the right one first), inverted,
+        // transposed, applied to positions and directions.
+        (Math::Multiply, [Mat4, Mat4]) => Some(Mat4),
+        (Math::Invert | Math::Transpose, [Mat4]) => Some(Mat4),
+        (Math::TransformPoint | Math::TransformVector, [Mat4, Vec3]) => Some(Vec3),
         _ => None,
     }
 }
@@ -480,7 +496,7 @@ impl Lower<'_> {
         let found = find_in(geo, attr_context, name).expect("found above");
         let column = if found.derived { name } else { column_in(geo, attr_context, name) };
         let Some(ty) = found.ty else {
-            return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)"));
+            return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
         };
         // Object is one value for every element.
         let uniform = attr_context == Context::Object;
@@ -688,7 +704,7 @@ impl Lower<'_> {
                 None => error(node, format!("No attribute '{name}'")),
             };
         };
-        let Some(ty) = found.ty else { return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)")) };
+        let Some(ty) = found.ty else { return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)")) };
         let column = if found.derived { name.to_string() } else { column_in(geo, from, name).to_string() };
         let key = format!("list:{from:?}/{column}");
         let read = match self.reads.get(&key) {
@@ -749,6 +765,16 @@ impl Lower<'_> {
         if loc.ty != Ty::Sample { return error(node, "Get Data's Samples are surface samples (Scatter on Surface's, Closest Point on Surface's)"); }
         if name.trim().is_empty() { return error(node, "Get Data needs the name of the attribute it reads"); }
         let contexts = sample_contexts(context);
+        // What every sample has: its weights on its triangle's corners.
+        match name.trim() {
+            "bary" => {
+                let mut v = self.emit(loc.uniform, Ty::Vec3, |dst| Ins::Bary { dst, loc: loc.reg, list: false });
+                v.array = loc.array;
+                return Ok(v);
+            }
+            "triP" => return error(node, "triP is a sample's triangle's three points, a list: read it with Get Array Data"),
+            _ => {}
+        }
         // Samples of reference meshes: read mesh by mesh, in the graph's space.
         if let Some(s) = loc.surface {
             let (read, ty) = self.sampled_read(node, name.trim(), Some(s), &contexts)?;
@@ -760,7 +786,7 @@ impl Lower<'_> {
         let found = contexts.iter().find_map(|&c| find_in(self.geo, c, name).map(|f| (c, f)));
         let Some((ctx, found)) = found else { return error(node, format!("No attribute '{name}'")) };
         let Some(ty) = found.ty.filter(|t| *t != Ty::Sample) else {
-            return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)"));
+            return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
         };
         let read = self.location_read(ctx, name, found.derived);
         let mut v = self.emit(loc.uniform, ty, |dst| Ins::AtLocation { dst, read, loc: loc.reg });
@@ -782,7 +808,7 @@ impl Lower<'_> {
             return error(node, format!("No attribute '{name}'{on}"));
         };
         let Some(ty) = found.ty.filter(|t| *t != Ty::Sample) else {
-            return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)"));
+            return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
         };
         let key = format!("@{surface:?}:{ctx:?}/{name}");
         let read = match self.reads.get(&key) {
@@ -837,6 +863,19 @@ impl Lower<'_> {
         let loc = self.input(node, 0, None)?;
         if loc.ty != Ty::Sample { return error(node, "Get Array Data's Samples are surface samples (Closest Point on Surface's)"); }
         if loc.array { return error(node, "Get Array Data reads at one sample per element (Closest Point's, per point): an array of samples would give a list per sample, not yet"); }
+        // What every sample has: its triangle's three points, in the
+        // graph's space, and its weights on them, item by item.
+        if matches!(name.trim(), "triP" | "bary") {
+            let (flat, surface) = (loc.uniform, loc.surface);
+            let mut v = if name.trim() == "bary" {
+                self.emit(flat, Ty::Float, |dst| Ins::Bary { dst, loc: loc.reg, list: true })
+            } else {
+                self.emit(flat, Ty::Vec3, |dst| Ins::TriP { dst, loc: loc.reg, surface, flat })
+            };
+            v.array = true;
+            if !flat { v.of = Some(ListOf::Tri(loc.reg)); }
+            return Ok(v);
+        }
         let (name, contexts) = match name.trim() {
             "ptIndices" => ("ptIndex", vec![Context::Point]),
             "" => return error(node, "Get Array Data needs the name of the attribute it reads"),
@@ -1160,6 +1199,9 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         Op::ClosestPoint => Some(Ty::Sample),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
+        Op::GetArrayDataAt { name, .. } if name.trim() == "triP" => Some(Ty::Vec3),
+        Op::GetArrayDataAt { name, .. } if name.trim() == "bary" => Some(Ty::Float),
+        Op::GetDataAt { name, .. } if name.trim() == "bary" => Some(Ty::Vec3),
         Op::GetArrayDataAt { name, context: from } => {
             let name = if name.trim() == "ptIndices" { "ptIndex" } else { name.trim() };
             sample_contexts(*from).into_iter().find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty)
