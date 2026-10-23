@@ -237,7 +237,7 @@ pub fn draw_properties(
     let command_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommand { .. }) => super::render::CommandIn {
             writer: graph.upstream_write_usd(sel_id).and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
-                NodeType::WriteUsd { path } => Some((n.name.clone(), path.trim().to_string())),
+                NodeType::WriteUsd { path } => Some((n.name.clone(), crate::core::vars::expand(path.trim(), &[]))),
                 _ => None,
             }),
             scene: (graph.scene.start, graph.scene.end),
@@ -354,21 +354,21 @@ pub fn draw_properties(
 
         // ── Files ────────────────────────────────────────────────────────────
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
-            group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives"), |f| {
+            group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
-                if path.is_empty() { f.status(Status::Info, "No file set"); }
-                else if std::path::Path::new(path).exists() { f.status(Status::Ok, "Found"); }
-                else { f.status(Status::Bad, "Not found"); }
+                path_status(f, path, true);
             });
-            load_mode_rows(ui, path, mode, location, prim, *convert);
+            let read = crate::core::vars::expand(path.trim(), &[]);
+            load_mode_rows(ui, &read, mode, location, prim, *convert);
             group(ui, "Units and axis", None, |f| {
                 f.toggle("Y-up metres", Some("Turn the stage to Y-up and scale it to metres by its upAxis and metersPerUnit, in its placement (the geometry stays as authored). Off: as authored, as USD composes it and renderers read it. Changing it reads the stage again"), convert);
             });
-            if !path.is_empty() { usd_summary(ui, path, *convert, io); }
+            if !read.is_empty() { usd_summary(ui, &read, *convert, io); }
         }
         NodeType::WriteUsd { path } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
                 path_row(f, path, "/path/to/edits.usda", io, sel_id, BrowseMode::Save, "Write USD layer", &["usda"]);
+                path_status(f, path, false);
             });
             group(ui, "Write", None, |f| {
                 f.buttons("Override layer", Some("Moved prims get their own transform, changed geometry its changed attributes, pruned prims are deactivated, prims made in Imago are added. Values at the current frame"), |ui| {
@@ -1743,6 +1743,17 @@ fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
             }
         });
     }));
+}
+
+/// Under a path: what it is with its variables put in, when that differs
+/// from what was typed, and (`read`, a file to read) whether it is there.
+fn path_status(f: &mut Rows, typed: &str, read: bool) {
+    let path = crate::core::vars::expand(typed.trim(), &[]);
+    if path.is_empty() { if read { f.status(Status::Info, "No file set"); } return; }
+    if path != typed.trim() { f.status(Status::Info, format!("→ {path}")); }
+    if read {
+        if std::path::Path::new(&path).exists() { f.status(Status::Ok, "Found"); } else { f.status(Status::Bad, "Not found"); }
+    }
 }
 
 /// A unit's usual name, for a stage's metersPerUnit.

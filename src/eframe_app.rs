@@ -63,6 +63,19 @@ impl eframe::App for ImagoApp {
         // what the panes show.
         crate::draw_ui(ui, &mut self.app, &mut self.poly_tool, &mut self.nav_settings, dt, Some(&mut self.viewer));
         crate::history_frame(&ctx, &mut self.app);
+        // The graph's variables ($GNAME, $GDIR, $F…), for paths and command
+        // lines. A change other than the frame cooks again what reads paths.
+        let a = &self.app;
+        let file = a.graph_file.path.as_deref();
+        let globals = crate::core::vars::Globals {
+            gname: file.and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+            gdir:  file.and_then(|p| p.parent()).map(|p| p.display().to_string()).unwrap_or_default(),
+            frame: a.graph.scene.frame(a.playback.time).round() as i64,
+            start: a.graph.scene.start,
+            end:   a.graph.scene.end,
+            fps:   a.graph.scene.fps(),
+        };
+        if crate::core::vars::set_globals(globals) { self.app.revision.0 = self.app.revision.0.wrapping_add(1); }
         crate::track_revision_frame(&ctx, &mut self.app, &mut self.last_hash);
 
         // Closing the window asks first when there are unsaved changes.

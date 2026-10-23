@@ -36,7 +36,8 @@ pub fn evaluate_node_type(
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
             if path.is_empty() { return None; }
             // Packed primitives: one per mesh prim, shared with the cached stage.
-            match crate::usd_scene::load_cached(path, *convert) {
+            // `$GDIR/usd/street.usda`: its variables put in.
+            match crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert) {
                 // Nothing to show: no geometry, instancer, camera or light.
                 Ok(scene) if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() => None,
                 Ok(scene) => stage_prims(&scene, *mode, location, prim).map(EvalResult::Named),

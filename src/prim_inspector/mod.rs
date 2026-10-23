@@ -391,7 +391,7 @@ fn render_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, _path: &st
 fn load_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, tree: &crate::usd_scene::StageTree) -> Option<NodeId> {
     use crate::types::NodeType;
     let reads = |n: &crate::node_graph::GraphNode| matches!(&n.node_type, NodeType::LoadUsd { path, convert, .. }
-        if crate::usd_scene::load_cached(path, *convert).is_ok_and(|s| s.tree.source == tree.source));
+        if crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert).is_ok_and(|s| s.tree.source == tree.source));
     upstream(graph, view, reads)
         .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))
         .map(|n| n.id)

@@ -70,6 +70,26 @@ The graph is saved as a JSON file, every ICE node with its graph. The top bar sh
 
 Folders first, then the files the asking field takes (**All files** shows the rest). **Collapse sequences**, on by default, lists files numbered alike as one entry: `shot.####.exr   1-120 (120 files)`; picking it gives its first file. With **UDIM** on too, a sequence numbered 1001 to 1999 in four digits is one `<UDIM>` path, `body.<UDIM>.exr   1001-1012 (5 tiles)`, which picking gives as it is: a texture of UDIM tiles (see [USD](usd.md#materials-in-the-viewer)). Both are kept from one browse to the next.
 
+### Variables
+
+Paths and command lines can hold variables, put in when they are used: `$GDIR/usd/set.usda`, `$GDIR/out/$GNAME.usda`. A path field shows what it becomes under it (`→ /shows/street/usd/set.usda`).
+
+| Variable | What it is |
+|---|---|
+| `$GNAME` | the graph's name: its file without `.xms` (`street_v001`) |
+| `$GDIR` | the folder of the graph's file |
+| `$JOB` | the project folder: `JOB` from the environment, else `$GDIR` |
+| `$F`, `$F4` | the frame (the playhead's; a render's own in its command), `$F4` in four digits (`$F2` to `$F9` likewise) |
+| `$FSTART`, `$FEND`, `$N` | the scene's first and last frames, and how many |
+| `$FPS`, `$T` | frames per second; the time in seconds |
+| `$HOME`, … | anything set in the environment |
+
+An operator can add its own, which come first: a Render Command's `$USD` and `$OPNAME` (see [Render](render.md)). `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is. They work in Load USD's and Write USD's paths and in command lines; FBX, MaterialX and texture paths are next. A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
+
+### Graph files
+
+A graph is saved as an **`.xms`** file: plain JSON inside, so it can be read, diffed and merged like any text. Open and Import take `.xms` and the `.json` graphs saved before; Save As offers `.xms`, so a `.json` graph saved again becomes an `.xms` beside it.
+
 ### Replacing files
 
 As in other programs, nothing is written over a file that exists without asking:

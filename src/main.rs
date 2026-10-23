@@ -330,13 +330,13 @@ pub(crate) fn draw_ui(
     if let Some(c) = command {
         match c {
             FileCommand::New => save_first.load_new(),
-            FileCommand::Open => { browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", &["json"], ""); }
+            FileCommand::Open => { browser.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open graph", GRAPH_FILES, ""); }
             FileCommand::OpenRecent(p) => save_first.load(Source::File(p)),
             FileCommand::Template(i) => save_first.load(Source::Template(i)),
             FileCommand::ClearRecent => recent.clear(),
             FileCommand::Save => { save_or_ask(&graph, &subnets, &mut *graph_file, &mut *history, &mut *recent, &mut *browser); }
             FileCommand::SaveAs => ask_where_to_save(&graph_file, &mut *browser),
-            FileCommand::ImportGraph => browser.open(BrowseTarget::ImportGraph, BrowseMode::File, "Import graph", &["json"], ""),
+            FileCommand::ImportGraph => browser.open(BrowseTarget::ImportGraph, BrowseMode::File, "Import graph", GRAPH_FILES, ""),
             FileCommand::ImportFbx => browser.open(BrowseTarget::ImportFbx, BrowseMode::File, "Import FBX", &["fbx"], ""),
             FileCommand::ImportUsd => browser.open(BrowseTarget::ImportUsd, BrowseMode::File, "Import USD", &["usd", "usda", "usdc", "usdz"], ""),
             FileCommand::ImportMtlx => browser.open(BrowseTarget::ImportMtlx, BrowseMode::File, "Import MaterialX", &["mtlx"], ""),
@@ -1006,6 +1006,10 @@ pub(crate) struct GraphFile {
     path:    Option<std::path::PathBuf>,
 }
 
+/// Imago's graph files: `.xms` (JSON inside); `.json` graphs saved before
+/// still open.
+const GRAPH_FILES: &[&str] = &["xms", "json"];
+
 fn file_name(path: &std::path::Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
 }
@@ -1218,7 +1222,7 @@ fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String>
     match action {
         PanelAction::Write { targets, all_files } => batch::existing_outputs(graph, targets, *all_files),
         PanelAction::WriteUsd(id) => graph.nodes.iter().find(|n| n.id == *id).and_then(|n| match &n.node_type {
-            NodeType::WriteUsd { path } if std::path::Path::new(path.trim()).is_file() => Some(path.trim().to_string()),
+            NodeType::WriteUsd { path } if std::path::Path::new(&crate::core::vars::expand(path.trim(), &[])).is_file() => Some(crate::core::vars::expand(path.trim(), &[])),
             _ => None,
         }).into_iter().collect(),
         // Rendering writes its layer again, as asked: no question.
@@ -1241,7 +1245,7 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
     let NodeType::RenderCommand { command } = &node.node_type else { return };
     let writer = graph.upstream_write_usd(id);
     let usd = writer.and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
-        NodeType::WriteUsd { path } => Some(path.trim().to_string()),
+        NodeType::WriteUsd { path } => Some(crate::core::vars::expand(path.trim(), &[])),
         _ => None,
     }).unwrap_or_default();
     if command.write_first {
@@ -1338,9 +1342,10 @@ fn save_graph(graph: &NodeGraphState, subnets: &IceGraphStore, path: &std::path:
 
 /// Open the browser to choose where to save, starting at the current file.
 fn ask_where_to_save(file: &GraphFile, browser: &mut FileBrowser) {
-    let name = file.path.as_deref().map(file_name).unwrap_or_else(|| "graph.json".into());
+    // A graph opened from an older .json is offered as .xms.
+    let name = file.path.as_deref().map(|p| file_name(&p.with_extension("xms"))).unwrap_or_else(|| "graph.xms".into());
     if let Some(dir) = file.path.as_deref().and_then(|p| p.parent()) { browser.set_dir(dir); }
-    browser.open(BrowseTarget::SaveGraph, BrowseMode::Save, "Save graph", &["json"], &name);
+    browser.open(BrowseTarget::SaveGraph, BrowseMode::Save, "Save graph", &["xms"], &name);
 }
 
 /// Save to the current file, or ask where when there is none.
@@ -1665,8 +1670,10 @@ pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {
 fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId) {
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
     let NodeType::WriteUsd { path } = &node.node_type else { return };
+    // `$GDIR/out/$GNAME.usda`: its variables put in.
+    let path = crate::core::vars::expand(path.trim(), &[]);
     let result = (|| {
-        if path.trim().is_empty() { return Err("No file set".to_string()); }
+        if path.is_empty() { return Err("No file set".to_string()); }
         // Never boxes in place of geometry.
         if usd_scene::any_reading() { return Err("A stage is still being read: write when it is done".to_string()); }
         let (src, out) = node.inputs.first().and_then(|i| i.connected_output).ok_or("Nothing connected")?;
@@ -1674,7 +1681,7 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
             subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
         };
         match graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval) {
-            Some(types::EvalResult::Named(prims)) => usd_write::write_override(&prims, std::path::Path::new(path.trim())),
+            Some(types::EvalResult::Named(prims)) => usd_write::write_override(&prims, std::path::Path::new(&path)),
             Some(types::EvalResult::Single(_)) => Err("The input is one plain mesh, with no primitive path (after Unpack, or a Merge set to Flatten)".to_string()),
             Some(types::EvalResult::Material(_)) => Err("The input is a material, not primitives: plug it into Material Binding".to_string()),
             Some(_) => Err("The input is a clip, not primitives".to_string()),

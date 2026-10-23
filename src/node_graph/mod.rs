@@ -875,7 +875,11 @@ impl NodeGraphState {
             NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } => file_stamp(path).hash(&mut h),
             // A stage read in the background gives more when its boxes,
             // then the whole of it, are read.
-            NodeType::LoadUsd { path, .. } => (file_stamp(path), crate::usd_scene::generation()).hash(&mut h),
+            // Its path with its variables put in: the file it reads.
+            NodeType::LoadUsd { path, .. } => {
+                let path = crate::core::vars::expand(path.trim(), &[]);
+                (file_stamp(&path), &path, crate::usd_scene::generation()).hash(&mut h)
+            }
             NodeType::LoadFbxDir { dir, index, .. } => {
                 let file = crate::fbx_loader::list_fbx(dir).get(*index as usize).cloned();
                 file.as_ref().and_then(|f| file_stamp(&f.to_string_lossy())).hash(&mut h);

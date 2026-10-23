@@ -35,6 +35,8 @@ pub mod render;
 /// Command lines run on the system (Render Command): tokens, running in
 /// the background, output and progress.
 pub mod command;
+/// Variables in paths and command lines: `$GDIR`, `$F4`…
+pub mod vars;
 pub mod uv;
 pub mod sequences;
 pub mod manip;

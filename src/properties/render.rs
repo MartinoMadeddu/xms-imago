@@ -185,7 +185,7 @@ pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Conte
     group(ui, "Output", Some("The RenderProduct: one image file, holding the RenderVars (AOVs) Render Settings and Render Variables add"), |f| {
         f.text("Product", Some("The RenderProduct's path"), &mut s.product, "/Render/Products/beauty");
         if product != s.product.trim() { f.status(Status::Info, format!("Used as {product}")); }
-        f.text("Output Image", Some("The file it writes (productName). Frame tokens such as $F4 are the renderer's to expand: husk does"), &mut s.output, "render/beauty.$F4.exr");
+        f.text("Output Image", Some("The file it writes (productName). Written into the layer as it is: frame tokens such as $F4 are the renderer's to expand (husk does), not Imago's"), &mut s.output, "render/beauty.$F4.exr");
     });
 }
 
@@ -481,6 +481,7 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
     });
 
     let tokens: String = command::TOKENS.iter().map(|(t, what)| format!("{t}: {what}")).collect::<Vec<_>>().join("\n");
+    let globals: String = crate::core::vars::GLOBALS_LIST.iter().map(|(t, what)| format!("{t}: {what}")).collect::<Vec<_>>().join("\n");
     group(ui, "Command", Some("Run through the system's shell (sh, or cmd on Windows) when Run is pressed: never while the graph cooks"), |f| {
         f.row("Presets", None, |ui| {
             egui::ComboBox::from_id_salt(("command_presets", node.0)).width(ui.available_width() - 8.0).selected_text("Fill in…").show_ui(ui, |ui| {
@@ -495,7 +496,7 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
         });
         f.wide(|ui| {
             ui.add(egui::TextEdit::multiline(&mut c.line).code_editor().desired_rows(3).desired_width(f32::INFINITY))
-                .on_hover_text(format!("Tokens, put in when it runs:\n{tokens}\n$$ is a $; any other $ is the shell's ($HOME)"));
+                .on_hover_text(format!("Variables, put in when it runs. This operator's:\n{tokens}\n\nThe graph's:\n{globals}\n\n${{NAME}} sets a name apart; $$ is a $; a name that is none of these is left for the shell"));
         });
         let lines = c.lines(&usd, name, input.scene);
         if let Some(first) = lines.first() {

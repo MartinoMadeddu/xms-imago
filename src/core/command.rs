@@ -36,61 +36,33 @@ pub struct Tokens {
     pub more:  Vec<(&'static str, String)>,
 }
 
-/// The tokens Render Command knows, for its panel: token, what it is.
-pub const TOKENS: [(&str, &str); 7] = [
+/// The local variables Render Command gives its lines, for its panel:
+/// variable, what it is. The global ones (`vars::GLOBALS_LIST`) work too.
+pub const TOKENS: [(&str, &str); 6] = [
     ("$USD", "the layer the Write USD above writes"),
-    ("$NAME", "this operator's name"),
-    ("$F", "the frame"),
-    ("$F4", "the frame, four digits (0001); $F2 to $F9 likewise"),
-    ("$FSTART", "the first frame"),
-    ("$FEND", "the last frame"),
+    ("$OPNAME", "this operator's name"),
+    ("$F", "the frame being rendered; $F4 four digits (0001)"),
+    ("$FSTART", "the first frame of the run"),
+    ("$FEND", "the last frame of the run"),
     ("$N", "how many frames"),
 ];
 
-/// A command line with its tokens put in.
-pub fn expand(line: &str, t: &Tokens) -> String {
-    let mut out = String::with_capacity(line.len() + t.usd.len());
-    let chars: Vec<char> = line.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if c != '$' { out.push(c); i += 1; continue; }
-        // `$$`: a dollar.
-        if chars.get(i + 1) == Some(&'$') { out.push('$'); i += 2; continue; }
-        // `${NAME}` or `$NAME`.
-        let (name, len) = if chars.get(i + 1) == Some(&'{') {
-            match chars[i + 2..].iter().position(|c| *c == '}') {
-                Some(k) => (chars[i + 2..i + 2 + k].iter().collect::<String>(), k + 3),
-                None => (String::new(), 0),
-            }
-        } else {
-            let k = chars[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == '_').count();
-            (chars[i + 1..i + 1 + k].iter().collect::<String>(), k + 1)
-        };
-        match (len > 0).then(|| value(&name, t)).flatten() {
-            Some(v) => { out.push_str(&v); i += len; }
-            None => { out.push('$'); i += 1; }
-        }
+impl Tokens {
+    /// As local variables (see `core::vars`), the run's frames over the
+    /// scene's. `$NAME` is still read as the operator's name, from graphs
+    /// made before it was called `$OPNAME`.
+    pub fn locals(&self) -> Vec<(&'static str, String)> {
+        let mut out = vec![
+            ("USD", self.usd.clone()),
+            ("OPNAME", self.name.clone()),
+            ("NAME", self.name.clone()),
+            ("F", self.frame.to_string()),
+            ("FSTART", self.start.to_string()),
+            ("FEND", self.end.to_string()),
+        ];
+        out.extend(self.more.iter().cloned());
+        out
     }
-    out
-}
-
-/// A token's value, or `None` for a name that is not one.
-fn value(name: &str, t: &Tokens) -> Option<String> {
-    if let Some((_, v)) = t.more.iter().find(|(n, _)| *n == name) { return Some(v.clone()); }
-    Some(match name {
-        "USD" => t.usd.clone(),
-        "NAME" => t.name.clone(),
-        "FSTART" => t.start.to_string(),
-        "FEND" => t.end.to_string(),
-        "N" => (t.end - t.start + 1).max(1).to_string(),
-        "F" => t.frame.to_string(),
-        _ => {
-            let digits = name.strip_prefix('F')?;
-            let width: usize = digits.parse().ok().filter(|w| (1..=9).contains(w))?;
-            if t.frame < 0 { format!("-{:0width$}", -t.frame, width = width) } else { format!("{:0width$}", t.frame, width = width) }
-        }
-    })
 }
 
 /// A command line without the options whose value is one of `t.more`'s
@@ -363,7 +335,7 @@ mod tests {
     #[test]
     fn a_callers_own_tokens_and_options_with_nothing() {
         let t = Tokens { more: vec![("IMAGE", "/r/a.exr".into()), ("CAMERA", String::new()), ("SETTINGS", "/Render/S".into())], ..t() };
-        assert_eq!(expand("-o \"$IMAGE\" -s $SETTINGS -f $F", &t), "-o \"/r/a.exr\" -s /Render/S -f 7");
+        assert_eq!(crate::core::vars::expand("-o \"$IMAGE\" -s $SETTINGS -f $F", &t.locals()), "-o \"/r/a.exr\" -s /Render/S -f 7");
         let line = "husk -s \"$SETTINGS\" -c \"$CAMERA\" -f $F \"$USD\"";
         assert_eq!(without_empty(line, &t), "husk -s \"$SETTINGS\" -f $F \"$USD\"", "no camera: no -c");
         assert_eq!(without_empty("kick -i x -camera ${CAMERA} -dw", &t), "kick -i x -dw");
@@ -374,13 +346,13 @@ mod tests {
 
     #[test]
     fn tokens_are_put_in() {
-        assert_eq!(expand("husk -f $FSTART -n $N \"$USD\"", &t()), "husk -f 1 -n 24 \"/shots/a b.usda\"");
-        assert_eq!(expand("out.$F4.exr $F ${F2}x $FEND", &t()), "out.0007.exr 7 07x 24");
-        assert_eq!(expand("$HOME/$NAME costs $$5", &t()), "$HOME/Render costs $5", "unknown tokens are the shell's");
-        assert_eq!(expand("${USD}! $ end $", &t()), "/shots/a b.usda! $ end $");
-        assert_eq!(expand("$F0 $F10 $Fx", &t()), "$F0 $F10 $Fx", "not tokens");
-        assert_eq!(expand("$F3", &Tokens { frame: -2, ..t() }), "-002");
-        assert_eq!(expand("naïve $NAME", &t()), "naïve Render");
+        assert_eq!(crate::core::vars::expand("husk -f $FSTART -n $N \"$USD\"", &t().locals()), "husk -f 1 -n 24 \"/shots/a b.usda\"");
+        assert_eq!(crate::core::vars::expand("out.$F4.exr $F ${F2}x $FEND", &t().locals()), "out.0007.exr 7 07x 24");
+        assert_eq!(crate::core::vars::expand("$NOT_SET_XMS/$OPNAME costs $$5", &t().locals()), "$NOT_SET_XMS/Render costs $5", "unknown names are the shell's");
+        assert_eq!(crate::core::vars::expand("${USD}! $ end $", &t().locals()), "/shots/a b.usda! $ end $");
+        assert_eq!(crate::core::vars::expand("$F0 $F10 $Fx", &t().locals()), "$F0 $F10 $Fx", "not tokens");
+        assert_eq!(crate::core::vars::expand("$F3", &(Tokens { frame: -2, ..t() }).locals()), "-002");
+        assert_eq!(crate::core::vars::expand("naïve $NAME", &t().locals()), "naïve Render");
     }
 
     #[test]

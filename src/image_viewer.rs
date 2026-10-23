@@ -350,7 +350,7 @@ fn line_for(template: &str, settings: &SettingsInfo, camera: &str, frame: i64, i
         usd: layer.display().to_string(), name: "ImageViewer".into(), start: frame, end: frame, frame,
         more: vec![("IMAGE", image.display().to_string()), ("SETTINGS", settings.path.clone()), ("CAMERA", camera), ("DELEGATE", delegate.into())],
     };
-    command::expand(&command::without_empty(template, &t), &t)
+    crate::core::vars::expand(&command::without_empty(template, &t), &t.locals())
 }
 
 /// Where husk writes its snapshots unless told otherwise: the image's name

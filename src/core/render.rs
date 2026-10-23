@@ -868,7 +868,8 @@ pub struct EnvVar {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct CommandSettings {
-    /// With tokens: `$USD`, `$F4`, `$FSTART`, `$N`… (`command::TOKENS`).
+    /// With variables: `$USD`, `$F4`, `$FSTART`, `$N`… (`command::TOKENS`),
+    /// and the globals (`vars::GLOBALS_LIST`).
     pub line:         String,
     /// Write the layer first, with the Write USD above, so the render sees
     /// the scene as it is now.
@@ -915,9 +916,9 @@ impl CommandSettings {
         let (start, end) = self.range(scene);
         let t = crate::core::command::Tokens { usd: usd.to_string(), name: name.to_string(), start, end, frame: start, more: vec![] };
         if self.per_frame {
-            (start..=end).map(|frame| crate::core::command::expand(&self.line, &crate::core::command::Tokens { frame, ..t.clone() })).collect()
+            (start..=end).map(|frame| crate::core::vars::expand(&self.line, &crate::core::command::Tokens { frame, ..t.clone() }.locals())).collect()
         } else {
-            vec![crate::core::command::expand(&self.line, &t)]
+            vec![crate::core::vars::expand(&self.line, &t.locals())]
         }
     }
 
