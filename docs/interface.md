@@ -215,13 +215,13 @@ Every graph colours a port, and the wires into it, by the type of data it carrie
 | Yellow | 235, 225, 60 | Vector (2D, 3D), position, texture coordinates |
 | Dark yellow | 175, 150, 30 | Vector 4, quaternion, rotation |
 | Orange | 240, 130, 60 | Colour (RGB, RGBA) |
-| Light purple | 185, 150, 240 | Matrix (3×3, 4×4) |
+| Purple | 140, 95, 190 | Matrix (3×3, 4×4): the materials' purple (no graph carries both) |
 | Desaturated red-beige (Houdini VOPs' OpInput) | 210, 165, 125 | String, file name, token |
 | Purple | 140, 95, 190 | Material, shader (the scene graph's material sockets, MaterialX's shaders and `material`) |
 | Pink-magenta | 225, 120, 205 | BSDF, EDF, VDF (MaterialX closures) |
 | Dark grey | 85, 85, 85 | Execute (ICE), and what is not known yet |
 
-An array is the colour of what it holds. A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
+In ICE an array, whatever it holds, is silver (205, 208, 214): hover over its port to see what it holds ("array of 3D vectors"). A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
 
 ### MaterialX graphs
 

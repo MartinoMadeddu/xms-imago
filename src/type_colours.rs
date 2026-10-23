@@ -55,7 +55,7 @@ impl DataType {
             DataType::Vector   => (235, 225,  60),  // yellow
             DataType::Vector4  => (175, 150,  30),  // dark yellow
             DataType::Colour   => (240, 130,  60),  // orange
-            DataType::Matrix   => (185, 150, 240),  // light purple: lighter than materials
+            DataType::Matrix   => (140,  95, 190),  // purple, as materials: the light purple was hard to see
             DataType::String   => (210, 165, 125),  // Houdini VOPs' OpInput, a little more saturated
             DataType::Material => (140,  95, 190),  // purple
             DataType::Closure  => (225, 120, 205),  // pink-magenta
@@ -83,6 +83,10 @@ impl DataType {
     }
 }
 
+/// An array's ports and wires in ICE, whatever it holds (its port's tooltip
+/// says what): silver, a colour no type has, light against the graph's grey.
+pub const ARRAY: Color32 = Color32::from_rgb(205, 208, 214);
+
 /// A port's colour when connected: a little lighter.
 pub fn connected(c: Color32) -> Color32 { mix(c, Color32::WHITE, 0.25) }
 
@@ -99,7 +103,8 @@ mod tests {
     use super::*;
 
     /// Types meant to read apart do: no two colours closer than a step a
-    /// glance tells apart, apart from integers and booleans, which share one.
+    /// glance tells apart, apart from integers and booleans, and matrices
+    /// and materials, which share one (no graph carries both).
     #[test]
     fn the_colours_read_apart() {
         let d = |a: Color32, b: Color32| {
@@ -108,10 +113,15 @@ mod tests {
         };
         for (i, a) in ALL.iter().enumerate() {
             for b in &ALL[i + 1..] {
-                if (*a, *b) == (DataType::Integer, DataType::Boolean) { continue; }
+                if matches!((*a, *b), (DataType::Integer, DataType::Boolean) | (DataType::Matrix, DataType::Material)) { continue; }
                 assert!(d(a.colour(), b.colour()) > 45.0, "{a:?} and {b:?} are too close");
             }
         }
         assert_eq!(DataType::Integer.colour(), DataType::Boolean.colour());
+        assert_eq!(DataType::Matrix.colour(), DataType::Material.colour());
+        // An ICE array's silver reads apart from every type it can hold.
+        for t in ALL.iter().filter(|t| **t != DataType::Other) {
+            assert!(d(ARRAY, t.colour()) > 45.0, "arrays and {t:?} are too close");
+        }
     }
 }

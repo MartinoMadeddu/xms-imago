@@ -55,7 +55,7 @@ mod pal {
     // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32   { Color32::from_rgb(230,  40,  30) }   // the node a graph broke at
     pub fn OTHER() -> Color32   { crate::type_colours::DataType::Other.colour() }   // execute and the rest: dark grey
-    pub fn ARRAY() -> Color32   { Color32::from_rgb(196, 120, 214) }   // an array, whatever it holds: violet
+    pub fn ARRAY() -> Color32   { crate::type_colours::ARRAY }      // an array, whatever it holds: silver
 }
 
 /// Where everything of a node sits, relative to its top-left corner.
