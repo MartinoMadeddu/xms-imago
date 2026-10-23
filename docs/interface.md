@@ -221,7 +221,7 @@ Every graph colours a port, and the wires into it, by the type of data it carrie
 | Pink-magenta | 225, 120, 205 | BSDF, EDF, VDF (MaterialX closures) |
 | Dark grey | 85, 85, 85 | Execute (ICE), and what is not known yet |
 
-In ICE an array, whatever it holds, is silver (205, 208, 214): hover over its port to see what it holds ("array of 3D vectors"). A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
+In ICE an array, whatever it holds, is the closures' pink-magenta (225, 120, 205; no ICE graph carries a closure): hover over its port to see what it holds ("array of 3D vectors"). A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
 
 ### MaterialX graphs
 

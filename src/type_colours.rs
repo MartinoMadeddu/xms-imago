@@ -84,8 +84,9 @@ impl DataType {
 }
 
 /// An array's ports and wires in ICE, whatever it holds (its port's tooltip
-/// says what): silver, a colour no type has, light against the graph's grey.
-pub const ARRAY: Color32 = Color32::from_rgb(205, 208, 214);
+/// says what): the closures' pink-magenta, since no ICE graph carries a
+/// BSDF, EDF or VDF.
+pub fn array() -> Color32 { DataType::Closure.colour() }
 
 /// A port's colour when connected: a little lighter.
 pub fn connected(c: Color32) -> Color32 { mix(c, Color32::WHITE, 0.25) }
@@ -119,9 +120,10 @@ mod tests {
         }
         assert_eq!(DataType::Integer.colour(), DataType::Boolean.colour());
         assert_eq!(DataType::Matrix.colour(), DataType::Material.colour());
-        // An ICE array's silver reads apart from every type it can hold.
-        for t in ALL.iter().filter(|t| **t != DataType::Other) {
-            assert!(d(ARRAY, t.colour()) > 45.0, "arrays and {t:?} are too close");
+        // An ICE array's pink reads apart from every type it can hold
+        // (closures, which take the same, are never in an ICE graph).
+        for t in ALL.iter().filter(|t| !matches!(**t, DataType::Other | DataType::Closure)) {
+            assert!(d(array(), t.colour()) > 45.0, "arrays and {t:?} are too close");
         }
     }
 }
