@@ -181,6 +181,8 @@ pub fn draw_properties(
         ui.colored_label(ink::DIM(), "Select a node to see its parameters.");
         return;
     };
+    // `$OPNAME` in what its panel shows (a path's → line, Found) is its name.
+    let _operator = graph.nodes.iter().find(|n| n.id == sel_id).map(|n| crate::core::vars::operator(&n.name));
 
     // Facts about the graph the parameter widgets need, gathered before the
     // node is borrowed for editing.
@@ -237,7 +239,7 @@ pub fn draw_properties(
     let command_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommand { .. }) => super::render::CommandIn {
             writer: graph.upstream_write_usd(sel_id).and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
-                NodeType::WriteUsd { path } => Some((n.name.clone(), crate::core::vars::expand(path.trim(), &[]))),
+                NodeType::WriteUsd { path } => Some((n.name.clone(), crate::core::vars::expand_as(&n.name, path.trim()))),
                 _ => None,
             }),
             scene: (graph.scene.start, graph.scene.end),
@@ -1538,9 +1540,10 @@ fn material_location_row(f: &mut Rows, row: usize, col: &mut BindColumn) {
 fn binding_rows(ui: &mut egui::Ui, library: &mut String, inputs: &mut u32, ports: &[Option<std::sync::Arc<crate::core::material::Material>>], rows: usize) -> bool {
     use crate::core::material::{library_path, placed};
     group(ui, "Material Library", Some("Where the materials wired into this operator go in the scene, each by its operator's name"), |f| {
-        f.row("Location", Some("A USD path. Its parents are Scopes"), |ui| {
-            ui.field(egui::TextEdit::singleline(library).hint_text("/materials").desired_width(ui.available_width())
-                .font(egui::TextStyle::Monospace).background_color(location_bg()))
+        f.row("Location", Some("A USD path. Its parents are Scopes. Variables are put in"), |ui| {
+            let r = ui.field(egui::TextEdit::singleline(&mut *library).hint_text("/materials").desired_width(ui.available_width())
+                .font(egui::TextStyle::Monospace).background_color(location_bg()));
+            crate::variables::complete(ui, &r, library, &[]);
         });
         let path = library_path(library);
         if path != library.trim() { f.status(Status::Info, format!("Used as {path}")); }
@@ -1573,9 +1576,10 @@ fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::Lo
     group(ui, "Mode", Some(hint), |f| {
         f.choice("Mode", None, mode, &[(LoadMode::Sublayer, "Sublayer"), (LoadMode::Reference, "Reference"), (LoadMode::Payload, "Payload")]);
         if *mode == LoadMode::Sublayer { return; }
-        f.row("Primitive Location", Some("Where the file's prim goes in the scene. Its parents are Xforms"), |ui| {
-            ui.field(egui::TextEdit::singleline(location).hint_text("/root").desired_width(ui.available_width())
-                .font(egui::TextStyle::Monospace).background_color(location_bg()))
+        f.row("Primitive Location", Some("Where the file's prim goes in the scene. Its parents are Xforms. Variables are put in: /set/$OPNAME"), |ui| {
+            let r = ui.field(egui::TextEdit::singleline(&mut *location).hint_text("/root").desired_width(ui.available_width())
+                .font(egui::TextStyle::Monospace).background_color(location_bg()));
+            crate::variables::complete(ui, &r, location, &[]);
         });
         let at = crate::types::prim_location(location, &crate::types::reference_location());
         if at != location.trim() { f.status(Status::Info, format!("Used as {at}")); }
@@ -1619,7 +1623,7 @@ fn camera_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3
     use crate::core::camera::Projection;
     let path = crate::types::prim_location(location, &crate::types::camera_location());
     group(ui, "Primitive", Some("Where the camera is in the scene. Its parents are Xforms"), |f| {
-        f.text("Primitive Location", Some("A USD path, such as /camera or /shot/cam_main"), location, "/camera");
+        f.text_vars("Primitive Location", Some("A USD path, such as /camera or /shot/cam_main. Variables are put in: /shot/$OPNAME"), location, "/camera", false);
         if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
     });
     group(ui, "Transform", Some("It looks down its -Z axis, with +Y up. A Transform after it moves it too"), |f| {
@@ -1969,8 +1973,8 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
             let options: Vec<(String, &str)> = tokens.iter().map(|t| (t.to_string(), *t)).collect();
             f.choice("Value", None, s, &options);
         }
-        Value::String(s) | Value::Token(s) => { f.text("Value", None, s, ""); }
-        Value::Asset(s) => { f.text("Value", Some("A file path, written as @path@"), s, "/path/to/file"); }
+        Value::String(s) | Value::Token(s) => { f.text_vars("Value", Some("Variables are put in: $OPNAME, $GNAME…"), s, "", false); }
+        Value::Asset(s) => { f.text_vars("Value", Some("A file path, written as @path@, its variables put in: $JOB/tex/sky.exr"), s, "/path/to/file", false); }
         Value::Float2(a) => { f.row("Value", None, |ui| fields(ui, a)); }
         Value::Float3(a) => { f.row("Value", None, |ui| fields(ui, a)); }
         Value::Float4(a) => { f.row("Value", None, |ui| fields(ui, a)); }
@@ -2148,7 +2152,7 @@ fn space_line(c: &AnimData) -> String {
 /// path, and the panel says so when that changes it.
 fn location_group(ui: &mut egui::Ui, location: &mut String, fallback: &str) {
     group(ui, "Primitive", Some("Where the shape is in the scene. Its parents are Xforms"), |f| {
-        f.text("Primitive Location", Some("A USD path, such as /cube or /set/props/box1"), location, fallback);
+        f.text_vars("Primitive Location", Some("A USD path, such as /cube or /set/props/box1. Variables are put in: /set/$OPNAME"), location, fallback, false);
         let path = crate::types::prim_location(location, fallback);
         if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
     });

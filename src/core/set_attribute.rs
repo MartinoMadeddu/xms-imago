@@ -101,7 +101,13 @@ fn opinions_of(rows: &[&SetRow]) -> Opinions {
 /// picked primitives, or every one).
 pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String]) -> EvalResult {
     let EvalResult::Named(prims) = input else { return input.clone() };
-    let rows: Vec<&SetRow> = rows.iter().filter(|r| r.is_usable()).collect();
+    // Names and text with their variables put in (`$OPNAME`, `$JOB/…`).
+    let put: Vec<SetRow> = rows.iter().map(|r| SetRow {
+        name: if r.name.contains('$') { crate::core::vars::expand(&r.name, &[]) } else { r.name.clone() },
+        value: r.value.with_variables_put_in(false),
+        ..r.clone()
+    }).collect();
+    let rows: Vec<&SetRow> = put.iter().filter(|r| r.is_usable()).collect();
     if rows.is_empty() { return input.clone(); }
 
     let named = locations::is_set(locations);

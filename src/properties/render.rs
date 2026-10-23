@@ -43,7 +43,10 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
             if let Some((a, b)) = range { d = d.range(a..=b); }
             ui.field_sized([w, h], d).changed()
         }
-        Value::String(s) | Value::Token(s) | Value::Asset(s) => ui.field(egui::TextEdit::singleline(s).desired_width(w)).changed(),
+        Value::String(s) | Value::Token(s) | Value::Asset(s) => {
+            let r = ui.field(egui::TextEdit::singleline(&mut *s).desired_width(w));
+            r.changed() | crate::variables::complete(ui, &r, s, &[])
+        }
         Value::Float2(a) => fields(ui, a),
         Value::Float3(a) => fields(ui, a),
         Value::Float4(a) => fields(ui, a),
@@ -123,7 +126,7 @@ fn path_pick(f: &mut Rows, label: &str, hint: &str, value: &mut String, placehol
 pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Context) {
     let path = s.path();
     group(ui, "Primitive", Some("The RenderSettings prim. Render Settings and Render Variables find it without a wire: the layer names it (renderSettingsPrimPath)"), |f| {
-        f.text("Primitive Location", Some("A USD path, such as /Render/Settings"), &mut s.location, "/Render/Settings");
+        f.text_vars("Primitive Location", Some("A USD path, such as /Render/Settings. Variables are put in"), &mut s.location, "/Render/Settings", false);
         if path != s.location.trim() { f.status(Status::Info, format!("Used as {path}")); }
     });
     group(ui, "Camera", Some("The camera rendered through (the camera relationship)"), |f| {
@@ -183,9 +186,9 @@ pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Conte
     });
     let product = s.product_path();
     group(ui, "Output", Some("The RenderProduct: one image file, holding the RenderVars (AOVs) Render Settings and Render Variables add"), |f| {
-        f.text("Product", Some("The RenderProduct's path"), &mut s.product, "/Render/Products/beauty");
+        f.text_vars("Product", Some("The RenderProduct's path. Variables are put in"), &mut s.product, "/Render/Products/beauty", false);
         if product != s.product.trim() { f.status(Status::Info, format!("Used as {product}")); }
-        f.text("Output Image", Some("The file it writes (productName). Written into the layer as it is: frame tokens such as $F4 are the renderer's to expand (husk does), not Imago's"), &mut s.output, "render/beauty.$F4.exr");
+        f.text_vars("Output Image", Some("The file it writes (productName). Imago's variables are put in ($JOB, $GNAME, $OPNAME); the frame's ($F, $F4) are left for the renderer to put in per frame (husk does)"), &mut s.output, "render/beauty.$F4.exr", true);
     });
 }
 
@@ -222,7 +225,7 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
         match &ctx.settings {
             Some(found) => f.status(Status::Ok, found.describe()),
             None => {
-                f.text("Primitive Location", Some("Where the RenderSettings prim is made when none comes in"), &mut r.location, "/Render/Settings");
+                f.text_vars("Primitive Location", Some("Where the RenderSettings prim is made when none comes in. Variables are put in"), &mut r.location, "/Render/Settings", false);
                 f.status(Status::Info, render::Found::Made(r.path()).describe());
             }
         }
@@ -530,7 +533,7 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
     });
 
     group(ui, "Environment", Some("Where it runs, and variables it runs with on top of Imago's (HOUDINI_PATH, ARNOLD_PLUGIN_PATH, licences)"), |f| {
-        f.text("Folder", Some("Where it runs. Empty: the layer's folder"), &mut c.folder, "the layer's folder");
+        f.text_vars("Folder", Some("Where it runs, its variables put in. Empty: the layer's folder"), &mut c.folder, "the layer's folder", false);
         let mut remove = None;
         for (k, e) in c.env.iter_mut().enumerate() {
             f.row(&format!("Variable {}", k + 1), None, |ui| {
@@ -538,7 +541,8 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
                     let h = ui.spacing().interact_size.y;
                     let w = ((ui.available_width() - 30.0 - ui.spacing().item_spacing.x) / 2.0).max(40.0);
                     ui.field_sized([w, h], egui::TextEdit::singleline(&mut e.name).hint_text("NAME").font(egui::TextStyle::Monospace));
-                    ui.field_sized([w, h], egui::TextEdit::singleline(&mut e.value).hint_text("value"));
+                    let r = ui.field_sized([w, h], egui::TextEdit::singleline(&mut e.value).hint_text("value"));
+                    crate::variables::complete(ui, &r, &mut e.value, &[]);
                     if ui.small_button("🗑").clicked() { remove = Some(k); }
                 });
             });

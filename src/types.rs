@@ -371,6 +371,8 @@ pub enum MergeMode {
 /// `_`, not starting with a digit; anything else becomes `_`). Nothing
 /// usable gives `fallback`.
 pub fn prim_location(text: &str, fallback: &str) -> String {
+    // `/root/$OPNAME`, `/shots/$GNAME`: its variables put in.
+    let text = if text.contains('$') { crate::core::vars::expand(text, &[]) } else { text.to_string() };
     let segments: Vec<String> = text.split('/').map(str::trim).filter(|s| !s.is_empty()).map(|seg| {
         let mut id: String = seg.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
         if id.starts_with(|c: char| c.is_ascii_digit()) { id.insert(0, '_'); }

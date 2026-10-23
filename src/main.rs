@@ -1228,7 +1228,7 @@ fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String>
     match action {
         PanelAction::Write { targets, all_files } => batch::existing_outputs(graph, targets, *all_files),
         PanelAction::WriteUsd(id) => graph.nodes.iter().find(|n| n.id == *id).and_then(|n| match &n.node_type {
-            NodeType::WriteUsd { path } if std::path::Path::new(&crate::core::vars::expand(path.trim(), &[])).is_file() => Some(crate::core::vars::expand(path.trim(), &[])),
+            NodeType::WriteUsd { path } if std::path::Path::new(&crate::core::vars::expand_as(&n.name, path.trim())).is_file() => Some(crate::core::vars::expand_as(&n.name, path.trim())),
             _ => None,
         }).into_iter().collect(),
         // Rendering writes its layer again, as asked: no question.
@@ -1251,9 +1251,11 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
     let NodeType::RenderCommand { command } = &node.node_type else { return };
     let writer = graph.upstream_write_usd(id);
     let usd = writer.and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
-        NodeType::WriteUsd { path } => Some(crate::core::vars::expand(path.trim(), &[])),
+        NodeType::WriteUsd { path } => Some(crate::core::vars::expand_as(&n.name, path.trim())),
         _ => None,
     }).unwrap_or_default();
+    // `$OPNAME` in its folder and variables is its name.
+    let _operator = crate::core::vars::operator(&node.name);
     if command.write_first {
         if let Some(w) = writer {
             write_usd(graph, subnets, w);
@@ -1281,7 +1283,9 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
         }
     }
     let lines = command.lines(&usd, &node.name, (graph.scene.start, graph.scene.end));
-    let env = command.env.iter().map(|e| (e.name.clone(), e.value.clone())).collect();
+    // Its variables' values, and its folder, with Imago's variables put in.
+    let locals = [("USD", usd.clone())];
+    let env = command.env.iter().map(|e| (e.name.clone(), crate::core::vars::expand(&e.value, &locals))).collect();
     crate::core::command::start(id.0, lines, command.folder_for(&usd), env);
 }
 
@@ -1677,7 +1681,7 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
     let NodeType::WriteUsd { path } = &node.node_type else { return };
     // `$GDIR/out/$GNAME.usda`: its variables put in.
-    let path = crate::core::vars::expand(path.trim(), &[]);
+    let path = crate::core::vars::expand_as(&node.name, path.trim());
     let result = (|| {
         if path.is_empty() { return Err("No file set".to_string()); }
         // Never boxes in place of geometry.

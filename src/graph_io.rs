@@ -452,8 +452,8 @@ pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other:
         }
     }
     // Its variables this graph does not have, so its paths still read.
-    for (name, value) in &other.variables.list {
-        if !graph.variables.list.iter().any(|(n, _)| n == name) { graph.variables.list.push((name.clone(), value.clone())); }
+    for v in &other.variables.list {
+        if !graph.variables.list.iter().any(|x| x.name == v.name) { graph.variables.list.push(v.clone()); }
     }
     graph.repair_view_flag(None);
     graph.frame_request = true;
@@ -644,16 +644,16 @@ mod tests {
         let mut g = NodeGraphState::default();
         g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
         g.variables.job = "/shows/street".into();
-        g.variables.list = vec![("ASSETS".into(), "$JOB/assets".into())];
+        g.variables.list = vec![crate::core::vars::Variable::new("ASSETS", "$JOB/assets")];
         let json = to_json(&g, &IceGraphStore::default());
         let mut back = NodeGraphState::default();
         from_json(&mut back, &mut IceGraphStore::default(), &json).unwrap();
         assert_eq!(back.variables, g.variables);
         let mut other = NodeGraphState::default();
         other.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
-        other.variables.list = vec![("ASSETS".into(), "/elsewhere".into()), ("SHOT".into(), "sh010".into())];
+        other.variables.list = vec![crate::core::vars::Variable::new("ASSETS", "/elsewhere"), crate::core::vars::Variable::new("SHOT", "sh010")];
         add_graph(&mut back, &mut IceGraphStore::default(), &other, &IceGraphStore::default());
-        assert_eq!(back.variables.list, vec![("ASSETS".to_string(), "$JOB/assets".to_string()), ("SHOT".to_string(), "sh010".to_string())], "this graph's own kept");
+        assert_eq!(back.variables.list, vec![crate::core::vars::Variable::new("ASSETS", "$JOB/assets"), crate::core::vars::Variable::new("SHOT", "sh010")], "this graph's own kept");
         // None set: none written.
         assert!(!to_json(&NodeGraphState::default(), &IceGraphStore::default()).contains("variables"));
     }

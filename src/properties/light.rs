@@ -18,7 +18,7 @@ pub fn light_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32
     let fallback = default_location(light);
     let path = crate::types::prim_location(location, &fallback);
     group(ui, "Primitive", Some("Where the light is in the scene. Its parents are Xforms"), |f| {
-        f.text("Primitive Location", Some("A USD path, such as /lights/key"), location, &fallback);
+        f.text_vars("Primitive Location", Some("A USD path, such as /lights/key. Variables are put in: /lights/$OPNAME"), location, &fallback, false);
         if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
     });
     group(ui, "Type", Some("UsdLux's light types. A point light is a sphere light treated as a point"), |f| {

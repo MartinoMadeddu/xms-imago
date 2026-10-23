@@ -1,7 +1,7 @@
 //! Variables in the interface (see `core::vars` for what they are):
 //!
-//! - **File > Variables**: the graph's own variables and `$JOB`, saved with
-//!   it, and the built-in ones with what they are now.
+//! - **File > Variables**: one table of the graph's own variables (saved
+//!   with it) and the built-in ones: variable, result, description.
 //! - **The list on `$`**: typing `$` (or `${`) in a path or command line
 //!   lists the variables it can take, with their values; a click puts one
 //!   in.
@@ -14,75 +14,106 @@ fn open_id() -> egui::Id { egui::Id::new("variables_window_open") }
 /// Show File > Variables.
 pub fn open(ctx: &egui::Context) { ctx.data_mut(|d| d.insert_temp(open_id(), true)); }
 
-/// File > Variables, while it is open. Changes apply at once and are steps
-/// of the history, as any change to the graph.
+/// The table's columns: the variable, what it is now, what it is for.
+const NAME_W: f32 = 150.0;
+const RESULT_W: f32 = 260.0;
+const ABOUT_W: f32 = 220.0;
+
+/// File > Variables, while it is open: one table, the graph's own variables
+/// then the built-in ones, each a row of the variable, its result and what
+/// it is for. Changes apply at once and are steps of the history, as any
+/// change to the graph.
 pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
     let mut open = ctx.data(|d| d.get_temp::<bool>(open_id())).unwrap_or(false);
     if !open { return; }
     let dim = crate::properties::form::ink::DIM();
     let bad = crate::properties::form::ink::BAD();
-    egui::Window::new("Variables").open(&mut open).collapsible(false).resizable(true).default_width(560.0).show(ctx, |ui| {
-        ui.label(egui::RichText::new("Saved with the graph. Write them as $NAME in paths and command lines; a value can hold variables too ($JOB/assets). Type $ in a field for the list.").small().color(dim));
-        ui.add_space(6.0);
-        let name_w = 140.0;
-        let value_w = (ui.available_width() - name_w - 60.0).max(160.0);
-        // $JOB: set here, else the environment's, else the graph's folder.
-        ui.horizontal(|ui| {
-            ui.add_sized([name_w, ui.spacing().interact_size.y], egui::Label::new(egui::RichText::new("JOB").monospace()))
-                .on_hover_text("The project folder. Empty: JOB from the environment, else the graph's folder ($GDIR)");
-            let hint = std::env::var("JOB").map(|j| format!("{j} (from the environment)")).unwrap_or_else(|_| "the graph's folder".into());
-            let r = ui.field(egui::TextEdit::singleline(&mut v.job).hint_text(hint).desired_width(value_w));
-            complete(ui, &r, &mut v.job, &[]);
-        });
-        shown(ui, name_w, &vars::expand("$JOB", &[]));
-        ui.separator();
-
+    egui::Window::new("Variables").open(&mut open).collapsible(false).resizable(true).default_width(NAME_W + RESULT_W + ABOUT_W + 60.0).show(ctx, |ui| {
+        ui.label(egui::RichText::new("Write them as $NAME in paths, locations, values and command lines. Type $ in a field for the list.").small().color(dim));
+        ui.add_space(4.0);
         let mut remove = None;
-        let names: Vec<String> = v.list.iter().map(|(n, _)| n.clone()).collect();
-        for (k, (name, value)) in v.list.iter_mut().enumerate() {
-            ui.horizontal(|ui| {
-                let h = ui.spacing().interact_size.y;
-                ui.field_sized([name_w, h], egui::TextEdit::singleline(name).hint_text("NAME").font(egui::TextStyle::Monospace));
-                let r = ui.field(egui::TextEdit::singleline(value).hint_text("value").desired_width(value_w));
-                complete(ui, &r, value, &[]);
-                if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
-            });
-            let taken = names.iter().take(k).any(|n| n.as_str() == name.as_str());
-            match vars::check_name(name) {
-                Err(e) => { ui.label(egui::RichText::new(format!("${name}: {e}")).small().color(bad)); }
-                Ok(()) if taken => { ui.label(egui::RichText::new(format!("${name}: a variable above has this name, and is the one used")).small().color(bad)); }
-                Ok(()) => shown(ui, name_w, &vars::expand(&format!("${{{name}}}"), &[])),
-            }
-        }
-        if let Some(k) = remove { v.list.remove(k); }
-        if ui.button("+ Variable").clicked() {
-            let n = (1..).map(|i| format!("VAR{i}")).find(|n| !v.list.iter().any(|(x, _)| x == n)).unwrap_or_default();
-            v.list.push((n, String::new()));
-        }
+        let mut add = false;
+        egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
+            egui::Grid::new("variables_table").num_columns(3).spacing([10.0, 6.0]).striped(true).show(ui, |ui| {
+                let head = |ui: &mut egui::Ui, t: &str, w: f32| { ui.add_sized([w, 16.0], egui::Label::new(egui::RichText::new(t).small().strong().color(dim))); };
+                head(&mut *ui, "Variable", NAME_W); head(&mut *ui, "Result", RESULT_W); head(&mut *ui, "Description", ABOUT_W);
+                ui.end_row();
 
-        ui.add_space(6.0);
-        egui::CollapsingHeader::new("Built-in").default_open(false).show(ui, |ui| {
-            egui::Grid::new("variables_builtin").num_columns(3).spacing([12.0, 3.0]).show(ui, |ui| {
+                // The graph's own: saved with it.
+                section(ui, "Graph", "Saved with the graph. A value can hold variables: $JOB/assets");
+                let names: Vec<String> = v.list.iter().map(|x| x.name.clone()).collect();
+                for (k, var) in v.list.iter_mut().enumerate() {
+                    let h = ui.spacing().interact_size.y;
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("$").monospace());
+                            ui.field_sized([NAME_W - 16.0, h], egui::TextEdit::singleline(&mut var.name).hint_text("NAME").font(egui::TextStyle::Monospace));
+                        });
+                        let taken = names.iter().take(k).any(|n| *n == var.name);
+                        match vars::check_name(&var.name) {
+                            Err(e) => { ui.label(egui::RichText::new(e).small().color(bad)); }
+                            Ok(()) if taken => { ui.label(egui::RichText::new("a variable above has this name").small().color(bad)); }
+                            Ok(()) => {}
+                        }
+                    });
+                    ui.vertical(|ui| {
+                        let r = ui.field_sized([RESULT_W, h], egui::TextEdit::singleline(&mut var.value).hint_text("value"));
+                        complete(ui, &r, &mut var.value, &[]);
+                        // With variables in it: what it comes to.
+                        if var.value.contains('$') && vars::check_name(&var.name).is_ok() {
+                            ui.label(egui::RichText::new(format!("→ {}", vars::expand(&format!("${{{}}}", var.name), &[]))).small().color(dim));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.field_sized([ABOUT_W - 30.0, h], egui::TextEdit::singleline(&mut var.description).hint_text("what it is for"));
+                        if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
+                    });
+                    ui.end_row();
+                }
+                if ui.button("+ Variable").on_hover_text("A variable of the graph's own").clicked() { add = true; }
+                ui.label("");
+                ui.label("");
+                ui.end_row();
+
+                // Built in: $JOB can be set here.
+                section(ui, "Built-in", "Set by the graph's file, the scene's frames and the operator reading the text");
                 for (name, what) in vars::BUILTINS {
                     ui.label(egui::RichText::new(format!("${name}")).monospace());
-                    ui.label(vars::expand(&format!("${{{name}}}"), &[]));
-                    ui.label(egui::RichText::new(what).small().color(dim));
+                    if name == "JOB" {
+                        ui.vertical(|ui| {
+                            let hint = std::env::var("JOB").map(|j| format!("{j} (from the environment)")).unwrap_or_else(|_| "the graph's folder".into());
+                            let r = ui.field_sized([RESULT_W, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut v.job).hint_text(hint));
+                            complete(ui, &r, &mut v.job, &[]);
+                            if v.job.contains('$') { ui.label(egui::RichText::new(format!("→ {}", vars::expand("$JOB", &[]))).small().color(dim)); }
+                        });
+                        ui.label(egui::RichText::new("the project folder: typed here, else JOB from the environment, else $GDIR").small().color(dim));
+                    } else {
+                        let result = if name == "OPNAME" { "each operator's name".to_string() } else { vars::expand(&format!("${{{name}}}"), &[]) };
+                        let shown = if result.is_empty() { egui::RichText::new("(empty)").color(dim) } else { egui::RichText::new(result) };
+                        ui.add_sized([RESULT_W, 16.0], egui::Label::new(shown).truncate());
+                        ui.label(egui::RichText::new(what).small().color(dim));
+                    }
                     ui.end_row();
                 }
             });
-            ui.label(egui::RichText::new("$F2 to $F9 pad the frame likewise. Then anything set in the environment ($HOME…), after the graph's own. An operator's own come first ($USD, $OPNAME in a Render Command).").small().color(dim));
         });
+        if let Some(k) = remove { v.list.remove(k); }
+        if add {
+            let n = (1..).map(|i| format!("VAR{i}")).find(|n| !v.list.iter().any(|x| x.name == *n)).unwrap_or_default();
+            v.list.push(vars::Variable::new(&n, ""));
+        }
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("$F2 to $F9 pad the frame as $F4 does. An operator's own come first ($USD in a Render Command); the environment's ($HOME…) last.").small().color(dim));
     });
     ctx.data_mut(|d| d.insert_temp(open_id(), open));
 }
 
-/// What a variable is now, under its row.
-fn shown(ui: &mut egui::Ui, indent: f32, value: &str) {
-    ui.horizontal(|ui| {
-        ui.add_space(indent + ui.spacing().item_spacing.x);
-        let text = if value.is_empty() { "(empty)".to_string() } else { format!("→ {value}") };
-        ui.label(egui::RichText::new(text).small().color(crate::properties::form::ink::DIM()));
-    });
+/// A section's title row in the table.
+fn section(ui: &mut egui::Ui, title: &str, about: &str) {
+    ui.label(egui::RichText::new(title).strong());
+    ui.label(egui::RichText::new(about).small().color(crate::properties::form::ink::DIM()));
+    ui.label("");
+    ui.end_row();
 }
 
 /// After a text field (`r`, over `text`): while a variable's name is being

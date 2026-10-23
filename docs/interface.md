@@ -76,6 +76,7 @@ Paths and command lines can hold variables, put in when they are used: `$GDIR/us
 
 | Variable | What it is |
 |---|---|
+| `$OPNAME` | the name of the operator whose text it is: `/set/$OPNAME` in a Load USD named `tree` is `/set/tree` |
 | `$GNAME` | the graph's name: its file without `.xms` (`street_v001`) |
 | `$GDIR` | the folder of the graph's file |
 | `$JOB` | the project folder: as File > Variables sets it, else `JOB` from the environment, else `$GDIR` |
@@ -85,15 +86,21 @@ Paths and command lines can hold variables, put in when they are used: `$GDIR/us
 | `$ASSETS`, … | the graph's own, from File > Variables |
 | `$HOME`, … | anything set in the environment |
 
-An operator can add its own, which come first: a Render Command's `$USD` and `$OPNAME` (see [Render](render.md)). `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is. They work in every path Imago reads or writes: Load USD, Write USD, the FBX operators (Write FBX puts them in before its `{take}` tokens), texture files of Material, MaterialX and light operators (written to USD with their variables put in, since renderers would read `$JOB` as it is), and command lines. Text passed on to a renderer as it is, Render Settings' Output Image, is not expanded. A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
+An operator can add its own, which come first: a Render Command's `$USD` (see [Render](render.md)). `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is. They work in:
+
+- every path Imago reads or writes: Load USD, Write USD, the FBX operators (Write FBX puts them in before its `{take}` tokens), texture files of Material, MaterialX and light operators (written to USD with their variables put in, since renderers would read `$JOB` as it is);
+- every Primitive Location (shapes, cameras, lights, Load USD's, render prims, the material library): `/shots/$GNAME/$OPNAME`;
+- Set Attribute's names and text values, and the render operators' text: Render Settings' Output Image has Imago's variables put in, but not the frame's (`$F`, `$F4`, `$T`), which the renderer puts in for each frame it renders;
+- command lines, and a Render Command's folder and environment values.
+
+A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
 
 **Typing `$`** in a path or a command line lists the variables it can take, with what each is now: the operator's own, the graph's, the built-ins, and, once a letter is typed, the environment's that start with it. Click one to put it in (after `${` it gets its `}`).
 
-**File > Variables** holds the graph's own variables, saved in its file:
+**File > Variables** is one table of three columns, **Variable**, **Result** and **Description**, in two parts:
 
-- **JOB**: the project folder for `$JOB`. Empty, it is `JOB` from the environment, else the graph's folder.
-- **+ Variable** adds one: a name (letters, digits and `_`, not a built-in's) and a value, which can hold variables too: `ASSETS` = `$JOB/assets`, then `$ASSETS/tree.usda`. What each is now shows under it.
-- **Built-in** lists the built-in ones and their values.
+- **Graph**: the graph's own variables, saved in its file. **+ Variable** adds a row: its name (letters, digits and `_`, not a built-in's), its value in Result, which can hold variables too (`ASSETS` = `$JOB/assets`, with what it comes to under it), and what it is for, shown in the list on `$` too. 🗑 removes it.
+- **Built-in**: the built-in ones, what they are now and what each is. `$JOB`'s result is typed here: empty, it is `JOB` from the environment, else the graph's folder.
 
 A graph's own come after the built-ins and before the environment. Changing one is a step of the history, and the graph is unsaved until saved; what reads paths cooks again. Importing a graph brings its variables that this graph has no variable of that name for.
 

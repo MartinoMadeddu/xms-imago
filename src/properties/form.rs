@@ -195,6 +195,23 @@ impl<'a> Rows<'a> {
         })
     }
 
+    /// `text` for text whose variables are put in where it is used (a
+    /// primitive location, a file): typing `$` lists them, and what it
+    /// becomes shows under it when that differs. `keep_frames`: the frame's
+    /// are left for the renderer (an Output Image).
+    pub fn text_vars(&mut self, label: &str, hint: Option<&str>, v: &mut String, placeholder: &str, keep_frames: bool) -> egui::Response {
+        let r = self.row(label, hint, |ui| {
+            let r = ui.field(egui::TextEdit::singleline(&mut *v).hint_text(placeholder).desired_width(ui.available_width()));
+            crate::variables::complete(ui, &r, v, &[]);
+            r
+        });
+        if v.contains('$') {
+            let shown = if keep_frames { crate::core::vars::expand_keeping_frames(v.trim()) } else { crate::core::vars::expand(v.trim(), &[]) };
+            if !shown.is_empty() && shown != v.trim() { self.status(Status::Info, format!("→ {shown}")); }
+        }
+        r
+    }
+
     /// A value that is shown, not edited.
     pub fn value(&mut self, label: &str, text: impl Into<String>) {
         let text = text.into();

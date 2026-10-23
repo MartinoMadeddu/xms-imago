@@ -4,7 +4,9 @@
 //! - **Local** variables belong to what is reading the text (a Render
 //!   Command's `$USD`, the Image Viewer's `$IMAGE`), and come first.
 //! - **Global** variables are the same everywhere in the graph: the graph's
-//!   file, the project, the frames (`GLOBALS` lists them).
+//!   file, the project, the frames (`GLOBALS` lists them). `$OPNAME` is
+//!   the operator cooking (or whose panel is drawn), wherever its text is
+//!   read: see `operator`.
 //! - The graph's **own** variables (File > Variables), saved with it; a
 //!   value can hold variables too (`ASSETS` = `$JOB/assets`).
 //! - Then the **environment** (`$HOME`, `$USER`, anything set).
@@ -40,18 +42,53 @@ pub struct Variables {
     /// `$GDIR`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub job:  String,
-    /// Name (without the `$`) and value, in the order they were made.
+    /// In the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub list: Vec<(String, String)>,
+    pub list: Vec<Variable>,
 }
 
 impl Variables {
     pub fn is_empty(&self) -> bool { self.job.is_empty() && self.list.is_empty() }
 }
 
+/// One of the graph's own variables.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(from = "SavedVariable")]
+pub struct Variable {
+    /// Without the `$`.
+    pub name:        String,
+    /// What it is; it can hold variables (`$JOB/assets`).
+    pub value:       String,
+    /// What it is for, said in the window and the list on `$`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+impl Variable {
+    pub fn new(name: &str, value: &str) -> Self { Variable { name: name.into(), value: value.into(), description: String::new() } }
+}
+
+/// A variable as saved: a name and value alone, as the first graphs with
+/// variables saved them, or with its description.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum SavedVariable {
+    Full { name: String, value: String, #[serde(default)] description: String },
+    Pair(String, String),
+}
+
+impl From<SavedVariable> for Variable {
+    fn from(s: SavedVariable) -> Self {
+        match s {
+            SavedVariable::Full { name, value, description } => Variable { name, value, description },
+            SavedVariable::Pair(name, value) => Variable { name, value, description: String::new() },
+        }
+    }
+}
+
 /// The built-in names: `$F2` to `$F9` too.
 pub fn is_builtin(name: &str) -> bool {
-    matches!(name, "GNAME" | "GDIR" | "JOB" | "F" | "FSTART" | "FEND" | "N" | "FPS" | "T")
+    matches!(name, "GNAME" | "GDIR" | "JOB" | "OPNAME" | "F" | "FSTART" | "FEND" | "N" | "FPS" | "T")
         || name.strip_prefix('F').and_then(|d| d.parse::<usize>().ok()).is_some_and(|w| (1..=9).contains(&w))
 }
 
@@ -84,7 +121,8 @@ pub fn globals() -> Globals {
 }
 
 /// The global variables, for the interface: name, what it is.
-pub const GLOBALS_LIST: [(&str, &str); 12] = [
+pub const GLOBALS_LIST: [(&str, &str); 13] = [
+    ("$OPNAME", "the operator's name: the one whose text it is"),
     ("$GNAME", "the graph's name: its file without .xms"),
     ("$GDIR", "the folder of the graph's file"),
     ("$JOB", "the project folder: as File > Variables sets it, else $JOB from the environment, else $GDIR"),
@@ -100,7 +138,8 @@ pub const GLOBALS_LIST: [(&str, &str); 12] = [
 ];
 
 /// The built-in global variables, by name without the `$`: what each is.
-pub const BUILTINS: [(&str, &str); 10] = [
+pub const BUILTINS: [(&str, &str); 11] = [
+    ("OPNAME", "this operator's name"),
     ("GNAME", "the graph's name"),
     ("GDIR", "the graph's folder"),
     ("JOB", "the project folder"),
@@ -120,13 +159,18 @@ pub fn available(locals: &[(&str, &str, String)]) -> Vec<(String, String, String
     let g = globals();
     let values: Vec<(&str, String)> = locals.iter().map(|(n, _, v)| (*n, v.clone())).collect();
     let mut out: Vec<(String, String, String)> = locals.iter().map(|(n, what, v)| (n.to_string(), v.clone(), what.to_string())).collect();
-    for (n, _) in &g.user.list {
+    for v in &g.user.list {
+        let n = &v.name;
         if out.iter().any(|o| o.0 == *n) { continue; }
-        out.push((n.clone(), expand_in(&format!("${{{n}}}"), &values, &g, 0), "the graph's".into()));
+        let what = if v.description.trim().is_empty() { "the graph's".to_string() } else { v.description.clone() };
+        out.push((n.clone(), expand_in(&format!("${{{n}}}"), &values, &g, 0, false), what));
     }
     for (n, what) in BUILTINS {
         if out.iter().any(|o| o.0 == n) { continue; }
-        out.push((n.to_string(), expand_in(&format!("${{{n}}}"), &values, &g, 0), what.to_string()));
+        // One with no value here (`$OPNAME` with no operator) shows none.
+        let token = format!("${{{n}}}");
+        let v = expand_in(&token, &values, &g, 0, false);
+        out.push((n.to_string(), if v == token { String::new() } else { v }, what.to_string()));
     }
     out
 }
@@ -145,10 +189,46 @@ const DEPTH: usize = 8;
 /// `text` with its variables put in: `locals` first (names without the
 /// `$`), then the globals, then the graph's own, then the environment.
 pub fn expand(text: &str, locals: &[(&str, String)]) -> String {
-    expand_in(text, locals, &globals(), 0)
+    expand_in(text, locals, &globals(), 0, false)
 }
 
-fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize) -> String {
+/// `expand`, the frame's variables left as they are (`$F`, `$F4`, `$T`):
+/// text passed on to a renderer, which puts the frame in for each frame
+/// it renders (Render Settings' Output Image).
+pub fn expand_keeping_frames(text: &str) -> String {
+    if !text.contains('$') { return text.to_string(); }
+    expand_in(text, &[], &globals(), 0, true)
+}
+
+thread_local! {
+    /// The operators whose text is being read, innermost last.
+    static OPERATORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// While it lives, `$OPNAME` is `name`: taken while an operator cooks,
+/// while its panel is drawn, or while what it writes is written.
+pub struct Operator(());
+
+impl Drop for Operator {
+    fn drop(&mut self) { OPERATORS.with(|o| { o.borrow_mut().pop(); }); }
+}
+
+/// `$OPNAME` is `name` until what this returns is dropped.
+pub fn operator(name: &str) -> Operator {
+    OPERATORS.with(|o| o.borrow_mut().push(name.to_string()));
+    Operator(())
+}
+
+/// `text` with its variables put in as operator `name`'s: `$OPNAME` is it.
+pub fn expand_as(name: &str, text: &str) -> String {
+    let _o = operator(name);
+    expand(text, &[])
+}
+
+/// The operator whose text is being read, if any.
+fn current_operator() -> Option<String> { OPERATORS.with(|o| o.borrow().last().cloned()) }
+
+fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize, keep: bool) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
@@ -166,7 +246,7 @@ fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize) -
             let k = chars[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == '_').count();
             (chars[i + 1..i + 1 + k].iter().collect::<String>(), k + 1)
         };
-        match (len > 1).then(|| value(&name, locals, g, depth)).flatten() {
+        match (len > 1).then(|| value(&name, locals, g, depth, keep)).flatten() {
             Some(v) => { out.push_str(&v); i += len; }
             None => { out.push('$'); i += 1; }
         }
@@ -175,10 +255,12 @@ fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize) -
 }
 
 /// A variable's value, or `None` for a name that is not one.
-fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize) -> Option<String> {
+fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize, keep: bool) -> Option<String> {
     if let Some((_, v)) = locals.iter().find(|(n, _)| *n == name) { return Some(v.clone()); }
+    // The frame's, for whoever renders: left.
+    if keep && (name == "F" || name == "T" || name.strip_prefix('F').and_then(|d| d.parse::<usize>().ok()).is_some_and(|w| (1..=9).contains(&w))) { return None; }
     // A value of the graph's, its own variables put in.
-    let nested = |v: &str| if depth < DEPTH { expand_in(v, locals, g, depth + 1) } else { v.to_string() };
+    let nested = |v: &str| if depth < DEPTH { expand_in(v, locals, g, depth + 1, keep) } else { v.to_string() };
     // The frame, in the reader's own when it has one.
     let frame = locals.iter().find(|(n, _)| *n == "F").and_then(|(_, v)| v.parse().ok()).unwrap_or(g.frame);
     let (start, end) = (
@@ -186,6 +268,7 @@ fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize) -> Op
         locals.iter().find(|(n, _)| *n == "FEND").and_then(|(_, v)| v.parse().ok()).unwrap_or(g.end),
     );
     Some(match name {
+        "OPNAME" => current_operator()?,
         "GNAME" => g.gname.clone(),
         "GDIR" => g.gdir.clone(),
         "JOB" if !g.user.job.trim().is_empty() => nested(g.user.job.trim()),
@@ -200,7 +283,7 @@ fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize) -> Op
             if let Some(width) = name.strip_prefix('F').and_then(|d| d.parse::<usize>().ok()).filter(|w| (1..=9).contains(w)) {
                 return Some(if frame < 0 { format!("-{:0width$}", -frame, width = width) } else { format!("{:0width$}", frame, width = width) });
             }
-            if let Some((_, v)) = g.user.list.iter().find(|(n, _)| n == name) { return Some(nested(v.as_str())); }
+            if let Some(v) = g.user.list.iter().find(|v| v.name == name) { return Some(nested(v.value.as_str())); }
             return std::env::var(name).ok();
         }
     })
@@ -257,7 +340,7 @@ mod tests {
     fn the_graphs_own_variables() {
         let user = Variables {
             job: "$HOME_XMS_TEST/shows/a".into(),
-            list: vec![("ASSETS".into(), "$JOB/assets".into()), ("SHOT".into(), "sh010_$F4".into()), ("LOOP".into(), "$LOOP".into())],
+            list: vec![Variable::new("ASSETS", "$JOB/assets"), Variable::new("SHOT", "sh010_$F4"), Variable::new("LOOP", "$LOOP")],
         };
         std::env::set_var("HOME_XMS_TEST", "/home/me");
         with(Globals { user, ..shot() }, || {
@@ -271,5 +354,36 @@ mod tests {
         });
         assert_eq!(check_name("ASSETS"), Ok(()));
         assert!(check_name("F4").is_err() && check_name("JOB").is_err() && check_name("1A").is_err() && check_name("A-B").is_err());
+    }
+
+    /// `$OPNAME` is the operator whose text is read, innermost first; the
+    /// frame's variables can be kept for a renderer.
+    #[test]
+    fn the_operator_and_the_frames_kept() {
+        with(shot(), || {
+            assert_eq!(expand("/out/$OPNAME", &[]), "/out/$OPNAME", "no operator: left");
+            {
+                let _outer = operator("write_set");
+                {
+                    let _inner = operator("load_tree");
+                    assert_eq!(expand("$OPNAME", &[]), "load_tree");
+                }
+                assert_eq!(expand("$GNAME/$OPNAME", &[]), "street_v001/write_set");
+                assert_eq!(expand("$OPNAME", &[("OPNAME", "Render".to_string())]), "Render", "a local comes first");
+            }
+            assert_eq!(expand_keeping_frames("$GDIR/render/$GNAME.$F4.exr ${F} $T $FEND"), "/shows/a/render/street_v001.$F4.exr ${F} $T 24");
+        });
+    }
+
+    /// A variable saves its description when it has one, and the first
+    /// graphs' name-and-value pairs still read.
+    #[test]
+    fn variables_as_saved() {
+        let v = Variables { job: String::new(), list: vec![Variable { description: "set dressing".into(), ..Variable::new("ASSETS", "$JOB/assets") }, Variable::new("SHOT", "sh010")] };
+        let text = serde_json::to_string(&v).unwrap();
+        assert!(text.contains("set dressing") && !text.contains("\"description\":\"\""), "{text}");
+        assert_eq!(serde_json::from_str::<Variables>(&text).unwrap(), v);
+        let old: Variables = serde_json::from_str(r#"{"list":[["ASSETS","$JOB/assets"]]}"#).unwrap();
+        assert_eq!(old.list, vec![Variable::new("ASSETS", "$JOB/assets")]);
     }
 }

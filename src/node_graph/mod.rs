@@ -860,6 +860,8 @@ impl NodeGraphState {
             return Some(h.finish());
         }
         if matches!(node.node_type, NodeType::Ice { .. }) { return None; }
+        // `$OPNAME` in its paths is its name.
+        let _operator = crate::core::vars::operator(&node.name);
         // Operators that place things in time are keyed by what they cook.
         if !node.bypassed {
             if let Some(k) = self.time_key(node, output, depth) { return k; }
@@ -871,7 +873,13 @@ impl NodeGraphState {
             // being built, and which operation is open, change only what the
             // Viewer shows: picking polygons cooks nothing again.
             NodeType::EditPoly { ops, .. } => ("EditPoly", serde_json::to_string(ops).ok()?).hash(&mut h),
-            other => serde_json::to_string(other).ok()?.hash(&mut h),
+            // Text with variables reads what they are: its name for $OPNAME
+            // (the others change the revision).
+            other => {
+                let text = serde_json::to_string(other).ok()?;
+                if text.contains('$') { node.name.hash(&mut h); }
+                text.hash(&mut h)
+            }
         }
         (node.bypassed, output).hash(&mut h);
         node.locations.hash(&mut h);
@@ -1003,6 +1011,8 @@ impl NodeGraphState {
             .collect();
         // Its own time: from when its inputs are in.
         let started = std::time::Instant::now();
+        // `$OPNAME` in its text is its name while it cooks.
+        let _operator = crate::core::vars::operator(&node.name);
 
         let result = if node.bypassed {
             node.inputs.first()
@@ -1036,12 +1046,13 @@ impl NodeGraphState {
         } else {
             evaluate_node_type(node_type, &inputs, eval_subnet, output)
         };
-        // A material is named by its operator.
+        // A material is named by its operator; its files' variables are put
+        // in as it cooks (renderers read `$JOB` as it is).
         let result = match (node_type, result) {
             (NodeType::Material { surface }, Some(EvalResult::Material(_))) =>
-                Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::new(&node.name, surface)))),
+                Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::new(&node.name, &surface.with_variables_put_in())))),
             (NodeType::MaterialX { graph }, Some(EvalResult::Material(_))) =>
-                Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::from_graph(&node.name, graph)))),
+                Some(EvalResult::Material(std::sync::Arc::new(crate::core::material::Material::from_graph(&node.name, &crate::materialx::with_variables_put_in(graph))))),
             (_, r) => r,
         };
         // A point instancer's copies follow its points, whatever moved them.

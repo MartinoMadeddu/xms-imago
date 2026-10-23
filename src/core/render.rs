@@ -57,8 +57,13 @@ pub struct RAttr {
 }
 
 impl RAttr {
-    /// A value of one of the types Set Attribute knows.
-    pub fn of(v: &Value) -> Self { RAttr { ty: v.kind().usd().into(), literal: v.usda(), uniform: false } }
+    /// A value of one of the types Set Attribute knows. Its text with its
+    /// variables put in, the frame's left for the renderer (`$F4` in an
+    /// Output Image is each frame's).
+    pub fn of(v: &Value) -> Self {
+        let v = v.with_variables_put_in(true);
+        RAttr { ty: v.kind().usd().into(), literal: v.usda(), uniform: false }
+    }
     /// Two whole numbers (`resolution`).
     pub fn int2(v: [i32; 2]) -> Self { RAttr { ty: "int2".into(), literal: format!("({}, {})", v[0], v[1]), uniform: false } }
     /// A list of tokens (`includedPurposes`).
@@ -924,7 +929,7 @@ impl CommandSettings {
 
     /// Where it runs: its folder, else the layer's.
     pub fn folder_for(&self, usd: &str) -> Option<std::path::PathBuf> {
-        if !self.folder.trim().is_empty() { return Some(self.folder.trim().into()); }
+        if !self.folder.trim().is_empty() { return Some(crate::core::vars::expand(self.folder.trim(), &[("USD", usd.trim().to_string())]).into()); }
         std::path::Path::new(usd.trim()).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf())
     }
 }

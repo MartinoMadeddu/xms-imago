@@ -102,6 +102,19 @@ impl Default for Value {
 }
 
 impl Value {
+    /// The value with the variables in its text put in (`$JOB/tex/sky.exr`,
+    /// `$OPNAME`); `keep_frames`: the frame's left for a renderer (`$F4`).
+    /// Numbers as they are.
+    pub fn with_variables_put_in(&self, keep_frames: bool) -> Value {
+        let put = |s: &str| if keep_frames { crate::core::vars::expand_keeping_frames(s) } else { crate::core::vars::expand(s, &[]) };
+        match self {
+            Value::String(s) if s.contains('$') => Value::String(put(s)),
+            Value::Token(s) if s.contains('$') => Value::Token(put(s)),
+            Value::Asset(s) if s.contains('$') => Value::Asset(put(s.trim())),
+            v => v.clone(),
+        }
+    }
+
     pub fn kind(&self) -> ValueType {
         match self {
             Value::Bool(_) => ValueType::Bool, Value::Int(_) => ValueType::Int, Value::Float(_) => ValueType::Float,

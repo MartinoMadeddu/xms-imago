@@ -62,6 +62,13 @@ pub const TEXTURED: [(&str, &str); 7] = [
 ];
 
 impl PreviewSurface {
+    /// The surface with its texture files' variables put in, as the
+    /// Material operator cooks: `$JOB/tex/wood.png`.
+    pub fn with_variables_put_in(&self) -> PreviewSurface {
+        if !self.textures.values().any(|f| f.contains('$')) { return self.clone(); }
+        PreviewSurface { textures: self.textures.iter().map(|(k, f)| (k.clone(), crate::core::vars::expand(f.trim(), &[]))).collect(), ..self.clone() }
+    }
+
     /// The texture feeding an input, if one is set.
     pub fn texture(&self, input: &str) -> Option<&str> {
         self.textures.get(input).map(|s| s.trim()).filter(|s| !s.is_empty())
@@ -116,8 +123,7 @@ pub fn prim_name(name: &str) -> String {
 /// The surface as the viewport shows it. A textured colour is white under
 /// its texture, as USD gives it.
 fn look(name: &str, s: &PreviewSurface) -> Look {
-    // Its variables put in: `$JOB/tex/wood.png`.
-    let file = |input: &str| s.texture(input).map(|f| std::path::PathBuf::from(crate::core::vars::expand(f, &[])));
+    let file = |input: &str| s.texture(input).map(std::path::PathBuf::from);
     Look {
         name: name.to_string(),
         color: if file("diffuseColor").is_some() { [1.0; 3] } else { s.diffuse_color },
@@ -170,10 +176,7 @@ pub fn network(m: &Material, path: &str) -> (Vec<String>, Vec<Shader>) {
     // A MaterialX graph: its own network. One with nothing going into its
     // material is written as the grey it shows.
     if let Some(g) = &m.graph {
-        // Its file names written with their variables put in: renderers
-        // read `$JOB` as it is.
-        let g = crate::materialx::with_variables_put_in(g);
-        if let Some((lines, shaders)) = xms_matx::usd::network(&g, crate::materialx::lib(), path) {
+        if let Some((lines, shaders)) = xms_matx::usd::network(g, crate::materialx::lib(), path) {
             return (lines, shaders.into_iter().map(|s| Shader { name: s.name, lines: s.lines }).collect());
         }
     }
@@ -229,7 +232,7 @@ pub fn network(m: &Material, path: &str) -> (Vec<String>, Vec<Shader>) {
         let srgb = matches!(input, "diffuseColor" | "emissiveColor");
         let mut lines = vec![
             "uniform token info:id = \"UsdUVTexture\"".to_string(),
-            format!("asset inputs:file = @{}@", crate::core::vars::expand(file, &[])),
+            format!("asset inputs:file = @{file}@"),
             format!("float2 inputs:st.connect = <{path}/stReader.outputs:result>"),
             format!("token inputs:sourceColorSpace = \"{}\"", if srgb { "sRGB" } else { "raw" }),
         ];
