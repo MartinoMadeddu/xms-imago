@@ -87,6 +87,10 @@ pub(crate) struct Read {
     /// Data at Samples. `name` is then the name as given (each mesh finds
     /// its own column).
     pub sampled: Option<Option<usize>>,
+    /// Read from surface `k`'s first prim instead of the geometry run on,
+    /// element by element (the same topology): Get Data and Get Array Data
+    /// with a Geometry. `name` is then the name as given.
+    pub from: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -436,6 +440,8 @@ impl Lower<'_> {
                 };
                 self.emit(true, default.ty(), |dst| Ins::Param { dst, index })
             }
+            // With a Geometry: read from it.
+            Op::GetData { name, context, reduce } if !n.inputs.is_empty() => self.get_data_from(node, name, *context, *reduce)?,
             Op::GetData { name, context, reduce } => self.get_data(node, name, *context, *reduce)?,
             Op::Math(op) => self.math(node, *op)?,
             Op::Random { seed } => self.random(node, *seed)?,
@@ -446,6 +452,7 @@ impl Lower<'_> {
             Op::GetDataAt { name, context } => self.at_location(node, name, *context)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
             Op::Concat => self.concat(node)?,
+            Op::GetArrayData { name, context } if !n.inputs.is_empty() => self.get_array_data_from(node, name, *context)?,
             Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
             Op::ClosestPoint => self.closest(node)?,
             Op::GetArrayDataAt { name, context } => self.array_at(node, name, *context)?,
@@ -506,7 +513,7 @@ impl Lower<'_> {
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
-                self.plan.reads.push(Read { name: column.to_string(), context: attr_context, reduce, derived: found.derived, at_location: false, sampled: None });
+                self.plan.reads.push(Read { name: column.to_string(), context: attr_context, reduce, derived: found.derived, at_location: false, sampled: None, from: None });
                 self.reads.insert(key, self.plan.reads.len() - 1);
                 self.plan.reads.len() - 1
             }
@@ -710,7 +717,7 @@ impl Lower<'_> {
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
-                self.plan.reads.push(Read { name: column, context: from, reduce: Reduce::Average, derived: found.derived, at_location: false, sampled: None });
+                self.plan.reads.push(Read { name: column, context: from, reduce: Reduce::Average, derived: found.derived, at_location: false, sampled: None, from: None });
                 self.reads.insert(key, self.plan.reads.len() - 1);
                 self.plan.reads.len() - 1
             }
@@ -727,7 +734,7 @@ impl Lower<'_> {
         let column = if derived { name.to_string() } else { column_in(self.geo, ctx, name).to_string() };
         let key = format!("@{ctx:?}/{column}");
         if let Some(&r) = self.reads.get(&key) { return r; }
-        self.plan.reads.push(Read { name: column, context: ctx, reduce: Reduce::Average, derived, at_location: true, sampled: None });
+        self.plan.reads.push(Read { name: column, context: ctx, reduce: Reduce::Average, derived, at_location: true, sampled: None, from: None });
         self.reads.insert(key, self.plan.reads.len() - 1);
         self.plan.reads.len() - 1
     }
@@ -765,6 +772,8 @@ impl Lower<'_> {
         if loc.ty != Ty::Sample { return error(node, "Get Data's Samples are surface samples (Scatter on Surface's, Closest Point on Surface's)"); }
         if name.trim().is_empty() { return error(node, "Get Data needs the name of the attribute it reads"); }
         let contexts = sample_contexts(context);
+        // Read on another prim of the same topology, when a Geometry is wired.
+        let loc = match self.geometry_input(node, 1)? { Some(s) => Val { surface: Some(s), ..loc }, None => loc };
         // What every sample has: its weights on its triangle's corners.
         match name.trim() {
             "bary" => {
@@ -794,6 +803,96 @@ impl Lower<'_> {
         Ok(v)
     }
 
+    /// A Geometry input (input `i`): Get Reference's paths, a surface of the
+    /// plan's; `None` when it is not wired.
+    fn geometry_input(&mut self, node: usize, i: usize) -> Result<Option<usize>, CompileError> {
+        let graph = self.graph;
+        match graph.nodes[node].inputs.get(i) {
+            Some(Input::Wire { node: from, output }) => {
+                let paths = self.wired(*from, *output)?;
+                if paths.ty != Ty::Token || !paths.uniform {
+                    return error(node, "The Geometry is the paths of prims on a reference input: wire Get Reference");
+                }
+                self.plan.surfaces.push(paths.reg);
+                Ok(Some(self.plan.surfaces.len() - 1))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Where `name` is on the reference prims, in the first of `contexts`
+    /// one has it: the context, what was found and how many elements that
+    /// prim has there.
+    fn on_refs(&self, name: &str, contexts: &[Context]) -> Option<(Context, Found, usize)> {
+        self.refs.iter().flat_map(|r| &r.meshes).find_map(|m| {
+            let g = m.geo.get();
+            contexts.iter().find_map(|&c| find_in(g, c, name).map(|f| (c, f, g.count(c))))
+        })
+    }
+
+    /// Get Data with a Geometry: the attribute read from that prim, element
+    /// by element, as the graph's own would be (across contexts too).
+    fn get_data_from(&mut self, node: usize, name: &str, from: Option<Context>, reduce: Reduce) -> Result<Val, CompileError> {
+        let Some(s) = self.geometry_input(node, 0)? else { return error(node, "Get Data reads from a Geometry wired in") };
+        let (name, context) = (name.trim(), self.plan.context);
+        if name.is_empty() { return error(node, "Get Data needs the name of the attribute it reads"); }
+        let contexts = match from { Some(c) => vec![c], None => vec![context, Context::Object] };
+        let Some((c, found, count)) = self.on_refs(name, &contexts) else {
+            return error(node, format!("No attribute '{name}' on the Geometry's prims"));
+        };
+        let Some(ty) = found.ty else { return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)")) };
+        if c != Context::Object && count != self.geo.count(c) {
+            return error(node, format!("The Geometry has {count} elements per {c:?}, this geometry {}: reading element by element takes the same topology", self.geo.count(c)));
+        }
+        let uniform = c == Context::Object;
+        let reduce = if c == context || uniform { Reduce::Average } else { reduce };
+        let key = format!("from{s}:{c:?}/{name}/{reduce:?}");
+        let read = match self.reads.get(&key) {
+            Some(&r) => r,
+            None => {
+                self.plan.reads.push(Read { name: name.to_string(), context: c, reduce, derived: found.derived, at_location: false, sampled: None, from: Some(s) });
+                self.reads.insert(key, self.plan.reads.len() - 1);
+                self.plan.reads.len() - 1
+            }
+        };
+        Ok(self.emit(uniform, ty, |dst| Ins::Load { dst, read }))
+    }
+
+    /// Get Array Data with a Geometry: lists read from that prim, element
+    /// by element, as Get Array Data reads the graph's own.
+    fn get_array_data_from(&mut self, node: usize, name: &str, from: Option<Context>) -> Result<Val, CompileError> {
+        let Some(s) = self.geometry_input(node, 0)? else { return error(node, "Get Array Data reads from a Geometry wired in") };
+        let context = self.plan.context;
+        let (name, from) = match (name.trim(), from) {
+            ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
+            ("faceIndices", None) => ("faceIndex", Some(Context::Face)),
+            (n, f) => (n, f),
+        };
+        if name.is_empty() { return error(node, "Get Array Data needs the name of the attribute it reads"); }
+        let contexts = match from { Some(c) => vec![c], None => vec![Context::Point, Context::Corner, Context::Face, Context::Object] };
+        let Some((c, found, count)) = self.on_refs(name, &contexts) else {
+            return error(node, format!("No attribute '{name}' on the Geometry's prims"));
+        };
+        let Some(ty) = found.ty else { return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)")) };
+        if c != Context::Object && count != self.geo.count(c) {
+            return error(node, format!("The Geometry has {count} elements per {c:?}, this geometry {}: reading element by element takes the same topology", self.geo.count(c)));
+        }
+        let key = format!("listfrom{s}:{c:?}/{name}");
+        let read = match self.reads.get(&key) {
+            Some(&r) => r,
+            None => {
+                self.plan.reads.push(Read { name: name.to_string(), context: c, reduce: Reduce::Average, derived: found.derived, at_location: false, sampled: None, from: Some(s) });
+                self.reads.insert(key, self.plan.reads.len() - 1);
+                self.plan.reads.len() - 1
+            }
+        };
+        let flat = context == Context::Object;
+        let mut v = self.emit(flat, ty, |dst| Ins::LoadList { dst, read, flat });
+        v.array = true;
+        if !flat { v.of = Some(ListOf::Touch(c)); }
+        Ok(v)
+    }
+
     /// A read of `name` at samples of a surface (`None`: the graph's own),
     /// in the first of `contexts` it is in (on the first mesh that has it,
     /// for a reference surface): the read and its type.
@@ -814,7 +913,7 @@ impl Lower<'_> {
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
-                self.plan.reads.push(Read { name: name.to_string(), context: ctx, reduce: Reduce::Average, derived: found.derived, at_location: true, sampled: Some(surface) });
+                self.plan.reads.push(Read { name: name.to_string(), context: ctx, reduce: Reduce::Average, derived: found.derived, at_location: true, sampled: Some(surface), from: None });
                 self.reads.insert(key, self.plan.reads.len() - 1);
                 self.plan.reads.len() - 1
             }
@@ -863,6 +962,8 @@ impl Lower<'_> {
         let loc = self.input(node, 0, None)?;
         if loc.ty != Ty::Sample { return error(node, "Get Array Data's Samples are surface samples (Closest Point on Surface's)"); }
         if loc.array { return error(node, "Get Array Data reads at one sample per element (Closest Point's, per point): an array of samples would give a list per sample, not yet"); }
+        // Read on another prim of the same topology, when a Geometry is wired.
+        let loc = match self.geometry_input(node, 1)? { Some(s) => Val { surface: Some(s), ..loc }, None => loc };
         // What every sample has: its triangle's three points, in the
         // graph's space, and its weights on them, item by item.
         if matches!(name.trim(), "triP" | "bary") {

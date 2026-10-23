@@ -77,6 +77,13 @@ fn title_text(node: &IceGraphNode) -> String {
         .collect()
 }
 
+/// A Get Data or Get Array Data reading from another prim: its Geometry
+/// input wired.
+fn from_geometry(node: &IceGraphNode) -> bool {
+    matches!(node.node_type, IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. })
+        && node.inputs.get(1).is_some_and(|i| i.connected_output.is_some())
+}
+
 /// A Get Data or Get Array Data reading at surface samples: its Samples
 /// input wired.
 fn sampled(node: &IceGraphNode) -> bool {
@@ -103,8 +110,12 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         }),
         // Across contexts: where from, and how the values become one.
         // Wired to samples: read there.
+        IceGraphNodeType::GetData { name, .. } if sampled(node) && from_geometry(node) => Some(format!("{name} at samples, on geometry")),
+        IceGraphNodeType::GetArrayData { name, .. } if sampled(node) && from_geometry(node) => Some(format!("{name}[] at samples, on geometry")),
         IceGraphNodeType::GetData { name, .. } if sampled(node) => Some(format!("{name} at samples")),
         IceGraphNodeType::GetArrayData { name, .. } if sampled(node) => Some(format!("{name}[] at samples")),
+        IceGraphNodeType::GetData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}")),
+        IceGraphNodeType::GetArrayData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}[]")),
         IceGraphNodeType::GetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
         IceGraphNodeType::SetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
         IceGraphNodeType::GetData { name, .. } | IceGraphNodeType::SetData { name, .. } => Some(format!("self.{name}")),
@@ -295,7 +306,7 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
                              context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                     return;
                 }
-                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire samples into Samples to read there instead"),
+                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire samples into Samples to read there instead; wire a Geometry (Get Reference) to read it from that prim, element by element (it has the same topology: a rest mesh and its animated copy)"),
                          context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                 if context.is_some_and(|c| c != Context::Object) {
                     f.choice("Several", Some("When an element touches several of the context read (a face's points, the faces around a point), how they become one value"),

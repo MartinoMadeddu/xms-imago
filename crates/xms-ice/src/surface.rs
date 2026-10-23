@@ -112,22 +112,23 @@ struct Tri {
     p:       [Vec3; 3],
 }
 
-/// Meshes to read at samples, and (for a reference surface) to search.
+/// Meshes to read (at samples, or element by element) and to search.
 pub(crate) struct Surface {
     pub meshes: Vec<Mesh>,
-    tris:       Vec<Tri>,
-    bvh:        Option<Bvh>,
+    /// Its triangles and a BVH over them: made the first time it is
+    /// searched, not for reading alone.
+    index:      OnceLock<(Vec<Tri>, Option<Bvh>)>,
 }
 
 impl Surface {
     /// The graph's own geometry, as its own samples (Scatter's) read it.
     pub fn own(geo: &Geo) -> Surface {
-        Surface { meshes: vec![Mesh::new(Arc::new(geo.clone()), Mat4::IDENTITY)], tris: vec![], bvh: None }
+        Surface { meshes: vec![Mesh::new(Arc::new(geo.clone()), Mat4::IDENTITY)], index: OnceLock::new() }
     }
 
-    /// The reference meshes `paths` name (a group names the meshes below
-    /// it), in the space of the graph (`space`: where its primitive is in
-    /// the world), with a BVH over their triangles.
+    /// The reference prims `paths` name (a group names those below it), in
+    /// the space of the graph (`space`: where its primitive is in the
+    /// world). Polygons are searched; points and curves only read.
     pub fn of(paths: &[Arc<str>], references: &[Reference], space: Mat4) -> Surface {
         let back = space.inverse();
         let named = |path: &str| paths.iter().any(|p| {
@@ -137,26 +138,33 @@ impl Surface {
         let meshes: Vec<Mesh> = references.iter().flat_map(|r| &r.meshes)
             .filter(|m| named(&m.path))
             .map(|m| Mesh::new(m.geo.get().clone(), back * m.world))
-            .filter(|m| matches!(m.geo.topology, Topology::Mesh { .. }))
             .collect();
-        // Every polygon as a fan of triangles from its first corner, as
-        // Scatter on Surface cuts them.
-        let tris: Vec<Tri> = meshes.par_iter().enumerate().flat_map_iter(|(k, m)| {
-            let pts = m.geo.points();
-            let cp = m.corner_points();
-            let at = |c: u32| m.to_graph.transform_point3(Vec3::from_array(cp.get(c as usize).and_then(|&p| pts.get(p as usize)).copied().unwrap_or_default()));
-            let faces = m.face_off.len().saturating_sub(1);
-            (0..faces).flat_map(move |f| {
-                let (first, end) = (m.face_off[f], m.face_off[f + 1]);
-                (first + 1..end.saturating_sub(1)).map(move |c| {
-                    let corners = [first, c, c + 1];
-                    Tri { mesh: k as u32, face: f as u32, corners, p: corners.map(at) }
-                })
-            }).collect::<Vec<_>>()
-        }).collect();
-        let boxes: Vec<Aabb> = tris.iter().map(|t| Aabb::around(&t.p)).collect();
-        let bvh = Bvh::build(&boxes);
-        Surface { meshes, tris, bvh }
+        Surface { meshes, index: OnceLock::new() }
+    }
+
+    /// Its triangles and their BVH, made once.
+    fn index(&self) -> &(Vec<Tri>, Option<Bvh>) {
+        self.index.get_or_init(|| {
+            let meshes = &self.meshes;
+            // Every polygon as a fan of triangles from its first corner, as
+            // Scatter on Surface cuts them.
+            let tris: Vec<Tri> = meshes.par_iter().enumerate().flat_map_iter(|(k, m)| {
+                let pts = m.geo.points();
+                let cp = m.corner_points();
+                let at = |c: u32| m.to_graph.transform_point3(Vec3::from_array(cp.get(c as usize).and_then(|&p| pts.get(p as usize)).copied().unwrap_or_default()));
+                let faces = m.face_off.len().saturating_sub(1);
+                (0..faces).flat_map(move |f| {
+                    let (first, end) = (m.face_off[f], m.face_off[f + 1]);
+                    (first + 1..end.saturating_sub(1)).map(move |c| {
+                        let corners = [first, c, c + 1];
+                        Tri { mesh: k as u32, face: f as u32, corners, p: corners.map(at) }
+                    })
+                }).collect::<Vec<_>>()
+            }).collect();
+            let boxes: Vec<Aabb> = tris.iter().map(|t| Aabb::around(&t.p)).collect();
+            let bvh = Bvh::build(&boxes);
+            (tris, bvh)
+        })
     }
 
     /// The sample nearest `p` within `radius` (0 or less: anywhere), and
@@ -165,9 +173,10 @@ impl Surface {
         let limit = if radius > 0.0 { radius * radius } else { f32::INFINITY };
         let mut best = limit;
         let mut hit: Option<(u32, [f32; 3])> = None;
-        if let Some(bvh) = &self.bvh {
+        let (tris, bvh) = self.index();
+        if let Some(bvh) = bvh {
             bvh.nearest(p, &mut best, |i, best| {
-                let t = &self.tris[i as usize];
+                let t = &tris[i as usize];
                 let w = closest_on_triangle(p, t.p[0], t.p[1], t.p[2]);
                 let q = t.p[0] * w[0] + t.p[1] * w[1] + t.p[2] * w[2];
                 let d = (p - q).length_squared();
@@ -176,7 +185,7 @@ impl Surface {
         }
         match hit {
             Some((i, weights)) => {
-                let t = &self.tris[i as usize];
+                let t = &tris[i as usize];
                 (Loc { face: t.face, corners: t.corners, weights, mesh: t.mesh }, best.sqrt())
             }
             None => (Loc { mesh: Loc::NONE, ..Loc::default() }, radius.max(0.0)),

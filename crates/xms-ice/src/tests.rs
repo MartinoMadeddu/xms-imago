@@ -1101,3 +1101,68 @@ fn matrix_maths() {
     assert!(near(v("back"), [1.0, 0.0, 0.0]), "{:?}", v("back"));
     assert!(near(v("up"), [0.0, 7.0, -1.0]), "the stored matrix after the frame: {:?}", v("up"));
 }
+
+/// A rest floor at /rest and its animated copy at /anim: the same quad,
+/// lifted 1 and stretched twice as wide along X.
+fn rest_and_animated() -> Vec<Reference> {
+    let mut anim = floor();
+    *anim.points_mut() = vec![[-2.0, 1.0, -1.0], [2.0, 1.0, -1.0], [2.0, 1.0, 1.0], [-2.0, 1.0, 1.0]];
+    vec![Reference {
+        paths: vec!["/rest".into(), "/anim".into()],
+        meshes: vec![
+            super::RefMesh { path: "/rest".into(), world: glam::Mat4::IDENTITY, geo: super::RefGeo::ready(Arc::new(floor())) },
+            super::RefMesh { path: "/anim".into(), world: glam::Mat4::IDENTITY, geo: super::RefGeo::ready(Arc::new(anim)) },
+        ],
+    }]
+}
+
+/// Samples found on the rest mesh, read on the animated one: the same
+/// face, the same weights, where the animated mesh has them (a binding
+/// deformer's step two).
+#[test]
+fn samples_read_on_another_mesh_of_the_same_topology() {
+    let geo = Geo::from_points(vec![[0.5, 3.0, 0.25], [-0.25, -1.0, -0.5]]);
+    let mut g = Graph::default();
+    let rest = g.add(Op::GetReference { input: 1, paths: Some(vec!["/rest".into()]) }, vec![]);
+    let anim = g.add(Op::GetReference { input: 1, paths: Some(vec!["/anim".into()]) }, vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(Op::ClosestPoint, vec![wire(rest), wire(p), Input::Value(Value::Float(0.0))]);
+    let there = g.add(Op::GetDataAt { name: "P".into(), context: None }, vec![wire(near), wire(anim)]);
+    let tri = g.add(Op::GetArrayDataAt { name: "triP".into(), context: None }, vec![wire(near), wire(anim)]);
+    let x = g.add(Op::Array(ArrayOp::Average), vec![wire(tri)]);
+    let set = g.add(Op::set("P"), vec![wire(there)]);
+    let set_x = g.add(Op::set("mid"), vec![wire(x)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set), wire(set_x)]);
+    let refs = rest_and_animated();
+    let out = run(&super::compile_with(&g, &geo, &refs).unwrap(), &geo, &no_params(), &refs).geo;
+    let want = [[1.0, 1.0, 0.25], [-0.5, 1.0, -0.5]];
+    for (got, want) in points(&out).iter().zip(want) {
+        for k in 0..3 { assert!((got[k] - want[k]).abs() < 1e-5, "{got:?} vs {want:?}"); }
+    }
+    let mid = out.attr(Context::Point, "mid").and_then(|a| a.column.vec3s()).unwrap();
+    assert!((mid[0][1] - 1.0).abs() < 1e-5, "the animated triangle's points: {mid:?}");
+}
+
+/// Get Data with a Geometry: an attribute read from another prim, element
+/// by element (the transfer by name); a prim of other topology is refused.
+#[test]
+fn get_data_from_another_prim() {
+    let geo = floor();
+    let mut g = Graph::default();
+    let anim = g.add(Op::GetReference { input: 1, paths: Some(vec!["/anim".into()]) }, vec![]);
+    let theirs = g.add(Op::GetData { name: "P".into(), context: None, reduce: super::Reduce::Average }, vec![wire(anim)]);
+    let uvs = g.add(Op::GetArrayData { name: "uv".into(), context: Some(Context::Corner) }, vec![wire(anim)]);
+    let n = g.add(Op::Array(ArrayOp::Size), vec![wire(uvs)]);
+    let set = g.add(Op::set("animP"), vec![wire(theirs)]);
+    let set_n = g.add(Op::set("n"), vec![wire(n)]);
+    g.add(Op::Root { context: Context::Point }, vec![wire(set), wire(set_n)]);
+    let refs = rest_and_animated();
+    let out = run(&super::compile_with(&g, &geo, &refs).unwrap(), &geo, &no_params(), &refs).geo;
+    let got = out.attr(Context::Point, "animP").and_then(|a| a.column.vec3s()).unwrap();
+    assert_eq!(got, &[[-2.0, 1.0, -1.0], [2.0, 1.0, -1.0], [2.0, 1.0, 1.0], [-2.0, 1.0, 1.0]]);
+    assert_eq!(out.attr(Context::Point, "n").and_then(|a| a.column.ints()).unwrap(), &[1, 1, 1, 1], "each point's corner, one each on a quad");
+    // Three points run on, four on the Geometry: not the same topology.
+    let three = Geo::from_points(vec![[0.0; 3]; 3]);
+    let e = super::compile_with(&g, &three, &refs).unwrap_err();
+    assert!(e.message.contains("same topology"), "{}", e.message);
+}

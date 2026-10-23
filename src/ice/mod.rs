@@ -201,8 +201,10 @@ impl IceGraph {
         let output = |name: &str, hint: &'static str| IceGraphOutputSocket { name: name.into(), value_hint: hint };
         match t {
             IceGraphNodeType::Root { .. } => (vec![execute_port(1)], vec![]),
-            // Samples, unwired: the geometry's own elements.
-            IceGraphNodeType::GetData { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) }], vec![output("Value", "Any")]),
+            // Samples, unwired: the geometry's own elements. Geometry,
+            // unwired: the geometry the graph runs on.
+            IceGraphNodeType::GetData { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) },
+                                                      IceGraphInputSocket { value: None, ..input("Geometry", 0.0) }], vec![output("Value", "Any")]),
             IceGraphNodeType::SetData { .. } => (vec![input("Value", 0.0)], vec![output("Execute", "Execute")]),
             IceGraphNodeType::Constant { value } => (vec![], vec![output("Value", type_hint(value.ty()))]),
             IceGraphNodeType::Math { op } => {
@@ -283,7 +285,8 @@ impl IceGraph {
                 IceGraphInputSocket { value: None, ..input("Seed", 0.0) },
             ], vec![output("Orientations", "Any")]),
             IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
-            IceGraphNodeType::GetArrayData { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) }], vec![output("Array", "Any")]),
+            IceGraphNodeType::GetArrayData { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) },
+                                                           IceGraphInputSocket { value: None, ..input("Geometry", 0.0) }], vec![output("Array", "Any")]),
             // A PointInstancer's attributes; one orientation and scale for
             // all when not wired, a prototype picked at random (-1).
             IceGraphNodeType::Instancer { .. } => (vec![
@@ -402,7 +405,9 @@ impl IceGraph {
         let nodes = self.nodes.iter().map(|n| {
             let root = matches!(n.node_type, IceGraphNodeType::Root { .. });
             // Get Data and Get Array Data read at samples when their
-            // Samples input is wired; unwired, it is not an input to run.
+            // Samples input is wired, from another prim when their
+            // Geometry is; an unwired one is not an input to run (the
+            // engine takes [Samples, Geometry], [Samples] or [Geometry]).
             let reads = matches!(n.node_type, IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. });
             let sampled = reads && n.inputs.first().is_some_and(|i| i.connected_output.is_some());
             let op = match &n.node_type {

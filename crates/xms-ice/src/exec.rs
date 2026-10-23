@@ -657,6 +657,40 @@ impl<'a> Env<'a> {
     }
 }
 
+/// Read `read` from surface `k`'s first prim, element by element through
+/// the graph's own mapping (the prims have the same topology): one value
+/// each, or (`list`) the lists `load_list` gives. Positions, normals and
+/// vectors are taken into the graph's space. The offsets (lists only), and
+/// the values.
+#[allow(clippy::too_many_arguments)]
+fn load_from(env: &Env, read: usize, k: usize, regs: &[Reg], uniform: bool, start: usize, len: usize, ty: Ty, list: bool) -> (Vec<u32>, Reg) {
+    let s = env.surface(k, regs, uniform);
+    let cols = env.cols(read, s);
+    let (Some(m), Some(Some(col))) = (s.meshes.first(), cols.first()) else {
+        let mut out = Reg::Bool(vec![]);
+        fill(&mut out, zero(ty), if list { 0 } else { len });
+        return (vec![0; if list { len + 1 } else { 0 }], out);
+    };
+    let own = &env.sources[read];
+    let src = Source {
+        column: Some(&col.column), indices: col.indices.as_deref().map(|v| v.as_slice()),
+        map: own.map.clone(), reduce: own.reduce, context: own.context,
+    };
+    let (offsets, mut out) = if list { load_list(&src, start, len, ty) } else {
+        let mut out = Reg::Bool(vec![]);
+        load(&src, start, len, &mut out, ty);
+        (vec![], out)
+    };
+    if m.moved {
+        match &mut out {
+            Reg::Vec3(v) if col.role != Role::None => for x in v.iter_mut() { *x = moved(m, col.role, *x); },
+            Reg::Mat4(v) => for x in v.iter_mut() { *x = m.to_graph * *x; },
+            _ => {}
+        }
+    }
+    (offsets, out)
+}
+
 /// A value of a mesh's taken into the graph's space, by its role: a
 /// position moved, a normal turned (and made unit), a vector turned.
 fn moved(m: &Mesh, role: Role, v: Vec3) -> Vec3 {
@@ -763,7 +797,14 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
         match *ins {
             Ins::Const { dst, value } => fill(&mut regs[dst], value, len),
             Ins::Param { dst, index } => fill(&mut regs[dst], env.params[index], len),
-            Ins::Load { dst, read } => load(&env.sources[read], start, len, &mut regs[dst], program.regs[dst]),
+            Ins::Load { dst, read } => match env.reads[read].from {
+                None => load(&env.sources[read], start, len, &mut regs[dst], program.regs[dst]),
+                // From another prim of the same topology (a Geometry wired in).
+                Some(k) => {
+                    let made = load_from(env, read, k, regs, uniform, start, len, program.regs[dst], false).1;
+                    regs[dst] = made;
+                }
+            },
             Ins::Broadcast { dst, from } => fill(&mut regs[dst], value_at(&env.uniforms[from], 0), len),
             // Lists: item by item, a per-element value meeting each item.
             Ins::Math { op, dst, args } if args[..op.arity()].iter().any(|&r| matches!(regs[r], Reg::List(..))) => {
@@ -806,7 +847,10 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 regs[dst] = out;
             }
             Ins::LoadList { dst, read, flat } => {
-                let (offsets, items) = load_list(&env.sources[read], start, len, program.regs[dst]);
+                let (offsets, items) = match env.reads[read].from {
+                    None => load_list(&env.sources[read], start, len, program.regs[dst]),
+                    Some(k) => load_from(env, read, k, regs, uniform, start, len, program.regs[dst], true),
+                };
                 regs[dst] = if flat { items } else { Reg::List(offsets, Box::new(items)) };
             }
             Ins::Random { dst, seed, args, array, key } => {
@@ -1292,7 +1336,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
     let mut maps: HashMap<Context, Arc<Map>> = HashMap::new();
     // The columns made from the topology, one per read of one.
     let made: Vec<Option<Column>> = plan.reads.iter()
-        .map(|r| if r.derived && r.sampled.is_none() { crate::derived::column(geo, r.context, &r.name) } else { None })
+        .map(|r| if r.derived && r.sampled.is_none() && r.from.is_none() { crate::derived::column(geo, r.context, &r.name) } else { None })
         .collect();
     let sources = plan.reads.iter().zip(&made).map(|(r, made)| {
         let attr = if r.derived { None } else { geo.attr(r.context, &r.name) };

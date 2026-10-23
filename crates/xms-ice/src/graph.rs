@@ -35,7 +35,11 @@ pub enum Op {
     /// Object). From another context, each element reads the elements it
     /// touches: a corner its point or its face, a face its corners or
     /// points, a point the faces or corners around it; where it touches
-    /// several, `reduce` makes them one value.
+    /// several, `reduce` makes them one value. With an input (Geometry:
+    /// paths on a reference input, Get Reference's), the attribute is read
+    /// from that prim instead, element by element: it has the same
+    /// topology (a rest and an animated mesh, a mesh and its copy); a
+    /// position, normal or vector is taken into the graph's space.
     GetData { name: String, context: Option<Context>, reduce: Reduce },
     /// Set an attribute: input 0 is the value. Its output is an Execute,
     /// to wire into the root. `context`: where the attribute is written;
@@ -58,7 +62,8 @@ pub enum Op {
     /// points: elements of one seed get one value). `seed` is mixed in.
     Random { seed: u32 },
     /// The values of an attribute each element touches in `context` (its
-    /// own when `None`), kept, not made one: a face's points' positions, its
+    /// own when `None`), kept, not made one (with an input, Geometry, read
+    /// from that prim of the same topology, as Get Data's): a face's points' positions, its
     /// point numbers (`ptIndices`, Point `ptIndex`), a point's faces
     /// (`faceIndices`). A list per element, worked on by maths item by item
     /// and by the array nodes (size, an item, sum, average); in an Object
@@ -90,7 +95,9 @@ pub enum Op {
     /// `N` the normals, or the face's own when there are none. `context`:
     /// where the attribute is read from; `None`, the first that has it
     /// (point, corner, face, object). The app's Get Data with its Samples
-    /// input wired.
+    /// input wired. Input 1, when there is one, is a Geometry (Get
+    /// Reference's paths): the samples' faces and weights read on that prim
+    /// instead, one of the same topology (rest samples on an animated mesh).
     GetDataAt { name: String, context: Option<Context> },
     /// The nearest place on the meshes of a reference input: input 0 their
     /// paths (Get Reference; a group names the meshes below it), input 1
@@ -107,7 +114,7 @@ pub enum Op {
     /// face each is on, kept as a list: its points' (P, `ptIndices` their
     /// numbers), its corners' (uv), the face's own (a list of one).
     /// `context` as Get Data at Samples'. The app's Get Array Data with its
-    /// Samples input wired.
+    /// Samples input wired; a Geometry input 1 as Get Data at Samples'.
     GetArrayDataAt { name: String, context: Option<Context> },
     /// Random rotations: each one's +Y turned along input 0 (a normal), then
     /// turned at random in its own frame up to input 1 (a vector of degrees)
@@ -356,7 +363,9 @@ impl Op {
     pub fn arity(&self) -> Option<usize> {
         match self {
             Op::Root { .. } => None,
-            Op::GetData { .. } | Op::Parameter { .. } | Op::Constant(_) => Some(0),
+            Op::Parameter { .. } | Op::Constant(_) => Some(0),
+            // A Geometry, a Samples (and a Geometry), or nothing.
+            Op::GetData { .. } | Op::GetArrayData { .. } | Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => None,
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
             Op::Random { .. } => Some(4),
@@ -365,10 +374,10 @@ impl Op {
             Op::Array(a) => Some(a.arity()),
             Op::Compose(c) => Some(c.inputs().len()),
             Op::Decompose(_) => Some(1),
-            Op::Scatter { .. } | Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => Some(1),
+            Op::Scatter { .. } => Some(1),
             Op::ClosestPoint => Some(3),
             Op::RandomOrientation { .. } => Some(4),
-            Op::GetReference { .. } | Op::GetArrayData { .. } => Some(0),
+            Op::GetReference { .. } => Some(0),
             Op::Instancer { .. } => Some(5),
         }
     }
