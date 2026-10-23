@@ -150,6 +150,8 @@ The list of recent files is kept in `recent.json` in the config folder.
 | Copy nodes | Ctrl+C (Cmd+C on macOS) over the graph: the selected nodes, their parameters, the wires between them and the trees of their ICE nodes |
 | Paste nodes | Ctrl+V (Cmd+V) over the graph: new nodes, under the pointer, selected. Each ICE node gets a tree of its own |
 
+Inside an ICE graph, Ctrl+C and Ctrl+V copy and paste ICE nodes the same way (not the Execution Ports), with the wires between them, under the pointer; ICE nodes paste only into an ICE graph.
+
 Copied nodes go to the system clipboard as text, and to `clipboard.json` in the config folder. They paste in another window of the program, after it was closed and started again, or on another computer from text sent over. When the clipboard holds something else, Ctrl+V pastes the nodes copied last.
 
 ![The ICE spherify template, then the same template added to it: the added nodes sit beside the first ones, and the view stays with the first](xms_copy_paste_add.png)

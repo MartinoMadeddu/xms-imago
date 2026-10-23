@@ -591,7 +591,10 @@ pub enum IceGraphNodeType {
     /// An attribute of the geometry (`P` is the points), read in the
     /// graph's own context, or from `context` across (see
     /// `xms_ice::Op::GetData`), the values an element touches made one by
-    /// `reduce`.
+    /// `reduce`. With its Samples input wired, read at those surface
+    /// samples instead (`xms_ice::Op::GetDataAt`), from `context` when one
+    /// is set. Graphs saved with a Get Data at Samples node read it as this.
+    #[serde(alias = "GetDataAt")]
     GetData {
         name: String,
         #[serde(default)] context: Option<crate::core::geo::Context>,
@@ -620,18 +623,16 @@ pub enum IceGraphNodeType {
     /// there and the surface samples (see `xms_ice::Op::Scatter`).
     Scatter { seed: u32, #[serde(default)] weight: String },
     /// Get Array Data: an attribute read as a list per element, every value
-    /// it touches in `context` kept (see `xms_ice::Op::GetArrayData`).
+    /// it touches in `context` kept (see `xms_ice::Op::GetArrayData`). With
+    /// its Samples input wired, at each sample the values of the face it is
+    /// on (`xms_ice::Op::GetArrayDataAt`). Graphs saved with a Get Array
+    /// Data at Samples node read it as this one.
+    #[serde(alias = "GetArrayDataAt")]
     GetArrayData { name: String, #[serde(default)] context: Option<crate::core::geo::Context> },
-    /// Get Data at Samples: an attribute read at surface samples (see
-    /// `xms_ice::Op::GetDataAt`).
-    GetDataAt { name: String },
     /// Closest Point on Surface: the nearest places on reference meshes
     /// (Geometry, Get Reference's paths) to each Origin, within a Radius,
     /// and how far each is (see `xms_ice::Op::ClosestPoint`).
     ClosestPoint,
-    /// Get Array Data at Samples: at each sample, the values of the face
-    /// it is on, kept as a list (see `xms_ice::Op::GetArrayDataAt`).
-    GetArrayDataAt { name: String },
     /// Random rotations up along normals, one per element or an array (see
     /// `xms_ice::Op::RandomOrientation`).
     RandomOrientation { seed: u32 },
@@ -701,9 +702,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         },
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
-        IceGraphNodeType::GetDataAt { .. } => "Get Data at Samples",
         IceGraphNodeType::ClosestPoint => "Closest Point on Surface",
-        IceGraphNodeType::GetArrayDataAt { .. } => "Get Array Data at Samples",
         IceGraphNodeType::GetArrayData { .. } => "Get Array Data",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::Concat => "Concatenate Arrays",
@@ -729,9 +728,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Math { .. } => "±",
         IceGraphNodeType::Random { .. } => "⚂",
         IceGraphNodeType::Scatter { .. } => "⁘",
-        IceGraphNodeType::GetDataAt { .. } => "▶",
         IceGraphNodeType::ClosestPoint => "⌖",
-        IceGraphNodeType::GetArrayDataAt { .. } => "▶",
         IceGraphNodeType::GetArrayData { .. } => "▶",
         IceGraphNodeType::RandomOrientation { .. } => "⟳",
         IceGraphNodeType::Concat => "⧺",

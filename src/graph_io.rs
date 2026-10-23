@@ -460,6 +460,99 @@ pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other:
     count
 }
 
+// ── ICE nodes copied ──────────────────────────────────────────────────────────
+
+/// ICE nodes copied, as text: their types, names, places and values, and
+/// the wires between them. Not the Execution Ports: a graph has one.
+#[derive(Serialize, Deserialize)]
+struct IceClip {
+    /// Marks the text as ICE nodes (scene nodes are `xms_nodes`).
+    xms_ice_nodes: u32,
+    nodes:         Vec<SavedTreeNode>,
+    connections:   Vec<[usize; 4]>,
+}
+
+/// The ICE nodes copied last in this session: pasted when the clipboard
+/// holds something else.
+static ICE_CLIP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Copy ICE nodes `ids` of `g` (the root left out), with the wires between
+/// them, as text for the clipboard. `None` when there is nothing to copy.
+pub fn copy_ice(g: &crate::ice::IceGraph, ids: &[NodeId]) -> Option<String> {
+    let picked: Vec<&crate::ice::IceGraphNode> = g.nodes.iter()
+        .filter(|n| ids.contains(&n.id) && !matches!(n.node_type, crate::types::IceGraphNodeType::Root { .. }))
+        .collect();
+    if picked.is_empty() { return None; }
+    let has = |id: NodeId| picked.iter().any(|n| n.id == id);
+    let clip = IceClip {
+        xms_ice_nodes: 1,
+        nodes: picked.iter().map(|t| SavedTreeNode {
+            id: t.id.0, name: t.name.clone(), position: [t.position.x, t.position.y],
+            node_type: serde_json::to_value(&t.node_type).unwrap_or_default(),
+            values: t.inputs.iter().map(|i| i.value).collect(),
+        }).collect(),
+        connections: g.connections.iter().filter(|c| has(c.from_node) && has(c.to_node))
+            .map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input]).collect(),
+    };
+    let text = serde_json::to_string_pretty(&clip).ok()?;
+    if let Ok(mut last) = ICE_CLIP.lock() { *last = Some(text.clone()); }
+    Some(text)
+}
+
+/// Whether a text is ICE nodes copied.
+pub fn is_ice_clip(text: &str) -> bool {
+    serde_json::from_str::<IceClip>(text.trim()).is_ok_and(|c| c.xms_ice_nodes >= 1)
+}
+
+/// Paste ICE nodes into `g`: from `text` when it holds some, else those
+/// copied last in this session. New nodes, the wires between them, their
+/// top-left corner at `at` (canvas units; none given, beside where they
+/// were), selected. How many were pasted; `None` when there were none.
+pub fn paste_ice(g: &mut crate::ice::IceGraph, text: Option<&str>, at: Option<egui::Pos2>) -> Option<usize> {
+    let from_text = text.and_then(|t| serde_json::from_str::<IceClip>(t.trim()).ok()).filter(|c| c.xms_ice_nodes >= 1);
+    let clip = match from_text {
+        Some(c) => c,
+        None => {
+            let last = ICE_CLIP.lock().ok()?.clone()?;
+            serde_json::from_str::<IceClip>(&last).ok()?
+        }
+    };
+    let corner = clip.nodes.iter().fold(None::<egui::Pos2>, |c, n| {
+        let p = egui::pos2(n.position[0], n.position[1]);
+        Some(c.map_or(p, |c| c.min(p)))
+    })?;
+    let shift = match at { Some(a) => a - corner, None => egui::vec2(40.0, 40.0) };
+    let mut placed: std::collections::HashMap<usize, NodeId> = std::collections::HashMap::new();
+    for n in &clip.nodes {
+        let Ok(node_type) = serde_json::from_value::<crate::types::IceGraphNodeType>(n.node_type.clone()) else { continue };
+        if matches!(node_type, crate::types::IceGraphNodeType::Root { .. }) { continue; }
+        let id = g.add_node(n.name.clone(), node_type, egui::pos2(n.position[0], n.position[1]) + shift);
+        if let Some(node) = g.nodes.iter_mut().find(|x| x.id == id) {
+            for (input, value) in node.inputs.iter_mut().zip(&n.values) {
+                if value.is_some() { input.value = *value; }
+            }
+            // Concatenate Arrays: as many inputs as its wires need.
+            if matches!(node.node_type, crate::types::IceGraphNodeType::Concat) {
+                let wanted = clip.connections.iter().filter(|c| c[2] == n.id).map(|c| c[3] + 1).max().unwrap_or(0);
+                while node.inputs.len() < wanted { let k = node.inputs.len() + 1; node.inputs.push(crate::ice::array_port(k)); }
+            }
+        }
+        placed.insert(n.id, id);
+    }
+    for &[from, out, to, input] in &clip.connections {
+        let (Some(&f), Some(&t)) = (placed.get(&from), placed.get(&to)) else { continue };
+        let ok = g.nodes.iter().any(|n| n.id == f && out < n.outputs.len()) && g.nodes.iter().any(|n| n.id == t && input < n.inputs.len());
+        if ok { g.add_connection(f, out, t, input); }
+    }
+    let mut new: Vec<NodeId> = placed.values().copied().collect();
+    if new.is_empty() { return None; }
+    new.sort_by_key(|id| id.0);
+    g.selected_node = new.first().copied();
+    g.selected_nodes = new;
+    g.selected_wire = None;
+    Some(placed.len())
+}
+
 /// Keep copied nodes for a later session: the system clipboard can lose
 /// them when the program that copied them closes.
 pub fn remember(text: &str) {
@@ -635,6 +728,43 @@ mod tests {
         from_json(&mut back, &mut IceGraphStore::default(), &to_json(&g, &IceGraphStore::default())).unwrap();
         let paths: Vec<String> = back.nodes.iter().filter_map(|n| match &n.node_type { NodeType::LoadFbx { path, .. } => Some(path.clone()), _ => None }).collect();
         assert_eq!(paths, ["/home/x/examples/ragdoll/car.fbx", "/home/x/examples/ragdoll/split/into_the_car_.fbx", "/home/x/takes/car.fbx"]);
+    }
+
+    /// ICE nodes copy with the wires between them (not the root, nor wires
+    /// to nodes left behind) and paste as new nodes under the pointer,
+    /// selected; the text is not scene nodes, and a Get Data at Samples of
+    /// an older graph reads as a Get Data with its Samples wired.
+    #[test]
+    fn ice_nodes_copy_and_paste() {
+        use crate::types::IceGraphNodeType;
+        let mut g = crate::ice::IceGraph::new(IceGraphId(0), "g".into());
+        let root = g.root().unwrap();
+        let p = g.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(100.0, 100.0));
+        let two = g.add_node("Two".into(), IceGraphNodeType::Math { op: xms_ice::Math::Multiply }, egui::pos2(300.0, 120.0));
+        let set = g.add_node("Set".into(), IceGraphNodeType::set("P"), egui::pos2(500.0, 100.0));
+        g.add_connection(p, 0, two, 0);
+        g.add_connection(two, 0, set, 0);
+        g.add_connection(set, 0, root, 0);
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == two) { n.inputs[1].value = Some(xms_ice::Value::Float(2.0)); }
+        let text = copy_ice(&g, &[root, p, two]).expect("two nodes copied");
+        assert!(is_ice_clip(&text) && Fragment::from_text(&text).is_none());
+        let before = (g.nodes.len(), g.connections.len());
+        assert_eq!(paste_ice(&mut g, Some(&text), Some(egui::pos2(0.0, 500.0))), Some(2));
+        assert_eq!(g.nodes.len(), before.0 + 2, "two new nodes, no second root");
+        assert_eq!(g.connections.len(), before.1 + 1, "the wire between them, not the one to Set");
+        let pasted: Vec<_> = g.nodes.iter().filter(|n| g.selected_nodes.contains(&n.id)).collect();
+        assert_eq!(pasted.len(), 2);
+        let corner = pasted.iter().fold(egui::pos2(f32::MAX, f32::MAX), |c, n| c.min(n.position));
+        assert_eq!(corner, egui::pos2(0.0, 500.0), "under the pointer");
+        let mul = pasted.iter().find(|n| matches!(n.node_type, IceGraphNodeType::Math { .. })).unwrap();
+        assert_eq!(mul.inputs[1].value, Some(xms_ice::Value::Float(2.0)), "its values kept");
+        // Nothing in the clipboard that is ICE nodes: the last ones copied.
+        assert_eq!(paste_ice(&mut g, Some("hello"), None), Some(2));
+        // Get Data at Samples, as older graphs saved it.
+        let old: IceGraphNodeType = serde_json::from_str(r#"{"GetDataAt":{"name":"uv"}}"#).unwrap();
+        assert!(matches!(old, IceGraphNodeType::GetData { ref name, context: None, .. } if name == "uv"));
+        let old: IceGraphNodeType = serde_json::from_str(r#"{"GetArrayDataAt":{"name":"P"}}"#).unwrap();
+        assert!(matches!(old, IceGraphNodeType::GetArrayData { ref name, context: None } if name == "P"));
     }
 
     /// A graph file keeps its variables and $JOB; a graph added brings the

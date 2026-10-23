@@ -436,7 +436,8 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
             i.key_pressed(egui::Key::F) && !i.modifiers.any(),
             i.key_pressed(egui::Key::I),
             i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
-            i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::V, pressed: true, modifiers, .. } if modifiers.command)),
+            // Cmd+V comes as a Paste event, not a key (egui-winit).
+            i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)) || matches!(e, egui::Event::Key { key: egui::Key::V, pressed: true, modifiers, .. } if modifiers.command)),
         ));
         let node = graph.nodes.iter().find(|n| n.id == id).unwrap();
         if frame_all {

@@ -87,8 +87,11 @@ pub enum Op {
     /// An attribute read at surface samples (input 0): a point's or a
     /// corner's interpolated across the triangle the sample is in, a
     /// face's that face's, the object's its one value. `P` is the points;
-    /// `N` the normals, or the face's own when there are none.
-    GetDataAt { name: String },
+    /// `N` the normals, or the face's own when there are none. `context`:
+    /// where the attribute is read from; `None`, the first that has it
+    /// (point, corner, face, object). The app's Get Data with its Samples
+    /// input wired.
+    GetDataAt { name: String, context: Option<Context> },
     /// The nearest place on the meshes of a reference input: input 0 their
     /// paths (Get Reference; a group names the meshes below it), input 1
     /// the origin (a 3D vector: per element, P; one; or, in an Object
@@ -103,7 +106,9 @@ pub enum Op {
     /// At surface samples (input 0, one per element), the values of the
     /// face each is on, kept as a list: its points' (P, `ptIndices` their
     /// numbers), its corners' (uv), the face's own (a list of one).
-    GetArrayDataAt { name: String },
+    /// `context` as Get Data at Samples'. The app's Get Array Data with its
+    /// Samples input wired.
+    GetArrayDataAt { name: String, context: Option<Context> },
     /// Random rotations: each one's +Y turned along input 0 (a normal), then
     /// turned at random in its own frame up to input 1 (a vector of degrees)
     /// about each axis, either way; the same for the same seed. In any

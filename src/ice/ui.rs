@@ -77,6 +77,13 @@ fn title_text(node: &IceGraphNode) -> String {
         .collect()
 }
 
+/// A Get Data or Get Array Data reading at surface samples: its Samples
+/// input wired.
+fn sampled(node: &IceGraphNode) -> bool {
+    matches!(node.node_type, IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. })
+        && node.inputs.first().is_some_and(|i| i.connected_output.is_some())
+}
+
 /// A constant's value, or the attribute a Get or Set Data names, shown in
 /// a row of its own under the title.
 fn value_text(node: &IceGraphNode) -> Option<String> {
@@ -93,6 +100,9 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             Value::Sample(l) => format!("face {}", l.face),
         }),
         // Across contexts: where from, and how the values become one.
+        // Wired to samples: read there.
+        IceGraphNodeType::GetData { name, .. } if sampled(node) => Some(format!("{name} at samples")),
+        IceGraphNodeType::GetArrayData { name, .. } if sampled(node) => Some(format!("{name}[] at samples")),
         IceGraphNodeType::GetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
         IceGraphNodeType::SetData { name, context: Some(c), reduce } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
         IceGraphNodeType::GetData { name, .. } | IceGraphNodeType::SetData { name, .. } => Some(format!("self.{name}")),
@@ -100,8 +110,6 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::Random { seed } => Some(format!("seed {seed}")),
         IceGraphNodeType::Scatter { seed, weight } if weight.trim().is_empty() => Some(format!("seed {seed}")),
         IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
-        IceGraphNodeType::GetDataAt { name } => Some(format!("self.{name} at samples")),
-        IceGraphNodeType::GetArrayDataAt { name } => Some(format!("{name}[] at samples")),
         IceGraphNodeType::ClosestPoint => None,
         IceGraphNodeType::GetArrayData { name, context: Some(c) } => Some(format!("{}.{name}[]", context_word(*c))),
         IceGraphNodeType::GetArrayData { name, context: None } => Some(format!("{name}[]")),
@@ -199,8 +207,7 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Constant { .. } | IceGraphNodeType::Math { .. } | IceGraphNodeType::Random { .. } | IceGraphNodeType::Array { .. }
             | IceGraphNodeType::RandomOrientation { .. } | IceGraphNodeType::Concat | IceGraphNodeType::Compose { .. }
             | IceGraphNodeType::Decompose { .. } => pal::GREEN(),
-        IceGraphNodeType::GetDataAt { .. } | IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. }
-            | IceGraphNodeType::GetArrayDataAt { .. } => pal::BLUE(),
+        IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
         // The Geometry category: what makes or queries geometry.
         IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } | IceGraphNodeType::ClosestPoint => pal::ORANGE(),
     }
@@ -255,6 +262,8 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
     let title = format!("{}  {}", crate::types::subnet_node_icon(&node.node_type), crate::types::subnet_node_label(&node.node_type));
     group(ui, &title, None, |f| { f.text("Name", Some("The node's name: one word, a space typed becomes an underscore"), &mut node.name, ""); });
     if node.name.chars().any(char::is_whitespace) { node.name = crate::node_graph::node_name(&node.name); }
+    // Get Data and Get Array Data with samples wired read there.
+    let at_samples = sampled(node);
     match &mut node.node_type {
         IceGraphNodeType::Root { context } => group(ui, "Runs over", None, |f| {
             f.choice("Context", Some("The elements every Execute port runs over"), context,
@@ -279,7 +288,12 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
                             });
                     });
                 }
-                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it"),
+                if at_samples {
+                    f.choice("Context", Some("Read at the samples wired in: a point's or a corner's attribute blended across the triangle each sample is in, a face's that face's, the object's its one value. Auto: the first that has it, point, corner, face, object"),
+                             context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
+                    return;
+                }
+                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire samples into Samples to read there instead"),
                          context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                 if context.is_some_and(|c| c != Context::Object) {
                     f.choice("Several", Some("When an element touches several of the context read (a face's points, the faces around a point), how they become one value"),
@@ -304,13 +318,15 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
             f.row("Seed", Some("Another seed, other places; the same seed gives the same places every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
             f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
         }),
+        IceGraphNodeType::GetArrayData { name, context } if at_samples => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("What each sample reads of the face it is on, kept as a list: P its points' positions, ptIndices their numbers, uv its corners'; a face's own attribute, a list of one"), name, "P");
+            f.choice("Context", Some("Which of the face's elements: its points, its corners, the face itself, the object. Auto: the first that has the attribute"),
+                     context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
+        }),
         IceGraphNodeType::GetArrayData { name, context } => group(ui, "Attribute", None, |f| {
             f.text("Name", Some("The attribute each element reads as a list, every value it touches kept: P from Point, a face's points' positions; ptIndices, a face's point numbers; faceIndices, a point's faces"), name, "ptIndices");
             f.choice("Context", Some("Where the values are read from. Auto: where the attribute is (ptIndices: Point, faceIndices: Face). A face reads its points or corners, a point the faces or corners around it, a corner its point or face (a list of one); in an Object graph, every one, as the graph's array"),
                      context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
-        }),
-        IceGraphNodeType::GetDataAt { name } => group(ui, "Attribute", None, |f| {
-            f.text("Name", Some("P is the position, N the normal (the face's own when there are none); any other attribute (uv, a colour), blended across the triangle each sample is in"), name, "P");
         }),
         IceGraphNodeType::RandomOrientation { seed } => group(ui, "Random", None, |f| {
             f.row("Seed", Some("Another seed, other turns; the same seed gives the same turns every time"), |ui| ui.add(egui::DragValue::new(seed).speed(1)));
@@ -341,9 +357,6 @@ pub fn draw_subnet_node_properties(ui: &mut egui::Ui, graph: &mut IceGraph, refe
             if f.choice("From", Some("What it takes apart, and into what: a vector into its numbers, or into a smaller vector and a number; a rotation into its numbers, or its axis and angle (degrees)"), op, &choices) {
                 resync = true;
             }
-        }),
-        IceGraphNodeType::GetArrayDataAt { name } => group(ui, "Attribute", None, |f| {
-            f.text("Name", Some("What each sample reads of the face it is on, kept as a list: P its points' positions, ptIndices their numbers, uv its corners'; a face's own attribute, a list of one"), name, "P");
         }),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat | IceGraphNodeType::ClosestPoint => {}
     }
@@ -428,6 +441,30 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
     {
         graph.delete_selected();
+    }
+
+    // ── Copy and paste (Ctrl+C, Ctrl+V; Cmd on macOS) ────────────────────────
+    // The selected nodes and the wires between them, pasted under the
+    // pointer. egui gives Cmd+V as a Paste event (the clipboard's text),
+    // not as a key.
+    if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input() {
+        let (copy, paste) = ui.input(|i| {
+            let copy = i.events.iter().any(|e| matches!(e, egui::Event::Copy));
+            let paste = i.events.iter().find_map(|e| match e {
+                egui::Event::Paste(t) => Some(Some(t.clone())),
+                egui::Event::Key { key: egui::Key::V, pressed: true, modifiers, .. } if modifiers.command => Some(None),
+                _ => None,
+            });
+            (copy, paste)
+        });
+        if copy {
+            if let Some(text) = crate::graph_io::copy_ice(graph, &graph.selected_nodes) { ui.ctx().copy_text(text); }
+        }
+        if let Some(text) = paste {
+            let at = ui.input(|i| i.pointer.hover_pos())
+                .map(|p| egui::pos2((p.x - canvas_rect.min.x - graph.pan_offset.x) / graph.zoom, (p.y - canvas_rect.min.y - graph.pan_offset.y) / graph.zoom));
+            crate::graph_io::paste_ice(graph, text.as_deref(), at);
+        }
     }
 
     // ── Frame every node (F or A) ────────────────────────────────────────────
@@ -642,7 +679,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
 fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     use xms_ice::{Math, Value};
     let mut out = vec![
-        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points)"),
+        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points). Wire surface samples into its Samples (Scatter on Surface's, Closest Point on Surface's) to read it there instead, blended across the surface, in the graph's space"),
         ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the Execution Ports"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Float(0.0) }, "A number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Int(0) }, "A whole number"),
@@ -653,10 +690,8 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: Value::Quat([0.0, 0.0, 0.0, 1.0]) }, "A rotation (i, j, k, real); none by default"),
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there and the surface samples, each an array"),
-        ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item"),
-        ("Data Access", IceGraphNodeType::GetDataAt { name: "P".into() }, "Read an attribute at surface samples (Scatter on Surface's, Closest Point on Surface's): P, N, UVs or any other, blended across the surface, in the graph's space"),
+        ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire surface samples into its Samples to read, at each, the values of the face it is on (its points' P, ptIndices, its corners' uv)"),
         ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): surface samples to read with Get Data at Samples, and how far each is. For deformers: shrink-wrap, stick to a body, blend by distance"),
-        ("Data Access", IceGraphNodeType::GetArrayDataAt { name: "P".into() }, "Read, at each surface sample, the values of the face it is on as a list: its points' positions (P), their numbers (ptIndices), its corners' UVs. Array Size, Select in Array, Sum and Average make one value; maths works item by item"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),

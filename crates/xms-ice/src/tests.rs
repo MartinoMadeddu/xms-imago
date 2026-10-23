@@ -607,7 +607,7 @@ fn small_and_big() -> Geo {
 fn scattered_average(geo: &Geo, seed: u32, count: i32, weight: &str, name: &str) -> Column {
     let mut g = Graph::default();
     let at = g.add(Op::Scatter { seed, weight: weight.into() }, vec![Input::Value(Value::Int(count))]);
-    let read = g.add(Op::GetDataAt { name: name.into() }, vec![Input::Wire { node: at, output: SCATTER_SAMPLES }]);
+    let read = g.add(Op::GetDataAt { name: name.into(), context: None }, vec![Input::Wire { node: at, output: SCATTER_SAMPLES }]);
     let avg = g.add(Op::Array(ArrayOp::Average), vec![wire(read)]);
     object_value(g, avg, "avg", geo)
 }
@@ -641,7 +641,7 @@ fn scattering_is_for_the_whole_primitive() {
     let geo = small_and_big();
     let mut g = Graph::default();
     let at = g.add(Op::Scatter { seed: 0, weight: String::new() }, vec![Input::Value(Value::Int(10))]);
-    let read = g.add(Op::GetDataAt { name: "P".into() }, vec![wire(at)]);
+    let read = g.add(Op::GetDataAt { name: "P".into(), context: None }, vec![wire(at)]);
     let size = g.add(Op::Array(ArrayOp::Size), vec![wire(read)]);
     let set = g.add(Op::set("n"), vec![wire(size)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
@@ -688,7 +688,7 @@ fn scatter_gives_positions_normals_and_samples() {
         let mut g = Graph::default();
         let at = g.add(Op::Scatter { seed: 3, weight: String::new() }, vec![Input::Value(Value::Int(200))]);
         let v = match name {
-            Some(n) => g.add(Op::GetDataAt { name: n.into() }, vec![Input::Wire { node: at, output }]),
+            Some(n) => g.add(Op::GetDataAt { name: n.into(), context: None }, vec![Input::Wire { node: at, output }]),
             None => g.add(Op::Array(ArrayOp::Average), vec![Input::Wire { node: at, output }]),
         };
         let v = if name.is_some() { g.add(Op::Array(ArrayOp::Average), vec![wire(v)]) } else { v };
@@ -699,7 +699,7 @@ fn scatter_gives_positions_normals_and_samples() {
     // A position is not a sample: Get Data at Samples refuses it.
     let mut g = Graph::default();
     let at = g.add(Op::Scatter { seed: 3, weight: String::new() }, vec![Input::Value(Value::Int(5))]);
-    let bad = g.add(Op::GetDataAt { name: "P".into() }, vec![Input::Wire { node: at, output: SCATTER_POSITIONS }]);
+    let bad = g.add(Op::GetDataAt { name: "P".into(), context: None }, vec![Input::Wire { node: at, output: SCATTER_POSITIONS }]);
     let set = g.add(Op::set("v"), vec![wire(bad)]);
     g.add(Op::Root { context: Context::Object }, vec![wire(set)]);
     assert_eq!(compile(&g, &geo).unwrap_err().node, bad);
@@ -943,7 +943,7 @@ fn closest_point_on_a_reference_mesh() {
     let paths = g.add(Op::GetReference { input: 1, paths: Some(vec!["/set".into()]) }, vec![]);
     let p = g.add(Op::get("P"), vec![]);
     let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))]);
-    let at = g.add(Op::GetDataAt { name: "P".into() }, vec![wire(near)]);
+    let at = g.add(Op::GetDataAt { name: "P".into(), context: None }, vec![wire(near)]);
     let far = g.add(Op::set("far"), vec![Input::Wire { node: near, output: super::CLOSEST_DISTANCE }]);
     let set = g.add(Op::set("P"), vec![wire(at)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set), wire(far)]);
@@ -971,7 +971,7 @@ fn closest_point_within_a_radius_and_uvs_there() {
     let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
     let p = g.add(Op::get("P"), vec![]);
     let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(1.0))]);
-    let uv = g.add(Op::GetDataAt { name: "uv".into() }, vec![wire(near)]);
+    let uv = g.add(Op::GetDataAt { name: "uv".into(), context: None }, vec![wire(near)]);
     let set_uv = g.add(Op::set("st"), vec![wire(uv)]);
     let far = g.add(Op::set("far"), vec![Input::Wire { node: near, output: super::CLOSEST_DISTANCE }]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set_uv), wire(far)]);
@@ -994,9 +994,9 @@ fn array_data_at_samples() {
     let paths = g.add(Op::GetReference { input: 1, paths: None }, vec![]);
     let p = g.add(Op::get("P"), vec![]);
     let near = g.add(Op::ClosestPoint, vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))]);
-    let ids = g.add(Op::GetArrayDataAt { name: "ptIndices".into() }, vec![wire(near)]);
+    let ids = g.add(Op::GetArrayDataAt { name: "ptIndices".into(), context: None }, vec![wire(near)]);
     let n = g.add(Op::Array(ArrayOp::Size), vec![wire(ids)]);
-    let pts = g.add(Op::GetArrayDataAt { name: "P".into() }, vec![wire(near)]);
+    let pts = g.add(Op::GetArrayDataAt { name: "P".into(), context: None }, vec![wire(near)]);
     let mid = g.add(Op::Array(ArrayOp::Average), vec![wire(pts)]);
     let set_n = g.add(Op::set("n"), vec![wire(n)]);
     let set_mid = g.add(Op::set("mid"), vec![wire(mid)]);
@@ -1016,7 +1016,7 @@ fn closest_point_says_what_it_takes() {
     let mut g = Graph::default();
     let p = g.add(Op::get("P"), vec![]);
     let near = g.add(Op::ClosestPoint, vec![wire(p), wire(p), Input::Value(Value::Float(0.0))]);
-    let at = g.add(Op::GetDataAt { name: "P".into() }, vec![wire(near)]);
+    let at = g.add(Op::GetDataAt { name: "P".into(), context: None }, vec![wire(near)]);
     let set = g.add(Op::set("P"), vec![wire(at)]);
     g.add(Op::Root { context: Context::Point }, vec![wire(set)]);
     let e = compile(&g, &geo).unwrap_err();

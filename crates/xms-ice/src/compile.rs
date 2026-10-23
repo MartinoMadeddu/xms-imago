@@ -185,6 +185,15 @@ enum ListOf {
     Face(usize),
 }
 
+/// The contexts an attribute read at samples is looked for in: the one
+/// asked for, else point, corner, face, object.
+fn sample_contexts(context: Option<Context>) -> Vec<Context> {
+    match context {
+        Some(c) => vec![c],
+        None => vec![Context::Point, Context::Corner, Context::Face, Context::Object],
+    }
+}
+
 /// The name of an attribute's column: ICE's `P` is the points.
 fn column_name(name: &str) -> &str { if name == "P" { POINTS } else { name } }
 
@@ -418,12 +427,12 @@ impl Lower<'_> {
             Op::Compose(c) => self.compose(node, *c)?,
             Op::Decompose(d) => self.decompose(node, *d)?,
             Op::Scatter { seed, weight } => self.scatter(node, *seed, weight)?,
-            Op::GetDataAt { name } => self.at_location(node, name)?,
+            Op::GetDataAt { name, context } => self.at_location(node, name, *context)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
             Op::Concat => self.concat(node)?,
             Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
             Op::ClosestPoint => self.closest(node)?,
-            Op::GetArrayDataAt { name } => self.array_at(node, name)?,
+            Op::GetArrayDataAt { name, context } => self.array_at(node, name, *context)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
                 if *input == 0 { return error(node, "Reference inputs are numbered from 1"); }
@@ -735,20 +744,20 @@ impl Lower<'_> {
         Ok(v)
     }
 
-    fn at_location(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
+    fn at_location(&mut self, node: usize, name: &str, context: Option<Context>) -> Result<Val, CompileError> {
         let loc = self.input(node, 0, None)?;
-        if loc.ty != Ty::Sample { return error(node, "Get Data at Samples reads at surface samples (Scatter on Surface's, Closest Point on Surface's)"); }
-        if name.trim().is_empty() { return error(node, "Get Data at Samples needs the name of the attribute it reads"); }
+        if loc.ty != Ty::Sample { return error(node, "Get Data's Samples are surface samples (Scatter on Surface's, Closest Point on Surface's)"); }
+        if name.trim().is_empty() { return error(node, "Get Data needs the name of the attribute it reads"); }
+        let contexts = sample_contexts(context);
         // Samples of reference meshes: read mesh by mesh, in the graph's space.
         if let Some(s) = loc.surface {
-            let (read, ty) = self.sampled_read(node, name.trim(), Some(s), &[Context::Point, Context::Corner, Context::Face, Context::Object])?;
+            let (read, ty) = self.sampled_read(node, name.trim(), Some(s), &contexts)?;
             let mut v = self.emit(loc.uniform, ty, |dst| Ins::AtSurface { dst, read, loc: loc.reg, surface: Some(s) });
             v.array = loc.array;
             return Ok(v);
         }
         // Per point first, then per corner, per face, the object's.
-        let found = [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
-            .find_map(|c| find_in(self.geo, c, name).map(|f| (c, f)));
+        let found = contexts.iter().find_map(|&c| find_in(self.geo, c, name).map(|f| (c, f)));
         let Some((ctx, found)) = found else { return error(node, format!("No attribute '{name}'")) };
         let Some(ty) = found.ty.filter(|t| *t != Ty::Sample) else {
             return error(node, format!("'{name}' is of a type ICE does not read yet (matrices, tokens)"));
@@ -824,16 +833,16 @@ impl Lower<'_> {
     /// is on, kept as a list: its points' positions (P), their numbers
     /// (ptIndices), its corners' UVs. One sample per element gives a list
     /// per element; one sample in all, an array.
-    fn array_at(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
+    fn array_at(&mut self, node: usize, name: &str, context: Option<Context>) -> Result<Val, CompileError> {
         let loc = self.input(node, 0, None)?;
-        if loc.ty != Ty::Sample { return error(node, "Get Array Data at Samples reads at surface samples (Closest Point on Surface's)"); }
-        if loc.array { return error(node, "Get Array Data at Samples reads at one sample per element (Closest Point's, per point): an array of samples would give a list per sample, not yet"); }
-        let (name, contexts): (&str, &[Context]) = match name.trim() {
-            "ptIndices" => ("ptIndex", &[Context::Point]),
-            "" => return error(node, "Get Array Data at Samples needs the name of the attribute it reads"),
-            n => (n, &[Context::Point, Context::Corner, Context::Face, Context::Object]),
+        if loc.ty != Ty::Sample { return error(node, "Get Array Data's Samples are surface samples (Closest Point on Surface's)"); }
+        if loc.array { return error(node, "Get Array Data reads at one sample per element (Closest Point's, per point): an array of samples would give a list per sample, not yet"); }
+        let (name, contexts) = match name.trim() {
+            "ptIndices" => ("ptIndex", vec![Context::Point]),
+            "" => return error(node, "Get Array Data needs the name of the attribute it reads"),
+            n => (n, sample_contexts(context)),
         };
-        let (read, ty) = self.sampled_read(node, name, loc.surface, contexts)?;
+        let (read, ty) = self.sampled_read(node, name, loc.surface, &contexts)?;
         let flat = loc.uniform;
         let surface = loc.surface;
         let mut v = self.emit(flat, ty, |dst| Ins::ListAt { dst, read, loc: loc.reg, surface, flat });
@@ -1014,7 +1023,7 @@ impl Lower<'_> {
             None => return error(node, "Set Data takes a value"),
         };
         if v.array { return error(node, "An array is not written as an attribute (yet): it is one value of many"); }
-        if v.ty == Ty::Sample { return error(node, "A surface sample is not written as an attribute: read what is there with Get Data at Samples"); }
+        if v.ty == Ty::Sample { return error(node, "A surface sample is not written as an attribute: read what is there with a Get Data wired to it"); }
         if v.ty == Ty::Token { return error(node, "Paths are not written as attributes"); }
         let existing = geo.attr(context, &column);
         if let Some(t) = existing.and_then(|a| column_ty(&a.column)) {
@@ -1151,10 +1160,9 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
         Op::ClosestPoint => Some(Ty::Sample),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
-        Op::GetArrayDataAt { name } => {
+        Op::GetArrayDataAt { name, context: from } => {
             let name = if name.trim() == "ptIndices" { "ptIndex" } else { name.trim() };
-            [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
-                .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty)
+            sample_contexts(*from).into_iter().find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty)
         }
         Op::GetArrayData { name, context: from } => {
             let (name, from) = match (name.trim(), from) {
@@ -1170,7 +1178,7 @@ fn type_of(graph: &Graph, geo: &Geo, context: Context, node: usize, memo: &mut V
             Input::Value(_) => None,
         }),
         Op::GetReference { .. } => Some(Ty::Token),
-        Op::GetDataAt { name } => [Context::Point, Context::Corner, Context::Face, Context::Object].into_iter()
+        Op::GetDataAt { name, context: from } => sample_contexts(*from).into_iter()
             .find_map(|c| find_in(geo, c, name)).and_then(|f| f.ty),
         Op::Compose(c) => Some(c.output()),
         Op::Decompose(d) => Some(d.outputs()[0].1),

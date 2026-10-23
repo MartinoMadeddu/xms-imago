@@ -906,10 +906,14 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // selected nodes, paste them under the pointer.
                     let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| rect.contains(*p));
                     if pointer.is_some() && !ui.ctx().egui_wants_keyboard_input() && !self.browser.is_open() {
+                        // egui gives Cmd+V (Ctrl+V) as a Paste event holding
+                        // the clipboard's text, not as a key; a V key with
+                        // the command modifier still counts, for backends
+                        // that send one.
                         let (copy, paste, text) = ui.input(|i| {
                             let copy = i.events.iter().any(|e| matches!(e, egui::Event::Copy));
-                            let paste = i.events.iter().any(|e| matches!(e,
-                                egui::Event::Key { key: egui::Key::V, pressed: true, modifiers, .. } if modifiers.command));
+                            let paste = i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))
+                                || matches!(e, egui::Event::Key { key: egui::Key::V, pressed: true, modifiers, .. } if modifiers.command));
                             let text = i.events.iter().find_map(|e| match e {
                                 egui::Event::Text(t) | egui::Event::Paste(t) if t.trim_start().starts_with('{') => Some(t.clone()), _ => None });
                             (copy, paste, text)
@@ -917,7 +921,9 @@ impl egui_dock::TabViewer for Panes<'_> {
                         if copy {
                             if let Some(m) = copy_nodes(ui.ctx(), self.graph, self.subnets) { self.graph_file.message = m; }
                         }
-                        if paste {
+                        if paste && text.as_deref().is_some_and(graph_io::is_ice_clip) {
+                            self.graph_file.message = "These are ICE nodes: paste them in an ICE graph".into();
+                        } else if paste {
                             let (pan, zoom) = (self.graph.pan_offset, self.graph.zoom);
                             let at = pointer.map(|p| egui::pos2((p.x - rect.min.x - pan.x) / zoom, (p.y - rect.min.y - pan.y) / zoom));
                             self.graph_file.message = paste_nodes(self.graph, self.subnets, text.as_deref(), at)
