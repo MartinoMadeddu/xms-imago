@@ -133,7 +133,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 - **Frame it:** F, G, Z or . frames the selection, down to selected vertices, edges and polygons. A or H frames everything
 - **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer controls, from a menu
 - **Remembered:** layout, floating windows, theme and navigation style come back at the next start
-- **Copy and paste nodes:** Ctrl+C and Ctrl+V, with their wires and ICE graphs, between windows and from one session to the next
+- **Copy and paste nodes:** Ctrl+C and Ctrl+V (Cmd on macOS), with their wires and ICE graphs, between windows and from one session to the next; inside an ICE graph too
 - **Add or open:** opening a file or a template asks whether to add it to the graph or open it as new, and asks to save first before anything is replaced
 - **Menus:** File, Edit and Window at the top left, as in other programs. File has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an FBX, a USD), Quit and, at the bottom, Templates (the ready-made graphs by author, then by area), with the usual shortcuts. The top bar shows the file and whether it is saved; closing, New, opening a file or loading a template over unsaved changes asks first, and nothing writes over a file that exists without asking (Save As, Save layout, Write FBX, Write USD)
 - **Fast:** each operator's result is kept until it or something above it changes, as in Houdini: selecting, redrawing and playing cook nothing again, and a change cooks only what is below it
@@ -163,7 +163,7 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 ## Also in the box
 
 - Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of any number of inputs, as primitives or into one mesh
-- ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). Get Data reads an attribute (any the Primitive Inspector shows, from any context), maths nodes work on it, Set Data writes it, and the Execution Ports runs its Execute ports in order over every point (or face, corner, object), on each primitive in its own space. Compiled and run in parallel batches by the ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
+- ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). Get Data reads an attribute (any the Primitive Inspector shows, from any context), maths nodes work on it, Set Data writes it, and the Execution Ports runs its Execute ports in order over every point (or face, corner, object), on each primitive in its own space. Closest Point on Surface finds the nearest places on a reference input's meshes (a BVH over their triangles), to read anything there: shrink-wraps and other deformers. Matrices (compose from axes and an origin, multiply, invert, transpose, transform points and vectors) and each sample's triangle (`triP`, `bary`) build frames on a surface by hand. Compiled and run in parallel batches by the ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
 - Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip, and a Properties tab for the selected prims themselves (groups, cameras and lights too): each property's value and where it comes from
 - Graphs saved and loaded as JSON, with the graph inside every ICE node
 - Variables in paths and command lines (`$JOB/assets/set.usda`, `$GNAME.$F4.exr`): the graph's file and frames, its own variables and `$JOB` (File > Variables, saved with it), the environment; typing `$` lists them
@@ -200,8 +200,6 @@ Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists w
 - Mocap: contact detection and foot locking (Reach follows the source's feet); FBX blend shapes applied, cameras and lights drawn
 - Timeline zoom and pan
 - Curve cleanup
-- ICE graph contents in saved graphs (copied nodes carry them)
-- Copy and paste inside an ICE graph: Ctrl+C and Ctrl+V work on the scene graph only
 - The program icon inside the file itself (Windows Explorer, macOS dock). The window and task bar icon is set on X11 and Windows
 - Viewer interaction has been tested with simulated input, not yet thoroughly by hand
 - Import into Unreal has not been tried here. Written files are compared with their source FBX bone for bone (names, parents, kinds, axes, unit, local values), on a MetaHuman take

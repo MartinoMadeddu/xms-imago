@@ -1,6 +1,6 @@
 //! The types of values in an ICE graph.
 
-use glam::{Quat, Vec2, Vec3, Vec4};
+use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Ty {
@@ -13,9 +13,14 @@ pub enum Ty {
     /// A rotation (i, j, k, real), as USD's `quatf`: made from an axis and an
     /// angle or from Euler angles, combined by multiplying, applied to vectors.
     Quat,
-    /// A surface sample: a place on the surface, where Scatter on Surface
-    /// puts points (its third output), read by Get Data at Samples. Not a
-    /// USD type: what reaches USD is positions and normals.
+    /// A 4×4 matrix: a frame (three axes and an origin) or any transform,
+    /// as USD's `matrix4d` holds it (stored column-major: the columns are
+    /// the X, Y and Z axes and the origin, as USD's rows are).
+    Mat4,
+    /// A surface sample: a place on a surface, where Scatter on Surface
+    /// puts points (its third output) or where Closest Point on Surface
+    /// finds the nearest, read by Get Data at Samples. Not a USD type: what
+    /// reaches USD is positions and normals.
     #[serde(alias = "Location")]
     Sample,
     /// A name or a path: the primitives of a reference input (Get
@@ -25,18 +30,29 @@ pub enum Ty {
 
 /// A surface sample (`Ty::Sample`), a place on a mesh's surface: a face, the three corners of the triangle
 /// of it the place is in (the face's fan from its first corner), and the
-/// place's weights on those corners (they sum to 1).
+/// place's weights on those corners (they sum to 1). `mesh`: which mesh of
+/// the surface it is on (0 for the geometry the graph runs on, Scatter's;
+/// a reference mesh's number for Closest Point on Surface's); `NONE` for a
+/// sample that found nothing, which reads as zero.
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Loc {
     pub face:    u32,
     pub corners: [u32; 3],
     pub weights: [f32; 3],
+    #[serde(default)]
+    pub mesh:    u32,
+}
+
+impl Loc {
+    /// A sample on nothing: nothing was found.
+    pub const NONE: u32 = u32::MAX;
+    pub fn found(&self) -> bool { self.mesh != Loc::NONE }
 }
 
 impl Ty {
     pub fn is_vector(self) -> bool { matches!(self, Ty::Vec2 | Ty::Vec3 | Ty::Vec4) }
     /// Added, subtracted, scaled: a number or a vector, not a bool or a rotation.
-    pub fn is_numeric(self) -> bool { !matches!(self, Ty::Bool | Ty::Quat | Ty::Sample | Ty::Token) }
+    pub fn is_numeric(self) -> bool { !matches!(self, Ty::Bool | Ty::Quat | Ty::Mat4 | Ty::Sample | Ty::Token) }
 
     /// How the editor names it: on ports, in errors.
     pub fn name(self) -> &'static str {
@@ -48,6 +64,7 @@ impl Ty {
             Ty::Vec3 => "3D vector",
             Ty::Vec4 => "4D vector",
             Ty::Quat => "rotation",
+            Ty::Mat4 => "matrix",
             Ty::Sample => "surface sample",
             Ty::Token => "path",
         }
@@ -65,6 +82,8 @@ pub enum Value {
     Vec4([f32; 4]),
     /// i, j, k, real.
     Quat([f32; 4]),
+    /// Column by column: the X, Y and Z axes and the origin.
+    Mat4([f32; 16]),
     #[serde(alias = "Location")]
     Sample(Loc),
 }
@@ -79,6 +98,7 @@ impl Value {
             Value::Vec3(_) => Ty::Vec3,
             Value::Vec4(_) => Ty::Vec4,
             Value::Quat(_) => Ty::Quat,
+            Value::Mat4(_) => Ty::Mat4,
             Value::Sample(_) => Ty::Sample,
         }
     }
@@ -109,5 +129,6 @@ impl Value {
     pub(crate) fn as_vec3(&self) -> Vec3 { if let Value::Vec3(v) = self { Vec3::from_array(*v) } else { Vec3::ZERO } }
     pub(crate) fn as_vec4(&self) -> Vec4 { if let Value::Vec4(v) = self { Vec4::from_array(*v) } else { Vec4::ZERO } }
     pub(crate) fn as_quat(&self) -> Quat { if let Value::Quat(q) = self { Quat::from_array(*q) } else { Quat::IDENTITY } }
+    pub(crate) fn as_mat4(&self) -> Mat4 { if let Value::Mat4(m) = self { Mat4::from_cols_array(m) } else { Mat4::IDENTITY } }
     pub(crate) fn as_loc(&self) -> Loc { if let Value::Sample(l) = self { *l } else { Loc::default() } }
 }

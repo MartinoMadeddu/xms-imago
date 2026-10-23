@@ -150,6 +150,8 @@ The list of recent files is kept in `recent.json` in the config folder.
 | Copy nodes | Ctrl+C (Cmd+C on macOS) over the graph: the selected nodes, their parameters, the wires between them and the trees of their ICE nodes |
 | Paste nodes | Ctrl+V (Cmd+V) over the graph: new nodes, under the pointer, selected. Each ICE node gets a tree of its own |
 
+Inside an ICE graph, Ctrl+C and Ctrl+V copy and paste ICE nodes the same way (not the Execution Ports), with the wires between them, under the pointer; ICE nodes paste only into an ICE graph.
+
 Copied nodes go to the system clipboard as text, and to `clipboard.json` in the config folder. They paste in another window of the program, after it was closed and started again, or on another computer from text sent over. When the clipboard holds something else, Ctrl+V pastes the nodes copied last.
 
 ![The ICE spherify template, then the same template added to it: the added nodes sit beside the first ones, and the view stays with the first](xms_copy_paste_add.png)
@@ -213,13 +215,13 @@ Every graph colours a port, and the wires into it, by the type of data it carrie
 | Yellow | 235, 225, 60 | Vector (2D, 3D), position, texture coordinates |
 | Dark yellow | 175, 150, 30 | Vector 4, quaternion, rotation |
 | Orange | 240, 130, 60 | Colour (RGB, RGBA) |
-| Light purple | 185, 150, 240 | Matrix (3×3, 4×4) |
+| Purple | 140, 95, 190 | Matrix (3×3, 4×4): the materials' purple (no graph carries both) |
 | Desaturated red-beige (Houdini VOPs' OpInput) | 210, 165, 125 | String, file name, token |
 | Purple | 140, 95, 190 | Material, shader (the scene graph's material sockets, MaterialX's shaders and `material`) |
 | Pink-magenta | 225, 120, 205 | BSDF, EDF, VDF (MaterialX closures) |
 | Dark grey | 85, 85, 85 | Execute (ICE), and what is not known yet |
 
-An array is the colour of what it holds. A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
+In ICE an array, whatever it holds, is the closures' pink-magenta (225, 120, 205; no ICE graph carries a closure): hover over its port to see what it holds ("array of 3D vectors"). A connected port is drawn a little lighter, a port under the mouse lighter still. The node colours (by kind: ICE's data access blue, MaterialX's textures blue and procedurals orange) are not type colours and stay as they are.
 
 ### MaterialX graphs
 

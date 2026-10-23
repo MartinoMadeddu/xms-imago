@@ -23,16 +23,22 @@
 //! - `derived`: what the topology gives without being stored (a face's
 //!   corners, first corner, normal and area; a corner's point, face and
 //!   place in it), as the Primitive Inspector shows it.
+//! - `surface`: the reference inputs' meshes a graph queries (Closest
+//!   Point on Surface), taken into the graph's space, and read at samples.
+//! - `spatial`: a BVH (rray's builder) and the closest point on a triangle.
 
 pub mod compile;
 pub mod derived;
 pub mod exec;
 pub mod graph;
+pub mod spatial;
+pub mod surface;
 pub mod types;
 
-pub use compile::{compile, output_arrays, output_types, CompileError, Plan};
-pub use exec::{run, Instances, Ran, BATCH};
-pub use graph::{ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Reduce, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
+pub use compile::{compile, compile_with, output_arrays, output_types, CompileError, Plan};
+pub use exec::{run, run_in, Instances, Ran, BATCH};
+pub use graph::{ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Reduce, CLOSEST_DISTANCE, CLOSEST_SAMPLES, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
+pub use surface::{RefGeo, RefMesh, Reference};
 pub use types::{Loc, Ty, Value};
 
 #[cfg(test)]

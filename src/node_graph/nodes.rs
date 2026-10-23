@@ -132,8 +132,8 @@ pub fn evaluate_node_type(
             // references: every prim of the scene wired there (groups too),
             // for Get Reference.
             let references: Vec<crate::ice::Reference> = inputs.iter().skip(1).map(|r| match r {
-                EvalResult::Named(prims) => crate::node_graph::scene_paths(prims),
-                _ => vec![],
+                EvalResult::Named(prims) => crate::ice::Reference { paths: crate::node_graph::scene_paths(prims), meshes: reference_meshes(prims) },
+                _ => Default::default(),
             }).collect();
             match inputs.first()? {
                 // Packed primitives: the tree runs on each one (the picked
@@ -149,6 +149,8 @@ pub fn evaluate_node_type(
                         if any_picked && !p.picked { out.push(p.clone()); continue; }
                         let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
                         crate::ice::take_instances();
+                        // Reference meshes are taken into its space.
+                        crate::ice::set_space(p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY));
                         let g = eval_subnet(*id, &geo, &references);
                         // What its Instancers made: point instancers, after the others.
                         for (i, draw) in crate::ice::take_instances() { made.extend(instanced(p, &i, draw, &inputs[1..], &mut taken)); }
@@ -1014,6 +1016,20 @@ mod place_tests {
 /// sharing its geometry and material (nothing is copied). Write USD writes
 /// it as a `PointInstancer`. A relative path is beside `on` (not below it:
 /// USD has no prims under a mesh); a path that is `taken` is numbered.
+/// The meshes among a reference input's prims, for ICE to search: each
+/// where it is in the world, once per copy of an instanced one. A mesh with
+/// no `Geo` is converted only if a graph asks for it.
+fn reference_meshes(prims: &[Prim]) -> Vec<xms_ice::RefMesh> {
+    prims.iter().filter(|p| p.is_geometry() && (p.geo.is_some() || !p.mesh.indices.is_empty())).flat_map(|p| {
+        let geo = match &p.geo {
+            Some(g) => xms_ice::RefGeo::ready(g.clone()),
+            None => { let m = p.mesh.clone(); xms_ice::RefGeo::later(move || crate::core::geo::Geo::from_mesh(&m)) }
+        };
+        let worlds: Vec<glam::Mat4> = if p.place.is_placed() { p.place.matrices().to_vec() } else { vec![glam::Mat4::IDENTITY] };
+        worlds.into_iter().map(move |world| xms_ice::RefMesh { path: p.path.clone(), world, geo: geo.clone() })
+    }).collect()
+}
+
 fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode, references: &[EvalResult], taken: &mut std::collections::HashSet<String>) -> Vec<Prim> {
     use crate::core::geo::{Attr, Column, Context, Geo, Role};
     use crate::types::InstancedBy;

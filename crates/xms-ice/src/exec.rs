@@ -7,15 +7,16 @@
 //! the result shares every other column with the input.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use glam::{Quat, Vec2, Vec3, Vec4};
+use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use rayon::prelude::*;
 
-use xms_geo::{Attr, Column, Context, Geo, Topology};
+use xms_geo::{Attr, Column, Context, Geo, Role, Topology};
 
-use super::compile::{InstancerPlan, Ins, Key, Plan, Program, Write, NO_COUNT};
+use super::compile::{InstancerPlan, Ins, Key, Plan, Program, Read, Write, NO_COUNT};
 use super::graph::{ArrayOp, Compose, Decompose, Math, Reduce};
+use super::surface::{Mesh, Reference, Surface};
 use super::types::{Loc, Ty, Value};
 
 /// Elements per batch: long enough that each instruction's loop does real
@@ -32,6 +33,7 @@ pub(crate) enum Reg {
     Vec3(Vec<Vec3>),
     Vec4(Vec<Vec4>),
     Quat(Vec<Quat>),
+    Mat4(Vec<Mat4>),
     Sample(Vec<Loc>),
     /// Paths: only ever an array, in the uniform program.
     Token(Vec<Arc<str>>),
@@ -50,6 +52,7 @@ impl Reg {
             Reg::Vec3(v) => v.len(),
             Reg::Vec4(v) => v.len(),
             Reg::Quat(v) => v.len(),
+            Reg::Mat4(v) => v.len(),
             Reg::Sample(v) => v.len(),
             Reg::Token(v) => v.len(),
             Reg::List(offsets, _) => offsets.len().saturating_sub(1),
@@ -75,6 +78,12 @@ reg_access!(vec2s, Vec2, Vec2);
 reg_access!(vec3s, Vec3, Vec3);
 reg_access!(vec4s, Vec4, Vec4);
 reg_access!(quats, Quat, Quat);
+reg_access!(mat4s, Mat4, Mat4);
+
+/// A stored matrix (USD's `matrix4d`, f64, the axes and origin as its rows,
+/// which is column-major to glam) as one to work with, and back.
+fn mat_of(m: [f64; 16]) -> Mat4 { Mat4::from_cols_array(&m.map(|x| x as f32)) }
+fn mat_out(m: Mat4) -> [f64; 16] { m.to_cols_array().map(|x| x as f64) }
 reg_access!(locs, Sample, Loc);
 reg_access!(tokens, Token, Arc<str>);
 
@@ -87,6 +96,7 @@ fn registers(p: &Program) -> Vec<Reg> {
         Ty::Vec3 => Reg::Vec3(vec![]),
         Ty::Vec4 => Reg::Vec4(vec![]),
         Ty::Quat => Reg::Quat(vec![]),
+        Ty::Mat4 => Reg::Mat4(vec![]),
         Ty::Sample => Reg::Sample(vec![]),
         Ty::Token => Reg::Token(vec![]),
     }).collect()
@@ -103,6 +113,7 @@ fn value_at(reg: &Reg, i: usize) -> Value {
         Reg::Vec3(v) => Value::Vec3(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Vec4(v) => Value::Vec4(v.get(i).copied().unwrap_or_default().to_array()),
         Reg::Quat(v) => Value::Quat(v.get(i).copied().unwrap_or_default().to_array()),
+        Reg::Mat4(v) => Value::Mat4(v.get(i).copied().unwrap_or_default().to_cols_array()),
         Reg::Sample(v) => Value::Sample(v.get(i).copied().unwrap_or_default()),
         Reg::Token(_) => unreachable!("a path is never one value: the compiler refuses"),
         Reg::List(..) => unreachable!("a list is never one value: the compiler refuses"),
@@ -118,6 +129,7 @@ fn fill(reg: &mut Reg, value: Value, len: usize) {
         Ty::Vec3 => vec3s(reg).resize(len, value.as_vec3()),
         Ty::Vec4 => vec4s(reg).resize(len, value.as_vec4()),
         Ty::Quat => quats(reg).resize(len, value.as_quat()),
+        Ty::Mat4 => mat4s(reg).resize(len, value.as_mat4()),
         Ty::Sample => locs(reg).resize(len, value.as_loc()),
         Ty::Token => unreachable!("a path is never one value: the compiler refuses"),
     }
@@ -234,6 +246,7 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
             (Some(Column::Vec3(v)), _) => gather(v, ix, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
             (Some(Column::Vec4(v)), _) => gather(v, ix, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
             (Some(Column::Quat(v)), _) => gather(v, ix, start, len, quats(reg), Quat::IDENTITY, Quat::from_array),
+            (Some(Column::Mat4(v)), _) => gather(v, ix, start, len, mat4s(reg), Mat4::IDENTITY, mat_of),
             // Not there in this geometry (it was when compiled): zeros.
             _ => fill(reg, zero(ty), len),
         },
@@ -245,6 +258,7 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
             (Some(Column::Vec3(v)), _) => through(v, ix, map, start, len, vec3s(reg), Vec3::ZERO, Vec3::from_array),
             (Some(Column::Vec4(v)), _) => through(v, ix, map, start, len, vec4s(reg), Vec4::ZERO, Vec4::from_array),
             (Some(Column::Quat(v)), _) => through(v, ix, map, start, len, quats(reg), Quat::IDENTITY, Quat::from_array),
+            (Some(Column::Mat4(v)), _) => through(v, ix, map, start, len, mat4s(reg), Mat4::IDENTITY, mat_of),
             _ => fill(reg, zero(ty), len),
         },
         Map::Many { offsets, items } => {
@@ -265,6 +279,19 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
                 (Some(Column::Vec4(v)), _) => vec4s(reg).extend((start..start + len).map(|e| Vec4::from_array(lists.reduce_n(v, e)))),
                 // Rotations averaged component by component, then made unit again.
                 (Some(Column::Quat(v)), _) => quats(reg).extend((start..start + len).map(|e| Quat::from_array(lists.reduce_n(v, e)).normalize())),
+                // Matrices component by component.
+                (Some(Column::Mat4(v)), _) => mat4s(reg).extend((start..start + len).map(|e| {
+                    let as32: Vec<[f32; 16]> = lists.values(v, e).map(|m| m.map(|x| x as f32)).collect();
+                    if as32.is_empty() { return Mat4::IDENTITY; }
+                    let mut acc = as32[0];
+                    for m in &as32[1..] {
+                        for k in 0..16 {
+                            acc[k] = match lists.reduce { Reduce::Average | Reduce::Sum => acc[k] + m[k], Reduce::Min => acc[k].min(m[k]), Reduce::Max => acc[k].max(m[k]) };
+                        }
+                    }
+                    if lists.reduce == Reduce::Average { for x in acc.iter_mut() { *x /= as32.len() as f32; } }
+                    Mat4::from_cols_array(&acc)
+                })),
                 _ => fill(reg, zero(ty), len),
             }
         }
@@ -363,6 +390,7 @@ fn zero(ty: Ty) -> Value {
         Ty::Vec3 => Value::Vec3([0.0; 3]),
         Ty::Vec4 => Value::Vec4([0.0; 4]),
         Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
+        Ty::Mat4 => Value::Mat4(Mat4::IDENTITY.to_cols_array()),
         Ty::Sample => Value::Sample(Loc::default()),
         Ty::Token => unreachable!("a path is never one value: the compiler refuses"),
     }
@@ -408,6 +436,27 @@ macro_rules! by_float {
 fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> bool {
     use Reg::*;
     match op {
+        // Matrices.
+        Math::Multiply if matches!(a, Mat4(_)) => match (a, b) {
+            (Mat4(a), Some(Mat4(b))) => map2(a, b, mat4s(out), |x, y| x * y),
+            _ => return false,
+        },
+        Math::Invert => match a { Mat4(a) => map1(a, mat4s(out), |m| m.inverse()), _ => return false },
+        Math::Transpose => match a { Mat4(a) => map1(a, mat4s(out), |m| m.transpose()), _ => return false },
+        Math::TransformPoint => match (a, b) {
+            (Mat4(m), Some(Vec3(v))) => map2(m, v, vec3s(out), |m, v| m.transform_point3(v)),
+            _ => return false,
+        },
+        Math::TransformVector => match (a, b) {
+            (Mat4(m), Some(Vec3(v))) => map2(m, v, vec3s(out), |m, v| m.transform_vector3(v)),
+            _ => return false,
+        },
+        Math::Distance => match (a, b) {
+            (Vec2(a), Some(Vec2(b))) => map2(a, b, floats(out), |x, y| x.distance(y)),
+            (Vec3(a), Some(Vec3(b))) => map2(a, b, floats(out), |x, y| x.distance(y)),
+            (Vec4(a), Some(Vec4(b))) => map2(a, b, floats(out), |x, y| x.distance(y)),
+            _ => return false,
+        },
         // Rotations.
         Math::Multiply if matches!(a, Quat(_)) => match (a, b) {
             (Quat(a), Some(Quat(b))) => map2(a, b, quats(out), |x, y| x * y),
@@ -466,7 +515,7 @@ fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> b
                 Vec2(a) => map1(a, vec2s(out), |x| if abs { x.abs() } else { -x }),
                 Vec3(a) => map1(a, vec3s(out), |x| if abs { x.abs() } else { -x }),
                 Vec4(a) => map1(a, vec4s(out), |x| if abs { x.abs() } else { -x }),
-                Bool(_) | Quat(_) | Sample(_) | Token(_) | List(..) => return false,
+                Bool(_) | Quat(_) | Mat4(_) | Sample(_) | Token(_) | List(..) => return false,
             }
         }
         Math::Sin => match a { Float(a) => map1(a, floats(out), f32::sin), _ => return false },
@@ -506,6 +555,7 @@ enum Out {
     Vec3(Vec<[f32; 3]>),
     Vec4(Vec<[f32; 4]>),
     Quat(Vec<[f32; 4]>),
+    Mat4(Vec<[f64; 16]>),
 }
 
 /// One batch's part of a written column.
@@ -517,6 +567,7 @@ enum Slice<'a> {
     Vec3(&'a mut [[f32; 3]]),
     Vec4(&'a mut [[f32; 4]]),
     Quat(&'a mut [[f32; 4]]),
+    Mat4(&'a mut [[f64; 16]]),
 }
 
 fn store(reg: &Reg, out: &mut Slice) {
@@ -528,6 +579,7 @@ fn store(reg: &Reg, out: &mut Slice) {
         (Reg::Vec3(r), Slice::Vec3(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
         (Reg::Vec4(r), Slice::Vec4(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
         (Reg::Quat(r), Slice::Quat(o)) => o.iter_mut().zip(r).for_each(|(o, v)| *o = v.to_array()),
+        (Reg::Mat4(r), Slice::Mat4(o)) => o.iter_mut().zip(r).for_each(|(o, m)| *o = mat_out(*m)),
         _ => {}
     }
 }
@@ -540,17 +592,219 @@ struct Env<'a> {
     uniforms: Vec<Reg>,
     /// The geometry, for what reads its topology (scattering, surface samples).
     geo:      &'a Geo,
-    /// The paths of the primitives on each reference input, from input 1.
-    references: &'a [Vec<String>],
+    /// What is on each reference input, from input 1: paths, meshes.
+    references: &'a [Reference],
+    /// Where the geometry is in the world: reference meshes are taken from
+    /// the world into its space.
+    space:    Mat4,
+    /// The plan's reads, for the names of those read at samples.
+    reads:    &'a [Read],
+    /// The register of each surface's paths (`Plan::surfaces`), and the
+    /// surface, made when first searched or read.
+    surface_regs: &'a [usize],
+    surfaces: Vec<OnceLock<Surface>>,
+    /// The graph's own geometry as a surface, for reading lists at its samples.
+    own:      OnceLock<Surface>,
+    /// Per read at samples: its column on each mesh of its surface.
+    cols:     Vec<OnceLock<Vec<Option<MeshCol>>>>,
 }
 
-/// Run `program` for elements `start..start + len`.
-fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize, outs: &mut [Slice]) {
+/// A column of a surface's mesh, as samples on it read it.
+struct MeshCol {
+    column:  Column,
+    indices: Option<Arc<Vec<u32>>>,
+    role:    Role,
+}
+
+impl<'a> Env<'a> {
+    /// Surface `k`, made the first time: its paths from register
+    /// `surface_regs[k]`, in `regs` while the uniform program runs, else in
+    /// the uniform registers.
+    fn surface(&self, k: usize, regs: &[Reg], uniform: bool) -> &Surface {
+        self.surfaces[k].get_or_init(|| {
+            let r = self.surface_regs[k];
+            let reg = if uniform { regs.get(r) } else { self.uniforms.get(r) };
+            let paths: &[Arc<str>] = match reg {
+                Some(Reg::Token(p)) => p,
+                _ => &[],
+            };
+            Surface::of(paths, self.references, self.space)
+        })
+    }
+
+    /// The surface a sampled read is on: `None` the graph's own.
+    fn surface_of(&self, surface: Option<usize>, regs: &[Reg], uniform: bool) -> &Surface {
+        match surface {
+            Some(k) => self.surface(k, regs, uniform),
+            None => self.own.get_or_init(|| Surface::own(self.geo)),
+        }
+    }
+
+    /// Read `read`'s column on each mesh of `surface`: stored, else made
+    /// from the topology.
+    fn cols(&self, read: usize, surface: &Surface) -> &[Option<MeshCol>] {
+        self.cols[read].get_or_init(|| {
+            let r = &self.reads[read];
+            surface.meshes.iter().map(|m| {
+                let column = crate::compile::column_in(&m.geo, r.context, &r.name);
+                if let Some(a) = m.geo.attr(r.context, column) {
+                    return Some(MeshCol { column: a.column.clone(), indices: a.indices.clone(), role: a.role });
+                }
+                let role = if r.name == "N" { Role::Normal } else { Role::None };
+                crate::derived::column(&m.geo, r.context, &r.name).map(|column| MeshCol { column, indices: None, role })
+            }).collect()
+        })
+    }
+}
+
+/// Read `read` from surface `k`'s first prim, element by element through
+/// the graph's own mapping (the prims have the same topology): one value
+/// each, or (`list`) the lists `load_list` gives. Positions, normals and
+/// vectors are taken into the graph's space. The offsets (lists only), and
+/// the values.
+#[allow(clippy::too_many_arguments)]
+fn load_from(env: &Env, read: usize, k: usize, regs: &[Reg], uniform: bool, start: usize, len: usize, ty: Ty, list: bool) -> (Vec<u32>, Reg) {
+    let s = env.surface(k, regs, uniform);
+    let cols = env.cols(read, s);
+    let (Some(m), Some(Some(col))) = (s.meshes.first(), cols.first()) else {
+        let mut out = Reg::Bool(vec![]);
+        fill(&mut out, zero(ty), if list { 0 } else { len });
+        return (vec![0; if list { len + 1 } else { 0 }], out);
+    };
+    let own = &env.sources[read];
+    let src = Source {
+        column: Some(&col.column), indices: col.indices.as_deref().map(|v| v.as_slice()),
+        map: own.map.clone(), reduce: own.reduce, context: own.context,
+    };
+    let (offsets, mut out) = if list { load_list(&src, start, len, ty) } else {
+        let mut out = Reg::Bool(vec![]);
+        load(&src, start, len, &mut out, ty);
+        (vec![], out)
+    };
+    if m.moved {
+        match &mut out {
+            Reg::Vec3(v) if col.role != Role::None => for x in v.iter_mut() { *x = moved(m, col.role, *x); },
+            Reg::Mat4(v) => for x in v.iter_mut() { *x = m.to_graph * *x; },
+            _ => {}
+        }
+    }
+    (offsets, out)
+}
+
+/// A value of a mesh's taken into the graph's space, by its role: a
+/// position moved, a normal turned (and made unit), a vector turned.
+fn moved(m: &Mesh, role: Role, v: Vec3) -> Vec3 {
+    if !m.moved { return v; }
+    match role {
+        Role::Point => m.to_graph.transform_point3(v),
+        Role::Normal => (m.normals * v).normalize_or_zero(),
+        Role::Vector => m.to_graph.transform_vector3(v),
+        _ => v,
+    }
+}
+
+/// The value of `col` at mesh element `e`, as a value of `ty` (in the
+/// graph's space).
+fn item(m: &Mesh, col: &MeshCol, e: usize, ty: Ty) -> Value {
+    let i = value_index(col.indices.as_deref().map(|v| v.as_slice()), e);
+    let v = match &col.column {
+        Column::Bool(v) => Value::Bool(i.and_then(|i| v.get(i)).copied().unwrap_or(false)),
+        Column::Int(v) => Value::Int(i.and_then(|i| v.get(i)).copied().unwrap_or(0)),
+        Column::Float(v) => Value::Float(i.and_then(|i| v.get(i)).copied().unwrap_or(0.0)),
+        Column::Vec2(v) => Value::Vec2(i.and_then(|i| v.get(i)).copied().unwrap_or_default()),
+        Column::Vec3(v) => Value::Vec3(moved(m, col.role, Vec3::from_array(i.and_then(|i| v.get(i)).copied().unwrap_or_default())).to_array()),
+        Column::Vec4(v) => Value::Vec4(i.and_then(|i| v.get(i)).copied().unwrap_or_default()),
+        Column::Quat(v) => Value::Quat(i.and_then(|i| v.get(i)).copied().unwrap_or([0.0, 0.0, 0.0, 1.0])),
+        // A matrix of the mesh's, taken into the graph's space with it.
+        Column::Mat4(v) => {
+            let mm = i.and_then(|i| v.get(i)).copied().map(mat_of).unwrap_or(Mat4::IDENTITY);
+            Value::Mat4((if m.moved { m.to_graph * mm } else { mm }).to_cols_array())
+        }
+        _ => zero(ty),
+    };
+    v.convert(ty).unwrap_or_else(|| zero(ty))
+}
+
+/// The elements of `ctx` a sample reads, with their weights: its
+/// triangle's points or corners, its face, the object.
+fn sample_elements(m: &Mesh, ctx: Context, l: &Loc) -> [(usize, f32); 3] {
+    let cp = m.corner_points();
+    let w = l.weights;
+    match ctx {
+        Context::Point => std::array::from_fn(|k| (cp.get(l.corners[k] as usize).copied().unwrap_or(0) as usize, w[k])),
+        Context::Corner => std::array::from_fn(|k| (l.corners[k] as usize, w[k])),
+        Context::Face => [(l.face as usize, 1.0), (l.face as usize, 0.0), (l.face as usize, 0.0)],
+        Context::Object => [(0, 1.0), (0, 0.0), (0, 0.0)],
+    }
+}
+
+/// A sampled read at one sample: numbers and vectors blended across its
+/// triangle, a rotation blended and made unit, an int or a bool the
+/// nearest corner's; in the graph's space. A sample of nothing reads zero.
+fn at_sample(surface: &Surface, cols: &[Option<MeshCol>], ctx: Context, ty: Ty, l: &Loc) -> Value {
+    let (Some(m), Some(Some(col))) = (surface.meshes.get(l.mesh as usize), cols.get(l.mesh as usize)) else { return zero(ty) };
+    let el = sample_elements(m, ctx, l);
+    let nearest = el.iter().copied().fold(el[0], |b, x| if x.1 > b.1 { x } else { b }).0;
+    match ty {
+        // Ints, bools and matrices: the nearest corner's.
+        Ty::Bool | Ty::Int | Ty::Mat4 | Ty::Sample | Ty::Token => item(m, col, nearest, ty),
+        Ty::Float => Value::Float(el.iter().map(|&(e, w)| item(m, col, e, ty).as_f32() * w).sum()),
+        Ty::Vec2 => Value::Vec2(el.iter().map(|&(e, w)| item(m, col, e, ty).as_vec2() * w).sum::<Vec2>().to_array()),
+        Ty::Vec3 => {
+            let v = el.iter().map(|&(e, w)| item(m, col, e, ty).as_vec3() * w).sum::<Vec3>();
+            Value::Vec3(if col.role == Role::Normal { v.normalize_or_zero() } else { v }.to_array())
+        }
+        Ty::Vec4 => Value::Vec4(el.iter().map(|&(e, w)| item(m, col, e, ty).as_vec4() * w).sum::<Vec4>().to_array()),
+        Ty::Quat => {
+            let q = el.iter().map(|&(e, w)| Vec4::from(item(m, col, e, ty).as_quat()) * w).sum::<Vec4>();
+            Value::Quat(Quat::from_vec4(q).normalize().to_array())
+        }
+    }
+}
+
+/// The elements of `ctx` on the face a sample is on: its points, its
+/// corners, the face, the object.
+fn face_elements(m: &Mesh, ctx: Context, l: &Loc, out: &mut Vec<usize>) {
+    let corners = m.corners(l.face);
+    match ctx {
+        Context::Point => { let cp = m.corner_points(); out.extend(corners.map(|c| cp.get(c as usize).copied().unwrap_or(0) as usize)); }
+        Context::Corner => out.extend(corners.map(|c| c as usize)),
+        Context::Face => out.push(l.face as usize),
+        Context::Object => out.push(0),
+    }
+}
+
+/// Values into a register of `ty`.
+fn into_reg(ty: Ty, vals: impl Iterator<Item = Value>, out: &mut Reg) {
+    match ty {
+        Ty::Bool => { let o = bools(out); o.extend(vals.map(|v| v.as_bool())); }
+        Ty::Int => { let o = ints(out); o.extend(vals.map(|v| v.as_i32())); }
+        Ty::Float => { let o = floats(out); o.extend(vals.map(|v| v.as_f32())); }
+        Ty::Vec2 => { let o = vec2s(out); o.extend(vals.map(|v| v.as_vec2())); }
+        Ty::Vec3 => { let o = vec3s(out); o.extend(vals.map(|v| v.as_vec3())); }
+        Ty::Vec4 => { let o = vec4s(out); o.extend(vals.map(|v| v.as_vec4())); }
+        Ty::Quat => { let o = quats(out); o.extend(vals.map(|v| v.as_quat())); }
+        Ty::Mat4 => { let o = mat4s(out); o.extend(vals.map(|v| v.as_mat4())); }
+        Ty::Sample => { let o = locs(out); o.extend(vals.map(|v| v.as_loc())); }
+        Ty::Token => {}
+    }
+}
+
+/// Run `program` for elements `start..start + len`. `uniform`: it is the
+/// uniform program (its registers are the uniform ones being made).
+fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize, outs: &mut [Slice], uniform: bool) {
     for ins in &program.code {
         match *ins {
             Ins::Const { dst, value } => fill(&mut regs[dst], value, len),
             Ins::Param { dst, index } => fill(&mut regs[dst], env.params[index], len),
-            Ins::Load { dst, read } => load(&env.sources[read], start, len, &mut regs[dst], program.regs[dst]),
+            Ins::Load { dst, read } => match env.reads[read].from {
+                None => load(&env.sources[read], start, len, &mut regs[dst], program.regs[dst]),
+                // From another prim of the same topology (a Geometry wired in).
+                Some(k) => {
+                    let made = load_from(env, read, k, regs, uniform, start, len, program.regs[dst], false).1;
+                    regs[dst] = made;
+                }
+            },
             Ins::Broadcast { dst, from } => fill(&mut regs[dst], value_at(&env.uniforms[from], 0), len),
             // Lists: item by item, a per-element value meeting each item.
             Ins::Math { op, dst, args } if args[..op.arity()].iter().any(|&r| matches!(regs[r], Reg::List(..))) => {
@@ -593,7 +847,10 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 regs[dst] = out;
             }
             Ins::LoadList { dst, read, flat } => {
-                let (offsets, items) = load_list(&env.sources[read], start, len, program.regs[dst]);
+                let (offsets, items) = match env.reads[read].from {
+                    None => load_list(&env.sources[read], start, len, program.regs[dst]),
+                    Some(k) => load_from(env, read, k, regs, uniform, start, len, program.regs[dst], true),
+                };
                 regs[dst] = if flat { items } else { Reg::List(offsets, Box::new(items)) };
             }
             Ins::Random { dst, seed, args, array, key } => {
@@ -618,6 +875,91 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 if let Reg::Sample(at) = &regs[loc] { at_location(env.geo, &env.sources[read], at, &mut out); }
                 regs[dst] = out;
             }
+            Ins::Closest { dst, dist, surface, origin, radius } => {
+                let (found, far): (Vec<Loc>, Vec<f32>) = {
+                    let s = env.surface(surface, regs, uniform);
+                    let o: &[Vec3] = match &regs[origin] { Reg::Vec3(v) => v, _ => &[] };
+                    let r: &[f32] = match &regs[radius] { Reg::Float(v) => v, _ => &[] };
+                    let within = |i: usize| r.get(i).or(r.first()).copied().unwrap_or(0.0);
+                    // A batch is already one thread's: only a large array is split.
+                    if uniform && o.len() >= 256 {
+                        o.par_iter().enumerate().map(|(i, &p)| s.closest(p, within(i))).unzip()
+                    } else {
+                        o.iter().enumerate().map(|(i, &p)| s.closest(p, within(i))).unzip()
+                    }
+                };
+                *locs(&mut regs[dst]) = found;
+                *floats(&mut regs[dist]) = far;
+            }
+            Ins::AtSurface { dst, read, loc, surface } => {
+                let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
+                {
+                    let s = env.surface_of(surface, regs, uniform);
+                    let cols = env.cols(read, s);
+                    let (ctx, ty) = (env.reads[read].context, program.regs[dst]);
+                    let at: &[Loc] = match &regs[loc] { Reg::Sample(v) => v, _ => &[] };
+                    into_reg(ty, at.iter().map(|l| at_sample(s, cols, ctx, ty, l)), &mut out);
+                }
+                regs[dst] = out;
+            }
+            Ins::ListAt { dst, read, loc, surface, flat } => {
+                let made = {
+                    let s = env.surface_of(surface, regs, uniform);
+                    let cols = env.cols(read, s);
+                    let (ctx, ty) = (env.reads[read].context, program.regs[dst]);
+                    let at: &[Loc] = match &regs[loc] { Reg::Sample(v) => v, _ => &[] };
+                    let mut offsets = Vec::with_capacity(at.len() + 1);
+                    offsets.push(0u32);
+                    let mut vals: Vec<Value> = vec![];
+                    let mut elems: Vec<usize> = vec![];
+                    for l in at {
+                        if let (Some(m), Some(Some(col))) = (s.meshes.get(l.mesh as usize), cols.get(l.mesh as usize)) {
+                            elems.clear();
+                            face_elements(m, ctx, l, &mut elems);
+                            vals.extend(elems.iter().map(|&e| item(m, col, e, ty)));
+                        }
+                        offsets.push(vals.len() as u32);
+                    }
+                    let mut items = Reg::Bool(vec![]);
+                    into_reg(ty, vals.into_iter(), &mut items);
+                    if flat { items } else { Reg::List(offsets, Box::new(items)) }
+                };
+                regs[dst] = made;
+            }
+            Ins::Bary { dst, loc, list } => {
+                let made = {
+                    let at: &[Loc] = match &regs[loc] { Reg::Sample(v) => v, _ => &[] };
+                    if !list {
+                        Reg::Vec3(at.iter().map(|l| Vec3::from_array(l.weights)).collect())
+                    } else {
+                        let items = Reg::Float(at.iter().flat_map(|l| l.weights).collect());
+                        // One sample's, in the uniform program: an array.
+                        if uniform { items } else { Reg::List((0..=at.len() as u32).map(|k| k * 3).collect(), Box::new(items)) }
+                    }
+                };
+                regs[dst] = made;
+            }
+            Ins::TriP { dst, loc, surface, flat } => {
+                let made = {
+                    let s = env.surface_of(surface, regs, uniform);
+                    let at: &[Loc] = match &regs[loc] { Reg::Sample(v) => v, _ => &[] };
+                    let mut offsets = Vec::with_capacity(at.len() + 1);
+                    offsets.push(0u32);
+                    let mut points: Vec<Vec3> = Vec::with_capacity(at.len() * 3);
+                    for l in at {
+                        if let Some(m) = s.meshes.get(l.mesh as usize) {
+                            let (cp, pts) = (m.corner_points(), m.geo.points());
+                            for c in l.corners {
+                                let p = cp.get(c as usize).and_then(|&p| pts.get(p as usize)).copied().unwrap_or_default();
+                                points.push(moved(m, Role::Point, Vec3::from_array(p)));
+                            }
+                        }
+                        offsets.push(points.len() as u32);
+                    }
+                    if flat { Reg::Vec3(points) } else { Reg::List(offsets, Box::new(Reg::Vec3(points))) }
+                };
+                regs[dst] = made;
+            }
             Ins::RandomOrient { dst, seed, args, array, key } => {
                 let made = {
                     let (base, n) = drawn_span(regs, args, array, key, start, len);
@@ -629,7 +971,7 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 *quats(&mut regs[dst]) = made;
             }
             Ins::Reference { dst, input, ref paths } => {
-                let there = env.references.get(input - 1).map(Vec::as_slice).unwrap_or_default();
+                let there = env.references.get(input - 1).map(|r| r.paths.as_slice()).unwrap_or_default();
                 let out = tokens(&mut regs[dst]);
                 match paths {
                     None => out.extend(there.iter().map(|p| Arc::from(p.as_str()))),
@@ -779,6 +1121,7 @@ fn pick(s: &Source, elems: &[usize], ty: Ty) -> Reg {
         Some(Column::Vec3(v)) => Reg::Vec3(at(v, ix, elems, Vec3::ZERO, Vec3::from_array)),
         Some(Column::Vec4(v)) => Reg::Vec4(at(v, ix, elems, Vec4::ZERO, Vec4::from_array)),
         Some(Column::Quat(v)) => Reg::Quat(at(v, ix, elems, Quat::IDENTITY, Quat::from_array)),
+        Some(Column::Mat4(v)) => Reg::Mat4(at(v, ix, elems, Mat4::IDENTITY, mat_of)),
         // Not there in this geometry (it was when compiled): zeros.
         _ => { let mut r = Reg::Bool(vec![]); fill(&mut r, zero(ty), elems.len()); r }
     }
@@ -803,6 +1146,7 @@ fn per_item(reg: &Reg, offsets: &[u32]) -> Reg {
         Reg::Vec3(v) => Reg::Vec3(spread(v, offsets)),
         Reg::Vec4(v) => Reg::Vec4(spread(v, offsets)),
         Reg::Quat(v) => Reg::Quat(spread(v, offsets)),
+        Reg::Mat4(v) => Reg::Mat4(spread(v, offsets)),
         Reg::Sample(v) => Reg::Sample(spread(v, offsets)),
         Reg::Token(_) | Reg::List(..) => Reg::Bool(vec![]),
     }
@@ -842,6 +1186,7 @@ fn list_op(op: ArrayOp, offsets: &[u32], items: &Reg, index: &Reg, out: &mut Reg
             Reg::Vec3(v) => Reg::Vec3(item!(v, Vec3::ZERO)),
             Reg::Vec4(v) => Reg::Vec4(item!(v, Vec4::ZERO)),
             Reg::Quat(v) => Reg::Quat(item!(v, Quat::IDENTITY)),
+            Reg::Mat4(v) => Reg::Mat4(item!(v, Mat4::IDENTITY)),
             Reg::Sample(v) => Reg::Sample(item!(v, Loc::default())),
             Reg::Token(_) | Reg::List(..) => Reg::Bool(vec![]),
         },
@@ -879,6 +1224,11 @@ fn compose(op: Compose, parts: &[&Reg], out: &mut Reg) {
             let q = Vec4::new(f(0, i), f(1, i), f(2, i), f(3, i));
             if q.length_squared() > 0.0 { Quat::from_vec4(q).normalize() } else { Quat::IDENTITY }
         }).collect(),
+        // The axes and the origin as its columns.
+        Compose::Matrix => {
+            let v = |k: usize, i: usize| match parts.get(k) { Some(Reg::Vec3(v)) => at(v, i), _ => Vec3::ZERO };
+            *mat4s(out) = (0..n).map(|i| Mat4::from_cols(v(0, i).extend(0.0), v(1, i).extend(0.0), v(2, i).extend(0.0), v(3, i).extend(1.0))).collect();
+        }
     }
 }
 
@@ -895,6 +1245,10 @@ fn decompose(op: Decompose, v: &Reg) -> Vec<Reg> {
         (Decompose::Vec4W, Reg::Vec4(v)) => vec![Reg::Vec3(v.iter().map(|a| a.truncate()).collect()), f(v.iter().map(|a| a.w).collect())],
         (Decompose::Quat, Reg::Quat(v)) => vec![f(v.iter().map(|q| q.x).collect()), f(v.iter().map(|q| q.y).collect()),
                                                 f(v.iter().map(|q| q.z).collect()), f(v.iter().map(|q| q.w).collect())],
+        (Decompose::Matrix, Reg::Mat4(v)) => vec![
+            Reg::Vec3(v.iter().map(|m| m.x_axis.truncate()).collect()), Reg::Vec3(v.iter().map(|m| m.y_axis.truncate()).collect()),
+            Reg::Vec3(v.iter().map(|m| m.z_axis.truncate()).collect()), Reg::Vec3(v.iter().map(|m| m.w_axis.truncate()).collect()),
+        ],
         (Decompose::AxisAngle, Reg::Quat(v)) => {
             let (axes, angles): (Vec<Vec3>, Vec<f32>) = v.iter().map(|q| {
                 let (axis, angle) = q.normalize().to_axis_angle();
@@ -921,6 +1275,7 @@ fn concat<'a>(parts: impl Iterator<Item = &'a Reg>, out: &mut Reg) {
                 Reg::Vec3(_) => { vec3s(out); }
                 Reg::Vec4(_) => { vec4s(out); }
                 Reg::Quat(_) => { quats(out); }
+                Reg::Mat4(_) => { mat4s(out); }
                 Reg::Sample(_) => { locs(out); }
                 Reg::Token(_) => { tokens(out); }
                 Reg::List(..) => {}
@@ -935,6 +1290,7 @@ fn concat<'a>(parts: impl Iterator<Item = &'a Reg>, out: &mut Reg) {
             (Reg::Vec3(o), Reg::Vec3(p)) => o.extend_from_slice(p),
             (Reg::Vec4(o), Reg::Vec4(p)) => o.extend_from_slice(p),
             (Reg::Quat(o), Reg::Quat(p)) => o.extend_from_slice(p),
+            (Reg::Mat4(o), Reg::Mat4(p)) => o.extend_from_slice(p),
             (Reg::Sample(o), Reg::Sample(p)) => o.extend_from_slice(p),
             (Reg::Token(o), Reg::Token(p)) => o.extend(p.iter().cloned()),
             _ => {}
@@ -964,17 +1320,23 @@ fn random_orientations(seed: u32, base: usize, n: usize, keys: &Keys, normals: &
 }
 
 /// Run `plan` over `geo`. `params` gives values to the graph's parameters
-/// by name; those not given take their defaults. `references`: the paths on
-/// each of the operator's reference inputs, from input 1 (what Get
-/// Reference reads). The geometry given back shares every column the plan
-/// does not set with `geo`.
-pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: &[Vec<String>]) -> Ran {
+/// by name; those not given take their defaults. `references`: what is on
+/// each of the operator's reference inputs, from input 1: the paths Get
+/// Reference reads, the meshes Closest Point on Surface searches. The
+/// geometry given back shares every column the plan does not set with `geo`.
+pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: &[Reference]) -> Ran {
+    run_in(plan, geo, Mat4::IDENTITY, params, references)
+}
+
+/// `run`, for geometry placed at `space` in the world: reference meshes,
+/// in the world, are taken into its space.
+pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Value>, references: &[Reference]) -> Ran {
     // How the plan's elements reach each context read: made once per run,
     // shared by the reads of that context.
     let mut maps: HashMap<Context, Arc<Map>> = HashMap::new();
     // The columns made from the topology, one per read of one.
     let made: Vec<Option<Column>> = plan.reads.iter()
-        .map(|r| if r.derived { crate::derived::column(geo, r.context, &r.name) } else { None })
+        .map(|r| if r.derived && r.sampled.is_none() && r.from.is_none() { crate::derived::column(geo, r.context, &r.name) } else { None })
         .collect();
     let sources = plan.reads.iter().zip(&made).map(|(r, made)| {
         let attr = if r.derived { None } else { geo.attr(r.context, &r.name) };
@@ -992,11 +1354,15 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
     let params = plan.params.iter()
         .map(|(name, default)| params.get(name).and_then(|v| v.convert(default.ty())).unwrap_or(*default))
         .collect();
-    let mut env = Env { sources, params, uniforms: vec![], geo, references };
+    let mut env = Env {
+        sources, params, uniforms: vec![], geo, references, space, reads: &plan.reads,
+        surface_regs: &plan.surfaces, surfaces: plan.surfaces.iter().map(|_| OnceLock::new()).collect(),
+        own: OnceLock::new(), cols: plan.reads.iter().map(|_| OnceLock::new()).collect(),
+    };
 
     // Once: what does not vary per element.
     let mut uniforms = registers(&plan.uniform);
-    exec(&plan.uniform, &mut uniforms, &env, 0, 1, &mut []);
+    exec(&plan.uniform, &mut uniforms, &env, 0, 1, &mut [], true);
     let made: Vec<Instances> = plan.instancers.iter().map(|p| instances(p, &uniforms)).collect();
     env.uniforms = uniforms;
 
@@ -1012,6 +1378,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
         Ty::Vec3 => Out::Vec3(vec![[0.0; 3]; n]),
         Ty::Vec4 => Out::Vec4(vec![[0.0; 4]; n]),
         Ty::Quat => Out::Quat(vec![[0.0, 0.0, 0.0, 1.0]; n]),
+        Ty::Mat4 => Out::Mat4(vec![mat_out(Mat4::IDENTITY); n]),
         Ty::Sample | Ty::Token => unreachable!("surface samples and paths are not written: the compiler refuses"),
     }).collect();
     let batches = n.div_ceil(BATCH);
@@ -1025,6 +1392,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
             Out::Vec3(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Vec3(c))),
             Out::Vec4(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Vec4(c))),
             Out::Quat(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Quat(c))),
+            Out::Mat4(v) => v.chunks_mut(BATCH).zip(&mut tasks).for_each(|(c, t)| t.push(Slice::Mat4(c))),
         }
     }
     let env = &env;
@@ -1032,7 +1400,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
         || registers(&plan.batch),
         |regs, (k, mut outs)| {
             let start = k * BATCH;
-            exec(&plan.batch, regs, env, start, BATCH.min(n - start), &mut outs);
+            exec(&plan.batch, regs, env, start, BATCH.min(n - start), &mut outs, false);
         },
     );
 
@@ -1047,6 +1415,7 @@ pub fn run(plan: &Plan, geo: &Geo, params: &HashMap<String, Value>, references: 
             Out::Vec3(v) => Column::Vec3(Arc::new(v)),
             Out::Vec4(v) => Column::Vec4(Arc::new(v)),
             Out::Quat(v) => Column::Quat(Arc::new(v)),
+            Out::Mat4(v) => Column::Mat4(Arc::new(v)),
         };
         let column = if w.context == plan.context { column } else { carry(geo, &column, plan.context, w) };
         // One attribute of a name: set in one context, gone from the others
@@ -1075,6 +1444,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
         Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
         Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Mat4(v) => Column::Mat4(Arc::new(v.into_iter().map(mat_out).collect())),
         Reg::Sample(_) | Reg::Token(_) | Reg::List(..) => unreachable!("surface samples, paths and lists are not written: the compiler refuses"),
     }
 }
@@ -1203,7 +1573,7 @@ fn scatter(geo: &Geo, seed: u32, count: usize, weight: Option<&Source>) -> Vec<L
         // Uniform in the triangle: a point in the unit square, folded.
         let (mut a, mut b) = (unit(seed, i, 1), unit(seed, i, 2));
         if a + b > 1.0 { (a, b) = (1.0 - a, 1.0 - b); }
-        Loc { face, corners, weights: [1.0 - a - b, a, b] }
+        Loc { face, corners, weights: [1.0 - a - b, a, b], mesh: 0 }
     }).collect()
 }
 
@@ -1239,6 +1609,7 @@ fn at_location(geo: &Geo, s: &Source, at: &[Loc], out: &mut Reg) {
         })),
         Some(Column::Int(v)) => ints(out).extend(at.iter().map(|l| get(v, ix, nearest(l)))),
         Some(Column::Bool(v)) => bools(out).extend(at.iter().map(|l| get(v, ix, nearest(l)))),
+        Some(Column::Mat4(v)) => mat4s(out).extend(at.iter().map(|l| mat_of(get(v, ix, nearest(l))))),
         _ => {}
     }
 }
