@@ -389,15 +389,17 @@ impl NodeGraphState {
         let i = |n: &str| InputSocket  { name: n.into(), connected_output: None };
         let o = |n: &str| OutputSocket { name: n.into() };
         match t {
+            // A scene passes from operator to operator: what makes one gives a
+            // Scene, what works on one takes a Scene and gives a Scene.
             NodeType::CreateCube { .. }
             | NodeType::CreateSphere { .. }
             | NodeType::CreateGrid { .. }
-            | NodeType::LoadFbxMesh { .. }
-            | NodeType::LoadUsd { .. }      => (vec![], vec![o("Mesh")]),
+            | NodeType::LoadUsd { .. }      => (vec![], vec![o("Scene")]),
+            NodeType::LoadFbxMesh { .. }    => (vec![], vec![o("Mesh")]),
             NodeType::LoadFbx { .. }        => (vec![], vec![o("Clip"), o("Geometry"), o("Rest")]),
             NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
-                => (vec![i("Prims")], vec![o("Prims")]),
+                => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }
@@ -407,7 +409,7 @@ impl NodeGraphState {
                 std::iter::once(i("Scene")).chain((1..=(*inputs).max(1)).map(|k| InputSocket { name: format!("Material {k}"), connected_output: None })).collect(),
                 vec![o("Scene")],
             ),
-            NodeType::Transform { .. }      => (vec![i("Input")], vec![o("Output")]),
+            NodeType::Transform { .. }      => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::LocalAnimation { .. } => (vec![i("Input")], vec![o("Output")]),
             NodeType::MergeAnimation { inputs, .. } => (
                 (0..(*inputs).max(2) as usize).map(|k| InputSocket {
@@ -416,13 +418,13 @@ impl NodeGraphState {
                 }).collect(),
                 vec![o("Result")],
             ),
-            // A, B, C… then numbers past Z.
+            // Scenes A, B, C… then numbers past Z, into one Scene.
             NodeType::Merge { inputs, .. }  => (
                 (0..(*inputs).max(2) as usize).map(|k| InputSocket {
                     name: if k < 26 { ((b'A' + k as u8) as char).to_string() } else { (k + 1).to_string() },
                     connected_output: None,
                 }).collect(),
-                vec![o("Result")],
+                vec![o("Scene")],
             ),
             NodeType::Placeholder { inputs, outputs, .. } => (
                 inputs.iter().map(|n| InputSocket { name: n.clone(), connected_output: None }).collect(),
@@ -433,7 +435,7 @@ impl NodeGraphState {
                 std::iter::once(i("Scene"))
                     .chain((1..=(*references).max(1)).map(|k| InputSocket { name: format!("Reference {k}"), connected_output: None }))
                     .collect(),
-                vec![o("Out")],
+                vec![o("Scene")],
             ),
             NodeType::PassThrough           => (vec![i("In")], vec![o("Out")]),
             NodeType::TestClip { .. }       => (vec![], vec![o("Clip")]),
@@ -464,9 +466,9 @@ impl NodeGraphState {
             NodeType::Skin                  => (vec![i("Geometry"), i("Rest"), i("Clip")], vec![o("Clip")]),
             NodeType::UvUnwrap { .. }
             | NodeType::UvTransform { .. }
-            | NodeType::UvEdit { .. }       => (vec![i("Mesh")], vec![o("Mesh")]),
+            | NodeType::UvEdit { .. }       => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::LoadFbxDir { .. }     => (vec![], vec![o("Clip")]),
-            NodeType::EditPoly { .. }       => (vec![i("Mesh")], vec![o("Mesh")]),
+            NodeType::EditPoly { .. }       => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::SplitSkeleton { picks } => (
                 vec![i("Clip")],
                 (0..picks.len()).map(|n| OutputSocket { name: format!("Char {}", n + 1) }).collect(),
