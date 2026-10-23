@@ -43,6 +43,10 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Lamps with render, proxy and guide geometry. Switch them with the render, proxy and guide toggles of the Scene Explorer" },
     Template { by: MARTINO, group: "ICE", name: "ICE graph: spherify", build: spherify,
         hint: "A subdivided cube pushed onto a sphere by an ICE graph. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
+    Template { by: MARTINO, group: "ICE", name: "ICE: shrink-wrap", build: ice_shrink_wrap,
+        hint: "A subdivided cube wrapped onto a squashed sphere by an ICE graph: Closest Point on Surface on the reference input, P read there, blended from where each point was" },
+    Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer", build: ice_binding,
+        hint: "A cube bound to a grid and carried by its wave, built by hand in an ICE graph: a frame from each sample's triangle (triP, bary) on the rest grid, the point stored in it, then put back by the same frame on the waving grid" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -1182,6 +1186,192 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     "ICE graph: every point of the subdivided cube is set to unit length (Normalize), then scaled by 1.2 (Multiply), and written back as P (Set Data, run by the ExecutionPorts node). Select the Spherify node and press the down arrow to go inside; the up arrow comes back. Change Multiply's B in its parameters.".into()
 }
 
+/// An ICE graph's node, named as adding it from the menu names it.
+fn ice_add(sub: &mut crate::ice::IceGraph, t: IceGraphNodeType, at: egui::Pos2) -> NodeId {
+    let name = crate::types::subnet_node_label(&t).to_string();
+    sub.add_node(name, t, at)
+}
+
+/// What input `input` of ICE node `id` holds while nothing is wired to it.
+fn ice_value(sub: &mut crate::ice::IceGraph, id: NodeId, input: usize, v: xms_ice::Value) {
+    if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == id) { n.inputs[input].value = Some(v); }
+}
+
+/// A shrink-wrap: a subdivided cube (2 m) as the scene, a sphere squashed
+/// by a Transform on Reference 1. Inside, per point: Closest Point on
+/// Surface on the reference finds the nearest place on the sphere (where
+/// the Viewer shows it: the squash is taken into the cube's space), a Get
+/// Data wired to those samples reads P there, and Linear Interpolate blends
+/// from where the point was by Blend (1: on the surface).
+fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use xms_ice::{Math, Value};
+    crate::graph_io::clear(g);
+    let id = store.create_subnet("ShrinkWrap".into());
+    if let Some(sub) = store.get_mut(id) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let surface = ice_add(&mut *sub, IceGraphNodeType::GetReference { input: 1, paths: vec![] }, p(40.0, 80.0));
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 220.0));
+        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 120.0));
+        let there = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(480.0, 120.0));
+        let blend = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Lerp }, p(700.0, 200.0));
+        ice_value(&mut *sub, blend, 2, Value::Float(1.0));
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(920.0, 200.0));
+        sub.add_connection(surface, 0, near, 0);
+        sub.add_connection(pos, 0, near, 1);
+        sub.add_connection(near, xms_ice::CLOSEST_SAMPLES, there, 0);
+        sub.add_connection(pos, 0, blend, 0);
+        sub.add_connection(there, 0, blend, 1);
+        sub.add_connection(blend, 0, set, 0);
+        sub.add_connection(set, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) { n.position = p(1140.0, 200.0); }
+    }
+    let all = || PolySelection { source: SelSource::All, ..Default::default() };
+    let cube = g.add_node("Cube".into(), NodeType::cube(2.0), p(40.0, 20.0));
+    let dense = g.add_node("Subdivide".into(), edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()), p(40.0, 130.0));
+    let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 1.0, segments: 32, location: "/target/sphere".into() }, p(300.0, 20.0));
+    let squash = g.add_node("Squash".into(), transform([0.0; 3], [0.0, 0.0, 20.0], [1.6, 0.7, 1.1]), p(300.0, 130.0));
+    let wrap = g.add_node("ShrinkWrap".into(), NodeType::Ice { id, name: "ShrinkWrap".into(), references: 1 }, p(160.0, 250.0));
+    g.add_connection(cube, 0, dense, 0);
+    g.add_connection(sphere, 0, squash, 0);
+    g.add_connection(dense, 0, wrap, 0);
+    g.add_connection(squash, 0, wrap, 1);
+    finish(g, wrap, wrap);
+    "ICE shrink-wrap: every point of the subdivided cube goes to the nearest place on the squashed sphere wired into Reference 1. Go inside the ShrinkWrap node (down arrow): Closest Point on Surface searches the reference (Get Reference) from each P, a Get Data with its Samples wired reads P there, and Linear Interpolate blends from the cube by its T (1: on the sphere; try 0.5). Move or turn the Squash: the cube follows it where the Viewer shows it.".into()
+}
+
+/// A binding deformer, by hand: a rest grid and a copy waved by an ICE
+/// graph (Wave) on Reference 1; a cube above them as the scene. Inside Bind,
+/// per point: Closest Point on Surface on the rest grid; at that sample, a
+/// frame from its triangle on the rest grid (origin: triP by bary, summed;
+/// tangent p1 - p0, normal (p1 - p0) × (p2 - p0), both normalised;
+/// bitangent normal × tangent; Compose Matrix); the point stored in it (its
+/// offset from the origin through the transposed frame); the same frame
+/// built on the waving grid (Get Array Data with its Geometry wired); the
+/// point put back through it (Transform Point).
+fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use xms_ice::{ArrayOp, Math, Value};
+    crate::graph_io::clear(g);
+    // Wave: P.y += sin(P.x × 2) × 0.4.
+    let wave = store.create_subnet("Wave".into());
+    if let Some(sub) = store.get_mut(wave) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 120.0));
+        let parts = ice_add(&mut *sub, IceGraphNodeType::Decompose { op: xms_ice::Decompose::Vec3 }, p(240.0, 200.0));
+        let freq = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Multiply }, p(440.0, 200.0));
+        ice_value(&mut *sub, freq, 1, Value::Float(2.0));
+        let sine = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Sin }, p(640.0, 200.0));
+        let amp = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Multiply }, p(840.0, 200.0));
+        ice_value(&mut *sub, amp, 1, Value::Float(0.4));
+        let up = ice_add(&mut *sub, IceGraphNodeType::Compose { op: xms_ice::Compose::Vec3 }, p(1040.0, 200.0));
+        let add = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Add }, p(1240.0, 120.0));
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(1440.0, 120.0));
+        sub.add_connection(pos, 0, parts, 0);
+        sub.add_connection(parts, 0, freq, 0);
+        sub.add_connection(freq, 0, sine, 0);
+        sub.add_connection(sine, 0, amp, 0);
+        sub.add_connection(amp, 0, up, 1);
+        sub.add_connection(pos, 0, add, 0);
+        sub.add_connection(up, 0, add, 1);
+        sub.add_connection(add, 0, set, 0);
+        sub.add_connection(set, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) { n.position = p(1640.0, 120.0); }
+    }
+    let bind = store.create_subnet("Bind".into());
+    if let Some(sub) = store.get_mut(bind) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let rest = ice_add(&mut *sub, IceGraphNodeType::GetReference { input: 1, paths: vec!["/set/rest".into()] }, p(40.0, 40.0));
+        let moving = ice_add(&mut *sub, IceGraphNodeType::GetReference { input: 1, paths: vec!["/set/waving".into()] }, p(40.0, 640.0));
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 160.0));
+        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
+        sub.add_connection(rest, 0, near, 0);
+        sub.add_connection(pos, 0, near, 1);
+        // The sample's weights on its triangle's corners: the same on both grids.
+        let bary = ice_add(&mut *sub, IceGraphNodeType::GetArrayData { name: "bary".into(), context: None }, p(480.0, 360.0));
+        sub.add_connection(near, xms_ice::CLOSEST_SAMPLES, bary, 0);
+        // A frame at the sample on a grid (`on`: its Geometry, none for the
+        // rest grid the samples were found on), laid out from row `y`.
+        let frame = |sub: &mut crate::ice::IceGraph, on: Option<NodeId>, y: f32| -> (NodeId, NodeId) {
+            let tri = ice_add(&mut *sub, IceGraphNodeType::GetArrayData { name: "triP".into(), context: None }, p(480.0, y));
+            sub.add_connection(near, xms_ice::CLOSEST_SAMPLES, tri, 0);
+            if let Some(g) = on { sub.add_connection(g, 0, tri, 1); }
+            let weighted = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Multiply }, p(700.0, y));
+            sub.add_connection(tri, 0, weighted, 0);
+            sub.add_connection(bary, 0, weighted, 1);
+            let origin = ice_add(&mut *sub, IceGraphNodeType::Array { op: ArrayOp::Sum }, p(920.0, y));
+            sub.add_connection(weighted, 0, origin, 0);
+            let corner = |sub: &mut crate::ice::IceGraph, k: i32| {
+                let c = ice_add(&mut *sub, IceGraphNodeType::Array { op: ArrayOp::Element }, p(700.0, y + 100.0 + 70.0 * k as f32));
+                sub.add_connection(tri, 0, c, 0);
+                ice_value(&mut *sub, c, 1, Value::Int(k));
+                c
+            };
+            let (p0, p1, p2) = (corner(&mut *sub, 0), corner(&mut *sub, 1), corner(&mut *sub, 2));
+            let e1 = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Subtract }, p(920.0, y + 100.0));
+            sub.add_connection(p1, 0, e1, 0);
+            sub.add_connection(p0, 0, e1, 1);
+            let e2 = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Subtract }, p(920.0, y + 200.0));
+            sub.add_connection(p2, 0, e2, 0);
+            sub.add_connection(p0, 0, e2, 1);
+            let tangent = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Normalize }, p(1140.0, y + 60.0));
+            sub.add_connection(e1, 0, tangent, 0);
+            let cross = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Cross }, p(1140.0, y + 160.0));
+            sub.add_connection(e1, 0, cross, 0);
+            sub.add_connection(e2, 0, cross, 1);
+            let normal = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Normalize }, p(1360.0, y + 160.0));
+            sub.add_connection(cross, 0, normal, 0);
+            let bitangent = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Cross }, p(1580.0, y + 160.0));
+            sub.add_connection(normal, 0, bitangent, 0);
+            sub.add_connection(tangent, 0, bitangent, 1);
+            let m = ice_add(&mut *sub, IceGraphNodeType::Compose { op: xms_ice::Compose::Matrix }, p(1800.0, y + 60.0));
+            sub.add_connection(tangent, 0, m, 0);
+            sub.add_connection(normal, 0, m, 1);
+            sub.add_connection(bitangent, 0, m, 2);
+            sub.add_connection(origin, 0, m, 3);
+            (m, origin)
+        };
+        let (rest_frame, rest_origin) = frame(&mut *sub, None, 40.0);
+        let (wave_frame, _) = frame(&mut *sub, Some(moving), 640.0);
+        // Into the rest frame: the offset from its origin, through its transpose.
+        let offset = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Subtract }, p(2020.0, 200.0));
+        sub.add_connection(pos, 0, offset, 0);
+        sub.add_connection(rest_origin, 0, offset, 1);
+        let back = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Transpose }, p(2020.0, 100.0));
+        sub.add_connection(rest_frame, 0, back, 0);
+        let local = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::TransformVector }, p(2240.0, 150.0));
+        sub.add_connection(back, 0, local, 0);
+        sub.add_connection(offset, 0, local, 1);
+        // Out through the waving grid's frame.
+        let carried = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::TransformPoint }, p(2460.0, 450.0));
+        sub.add_connection(wave_frame, 0, carried, 0);
+        sub.add_connection(local, 0, carried, 1);
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(2680.0, 450.0));
+        sub.add_connection(carried, 0, set, 0);
+        sub.add_connection(set, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) { n.position = p(2900.0, 450.0); }
+    }
+    let rest = g.add_node("RestGrid".into(), NodeType::CreateGrid { rows: 10, cols: 10, size: 4.0, location: "/set/rest".into() }, p(40.0, 20.0));
+    let copy = g.add_node("WavingGrid".into(), NodeType::CreateGrid { rows: 10, cols: 10, size: 4.0, location: "/set/waving".into() }, p(240.0, 20.0));
+    let waving = g.add_node("Wave".into(), NodeType::Ice { id: wave, name: "Wave".into(), references: 1 }, p(240.0, 120.0));
+    let grids = g.add_node("Grids".into(), NodeType::merge(), p(140.0, 220.0));
+    let all = || PolySelection { source: SelSource::All, ..Default::default() };
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(440.0, 20.0));
+    let dense = g.add_node("Subdivide".into(), edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()), p(440.0, 120.0));
+    let lift = g.add_node("Above".into(), transform([0.5, 0.8, 0.0], [0.0; 3], [1.0; 3]), p(440.0, 220.0));
+    let bound = g.add_node("Bind".into(), NodeType::Ice { id: bind, name: "Bind".into(), references: 1 }, p(300.0, 330.0));
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
+    g.add_connection(copy, 0, waving, 0);
+    g.add_connection(rest, 0, grids, 0);
+    g.add_connection(waving, 0, grids, 1);
+    g.add_connection(cube, 0, dense, 0);
+    g.add_connection(dense, 0, lift, 0);
+    g.add_connection(lift, 0, bound, 0);
+    g.add_connection(grids, 0, bound, 1);
+    g.add_connection(bound, 0, result, 0);
+    g.add_connection(waving, 0, result, 1);
+    finish(g, result, bound);
+    "ICE binding deformer, built by hand: the cube is bound to the rest grid and carried by the waving one. Go inside Bind (down arrow): Closest Point on Surface finds each point's sample on the rest grid; a frame is built there from the sample's triangle (triP and bary, Get Array Data with its Samples wired) and composed into a matrix; the point is stored in it (its offset through the transposed frame); the same frame is built on the waving grid (the lower row: Get Array Data with its Geometry wired too) and the point put back through it. Inside Wave, set the Multiply after Sine to 0: the grids are the same, and every point returns exactly where it started.".into()
+}
+
 /// Martino's instancing graph: a 40 m grid as the scene; a cube and a
 /// sphere (lifted to sit on the ground) on Reference 1, the DeLorean on
 /// Reference 2. Inside, per Object: Scatter on Surface (240 places) gives
@@ -1558,6 +1748,66 @@ mod tests {
 
     /// Added to a scene that has nodes already, the ICE template keeps its
     /// tree: its copy of the tree gives the same sphere.
+    /// A template's prims at node `at` (its view flag when `None`), cooked:
+    /// each prim's points where the Viewer shows them (placed), and no
+    /// graph broke.
+    fn ice_points(name: &str, at: Option<&str>, change: impl FnOnce(&mut NodeGraphState, &mut IceGraphStore)) -> Vec<(String, Vec<Vec3>)> {
+        let t = TEMPLATES.iter().find(|t| t.name == name).unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        t.load(&mut g, &mut store);
+        change(&mut g, &mut store);
+        let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
+            store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+        };
+        let node = match at { Some(a) => g.nodes.iter().find(|n| n.name == a).unwrap().id, None => g.view_flag.unwrap() };
+        let Some(crate::types::EvalResult::Named(prims)) = g.eval_node(node, &mut std::collections::HashMap::new(), &eval) else { panic!("{name}: no prims") };
+        for sg in store.subnets.values() { assert!(sg.error.lock().unwrap().is_none(), "{name}: {:?}", sg.error.lock().unwrap()); }
+        prims.iter().map(|p| {
+            let m = p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY);
+            (p.path.clone(), p.mesh.vertices.iter().map(|v| m.transform_point3(Vec3::from_array(*v))).collect())
+        }).collect()
+    }
+
+    /// The shrink-wrap puts every point of the cube on the squashed sphere,
+    /// where the Viewer shows it.
+    #[test]
+    fn the_shrink_wrap_template_wraps_onto_the_squashed_sphere() {
+        let prims = ice_points("ICE: shrink-wrap", None, |_, _| {});
+        assert_eq!(prims.len(), 1);
+        let squash = glam::Mat4::from_scale_rotation_translation(Vec3::new(1.6, 0.7, 1.1), glam::Quat::from_rotation_z(20f32.to_radians()), Vec3::ZERO);
+        let back = squash.inverse();
+        for w in &prims[0].1 {
+            // On the sphere of radius 1 before the squash: between its
+            // facets (32 segments) and its round.
+            let r = back.transform_point3(*w).length();
+            assert!((0.98..=1.0001).contains(&r), "{w}: {r}");
+        }
+    }
+
+    /// The binding deformer carries the cube with the wave; with the wave's
+    /// height at 0 every point returns exactly where it started.
+    #[test]
+    fn the_binding_template_carries_the_cube_and_returns_it_flat() {
+        let waved = ice_points("ICE: binding deformer", None, |_, _| {});
+        let start = ice_points("ICE: binding deformer", Some("Above"), |_, _| {});
+        let cube = |prims: &[(String, Vec<Vec3>)]| prims.iter().find(|(p, _)| !p.starts_with("/set")).unwrap().1.clone();
+        let flat = ice_points("ICE: binding deformer", None, |_, store| {
+            // Wave's Multiply after Sine (its amplitude) to 0.
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Wave") {
+                let amp = sg.nodes.iter().filter(|n| matches!(n.node_type, IceGraphNodeType::Math { op: xms_ice::Math::Multiply })).last().unwrap().id;
+                if let Some(n) = sg.nodes.iter_mut().find(|n| n.id == amp) { n.inputs[1].value = Some(xms_ice::Value::Float(0.0)); }
+            }
+        });
+        let (waved, flat, start) = (cube(&waved), cube(&flat), cube(&start));
+        assert_eq!(waved.len(), flat.len());
+        // Flat: every point where it started (the cube put above the grid).
+        let off = flat.iter().zip(&start).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert!(off < 1e-4, "a point moved by {off} with the grids the same");
+        // Waved: moved, and by the wave's height at most (0.4) and some.
+        let most = waved.iter().zip(&flat).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert!(most > 0.05 && most < 1.5, "{most}");
+    }
+
     #[test]
     fn the_ice_template_added_to_a_scene_still_spherifies() {
         let t = TEMPLATES.iter().find(|t| t.name == "ICE graph: spherify").unwrap();

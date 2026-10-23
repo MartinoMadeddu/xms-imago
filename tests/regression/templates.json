@@ -299,6 +299,19 @@
     "cameras": 0,
     "cook_ms": 0
   },
+  "ICE: binding deformer": {
+    "nodes": 9,
+    "viewed": "Result",
+    "output": 0,
+    "kind": "prims",
+    "prims": 2,
+    "copies": 2,
+    "points": 507,
+    "triangles": 968,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
   "ICE: instancing": {
     "nodes": 7,
     "viewed": "Instancing",
@@ -311,6 +324,19 @@
     "materials": 30,
     "cameras": 0,
     "cook_ms": 62
+  },
+  "ICE: shrink-wrap": {
+    "nodes": 5,
+    "viewed": "ShrinkWrap",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 386,
+    "triangles": 768,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
   },
   "Keys: a bouncing ball": {
     "nodes": 4,

@@ -17,7 +17,7 @@ Nothing is baked. A mesh is a cube node followed by the operations that shaped i
 
 ![Twelve of the built-in templates](docs/xms_templates.png)
 
-Forty-eight templates ship with the program, one for each area of it, in three parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes, cameras, materials; ICE, instancing with it), Simon's (modelling, UV, USD models, animation and mocap, FBX and characters) and XMS's (lighting and rendering: the DeLorean lit by a dome and a rect light and rendered with Karma through husk). Each loads a working graph and tells you what to try.
+Fifty templates ship with the program, one for each area of it, in three parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes, cameras, materials; ICE: spherify, a shrink-wrap, a binding deformer built by hand, instancing), Simon's (modelling, UV, USD models, animation and mocap, FBX and characters) and XMS's (lighting and rendering: the DeLorean lit by a dome and a rect light and rendered with Karma through husk). Each loads a working graph and tells you what to try.
 
 ## Polygon modelling in a single node
 
