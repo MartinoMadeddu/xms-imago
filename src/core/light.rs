@@ -158,6 +158,8 @@ impl Light {
         for p in self.params() {
             let Some(v) = self.values.get(&p.name).cloned().or_else(|| all.then(|| self.fallback(p))) else { continue };
             if matches!(&v, Value::Asset(s) if s.trim().is_empty()) { continue; }
+            // A file's variables put in: renderers read `$JOB` as it is.
+            let v = match v { Value::Asset(s) => Value::Asset(crate::core::vars::expand(s.trim(), &[])), v => v };
             out.push(format!("{}{} {} = {}", if p.uniform { "uniform " } else { "" }, v.kind().usd(), p.name, v.usda()));
         }
         // Values a file had that the definitions do not list (shaping, shadow).

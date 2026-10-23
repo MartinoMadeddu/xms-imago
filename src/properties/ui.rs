@@ -356,7 +356,7 @@ pub fn draw_properties(
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
-                path_status(f, path, true);
+                path_status(f, path);
             });
             let read = crate::core::vars::expand(path.trim(), &[]);
             load_mode_rows(ui, &read, mode, location, prim, *convert);
@@ -368,7 +368,6 @@ pub fn draw_properties(
         NodeType::WriteUsd { path } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
                 path_row(f, path, "/path/to/edits.usda", io, sel_id, BrowseMode::Save, "Write USD layer", &["usda"]);
-                path_status(f, path, false);
             });
             group(ui, "Write", None, |f| {
                 f.buttons("Override layer", Some("Moved prims get their own transform, changed geometry its changed attributes, pruned prims are deactivated, prims made in Imago are added. Values at the current frame"), |ui| {
@@ -1439,7 +1438,8 @@ fn material_rows(ui: &mut egui::Ui, s: &mut crate::core::material::PreviewSurfac
             f.row(label, None, |ui| {
                 ui.horizontal(|ui| {
                     let w = ui.available_width() - if file.is_empty() { 34.0 } else { 62.0 };
-                    ui.field(egui::TextEdit::singleline(&mut file).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
+                    let r = ui.field(egui::TextEdit::singleline(&mut file).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
+                    crate::variables::complete(ui, &r, &mut file, &[]);
                     if ui.button("📂").on_hover_text("Browse").clicked() {
                         io.browser.open(BrowseTarget::Texture(node, input), BrowseMode::File, &format!("Texture for {label}"), &["png", "jpg", "jpeg", "exr", "tif", "tiff", "tga", "hdr"], "");
                     }
@@ -1686,13 +1686,17 @@ fn camera_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3
 
 /// Path field with a button that opens the file browser.
 fn path_row(f: &mut Rows, value: &mut String, hint: &str, io: &mut PanelIo, node: NodeId, mode: BrowseMode, title: &str, exts: &[&str]) {
-    f.row("Path", None, |ui| {
+    f.row("Path", Some("Variables are put in: $JOB/assets/set.usda. Type $ for the list"), |ui| {
         ui.horizontal(|ui| {
             let w = ui.available_width() - 34.0;
-            ui.field(egui::TextEdit::singleline(value).hint_text(hint).desired_width(w.max(40.0)));
+            let r = ui.field(egui::TextEdit::singleline(value).hint_text(hint).desired_width(w.max(40.0)));
+            crate::variables::complete(ui, &r, value, &[]);
             if ui.button("📂").on_hover_text("Browse").clicked() { io.browser.open(BrowseTarget::Node(node), mode, title, exts, ""); }
         });
     });
+    // What it is with its variables put in, when that differs.
+    let path = crate::core::vars::expand(value.trim(), &[]);
+    if !path.is_empty() && path != value.trim() { f.status(Status::Info, format!("→ {path}")); }
 }
 
 /// Loaded or not, and the take when the file has several.
@@ -1745,15 +1749,13 @@ fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
     }));
 }
 
-/// Under a path: what it is with its variables put in, when that differs
-/// from what was typed, and (`read`, a file to read) whether it is there.
-fn path_status(f: &mut Rows, typed: &str, read: bool) {
+/// Under a file to read (after `path_row`, which shows what it becomes):
+/// whether it is set, and there.
+fn path_status(f: &mut Rows, typed: &str) {
     let path = crate::core::vars::expand(typed.trim(), &[]);
-    if path.is_empty() { if read { f.status(Status::Info, "No file set"); } return; }
-    if path != typed.trim() { f.status(Status::Info, format!("→ {path}")); }
-    if read {
-        if std::path::Path::new(&path).exists() { f.status(Status::Ok, "Found"); } else { f.status(Status::Bad, "Not found"); }
-    }
+    if path.is_empty() { f.status(Status::Info, "No file set"); }
+    else if std::path::Path::new(&path).exists() { f.status(Status::Ok, "Found"); }
+    else { f.status(Status::Bad, "Not found"); }
 }
 
 /// A unit's usual name, for a stage's metersPerUnit.

@@ -74,6 +74,7 @@ impl eframe::App for ImagoApp {
             start: a.graph.scene.start,
             end:   a.graph.scene.end,
             fps:   a.graph.scene.fps(),
+            user:  a.graph.variables.clone(),
         };
         if crate::core::vars::set_globals(globals) { self.app.revision.0 = self.app.revision.0.wrapping_add(1); }
         crate::track_revision_frame(&ctx, &mut self.app, &mut self.last_hash);

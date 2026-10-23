@@ -296,7 +296,10 @@ fn settings_window(ctx: &egui::Context, st: &mut ImageViewerState, graph: &NodeG
             let tokens = VIEWER_TOKENS.iter().map(|(t, what)| format!("{t}  {what}")).collect::<Vec<_>>().join("\n");
             let r = ui.add(egui::TextEdit::multiline(st.line()).code_editor().desired_rows(3).desired_width(420.0))
                 .on_hover_text(format!("Run through the system's shell, in the render folder. Tokens:\n{tokens}"));
-            if r.changed() { st.save_line(); }
+            // Its own first: what they stand for, given when it renders.
+            let locals: Vec<(&str, &str, String)> = VIEWER_TOKENS.iter().filter(|(t, _)| *t != "$$")
+                .map(|(t, what)| (t.trim_start_matches('$'), *what, String::new())).collect();
+            if r.changed() | crate::variables::complete(ui, &r, st.line(), &locals) { st.save_line(); }
             if let Some(s) = chosen {
                 let (template, dir) = (st.line().clone(), render_dir());
                 let frame = graph.frame().round() as i64;

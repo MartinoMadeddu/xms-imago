@@ -53,7 +53,9 @@ pub fn tile_place(n: u32) -> (u32, u32) {
 /// Whether a texture path names something there: the file, or for a
 /// `<UDIM>` path at least one of its tiles.
 pub fn texture_exists(path: &str) -> bool {
-    let p = Path::new(path.trim());
+    // `$JOB/tex/wood.png`: its variables put in.
+    let path = crate::core::vars::expand(path.trim(), &[]);
+    let p = Path::new(&path);
     if is_udim(p) { !udim_tiles(p).is_empty() } else { p.exists() }
 }
 

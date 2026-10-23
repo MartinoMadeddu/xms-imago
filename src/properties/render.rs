@@ -495,8 +495,11 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
             });
         });
         f.wide(|ui| {
-            ui.add(egui::TextEdit::multiline(&mut c.line).code_editor().desired_rows(3).desired_width(f32::INFINITY))
-                .on_hover_text(format!("Variables, put in when it runs. This operator's:\n{tokens}\n\nThe graph's:\n{globals}\n\n${{NAME}} sets a name apart; $$ is a $; a name that is none of these is left for the shell"));
+            let r = ui.add(egui::TextEdit::multiline(&mut c.line).code_editor().desired_rows(3).desired_width(f32::INFINITY))
+                .on_hover_text(format!("Variables, put in when it runs. This operator's:\n{tokens}\n\nThe graph's:\n{globals}\n\n${{NAME}} sets a name apart; $$ is a $; a name that is none of these is left for the shell. Type $ for the list"));
+            // Its own first: what they are now.
+            let locals = [("USD", command::TOKENS[0].1, usd.clone()), ("OPNAME", command::TOKENS[1].1, name.to_string())];
+            crate::variables::complete(ui, &r, &mut c.line, &locals);
         });
         let lines = c.lines(&usd, name, input.scene);
         if let Some(first) = lines.first() {

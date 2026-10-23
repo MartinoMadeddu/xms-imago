@@ -50,6 +50,7 @@ pub struct Doc {
     view_flag:   Option<NodeId>,
     view_output: usize,
     scene:       crate::node_graph::SceneRange,
+    variables:   crate::core::vars::Variables,
     next_node:   usize,
     next_conn:   usize,
 }
@@ -104,6 +105,7 @@ fn doc_hashes(g: &NodeGraphState) -> (u64, u64) {
         g.view_flag.map(|n| n.0).hash(h);
         g.view_output.hash(h);
         let _ = serde_json::to_string(&g.scene).map(|t| t.hash(h));
+        g.variables.hash(h);
     }
     (full.finish(), core.finish())
 }
@@ -133,6 +135,7 @@ impl Doc {
             view_flag:   g.view_flag,
             view_output: g.view_output,
             scene:       g.scene,
+            variables:   g.variables.clone(),
             next_node:   g.next_node_id,
             next_conn:   g.next_connection_id,
         }, bytes)
@@ -147,6 +150,7 @@ impl Doc {
         g.view_flag = self.view_flag;
         g.view_output = self.view_output;
         g.scene = self.scene;
+        g.variables = self.variables.clone();
         g.next_node_id = g.next_node_id.max(self.next_node);
         g.next_connection_id = g.next_connection_id.max(self.next_conn);
         g.dragging_node = None;
@@ -541,6 +545,8 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
         (format!("{} {}", if on { "Ghost" } else { "Unghost" }, count(ghosted.len(), name(b, ghosted[0]), "nodes")), Kind::Display)
     } else if a.scene != b.scene {
         (format!("Scene range {} to {} at {} fps", b.scene.start, b.scene.end, crate::core::anim::FrameRate { num: b.scene.fps_num, den: b.scene.fps_den }.label()), Kind::Edit)
+    } else if a.variables != b.variables {
+        ("Variables".into(), Kind::Edit)
     } else if view_moved {
         match b.view_flag {
             // An operator with several outputs says which is viewed.

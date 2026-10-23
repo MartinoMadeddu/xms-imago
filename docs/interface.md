@@ -78,13 +78,24 @@ Paths and command lines can hold variables, put in when they are used: `$GDIR/us
 |---|---|
 | `$GNAME` | the graph's name: its file without `.xms` (`street_v001`) |
 | `$GDIR` | the folder of the graph's file |
-| `$JOB` | the project folder: `JOB` from the environment, else `$GDIR` |
+| `$JOB` | the project folder: as File > Variables sets it, else `JOB` from the environment, else `$GDIR` |
 | `$F`, `$F4` | the frame (the playhead's; a render's own in its command), `$F4` in four digits (`$F2` to `$F9` likewise) |
 | `$FSTART`, `$FEND`, `$N` | the scene's first and last frames, and how many |
 | `$FPS`, `$T` | frames per second; the time in seconds |
+| `$ASSETS`, … | the graph's own, from File > Variables |
 | `$HOME`, … | anything set in the environment |
 
-An operator can add its own, which come first: a Render Command's `$USD` and `$OPNAME` (see [Render](render.md)). `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is. They work in Load USD's and Write USD's paths and in command lines; FBX, MaterialX and texture paths are next. A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
+An operator can add its own, which come first: a Render Command's `$USD` and `$OPNAME` (see [Render](render.md)). `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is. They work in every path Imago reads or writes: Load USD, Write USD, the FBX operators (Write FBX puts them in before its `{take}` tokens), texture files of Material, MaterialX and light operators (written to USD with their variables put in, since renderers would read `$JOB` as it is), and command lines. Text passed on to a renderer as it is, Render Settings' Output Image, is not expanded. A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
+
+**Typing `$`** in a path or a command line lists the variables it can take, with what each is now: the operator's own, the graph's, the built-ins, and, once a letter is typed, the environment's that start with it. Click one to put it in (after `${` it gets its `}`).
+
+**File > Variables** holds the graph's own variables, saved in its file:
+
+- **JOB**: the project folder for `$JOB`. Empty, it is `JOB` from the environment, else the graph's folder.
+- **+ Variable** adds one: a name (letters, digits and `_`, not a built-in's) and a value, which can hold variables too: `ASSETS` = `$JOB/assets`, then `$ASSETS/tree.usda`. What each is now shows under it.
+- **Built-in** lists the built-in ones and their values.
+
+A graph's own come after the built-ins and before the environment. Changing one is a step of the history, and the graph is unsaved until saved; what reads paths cooks again. Importing a graph brings its variables that this graph has no variable of that name for.
 
 ### Graph files
 

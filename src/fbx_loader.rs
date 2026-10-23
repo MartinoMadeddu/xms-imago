@@ -193,6 +193,7 @@ static MESHES: OnceLock<Mutex<HashMap<String, MeshEntry>>> = OnceLock::new();
 
 /// `load_meshes`, kept until the file changes.
 pub fn load_meshes_cached(path: &str) -> Result<Vec<(String, Arc<MeshData>)>, String> {
+    let path = &crate::core::vars::expand(path.trim(), &[]);
     if path.is_empty() { return Err("no file set".into()); }
     let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     let cache = MESHES.get_or_init(|| Mutex::new(HashMap::new()));
@@ -686,6 +687,7 @@ static SCENES: OnceLock<Mutex<HashMap<String, SceneEntry>>> = OnceLock::new();
 
 /// `load_scene`, kept until the file changes.
 pub fn load_scene_cached(path: &str) -> Result<FbxScene, String> {
+    let path = &crate::core::vars::expand(path.trim(), &[]);
     if path.is_empty() { return Err("no file set".into()); }
     let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     let cache = SCENES.get_or_init(|| Mutex::new(HashMap::new()));
@@ -708,6 +710,9 @@ type CacheEntry = (Option<SystemTime>, Result<LoadedFbx, String>);
 static CACHE: OnceLock<Mutex<HashMap<CacheKey, CacheEntry>>> = OnceLock::new();
 
 pub fn load_fbx_cached(path: &str, take: u32) -> Result<LoadedFbx, String> {
+    // `$JOB/mocap/take.fbx`: its variables put in, here as in every
+    // `_cached` reader and `list_fbx`.
+    let path = &crate::core::vars::expand(path.trim(), &[]);
     if path.is_empty() { return Err("no file set".into()); }
     let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     let key   = (path.to_string(), take);
@@ -731,9 +736,9 @@ pub fn load_fbx_cached(path: &str, take: u32) -> Result<LoadedFbx, String> {
     result
 }
 
-/// FBX files directly inside a folder, sorted by name.
+/// FBX files directly inside a folder (its variables put in), sorted by name.
 pub fn list_fbx(dir: &str) -> Vec<std::path::PathBuf> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(crate::core::vars::expand(dir.trim(), &[])) else { return vec![] };
     let mut files: Vec<_> = rd.filter_map(|e| e.ok()).map(|e| e.path())
         .filter(|p| p.is_file())
         .filter(|p| p.extension().map(|x| x.to_string_lossy().eq_ignore_ascii_case("fbx")).unwrap_or(false))

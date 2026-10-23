@@ -656,12 +656,13 @@ fn file_bytes(space: &FileSpace, rate: FrameRate, drop_frame: bool, animated: bo
 
 /// Expand the tokens of an output path for one clip:
 /// `{dir}` source folder, `{file}` source file name, `{char}` character,
-/// `{take}` take name. Adds ".fbx" when the result has no extension.
+/// `{take}` take name; variables (`$JOB`, `$GNAME`) put in first. Adds
+/// ".fbx" when the result has no extension.
 pub fn resolve_path(pattern: &str, clip: &AnimData) -> std::path::PathBuf {
     let safe = |v: &str| v.trim().replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
     let file = if clip.source.is_empty() { safe(&clip.name) } else { safe(&clip.source) };
     let dir  = if clip.source_dir.is_empty() { ".".to_string() } else { clip.source_dir.clone() };
-    let mut out = pattern.trim()
+    let mut out = crate::core::vars::expand(pattern.trim(), &[])
         .replace("{dir}", &dir)
         .replace("{file}", &file)
         .replace("{char}", &safe(&clip.subject))

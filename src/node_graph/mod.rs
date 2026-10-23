@@ -248,6 +248,9 @@ pub struct NodeGraphState {
     /// timeline's range when what is selected is not a clip, and the rate
     /// keys are set in.
     pub scene:               SceneRange,
+    /// The graph's own variables and `$JOB` (File > Variables), saved with
+    /// it.
+    pub variables:           crate::core::vars::Variables,
 }
 
 /// The scene's frames: first, last and rate. Frame `f` is at `f / fps`
@@ -300,6 +303,7 @@ impl Default for NodeGraphState {
             time: 0.0,
             eval_time: Default::default(),
             scene: SceneRange::default(),
+            variables: Default::default(),
         };
         s
     }
@@ -872,7 +876,11 @@ impl NodeGraphState {
         (node.bypassed, output).hash(&mut h);
         node.locations.hash(&mut h);
         match &node.node_type {
-            NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } => file_stamp(path).hash(&mut h),
+            // Its path with its variables put in: the file it reads.
+            NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } => {
+                let path = crate::core::vars::expand(path.trim(), &[]);
+                (file_stamp(&path), &path).hash(&mut h)
+            }
             // A stage read in the background gives more when its boxes,
             // then the whole of it, are read.
             // Its path with its variables put in: the file it reads.

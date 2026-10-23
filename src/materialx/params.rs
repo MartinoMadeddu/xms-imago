@@ -266,7 +266,8 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
             let mut changed = false;
             ui.horizontal(|ui| {
                 let w = ui.available_width() - 34.0;
-                changed = ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/texture.png").desired_width(w.max(40.0))).changed();
+                let r = ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
+                changed = r.changed() | crate::variables::complete(ui, &r, s, &[]);
                 if ui.button("📂").on_hover_text("Browse").clicked() { *browse = true; }
             });
             if !s.trim().is_empty() && !crate::core::sequences::texture_exists(s) {

@@ -45,6 +45,22 @@ pub mod saved {
     }
 }
 
+/// The graph with the variables in its strings put in (`$JOB/tex/wood.png`),
+/// as USD is written: renderers read `$JOB` as it is. The graph itself
+/// when no string has one.
+pub fn with_variables_put_in(graph: &Graph) -> std::borrow::Cow<'_, Graph> {
+    use xms_matx::{Binding, Value};
+    let has = graph.nodes.iter().any(|n| n.inputs.iter().any(|(_, b)| matches!(b, Binding::Value(Value::String(s)) if s.contains('$'))));
+    if !has { return std::borrow::Cow::Borrowed(graph); }
+    let mut g = graph.clone();
+    for n in &mut g.nodes {
+        for (_, b) in &mut n.inputs {
+            if let Binding::Value(Value::String(s)) = b { *s = crate::core::vars::expand(s, &[]); }
+        }
+    }
+    std::borrow::Cow::Owned(g)
+}
+
 /// What the Viewer shows of a graph's material, as the Material operator's
 /// surface: the values and texture files of its surface shader.
 pub fn surface_of(graph: &Graph) -> PreviewSurface {

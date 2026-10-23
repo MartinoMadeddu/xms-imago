@@ -55,6 +55,10 @@ struct SavedGraph {
     /// there are none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     trees:       Vec<SavedTree>,
+    /// The graph's own variables and `$JOB` (File > Variables). Left out
+    /// when there are none.
+    #[serde(default, skip_serializing_if = "crate::core::vars::Variables::is_empty")]
+    variables:   crate::core::vars::Variables,
 }
 
 /// The graphs inside these nodes' ICE nodes, as saved.
@@ -98,6 +102,7 @@ pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
         view_flag: graph.view_flag.map(|n| n.0),
         view_output: graph.view_output,
         scene: graph.scene,
+        variables: graph.variables.clone(),
     };
     serde_json::to_string_pretty(&saved).unwrap_or_default()
 }
@@ -134,6 +139,7 @@ pub fn from_json(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, json: 
     graph.view_flag = saved.view_flag.map(NodeId).filter(|v| graph.nodes.iter().any(|n| n.id == *v));
     graph.view_output = saved.view_output;
     graph.scene = saved.scene;
+    graph.variables = saved.variables;
     // A graph saved with nothing viewed views the end of its last chain.
     graph.repair_view_flag(None);
     Ok(())
@@ -347,7 +353,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
 pub fn paste(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, fragment: Fragment, at: Option<egui::Pos2>) -> Placed {
     let Fragment { nodes, connections, trees, .. } = fragment;
     // Nodes from an older version are brought up to date as a file is.
-    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0, scene: Default::default(), trees: vec![] };
+    let mut saved = SavedGraph { version: 1, nodes, connections, view_flag: None, view_output: 0, scene: Default::default(), trees: vec![], variables: Default::default() };
     upgrade(&mut saved);
     let corner = saved.nodes.iter().fold(egui::pos2(f32::MAX, f32::MAX), |c, n| egui::pos2(c.x.min(n.position[0]), c.y.min(n.position[1])));
     let shift = match at { Some(at) => at - corner, None => egui::vec2(40.0, 40.0) };
@@ -424,7 +430,8 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
 /// Add every node of `other` to `graph`, to the right of what is there,
 /// the graphs of its ICE nodes (in `other_subnets`) copied into `subnets`.
 /// When `graph` had nothing to view, the viewed operator of `other` is
-/// viewed. Returns how many nodes were added.
+/// viewed. Its variables this graph has no variable of that name for come
+/// with it. Returns how many nodes were added.
 pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other: &NodeGraphState, other_subnets: &IceGraphStore) -> usize {
     let had_view = graph.view_flag.is_some();
     let ids: Vec<NodeId> = other.nodes.iter().map(|n| n.id).collect();
@@ -443,6 +450,10 @@ pub fn add_graph(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, other:
             graph.view_flag = Some(v);
             graph.view_output = other.view_output;
         }
+    }
+    // Its variables this graph does not have, so its paths still read.
+    for (name, value) in &other.variables.list {
+        if !graph.variables.list.iter().any(|(n, _)| n == name) { graph.variables.list.push((name.clone(), value.clone())); }
     }
     graph.repair_view_flag(None);
     graph.frame_request = true;
@@ -474,6 +485,7 @@ pub(crate) fn clear(graph: &mut NodeGraphState) {
     graph.view_flag = None;
     graph.view_output = 0;
     graph.scene = Default::default();
+    graph.variables = Default::default();
     graph.dragging_node = None;
     graph.connecting_from = None;
 }
@@ -623,6 +635,27 @@ mod tests {
         from_json(&mut back, &mut IceGraphStore::default(), &to_json(&g, &IceGraphStore::default())).unwrap();
         let paths: Vec<String> = back.nodes.iter().filter_map(|n| match &n.node_type { NodeType::LoadFbx { path, .. } => Some(path.clone()), _ => None }).collect();
         assert_eq!(paths, ["/home/x/examples/ragdoll/car.fbx", "/home/x/examples/ragdoll/split/into_the_car_.fbx", "/home/x/takes/car.fbx"]);
+    }
+
+    /// A graph file keeps its variables and $JOB; a graph added brings the
+    /// ones this graph has no variable of that name for.
+    #[test]
+    fn a_saved_graph_keeps_its_variables() {
+        let mut g = NodeGraphState::default();
+        g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        g.variables.job = "/shows/street".into();
+        g.variables.list = vec![("ASSETS".into(), "$JOB/assets".into())];
+        let json = to_json(&g, &IceGraphStore::default());
+        let mut back = NodeGraphState::default();
+        from_json(&mut back, &mut IceGraphStore::default(), &json).unwrap();
+        assert_eq!(back.variables, g.variables);
+        let mut other = NodeGraphState::default();
+        other.add_node("Sphere".into(), NodeType::sphere(1.0, 8), egui::pos2(0.0, 0.0));
+        other.variables.list = vec![("ASSETS".into(), "/elsewhere".into()), ("SHOT".into(), "sh010".into())];
+        add_graph(&mut back, &mut IceGraphStore::default(), &other, &IceGraphStore::default());
+        assert_eq!(back.variables.list, vec![("ASSETS".to_string(), "$JOB/assets".to_string()), ("SHOT".to_string(), "sh010".to_string())], "this graph's own kept");
+        // None set: none written.
+        assert!(!to_json(&NodeGraphState::default(), &IceGraphStore::default()).contains("variables"));
     }
 
     /// A graph file keeps each ICE node's graph: saved and opened again,

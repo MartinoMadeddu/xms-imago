@@ -100,7 +100,8 @@ fn param_row(f: &mut Rows, light: &mut Light, p: &'static Param, io: &mut super:
             f.row(&label, Some(hint.as_str()), |ui| {
                 ui.horizontal(|ui| {
                     let w = (ui.available_width() - if s.is_empty() { 34.0 } else { 62.0 }).max(40.0);
-                    ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/image.exr").desired_width(w));
+                    let r = ui.field(egui::TextEdit::singleline(s).hint_text("/path/to/image.exr").desired_width(w));
+                    crate::variables::complete(ui, &r, s, &[]);
                     if ui.button("📂").on_hover_text("Browse").clicked() {
                         io.browser.open(crate::file_browser::BrowseTarget::LightFile(node, p.name.as_str()), crate::file_browser::BrowseMode::File,
                             &format!("{} for {}", p.shown(), light_label), TEXTURES, "");

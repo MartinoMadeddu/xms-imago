@@ -45,6 +45,7 @@ mod graph_ports;
 mod materialx;
 /// The Image Viewer pane: renders and images.
 mod image_viewer;
+mod variables;
 
 
 use app::{AppState, ViewportRect};
@@ -327,6 +328,7 @@ pub(crate) fn draw_ui(
             });
         });
     theme::editor(ctx);
+    variables::window(ctx, &mut graph.variables);
     if let Some(c) = command {
         match c {
             FileCommand::New => save_first.load_new(),
@@ -340,6 +342,7 @@ pub(crate) fn draw_ui(
             FileCommand::ImportFbx => browser.open(BrowseTarget::ImportFbx, BrowseMode::File, "Import FBX", &["fbx"], ""),
             FileCommand::ImportUsd => browser.open(BrowseTarget::ImportUsd, BrowseMode::File, "Import USD", &["usd", "usda", "usdc", "usdz"], ""),
             FileCommand::ImportMtlx => browser.open(BrowseTarget::ImportMtlx, BrowseMode::File, "Import MaterialX", &["mtlx"], ""),
+            FileCommand::Variables => variables::open(ctx),
             FileCommand::Quit => save_first.quit = true,
         }
     }
@@ -1050,6 +1053,7 @@ enum FileCommand {
     ImportFbx,
     ImportUsd,
     ImportMtlx,
+    Variables,
     Quit,
 }
 
@@ -1092,6 +1096,8 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
         });
         if save.clicked() { c = Some(FileCommand::Save); ui.close(); }
         if menu_item(ui, "Save As...", &format!("{CMD}+Shift+S")) { c = Some(FileCommand::SaveAs); }
+        ui.separator();
+        if ui.button("Variables...").on_hover_text("The graph's own variables and $JOB, saved with it, for paths and command lines").clicked() { c = Some(FileCommand::Variables); ui.close(); }
         ui.separator();
         crate::menus::menu(ui, "Import", |ui| {
             if ui.button("Graph...").on_hover_text("Add the nodes of a saved graph beside these").clicked() { c = Some(FileCommand::ImportGraph); ui.close(); }
