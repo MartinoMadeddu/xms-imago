@@ -99,8 +99,8 @@ A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame whe
 
 **File > Variables** is one table of three columns, **Variable**, **Result** and **Description**, in two parts:
 
-- **Graph**: the graph's own variables, saved in its file. **+ Variable** adds a row: its name (letters, digits and `_`, not a built-in's), its value in Result, which can hold variables too (`ASSETS` = `$JOB/assets`, with what it comes to under it), and what it is for, shown in the list on `$` too. 🗑 removes it.
-- **Built-in**: the built-in ones, what they are now and what each is. `$JOB`'s result is typed here: empty, it is `JOB` from the environment, else the graph's folder.
+- **Graph**: the graph's own variables, saved in its file. **+ Variable** adds a row: its name (letters, digits and `_`, not a built-in's), its value in Result, which can hold variables too (`ASSETS` = `$JOB/assets`, with what it comes to under it), and what it is for, shown in the list on `$` too. 🗑 removes it. `$JOB` sits here too, above **+ Variable**, though it is built in: its result is typed here; empty, it is `JOB` from the environment, else the graph's folder.
+- **Built-in**: the other built-in ones, what they are now and what each is.
 
 A graph's own come after the built-ins and before the environment. Changing one is a step of the history, and the graph is unsaved until saved; what reads paths cooks again. Importing a graph brings its variables that this graph has no variable of that name for.
 

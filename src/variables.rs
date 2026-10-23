@@ -70,29 +70,29 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
                     });
                     ui.end_row();
                 }
+                // $JOB: built in, but typed here with the graph's own.
+                ui.label(egui::RichText::new("$JOB").monospace());
+                ui.vertical(|ui| {
+                    let hint = std::env::var("JOB").map(|j| format!("{j} (from the environment)")).unwrap_or_else(|_| "the graph's folder".into());
+                    let r = ui.field_sized([RESULT_W, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut v.job).hint_text(hint));
+                    complete(ui, &r, &mut v.job, &[]);
+                    if v.job.contains('$') { ui.label(egui::RichText::new(format!("→ {}", vars::expand("$JOB", &[]))).small().color(dim)); }
+                });
+                ui.label(egui::RichText::new("the project folder: typed here, else JOB from the environment, else $GDIR").small().color(dim));
+                ui.end_row();
                 if ui.button("+ Variable").on_hover_text("A variable of the graph's own").clicked() { add = true; }
                 ui.label("");
                 ui.label("");
                 ui.end_row();
 
-                // Built in: $JOB can be set here.
+                // Built in: what the graph's file, frames and operators give.
                 section(ui, "Built-in", "Set by the graph's file, the scene's frames and the operator reading the text");
-                for (name, what) in vars::BUILTINS {
+                for (name, what) in vars::BUILTINS.into_iter().filter(|(n, _)| *n != "JOB") {
                     ui.label(egui::RichText::new(format!("${name}")).monospace());
-                    if name == "JOB" {
-                        ui.vertical(|ui| {
-                            let hint = std::env::var("JOB").map(|j| format!("{j} (from the environment)")).unwrap_or_else(|_| "the graph's folder".into());
-                            let r = ui.field_sized([RESULT_W, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut v.job).hint_text(hint));
-                            complete(ui, &r, &mut v.job, &[]);
-                            if v.job.contains('$') { ui.label(egui::RichText::new(format!("→ {}", vars::expand("$JOB", &[]))).small().color(dim)); }
-                        });
-                        ui.label(egui::RichText::new("the project folder: typed here, else JOB from the environment, else $GDIR").small().color(dim));
-                    } else {
-                        let result = if name == "OPNAME" { "each operator's name".to_string() } else { vars::expand(&format!("${{{name}}}"), &[]) };
-                        let shown = if result.is_empty() { egui::RichText::new("(empty)").color(dim) } else { egui::RichText::new(result) };
-                        ui.add_sized([RESULT_W, 16.0], egui::Label::new(shown).truncate());
-                        ui.label(egui::RichText::new(what).small().color(dim));
-                    }
+                    let result = if name == "OPNAME" { "each operator's name".to_string() } else { vars::expand(&format!("${{{name}}}"), &[]) };
+                    let shown = if result.is_empty() { egui::RichText::new("(empty)").color(dim) } else { egui::RichText::new(result) };
+                    ui.add_sized([RESULT_W, 16.0], egui::Label::new(shown).truncate());
+                    ui.label(egui::RichText::new(what).small().color(dim));
                     ui.end_row();
                 }
             });
