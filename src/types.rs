@@ -77,6 +77,10 @@ pub enum NodeType {
         #[serde(default)] mode: crate::usd_scene::LoadMode,
         #[serde(default = "reference_location")] location: String,
         #[serde(default)] prim: String,
+        /// Turn the stage to Y-up and metres by its `upAxis` and
+        /// `metersPerUnit`. Off: as authored, as USD composes it and
+        /// renderers read it.
+        #[serde(default)] convert: bool,
     },
     /// Write what the network changed in its stages as a USD override layer.
     WriteUsd     { path: String },
@@ -413,7 +417,7 @@ impl NodeType {
 
     /// Load USD on a file, sublayered.
     pub fn load_usd(path: String) -> Self {
-        NodeType::LoadUsd { path, mode: Default::default(), location: reference_location(), prim: String::new() }
+        NodeType::LoadUsd { path, mode: Default::default(), location: reference_location(), prim: String::new(), convert: false }
     }
 
     pub fn merge() -> Self { NodeType::Merge { mode: MergeMode::Auto, inputs: 2 } }

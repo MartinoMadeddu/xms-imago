@@ -390,8 +390,8 @@ fn render_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, _path: &st
 /// whose file gives a stage from the same layer, else the nearest one.
 fn load_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, tree: &crate::usd_scene::StageTree) -> Option<NodeId> {
     use crate::types::NodeType;
-    let reads = |n: &crate::node_graph::GraphNode| matches!(&n.node_type, NodeType::LoadUsd { path, .. }
-        if crate::usd_scene::load_cached(path).is_ok_and(|s| s.tree.source == tree.source));
+    let reads = |n: &crate::node_graph::GraphNode| matches!(&n.node_type, NodeType::LoadUsd { path, convert, .. }
+        if crate::usd_scene::load_cached(path, *convert).is_ok_and(|s| s.tree.source == tree.source));
     upstream(graph, view, reads)
         .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))
         .map(|n| n.id)

@@ -52,6 +52,12 @@ pub struct Snapshot {
     /// Cook time in milliseconds: recorded for the report, never compared.
     #[serde(default)]
     pub cook_ms:    u64,
+    /// The graph has a Body Collide (ragdoll) solve: its clip's pose depends
+    /// on whether a result shipped with the examples matches this machine's
+    /// key (it may not, from one platform to another), so where the hips end
+    /// up is not compared.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub solved:     bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -77,7 +83,8 @@ pub fn measure(g: &NodeGraphState, store: &IceGraphStore) -> Snapshot {
     let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
         store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
     };
-    let mut s = Snapshot { nodes: g.nodes.len(), ..Default::default() };
+    let solved = g.nodes.iter().any(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. }));
+    let mut s = Snapshot { nodes: g.nodes.len(), solved, ..Default::default() };
     s.missing = crate::downloads::file_paths(g).into_iter()
         .filter(|p| !std::path::Path::new(p).is_file())
         .map(|p| relative_to_examples(&p)).collect();
@@ -172,9 +179,10 @@ pub fn differences(was: &Snapshot, now: &Snapshot) -> Vec<String> {
             cmp("clip.joints", a.joints.to_string(), b.joints.to_string());
             cmp("clip.rate", a.rate.clone(), b.rate.clone());
             cmp("clip.skin", a.skin.to_string(), b.skin.to_string());
-            // A millimetre either way is the same pose.
+            // A millimetre either way is the same pose. A solved clip's pose
+            // depends on the machine (see `Snapshot::solved`): not compared.
             let moved = a.hips_end.iter().zip(&b.hips_end).any(|(x, y)| (x - y).abs() > 0.0015);
-            if moved { cmp("clip.hips_end", format!("{:?}", a.hips_end), format!("{:?}", b.hips_end)); }
+            if moved && !(was.solved || now.solved) { cmp("clip.hips_end", format!("{:?}", a.hips_end), format!("{:?}", b.hips_end)); }
         }
         (None, None) => {}
         (a, b) => cmp("clip", format!("{a:?}"), format!("{b:?}")),
@@ -217,6 +225,11 @@ mod tests {
                 continue;
             }
             match was.get(name) {
+                // The baseline was written without this template's downloads
+                // and this machine has them: nothing to compare with yet.
+                Some(w) if !w.missing.is_empty() && w.missing.iter().all(|m| crate::examples::downloadable(m).is_some()) && s.missing.is_empty() => {
+                    lines.push(format!("SKIPPED  {name}: the baseline was written without its downloads ({}); write it again with them to compare", w.missing.join(", ")));
+                }
                 None => { lines.push(format!("NEW      {name}: no baseline yet ({} prims, {} triangles, {} ms)", s.prims, s.triangles, s.cook_ms)); failed += 1; }
                 Some(w) => {
                     let diff = differences(w, s);

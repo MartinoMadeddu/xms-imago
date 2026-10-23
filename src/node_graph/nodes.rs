@@ -33,10 +33,10 @@ pub fn evaluate_node_type(
             Placement::One(transform_matrix(Vec3::from(*translate), Vec3::from(rotate.map(f32::to_radians)), Vec3::ONE)),
         )])),
 
-        NodeType::LoadUsd { path, mode, location, prim } => {
+        NodeType::LoadUsd { path, mode, location, prim, convert } => {
             if path.is_empty() { return None; }
             // Packed primitives: one per mesh prim, shared with the cached stage.
-            match crate::usd_scene::load_cached(path) {
+            match crate::usd_scene::load_cached(path, *convert) {
                 // Nothing to show: no geometry, instancer, camera or light.
                 Ok(scene) if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() => None,
                 Ok(scene) => stage_prims(&scene, *mode, location, prim).map(EvalResult::Named),

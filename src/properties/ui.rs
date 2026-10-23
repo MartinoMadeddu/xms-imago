@@ -353,15 +353,18 @@ pub fn draw_properties(
         }),
 
         // ── Files ────────────────────────────────────────────────────────────
-        NodeType::LoadUsd { path, mode, location, prim } => {
+        NodeType::LoadUsd { path, mode, location, prim, convert } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
                 if path.is_empty() { f.status(Status::Info, "No file set"); }
                 else if std::path::Path::new(path).exists() { f.status(Status::Ok, "Found"); }
                 else { f.status(Status::Bad, "Not found"); }
             });
-            load_mode_rows(ui, path, mode, location, prim);
-            if !path.is_empty() { usd_summary(ui, path, io); }
+            load_mode_rows(ui, path, mode, location, prim, *convert);
+            group(ui, "Units and axis", None, |f| {
+                f.toggle("Y-up metres", Some("Turn the stage to Y-up and scale it to metres by its upAxis and metersPerUnit, in its placement (the geometry stays as authored). Off: as authored, as USD composes it and renderers read it. Changing it reads the stage again"), convert);
+            });
+            if !path.is_empty() { usd_summary(ui, path, *convert, io); }
         }
         NodeType::WriteUsd { path } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
@@ -1564,7 +1567,7 @@ fn binding_rows(ui: &mut egui::Ui, library: &mut String, inputs: &mut u32, ports
 
 /// How Load USD brings its file in: sublayered, or one prim of it referenced
 /// or payloaded at a Primitive Location.
-fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::LoadMode, location: &mut String, prim: &mut String) {
+fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::LoadMode, location: &mut String, prim: &mut String, convert: bool) {
     use crate::usd_scene::LoadMode;
     let hint = "Sublayer: the whole stage at its own paths; Write USD sublayers the file. Reference: one prim of the file (its default prim) at the Primitive Location, its paths rebased there; Write USD writes a reference on that prim. Payload: as Reference, written as a payload, which other programs load on demand";
     group(ui, "Mode", Some(hint), |f| {
@@ -1576,7 +1579,7 @@ fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::Lo
         });
         let at = crate::types::prim_location(location, &crate::types::reference_location());
         if at != location.trim() { f.status(Status::Info, format!("Used as {at}")); }
-        let scene = if path.trim().is_empty() { None } else { crate::usd_scene::load_cached(path.trim()).ok() };
+        let scene = if path.trim().is_empty() { None } else { crate::usd_scene::load_cached(path.trim(), convert).ok() };
         let roots: Vec<String> = scene.as_ref().map(|s| s.tree.nodes.iter().filter(|n| n.depth == 1).map(|n| n.path.clone()).collect()).unwrap_or_default();
         f.row("Prim", Some("The prim of the file it brings in, with everything below it. Empty: the file's default prim"), |ui| {
             ui.horizontal(|ui| {
@@ -1742,12 +1745,25 @@ fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
     }));
 }
 
-/// What a USD file holds, from the cached stage.
-fn usd_summary(ui: &mut egui::Ui, path: &str, io: &mut PanelIo) {
+/// A unit's usual name, for a stage's metersPerUnit.
+fn unit_name(metres: f64) -> &'static str {
+    match metres {
+        m if (m - 0.01).abs() < 1e-9 => "centimetres",
+        m if (m - 0.001).abs() < 1e-9 => "millimetres",
+        m if (m - 0.0254).abs() < 1e-9 => "inches",
+        m if (m - 0.3048).abs() < 1e-9 => "feet",
+        m if (m - 1000.0).abs() < 1e-6 => "kilometres",
+        _ => "another unit",
+    }
+}
+
+/// What a USD file holds, from the cached stage (`convert`: read turned to
+/// Y-up and metres).
+fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
     // A big stage is read in the background: its boxes first, then the
     // whole of it. Say how far it has come.
-    let reading = crate::usd_scene::reading(path);
-    let scene = match crate::usd_scene::load_cached(path) {
+    let reading = crate::usd_scene::reading(path, convert);
+    let scene = match crate::usd_scene::load_cached(path, convert) {
         Ok(s) => s,
         Err(e) if reading.is_some() => { group(ui, "Stage", None, |f| f.status(Status::Info, e)); return; }
         Err(e) => { group(ui, "Stage", None, |f| f.status(Status::Bad, format!("Could not read the file: {e}"))); return; }
@@ -1756,8 +1772,19 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, io: &mut PanelIo) {
     let leaf = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
     group(ui, "Stage", None, |f| {
         f.value("Meshes", format!("{} primitives, {} triangles", scene.meshes.len(), scene.triangles()));
-        f.value("Up axis", scene.up_axis.to_string());
-        f.value("Unit", match scene.meters_per_unit { Some(u) => format!("{u} m per unit, read as metres"), None => "Not stated, left as it is".into() });
+        // As the stage says, and what Imago does with it.
+        let kept = if scene.converted { "turned to Y-up" } else { "kept as authored" };
+        f.value("Up axis", if scene.up_axis == "Y" { "Y".to_string() } else { format!("{}, {kept}", scene.up_axis) });
+        let unit = match scene.meters_per_unit {
+            None => "Not stated (USD's fallback is centimetres): kept as authored".to_string(),
+            Some(u) if (u - 1.0).abs() < 1e-9 => "Metres".to_string(),
+            Some(u) if scene.converted => format!("{u} m per unit ({}), scaled to metres", unit_name(u)),
+            Some(u) => format!("{u} m per unit ({}), kept as authored", unit_name(u)),
+        };
+        f.value("Unit", unit);
+        if !scene.converted && (scene.up_axis != "Y" || scene.meters_per_unit.is_some_and(|u| (u - 1.0).abs() > 1e-9)) {
+            f.status(Status::Info, "Not Y-up metres: other stages may not match it. Turn on Y-up metres, or move and scale it yourself");
+        }
         if let Some((start, end, rate)) = scene.time { f.value("Time", format!("{start} to {end} at {rate} per second")); }
         let kinds: Vec<String> = scene.prim_counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
         f.value("Prims", kinds.join(", "));

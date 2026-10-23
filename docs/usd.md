@@ -26,7 +26,7 @@ Every prim keeps what the file says about it. Geometry stays in its own space, a
 | Formats | Text (`.usda`), binary (`.usdc`) and `.usdz` |
 | Composition | Sublayers, references, payloads, inherits, specializes, variants |
 | Transforms | The whole `xformOpOrder`, `!resetXformStack!` included |
-| Units and axes | Z-up and `metersPerUnit` become a correction on the placement: the points stay as authored |
+| Units and axes | Kept as authored, as USD composes them and renderers read them: a Z-up stage in centimetres stays Z-up in centimetres. With the Load USD operator's **Y-up metres** on, `upAxis` and `metersPerUnit` become a correction on the placement (the points stay as authored); turning it on or off reads the stage again |
 | Meshes | Points, polygons of any size, left-handed orientation, subdivision scheme |
 | Curves | `BasisCurves`: control points, counts, basis (linear, Bézier, B-spline, Catmull-Rom) and wrap, kept as authored |
 | Points | `Points`, with their widths |
@@ -63,10 +63,10 @@ Load USD's **Mode** says how the file comes into the scene, as in USD:
 
 - The prims above the Primitive Location are Xforms, made by Imago (`/shot/set` puts `shot` above). What the file has outside the referenced prim is left out, as USD leaves it out.
 - Bindings and point-instancer prototypes inside the referenced prim follow it to its new paths. A binding to a material outside it keeps its path.
-- A file's axes and unit are not converted by a reference in USD. Imago shows every stage Y up in metres, so where the file's differ from the layer's, Write USD puts the transform from one to the other on the referenced prim, on top of the prim's own: opened, the layer gives what Imago shows.
+- A file's axes and unit are not converted by a reference in USD, and Imago reads them as authored too. Where a Load USD has **Y-up metres** on and the file's differ from the layer's, Write USD puts the transform from one to the other on the referenced prim, on top of the prim's own: opened, the layer gives what Imago shows.
 - The Scene Explorer lists the stage at its new paths; Set Attribute, Material Binding and every Prims Location tab name it by them.
 
-The Parameters of a Load USD node show the stage: primitive and triangle counts (every instanced copy counted), up axis and unit, a count of prims by type, the materials with their textures, the cameras, skeletons and lights, and a "Not read in full" list for whatever the file holds that is not handled yet.
+The Parameters of a Load USD node show the stage: primitive and triangle counts (every instanced copy counted), up axis and unit (by name: centimetres, inches…, and whether kept as authored or turned to Y-up metres, with a note when a stage is not Y-up metres, so a mismatch shows before a render does), a count of prims by type, the materials with their textures, the cameras, skeletons and lights, and a "Not read in full" list for whatever the file holds that is not handled yet.
 
 ## Primitives
 

@@ -281,6 +281,9 @@ pub struct UsdScene {
     pub animated:        usize,
     /// What the layer holds that was not read in full.
     pub notes:           Vec<String>,
+    /// Turned to Y-up and metres (the Load USD operator's choice), not as
+    /// authored.
+    pub converted:       bool,
     /// The first, boxes-only pass of a stage still being read: each mesh is
     /// the box of its extent; materials and authored values come with the
     /// whole stage.
@@ -553,9 +556,9 @@ fn read_material(r: &mut Reader, prim: &str) -> (UsdMaterial, usize) {
 
 // ── The stage ────────────────────────────────────────────────────────────────
 
-fn read_scene(data: Layer) -> UsdScene {
+fn read_scene(data: Layer, convert: bool) -> UsdScene {
     let mut r = Reader { data, animated: 0 };
-    let mut scene = UsdScene::default();
+    let mut scene = UsdScene { converted: convert, ..Default::default() };
     scene.up_axis = r.field("/", "upAxis").and_then(|v| token(&v)).unwrap_or_else(|| "Y".into());
     scene.meters_per_unit = r.field("/", "metersPerUnit").and_then(|v| floats(&v)).and_then(|v| v.first().copied());
     scene.default_prim = r.field("/", "defaultPrim").and_then(|v| token(&v)).filter(|s| !s.is_empty());
@@ -563,10 +566,10 @@ fn read_scene(data: Layer) -> UsdScene {
     if let (Some(start), Some(end)) = (number(&mut r, "startTimeCode"), number(&mut r, "endTimeCode")) {
         scene.time = Some((start, end, number(&mut r, "timeCodesPerSecond").unwrap_or(24.0)));
     }
-    // To Y-up, and to metres when the layer says what its unit is.
+    // When asked: to Y-up, and to metres when the layer says what its unit is.
     let mut root = Mat4::IDENTITY;
-    if scene.up_axis == "Z" { root = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2); }
-    if let Some(unit) = scene.meters_per_unit { if unit > 0.0 && (unit - 1.0).abs() > 1e-9 { root *= Mat4::from_scale(Vec3::splat(unit as f32)); } }
+    if convert && scene.up_axis == "Z" { root = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2); }
+    if let Some(unit) = scene.meters_per_unit.filter(|_| convert) { if unit > 0.0 && (unit - 1.0).abs() > 1e-9 { root *= Mat4::from_scale(Vec3::splat(unit as f32)); } }
 
     let (mut composed, mut instanced, mut subsets) = (0usize, 0usize, 0usize);
     let mut todo: Vec<(String, Mat4)> = vec![("/".to_string(), root)];
@@ -691,22 +694,23 @@ fn open(path: &Path) -> Result<Layer, String> {
     }
 }
 
-/// Read a USD file. Not cached: see `load_cached`.
+/// Read a USD file as authored. Not cached: see `load_cached`.
 #[cfg(test)]
 pub fn load(path: &Path) -> Result<UsdScene, String> {
-    load_phased(path, |_| {})
+    load_phased(path, false, |_| {})
 }
 
 /// Read a USD file, giving `boxes` the stage drawn as boxes as soon as
-/// that much is read (see `usd_stage::read_phased`).
-fn load_phased(path: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
+/// that much is read (see `usd_stage::read_phased`). `convert`: turned to
+/// Y-up and metres.
+fn load_phased(path: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
     let mut _t = crate::timings::span(format!("usd: load {}", path.display()));
     if !path.exists() { return Err(format!("{} not found", path.display())); }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     // A usdz is unpacked first, so its textures are files on disk.
     let layer = if ext == "usdz" { extract_usdz(path)? } else { path.to_path_buf() };
     let base_dir = layer.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let composed = crate::usd_stage::read_phased(&layer, |mut first| {
+    let composed = crate::usd_stage::read_phased(&layer, convert, |mut first| {
         first.base_dir = base_dir.clone();
         std::sync::Arc::make_mut(&mut first.tree).source = path.to_path_buf();
         boxes(first);
@@ -717,7 +721,7 @@ fn load_phased(path: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, St
             // Nothing drawn from the composed stage: the root layer on its own
             // may still give meshes (older reader, more lenient).
             let why = match &other { Ok(_) => "no meshes found".to_string(), Err(e) => e.clone() };
-            match (load_root_layer(&layer, &ext), other) {
+            match (load_root_layer(&layer, &ext, convert), other) {
                 (Ok(mut root), _) if !root.meshes.is_empty() => {
                     root.notes.insert(0, format!("Read the root layer only, without composition ({why})"));
                     root
@@ -738,9 +742,9 @@ fn load_phased(path: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, St
 
 /// The root layer on its own, without composition: the reader used before
 /// stages were composed, kept as a fallback.
-fn load_root_layer(layer: &Path, ext: &str) -> Result<UsdScene, String> {
+fn load_root_layer(layer: &Path, ext: &str, convert: bool) -> Result<UsdScene, String> {
     let mut scene = match open(layer) {
-        Ok(data) => read_scene(data),
+        Ok(data) => read_scene(data, convert),
         Err(e) => {
             // The older text reader copes with some files this one refuses.
             let meshes = crate::usd_loader::load_usd_meshes(layer).map_err(|_| e.clone())?;
@@ -771,7 +775,9 @@ enum Known {
     Done(Result<Arc<UsdScene>, String>),
 }
 
-type Cached = (std::path::PathBuf, Option<std::time::SystemTime>, Arc<Mutex<Known>>);
+/// A file, when it was last changed, whether it is turned to Y-up and
+/// metres, and what is known of it.
+type Cached = (std::path::PathBuf, Option<std::time::SystemTime>, bool, Arc<Mutex<Known>>);
 static CACHE: Mutex<Vec<Cached>> = Mutex::new(Vec::new());
 /// Moves when a stage read in the background has more to show: its boxes,
 /// then the whole of it. Part of a Load USD node's cook key.
@@ -792,9 +798,9 @@ pub fn take_changed() -> bool { CHANGED.swap(false, std::sync::atomic::Ordering:
 
 /// How far reading `path` has come, for the Load USD node's parameters:
 /// `None` once it is read (or before it is asked for).
-pub fn reading(path: &str) -> Option<&'static str> {
+pub fn reading(path: &str, convert: bool) -> Option<&'static str> {
     let path = std::path::PathBuf::from(path.trim());
-    let known = CACHE.lock().ok()?.iter().find(|(p, _, _)| *p == path).map(|(_, _, k)| k.clone())?;
+    let known = CACHE.lock().ok()?.iter().find(|(p, _, c, _)| *p == path && *c == convert).map(|(_, _, _, k)| k.clone())?;
     let known = known.lock().ok()?;
     match *known {
         Known::Reading => Some("Reading the stage…"),
@@ -806,7 +812,7 @@ pub fn reading(path: &str) -> Option<&'static str> {
 /// Whether any stage is still being read: Write USD waits for it, so it
 /// never writes boxes in place of geometry.
 pub fn any_reading() -> bool {
-    CACHE.lock().is_ok_and(|c| c.iter().any(|(_, _, k)| k.lock().is_ok_and(|k| !matches!(*k, Known::Done(_)))))
+    CACHE.lock().is_ok_and(|c| c.iter().any(|(_, _, _, k)| k.lock().is_ok_and(|k| !matches!(*k, Known::Done(_)))))
 }
 
 /// A USD file as far as it is read, and again when it changes on disk. The
@@ -814,20 +820,23 @@ pub fn any_reading() -> bool {
 /// waits for its first pass (prims, properties and boxes), as a load always
 /// did, then returns the boxes while the rest of the stage is read in the
 /// background and replaces them when it is done. In tests the file is read
-/// at once.
-pub fn load_cached(path: &str) -> Result<Arc<UsdScene>, String> {
+/// at once. `convert`: turned to Y-up and metres, a read of its own (turning
+/// the conversion on or off reads the file again).
+pub fn load_cached(path: &str, convert: bool) -> Result<Arc<UsdScene>, String> {
     let path = std::path::PathBuf::from(path);
     let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     let known = {
         let Ok(mut cache) = CACHE.lock() else { return Err("The stage cache is unavailable".into()) };
-        match cache.iter().find(|(p, s, _)| *p == path && *s == stamp) {
-            Some((_, _, known)) => known.clone(),
+        match cache.iter().find(|(p, s, c, _)| *p == path && *s == stamp && *c == convert) {
+            Some((_, _, _, known)) => known.clone(),
             None => {
                 let known = Arc::new(Mutex::new(Known::Reading));
-                cache.retain(|(p, _, _)| *p != path);
+                // An older read of the file, the other way, stays: switching
+                // back is instant until the file changes.
+                cache.retain(|(p, s, _, _)| !(*p == path && *s != stamp));
                 if cache.len() >= 6 { cache.remove(0); }
-                cache.push((path.clone(), stamp, known.clone()));
-                read_in_background(path, known.clone());
+                cache.push((path.clone(), stamp, convert, known.clone()));
+                read_in_background(path, convert, known.clone());
                 known
             }
         }
@@ -846,9 +855,9 @@ pub fn load_cached(path: &str) -> Result<Arc<UsdScene>, String> {
 }
 
 #[cfg(not(test))]
-fn read_in_background(path: std::path::PathBuf, known: Arc<Mutex<Known>>) {
+fn read_in_background(path: std::path::PathBuf, convert: bool, known: Arc<Mutex<Known>>) {
     std::thread::spawn(move || {
-        let full = load_phased(&path, |boxes| {
+        let full = load_phased(&path, convert, |boxes| {
             if let Ok(mut k) = known.lock() {
                 if matches!(*k, Known::Reading) { *k = Known::Boxes(Arc::new(boxes)); }
             }
@@ -860,8 +869,8 @@ fn read_in_background(path: std::path::PathBuf, known: Arc<Mutex<Known>>) {
 }
 
 #[cfg(test)]
-fn read_in_background(path: std::path::PathBuf, known: Arc<Mutex<Known>>) {
-    let full = load(&path).map(Arc::new);
+fn read_in_background(path: std::path::PathBuf, convert: bool, known: Arc<Mutex<Known>>) {
+    let full = load_phased(&path, convert, |_| {}).map(Arc::new);
     if let Ok(mut k) = known.lock() { *k = Known::Done(full); }
 }
 
@@ -937,7 +946,7 @@ def Xform "car" {{
     }
 
     #[test]
-    fn up_axis_and_unit_become_y_up_metres() {
+    fn a_stage_is_read_as_authored_unless_asked_to_be_turned_to_y_up_metres() {
         let path = write("units.usda", &format!(r#"#usda 1.0
 (
     metersPerUnit = 0.01
@@ -950,9 +959,15 @@ def Mesh "m" {{
 }}
 "#));
         let scene = load(&path).unwrap();
-        assert_eq!((scene.up_axis.as_str(), scene.meters_per_unit), ("Z", Some(0.01)));
+        assert_eq!((scene.up_axis.as_str(), scene.meters_per_unit, scene.converted), ("Z", Some(0.01), false));
         let (_, hi) = bounds(&world(&scene.meshes[0]));
-        // 200 units up Z is two metres up Y.
+        // As authored: 200 units up Z, as USD composes it and a renderer reads it.
+        assert!((hi - Vec3::new(100.0, 0.0, 200.0)).length() < 1e-4, "{hi}");
+        assert_eq!(scene.tree.root, glam::Mat4::IDENTITY);
+        // Turned: 200 centimetres up Z is two metres up Y.
+        let scene = load_phased(&path, true, |_| {}).unwrap();
+        assert!(scene.converted);
+        let (_, hi) = bounds(&world(&scene.meshes[0]));
         assert!((hi - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-4, "{hi}");
     }
 
@@ -1297,12 +1312,12 @@ def Xform "set" {
         let scene = load(&path).unwrap();
         let card = &scene.meshes[0];
         let geo = card.geo.as_ref().expect("loaded as geometry");
-        // Points as authored: the transform and the Z-up correction are in the placement.
+        // Points as authored: the transform is in the placement.
         assert_eq!(geo.points()[2], [1.0, 1.0, 0.0]);
         let (lo, _) = bounds(&world(card));
-        // Z up: authored +Y becomes -Z, authored Z (the set's 5) becomes Y.
-        assert!((lo - Vec3::new(0.0, 5.0, -1.0)).length() < 1e-4, "{lo}");
-        assert_ne!(scene.tree.root, glam::Mat4::IDENTITY);
+        // As authored, Z up left as it is: the set's 5 up Z.
+        assert!((lo - Vec3::new(0.0, 0.0, 5.0)).length() < 1e-4, "{lo}");
+        assert_eq!(scene.tree.root, glam::Mat4::IDENTITY);
         // Every primvar, in its context, with its indices and role.
         let st = geo.attr(Context::Corner, ST).expect("st per corner");
         assert_eq!((st.indices.as_ref().map(|i| i.len()), st.role), (Some(4), Role::TexCoord));
@@ -1315,10 +1330,10 @@ def Xform "set" {
 
     #[test]
     fn a_missing_file_is_an_error_and_loads_are_cached() {
-        assert!(load_cached("/nowhere/at/all.usda").is_err());
+        assert!(load_cached("/nowhere/at/all.usda", false).is_err());
         let path = write("cached.usda", &format!("#usda 1.0\ndef Mesh \"m\" {{\n{QUAD}}}\n"));
-        let a = load_cached(path.to_str().unwrap()).unwrap();
-        let b = load_cached(path.to_str().unwrap()).unwrap();
+        let a = load_cached(path.to_str().unwrap(), false).unwrap();
+        let b = load_cached(path.to_str().unwrap(), false).unwrap();
         assert!(Arc::ptr_eq(&a, &b));
     }
 

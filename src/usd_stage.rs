@@ -30,24 +30,24 @@ use crate::core::geo::{self, Attr, Column, Context, Geo, Kind, Role, Subdiv, Top
 use crate::types::{MeshData, Placement, Purpose};
 use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdLight, UsdMaterial, UsdMesh, UsdScene, UsdSkeleton};
 
-/// Read a composed stage. `layer` is the root layer (a `.usdz` is unpacked
-/// beforehand, so its textures are files on disk).
+/// Read a composed stage, as authored. `layer` is the root layer (a `.usdz`
+/// is unpacked beforehand, so its textures are files on disk).
 #[cfg(test)]
 pub fn read(layer: &Path) -> Result<UsdScene, String> {
-    read_phased(layer, |_| {})
+    read_phased(layer, false, |_| {})
 }
 
 /// Read a composed stage in two passes over one open stage: `boxes` is
 /// given the stage as boxes first (each mesh, curves or points as the box of
 /// its extent, no materials or authored values), then the whole of it is
-/// read and returned.
-pub fn read_phased(layer: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
+/// read and returned. `convert`: turned to Y-up and metres (see `scene_of`).
+pub fn read_phased(layer: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
     let start = std::time::Instant::now();
     let mut first = 0.0;
     let translated = xms_usd::translate_phased(layer, Default::default(), |b| {
         let _t = crate::timings::span("usd: the stage as boxes, for the Viewer");
         first = b.seconds;
-        boxes(scene_of(b, layer, true));
+        boxes(scene_of(b, layer, true, convert));
     })?;
     if crate::timings::on() {
         // The stage is opened once (openusd reads and composes the layers),
@@ -61,13 +61,15 @@ pub fn read_phased(layer: &Path, boxes: impl FnOnce(UsdScene)) -> Result<UsdScen
             eprintln!("[xms]     {w}");
         }
     }
-    Ok(scene_of(translated, layer, false))
+    Ok(scene_of(translated, layer, false, convert))
 }
 
 /// A translated stage as the program holds it: the hierarchy, and every
 /// mesh, curves and points with its geometry and placements. `boxes`: the
-/// translation was the first, boxes-only pass.
-fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool) -> UsdScene {
+/// translation was the first, boxes-only pass. `convert`: the stage turned
+/// to Y-up and scaled to metres by its `upAxis` and `metersPerUnit`; else
+/// as authored, as USD composes it and renderers read it.
+fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool, convert: bool) -> UsdScene {
     let _walk = crate::timings::span(if boxes { "usd: boxes to geometry" } else { "usd: prims to geometry and mesh views" });
     let sc = &translated.scene;
     let info = &sc.info;
@@ -78,13 +80,15 @@ fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool) -> UsdSc
         default_prim: info.default_prim.clone(),
         // The scene layer does not carry timeCodesPerSecond yet.
         time: info.time_range.map(|(start, end)| (start, end, 24.0)),
+        converted: convert,
         ..Default::default()
     };
 
-    // To Y-up, and to metres when the stage says what its unit is.
+    // When asked: to Y-up, and to metres when the stage says what its unit
+    // is. The geometry stays as authored; this is in the placements.
     let mut root = DMat4::IDENTITY;
-    if info.z_up { root = DMat4::from_rotation_x(-std::f64::consts::FRAC_PI_2); }
-    if let Some(unit) = info.meters_per_unit {
+    if convert && info.z_up { root = DMat4::from_rotation_x(-std::f64::consts::FRAC_PI_2); }
+    if let Some(unit) = info.meters_per_unit.filter(|_| convert) {
         if unit > 0.0 && (unit - 1.0).abs() > 1e-9 { root *= DMat4::from_scale(DVec3::splat(unit)); }
     }
 

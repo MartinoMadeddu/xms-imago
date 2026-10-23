@@ -772,7 +772,9 @@ fn the_instancer_is_for_object_graphs_and_wants_positions_and_paths() {
     };
     let (err, inst) = make(Context::Object, SCATTER_POSITIONS, false);
     assert_eq!(err, Some(inst), "positions are not prototypes");
-    assert_eq!(make(Context::Object, SCATTER_SAMPLES, true).0, Some(inst), "samples are not positions");
+    // Each graph's own Instancer: with Get Reference added, it is one node further on.
+    let (err, inst) = make(Context::Object, SCATTER_SAMPLES, true);
+    assert_eq!(err, Some(inst), "samples are not positions");
     assert!(make(Context::Object, SCATTER_POSITIONS, true).0.is_none());
 }
 
