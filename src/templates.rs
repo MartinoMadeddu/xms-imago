@@ -1229,7 +1229,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
     let cube = g.add_node("Cube".into(), NodeType::cube(2.0), p(40.0, 20.0));
     let dense = g.add_node("Subdivide".into(), edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()), p(40.0, 130.0));
     let sphere = g.add_node("Sphere".into(), NodeType::CreateSphere { radius: 1.0, segments: 32, location: "/target/sphere".into() }, p(300.0, 20.0));
-    let squash = g.add_node("Squash".into(), transform([0.0; 3], [0.0, 0.0, 20.0], [1.6, 0.7, 1.1]), p(300.0, 130.0));
+    let squash = g.add_node("Squash".into(), transform([0.0; 3], [0.0, 0.0, 20f32.to_radians()], [1.6, 0.7, 1.1]), p(300.0, 130.0));
     let wrap = g.add_node("ShrinkWrap".into(), NodeType::Ice { id, name: "ShrinkWrap".into(), references: 1 }, p(160.0, 250.0));
     g.add_connection(cube, 0, dense, 0);
     g.add_connection(sphere, 0, squash, 0);

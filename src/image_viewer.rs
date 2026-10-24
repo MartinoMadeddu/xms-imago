@@ -424,8 +424,10 @@ mod tests {
         assert!(line.starts_with("husk -R HdArnoldRendererPlugin -s \"/Render/Settings\" -c \"/shot/cam2\" -f 1"), "{line}");
         let line = line_for(kick, &arnold, "", 3, Path::new("o.exr"), Path::new("l.usda"));
         assert_eq!(line, "kick -i \"l.usda\" -frame 3 -c \"/cam\" -o \"o.exr\" -dw -dp -v 2", "the settings' camera when none is chosen");
-        let line = line_for("/opt/my/render $USD $F4 > $HOME/log", &arnold, "", 7, Path::new("o.exr"), Path::new("l.usda"));
-        assert_eq!(line, "/opt/my/render l.usda 0007 > $HOME/log", "a custom line");
+        // A name set nowhere is left for the shell; the environment's own
+        // (`$HOME`) are put in by Imago (see `core::vars`).
+        let line = line_for("/opt/my/render $USD $F4 > $XMS_NOT_SET_ANYWHERE/log", &arnold, "", 7, Path::new("o.exr"), Path::new("l.usda"));
+        assert_eq!(line, "/opt/my/render l.usda 0007 > $XMS_NOT_SET_ANYWHERE/log", "a custom line");
     }
 
     /// husk's snapshots, beside the image as `_part` (an older husk line),
