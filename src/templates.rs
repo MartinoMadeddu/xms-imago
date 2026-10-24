@@ -1676,10 +1676,12 @@ mod tests {
             // Twice: a template has to replace whatever was there.
             (t.build)(&mut g, &mut store);
             let message = (t.build)(&mut g, &mut store);
-            // A template whose file is fetched when it opens, not fetched on
-            // this machine (a build machine has no network): nothing to cook.
-            let fetched_later = g.nodes.iter().any(|n| matches!(&n.node_type, NodeType::LoadUsd { path, .. } if !std::path::Path::new(path).exists()));
-            if t.name.contains("(download)") && fetched_later { continue; }
+            // A template whose example files are fetched on demand and are not
+            // on this machine (FBX or USD): nothing to cook, as the regression
+            // check skips it too.
+            let not_fetched: Vec<String> = crate::downloads::file_paths(&g).into_iter()
+                .filter(|f| !std::path::Path::new(f).is_file()).collect();
+            if !not_fetched.is_empty() && not_fetched.iter().all(|f| examples::downloadable(f).is_some()) { continue; }
             assert!(!message.is_empty() && !message.contains("not found"), "{}: {message}", t.name);
             // One operator viewed, and it is there.
             assert!(g.view_flag.is_some_and(|v| g.nodes.iter().any(|n| n.id == v)), "{}", t.name);
