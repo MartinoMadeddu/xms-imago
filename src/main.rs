@@ -389,23 +389,7 @@ pub(crate) fn draw_ui(
             uv_state: &mut *uv_state, history: &mut *history,
             confirm: &mut *confirm, graph_editor: &mut *graph_editor, image_viewer: &mut *image_viewer,
         };
-        let mut style = egui_dock::Style::from_egui(root.style());
-        style.tab_bar.fill_tab_bar = true;
-        // Tab titles: readable when idle, brightest on the tab in front.
-        style.tab.inactive.text_color = theme::c(223, 223, 223);
-        style.tab.hovered.text_color  = theme::c(250, 250, 250);
-        style.tab.active.text_color   = theme::c(250, 250, 250);
-        style.tab.focused.text_color  = theme::c(245, 245, 245);
-        // Light: tabs behind sit darker than the panel, the one in front is
-        // the lightest. egui_dock tints them towards the text-field colour,
-        // which in Light is near white and made them look in front. The
-        // dark schemes are right as they are.
-        if !theme::is_dark() {
-            let behind = theme::c(102, 102, 102);
-            style.tab.inactive.bg_fill = behind;
-            style.tab.inactive_with_kb_focus.bg_fill = behind;
-            style.tab.hovered.bg_fill = theme::c(110, 110, 110);
-        }
+        let style = theme::dock_style(root.style());
         layout.size_new_windows();
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             // What is left under the top bar.

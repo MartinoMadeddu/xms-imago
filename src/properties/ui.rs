@@ -301,27 +301,29 @@ pub fn draw_properties(
     });
     if node.name.chars().any(char::is_whitespace) { node.name = crate::node_graph::node_name(&node.name); }
 
-    ui.horizontal(|ui| {
-        if ui.selectable_label(tab == Tab::Parameters, "Parameters").clicked() { tab = Tab::Parameters; }
-        if takes {
-            let set = crate::core::locations::rows(&node.locations).count();
-            // Material Binding's rows are its bindings: a location and a material each.
-            let tab_name = if matches!(node.node_type, NodeType::MaterialBinding { .. }) { "Bindings" } else { "Prims Location" };
-            let label = if set == 0 { tab_name.to_string() } else { format!("{tab_name} ({set})") };
-            let r = ui.selectable_label(tab == Tab::Locations, label)
-                .on_hover_text("The primitives this operator works on. Drop prims from the Scene Explorer here");
-            if r.clicked() { tab = Tab::Locations; }
-            // A prim dragged from the Scene Explorer and dropped on the tab.
-            if let Some(p) = r.dnd_release_payload::<crate::types::DraggedPrims>() {
+    {
+        // Parameters, Prims Location for those that take it, Graph Variables.
+        let set = crate::core::locations::rows(&node.locations).count();
+        // Material Binding's rows are its bindings: a location and a material each.
+        let tab_name = if matches!(node.node_type, NodeType::MaterialBinding { .. }) { "Bindings" } else { "Prims Location" };
+        let located_label = if set == 0 { tab_name.to_string() } else { format!("{tab_name} ({set})") };
+        let n = above_rows.len();
+        let vars_label = if n == 0 { "Graph Variables".to_string() } else { format!("Graph Variables ({n})") };
+        let mut shown: Vec<(Tab, &str, Option<&str>)> = vec![(Tab::Parameters, "Parameters", None)];
+        if takes { shown.push((Tab::Locations, located_label.as_str(), Some("The primitives this operator works on. Drop prims from the Scene Explorer here"))); }
+        shown.push((Tab::Variables, vars_label.as_str(), Some("The {name} variables that come down the wires to this operator, read in its fields")));
+        let labels: Vec<(&str, Option<&str>)> = shown.iter().map(|(_, l, h)| (*l, *h)).collect();
+        let mut open = shown.iter().position(|(t, _, _)| *t == tab).unwrap_or(0);
+        let responses = form::tabs(ui, ("parameters", sel_id.0), &labels, &mut open);
+        tab = shown[open].0;
+        // A prim dragged from the Scene Explorer and dropped on the tab.
+        if let Some(k) = shown.iter().position(|(t, _, _)| *t == Tab::Locations) {
+            if let Some(p) = responses[k].dnd_release_payload::<crate::types::DraggedPrims>() {
                 for path in &p.0 { add_location(&mut node.locations, path); }
                 tab = Tab::Locations;
             }
         }
-        let n = above_rows.len();
-        let label = if n == 0 { "Graph Variables".to_string() } else { format!("Graph Variables ({n})") };
-        if ui.selectable_label(tab == Tab::Variables, label)
-            .on_hover_text("The {name} variables that come down the wires to this operator, read in its fields").clicked() { tab = Tab::Variables; }
-    });
+    }
     ui.data_mut(|d| d.insert_temp(tab_id, tab));
     if tab == Tab::Variables {
         graph_variables_tab(ui, &above_rows, &own_rows);

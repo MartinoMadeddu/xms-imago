@@ -58,6 +58,12 @@ pub struct Scheme {
     /// `DARK_FIELD_BG` overrides it: see `dark_fields`.
     #[serde(default)]
     pub dark_fields: bool,
+    /// The Parameters pane's tabs drawn as 1995's were: bevelled, the open
+    /// one raised over the others. Off: drawn as the panes' tabs. Off in
+    /// every preset; a switch, as `dark_fields`: kept by Reset and by
+    /// choosing a preset, never an edit.
+    #[serde(default)]
+    pub tabs_1995: bool,
 }
 
 /// Text weight at which `text_gamma` is 1.3: the Light preset's.
@@ -73,17 +79,20 @@ impl Scheme {
     pub const fn preset(preset: Preset) -> Scheme {
         match preset {
             Preset::Light => Scheme { preset, low: [112, 112, 110], high: [206, 206, 202], text: [10, 10, 10],
-                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT, dark_fields: true },
+                                      dim: [45, 45, 43], accent: [74, 112, 168], outline: [72, 72, 70], text_weight: TEXT_WEIGHT, dark_fields: true, tabs_1995: false },
             Preset::Dark  => Scheme { preset, low: [12, 12, 12], high: [64, 64, 64], text: [234, 234, 234],
-                                      dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96], text_weight: DARK_TEXT_WEIGHT, dark_fields: false },
+                                      dim: [182, 182, 182], accent: [60, 110, 170], outline: [96, 96, 96], text_weight: DARK_TEXT_WEIGHT, dark_fields: false, tabs_1995: false },
             Preset::Adhd  => Scheme { preset, low: [6, 12, 28], high: [36, 56, 96], text: [246, 238, 224],
-                                      dim: [170, 184, 210], accent: [255, 140, 40], outline: [80, 108, 160], text_weight: DARK_TEXT_WEIGHT, dark_fields: false },
+                                      dim: [170, 184, 210], accent: [255, 140, 40], outline: [80, 108, 160], text_weight: DARK_TEXT_WEIGHT, dark_fields: false, tabs_1995: false },
         }
     }
     /// Its colours or text weight differ from its preset's.
-    pub fn is_edited(&self) -> bool { Scheme { dark_fields: Scheme::preset(self.preset).dark_fields, ..*self } != Scheme::preset(self.preset) }
+    pub fn is_edited(&self) -> bool { Scheme { dark_fields: Scheme::preset(self.preset).dark_fields, tabs_1995: false, ..*self } != Scheme::preset(self.preset) }
     /// Its preset, keeping its dark fields setting.
-    fn reset(&self) -> Scheme { Scheme { dark_fields: self.dark_fields, ..Scheme::preset(self.preset) } }
+    fn reset(&self) -> Scheme { Scheme { dark_fields: self.dark_fields, tabs_1995: self.tabs_1995, ..Scheme::preset(self.preset) } }
+
+    /// Preset `p`, keeping this scheme's tabs.
+    fn with_preset(&self, p: Preset) -> Scheme { Scheme { tabs_1995: self.tabs_1995, ..Scheme::preset(p) } }
     /// A text weight not set in the file becomes the preset's.
     fn settled(mut self) -> Scheme {
         if self.text_weight > 100 { self.text_weight = Scheme::preset(self.preset).text_weight; }
@@ -118,6 +127,32 @@ pub fn dark_fields_env() -> Option<bool> {
     })
 }
 
+/// The Parameters pane's tabs drawn as 1995's (the colour editor's box).
+pub fn tabs_1995() -> bool { scheme().tabs_1995 }
+
+/// The panes' tab bars as Imago draws them, from egui's style: the
+/// Parameters pane's own tabs take the same look.
+pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
+    let mut style = egui_dock::Style::from_egui(style);
+    style.tab_bar.fill_tab_bar = true;
+    // Tab titles: readable when idle, brightest on the tab in front.
+    style.tab.inactive.text_color = c(223, 223, 223);
+    style.tab.hovered.text_color  = c(250, 250, 250);
+    style.tab.active.text_color   = c(250, 250, 250);
+    style.tab.focused.text_color  = c(245, 245, 245);
+    // Light: tabs behind sit darker than the panel, the one in front is
+    // the lightest. egui_dock tints them towards the text-field colour,
+    // which in Light is near white and made them look in front. The
+    // dark schemes are right as they are.
+    if !is_dark() {
+        let behind = c(102, 102, 102);
+        style.tab.inactive.bg_fill = behind;
+        style.tab.inactive_with_kb_focus.bg_fill = behind;
+        style.tab.hovered.bg_fill = c(110, 110, 110);
+    }
+    style
+}
+
 /// Fields you type in drawn dark grey with light text: `DARK_FIELD_BG` if
 /// set, else the colour editor's "Dark fields" box (off by default).
 pub fn dark_fields() -> bool { dark_fields_env().unwrap_or(scheme().dark_fields) }
@@ -131,7 +166,7 @@ pub fn viewport_bg() -> [u8; 3] {
 /// The Light scheme of earlier versions (dark greys, white text), as saved
 /// by them: read back as today's Light.
 const OLD_LIGHT: Scheme = Scheme { preset: Preset::Light, low: [40, 40, 40], high: [150, 150, 150], text: [230, 230, 230],
-                                   dim: [190, 190, 190], accent: [100, 130, 160], outline: [70, 70, 70], text_weight: TEXT_WEIGHT, dark_fields: false };
+                                   dim: [190, 190, 190], accent: [100, 130, 160], outline: [70, 70, 70], text_weight: TEXT_WEIGHT, dark_fields: false, tabs_1995: false };
 
 fn store(s: Scheme) {
     *SCHEME.write().unwrap_or_else(|e| e.into_inner()) = s;
@@ -378,7 +413,7 @@ pub fn menu(ui: &mut egui::Ui) {
     for p in Preset::ALL {
         let label = if now.preset == p && now.is_edited() { format!("{} (edited)", p.label()) } else { p.label().to_string() };
         if ui.radio(now.preset == p, label).on_hover_text(p.hint()).clicked() {
-            if now.preset != p { set_scheme(ui.ctx(), Scheme::preset(p)); }
+            if now.preset != p { set_scheme(ui.ctx(), now.with_preset(p)); }
             ui.close();
         }
     }
@@ -400,7 +435,7 @@ pub fn editor(ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.label("Start from:");
             for p in Preset::ALL {
-                if ui.selectable_label(s.preset == p, p.label()).on_hover_text(p.hint()).clicked() { s = Scheme::preset(p); }
+                if ui.selectable_label(s.preset == p, p.label()).on_hover_text(p.hint()).clicked() { s = s.with_preset(p); }
             }
         });
         ui.separator();
@@ -432,6 +467,10 @@ pub fn editor(ctx: &egui::Context) {
                 None => { ui.checkbox(&mut s.dark_fields, ""); }
             }
             ui.label(egui::RichText::new("text and number fields dark grey, light text").small());
+            ui.end_row();
+            ui.label("1995 tabs");
+            ui.checkbox(&mut s.tabs_1995, "");
+            ui.label(egui::RichText::new("the Parameters pane's tabs bevelled, the open one raised; off: as the panes' tabs").small());
             ui.end_row();
         });
         ui.separator();
@@ -495,6 +534,19 @@ mod tests {
         assert!(!Scheme { dark_fields: false, ..Scheme::preset(Preset::Light) }.is_edited(), "turned off: still the preset");
         let edited = Scheme { text_weight: 20, ..on };
         assert!(edited.is_edited() && edited.reset().dark_fields && !edited.reset().is_edited());
+    }
+
+    /// 1995 tabs: off in every preset and in files saved without it; a
+    /// switch kept by Reset and by choosing a preset, never an edit.
+    #[test]
+    fn tabs_1995_are_a_switch() {
+        assert!(Preset::ALL.iter().all(|p| !Scheme::preset(*p).tabs_1995));
+        let old = r#"{"preset":"Dark","low":[12,12,12],"high":[64,64,64],"text":[234,234,234],"dim":[182,182,182],"accent":[60,110,170],"outline":[96,96,96],"text_weight":80}"#;
+        assert!(!serde_json::from_str::<Scheme>(old).unwrap().tabs_1995);
+        let on = Scheme { tabs_1995: true, ..Scheme::preset(Preset::Light) };
+        assert!(!on.is_edited());
+        assert!(Scheme { text_weight: 20, ..on }.reset().tabs_1995);
+        assert!(on.with_preset(Preset::Adhd).tabs_1995);
     }
 
     /// Light starts at 50, the dark presets at 80; a heavier weight gives a
