@@ -272,12 +272,54 @@ fn field_look(ui: &mut egui::Ui) {
     v.widgets.noninteractive.fg_stroke.color = ink::FIELD_TEXT();
 }
 
-/// Tabs over a panel, drawn as index-card tabs: the open one raised, in
-/// front of the others and joined to the page below it, with a blue band
-/// along its top; the others set back behind it, lighter under the pointer.
-/// Each tab is its label and an optional tooltip. A click opens a tab
-/// (`open`); the responses are returned for drops on a tab.
+/// Tabs over a panel. Each tab is its label and an optional tooltip; a
+/// click opens one (`open`), and the responses are returned for drops on
+/// a tab. Drawn as the panes' tabs (`theme::dock_style`): side by side
+/// across the width, the open one joined to the page; or, with the colour
+/// editor's "1995 tabs", as index-card tabs (`tabs_1995`).
 pub fn tabs(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
+    if crate::theme::tabs_1995() { tabs_1995(ui, id, labels, open) } else { pane_tabs(ui, id, labels, open) }
+}
+
+/// `tabs` as the panes' tab bars draw theirs: the same colours, outline,
+/// height and text, sharing the width, a line under those not open.
+fn pane_tabs(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
+    use egui::{pos2, vec2, Rect, Sense, Stroke, StrokeKind, TextStyle, WidgetText};
+    let dock = crate::theme::dock_style(ui.style());
+    let id = ui.id().with(("form_tabs", id));
+    let h = dock.tab_bar.height;
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let w = bar.width() / labels.len().max(1) as f32;
+    let rects: Vec<Rect> = (0..labels.len()).map(|k| Rect::from_min_size(pos2(bar.left() + k as f32 * w, bar.top()), vec2(w, h))).collect();
+    let responses: Vec<egui::Response> = rects.iter().enumerate().map(|(k, r)| {
+        let r = ui.interact(*r, id.with(k), Sense::click());
+        match labels[k].1 { Some(h) => r.on_hover_text(h), None => r }
+    }).collect();
+    if let Some(k) = responses.iter().position(|r| r.clicked()) { *open = k; }
+    let painter = ui.painter_at(bar);
+    let px = ui.ctx().pixels_per_point().recip();
+    for (k, r) in rects.iter().enumerate() {
+        let opened = k == *open;
+        let st = if opened { &dock.tab.active } else if responses[k].hovered() { &dock.tab.hovered } else { &dock.tab.inactive };
+        painter.rect_filled(*r, st.corner_radius, st.bg_fill);
+        painter.rect_stroke(*r, st.corner_radius, Stroke::new(1.0, st.outline_color), StrokeKind::Inside);
+        if opened {
+            // Joined to the page under it.
+            painter.hline((r.left() + 1.5)..=(r.right() - 1.5), r.bottom() - 0.5, Stroke::new(2.0, st.bg_fill));
+        } else {
+            painter.hline(r.x_range(), bar.bottom() - px, Stroke::new(px, dock.tab_bar.hline_color));
+        }
+        let g = WidgetText::from(labels[k].0).into_galley(ui, None, f32::INFINITY, TextStyle::Button);
+        painter.galley_with_override_text_color(r.center() - g.size() / 2.0, g, st.text_color);
+    }
+    ui.add_space(4.0);
+    responses
+}
+
+/// `tabs` as index-card tabs: the open one raised, in front of the others
+/// and joined to the page below it, with a blue band along its top; the
+/// others set back behind it, lighter under the pointer.
+fn tabs_1995(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
     use egui::{pos2, vec2, Color32, CornerRadius, FontId, Rect, Sense, Stroke};
     const PAD: f32 = 10.0;   // text to the tab's sides
     const H: f32 = 22.0;     // the open tab's height

@@ -377,8 +377,9 @@ The Theme menu in the top bar has three schemes. The choice is kept.
 | Outline | Node borders, window edges |
 | Text weight | How heavy all text is drawn |
 | Dark fields | Fields you type in, in the Parameters pane, dark grey with light text. On in the Light preset, off in Dark and ADHD |
+| 1995 tabs | The Parameters pane's tabs drawn as index-card tabs, bevelled, the open one raised over the others. Off in every preset: off, they look like the panes' tabs |
 
-Dark fields is a switch, not a colour: choosing a preset takes that preset's (on for Light, off for Dark and ADHD), and Reset keeps it as it is. The environment variable `DARK_FIELD_BG` overrides it for a run: `DARK_FIELD_BG=1` turns it on, `DARK_FIELD_BG=0` off (the box is then greyed out, showing which). Unset, the box decides.
+Dark fields is a switch, not a colour: choosing a preset takes that preset's (on for Light, off for Dark and ADHD), and Reset keeps it as it is. The environment variable `DARK_FIELD_BG` overrides it for a run: `DARK_FIELD_BG=1` turns it on, `DARK_FIELD_BG=0` off (the box is then greyed out, showing which). Unset, the box decides. 1995 tabs is a switch too, kept by Reset and when another preset is chosen.
 
 Changes show at once and are saved as you edit, in `theme.json` in the config folder. "Start from" loads a preset, "Reset" undoes the edits to the current one. Colours that carry meaning (axes, wires, warnings) are the same in every scheme. The Viewer's background follows the scheme: mid grey in Light, dark grey in Dark and ADHD.
 
@@ -390,7 +391,7 @@ Text is drawn to look as it did before the move to eframe, on screens of ordinar
 
 What is selected shows in one blue everywhere: rows in the Scene Explorer and the Operator Stack, the ring around a selected node in the Node Graph and in ICE graphs, and in Light the box dragged to select nodes or Edit Poly components. The ring follows the zoom but stays between 3 and 6 pixels wide, so a selected node can be told apart however far the graph is zoomed out. In Light, the tabs behind sit darker than the panel and the tab in front is the lightest.
 
-The tabs inside the Parameters pane (Parameters, Prims Location, Graph Variables; Render Settings' Settings and AOVs; Render Command's Parameters and Console) are drawn as index-card tabs: the open one raised, in front of the others and joined to the page under it, with a bevel lit from the top left and a blue band along its top; the others set back behind it, a little darker, lighter under the pointer. The panes' own tabs stay as they are.
+The tabs inside the Parameters pane (Parameters, Prims Location, Graph Variables; Render Settings' Settings and AOVs; Render Command's Parameters and Console) look like the panes' tabs: side by side across the pane, the open one in the panel's colour and joined to the page under it, the others behind it. **1995 tabs**, in Window > Edit colours (off by default), draws them as index-card tabs instead: the open one raised, in front of the others, with a bevel lit from the top left and a blue band along its top; the others set back behind it, a little darker, lighter under the pointer.
 
 ### Menus
 
