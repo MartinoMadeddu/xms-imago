@@ -277,7 +277,7 @@ fn field_look(ui: &mut egui::Ui) {
 /// along its top; the others set back behind it, lighter under the pointer.
 /// Each tab is its label and an optional tooltip. A click opens a tab
 /// (`open`); the responses are returned for drops on a tab.
-pub fn tabs(ui: &mut egui::Ui, id: impl std::hash::Hash, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
+pub fn tabs(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
     use egui::{pos2, vec2, Color32, CornerRadius, FontId, Rect, Sense, Stroke};
     const PAD: f32 = 10.0;   // text to the tab's sides
     const H: f32 = 22.0;     // the open tab's height
