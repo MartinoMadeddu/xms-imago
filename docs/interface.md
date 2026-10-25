@@ -180,7 +180,7 @@ Wires, ports and selection work the same way in every graph: the scene graph, IC
 
 ### Set Variable: values for everything below
 
-**Set Variable** (Organise in the add menu) hands on what comes in, and gives every operator below it variables of its own: rows of a name and a value, read as `{name}` in their fields (`/shots/{shot}/render.usda`, `husk … # {variant}`). Names are letters, digits and `_`, read in lower case; a value can hold variables too, `$` built-ins and `{name}` from above (`{shot}_lgt`), and shows under its row what it comes to. A Set Variable further down with the same name wins below it. Bypassed, it gives nothing.
+**Set Variable** (Organise in the add menu) hands on what comes in, and gives every operator below it variables of its own: rows of a name and a value, read as `{name}` in their fields (`/shots/{shot}/render.usda`, `husk … # {variant}`). Names are letters, digits and `_`, read in lower case; a value can hold variables too: `$` built-ins, the rows before it and `{name}` from above (`{shot}_lgt`), and shows under its row what it comes to. A Set Variable further down with the same name wins below it. Bypassed, it gives nothing.
 
 Operators with no input (Load USD, the shapes) are above every Set Variable, so they cannot read one: choosing what is cooked above, a shot's assets for instance, is for context variables, which go the other way and come later.
 

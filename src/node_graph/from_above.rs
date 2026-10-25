@@ -130,10 +130,13 @@ fn publishes(node: &GraphNode, above: &[FromAbove]) -> Vec<FromAbove> {
         }
         NodeType::Camera { location, .. } => out.push(("camera".into(), put(location.as_str()))),
         NodeType::SetVariable { vars } => {
+            // A row reads the rows before it, then what comes from above.
             for v in vars {
                 let name = v.name.trim().to_lowercase();
                 if name.is_empty() || out.iter().any(|(n, _)| *n == name) { continue; }
-                out.push((name, put(v.value.as_str())));
+                let earlier: Vec<(&str, String)> = out.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+                let value = crate::core::vars::expand(v.value.trim(), &earlier);
+                out.push((name, value));
             }
         }
         _ => {}
@@ -172,7 +175,7 @@ mod tests {
         let at = |g: &NodeGraphState, id, name: &str| g.from_above(id).into_iter().find(|a| a.name == name).map(|a| (a.value, a.from));
         assert_eq!(at(&g, cube, "shot"), None, "nothing above the first");
         assert_eq!(at(&g, shot, "shot"), None, "its own are for below");
-        assert_eq!(at(&g, write, "seq"), Some(("sh010_a".into(), shot)), "names in lower case; a value reads what is above");
+        assert_eq!(at(&g, write, "seq"), Some(("sh010_a".into(), shot)), "names in lower case; a row reads the rows before it");
         assert_eq!(at(&g, over, "usd"), Some(("/out/sh010.usda".into(), write)), "the writer's path reads what comes to it");
         assert_eq!(at(&g, run, "shot"), Some(("sh020".into(), over)), "the nearest wins");
         assert_eq!(at(&g, run, "usd"), Some(("/out/sh010.usda".into(), write)), "and the rest goes on");

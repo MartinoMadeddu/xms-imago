@@ -947,9 +947,11 @@ pub fn draw_properties(
 /// Set Variable: its rows, a name and a value each, for every operator
 /// below it as `{name}`.
 fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variable>) {
-    group(ui, "Variables", Some("Written {name} in the fields of every operator below this one, along the wires: the nearest wins. A value can hold variables, $ built-ins and {name} from above"), |f| {
+    group(ui, "Variables", Some("Written {name} in the fields of every operator below this one, along the wires: the nearest wins. A value can hold variables: $ built-ins, the rows before it, and {name} from above"), |f| {
         let mut remove = None;
         let names: Vec<String> = vars.iter().map(|v| v.name.trim().to_lowercase()).collect();
+        // A row reads the rows before it: their names and values.
+        let mut earlier: Vec<(String, String)> = vec![];
         for (k, v) in vars.iter_mut().enumerate() {
             f.row(&format!("Variable {}", k + 1), None, |ui| {
                 ui.horizontal(|ui| {
@@ -968,8 +970,10 @@ fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variab
                 } else if names.iter().take(k).any(|n| *n == name.to_lowercase()) {
                     f.status(Status::Bad, "a variable above has this name: the first is used");
                 } else {
-                    let shown = crate::core::vars::expand(v.value.trim(), &[]);
+                    let before: Vec<(&str, String)> = earlier.iter().map(|(n, v)| (n.as_str(), v.clone())).collect();
+                    let shown = crate::core::vars::expand(v.value.trim(), &before);
                     f.status(Status::Info, format!("{{{}}} → {shown}", name.to_lowercase()));
+                    earlier.push((name.to_lowercase(), shown));
                 }
             }
         }
