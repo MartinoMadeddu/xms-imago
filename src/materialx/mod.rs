@@ -50,7 +50,7 @@ pub mod saved {
 /// when no string has one.
 pub fn with_variables_put_in(graph: &Graph) -> std::borrow::Cow<'_, Graph> {
     use xms_matx::{Binding, Value};
-    let has = graph.nodes.iter().any(|n| n.inputs.iter().any(|(_, b)| matches!(b, Binding::Value(Value::String(s)) if s.contains('$'))));
+    let has = graph.nodes.iter().any(|n| n.inputs.iter().any(|(_, b)| matches!(b, Binding::Value(Value::String(s)) if crate::core::vars::has_vars(s))));
     if !has { return std::borrow::Cow::Borrowed(graph); }
     let mut g = graph.clone();
     for n in &mut g.nodes {

@@ -103,7 +103,7 @@ pub fn set_attributes(input: &EvalResult, rows: &[SetRow], locations: &[String])
     let EvalResult::Named(prims) = input else { return input.clone() };
     // Names and text with their variables put in (`$OPNAME`, `$JOB/…`).
     let put: Vec<SetRow> = rows.iter().map(|r| SetRow {
-        name: if r.name.contains('$') { crate::core::vars::expand(&r.name, &[]) } else { r.name.clone() },
+        name: if crate::core::vars::has_vars(&r.name) { crate::core::vars::expand(&r.name, &[]) } else { r.name.clone() },
         value: r.value.with_variables_put_in(false),
         ..r.clone()
     }).collect();

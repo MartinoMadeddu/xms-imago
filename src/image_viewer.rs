@@ -297,6 +297,9 @@ fn settings_window(ctx: &egui::Context, st: &mut ImageViewerState, graph: &NodeG
             let tokens = VIEWER_TOKENS.iter().map(|(t, what)| format!("{t}  {what}")).collect::<Vec<_>>().join("\n");
             let r = ui.add(egui::TextEdit::multiline(st.line()).code_editor().desired_rows(3).desired_width(420.0))
                 .on_hover_text(format!("Run through the system's shell, in the render folder. Its own variables, in braces, and the built-ins:\n{tokens}\n\nType {{ or $ for the list"));
+            // `{name}` as it leaves the node viewed (a Set Variable's `{shot}`),
+            // for the list on `{` and the line under it.
+            let _above = graph.reading_out_of(graph.view_flag, "ImageViewer");
             // Its own first: what they stand for, given when it renders.
             let locals: Vec<(&str, &str, String)> = VIEWER_TOKENS.iter().filter(|(t, _)| t.starts_with('{'))
                 .map(|(t, what)| (t.trim_start_matches('{').trim_end_matches('}'), *what, String::new())).collect();
@@ -336,7 +339,8 @@ fn start(st: &mut ImageViewerState, graph: &NodeGraphState, subnets: &crate::ice
     let image = dir.join(format!("render.{frame:04}.exr"));
     let _ = std::fs::remove_file(&image);
     let _ = std::fs::remove_file(part_of(&image));
-    let line = line_for(&st.line().clone(), settings, &st.camera, frame, &image, &layer);
+    // Its own first, then `{name}` as it comes down to the node viewed.
+    let line = { let _o = graph.reading_out_of(graph.view_flag, "ImageViewer"); line_for(&st.line().clone(), settings, &st.camera, frame, &image, &layer) };
     command::start(RUN_KEY, vec![line], Some(dir), vec![]);
     // What comes in is shown, whatever snapshot was.
     st.view.show_active();

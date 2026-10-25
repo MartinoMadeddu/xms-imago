@@ -181,8 +181,14 @@ pub fn draw_properties(
         ui.colored_label(ink::DIM(), "Select a node to see its parameters.");
         return;
     };
-    // `$OPNAME` in what its panel shows (a path's → line, Found) is its name.
-    let _operator = graph.nodes.iter().find(|n| n.id == sel_id).map(|n| crate::core::vars::operator(&n.name));
+    // `$OPNAME` in what its panel shows (a path's → line, Found) is its
+    // name; `{name}` what comes down the wires to it.
+    let _operator = graph.operator(sel_id);
+    let from_above = graph.from_above(sel_id);
+    // The same, for the panel: name, value, the operator it is from.
+    let above_rows: Vec<(String, String, String)> = from_above.iter().map(|a| (
+        a.name.clone(), a.value.clone(), graph.nodes.iter().find(|n| n.id == a.from).map(|n| n.name.clone()).unwrap_or_default(),
+    )).collect();
 
     // Facts about the graph the parameter widgets need, gathered before the
     // node is borrowed for editing.
@@ -238,10 +244,8 @@ pub fn draw_properties(
     // and the scene's frames.
     let command_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommand { .. }) => super::render::CommandIn {
-            writer: graph.upstream_write_usd(sel_id).and_then(|w| graph.nodes.iter().find(|n| n.id == w)).and_then(|n| match &n.node_type {
-                NodeType::WriteUsd { path } => Some((n.name.clone(), crate::core::vars::expand_as(&n.name, path.trim()))),
-                _ => None,
-            }),
+            // `{usd}` as it comes down the wires, and who gave it.
+            writer: above_rows.iter().find(|a| a.0 == "usd").map(|a| (a.2.clone(), a.1.clone())),
             scene: (graph.scene.start, graph.scene.end),
         },
         _ => Default::default(),
@@ -917,8 +921,66 @@ pub fn draw_properties(
         NodeType::PassThrough => group(ui, "Pass Through", Some("Hands what comes in on to what follows, unchanged: for laying out a big graph. Rename it to say what passes through it"), |f| {
             f.status(Status::Info, "Nothing to set: what comes in goes out");
         }),
+        NodeType::SetVariable { vars } => set_variable_rows(ui, vars),
     }
+    from_above_rows(ui, &above_rows);
     if resync { graph.sync_sockets(sel_id); }
+}
+
+// ── Variables down the wires ─────────────────────────────────────────────────
+
+/// Set Variable: its rows, a name and a value each, for every operator
+/// below it as `{name}`.
+fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variable>) {
+    group(ui, "Variables", Some("Written {name} in the fields of every operator below this one, along the wires: the nearest wins. A value can hold variables, $ built-ins and {name} from above"), |f| {
+        let mut remove = None;
+        let names: Vec<String> = vars.iter().map(|v| v.name.trim().to_lowercase()).collect();
+        for (k, v) in vars.iter_mut().enumerate() {
+            f.row(&format!("Variable {}", k + 1), None, |ui| {
+                ui.horizontal(|ui| {
+                    let h = ui.spacing().interact_size.y;
+                    let w = ((ui.available_width() - 30.0 - ui.spacing().item_spacing.x) / 2.0).max(40.0);
+                    ui.field_sized([w, h], egui::TextEdit::singleline(&mut v.name).hint_text("name").font(egui::TextStyle::Monospace));
+                    let r = ui.field_sized([w, h], egui::TextEdit::singleline(&mut v.value).hint_text("value"));
+                    crate::variables::complete(ui, &r, &mut v.value, &[]);
+                    if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
+                });
+            });
+            let name = v.name.trim();
+            if !name.is_empty() {
+                if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    f.status(Status::Bad, "letters, digits and _ only");
+                } else if names.iter().take(k).any(|n| *n == name.to_lowercase()) {
+                    f.status(Status::Bad, "a variable above has this name: the first is used");
+                } else {
+                    let shown = crate::core::vars::expand(v.value.trim(), &[]);
+                    f.status(Status::Info, format!("{{{}}} → {shown}", name.to_lowercase()));
+                }
+            }
+        }
+        if let Some(k) = remove { vars.remove(k); }
+        f.buttons("Add", None, |ui| {
+            if ui.button("+ Variable").clicked() {
+                let n = (1..).map(|i| format!("var{i}")).find(|n| !names.contains(n)).unwrap_or_default();
+                vars.push(crate::core::vars::Variable::new(&n, ""));
+            }
+        });
+    });
+}
+
+/// What comes down the wires to the operator shown: `{name}`, its value,
+/// and the operator it is from, nearest first.
+fn from_above_rows(ui: &mut egui::Ui, rows: &[(String, String, String)]) {
+    if rows.is_empty() { return; }
+    group(ui, "From Above", Some("Variables the operators above publish, read as {name} in this operator's fields: Write USD's {usd}, Render Settings' {delegate}, a Set Variable's own. The nearest wins"), |f| {
+        for (name, value, from) in rows {
+            let shown = if value.is_empty() { "(empty)".to_string() } else { value.clone() };
+            let hint = format!("From {from}");
+            f.row(&format!("{{{name}}}"), Some(hint.as_str()), |ui| {
+                ui.add(egui::Label::new(egui::RichText::new(format!("{shown}   ← {from}")).color(ink::VALUE())).truncate());
+            });
+        }
+    });
 }
 
 // ── Characterize ──────────────────────────────────────────────────────────────

@@ -1622,6 +1622,11 @@ mod tests {
         let above = |n: NodeId| g.nodes.iter().find(|x| x.id == n).unwrap().inputs[0].connected_output.map(|(a, _)| a);
         assert_eq!((above(settings), above(write), above(render)), (Some(scene), Some(settings), Some(write)));
         assert_eq!(g.view_flag, Some(settings));
+        // What comes down to the render: the layer, from the writer; Karma's
+        // delegate, none.
+        let from = |name: &str| g.from_above(render).into_iter().find(|a| a.name == name).map(|a| (a.value, a.from));
+        assert_eq!(from("usd").map(|u| u.1), Some(write));
+        assert_eq!(from("delegate"), Some((String::new(), settings)));
         if examples::existing(examples::SKY_HDR).is_some() {
             let bytes = std::fs::read(examples::path(examples::SKY_HDR)).unwrap();
             assert!(bytes.starts_with(b"#?RADIANCE"));

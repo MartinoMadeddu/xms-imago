@@ -1,3 +1,4 @@
+pub mod from_above;
 pub mod keying;
 pub mod local;
 pub mod nodes;
@@ -407,7 +408,7 @@ impl NodeGraphState {
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }
-            | NodeType::RenderCommand { .. }
+            | NodeType::RenderCommand { .. } | NodeType::SetVariable { .. }
                 => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::MaterialBinding { inputs, .. } => (
                 std::iter::once(i("Scene")).chain((1..=(*inputs).max(1)).map(|k| InputSocket { name: format!("Material {k}"), connected_output: None })).collect(),
@@ -716,21 +717,6 @@ impl NodeGraphState {
         value
     }
 
-    /// The Write USD nearest above an operator (up its inputs, the first
-    /// first): the layer a Render Command renders.
-    pub fn upstream_write_usd(&self, id: NodeId) -> Option<NodeId> {
-        let mut queue: std::collections::VecDeque<NodeId> = self.nodes.iter().find(|n| n.id == id)?
-            .inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)).collect();
-        let mut seen = std::collections::HashSet::new();
-        while let Some(n) = queue.pop_front() {
-            if !seen.insert(n) { continue; }
-            let Some(node) = self.nodes.iter().find(|x| x.id == n) else { continue };
-            if matches!(node.node_type, NodeType::WriteUsd { .. }) && !node.bypassed { return Some(n); }
-            queue.extend(node.inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)));
-        }
-        None
-    }
-
     /// Freeze a node at its result now, or let it cook again.
     /// Freezing takes the results as they are now, where they are cooked;
     /// an output not cooked yet is taken the first time it is asked for.
@@ -860,8 +846,9 @@ impl NodeGraphState {
             return Some(h.finish());
         }
         if matches!(node.node_type, NodeType::Ice { .. }) { return None; }
-        // `$OPNAME` in its paths is its name.
-        let _operator = crate::core::vars::operator(&node.name);
+        // `$OPNAME` in its paths is its name; `{name}` what comes down to it
+        // (keyed through the inputs' keys).
+        let _operator = self.reading(node);
         // Operators that place things in time are keyed by what they cook.
         if !node.bypassed {
             if let Some(k) = self.time_key(node, output, depth) { return k; }
@@ -1011,8 +998,9 @@ impl NodeGraphState {
             .collect();
         // Its own time: from when its inputs are in.
         let started = std::time::Instant::now();
-        // `$OPNAME` in its text is its name while it cooks.
-        let _operator = crate::core::vars::operator(&node.name);
+        // `$OPNAME` in its text is its name while it cooks; `{name}` what
+        // comes down the wires to it.
+        let _operator = self.reading(node);
 
         let result = if node.bypassed {
             node.inputs.first()

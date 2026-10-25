@@ -75,7 +75,7 @@ Folders first, then the files the asking field takes (**All files** shows the re
 Paths and command lines can hold variables, put in when they are used. There are two kinds, written differently so they are told apart at a glance:
 
 - **`$NAME`, built in:** the same for every operator: the graph's file and folder, the project, the frames, the operator's name, the graph's own (File > Variables), then anything in the environment. `$GDIR/usd/$GNAME.usda`.
-- **`{name}`, an operator's own:** what one operator gives its own fields, in lower case: a Render Command's `{usd}`, the Image Viewer's `{image}` and `{camera}`, Write FBX's `{file}` and `{char}`. Read in that operator's fields only.
+- **`{name}`, down the wires:** what the operators above publish for every operator below them, along the wires, in lower case: Write USD's `{usd}`, Render Settings' `{delegate}`, a Set Variable's `{shot}`. An operator can also have its own, read in its fields only: the Image Viewer's `{image}`, Write FBX's `{file}` and `{char}`.
 
 | Built in | What it is |
 |---|---|
@@ -89,11 +89,20 @@ Paths and command lines can hold variables, put in when they are used. There are
 | `$ASSETS`, … | the graph's own, from File > Variables |
 | `$HOME`, … | anything set in the environment |
 
-| Operator | Its own |
+**Down the wires.** An operator publishes its `{name}`s on its output, and every operator below it reads them, all the way down. The nearest wins: an operator's own, then the one just above, then further up; of several inputs, the first input's first, as Merge orders them. A bypassed operator publishes nothing, and what comes in goes on. They are read from the operators' parameters, never by cooking, so a Render Command runs and a panel lists them without cooking the graph. An operator with no input (a shape, Load USD) has nothing above it. Its panel's **From Above** group lists what reaches it, each with the operator it is from.
+
+| Operator | Publishes for those below |
 |---|---|
-| Render Command | `{usd}`, the layer the Write USD above writes |
-| Image Viewer's render line | `{usd}`, `{image}`, `{settings}`, `{camera}`, `{delegate}` (an option whose value is empty is left out, flag and all) |
-| Write FBX | `{dir}` the source folder, `{file}` the source file, `{char}` the character, `{take}` the take |
+| Write USD | `{usd}`, the layer it writes |
+| Render Commons | `{settings}`, its RenderSettings prim; `{camera}`, when one is chosen |
+| Render Settings | `{renderer}` (`karma`, `arnold`, a custom name), `{delegate}` (husk's `-R`: `HdArnoldRendererPlugin` for Arnold, empty for Karma), and `{settings}` when none comes in |
+| Camera | `{camera}`, its Primitive Location |
+| Set Variable | its own rows: `{shot}`, `{variant}`, anything |
+
+| Operator | Its own, in its fields only |
+|---|---|
+| Image Viewer's render line | `{usd}`, `{image}`, `{settings}`, `{camera}`, `{delegate}`, its own render's (an option whose value is empty is left out, flag and all), then what leaves the node viewed |
+| Write FBX | `{dir}` the source folder, `{file}` the source file, `{char}` the character, `{take}` the take: they change with each clip it writes |
 
 `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is (`$1` for the shell, `{x}` for a program: JSON and `find -exec {}` are untouched). A built-in is never in braces (`{gname}` stays as typed), so the two kinds cannot be confused. Graphs and command lines written before braces (`$USD`, `$IMAGE`, `$CAMERA`, `$NAME`) still work. They work in:
 
@@ -104,7 +113,7 @@ Paths and command lines can hold variables, put in when they are used. There are
 
 A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
 
-**Typing `$`** in a path or a command line lists the variables it can take, with what each is now: the graph's own, the built-ins, and, once a letter is typed, the environment's that start with it. Click one to put it in (after `${` it gets its `}`). **Typing `{`** in an operator's line lists its own (a Render Command's `{usd}`, the Image Viewer's), and a click puts one in with its `}`.
+**Typing `$`** in a path or a command line lists the variables it can take, with what each is now: the graph's own, the built-ins, and, once a letter is typed, the environment's that start with it. Click one to put it in (after `${` it gets its `}`). **Typing `{`** in an operator's field lists its own and what comes down the wires to it, with their values, and a click puts one in with its `}`.
 
 **File > Variables** is one table of three columns, **Variable**, **Result** and **Description**, in two parts:
 
@@ -169,6 +178,12 @@ A new node is never left out of sight: the view moves just enough to show it. Te
 
 Wires, ports and selection work the same way in every graph: the scene graph, ICE graphs and MaterialX graphs (selecting and deleting a wire, unplugging a port with two clicks, box select; `src/graph_ports.rs`).
 
+### Set Variable: values for everything below
+
+**Set Variable** (Organise in the add menu) hands on what comes in, and gives every operator below it variables of its own: rows of a name and a value, read as `{name}` in their fields (`/shots/{shot}/render.usda`, `husk … # {variant}`). Names are letters, digits and `_`, read in lower case; a value can hold variables too, `$` built-ins and `{name}` from above (`{shot}_lgt`), and shows under its row what it comes to. A Set Variable further down with the same name wins below it. Bypassed, it gives nothing.
+
+Operators with no input (Load USD, the shapes) are above every Set Variable, so they cannot read one: choosing what is cooked above, a shot's assets for instance, is for context variables, which go the other way and come later.
+
 ### Pass Through: organising a big graph
 
 **Pass Through** (Organise in the add menu) hands on what comes into its one input, unchanged: geometry, a clip, a material. It does nothing else, so it is free to put anywhere: a point to branch from, a named place to gather a long wire, a step that labels a part of the graph. It is drawn narrower than an operator, with square corners and no icon, so it reads as part of the layout rather than as a step that changes the scene. It can be bypassed, viewed, frozen and ghosted like any node.
@@ -189,7 +204,7 @@ A node with a graph inside, the ICE node and the MaterialX operator, always wear
 |---|---|
 | Create | Cube, Sphere, Grid, Camera, Test Clip |
 | Placeholder | Placeholder |
-| Organise | Pass Through |
+| Organise | Set Variable, Pass Through |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |

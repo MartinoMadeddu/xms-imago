@@ -205,7 +205,7 @@ impl<'a> Rows<'a> {
             crate::variables::complete(ui, &r, v, &[]);
             r
         });
-        if v.contains('$') {
+        if v.contains('$') || v.contains('{') {
             let shown = if keep_frames { crate::core::vars::expand_keeping_frames(v.trim()) } else { crate::core::vars::expand(v.trim(), &[]) };
             if !shown.is_empty() && shown != v.trim() { self.status(Status::Info, format!("→ {shown}")); }
         }

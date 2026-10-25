@@ -108,9 +108,9 @@ impl Value {
     pub fn with_variables_put_in(&self, keep_frames: bool) -> Value {
         let put = |s: &str| if keep_frames { crate::core::vars::expand_keeping_frames(s) } else { crate::core::vars::expand(s, &[]) };
         match self {
-            Value::String(s) if s.contains('$') => Value::String(put(s)),
-            Value::Token(s) if s.contains('$') => Value::Token(put(s)),
-            Value::Asset(s) if s.contains('$') => Value::Asset(put(s.trim())),
+            Value::String(s) if crate::core::vars::has_vars(s) => Value::String(put(s)),
+            Value::Token(s) if crate::core::vars::has_vars(s) => Value::Token(put(s)),
+            Value::Asset(s) if crate::core::vars::has_vars(s) => Value::Asset(put(s.trim())),
             v => v.clone(),
         }
     }

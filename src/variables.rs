@@ -121,8 +121,9 @@ fn section(ui: &mut egui::Ui, title: &str, about: &str) {
 /// typed in it (`$`, `$GD`, `${F`; `{`, `{us`), the variables it can take,
 /// with their values, below it; a click puts the name in. After `$`: the
 /// graph's own, the built-ins, the environment's. After `{`: `locals`, the
-/// operator's own (name in lower case, what it is, value). Returns whether
-/// `text` changed.
+/// operator's own (name in lower case, what it is, value), then what comes
+/// down the wires to it (`vars::from_above`). Returns whether `text`
+/// changed.
 pub fn complete(ui: &egui::Ui, r: &egui::Response, text: &mut String, locals: &[(&str, &str, String)]) -> bool {
     let ctx = ui.ctx().clone();
     let popup = r.id.with("variables_list");
@@ -141,13 +142,20 @@ pub fn complete(ui: &egui::Ui, r: &egui::Response, text: &mut String, locals: &[
     let start = chars[..cursor].iter().rposition(|c| !(c.is_ascii_alphanumeric() || *c == '_')).map_or(0, |k| k + 1);
     let opened = start >= 1 && chars[start - 1] == '{';
     let brace = opened && start >= 2 && chars[start - 2] == '$';
-    let own = opened && !brace && !locals.is_empty();
+    // Its own, then what comes down the wires that it does not give.
+    let mut braces: Vec<(String, String, String)> = locals.iter().map(|(n, what, v)| (n.to_string(), v.clone(), what.to_string())).collect();
+    if opened && !brace {
+        for (n, v) in vars::from_above() {
+            if !braces.iter().any(|b| b.0 == n) { braces.push((n, v, "from above".into())); }
+        }
+    }
+    let own = opened && !brace && !braces.is_empty();
     let dollar = !opened && start >= 1 && chars[start - 1] == '$' && !(start >= 2 && chars[start - 2] == '$');
     if !brace && !dollar && !own { if kept.is_some() { close(&ctx); } return false; }
     let typed: String = chars[start..cursor].iter().collect();
     let low = typed.to_lowercase();
     let mut rows: Vec<(String, String, String)> = if own {
-        locals.iter().filter(|(n, _, _)| n.starts_with(&low)).map(|(n, what, v)| (n.to_string(), v.clone(), what.to_string())).collect()
+        braces.into_iter().filter(|(n, _, _)| n.starts_with(&low)).collect()
     } else {
         vars::available(&[]).into_iter().filter(|(n, _, _)| n.to_lowercase().starts_with(&low)).collect()
     };

@@ -65,7 +65,7 @@ impl PreviewSurface {
     /// The surface with its texture files' variables put in, as the
     /// Material operator cooks: `$JOB/tex/wood.png`.
     pub fn with_variables_put_in(&self) -> PreviewSurface {
-        if !self.textures.values().any(|f| f.contains('$')) { return self.clone(); }
+        if !self.textures.values().any(|f| crate::core::vars::has_vars(f)) { return self.clone(); }
         PreviewSurface { textures: self.textures.iter().map(|(k, f)| (k.clone(), crate::core::vars::expand(f.trim(), &[]))).collect(), ..self.clone() }
     }
 

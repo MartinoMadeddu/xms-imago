@@ -95,7 +95,7 @@ fn write_once(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progr
         let line = match graph.eval_anim(*id) {
             None => Err(format!("{}: no clip reaches this node", node.name)),
             Some(clip) => {
-                let out = { let _o = crate::core::vars::operator(&node.name); resolve_path(path, &clip) };
+                let out = { let _o = graph.operator(node.id); resolve_path(path, &clip) };
                 match write_fbx(&out, &clip, true, *mesh) {
                     Ok(s) => Ok(format!(
                         "{}  ({} joints, {}{})",
@@ -158,7 +158,7 @@ pub fn existing_outputs(graph: &NodeGraphState, targets: &[NodeId], all_files: b
     for id in targets {
         let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else { continue };
         let NodeType::WriteFbx { path, .. } = &node.node_type else { continue };
-        if let Some(clip) = graph.eval_anim(*id) { let _o = crate::core::vars::operator(&node.name); paths.push(resolve_path(path, &clip)); }
+        if let Some(clip) = graph.eval_anim(*id) { let _o = graph.operator(node.id); paths.push(resolve_path(path, &clip)); }
     }
     let many = all_files && !upstream_folder_loaders(graph, targets).is_empty();
     if !many {

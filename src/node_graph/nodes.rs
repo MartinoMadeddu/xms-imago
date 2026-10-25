@@ -78,6 +78,9 @@ pub fn evaluate_node_type(
         NodeType::RenderVariables { vars } => Some(crate::core::render::render_variables(inputs.first(), vars)),
         // Runs when asked, from its panel: on cook, what comes in goes on.
         NodeType::RenderCommand { .. } => inputs.first().cloned(),
+        // Its variables go down the wires, read from its parameters: on
+        // cook, what comes in goes on.
+        NodeType::SetVariable { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::set_attribute::set_attributes(r, rows, &[])),
 

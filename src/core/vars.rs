@@ -8,9 +8,11 @@
 //!   the render's), then the graph's own (File > Variables, saved with it;
 //!   a value can hold variables too: `ASSETS` = `$JOB/assets`), then the
 //!   environment (`$HOME`). `GLOBALS_LIST` lists the built-ins.
-//! - **`{name}`, an operator's own:** what that operator gives its fields
-//!   (a Render Command's `{usd}`, the Image Viewer's `{image}`, Write FBX's
-//!   `{file}`), in lower case. Read nowhere else.
+//! - **`{name}`, an operator's own, and what comes down the wires:** what
+//!   an operator gives its own fields (Write FBX's `{file}`, the Image
+//!   Viewer's `{image}`), in lower case; then what the operators above it
+//!   publish, nearest first (Write USD's `{usd}`, Render Settings'
+//!   `{delegate}`, a Set Variable's own): see `operator_with`.
 //!
 //! In a list of variables given to `expand`, an operator's own have
 //! lower-case names, the built-ins it sets for its text upper-case ones
@@ -204,13 +206,24 @@ pub fn expand(text: &str, locals: &[(&str, String)]) -> String {
 /// text passed on to a renderer, which puts the frame in for each frame
 /// it renders (Render Settings' Output Image).
 pub fn expand_keeping_frames(text: &str) -> String {
-    if !text.contains('$') { return text.to_string(); }
+    if !has_vars(text) { return text.to_string(); }
     expand_in(text, &[], &globals(), 0, true)
 }
 
+/// An operator whose text is being read: its name (`$OPNAME`), and the
+/// `{name}` variables that come down the wires to it, nearest first (see
+/// `NodeGraphState::from_above`).
+struct Reading {
+    name:  String,
+    above: Vec<(String, String)>,
+}
+
+/// Whether text may hold variables: a `$` or a `{`.
+pub fn has_vars(text: &str) -> bool { text.contains('$') || text.contains('{') }
+
 thread_local! {
     /// The operators whose text is being read, innermost last.
-    static OPERATORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    static OPERATORS: std::cell::RefCell<Vec<Reading>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// While it lives, `$OPNAME` is `name`: taken while an operator cooks,
@@ -222,9 +235,25 @@ impl Drop for Operator {
 }
 
 /// `$OPNAME` is `name` until what this returns is dropped.
-pub fn operator(name: &str) -> Operator {
-    OPERATORS.with(|o| o.borrow_mut().push(name.to_string()));
+pub fn operator(name: &str) -> Operator { operator_with(name, vec![]) }
+
+/// `$OPNAME` is `name`, and `{name}` reads `above` (name in lower case,
+/// value; what comes down the wires to it), until what this returns is
+/// dropped. An operator's own, given to `expand`, come before `above`.
+pub fn operator_with(name: &str, above: Vec<(String, String)>) -> Operator {
+    OPERATORS.with(|o| o.borrow_mut().push(Reading { name: name.to_string(), above }));
     Operator(())
+}
+
+/// What comes down the wires to the operator whose text is being read:
+/// name, value. For the list on `{`.
+pub fn from_above() -> Vec<(String, String)> {
+    OPERATORS.with(|o| o.borrow().last().map(|r| r.above.clone()).unwrap_or_default())
+}
+
+/// `{name}` as it comes down the wires to the operator being read.
+fn above(name: &str) -> Option<String> {
+    OPERATORS.with(|o| o.borrow().last().and_then(|r| r.above.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone())))
 }
 
 /// `text` with its variables put in as operator `name`'s: `$OPNAME` is it.
@@ -234,7 +263,7 @@ pub fn expand_as(name: &str, text: &str) -> String {
 }
 
 /// The operator whose text is being read, if any.
-fn current_operator() -> Option<String> { OPERATORS.with(|o| o.borrow().last().cloned()) }
+fn current_operator() -> Option<String> { OPERATORS.with(|o| o.borrow().last().map(|r| r.name.clone())) }
 
 fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize, keep: bool) -> String {
     let chars: Vec<char> = text.chars().collect();
@@ -242,13 +271,14 @@ fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize, k
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        // `{name}`: an operator's own, else left as it is.
+        // `{name}`: an operator's own, else what comes down the wires to
+        // it, else left as it is.
         if c == '{' {
             let k = chars[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == '_').count();
             if k > 0 && chars.get(i + 1 + k) == Some(&'}') {
                 let name: String = chars[i + 1..i + 1 + k].iter().collect::<String>().to_lowercase();
-                if let Some((_, v)) = locals.iter().find(|(n, _)| *n == name) {
-                    out.push_str(v);
+                if let Some(v) = locals.iter().find(|(n, _)| *n == name).map(|(_, v)| v.clone()).or_else(|| above(&name)) {
+                    out.push_str(&v);
                     i += k + 2;
                     continue;
                 }
@@ -413,6 +443,24 @@ mod tests {
                 assert_eq!(expand("$OPNAME", &[("OPNAME", "Render".to_string())]), "Render", "a local comes first");
             }
             assert_eq!(expand_keeping_frames("$GDIR/render/$GNAME.$F4.exr ${F} $T $FEND"), "/shows/a/render/street_v001.$F4.exr ${F} $T 24");
+        });
+    }
+
+    /// `{name}` reads what comes down the wires to the operator being read,
+    /// after its own; `$` never does.
+    #[test]
+    fn from_above_after_its_own() {
+        with(shot(), || {
+            let _o = operator_with("Render", vec![("shot".into(), "sh010".into()), ("usd".into(), "/above.usda".into())]);
+            assert_eq!(expand("{shot}/{usd}", &[]), "sh010//above.usda");
+            assert_eq!(expand("{usd}", &[("usd", "/mine.usda".to_string())]), "/mine.usda", "its own first");
+            assert_eq!(expand("$XMS_NO_SHOT {nope}", &[]), "$XMS_NO_SHOT {nope}", "not from above: left");
+            assert_eq!(from_above().len(), 2);
+            {
+                let _inner = operator("Load");
+                assert_eq!(expand("{shot}", &[]), "{shot}", "only the innermost operator's");
+            }
+            assert_eq!(expand("$OPNAME {shot}", &[]), "Render sh010");
         });
     }
 

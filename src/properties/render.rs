@@ -473,11 +473,11 @@ pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: No
 fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: NodeId, name: &str, input: &CommandIn) {
     use crate::core::command;
     let usd = input.writer.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
-    group(ui, "Scene", Some("What {usd} is: the layer the Write USD above this operator writes"), |f| {
+    group(ui, "Scene", Some("What {usd} is: the layer the Write USD above this operator writes, as it comes down the wires"), |f| {
         match &input.writer {
-            Some((w, p)) if !p.is_empty() => f.status(Status::Ok, format!("{{usd}} is {p}, written by {w}")),
-            Some((w, _)) => f.status(Status::Bad, format!("{w} has no file set: {{usd}} is empty")),
-            None => f.status(Status::Bad, "No Write USD above: wire this operator after one, or type the file in place of {usd}"),
+            Some((w, p)) if !p.is_empty() => f.status(Status::Ok, format!("{{usd}} is {p}, from {w}")),
+            Some((w, _)) => f.status(Status::Bad, format!("{{usd}} from {w} is empty: it has no file set")),
+            None => f.status(Status::Bad, "Nothing above gives {usd}: wire this operator after a Write USD, or type the file in place of {usd}"),
         }
         f.toggle("Write First", Some("Write the layer before running, so the render sees the scene as it is now"), &mut c.write_first);
         f.toggle("Make Output Folders", Some("Make the folders the scene's RenderProducts write into (their Output Image's folder, next to the layer when relative) before running: renderers do not"), &mut c.make_folders);
