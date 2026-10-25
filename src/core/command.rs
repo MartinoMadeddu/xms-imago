@@ -2,10 +2,10 @@
 //! operator: a render with husk, say, of the layer the Write USD above it
 //! writes.
 //!
-//! - **Tokens:** `$USD` (the layer), `$NAME` (the operator), `$F` and `$F4`
-//!   (the frame, padded to that many digits), `$FSTART`, `$FEND` and `$N`
-//!   (the range and its frame count), also as `${USD}`; `$$` is a `$`. Any
-//!   other `$` is left as it is, for the shell (`$HOME`).
+//! - **Variables** (`core::vars`): its own `{usd}` (the layer), and the
+//!   built-ins, with the run's frames: `$F` and `$F4` (the frame, padded to
+//!   that many digits), `$FSTART`, `$FEND`, `$N`, `$OPNAME`, `$GDIR`… A
+//!   name that is none of these is left for the shell (`$1`).
 //! - **Running:** in the background, through the system's shell (`sh -c`;
 //!   `cmd /C` on Windows), one command line or one per frame, one after the
 //!   other. What it prints is kept, line by line, and a percentage in it is
@@ -31,29 +31,29 @@ pub struct Tokens {
     pub end:   i64,
     /// The frame `$F` is: the run's, one per frame, else the first.
     pub frame: i64,
-    /// Tokens of the caller's own (the Image Viewer's `$IMAGE`, `$CAMERA`…),
-    /// by name without the `$`.
+    /// The caller's own variables (the Image Viewer's `{image}`, `{camera}`…),
+    /// by name, lower case, without the braces.
     pub more:  Vec<(&'static str, String)>,
 }
 
-/// The local variables Render Command gives its lines, for its panel:
-/// variable, what it is. The global ones (`vars::GLOBALS_LIST`) work too.
-pub const TOKENS: [(&str, &str); 6] = [
-    ("$USD", "the layer the Write USD above writes"),
-    ("$OPNAME", "this operator's name"),
+/// What Render Command gives its lines, for its panel: its own variable,
+/// and the built-ins whose values are the run's. The other built-ins
+/// (`vars::GLOBALS_LIST`) work too.
+pub const TOKENS: [(&str, &str); 5] = [
+    ("{usd}", "the layer the Write USD above writes"),
     ("$F", "the frame being rendered; $F4 four digits (0001)"),
     ("$FSTART", "the first frame of the run"),
     ("$FEND", "the last frame of the run"),
-    ("$N", "how many frames"),
+    ("$N", "how many frames in the run"),
 ];
 
 impl Tokens {
-    /// As local variables (see `core::vars`), the run's frames over the
-    /// scene's. `$NAME` is still read as the operator's name, from graphs
-    /// made before it was called `$OPNAME`.
+    /// As the variables `vars::expand` reads: the operator's own (`usd`, and
+    /// `more`), then the built-ins with the run's values. `$NAME` is still
+    /// read as the operator's name, from graphs made before `$OPNAME`.
     pub fn locals(&self) -> Vec<(&'static str, String)> {
         let mut out = vec![
-            ("USD", self.usd.clone()),
+            ("usd", self.usd.clone()),
             ("OPNAME", self.name.clone()),
             ("NAME", self.name.clone()),
             ("F", self.frame.to_string()),
@@ -66,12 +66,15 @@ impl Tokens {
 }
 
 /// A command line without the options whose value is one of `t.more`'s
-/// tokens standing for nothing: `-c "$CAMERA"`, `-camera $CAMERA`, with no
-/// camera, are left out (the flag too), so the renderer takes its own.
+/// variables standing for nothing: `-c "{camera}"`, `-camera {camera}`, with
+/// no camera, are left out (the flag too), so the renderer takes its own.
+/// (Also as graphs made before braces wrote them: `$CAMERA`.)
 pub fn without_empty(line: &str, t: &Tokens) -> String {
     let mut out = line.to_string();
     for (name, _) in t.more.iter().filter(|(_, v)| v.is_empty()) {
-        for form in [format!("\"${name}\""), format!("\"${{{name}}}\""), format!("${{{name}}}"), format!("${name}")] {
+        let old = name.to_uppercase();
+        for form in [format!("\"{{{name}}}\""), format!("{{{name}}}"),
+                     format!("\"${old}\""), format!("\"${{{old}}}\""), format!("${{{old}}}"), format!("${old}")] {
             while let Some(k) = find_token(&out, &form) {
                 let mut start = k;
                 // The spaces before, and the flag before them.
@@ -334,25 +337,28 @@ mod tests {
 
     #[test]
     fn a_callers_own_tokens_and_options_with_nothing() {
-        let t = Tokens { more: vec![("IMAGE", "/r/a.exr".into()), ("CAMERA", String::new()), ("SETTINGS", "/Render/S".into())], ..t() };
-        assert_eq!(crate::core::vars::expand("-o \"$IMAGE\" -s $SETTINGS -f $F", &t.locals()), "-o \"/r/a.exr\" -s /Render/S -f 7");
-        let line = "husk -s \"$SETTINGS\" -c \"$CAMERA\" -f $F \"$USD\"";
-        assert_eq!(without_empty(line, &t), "husk -s \"$SETTINGS\" -f $F \"$USD\"", "no camera: no -c");
-        assert_eq!(without_empty("kick -i x -camera ${CAMERA} -dw", &t), "kick -i x -dw");
-        assert_eq!(without_empty("echo $CAMERAS $CAMERA", &t), "echo $CAMERAS", "a whole token only");
-        let with = Tokens { more: vec![("CAMERA", "/cam".into())], ..t.clone() };
+        let t = Tokens { more: vec![("image", "/r/a.exr".into()), ("camera", String::new()), ("settings", "/Render/S".into())], ..t() };
+        assert_eq!(crate::core::vars::expand("-o \"{image}\" -s {settings} -f $F", &t.locals()), "-o \"/r/a.exr\" -s /Render/S -f 7");
+        let line = "husk -s \"{settings}\" -c \"{camera}\" -f $F \"{usd}\"";
+        assert_eq!(without_empty(line, &t), "husk -s \"{settings}\" -f $F \"{usd}\"", "no camera: no -c");
+        assert_eq!(without_empty("kick -i x -camera {camera} -dw", &t), "kick -i x -dw");
+        assert_eq!(without_empty("echo {cameras} {camera}", &t), "echo {cameras}", "a whole name only");
+        // As graphs made before braces wrote them.
+        assert_eq!(without_empty("kick -i x -camera ${CAMERA} -c \"$CAMERA\" -dw", &t), "kick -i x -dw");
+        assert_eq!(crate::core::vars::expand("-o \"$IMAGE\"", &t.locals()), "-o \"/r/a.exr\"");
+        let with = Tokens { more: vec![("camera", "/cam".into())], ..t.clone() };
         assert_eq!(without_empty(line, &with), line, "a camera: kept");
     }
 
     #[test]
     fn tokens_are_put_in() {
-        assert_eq!(crate::core::vars::expand("husk -f $FSTART -n $N \"$USD\"", &t().locals()), "husk -f 1 -n 24 \"/shots/a b.usda\"");
+        assert_eq!(crate::core::vars::expand("husk -f $FSTART -n $N \"{usd}\"", &t().locals()), "husk -f 1 -n 24 \"/shots/a b.usda\"");
         assert_eq!(crate::core::vars::expand("out.$F4.exr $F ${F2}x $FEND", &t().locals()), "out.0007.exr 7 07x 24");
         assert_eq!(crate::core::vars::expand("$NOT_SET_XMS/$OPNAME costs $$5", &t().locals()), "$NOT_SET_XMS/Render costs $5", "unknown names are the shell's");
         assert_eq!(crate::core::vars::expand("${USD}! $ end $", &t().locals()), "/shots/a b.usda! $ end $");
         assert_eq!(crate::core::vars::expand("$F0 $F10 $Fx", &t().locals()), "$F0 $F10 $Fx", "not tokens");
         assert_eq!(crate::core::vars::expand("$F3", &(Tokens { frame: -2, ..t() }).locals()), "-002");
-        assert_eq!(crate::core::vars::expand("naïve $NAME", &t().locals()), "naïve Render");
+        assert_eq!(crate::core::vars::expand("naïve $NAME $OPNAME", &t().locals()), "naïve Render Render");
     }
 
     #[test]

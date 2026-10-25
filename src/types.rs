@@ -125,7 +125,7 @@ pub enum NodeType {
     /// RenderVars (AOVs) of a product, set or overridden row by row.
     RenderVariables { #[serde(default)] vars: crate::core::render::Variables },
     /// A command line run on the system when its Run is pressed, never on
-    /// cook: husk on the layer the Write USD above it writes (`$USD`). What
+    /// cook: husk on the layer the Write USD above it writes (`{usd}`). What
     /// comes in is handed on. See `core::command`.
     RenderCommand { #[serde(default)] command: crate::core::render::CommandSettings },
     /// Merge packed primitives into one mesh.

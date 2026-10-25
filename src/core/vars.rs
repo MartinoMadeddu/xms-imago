@@ -1,21 +1,27 @@
-//! Variables: `$NAME` in the text Imago reads (file paths, command lines),
-//! put in when the text is used.
+//! Variables in the text Imago reads (file paths, command lines), put in
+//! when the text is used. Two kinds, told apart by how they are written:
 //!
-//! - **Local** variables belong to what is reading the text (a Render
-//!   Command's `$USD`, the Image Viewer's `$IMAGE`), and come first.
-//! - **Global** variables are the same everywhere in the graph: the graph's
-//!   file, the project, the frames (`GLOBALS` lists them). `$OPNAME` is
-//!   the operator cooking (or whose panel is drawn), wherever its text is
-//!   read: see `operator`.
-//! - The graph's **own** variables (File > Variables), saved with it; a
-//!   value can hold variables too (`ASSETS` = `$JOB/assets`).
-//! - Then the **environment** (`$HOME`, `$USER`, anything set).
+//! - **`$NAME`, built in:** the same for every operator, wherever it is
+//!   written: the graph's (`$GNAME`, `$GDIR`, `$JOB`), the operator's name
+//!   (`$OPNAME`, the one cooking or whose panel is drawn: see `operator`),
+//!   the frames (`$F`, `$F4`, `$FSTART`…; where text is read for a render,
+//!   the render's), then the graph's own (File > Variables, saved with it;
+//!   a value can hold variables too: `ASSETS` = `$JOB/assets`), then the
+//!   environment (`$HOME`). `GLOBALS_LIST` lists the built-ins.
+//! - **`{name}`, an operator's own:** what that operator gives its fields
+//!   (a Render Command's `{usd}`, the Image Viewer's `{image}`, Write FBX's
+//!   `{file}`), in lower case. Read nowhere else.
+//!
+//! In a list of variables given to `expand`, an operator's own have
+//! lower-case names, the built-ins it sets for its text upper-case ones
+//! (`OPNAME`, a render's `F`).
 //!
 //! `${NAME}` sets a name apart from what follows (`${F4}_v2`); `$$` is a
-//! `$`. A name that is none of these is left as it is, so a command line
-//! keeps the shell's own (`$1`). Text passed on to a renderer as it is
+//! `$`. A name that is none of these is left as it is, `$1` for the shell
+//! as much as `{x}` for a program. Text passed on to a renderer as it is
 //! (Render Settings' Output Image, which the renderer expands) is never
-//! read through here.
+//! read through here. Graphs made before `{name}` used `$USD`, `$IMAGE`…
+//! for an operator's own: those are still read.
 
 use std::sync::RwLock;
 
@@ -186,8 +192,10 @@ pub fn environment(prefix: &str) -> Vec<(String, String)> {
 /// naming itself stops there.
 const DEPTH: usize = 8;
 
-/// `text` with its variables put in: `locals` first (names without the
-/// `$`), then the globals, then the graph's own, then the environment.
+/// `text` with its variables put in. `locals`: what the reader gives, an
+/// operator's own (`{name}`, lower-case names) and built-ins set for this
+/// text (`$NAME`, upper-case: `OPNAME`, a render's `F`); then the built-ins,
+/// the graph's own and the environment.
 pub fn expand(text: &str, locals: &[(&str, String)]) -> String {
     expand_in(text, locals, &globals(), 0, false)
 }
@@ -234,6 +242,21 @@ fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize, k
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
+        // `{name}`: an operator's own, else left as it is.
+        if c == '{' {
+            let k = chars[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == '_').count();
+            if k > 0 && chars.get(i + 1 + k) == Some(&'}') {
+                let name: String = chars[i + 1..i + 1 + k].iter().collect::<String>().to_lowercase();
+                if let Some((_, v)) = locals.iter().find(|(n, _)| *n == name) {
+                    out.push_str(v);
+                    i += k + 2;
+                    continue;
+                }
+            }
+            out.push(c);
+            i += 1;
+            continue;
+        }
         if c != '$' { out.push(c); i += 1; continue; }
         if chars.get(i + 1) == Some(&'$') { out.push('$'); i += 2; continue; }
         // `${NAME}` or `$NAME`.
@@ -254,7 +277,7 @@ fn expand_in(text: &str, locals: &[(&str, String)], g: &Globals, depth: usize, k
     out
 }
 
-/// A variable's value, or `None` for a name that is not one.
+/// A `$NAME` variable's value, or `None` for a name that is not one.
 fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize, keep: bool) -> Option<String> {
     if let Some((_, v)) = locals.iter().find(|(n, _)| *n == name) { return Some(v.clone()); }
     // The frame's, for whoever renders: left.
@@ -283,6 +306,10 @@ fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize, keep:
             if let Some(width) = name.strip_prefix('F').and_then(|d| d.parse::<usize>().ok()).filter(|w| (1..=9).contains(w)) {
                 return Some(if frame < 0 { format!("-{:0width$}", -frame, width = width) } else { format!("{:0width$}", frame, width = width) });
             }
+            // An operator's own, as graphs made before `{name}` wrote it
+            // (`$USD`): before the graph's own, as it was then.
+            let own = name.to_lowercase();
+            if let Some((_, v)) = locals.iter().find(|(n, _)| *n == own && own != name) { return Some(v.clone()); }
             if let Some(v) = g.user.list.iter().find(|v| v.name == name) { return Some(nested(v.value.as_str())); }
             return std::env::var(name).ok();
         }
@@ -322,6 +349,20 @@ mod tests {
             assert_eq!(expand("costs $$5, $1 and $NOT_SET_ANYWHERE_XMS", &[]), "costs $5, $1 and $NOT_SET_ANYWHERE_XMS");
             assert_eq!(expand("$F0 $F10 $Fx $", &[]), "$F0 $F10 $Fx $");
             assert_eq!(expand("naïve $GNAME", &[]), "naïve street_v001");
+        });
+    }
+
+    #[test]
+    fn an_operators_own_are_written_in_braces() {
+        with(shot(), || {
+            let own = [("usd", "/l.usda".to_string()), ("char", "Bob".to_string())];
+            assert_eq!(expand("{usd} {CHAR}_{char}.$F4", &own), "/l.usda Bob_Bob.0007");
+            // Not an operator's own: left as it is, braces and all.
+            assert_eq!(expand("{nope} {} {a b} { usd} json: {\"k\": 1}", &own), "{nope} {} {a b} { usd} json: {\"k\": 1}");
+            // Graphs made before braces: `$USD` is still the operator's `usd`.
+            assert_eq!(expand("$USD ${USD}", &own), "/l.usda /l.usda");
+            // A built-in is never in braces.
+            assert_eq!(expand("{gname}", &own), "{gname}");
         });
     }
 

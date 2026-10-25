@@ -72,30 +72,39 @@ Folders first, then the files the asking field takes (**All files** shows the re
 
 ### Variables
 
-Paths and command lines can hold variables, put in when they are used: `$GDIR/usd/set.usda`, `$GDIR/out/$GNAME.usda`. A path field shows what it becomes under it (`→ /shows/street/usd/set.usda`).
+Paths and command lines can hold variables, put in when they are used. There are two kinds, written differently so they are told apart at a glance:
 
-| Variable | What it is |
+- **`$NAME`, built in:** the same for every operator: the graph's file and folder, the project, the frames, the operator's name, the graph's own (File > Variables), then anything in the environment. `$GDIR/usd/$GNAME.usda`.
+- **`{name}`, an operator's own:** what one operator gives its own fields, in lower case: a Render Command's `{usd}`, the Image Viewer's `{image}` and `{camera}`, Write FBX's `{file}` and `{char}`. Read in that operator's fields only.
+
+| Built in | What it is |
 |---|---|
 | `$OPNAME` | the name of the operator whose text it is: `/set/$OPNAME` in a Load USD named `tree` is `/set/tree` |
 | `$GNAME` | the graph's name: its file without `.xms` (`street_v001`) |
 | `$GDIR` | the folder of the graph's file |
 | `$JOB` | the project folder: as File > Variables sets it, else `JOB` from the environment, else `$GDIR` |
-| `$F`, `$F4` | the frame (the playhead's; a render's own in its command), `$F4` in four digits (`$F2` to `$F9` likewise) |
-| `$FSTART`, `$FEND`, `$N` | the scene's first and last frames, and how many |
+| `$F`, `$F4` | the frame (the playhead's; in a render's command, the frame rendered), `$F4` in four digits (`$F2` to `$F9` likewise) |
+| `$FSTART`, `$FEND`, `$N` | the first and last frames, and how many (a render's own, in its command) |
 | `$FPS`, `$T` | frames per second; the time in seconds |
 | `$ASSETS`, … | the graph's own, from File > Variables |
 | `$HOME`, … | anything set in the environment |
 
-An operator can add its own, which come first: a Render Command's `$USD` (see [Render](render.md)). `${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is. They work in:
+| Operator | Its own |
+|---|---|
+| Render Command | `{usd}`, the layer the Write USD above writes |
+| Image Viewer's render line | `{usd}`, `{image}`, `{settings}`, `{camera}`, `{delegate}` (an option whose value is empty is left out, flag and all) |
+| Write FBX | `{dir}` the source folder, `{file}` the source file, `{char}` the character, `{take}` the take |
 
-- every path Imago reads or writes: Load USD, Write USD, the FBX operators (Write FBX puts them in before its `{take}` tokens), texture files of Material, MaterialX and light operators (written to USD with their variables put in, since renderers would read `$JOB` as it is);
+`${NAME}` sets a name apart from what follows (`${F4}_v2`), `$$` is a `$`, and a name that is none of these is left as it is (`$1` for the shell, `{x}` for a program: JSON and `find -exec {}` are untouched). A built-in is never in braces (`{gname}` stays as typed), so the two kinds cannot be confused. Graphs and command lines written before braces (`$USD`, `$IMAGE`, `$CAMERA`, `$NAME`) still work. They work in:
+
+- every path Imago reads or writes: Load USD, Write USD, the FBX operators (Write FBX's with its own `{file}`, `{char}`…), texture files of Material, MaterialX and light operators (written to USD with their variables put in, since renderers would read `$JOB` as it is);
 - every Primitive Location (shapes, cameras, lights, Load USD's, render prims, the material library): `/shots/$GNAME/$OPNAME`;
 - Set Attribute's names and text values, and the render operators' text: Render Settings' Output Image has Imago's variables put in, but not the frame's (`$F`, `$F4`, `$T`), which the renderer puts in for each frame it renders;
 - command lines, and a Render Command's folder and environment values.
 
 A graph never saved has an empty `$GDIR`. A path with `$F` follows the frame when the graph next cooks, not while the playhead moves.
 
-**Typing `$`** in a path or a command line lists the variables it can take, with what each is now: the operator's own, the graph's, the built-ins, and, once a letter is typed, the environment's that start with it. Click one to put it in (after `${` it gets its `}`).
+**Typing `$`** in a path or a command line lists the variables it can take, with what each is now: the graph's own, the built-ins, and, once a letter is typed, the environment's that start with it. Click one to put it in (after `${` it gets its `}`). **Typing `{`** in an operator's line lists its own (a Render Command's `{usd}`, the Image Viewer's), and a click puts one in with its `}`.
 
 **File > Variables** is one table of three columns, **Variable**, **Result** and **Description**, in two parts:
 

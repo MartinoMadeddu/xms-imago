@@ -654,19 +654,17 @@ fn file_bytes(space: &FileSpace, rate: FrameRate, drop_frame: bool, animated: bo
     Ok(out)
 }
 
-/// Expand the tokens of an output path for one clip:
-/// `{dir}` source folder, `{file}` source file name, `{char}` character,
-/// `{take}` take name; variables (`$JOB`, `$GNAME`) put in first. Adds
+/// An output path for one clip, with its variables put in (`core::vars`):
+/// its own `{dir}` source folder, `{file}` source file name, `{char}`
+/// character, `{take}` take name, and the built-ins (`$GDIR`…). Adds
 /// ".fbx" when the result has no extension.
 pub fn resolve_path(pattern: &str, clip: &AnimData) -> std::path::PathBuf {
     let safe = |v: &str| v.trim().replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
     let file = if clip.source.is_empty() { safe(&clip.name) } else { safe(&clip.source) };
     let dir  = if clip.source_dir.is_empty() { ".".to_string() } else { clip.source_dir.clone() };
-    let mut out = crate::core::vars::expand(pattern.trim(), &[])
-        .replace("{dir}", &dir)
-        .replace("{file}", &file)
-        .replace("{char}", &safe(&clip.subject))
-        .replace("{take}", &safe(&clip.name));
+    let mut out = crate::core::vars::expand(pattern.trim(), &[
+        ("dir", dir), ("file", file), ("char", safe(&clip.subject)), ("take", safe(&clip.name)),
+    ]);
     if !out.to_lowercase().ends_with(".fbx") { out.push_str(".fbx"); }
     std::path::PathBuf::from(out)
 }

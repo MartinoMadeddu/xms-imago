@@ -66,21 +66,22 @@ pub struct ImageViewerState {
 /// The command lines the ⚙ menu fills in: name, line, what it does.
 /// Custom is any other line.
 pub const VIEWER_PRESETS: [(&str, &str, &str); 2] = [
-    ("husk", "husk -R $DELEGATE -s \"$SETTINGS\" -c \"$CAMERA\" -f $F -n 1 -V 2a --snapshot 2 --snapshot-suffix \"\" -o \"$IMAGE\" \"$USD\"",
+    ("husk", "husk -R {delegate} -s \"{settings}\" -c \"{camera}\" -f $F -n 1 -V 2a --snapshot 2 --snapshot-suffix \"\" -o \"{image}\" \"{usd}\"",
         "Houdini's husk: Karma, or Arnold with its delegate for Arnold settings; a snapshot every two seconds, written to the image itself"),
-    ("kick", "kick -i \"$USD\" -frame $F -c \"$CAMERA\" -o \"$IMAGE\" -dw -dp -v 2",
+    ("kick", "kick -i \"{usd}\" -frame $F -c \"{camera}\" -o \"{image}\" -dw -dp -v 2",
         "Arnold's kick, reading the layer (arnold-usd's procedural): the image comes in when the frame is done"),
 ];
 
-/// The tokens of its command line: token, what it is.
+/// The variables of its command line: its own in braces, then the built-ins
+/// it sets (the graph's work too: `vars::GLOBALS_LIST`).
 pub const VIEWER_TOKENS: [(&str, &str); 7] = [
-    ("$USD", "the scene, written as a layer in the render folder"),
-    ("$IMAGE", "the image to write, in the render folder"),
+    ("{usd}", "the scene, written as a layer in the render folder"),
+    ("{image}", "the image to write, in the render folder"),
+    ("{settings}", "the RenderSettings prim chosen"),
+    ("{camera}", "the camera chosen, else the settings' own; with none, its option is left out"),
+    ("{delegate}", "husk's -R for the settings' renderer: HdArnoldRendererPlugin for Arnold; for Karma none, its option left out"),
     ("$F", "the frame; $F4 four digits (0001)"),
-    ("$SETTINGS", "the RenderSettings prim chosen"),
-    ("$CAMERA", "the camera chosen, else the settings' own; with none, its option is left out"),
-    ("$DELEGATE", "husk's -R for the settings' renderer: HdArnoldRendererPlugin for Arnold; for Karma none, its option left out"),
-    ("$$", "a $; any other $ is the shell's ($HOME)"),
+    ("$$", "a $; a name that is none of these is the shell's ($1)"),
 ];
 
 fn line_file() -> Option<PathBuf> { crate::file_browser::config_path("image_viewer_command.txt") }
@@ -295,10 +296,10 @@ fn settings_window(ctx: &egui::Context, st: &mut ImageViewerState, graph: &NodeG
             });
             let tokens = VIEWER_TOKENS.iter().map(|(t, what)| format!("{t}  {what}")).collect::<Vec<_>>().join("\n");
             let r = ui.add(egui::TextEdit::multiline(st.line()).code_editor().desired_rows(3).desired_width(420.0))
-                .on_hover_text(format!("Run through the system's shell, in the render folder. Tokens:\n{tokens}"));
+                .on_hover_text(format!("Run through the system's shell, in the render folder. Its own variables, in braces, and the built-ins:\n{tokens}\n\nType {{ or $ for the list"));
             // Its own first: what they stand for, given when it renders.
-            let locals: Vec<(&str, &str, String)> = VIEWER_TOKENS.iter().filter(|(t, _)| *t != "$$")
-                .map(|(t, what)| (t.trim_start_matches('$'), *what, String::new())).collect();
+            let locals: Vec<(&str, &str, String)> = VIEWER_TOKENS.iter().filter(|(t, _)| t.starts_with('{'))
+                .map(|(t, what)| (t.trim_start_matches('{').trim_end_matches('}'), *what, String::new())).collect();
             if r.changed() | crate::variables::complete(ui, &r, st.line(), &locals) { st.save_line(); }
             if let Some(s) = chosen {
                 let (template, dir) = (st.line().clone(), render_dir());
@@ -351,7 +352,7 @@ fn line_for(template: &str, settings: &SettingsInfo, camera: &str, frame: i64, i
     let delegate = if settings.renderer == "arnold" { "HdArnoldRendererPlugin" } else { "" };
     let t = command::Tokens {
         usd: layer.display().to_string(), name: "ImageViewer".into(), start: frame, end: frame, frame,
-        more: vec![("IMAGE", image.display().to_string()), ("SETTINGS", settings.path.clone()), ("CAMERA", camera), ("DELEGATE", delegate.into())],
+        more: vec![("image", image.display().to_string()), ("settings", settings.path.clone()), ("camera", camera), ("delegate", delegate.into())],
     };
     crate::core::vars::expand(&command::without_empty(template, &t), &t.locals())
 }

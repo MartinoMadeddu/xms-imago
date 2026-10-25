@@ -436,7 +436,7 @@ pub fn draw_properties(
             }
         }),
         NodeType::WriteFbx { path, mesh } => {
-            group(ui, "File", Some("Tokens in the path: {dir} source folder, {file} source file, {char} character, {take} take name"), |f| {
+            group(ui, "File", Some("Its own variables in the path: {dir} source folder, {file} source file, {char} character, {take} take name; and the built-ins ($GDIR, $GNAME, $F…)"), |f| {
                 path_row(f, path, crate::types::DEFAULT_WRITE_PATH, io, sel_id, BrowseMode::Folder, "Choose output folder", &["fbx"]);
                 f.toggle("Mesh", Some("Also write the skinned mesh, its skin and bind pose. Off: the skeleton and its motion only, for importing onto a skeleton the engine already has"), mesh);
                 match &anim.output {

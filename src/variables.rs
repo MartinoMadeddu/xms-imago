@@ -2,9 +2,10 @@
 //!
 //! - **File > Variables**: one table of the graph's own variables (saved
 //!   with it) and the built-in ones: variable, result, description.
-//! - **The list on `$`**: typing `$` (or `${`) in a path or command line
-//!   lists the variables it can take, with their values; a click puts one
-//!   in.
+//! - **The list on `$` and `{`**: typing `$` (or `${`) in a path or command
+//!   line lists the built-in variables it can take, with their values;
+//!   typing `{` in an operator's line lists its own (`{usd}`). A click puts
+//!   one in.
 
 use crate::core::vars;
 use crate::properties::form::FieldExt;
@@ -103,7 +104,7 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
             v.list.push(vars::Variable::new(&n, ""));
         }
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("$F2 to $F9 pad the frame as $F4 does. An operator's own come first ($USD in a Render Command); the environment's ($HOME…) last.").small().color(dim));
+        ui.label(egui::RichText::new("$F2 to $F9 pad the frame as $F4 does. An operator's own are written in braces ({usd} in a Render Command); the environment's ($HOME…) come last.").small().color(dim));
     });
     ctx.data_mut(|d| d.insert_temp(open_id(), open));
 }
@@ -117,9 +118,11 @@ fn section(ui: &mut egui::Ui, title: &str, about: &str) {
 }
 
 /// After a text field (`r`, over `text`): while a variable's name is being
-/// typed in it (`$`, `$GD`, `${F`), the variables it can take, with their
-/// values, below it; a click puts the name in. `locals`: the reader's own
-/// (name, what it is, value), listed first. Returns whether `text` changed.
+/// typed in it (`$`, `$GD`, `${F`; `{`, `{us`), the variables it can take,
+/// with their values, below it; a click puts the name in. After `$`: the
+/// graph's own, the built-ins, the environment's. After `{`: `locals`, the
+/// operator's own (name in lower case, what it is, value). Returns whether
+/// `text` changed.
 pub fn complete(ui: &egui::Ui, r: &egui::Response, text: &mut String, locals: &[(&str, &str, String)]) -> bool {
     let ctx = ui.ctx().clone();
     let popup = r.id.with("variables_list");
@@ -133,17 +136,23 @@ pub fn complete(ui: &egui::Ui, r: &egui::Response, text: &mut String, locals: &[
     let Some(range) = state.cursor.char_range() else { return false };
     let chars: Vec<char> = text.chars().collect();
     let cursor = range.primary.index.0.min(chars.len());
-    // The name before the cursor, and what comes before it: `$` or `${`.
+    // The name before the cursor, and what comes before it: `$`, `${`, or
+    // `{` (an operator's own, when it has any).
     let start = chars[..cursor].iter().rposition(|c| !(c.is_ascii_alphanumeric() || *c == '_')).map_or(0, |k| k + 1);
-    let brace = start >= 2 && chars[start - 1] == '{' && chars[start - 2] == '$';
-    let dollar = !brace && start >= 1 && chars[start - 1] == '$' && !(start >= 2 && chars[start - 2] == '$');
-    if !brace && !dollar { if kept.is_some() { close(&ctx); } return false; }
+    let opened = start >= 1 && chars[start - 1] == '{';
+    let brace = opened && start >= 2 && chars[start - 2] == '$';
+    let own = opened && !brace && !locals.is_empty();
+    let dollar = !opened && start >= 1 && chars[start - 1] == '$' && !(start >= 2 && chars[start - 2] == '$');
+    if !brace && !dollar && !own { if kept.is_some() { close(&ctx); } return false; }
     let typed: String = chars[start..cursor].iter().collect();
     let low = typed.to_lowercase();
-    let mut rows: Vec<(String, String, String)> = vars::available(locals).into_iter()
-        .filter(|(n, _, _)| n.to_lowercase().starts_with(&low)).collect();
+    let mut rows: Vec<(String, String, String)> = if own {
+        locals.iter().filter(|(n, _, _)| n.starts_with(&low)).map(|(n, what, v)| (n.to_string(), v.clone(), what.to_string())).collect()
+    } else {
+        vars::available(&[]).into_iter().filter(|(n, _, _)| n.to_lowercase().starts_with(&low)).collect()
+    };
     // The environment's, once a letter is typed: there are many.
-    if !typed.is_empty() {
+    if !own && !typed.is_empty() {
         let more: Vec<(String, String, String)> = vars::environment("").into_iter()
             .filter(|(n, _)| n.to_lowercase().starts_with(&low) && !rows.iter().any(|r| r.0 == *n))
             .take(8).map(|(n, v)| (n, v, "from the environment".into())).collect();
@@ -160,7 +169,8 @@ pub fn complete(ui: &egui::Ui, r: &egui::Response, text: &mut String, locals: &[
             ui.set_max_width(width);
             for (name, value, what) in &rows {
                 ui.horizontal(|ui| {
-                    if ui.selectable_label(false, egui::RichText::new(format!("${name}")).monospace()).on_hover_text(what.as_str()).clicked() {
+                    let shown = if own { format!("{{{name}}}") } else { format!("${name}") };
+                    if ui.selectable_label(false, egui::RichText::new(shown).monospace()).on_hover_text(what.as_str()).clicked() {
                         picked = Some(name.clone());
                     }
                     let short: String = if value.chars().count() > 60 { format!("{}…", value.chars().take(60).collect::<String>()) } else { value.clone() };
@@ -171,12 +181,12 @@ pub fn complete(ui: &egui::Ui, r: &egui::Response, text: &mut String, locals: &[
     });
     ctx.data_mut(|d| d.insert_temp(popup, area.response.rect));
     let Some(name) = picked else { return false };
-    // The name typed so far becomes the one picked; `${` gets its `}`.
+    // The name typed so far becomes the one picked; `${` and `{` get their `}`.
     let mut out: String = chars[..start].iter().collect();
     out.push_str(&name);
     let mut at = start + name.chars().count();
     let mut rest = &chars[cursor..];
-    if brace {
+    if brace || own {
         out.push('}');
         at += 1;
         if rest.first() == Some(&'}') { rest = &rest[1..]; }

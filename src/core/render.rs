@@ -873,8 +873,8 @@ pub struct EnvVar {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct CommandSettings {
-    /// With variables: `$USD`, `$F4`, `$FSTART`, `$N`… (`command::TOKENS`),
-    /// and the globals (`vars::GLOBALS_LIST`).
+    /// With variables: its own `{usd}`, and the built-ins with the run's
+    /// frames, `$F4`, `$FSTART`, `$N`… (`command::TOKENS`, `vars::GLOBALS_LIST`).
     pub line:         String,
     /// Write the layer first, with the Write USD above, so the render sees
     /// the scene as it is now.
@@ -929,7 +929,7 @@ impl CommandSettings {
 
     /// Where it runs: its folder, else the layer's.
     pub fn folder_for(&self, usd: &str) -> Option<std::path::PathBuf> {
-        if !self.folder.trim().is_empty() { return Some(crate::core::vars::expand(self.folder.trim(), &[("USD", usd.trim().to_string())]).into()); }
+        if !self.folder.trim().is_empty() { return Some(crate::core::vars::expand(self.folder.trim(), &[("usd", usd.trim().to_string())]).into()); }
         std::path::Path::new(usd.trim()).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf())
     }
 }
@@ -952,12 +952,12 @@ pub fn output_folders(prims: &[Prim], base: &std::path::Path) -> Vec<std::path::
 /// Command lines to start from: name, line, what it does. husk takes the
 /// RenderSettings prim the layer names, so none is given.
 pub const COMMAND_PRESETS: [(&str, &str, &str); 6] = [
-    ("husk: Karma CPU", "husk --engine cpu -f $FSTART -n $N -V 2a \"$USD\"", "Karma's CPU engine, through husk (Houdini's bin folder on the PATH)"),
-    ("husk: Karma XPU", "husk --engine xpu -f $FSTART -n $N -V 2a \"$USD\"", "Karma XPU, through husk"),
-    ("husk: Arnold", "husk -R HdArnoldRendererPlugin -f $FSTART -n $N -V 2a \"$USD\"", "Arnold through husk, with arnold-usd's render delegate installed"),
-    ("husk: one frame each", "husk -f $F -n 1 -V 2a \"$USD\"", "One husk per frame: turns on Run per frame"),
-    ("kick: Arnold", "kick -i \"$USD\" -frame $F -dw -dp -v 2", "Arnold's kick, one per frame (turns on Run per frame): it renders one frame a run. The layer's RenderSettings, camera and products are read by arnold-usd; add -c and -o to choose them yourself"),
-    ("Test: echo", "echo Rendering \"$USD\", frames $FSTART to $FEND", "Prints what it would render: to try the tokens"),
+    ("husk: Karma CPU", "husk --engine cpu -f $FSTART -n $N -V 2a \"{usd}\"", "Karma's CPU engine, through husk (Houdini's bin folder on the PATH)"),
+    ("husk: Karma XPU", "husk --engine xpu -f $FSTART -n $N -V 2a \"{usd}\"", "Karma XPU, through husk"),
+    ("husk: Arnold", "husk -R HdArnoldRendererPlugin -f $FSTART -n $N -V 2a \"{usd}\"", "Arnold through husk, with arnold-usd's render delegate installed"),
+    ("husk: one frame each", "husk -f $F -n 1 -V 2a \"{usd}\"", "One husk per frame: turns on Run per frame"),
+    ("kick: Arnold", "kick -i \"{usd}\" -frame $F -dw -dp -v 2", "Arnold's kick, one per frame (turns on Run per frame): it renders one frame a run. The layer's RenderSettings, camera and products are read by arnold-usd; add -c and -o to choose them yourself"),
+    ("Test: echo", "echo Rendering \"{usd}\", frames $FSTART to $FEND", "Prints what it would render: to try the tokens"),
 ];
 
 /// Whether a command line renders one frame a run: it has `$F` (or `$F4`…)

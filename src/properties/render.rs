@@ -473,11 +473,11 @@ pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: No
 fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: NodeId, name: &str, input: &CommandIn) {
     use crate::core::command;
     let usd = input.writer.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
-    group(ui, "Scene", Some("What $USD is: the layer the Write USD above this operator writes"), |f| {
+    group(ui, "Scene", Some("What {usd} is: the layer the Write USD above this operator writes"), |f| {
         match &input.writer {
-            Some((w, p)) if !p.is_empty() => f.status(Status::Ok, format!("$USD is {p}, written by {w}")),
-            Some((w, _)) => f.status(Status::Bad, format!("{w} has no file set: $USD is empty")),
-            None => f.status(Status::Bad, "No Write USD above: wire this operator after one, or type the file in place of $USD"),
+            Some((w, p)) if !p.is_empty() => f.status(Status::Ok, format!("{{usd}} is {p}, written by {w}")),
+            Some((w, _)) => f.status(Status::Bad, format!("{w} has no file set: {{usd}} is empty")),
+            None => f.status(Status::Bad, "No Write USD above: wire this operator after one, or type the file in place of {usd}"),
         }
         f.toggle("Write First", Some("Write the layer before running, so the render sees the scene as it is now"), &mut c.write_first);
         f.toggle("Make Output Folders", Some("Make the folders the scene's RenderProducts write into (their Output Image's folder, next to the layer when relative) before running: renderers do not"), &mut c.make_folders);
@@ -499,9 +499,9 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
         });
         f.wide(|ui| {
             let r = ui.add(egui::TextEdit::multiline(&mut c.line).code_editor().desired_rows(3).desired_width(f32::INFINITY))
-                .on_hover_text(format!("Variables, put in when it runs. This operator's:\n{tokens}\n\nThe graph's:\n{globals}\n\n${{NAME}} sets a name apart; $$ is a $; a name that is none of these is left for the shell. Type $ for the list"));
-            // Its own first: what they are now.
-            let locals = [("USD", command::TOKENS[0].1, usd.clone()), ("OPNAME", command::TOKENS[1].1, name.to_string())];
+                .on_hover_text(format!("Variables, put in when it runs. This operator's own, in braces, and the built-ins with the run's frames:\n{tokens}\n\nThe other built-ins:\n{globals}\n\n${{NAME}} sets a name apart; $$ is a $; a name that is none of these is left for the shell. Type {{ or $ for the list"));
+            // Its own, for the list on `{`: what it is now.
+            let locals = [("usd", command::TOKENS[0].1, usd.clone())];
             crate::variables::complete(ui, &r, &mut c.line, &locals);
         });
         let lines = c.lines(&usd, name, input.scene);

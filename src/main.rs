@@ -1290,7 +1290,7 @@ fn run_command(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeI
     }
     let lines = command.lines(&usd, &node.name, (graph.scene.start, graph.scene.end));
     // Its variables' values, and its folder, with Imago's variables put in.
-    let locals = [("USD", usd.clone())];
+    let locals = [("usd", usd.clone())];
     let env = command.env.iter().map(|e| (e.name.clone(), crate::core::vars::expand(&e.value, &locals))).collect();
     crate::core::command::start(id.0, lines, command.folder_for(&usd), env);
 }
