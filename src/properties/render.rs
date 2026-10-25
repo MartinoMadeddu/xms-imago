@@ -235,12 +235,11 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
     let tab_id = egui::Id::new(("render_settings_tab", node.0));
     let mut aovs_tab = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
     let ticked = def.as_ref().map(|d| r.ticked(d).len()).unwrap_or(0);
-    ui.horizontal(|ui| {
-        if ui.selectable_label(!aovs_tab, "Settings").clicked() { aovs_tab = false; }
-        if ui.selectable_label(aovs_tab, format!("AOVs ({ticked})")).on_hover_text("The renderer's standard AOVs: those ticked become RenderVars of the product").clicked() { aovs_tab = true; }
-    });
+    let aovs = format!("AOVs ({ticked})");
+    let mut open = aovs_tab as usize;
+    super::form::tabs(ui, ("render_settings", node.0), &[("Settings", None), (aovs.as_str(), Some("The renderer's standard AOVs: those ticked become RenderVars of the product"))], &mut open);
+    aovs_tab = open == 1;
     ui.data_mut(|d| d.insert_temp(tab_id, aovs_tab));
-    ui.add_space(4.0);
 
     if aovs_tab { aov_rows(ui, r, def.as_deref(), ctx); } else { settings_rows(ui, r, def.as_deref()); }
 }
@@ -458,14 +457,12 @@ pub fn command_rows(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: No
     let tab_id = egui::Id::new(("render_command_tab", node.0));
     let mut console = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
     if io.action.as_ref().is_some_and(|a| matches!(a, super::ui::PanelAction::RunCommand(n) if *n == node)) { console = true; }
-    ui.horizontal(|ui| {
-        if ui.selectable_label(!console, "Parameters").clicked() { console = false; }
-        let lines = run.as_ref().map(|r| r.lines.len()).unwrap_or(0);
-        let label = if lines == 0 { "Console".to_string() } else { format!("Console ({lines})") };
-        if ui.selectable_label(console, label).on_hover_text("What the command prints").clicked() { console = true; }
-    });
+    let lines = run.as_ref().map(|r| r.lines.len()).unwrap_or(0);
+    let label = if lines == 0 { "Console".to_string() } else { format!("Console ({lines})") };
+    let mut open = console as usize;
+    super::form::tabs(ui, ("render_command", node.0), &[("Parameters", None), (label.as_str(), Some("What the command prints"))], &mut open);
+    console = open == 1;
     ui.data_mut(|d| d.insert_temp(tab_id, console));
-    ui.add_space(4.0);
     if console { console_view(ui, node, run.as_ref()); } else { command_params(ui, c, node, name, input); }
 }
 

@@ -272,6 +272,78 @@ fn field_look(ui: &mut egui::Ui) {
     v.widgets.noninteractive.fg_stroke.color = ink::FIELD_TEXT();
 }
 
+/// Tabs over a panel, drawn as index-card tabs: the open one raised, in
+/// front of the others and joined to the page below it, with a blue band
+/// along its top; the others set back behind it, lighter under the pointer.
+/// Each tab is its label and an optional tooltip. A click opens a tab
+/// (`open`); the responses are returned for drops on a tab.
+pub fn tabs(ui: &mut egui::Ui, id: impl std::hash::Hash, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
+    use egui::{pos2, vec2, Color32, CornerRadius, FontId, Rect, Sense, Stroke};
+    const PAD: f32 = 10.0;   // text to the tab's sides
+    const H: f32 = 22.0;     // the open tab's height
+    const BACK: f32 = 3.0;   // how much lower the closed tabs start
+    const OVER: f32 = 2.0;   // how far the open tab reaches over its neighbours
+    const CUT: f32 = 3.0;    // the corners' cut
+    let id = ui.id().with(("form_tabs", id));
+    let font = FontId::proportional(12.5);
+    let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), H + 1.0), Sense::hover());
+    let base = strip.bottom() - 1.0;
+    // Each tab where it sits when closed.
+    let galleys: Vec<_> = labels.iter().map(|(t, _)| ui.painter().layout_no_wrap(t.to_string(), font.clone(), ink::LABEL())).collect();
+    let mut x = strip.left() + OVER;
+    let rects: Vec<Rect> = galleys.iter().map(|g| {
+        let w = g.size().x + 2.0 * PAD;
+        let r = Rect::from_min_max(pos2(x, strip.top() + BACK), pos2(x + w, base));
+        x += w;
+        r
+    }).collect();
+    let responses: Vec<egui::Response> = rects.iter().enumerate().map(|(k, r)| {
+        let r = ui.interact(*r, id.with(k), Sense::click());
+        match labels[k].1 { Some(h) => r.on_hover_text(h), None => r }
+    }).collect();
+    if let Some(k) = responses.iter().position(|r| r.clicked()) { *open = k; }
+    let open_now = (*open).min(labels.len().saturating_sub(1));
+
+    // The page's colour, and the bevel's: light above and to the left,
+    // shadow and dark to the right, as raised things were drawn.
+    let page = ink::PANEL_BG();
+    let light = page.lerp_to_gamma(Color32::WHITE, 0.45);
+    let shadow = page.lerp_to_gamma(Color32::BLACK, 0.3);
+    let dark = page.lerp_to_gamma(Color32::BLACK, 0.6);
+    let blue = ui.visuals().selection.bg_fill;
+    let painter = ui.painter_at(strip.expand(1.0));
+    let line = |a: egui::Pos2, b: egui::Pos2, c: Color32| { painter.line_segment([a, b], Stroke::new(1.0, c)); };
+    let draw = |k: usize| {
+        let opened = k == open_now;
+        let r = if opened {
+            Rect::from_min_max(pos2(rects[k].left() - OVER, strip.top()), pos2(rects[k].right() + OVER, base + 1.0))
+        } else { rects[k] };
+        let fill = if opened { page }
+            else if responses[k].hovered() { page.lerp_to_gamma(Color32::WHITE, 0.1) }
+            else { page.lerp_to_gamma(Color32::BLACK, 0.12) };
+        painter.rect_filled(r, CornerRadius { nw: CUT as u8, ne: CUT as u8, sw: 0, se: 0 }, fill);
+        let (l, t, rt, b) = (r.left() + 0.5, r.top() + 0.5, r.right() - 0.5, r.bottom());
+        line(pos2(l, b), pos2(l, t + CUT), light);
+        line(pos2(l, t + CUT), pos2(l + CUT, t), light);
+        line(pos2(l + CUT, t), pos2(rt - CUT, t), light);
+        line(pos2(rt - CUT, t), pos2(rt, t + CUT), dark);
+        line(pos2(rt, t + CUT), pos2(rt, b), dark);
+        line(pos2(rt - 1.0, t + CUT), pos2(rt - 1.0, b), shadow);
+        if opened {
+            painter.rect_filled(Rect::from_min_max(pos2(l + 2.0, t + 1.5), pos2(rt - 2.0, t + 4.0)), CornerRadius::same(1), blue);
+        }
+        let g = galleys[k].clone();
+        let at = r.center() - g.size() / 2.0 + vec2(0.0, if opened { 1.0 } else { 0.0 });
+        painter.galley_with_override_text_color(at, g, if opened { ink::TITLE() } else { ink::LABEL() });
+    };
+    // The closed tabs behind, the page's edge, then the open tab over both.
+    for k in (0..labels.len()).filter(|k| *k != open_now) { draw(k); }
+    line(pos2(strip.left(), base + 0.5), pos2(strip.right(), base + 0.5), light);
+    if !labels.is_empty() { draw(open_now); }
+    ui.add_space(4.0);
+    responses
+}
+
 /// A checkbox whose box shows on the group's background in every theme.
 pub fn check(ui: &mut egui::Ui, v: &mut bool) -> egui::Response {
     let w = &mut ui.visuals_mut().widgets;

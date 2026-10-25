@@ -390,6 +390,8 @@ Text is drawn to look as it did before the move to eframe, on screens of ordinar
 
 What is selected shows in one blue everywhere: rows in the Scene Explorer and the Operator Stack, the ring around a selected node in the Node Graph and in ICE graphs, and in Light the box dragged to select nodes or Edit Poly components. The ring follows the zoom but stays between 3 and 6 pixels wide, so a selected node can be told apart however far the graph is zoomed out. In Light, the tabs behind sit darker than the panel and the tab in front is the lightest.
 
+The tabs inside the Parameters pane (Parameters, Prims Location, Graph Variables; Render Settings' Settings and AOVs; Render Command's Parameters and Console) are drawn as index-card tabs: the open one raised, in front of the others and joined to the page under it, with a bevel lit from the top left and a blue band along its top; the others set back behind it, a little darker, lighter under the pointer. The panes' own tabs stay as they are.
+
 ### Menus
 
 A menu stays open while it is used: ticking panes in Window, Invert zoom in Navigation, typing in the filter of a Pick list. Choosing a command closes it, and so does a click outside.
