@@ -282,15 +282,22 @@ pub fn tabs(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, label
 }
 
 /// `tabs` as the panes' tab bars draw theirs: the same colours, outline,
-/// height and text, sharing the width, a line under those not open.
+/// height and text, each tab as wide as its title (as 1995's are, not
+/// sharing the width), a line under those not open and on to the end.
 fn pane_tabs(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, labels: &[(&str, Option<&str>)], open: &mut usize) -> Vec<egui::Response> {
     use egui::{pos2, vec2, Rect, Sense, Stroke, StrokeKind, TextStyle, WidgetText};
     let dock = crate::theme::dock_style(ui.style());
     let id = ui.id().with(("form_tabs", id));
     let h = dock.tab_bar.height;
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
-    let w = bar.width() / labels.len().max(1) as f32;
-    let rects: Vec<Rect> = (0..labels.len()).map(|k| Rect::from_min_size(pos2(bar.left() + k as f32 * w, bar.top()), vec2(w, h))).collect();
+    const PAD: f32 = 10.0;   // text to the tab's sides, as 1995's
+    let galleys: Vec<_> = labels.iter().map(|(t, _)| WidgetText::from(*t).into_galley(ui, None, f32::INFINITY, TextStyle::Button)).collect();
+    let mut x = bar.left();
+    let rects: Vec<Rect> = galleys.iter().map(|g| {
+        let r = Rect::from_min_size(pos2(x, bar.top()), vec2(g.size().x + 2.0 * PAD, h));
+        x = r.right();
+        r
+    }).collect();
     let responses: Vec<egui::Response> = rects.iter().enumerate().map(|(k, r)| {
         let r = ui.interact(*r, id.with(k), Sense::click());
         match labels[k].1 { Some(h) => r.on_hover_text(h), None => r }
@@ -309,9 +316,11 @@ fn pane_tabs(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, labe
         } else {
             painter.hline(r.x_range(), bar.bottom() - px, Stroke::new(px, dock.tab_bar.hline_color));
         }
-        let g = WidgetText::from(labels[k].0).into_galley(ui, None, f32::INFINITY, TextStyle::Button);
+        let g = galleys[k].clone();
         painter.galley_with_override_text_color(r.center() - g.size() / 2.0, g, st.text_color);
     }
+    // The bar's line on from the last tab to the pane's edge.
+    if x < bar.right() { painter.hline(x..=bar.right(), bar.bottom() - px, Stroke::new(px, dock.tab_bar.hline_color)); }
     ui.add_space(4.0);
     responses
 }
