@@ -89,7 +89,7 @@ Paths and command lines can hold variables, put in when they are used. There are
 | `$ASSETS`, … | the graph's own, from File > Variables |
 | `$HOME`, … | anything set in the environment |
 
-**Down the wires.** An operator publishes its `{name}`s on its output, and every operator below it reads them, all the way down. The nearest wins: an operator's own, then the one just above, then further up; of several inputs, the first input's first, as Merge orders them. A bypassed operator publishes nothing, and what comes in goes on. They are read from the operators' parameters, never by cooking, so a Render Command runs and a panel lists them without cooking the graph. An operator with no input (a shape, Load USD) has nothing above it. Its panel's **From Above** group lists what reaches it, each with the operator it is from.
+**Down the wires.** An operator publishes its `{name}`s on its output, and every operator below it reads them, all the way down. The nearest wins: an operator's own, then the one just above, then further up; of several inputs, the first input's first, as Merge orders them. A bypassed operator publishes nothing, and what comes in goes on. They are read from the operators' parameters, never by cooking, so a Render Command runs and a panel lists them without cooking the graph. An operator with no input (a shape, Load USD) has nothing above it. Every operator's Parameters pane has a **Graph Variables** tab, beside Parameters (and Prims Location): **From Above** lists what reaches it, each with the operator it is from, and **Given Below** what it publishes itself. With none, the tab is empty; its label counts what comes from above (`Graph Variables (3)`).
 
 | Operator | Publishes for those below |
 |---|---|

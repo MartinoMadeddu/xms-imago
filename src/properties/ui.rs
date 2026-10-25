@@ -186,20 +186,26 @@ pub fn draw_properties(
     let _operator = graph.operator(sel_id);
     let from_above = graph.from_above(sel_id);
     // The same, for the panel: name, value, the operator it is from.
-    let above_rows: Vec<(String, String, String)> = from_above.iter().map(|a| (
+    let named = |a: &crate::node_graph::from_above::FromAbove| (
         a.name.clone(), a.value.clone(), graph.nodes.iter().find(|n| n.id == a.from).map(|n| n.name.clone()).unwrap_or_default(),
-    )).collect();
+    );
+    let above_rows: Vec<(String, String, String)> = from_above.iter().map(named).collect();
+    // What it publishes itself, for those below.
+    let own_rows: Vec<(String, String, String)> = graph.going_out(sel_id).iter().filter(|a| a.from == sel_id).map(named).collect();
 
     // Facts about the graph the parameter widgets need, gathered before the
     // node is borrowed for editing.
     let all_writers  = batch::write_nodes(graph);
     let batch_files  = batch::file_count(graph, &batch::upstream_folder_loaders(graph, &[sel_id]));
     let mut resync   = false;
-    // Operators that work on primitives have a second tab, Prims Location:
-    // which primitives they work on.
+    // Tabs: Parameters; Prims Location, for operators that work on
+    // primitives (which they work on); Graph Variables, for every operator
+    // (the `{name}` that come down the wires to it).
     let takes = graph.nodes.iter().find(|n| n.id == sel_id).is_some_and(|n| crate::core::locations::takes_locations(&n.node_type));
-    let tab_id = egui::Id::new(("parameters_tab", sel_id.0));
-    let mut on_locations = takes && ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
+    let tab_id = egui::Id::new(("parameters_tab_shown", sel_id.0));
+    let mut tab = ui.data(|d| d.get_temp::<Tab>(tab_id)).unwrap_or(Tab::Parameters);
+    if tab == Tab::Locations && !takes { tab = Tab::Parameters; }
+    let on_locations = tab == Tab::Locations;
     // Packed primitives coming into the node: their paths, and which are picked.
     // Asked only for the nodes that list them: it cooks what is upstream.
     let packed_in: Vec<(String, bool)> = graph.nodes.iter().find(|n| n.id == sel_id)
@@ -295,24 +301,34 @@ pub fn draw_properties(
     });
     if node.name.chars().any(char::is_whitespace) { node.name = crate::node_graph::node_name(&node.name); }
 
-    if takes {
-        let set = crate::core::locations::rows(&node.locations).count();
-        ui.horizontal(|ui| {
-            if ui.selectable_label(!on_locations, "Parameters").clicked() { on_locations = false; }
+    ui.horizontal(|ui| {
+        if ui.selectable_label(tab == Tab::Parameters, "Parameters").clicked() { tab = Tab::Parameters; }
+        if takes {
+            let set = crate::core::locations::rows(&node.locations).count();
             // Material Binding's rows are its bindings: a location and a material each.
             let tab_name = if matches!(node.node_type, NodeType::MaterialBinding { .. }) { "Bindings" } else { "Prims Location" };
             let label = if set == 0 { tab_name.to_string() } else { format!("{tab_name} ({set})") };
-            let tab = ui.selectable_label(on_locations, label)
+            let r = ui.selectable_label(tab == Tab::Locations, label)
                 .on_hover_text("The primitives this operator works on. Drop prims from the Scene Explorer here");
-            if tab.clicked() { on_locations = true; }
+            if r.clicked() { tab = Tab::Locations; }
             // A prim dragged from the Scene Explorer and dropped on the tab.
-            if let Some(p) = tab.dnd_release_payload::<crate::types::DraggedPrims>() {
+            if let Some(p) = r.dnd_release_payload::<crate::types::DraggedPrims>() {
                 for path in &p.0 { add_location(&mut node.locations, path); }
-                on_locations = true;
+                tab = Tab::Locations;
             }
-        });
-        ui.data_mut(|d| d.insert_temp(tab_id, on_locations));
-        if on_locations {
+        }
+        let n = above_rows.len();
+        let label = if n == 0 { "Graph Variables".to_string() } else { format!("Graph Variables ({n})") };
+        if ui.selectable_label(tab == Tab::Variables, label)
+            .on_hover_text("The {name} variables that come down the wires to this operator, read in its fields").clicked() { tab = Tab::Variables; }
+    });
+    ui.data_mut(|d| d.insert_temp(tab_id, tab));
+    if tab == Tab::Variables {
+        graph_variables_tab(ui, &above_rows, &own_rows);
+        return;
+    }
+    if takes {
+        if tab == Tab::Locations {
             let kind = match node.node_type {
                 NodeType::PrunePrims { .. } => TabKind::Prune,
                 NodeType::MaterialBinding { .. } => TabKind::Binds,
@@ -923,7 +939,6 @@ pub fn draw_properties(
         }),
         NodeType::SetVariable { vars } => set_variable_rows(ui, vars),
     }
-    from_above_rows(ui, &above_rows);
     if resync { graph.sync_sockets(sel_id); }
 }
 
@@ -968,19 +983,29 @@ fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variab
     });
 }
 
-/// What comes down the wires to the operator shown: `{name}`, its value,
-/// and the operator it is from, nearest first.
-fn from_above_rows(ui: &mut egui::Ui, rows: &[(String, String, String)]) {
-    if rows.is_empty() { return; }
-    group(ui, "From Above", Some("Variables the operators above publish, read as {name} in this operator's fields: Write USD's {usd}, Render Settings' {delegate}, a Set Variable's own. The nearest wins"), |f| {
-        for (name, value, from) in rows {
+/// The panel's tabs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tab { Parameters, Locations, Variables }
+
+/// The Graph Variables tab: the `{name}` that come down the wires to the
+/// operator shown (name, value, the operator it is from), nearest first;
+/// then those it gives the operators below. Empty: nothing.
+fn graph_variables_tab(ui: &mut egui::Ui, above: &[(String, String, String)], own: &[(String, String, String)]) {
+    let rows = |f: &mut Rows, list: &[(String, String, String)]| {
+        for (name, value, from) in list {
             let shown = if value.is_empty() { "(empty)".to_string() } else { value.clone() };
             let hint = format!("From {from}");
             f.row(&format!("{{{name}}}"), Some(hint.as_str()), |ui| {
                 ui.add(egui::Label::new(egui::RichText::new(format!("{shown}   ← {from}")).color(ink::VALUE())).truncate());
             });
         }
-    });
+    };
+    if !above.is_empty() {
+        group(ui, "From Above", Some("Variables the operators above publish, read as {name} in this operator's fields: Write USD's {usd}, Render Settings' {delegate}, a Set Variable's own. The nearest wins"), |f| rows(f, above));
+    }
+    if !own.is_empty() {
+        group(ui, "Given Below", Some("What this operator publishes for every operator below it, over any of the same name from above"), |f| rows(f, own));
+    }
 }
 
 // ── Characterize ──────────────────────────────────────────────────────────────
