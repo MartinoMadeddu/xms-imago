@@ -1,6 +1,7 @@
 # UV
 
-UV nodes are in the "UV" sub-menu of the add-node menu. UVs are stored per polygon corner.
+UV nodes are in the "UV" sub-menu of the add-node menu. UVs are stored per
+polygon corner.
 
 ![The sea mine unwrapped](xms_uv_editor.png)
 
@@ -20,28 +21,46 @@ UV nodes are in the "UV" sub-menu of the add-node menu. UVs are stored per polyg
 | Box | Each face projected along the axis its normal is closest to |
 | Planar | Everything projected along one axis |
 
-The conformal method follows Lévy, Petitjean, Ray and Maillot, "Least Squares Conformal Maps for Automatic Texture Atlas Generation", 2002. The system is solved with conjugate gradients.
+The conformal method follows Lévy, Petitjean, Ray and Maillot, "Least Squares
+Conformal Maps for Automatic Texture Atlas Generation", 2002. The system is
+solved with conjugate gradients.
 
 ### UDIM tiles
 
-"UDIM tiles" on the UV Unwrap node spreads the mesh over that many tiles, numbered 1001 upwards, ten to a row. One tile keeps everything in the unit square.
+"UDIM tiles" on the UV Unwrap node spreads the mesh over that many tiles,
+numbered 1001 upwards, ten to a row. One tile keeps everything in the unit
+square.
 
-What is spread is the elements of the mesh: its separate pieces, not its UV islands. An element is never split between tiles.
+What is spread is the elements of the mesh: its separate pieces, not its UV
+islands. An element is never split between tiles.
 
 1. Each element is measured by its surface area.
-2. Elements that sit close together are grouped. Groups merge nearest first, by the gap between their bounding boxes, with a penalty for a group that grows past its share of the total surface. Merging stops when there is one group per tile.
-3. The groups take the tiles in order of surface: the one with the most goes to 1001, the smallest to the last tile.
-4. Each tile is packed on its own, so it is filled whatever the size of what is in it.
+2. Elements that sit close together are grouped. Groups merge nearest first, by
+   the gap between their bounding boxes, with a penalty for a group that grows
+   past its share of the total surface. Merging stops when there is one group
+   per tile.
+3. The groups take the tiles in order of surface: the one with the most goes to
+   1001, the smallest to the last tile.
+4. Each tile is packed on its own, so it is filled whatever the size of what is
+   in it.
 
-So a palm and its fingers, modelled as separate pieces, land on one tile together, and small loose parts end up on the last tiles. With fewer elements than tiles, each element has a tile to itself and the rest stay empty. A mesh in one piece stays on 1001.
+So a palm and its fingers, modelled as separate pieces, land on one tile
+together, and small loose parts end up on the last tiles. With fewer elements
+than tiles, each element has a tile to itself and the rest stay empty. A mesh in
+one piece stays on 1001.
 
-Past 256 elements, the smallest ones skip the grouping and join the nearest of the 256 largest.
+Past 256 elements, the smallest ones skip the grouping and join the nearest of
+the 256 largest.
 
-![Nine pieces over three tiles: the body on 1001, a hand on each of the other two](xms_udim.png)
+![Nine pieces over three tiles: the body on 1001, a hand on each of the other
+two](xms_udim.png)
 
 ## UV Editor pane
 
-A tab behind the Viewer in the default layout. It draws the UVs of the selected node, with seams marked, and reports islands, triangles, tiles and how much of them is used. Every tile in use is drawn with its UDIM number, and the view fits them when the set of tiles changes.
+A tab behind the Viewer in the default layout. It draws the UVs of the selected
+node, with seams marked, and reports islands, triangles, tiles and how much of
+them is used. Every tile in use is drawn with its UDIM number, and the view fits
+them when the set of tiles changes.
 
 | To | Do this |
 |---|---|
@@ -55,17 +74,28 @@ A tab behind the Viewer in the default layout. It draws the UVs of the selected 
 
 ## Heavy layouts
 
-The editor draws the layout into a pixel buffer of its own, on several threads, and shows it as one image. It is redrawn only when the view, the layout or an option changes, so a still view costs nothing. There is no limit on the number of edges. The header shows the edge count and the time the last redraw took once a layout passes 100,000 edges.
+The editor draws the layout into a pixel buffer of its own, on several threads,
+and shows it as one image. It is redrawn only when the view, the layout or an
+option changes, so a still view costs nothing. There is no limit on the number
+of edges. The header shows the edge count and the time the last redraw took once
+a layout passes 100,000 edges.
 
-"Borders only" draws the outline of each island and leaves out the edges inside. It turns itself on for layouts over 300,000 edges, and can be turned off again. Where many inner edges land on one pixel they add up, so density reads as tone.
+"Borders only" draws the outline of each island and leaves out the edges inside.
+It turns itself on for layouts over 300,000 edges, and can be turned off again.
+Where many inner edges land on one pixel they add up, so density reads as tone.
 
-The Viewer draws UDIM textures: a texture path with `<UDIM>` in it reads every tile, and each part of the mesh shows the tile its UVs fall in (see [USD](usd.md#materials-in-the-viewer)).
+The Viewer draws UDIM textures: a texture path with `<UDIM>` in it reads every
+tile, and each part of the mesh shows the tile its UVs fall in (see
+[USD](usd.md#materials-in-the-viewer)).
 
-UVs that run far outside the unit square, as a repeating texture does, are not taken for UDIM tiles: the header gives their extent, Fit shows the unit square and "Fit all" the whole extent.
+UVs that run far outside the unit square, as a repeating texture does, are not
+taken for UDIM tiles: the header gives their extent, Fit shows the unit square
+and "Fit all" the whole extent.
 
 ![The authored UVs of a 461,595 triangle model](xms_uv_heavy.png)
 
-The canvas is built as a stack of layers composed into that image. The wireframe is the only layer today.
+The canvas is built as a stack of layers composed into that image. The wireframe
+is the only layer today.
 
 ## Not done yet
 

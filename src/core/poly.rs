@@ -11,12 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::MeshData;
 
-// ============================================================================
 // MESH
-// ============================================================================
 
-/// Polygons of any size over shared vertices. Winding is counter-clockwise
-/// seen from outside.
+/// Polygons of any size over shared vertices. Winding is counter-clockwise seen
+/// from outside.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PolyMesh {
     pub verts: Vec<Vec3>,
@@ -24,7 +22,13 @@ pub struct PolyMesh {
 }
 
 /// Edge as a sorted vertex pair.
-pub fn edge_key(a: u32, b: u32) -> [u32; 2] { if a < b { [a, b] } else { [b, a] } }
+pub fn edge_key(a: u32, b: u32) -> [u32; 2] {
+    if a < b {
+        [a, b]
+    } else {
+        [b, a]
+    }
+}
 
 impl PolyMesh {
     pub fn from_mesh(m: &MeshData) -> Self {
@@ -39,7 +43,9 @@ impl PolyMesh {
     }
 
     /// Unit normal (Newell's method, so non-planar polygons are fine).
-    pub fn normal(&self, p: usize) -> Vec3 { self.area_normal(p).normalize_or_zero() }
+    pub fn normal(&self, p: usize) -> Vec3 {
+        self.area_normal(p).normalize_or_zero()
+    }
 
     /// Normal scaled by twice the polygon's area.
     pub(crate) fn area_normal(&self, p: usize) -> Vec3 {
@@ -65,7 +71,9 @@ impl PolyMesh {
         for poly in &self.polys {
             for i in 0..poly.len() {
                 let e = edge_key(poly[i], poly[(i + 1) % poly.len()]);
-                if e[0] != e[1] && seen.insert(e) { out.push(e); }
+                if e[0] != e[1] && seen.insert(e) {
+                    out.push(e);
+                }
             }
         }
         out
@@ -75,18 +83,25 @@ impl PolyMesh {
     fn vertex_polys(&self) -> Vec<Vec<u32>> {
         let mut out = vec![vec![]; self.verts.len()];
         for (p, poly) in self.polys.iter().enumerate() {
-            for v in poly { out[*v as usize].push(p as u32); }
+            for v in poly {
+                out[*v as usize].push(p as u32);
+            }
         }
         out
     }
 
-    /// Volume enclosed by a closed mesh (signed: positive when normals point out).
+    /// Volume enclosed by a closed mesh (signed: positive when normals point
+    /// out).
     #[cfg(test)]
     pub fn volume(&self) -> f32 {
         let mut v = 0.0;
         for poly in &self.polys {
             for i in 1..poly.len().saturating_sub(1) {
-                let (a, b, c) = (self.verts[poly[0] as usize], self.verts[poly[i] as usize], self.verts[poly[i + 1] as usize]);
+                let (a, b, c) = (
+                    self.verts[poly[0] as usize],
+                    self.verts[poly[i] as usize],
+                    self.verts[poly[i + 1] as usize],
+                );
                 v += a.dot(b.cross(c)) / 6.0;
             }
         }
@@ -109,21 +124,32 @@ impl PolyMesh {
     /// Drop vertices no polygon uses and renumber the rest.
     pub(crate) fn compact(&mut self) {
         let mut used = vec![false; self.verts.len()];
-        for poly in &self.polys { for v in poly { used[*v as usize] = true; } }
-        if used.iter().all(|u| *u) { return; }
+        for poly in &self.polys {
+            for v in poly {
+                used[*v as usize] = true;
+            }
+        }
+        if used.iter().all(|u| *u) {
+            return;
+        }
         let mut remap = vec![u32::MAX; self.verts.len()];
         let mut verts = Vec::with_capacity(self.verts.len());
         for (i, v) in self.verts.iter().enumerate() {
-            if used[i] { remap[i] = verts.len() as u32; verts.push(*v); }
+            if used[i] {
+                remap[i] = verts.len() as u32;
+                verts.push(*v);
+            }
         }
-        for poly in &mut self.polys { for v in poly.iter_mut() { *v = remap[*v as usize]; } }
+        for poly in &mut self.polys {
+            for v in poly.iter_mut() {
+                *v = remap[*v as usize];
+            }
+        }
         self.verts = verts;
     }
 }
 
-// ============================================================================
 // SELECTION
-// ============================================================================
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SubLevel {
@@ -140,7 +166,7 @@ impl SubLevel {
     /// The kind of component the level stores.
     pub fn base(self) -> SubLevel {
         match self {
-            SubLevel::Border  => SubLevel::Edge,
+            SubLevel::Border => SubLevel::Edge,
             SubLevel::Element => SubLevel::Polygon,
             other => other,
         }
@@ -154,29 +180,40 @@ pub enum SelSource {
     Picked,
     All,
     /// Polygons facing within `angle` degrees of `dir`.
-    ByNormal { dir: [f32; 3], angle: f32 },
+    ByNormal {
+        dir: [f32; 3],
+        angle: f32,
+    },
     /// Components inside an axis-aligned box.
-    InBox { min: [f32; 3], max: [f32; 3] },
+    InBox {
+        min: [f32; 3],
+        max: [f32; 3],
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PolySelection {
-    pub level:  SubLevel,
+    pub level: SubLevel,
     pub source: SelSource,
     /// Picked components. Each level keeps its own list, as in Edit Poly.
-    pub verts:  Vec<u32>,
-    pub edges:  Vec<[u32; 2]>,
-    pub polys:  Vec<u32>,
+    pub verts: Vec<u32>,
+    pub edges: Vec<[u32; 2]>,
+    pub polys: Vec<u32>,
     /// Steps to grow (positive) or shrink (negative) the selection.
-    pub grow:   i32,
+    pub grow: i32,
     pub invert: bool,
 }
 
 impl Default for PolySelection {
     fn default() -> Self {
         Self {
-            level: SubLevel::Polygon, source: SelSource::Picked,
-            verts: vec![], edges: vec![], polys: vec![], grow: 0, invert: false,
+            level: SubLevel::Polygon,
+            source: SelSource::Picked,
+            verts: vec![],
+            edges: vec![],
+            polys: vec![],
+            grow: 0,
+            invert: false,
         }
     }
 }
@@ -191,14 +228,25 @@ pub struct Resolved {
 
 /// One thing under the cursor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Component { Vertex(u32), Edge([u32; 2]), Polygon(u32) }
+pub enum Component {
+    Vertex(u32),
+    Edge([u32; 2]),
+    Polygon(u32),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PickMode { Replace, Add, Remove }
+pub enum PickMode {
+    Replace,
+    Add,
+    Remove,
+}
 
 impl PolySelection {
     pub fn picked_polys(polys: Vec<u32>) -> Self {
-        Self { polys, ..Default::default() }
+        Self {
+            polys,
+            ..Default::default()
+        }
     }
 
     /// The selected components of the current level. The other two sets of
@@ -219,52 +267,94 @@ impl PolySelection {
             _ => None,
         };
 
-        let mut out = Resolved { verts: vec![false; nv], edges: HashSet::new(), polys: vec![false; np] };
+        let mut out = Resolved {
+            verts: vec![false; nv],
+            edges: HashSet::new(),
+            polys: vec![false; np],
+        };
         match self.level.base() {
             SubLevel::Polygon => {
                 match &self.source {
-                    SelSource::Picked => for p in &self.polys { if (*p as usize) < np { out.polys[*p as usize] = true; } },
-                    SelSource::All    => out.polys.iter_mut().for_each(|s| *s = true),
+                    SelSource::Picked => {
+                        for p in &self.polys {
+                            if (*p as usize) < np {
+                                out.polys[*p as usize] = true;
+                            }
+                        }
+                    }
+                    SelSource::All => out.polys.iter_mut().for_each(|s| *s = true),
                     SelSource::ByNormal { .. } => out.polys = facing.clone().unwrap(),
-                    SelSource::InBox { min, max } => for p in 0..np { out.polys[p] = inside(mesh.centroid(p), min, max); },
+                    SelSource::InBox { min, max } => {
+                        for p in 0..np {
+                            out.polys[p] = inside(mesh.centroid(p), min, max);
+                        }
+                    }
                 }
                 if self.level == SubLevel::Element {
                     let element = mesh.elements();
                     let hit: HashSet<usize> = (0..np).filter(|p| out.polys[*p]).map(|p| element[p]).collect();
-                    for p in 0..np { out.polys[p] = hit.contains(&element[p]); }
+                    for p in 0..np {
+                        out.polys[p] = hit.contains(&element[p]);
+                    }
                 }
                 let around = mesh.vertex_polys();
                 for _ in 0..self.grow.max(0) {
                     let mut touched = vec![false; nv];
                     for (p, poly) in mesh.polys.iter().enumerate() {
-                        if out.polys[p] { for v in poly { touched[*v as usize] = true; } }
+                        if out.polys[p] {
+                            for v in poly {
+                                touched[*v as usize] = true;
+                            }
+                        }
                     }
                     for (p, poly) in mesh.polys.iter().enumerate() {
-                        if poly.iter().any(|v| touched[*v as usize]) { out.polys[p] = true; }
+                        if poly.iter().any(|v| touched[*v as usize]) {
+                            out.polys[p] = true;
+                        }
                     }
                 }
                 for _ in 0..(-self.grow).max(0) {
                     let prev = out.polys.clone();
                     for (p, poly) in mesh.polys.iter().enumerate() {
-                        if prev[p] && poly.iter().any(|v| around[*v as usize].iter().any(|q| !prev[*q as usize])) {
+                        if prev[p]
+                            && poly
+                                .iter()
+                                .any(|v| around[*v as usize].iter().any(|q| !prev[*q as usize]))
+                        {
                             out.polys[p] = false;
                         }
                     }
                 }
-                if self.invert { out.polys.iter_mut().for_each(|s| *s = !*s); }
+                if self.invert {
+                    out.polys.iter_mut().for_each(|s| *s = !*s);
+                }
             }
 
             SubLevel::Vertex => {
                 match &self.source {
-                    SelSource::Picked => for v in &self.verts { if (*v as usize) < nv { out.verts[*v as usize] = true; } },
-                    SelSource::All    => out.verts.iter_mut().for_each(|s| *s = true),
+                    SelSource::Picked => {
+                        for v in &self.verts {
+                            if (*v as usize) < nv {
+                                out.verts[*v as usize] = true;
+                            }
+                        }
+                    }
+                    SelSource::All => out.verts.iter_mut().for_each(|s| *s = true),
                     SelSource::ByNormal { .. } => {
                         let f = facing.as_ref().unwrap();
                         for (p, poly) in mesh.polys.iter().enumerate() {
-                            if f[p] { for v in poly { out.verts[*v as usize] = true; } }
+                            if f[p] {
+                                for v in poly {
+                                    out.verts[*v as usize] = true;
+                                }
+                            }
                         }
                     }
-                    SelSource::InBox { min, max } => for v in 0..nv { out.verts[v] = inside(mesh.verts[v], min, max); },
+                    SelSource::InBox { min, max } => {
+                        for v in 0..nv {
+                            out.verts[v] = inside(mesh.verts[v], min, max);
+                        }
+                    }
                 }
                 let edges = mesh.edges();
                 for _ in 0..self.grow.max(0) {
@@ -279,11 +369,17 @@ impl PolySelection {
                 for _ in 0..(-self.grow).max(0) {
                     let prev = out.verts.clone();
                     for e in &edges {
-                        if !prev[e[0] as usize] { out.verts[e[1] as usize] = false; }
-                        if !prev[e[1] as usize] { out.verts[e[0] as usize] = false; }
+                        if !prev[e[0] as usize] {
+                            out.verts[e[1] as usize] = false;
+                        }
+                        if !prev[e[1] as usize] {
+                            out.verts[e[0] as usize] = false;
+                        }
                     }
                 }
-                if self.invert { out.verts.iter_mut().for_each(|s| *s = !*s); }
+                if self.invert {
+                    out.verts.iter_mut().for_each(|s| *s = !*s);
+                }
             }
 
             _ => {
@@ -294,42 +390,64 @@ impl PolySelection {
                 }
                 let known: HashSet<[u32; 2]> = edges.iter().copied().collect();
                 match &self.source {
-                    SelSource::Picked => for e in &self.edges {
-                        let k = edge_key(e[0], e[1]);
-                        if known.contains(&k) { out.edges.insert(k); }
-                    },
+                    SelSource::Picked => {
+                        for e in &self.edges {
+                            let k = edge_key(e[0], e[1]);
+                            if known.contains(&k) {
+                                out.edges.insert(k);
+                            }
+                        }
+                    }
                     SelSource::All => out.edges = known.clone(),
                     SelSource::ByNormal { .. } => {
                         let f = facing.as_ref().unwrap();
                         for (p, poly) in mesh.polys.iter().enumerate() {
-                            if !f[p] { continue; }
+                            if !f[p] {
+                                continue;
+                            }
                             for i in 0..poly.len() {
                                 let k = edge_key(poly[i], poly[(i + 1) % poly.len()]);
-                                if known.contains(&k) { out.edges.insert(k); }
+                                if known.contains(&k) {
+                                    out.edges.insert(k);
+                                }
                             }
                         }
                     }
-                    SelSource::InBox { min, max } => for e in &edges {
-                        if inside(mesh.verts[e[0] as usize], min, max) && inside(mesh.verts[e[1] as usize], min, max) {
-                            out.edges.insert(*e);
+                    SelSource::InBox { min, max } => {
+                        for e in &edges {
+                            if inside(mesh.verts[e[0] as usize], min, max)
+                                && inside(mesh.verts[e[1] as usize], min, max)
+                            {
+                                out.edges.insert(*e);
+                            }
                         }
-                    },
+                    }
                 }
                 for _ in 0..self.grow.max(0) {
                     let mut touched = vec![false; nv];
-                    for e in &out.edges { touched[e[0] as usize] = true; touched[e[1] as usize] = true; }
+                    for e in &out.edges {
+                        touched[e[0] as usize] = true;
+                        touched[e[1] as usize] = true;
+                    }
                     for e in &edges {
-                        if touched[e[0] as usize] || touched[e[1] as usize] { out.edges.insert(*e); }
+                        if touched[e[0] as usize] || touched[e[1] as usize] {
+                            out.edges.insert(*e);
+                        }
                     }
                 }
                 for _ in 0..(-self.grow).max(0) {
-                    let mut open = vec![false; nv];   // vertex touches an unselected edge
+                    let mut open = vec![false; nv]; // vertex touches an unselected edge
                     for e in &edges {
-                        if !out.edges.contains(e) { open[e[0] as usize] = true; open[e[1] as usize] = true; }
+                        if !out.edges.contains(e) {
+                            open[e[0] as usize] = true;
+                            open[e[1] as usize] = true;
+                        }
                     }
                     out.edges.retain(|e| !open[e[0] as usize] && !open[e[1] as usize]);
                 }
-                if self.invert { out.edges = known.difference(&out.edges).copied().collect(); }
+                if self.invert {
+                    out.edges = known.difference(&out.edges).copied().collect();
+                }
             }
         }
         out
@@ -341,12 +459,18 @@ impl PolySelection {
         let r = self.resolve(mesh);
         match self.level.base() {
             SubLevel::Polygon => r.polys,
-            SubLevel::Vertex  => mesh.polys.iter()
+            SubLevel::Vertex => mesh
+                .polys
+                .iter()
                 .map(|poly| !poly.is_empty() && poly.iter().all(|v| r.verts[*v as usize]))
                 .collect(),
-            _ => mesh.polys.iter()
-                .map(|poly| !poly.is_empty() && (0..poly.len())
-                    .all(|i| r.edges.contains(&edge_key(poly[i], poly[(i + 1) % poly.len()]))))
+            _ => mesh
+                .polys
+                .iter()
+                .map(|poly| {
+                    !poly.is_empty()
+                        && (0..poly.len()).all(|i| r.edges.contains(&edge_key(poly[i], poly[(i + 1) % poly.len()])))
+                })
                 .collect(),
         }
     }
@@ -359,13 +483,20 @@ impl PolySelection {
             SubLevel::Polygon => {
                 let mut out = vec![false; mesh.verts.len()];
                 for (p, poly) in mesh.polys.iter().enumerate() {
-                    if r.polys[p] { for v in poly { out[*v as usize] = true; } }
+                    if r.polys[p] {
+                        for v in poly {
+                            out[*v as usize] = true;
+                        }
+                    }
                 }
                 out
             }
             _ => {
                 let mut out = vec![false; mesh.verts.len()];
-                for e in &r.edges { out[e[0] as usize] = true; out[e[1] as usize] = true; }
+                for e in &r.edges {
+                    out[e[0] as usize] = true;
+                    out[e[1] as usize] = true;
+                }
                 out
             }
         }
@@ -376,13 +507,20 @@ impl PolySelection {
     pub fn edge_set(&self, mesh: &PolyMesh) -> HashSet<[u32; 2]> {
         let r = self.resolve(mesh);
         match self.level.base() {
-            SubLevel::Vertex => mesh.edges().into_iter()
-                .filter(|e| r.verts[e[0] as usize] && r.verts[e[1] as usize]).collect(),
+            SubLevel::Vertex => mesh
+                .edges()
+                .into_iter()
+                .filter(|e| r.verts[e[0] as usize] && r.verts[e[1] as usize])
+                .collect(),
             SubLevel::Polygon => {
                 let mut out = HashSet::new();
                 for (p, poly) in mesh.polys.iter().enumerate() {
-                    if !r.polys[p] { continue; }
-                    for i in 0..poly.len() { out.insert(edge_key(poly[i], poly[(i + 1) % poly.len()])); }
+                    if !r.polys[p] {
+                        continue;
+                    }
+                    for i in 0..poly.len() {
+                        out.insert(edge_key(poly[i], poly[(i + 1) % poly.len()]));
+                    }
                 }
                 out
             }
@@ -393,19 +531,28 @@ impl PolySelection {
     /// Centre of the selected vertices.
     pub fn centre(&self, mesh: &PolyMesh) -> Option<Vec3> {
         let set = self.vertex_set(mesh);
-        let picked: Vec<Vec3> = (0..mesh.verts.len()).filter(|v| set[*v]).map(|v| mesh.verts[v]).collect();
+        let picked: Vec<Vec3> = (0..mesh.verts.len())
+            .filter(|v| set[*v])
+            .map(|v| mesh.verts[v])
+            .collect();
         (!picked.is_empty()).then(|| picked.iter().sum::<Vec3>() / picked.len() as f32)
     }
 
     /// Grow an edge selection into loops or rings.
     pub fn expand_edges(&mut self, mesh: &PolyMesh, ring: bool) {
-        if self.level.base() != SubLevel::Edge { return; }
+        if self.level.base() != SubLevel::Edge {
+            return;
+        }
         let start = self.resolve(mesh).edges;
-        let grown = if ring { mesh.edge_ring(&start) } else { mesh.edge_loop(&start) };
+        let grown = if ring {
+            mesh.edge_ring(&start)
+        } else {
+            mesh.edge_loop(&start)
+        };
         self.edges = grown.into_iter().collect();
         self.edges.sort();
         self.source = SelSource::Picked;
-        self.grow   = 0;
+        self.grow = 0;
         self.invert = false;
     }
 
@@ -413,24 +560,29 @@ impl PolySelection {
     pub fn count(&self, mesh: &PolyMesh) -> usize {
         let r = self.resolve(mesh);
         match self.level.base() {
-            SubLevel::Vertex  => r.verts.iter().filter(|s| **s).count(),
+            SubLevel::Vertex => r.verts.iter().filter(|s| **s).count(),
             SubLevel::Polygon => r.polys.iter().filter(|s| **s).count(),
-            _                 => r.edges.len(),
+            _ => r.edges.len(),
         }
     }
 
     /// Turn whatever is selected now into an explicit picked list, so clicks
     /// can add to or remove from a rule-based selection.
     pub fn bake(&mut self, mesh: &PolyMesh) {
-        if self.source == SelSource::Picked && self.grow == 0 && !self.invert { return; }
+        if self.source == SelSource::Picked && self.grow == 0 && !self.invert {
+            return;
+        }
         let r = self.resolve(mesh);
         match self.level.base() {
-            SubLevel::Vertex  => self.verts = (0..r.verts.len() as u32).filter(|v| r.verts[*v as usize]).collect(),
+            SubLevel::Vertex => self.verts = (0..r.verts.len() as u32).filter(|v| r.verts[*v as usize]).collect(),
             SubLevel::Polygon => self.polys = (0..r.polys.len() as u32).filter(|p| r.polys[*p as usize]).collect(),
-            _                 => { self.edges = r.edges.into_iter().collect(); self.edges.sort(); }
+            _ => {
+                self.edges = r.edges.into_iter().collect();
+                self.edges.sort();
+            }
         }
         self.source = SelSource::Picked;
-        self.grow   = 0;
+        self.grow = 0;
         self.invert = false;
     }
 
@@ -440,24 +592,52 @@ impl PolySelection {
         fn update<T: PartialEq + Copy>(list: &mut Vec<T>, items: Vec<T>, mode: PickMode) {
             match mode {
                 PickMode::Replace => *list = items,
-                PickMode::Add     => for i in items { if !list.contains(&i) { list.push(i); } },
-                PickMode::Remove  => list.retain(|x| !items.contains(x)),
+                PickMode::Add => {
+                    for i in items {
+                        if !list.contains(&i) {
+                            list.push(i);
+                        }
+                    }
+                }
+                PickMode::Remove => list.retain(|x| !items.contains(x)),
             }
         }
         match self.level.base() {
-            SubLevel::Vertex => update(&mut self.verts,
-                picked.iter().filter_map(|c| if let Component::Vertex(v) = c { Some(*v) } else { None }).collect(), mode),
-            SubLevel::Edge | SubLevel::Border => update(&mut self.edges,
-                picked.iter().filter_map(|c| if let Component::Edge(e) = c { Some(edge_key(e[0], e[1])) } else { None }).collect(), mode),
-            SubLevel::Polygon | SubLevel::Element => update(&mut self.polys,
-                picked.iter().filter_map(|c| if let Component::Polygon(p) = c { Some(*p) } else { None }).collect(), mode),
+            SubLevel::Vertex => update(
+                &mut self.verts,
+                picked
+                    .iter()
+                    .filter_map(|c| if let Component::Vertex(v) = c { Some(*v) } else { None })
+                    .collect(),
+                mode,
+            ),
+            SubLevel::Edge | SubLevel::Border => update(
+                &mut self.edges,
+                picked
+                    .iter()
+                    .filter_map(|c| {
+                        if let Component::Edge(e) = c {
+                            Some(edge_key(e[0], e[1]))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                mode,
+            ),
+            SubLevel::Polygon | SubLevel::Element => update(
+                &mut self.polys,
+                picked
+                    .iter()
+                    .filter_map(|c| if let Component::Polygon(p) = c { Some(*p) } else { None })
+                    .collect(),
+                mode,
+            ),
         }
     }
 }
 
-// ============================================================================
 // OPERATIONS
-// ============================================================================
 
 /// How the selected polygons move together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -472,27 +652,47 @@ pub enum ExtrudeMode {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PolyOpKind {
-    Extrude { height: f32, mode: ExtrudeMode },
+    Extrude {
+        height: f32,
+        mode: ExtrudeMode,
+    },
     /// Extrude, then grow (positive) or shrink (negative) the outline.
-    Bevel   { height: f32, outline: f32, mode: ExtrudeMode },
-    Inset   { amount: f32, by_polygon: bool },
+    Bevel {
+        height: f32,
+        outline: f32,
+        mode: ExtrudeMode,
+    },
+    Inset {
+        amount: f32,
+        by_polygon: bool,
+    },
     /// Move, rotate and scale the selection about its centre. `rotate` is a
     /// quaternion (x, y, z, w). Scale is applied first, then rotation.
     Transform {
-        translate: [f32; 3], rotate: [f32; 4], scale: [f32; 3],
-        /// Soft selection: vertices within this distance follow part of the way.
-        #[serde(default)] falloff: f32,
+        translate: [f32; 3],
+        rotate: [f32; 4],
+        scale: [f32; 3],
+        /// Soft selection: vertices within this distance follow part of the
+        /// way.
+        #[serde(default)]
+        falloff: f32,
     },
     /// Delete the selection and the polygons that use it, leaving holes.
     Delete,
     /// Remove edges or vertices without leaving holes.
-    Remove { clean: bool },
+    Remove {
+        clean: bool,
+    },
     /// Weld selected vertices closer than `threshold`.
-    Weld { threshold: f32 },
+    Weld {
+        threshold: f32,
+    },
     /// Collapse each connected part of the selection to a point.
     Collapse,
     /// New edges between selected edges (with `segments` cuts) or vertices.
-    Connect { segments: u32 },
+    Connect {
+        segments: u32,
+    },
     /// Fill open borders.
     Cap,
     /// Join two borders, or two groups of polygons, with a band of quads.
@@ -503,26 +703,54 @@ pub enum PolyOpKind {
     Break,
     Flip,
     /// Flatten onto a plane across X, Y or Z, or the best fitting one.
-    MakePlanar { axis: Option<usize> },
-    Relax { amount: f32, iterations: u32, hold_border: bool },
+    MakePlanar {
+        axis: Option<usize>,
+    },
+    Relax {
+        amount: f32,
+        iterations: u32,
+        hold_border: bool,
+    },
     /// Split the selected polygons into quads.
     Tessellate,
     /// Catmull-Clark subdivision of the whole mesh.
-    Subdivide { iterations: u32 },
+    Subdivide {
+        iterations: u32,
+    },
     /// Cut the corner off vertices, or replace edges by a strip.
-    Chamfer { amount: f32 },
-    /// Raise a pyramid at each vertex: `width` along the edges, `height` along the normal.
-    ExtrudeVertex { height: f32, width: f32 },
+    Chamfer {
+        amount: f32,
+    },
+    /// Raise a pyramid at each vertex: `width` along the edges, `height` along
+    /// the normal.
+    ExtrudeVertex {
+        height: f32,
+        width: f32,
+    },
     /// New polygons growing from open edges.
-    ExtrudeEdge { height: f32, width: f32 },
+    ExtrudeEdge {
+        height: f32,
+        width: f32,
+    },
     /// Grow or shrink the outline of the selected polygons in place.
-    Outline { amount: f32 },
+    Outline {
+        amount: f32,
+    },
     /// Swing the selected polygons about one edge of their outline.
-    Hinge { angle: f32, segments: u32, edge: u32 },
+    Hinge {
+        angle: f32,
+        segments: u32,
+        edge: u32,
+    },
     /// Cut with a plane across X, Y or Z.
-    Slice { axis: usize, offset: f32 },
+    Slice {
+        axis: usize,
+        offset: f32,
+    },
     /// Insert vertices: along the selected edges, or in the middle of polygons.
-    InsertVertex { segments: u32 },
+    InsertVertex {
+        segments: u32,
+    },
     Triangulate,
     /// Flip the diagonal between two triangles.
     Turn,
@@ -531,54 +759,65 @@ pub enum PolyOpKind {
 impl PolyOpKind {
     pub fn label(&self) -> &'static str {
         match self {
-            PolyOpKind::Extrude { .. }    => "Extrude",
-            PolyOpKind::Bevel { .. }      => "Bevel",
-            PolyOpKind::Inset { .. }      => "Inset",
-            PolyOpKind::Transform { .. }  => "Transform",
-            PolyOpKind::Delete            => "Delete",
-            PolyOpKind::Remove { .. }     => "Remove",
-            PolyOpKind::Weld { .. }       => "Weld",
-            PolyOpKind::Collapse          => "Collapse",
-            PolyOpKind::Connect { .. }    => "Connect",
-            PolyOpKind::Cap               => "Cap",
-            PolyOpKind::Bridge            => "Bridge",
-            PolyOpKind::Detach            => "Detach",
-            PolyOpKind::Break             => "Break",
-            PolyOpKind::Flip              => "Flip",
+            PolyOpKind::Extrude { .. } => "Extrude",
+            PolyOpKind::Bevel { .. } => "Bevel",
+            PolyOpKind::Inset { .. } => "Inset",
+            PolyOpKind::Transform { .. } => "Transform",
+            PolyOpKind::Delete => "Delete",
+            PolyOpKind::Remove { .. } => "Remove",
+            PolyOpKind::Weld { .. } => "Weld",
+            PolyOpKind::Collapse => "Collapse",
+            PolyOpKind::Connect { .. } => "Connect",
+            PolyOpKind::Cap => "Cap",
+            PolyOpKind::Bridge => "Bridge",
+            PolyOpKind::Detach => "Detach",
+            PolyOpKind::Break => "Break",
+            PolyOpKind::Flip => "Flip",
             PolyOpKind::MakePlanar { .. } => "Make planar",
-            PolyOpKind::Relax { .. }      => "Relax",
-            PolyOpKind::Tessellate        => "Tessellate",
-            PolyOpKind::Subdivide { .. }  => "Subdivide",
-            PolyOpKind::Chamfer { .. }    => "Chamfer",
+            PolyOpKind::Relax { .. } => "Relax",
+            PolyOpKind::Tessellate => "Tessellate",
+            PolyOpKind::Subdivide { .. } => "Subdivide",
+            PolyOpKind::Chamfer { .. } => "Chamfer",
             PolyOpKind::ExtrudeVertex { .. } => "Extrude vertex",
-            PolyOpKind::ExtrudeEdge { .. }   => "Extrude edge",
-            PolyOpKind::Outline { .. }    => "Outline",
-            PolyOpKind::Hinge { .. }      => "Hinge",
-            PolyOpKind::Slice { .. }      => "Slice",
+            PolyOpKind::ExtrudeEdge { .. } => "Extrude edge",
+            PolyOpKind::Outline { .. } => "Outline",
+            PolyOpKind::Hinge { .. } => "Hinge",
+            PolyOpKind::Slice { .. } => "Slice",
             PolyOpKind::InsertVertex { .. } => "Insert vertex",
-            PolyOpKind::Triangulate       => "Triangulate",
-            PolyOpKind::Turn              => "Turn",
+            PolyOpKind::Triangulate => "Triangulate",
+            PolyOpKind::Turn => "Turn",
         }
     }
 
     pub fn identity_transform() -> Self {
-        PolyOpKind::Transform { translate: [0.0; 3], rotate: [0.0, 0.0, 0.0, 1.0], scale: [1.0; 3], falloff: 0.0 }
+        PolyOpKind::Transform {
+            translate: [0.0; 3],
+            rotate: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0; 3],
+            falloff: 0.0,
+        }
     }
 
-    /// True when the operation leaves every vertex and polygon index alone,
-    /// so the selection it used is still valid afterwards.
+    /// True when the operation leaves every vertex and polygon index alone, so
+    /// the selection it used is still valid afterwards.
     pub fn keeps_indices(&self) -> bool {
-        matches!(self, PolyOpKind::Transform { .. } | PolyOpKind::Flip
-            | PolyOpKind::MakePlanar { .. } | PolyOpKind::Relax { .. } | PolyOpKind::Outline { .. })
+        matches!(
+            self,
+            PolyOpKind::Transform { .. }
+                | PolyOpKind::Flip
+                | PolyOpKind::MakePlanar { .. }
+                | PolyOpKind::Relax { .. }
+                | PolyOpKind::Outline { .. }
+        )
     }
 }
 
 /// One entry of the Edit Poly node's operation list.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PolyOp {
-    pub enabled:   bool,
+    pub enabled: bool,
     pub selection: PolySelection,
-    pub kind:      PolyOpKind,
+    pub kind: PolyOpKind,
     /// Frozen: still applied, in order, but no longer listed for editing.
     #[serde(default)]
     pub collapsed: bool,
@@ -586,77 +825,123 @@ pub struct PolyOp {
 
 impl PolyOp {
     pub fn new(selection: PolySelection, kind: PolyOpKind) -> Self {
-        Self { enabled: true, selection, kind, collapsed: false }
+        Self {
+            enabled: true,
+            selection,
+            kind,
+            collapsed: false,
+        }
     }
 
     /// Apply the operation. Extrude, Bevel and Inset keep the indices of the
     /// selected polygons, so the same selection addresses the moved faces.
     pub fn apply(&self, mesh: &mut PolyMesh) {
-        if !self.enabled { return; }
-        let sel   = &self.selection;
+        if !self.enabled {
+            return;
+        }
+        let sel = &self.selection;
         let level = sel.level.base();
         match &self.kind {
             PolyOpKind::Extrude { height, mode } => offset_faces(mesh, &sel.poly_mask(mesh), *height, 0.0, *mode),
-            PolyOpKind::Bevel { height, outline, mode } => offset_faces(mesh, &sel.poly_mask(mesh), *height, -*outline, *mode),
+            PolyOpKind::Bevel { height, outline, mode } => {
+                offset_faces(mesh, &sel.poly_mask(mesh), *height, -*outline, *mode)
+            }
             PolyOpKind::Inset { amount, by_polygon } => offset_faces(
-                mesh, &sel.poly_mask(mesh), 0.0, *amount,
-                if *by_polygon { ExtrudeMode::ByPolygon } else { ExtrudeMode::Group }),
-            PolyOpKind::Transform { translate, rotate, scale, falloff } => mesh.transform_verts(
-                &sel.vertex_set(mesh), Vec3::from_array(*translate),
-                Quat::from_array(*rotate).normalize(), Vec3::from_array(*scale), *falloff),
+                mesh,
+                &sel.poly_mask(mesh),
+                0.0,
+                *amount,
+                if *by_polygon {
+                    ExtrudeMode::ByPolygon
+                } else {
+                    ExtrudeMode::Group
+                },
+            ),
+            PolyOpKind::Transform {
+                translate,
+                rotate,
+                scale,
+                falloff,
+            } => mesh.transform_verts(
+                &sel.vertex_set(mesh),
+                Vec3::from_array(*translate),
+                Quat::from_array(*rotate).normalize(),
+                Vec3::from_array(*scale),
+                *falloff,
+            ),
             PolyOpKind::Delete => {
                 let mask: Vec<bool> = match level {
                     SubLevel::Polygon => sel.poly_mask(mesh),
                     SubLevel::Vertex => {
                         let v = sel.resolve(mesh).verts;
-                        mesh.polys.iter().map(|poly| poly.iter().any(|x| v[*x as usize])).collect()
+                        mesh.polys
+                            .iter()
+                            .map(|poly| poly.iter().any(|x| v[*x as usize]))
+                            .collect()
                     }
                     _ => {
                         let e = sel.resolve(mesh).edges;
-                        mesh.polys.iter().map(|poly| (0..poly.len())
-                            .any(|i| e.contains(&edge_key(poly[i], poly[(i + 1) % poly.len()])))).collect()
+                        mesh.polys
+                            .iter()
+                            .map(|poly| {
+                                (0..poly.len()).any(|i| e.contains(&edge_key(poly[i], poly[(i + 1) % poly.len()])))
+                            })
+                            .collect()
                     }
                 };
                 mesh.delete_polys(&mask);
             }
             PolyOpKind::Remove { clean } => match level {
-                SubLevel::Vertex  => mesh.remove_verts(&sel.resolve(mesh).verts),
+                SubLevel::Vertex => mesh.remove_verts(&sel.resolve(mesh).verts),
                 SubLevel::Polygon => {}
-                _                 => mesh.remove_edges(&sel.resolve(mesh).edges, *clean),
+                _ => mesh.remove_edges(&sel.resolve(mesh).edges, *clean),
             },
             PolyOpKind::Weld { threshold } => mesh.weld(&sel.vertex_set(mesh), *threshold),
             PolyOpKind::Collapse => mesh.collapse(&sel.vertex_set(mesh)),
             PolyOpKind::Connect { segments } => match level {
                 SubLevel::Vertex => mesh.connect_verts(&sel.resolve(mesh).verts),
-                _                => mesh.connect(&sel.edge_set(mesh), *segments),
+                _ => mesh.connect(&sel.edge_set(mesh), *segments),
             },
             PolyOpKind::Cap => match level {
                 SubLevel::Edge => mesh.cap(Some(&sel.resolve(mesh).edges)),
-                _              => mesh.cap(None),
+                _ => mesh.cap(None),
             },
             PolyOpKind::Bridge => match level {
-                SubLevel::Polygon => { mesh.bridge_polys(&sel.poly_mask(mesh)); }
-                SubLevel::Edge    => { mesh.bridge_borders(Some(&sel.resolve(mesh).edges)); }
+                SubLevel::Polygon => {
+                    mesh.bridge_polys(&sel.poly_mask(mesh));
+                }
+                SubLevel::Edge => {
+                    mesh.bridge_borders(Some(&sel.resolve(mesh).edges));
+                }
                 _ => {}
             },
             PolyOpKind::Detach => mesh.detach(&sel.poly_mask(mesh)),
-            PolyOpKind::Break  => mesh.break_verts(&sel.vertex_set(mesh)),
-            PolyOpKind::Flip   => mesh.flip(&sel.poly_mask(mesh)),
+            PolyOpKind::Break => mesh.break_verts(&sel.vertex_set(mesh)),
+            PolyOpKind::Flip => mesh.flip(&sel.poly_mask(mesh)),
             PolyOpKind::MakePlanar { axis } => mesh.make_planar(&sel.vertex_set(mesh), *axis),
-            PolyOpKind::Relax { amount, iterations, hold_border } =>
-                mesh.relax(&sel.vertex_set(mesh), *amount, (*iterations).min(200), *hold_border),
+            PolyOpKind::Relax {
+                amount,
+                iterations,
+                hold_border,
+            } => mesh.relax(&sel.vertex_set(mesh), *amount, (*iterations).min(200), *hold_border),
             PolyOpKind::Tessellate => mesh.tessellate(&sel.poly_mask(mesh)),
-            PolyOpKind::Subdivide { iterations } => for _ in 0..(*iterations).min(4) { mesh.subdivide(); },
+            PolyOpKind::Subdivide { iterations } => {
+                for _ in 0..(*iterations).min(4) {
+                    mesh.subdivide();
+                }
+            }
             PolyOpKind::Chamfer { amount } => match level {
-                SubLevel::Edge   => mesh.chamfer_edges(&sel.resolve(mesh).edges, *amount),
+                SubLevel::Edge => mesh.chamfer_edges(&sel.resolve(mesh).edges, *amount),
                 SubLevel::Vertex => mesh.chamfer_verts(&sel.resolve(mesh).verts, *amount, None),
                 // Polygons: the edges around them.
-                _                => mesh.chamfer_edges(&sel.edge_set(mesh), *amount),
+                _ => mesh.chamfer_edges(&sel.edge_set(mesh), *amount),
             },
-            PolyOpKind::ExtrudeVertex { height, width } =>
-                mesh.chamfer_verts(&sel.vertex_set(mesh), *width, Some(*height)),
-            PolyOpKind::ExtrudeEdge { height, width } =>
-                mesh.extrude_border_edges(&sel.edge_set(mesh), *height, *width),
+            PolyOpKind::ExtrudeVertex { height, width } => {
+                mesh.chamfer_verts(&sel.vertex_set(mesh), *width, Some(*height))
+            }
+            PolyOpKind::ExtrudeEdge { height, width } => {
+                mesh.extrude_border_edges(&sel.edge_set(mesh), *height, *width)
+            }
             PolyOpKind::Outline { amount } => mesh.outline(&sel.poly_mask(mesh), *amount),
             PolyOpKind::Hinge { angle, segments, edge } => mesh.hinge(&sel.poly_mask(mesh), *angle, *segments, *edge),
             PolyOpKind::Slice { axis, offset } => {
@@ -667,7 +952,7 @@ impl PolyOp {
             }
             PolyOpKind::InsertVertex { segments } => match level {
                 SubLevel::Polygon => mesh.poke(&sel.poly_mask(mesh)),
-                _                 => mesh.split_edges(&sel.edge_set(mesh), *segments),
+                _ => mesh.split_edges(&sel.edge_set(mesh), *segments),
             },
             PolyOpKind::Triangulate => mesh.triangulate(&sel.poly_mask(mesh)),
             PolyOpKind::Turn => mesh.turn_edges(&sel.edge_set(mesh)),
@@ -678,45 +963,69 @@ impl PolyOp {
 /// Mesh after the first `count` operations.
 pub fn apply_ops(input: &PolyMesh, ops: &[PolyOp], count: usize) -> PolyMesh {
     let mut mesh = input.clone();
-    for op in ops.iter().take(count) { op.apply(&mut mesh); }
+    for op in ops.iter().take(count) {
+        op.apply(&mut mesh);
+    }
     mesh
 }
 
-// ── Collapsing ───────────────────────────────────────────────────────────────
+// Collapsing
 
 /// Add an operation. With `auto_collapse`, everything before it is collapsed.
 pub fn push_op(ops: &mut Vec<PolyOp>, auto_collapse: bool, op: PolyOp) {
-    if auto_collapse { collapse_all(ops); }
+    if auto_collapse {
+        collapse_all(ops);
+    }
     ops.push(op);
 }
 
 /// Collapse one operation. A disabled one does nothing, so it is dropped.
 pub fn collapse_op(ops: &mut Vec<PolyOp>, i: usize) {
-    if i >= ops.len() { return; }
-    if ops[i].enabled { ops[i].collapsed = true; } else { ops.remove(i); }
+    if i >= ops.len() {
+        return;
+    }
+    if ops[i].enabled {
+        ops[i].collapsed = true;
+    } else {
+        ops.remove(i);
+    }
 }
 
 pub fn collapse_all(ops: &mut Vec<PolyOp>) {
     ops.retain(|op| op.enabled);
-    for op in ops.iter_mut() { op.collapsed = true; }
+    for op in ops.iter_mut() {
+        op.collapsed = true;
+    }
 }
 
 /// Make the run of collapsed operations that contains `i` editable again.
 pub fn restore_run(ops: &mut [PolyOp], i: usize) {
-    if i >= ops.len() || !ops[i].collapsed { return; }
+    if i >= ops.len() || !ops[i].collapsed {
+        return;
+    }
     let mut a = i;
-    while a > 0 && ops[a - 1].collapsed { a -= 1; }
+    while a > 0 && ops[a - 1].collapsed {
+        a -= 1;
+    }
     let mut b = i;
-    while b + 1 < ops.len() && ops[b + 1].collapsed { b += 1; }
-    for op in &mut ops[a..=b] { op.collapsed = false; }
+    while b + 1 < ops.len() && ops[b + 1].collapsed {
+        b += 1;
+    }
+    for op in &mut ops[a..=b] {
+        op.collapsed = false;
+    }
 }
 
-// ── Cached evaluation ────────────────────────────────────────────────────────
+// Cached evaluation
 
 pub fn mesh_hash(mesh: &PolyMesh) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    for v in &mesh.verts { for c in v.to_array() { c.to_bits().hash(&mut h); } }
+    for v in &mesh.verts {
+        for c in v.to_array() {
+            c.to_bits().hash(&mut h);
+        }
+    }
     mesh.polys.hash(&mut h);
     h.finish()
 }
@@ -732,29 +1041,38 @@ fn ops_hash(seed: u64, ops: &[PolyOp]) -> u64 {
 static CACHE: std::sync::Mutex<Vec<(u64, std::sync::Arc<PolyMesh>)>> = std::sync::Mutex::new(Vec::new());
 
 fn cache_get(key: u64) -> Option<std::sync::Arc<PolyMesh>> {
-    CACHE.lock().ok()?.iter().find(|(k, _)| *k == key).map(|(_, m)| m.clone())
+    CACHE
+        .lock()
+        .ok()?
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, m)| m.clone())
 }
 
 fn cache_put(key: u64, mesh: std::sync::Arc<PolyMesh>) {
     if let Ok(mut c) = CACHE.lock() {
-        if c.len() >= 12 { c.remove(0); }
+        if c.len() >= 12 {
+            c.remove(0);
+        }
         c.push((key, mesh));
     }
 }
 
 /// `apply_ops` with a memory. The same input and operations give the stored
-/// mesh back, and the leading run of collapsed operations is stored on its
-/// own, so editing a live operation does not replay the collapsed ones.
+/// mesh back, and the leading run of collapsed operations is stored on its own,
+/// so editing a live operation does not replay the collapsed ones.
 pub fn eval_cached(input: &PolyMesh, ops: &[PolyOp], count: usize) -> std::sync::Arc<PolyMesh> {
     eval_cached_seeded(input, mesh_hash(input), ops, count)
 }
 
-/// `eval_cached` for a mesh whose fingerprint is already known (`seed`):
-/// a big mesh is not hashed again on every frame.
+/// `eval_cached` for a mesh whose fingerprint is already known (`seed`): a big
+/// mesh is not hashed again on every frame.
 pub fn eval_cached_seeded(input: &PolyMesh, seed: u64, ops: &[PolyOp], count: usize) -> std::sync::Arc<PolyMesh> {
-    let ops  = &ops[..count.min(ops.len())];
-    let key  = ops_hash(seed, ops);
-    if let Some(m) = cache_get(key) { return m; }
+    let ops = &ops[..count.min(ops.len())];
+    let key = ops_hash(seed, ops);
+    if let Some(m) = cache_get(key) {
+        return m;
+    }
 
     let frozen = ops.iter().take_while(|op| op.collapsed).count();
     let mesh = if frozen == 0 || frozen == ops.len() {
@@ -767,7 +1085,9 @@ pub fn eval_cached_seeded(input: &PolyMesh, seed: u64, ops: &[PolyOp], count: us
             m
         });
         let mut mesh = (*base).clone();
-        for op in &ops[frozen..] { op.apply(&mut mesh); }
+        for op in &ops[frozen..] {
+            op.apply(&mut mesh);
+        }
         mesh
     };
     let mesh = std::sync::Arc::new(mesh);
@@ -778,18 +1098,20 @@ pub fn eval_cached_seeded(input: &PolyMesh, seed: u64, ops: &[PolyOp], count: us
 /// Shared core of Extrude, Bevel and Inset.
 ///
 /// The selected polygons are cut free along the border of the selection and
-/// joined back with a ring of new quads. The freed vertices then move
-/// `height` along a normal and `inset` inwards, across the border edges.
+/// joined back with a ring of new quads. The freed vertices then move `height`
+/// along a normal and `inset` inwards, across the border edges.
 pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: f32, mode: ExtrudeMode) {
     let sel: Vec<usize> = (0..mesh.polys.len())
         .filter(|p| selected.get(*p).copied().unwrap_or(false) && mesh.polys[*p].len() >= 3)
         .collect();
-    if sel.is_empty() { return; }
+    if sel.is_empty() {
+        return;
+    }
 
     // Everything is measured on the mesh as it is before the operation.
-    let base    = mesh.verts.clone();
+    let base = mesh.verts.clone();
     let normals: Vec<Vec3> = (0..mesh.polys.len()).map(|p| mesh.normal(p)).collect();
-    let areas:   Vec<Vec3> = (0..mesh.polys.len()).map(|p| mesh.area_normal(p)).collect();
+    let areas: Vec<Vec3> = (0..mesh.polys.len()).map(|p| mesh.area_normal(p)).collect();
 
     // Regions are cut free separately: one per polygon, or the whole selection.
     let regions: Vec<Vec<usize>> = match mode {
@@ -803,11 +1125,18 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
         let mut by_edge: HashMap<[u32; 2], Vec<usize>> = HashMap::new();
         for p in &sel {
             let poly = &mesh.polys[*p];
-            for i in 0..poly.len() { by_edge.entry(edge_key(poly[i], poly[(i + 1) % poly.len()])).or_default().push(*p); }
+            for i in 0..poly.len() {
+                by_edge
+                    .entry(edge_key(poly[i], poly[(i + 1) % poly.len()]))
+                    .or_default()
+                    .push(*p);
+            }
         }
         let mut group: HashMap<usize, usize> = HashMap::new();
         for start in &sel {
-            if group.contains_key(start) { continue; }
+            if group.contains_key(start) {
+                continue;
+            }
             let mut members = vec![];
             let mut todo = vec![*start];
             group.insert(*start, *start);
@@ -816,12 +1145,17 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
                 let poly = &mesh.polys[p];
                 for i in 0..poly.len() {
                     for q in &by_edge[&edge_key(poly[i], poly[(i + 1) % poly.len()])] {
-                        if !group.contains_key(q) { group.insert(*q, *start); todo.push(*q); }
+                        if !group.contains_key(q) {
+                            group.insert(*q, *start);
+                            todo.push(*q);
+                        }
                     }
                 }
             }
             let n = members.iter().map(|p| areas[*p]).sum::<Vec3>().normalize_or_zero();
-            for p in members { group_normal.insert(p, n); }
+            for p in members {
+                group_normal.insert(p, n);
+            }
         }
     }
 
@@ -830,13 +1164,21 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
         let mut directed: HashMap<(u32, u32), usize> = HashMap::new();
         for p in &region {
             let poly = &mesh.polys[*p];
-            for i in 0..poly.len() { directed.insert((poly[i], poly[(i + 1) % poly.len()]), *p); }
+            for i in 0..poly.len() {
+                directed.insert((poly[i], poly[(i + 1) % poly.len()]), *p);
+            }
         }
         // Border: edges whose other side is not in the region.
-        let border: Vec<((u32, u32), usize)> = region.iter().flat_map(|p| {
-            let poly = &mesh.polys[*p];
-            (0..poly.len()).map(move |i| ((poly[i], poly[(i + 1) % poly.len()]), *p)).collect::<Vec<_>>()
-        }).filter(|((a, b), _)| !directed.contains_key(&(*b, *a))).collect();
+        let border: Vec<((u32, u32), usize)> = region
+            .iter()
+            .flat_map(|p| {
+                let poly = &mesh.polys[*p];
+                (0..poly.len())
+                    .map(move |i| ((poly[i], poly[(i + 1) % poly.len()]), *p))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|((a, b), _)| !directed.contains_key(&(*b, *a)))
+            .collect();
 
         // Direction each vertex is raised along.
         let mut raise: HashMap<u32, Vec3> = HashMap::new();
@@ -847,7 +1189,11 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
                     _ => normals[*p],
                 };
                 let e = raise.entry(*v).or_insert(Vec3::ZERO);
-                if mode == ExtrudeMode::Group { *e = add; } else { *e += add; }
+                if mode == ExtrudeMode::Group {
+                    *e = add;
+                } else {
+                    *e += add;
+                }
             }
         }
 
@@ -867,7 +1213,9 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
         let mut copy: HashMap<u32, u32> = HashMap::new();
         for p in &region {
             for v in mesh.polys[*p].clone() {
-                if copy.contains_key(&v) { continue; }
+                if copy.contains_key(&v) {
+                    continue;
+                }
                 let mut pos = base[v as usize] + raise[&v].normalize_or_zero() * height;
                 if let (Some(p1), Some(p2)) = (incoming.get(&v), outgoing.get(&v)) {
                     pos += (*p1 + *p2) / (1.0 + p1.dot(*p2)).max(0.25) * inset;
@@ -877,7 +1225,9 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
             }
         }
         for p in &region {
-            for v in mesh.polys[*p].iter_mut() { *v = copy[v]; }
+            for v in mesh.polys[*p].iter_mut() {
+                *v = copy[v];
+            }
         }
         // Ring of quads between the old border and the freed one.
         for ((a, b), _) in &border {
@@ -887,9 +1237,7 @@ pub fn offset_faces(mesh: &mut PolyMesh, selected: &[bool], height: f32, inset: 
     mesh.compact();
 }
 
-// ============================================================================
 // PICKING
-// ============================================================================
 
 /// Camera as the picker needs it.
 #[derive(Clone, Copy, Debug)]
@@ -897,18 +1245,24 @@ pub struct PickView {
     /// World to clip space.
     pub view_proj: Mat4,
     /// Viewport size in pixels.
-    pub size:      Vec2,
+    pub size: Vec2,
     /// Camera position.
-    pub eye:       Vec3,
+    pub eye: Vec3,
 }
 
 impl PickView {
-    /// World position to pixels from the viewport's top-left. None behind the camera.
+    /// World position to pixels from the viewport's top-left. None behind the
+    /// camera.
     pub fn project(&self, p: Vec3) -> Option<Vec2> {
         let clip = self.view_proj * p.extend(1.0);
-        if clip.w <= 1e-6 { return None; }
+        if clip.w <= 1e-6 {
+            return None;
+        }
         let ndc = clip.truncate() / clip.w;
-        Some(Vec2::new((ndc.x + 1.0) * 0.5 * self.size.x, (1.0 - ndc.y) * 0.5 * self.size.y))
+        Some(Vec2::new(
+            (ndc.x + 1.0) * 0.5 * self.size.x,
+            (1.0 - ndc.y) * 0.5 * self.size.y,
+        ))
     }
 
     /// Ray through a pixel: origin and unit direction.
@@ -919,7 +1273,9 @@ impl PickView {
         let a = inv.project_point3(ndc.extend(0.25));
         let b = inv.project_point3(ndc.extend(0.75));
         let mut dir = (b - a).normalize_or_zero();
-        if dir.dot(a - self.eye) < 0.0 { dir = -dir; }
+        if dir.dot(a - self.eye) < 0.0 {
+            dir = -dir;
+        }
         (self.eye, dir)
     }
 
@@ -933,7 +1289,11 @@ impl PickView {
 
 fn point_segment_distance(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     let ab = b - a;
-    let t = if ab.length_squared() < 1e-9 { 0.0 } else { ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) };
+    let t = if ab.length_squared() < 1e-9 {
+        0.0
+    } else {
+        ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+    };
     p.distance(a + ab * t)
 }
 
@@ -942,13 +1302,19 @@ pub fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> 
     let (e1, e2) = (b - a, c - a);
     let h = d.cross(e2);
     let det = e1.dot(h);
-    if det.abs() < 1e-9 { return None; }
+    if det.abs() < 1e-9 {
+        return None;
+    }
     let s = o - a;
     let u = s.dot(h) / det;
-    if !(0.0..=1.0).contains(&u) { return None; }
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
     let q = s.cross(e1);
     let v = d.dot(q) / det;
-    if v < 0.0 || u + v > 1.0 { return None; }
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
     let t = e2.dot(q) / det;
     (t > 1e-6).then_some(t)
 }
@@ -959,12 +1325,21 @@ fn polygon_under(mesh: &PolyMesh, view: &PickView, pixel: Vec2) -> Option<(u32, 
     let front = view.front_facing(mesh);
     let mut best: Option<(u32, f32)> = None;
     for (p, poly) in mesh.polys.iter().enumerate() {
-        if !front[p] { continue; }
+        if !front[p] {
+            continue;
+        }
         for i in 1..poly.len().saturating_sub(1) {
-            let hit = ray_triangle(o, d,
-                mesh.verts[poly[0] as usize], mesh.verts[poly[i] as usize], mesh.verts[poly[i + 1] as usize]);
+            let hit = ray_triangle(
+                o,
+                d,
+                mesh.verts[poly[0] as usize],
+                mesh.verts[poly[i] as usize],
+                mesh.verts[poly[i + 1] as usize],
+            );
             if let Some(t) = hit {
-                if best.map(|b| t < b.1).unwrap_or(true) { best = Some((p as u32, t)); }
+                if best.map(|b| t < b.1).unwrap_or(true) {
+                    best = Some((p as u32, t));
+                }
             }
         }
     }
@@ -978,7 +1353,9 @@ pub fn visible_components(mesh: &PolyMesh, view: &PickView) -> (Vec<bool>, HashS
     let mut verts = vec![false; mesh.verts.len()];
     let mut edges = HashSet::new();
     for (p, poly) in mesh.polys.iter().enumerate() {
-        if !front[p] { continue; }
+        if !front[p] {
+            continue;
+        }
         for i in 0..poly.len() {
             verts[poly[i] as usize] = true;
             edges.insert(edge_key(poly[i], poly[(i + 1) % poly.len()]));
@@ -987,8 +1364,8 @@ pub fn visible_components(mesh: &PolyMesh, view: &PickView) -> (Vec<bool>, HashS
     (verts, edges)
 }
 
-/// What a click at `pixel` selects at the given level. Vertices and edges
-/// are picked within `radius` pixels.
+/// What a click at `pixel` selects at the given level. Vertices and edges are
+/// picked within `radius` pixels.
 pub fn pick_point(mesh: &PolyMesh, view: &PickView, level: SubLevel, pixel: Vec2, radius: f32) -> Option<Component> {
     let (vis_verts, vis_edges) = visible_components(mesh, view);
     match level {
@@ -996,10 +1373,14 @@ pub fn pick_point(mesh: &PolyMesh, view: &PickView, level: SubLevel, pixel: Vec2
         SubLevel::Vertex => {
             let mut best: Option<(u32, f32)> = None;
             for (v, pos) in mesh.verts.iter().enumerate() {
-                if !vis_verts[v] { continue; }
+                if !vis_verts[v] {
+                    continue;
+                }
                 let Some(s) = view.project(*pos) else { continue };
                 let d = s.distance(pixel);
-                if d <= radius && best.map(|b| d < b.1).unwrap_or(true) { best = Some((v as u32, d)); }
+                if d <= radius && best.map(|b| d < b.1).unwrap_or(true) {
+                    best = Some((v as u32, d));
+                }
             }
             best.map(|(v, _)| Component::Vertex(v))
         }
@@ -1007,33 +1388,51 @@ pub fn pick_point(mesh: &PolyMesh, view: &PickView, level: SubLevel, pixel: Vec2
             let open = (level == SubLevel::Border).then(|| mesh.open_edges());
             let mut best: Option<([u32; 2], f32)> = None;
             for e in &vis_edges {
-                if open.as_ref().map(|o| !o.contains(e)).unwrap_or(false) { continue; }
-                let (Some(a), Some(b)) = (view.project(mesh.verts[e[0] as usize]), view.project(mesh.verts[e[1] as usize])) else { continue };
+                if open.as_ref().map(|o| !o.contains(e)).unwrap_or(false) {
+                    continue;
+                }
+                let (Some(a), Some(b)) = (
+                    view.project(mesh.verts[e[0] as usize]),
+                    view.project(mesh.verts[e[1] as usize]),
+                ) else {
+                    continue;
+                };
                 let d = point_segment_distance(pixel, a, b);
-                if d <= radius && best.map(|b| d < b.1).unwrap_or(true) { best = Some((*e, d)); }
+                if d <= radius && best.map(|b| d < b.1).unwrap_or(true) {
+                    best = Some((*e, d));
+                }
             }
             best.map(|(e, _)| Component::Edge(e))
         }
     }
 }
 
-/// Everything a box drawn between two pixels selects. A component counts
-/// when all of its vertices are inside the box.
+/// Everything a box drawn between two pixels selects. A component counts when
+/// all of its vertices are inside the box.
 pub fn pick_rect(mesh: &PolyMesh, view: &PickView, level: SubLevel, a: Vec2, b: Vec2) -> Vec<Component> {
     let (min, max) = (a.min(b), a.max(b));
-    let inside: Vec<bool> = mesh.verts.iter()
-        .map(|p| view.project(*p).map(|s| s.cmpge(min).all() && s.cmple(max).all()).unwrap_or(false))
+    let inside: Vec<bool> = mesh
+        .verts
+        .iter()
+        .map(|p| {
+            view.project(*p)
+                .map(|s| s.cmpge(min).all() && s.cmple(max).all())
+                .unwrap_or(false)
+        })
         .collect();
     let (vis_verts, vis_edges) = visible_components(mesh, view);
     match level {
         SubLevel::Vertex => (0..mesh.verts.len())
             .filter(|v| vis_verts[*v] && inside[*v])
-            .map(|v| Component::Vertex(v as u32)).collect(),
+            .map(|v| Component::Vertex(v as u32))
+            .collect(),
         SubLevel::Edge | SubLevel::Border => {
             let open = (level == SubLevel::Border).then(|| mesh.open_edges());
-            let mut edges: Vec<[u32; 2]> = vis_edges.into_iter()
+            let mut edges: Vec<[u32; 2]> = vis_edges
+                .into_iter()
                 .filter(|e| inside[e[0] as usize] && inside[e[1] as usize])
-                .filter(|e| open.as_ref().map(|o| o.contains(e)).unwrap_or(true)).collect();
+                .filter(|e| open.as_ref().map(|o| o.contains(e)).unwrap_or(true))
+                .collect();
             edges.sort();
             edges.into_iter().map(Component::Edge).collect()
         }
@@ -1041,51 +1440,85 @@ pub fn pick_rect(mesh: &PolyMesh, view: &PickView, level: SubLevel, a: Vec2, b: 
             let front = view.front_facing(mesh);
             (0..mesh.polys.len())
                 .filter(|p| front[*p] && mesh.polys[*p].iter().all(|v| inside[*v as usize]))
-                .map(|p| Component::Polygon(p as u32)).collect()
+                .map(|p| Component::Polygon(p as u32))
+                .collect()
         }
     }
 }
 
-/// Widen picks to what the level selects as a unit: a whole border at
-/// Border level, a whole element at Element level.
+/// Widen picks to what the level selects as a unit: a whole border at Border
+/// level, a whole element at Element level.
 pub fn widen_pick(mesh: &PolyMesh, level: SubLevel, picked: Vec<Component>) -> Vec<Component> {
     match level {
         SubLevel::Border => {
-            let hit: HashSet<[u32; 2]> = picked.iter()
-                .filter_map(|c| if let Component::Edge(e) = c { Some(edge_key(e[0], e[1])) } else { None }).collect();
+            let hit: HashSet<[u32; 2]> = picked
+                .iter()
+                .filter_map(|c| {
+                    if let Component::Edge(e) = c {
+                        Some(edge_key(e[0], e[1]))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             let mut out = vec![];
             for lp in mesh.border_loops() {
                 let edges: Vec<[u32; 2]> = (0..lp.len()).map(|i| edge_key(lp[i], lp[(i + 1) % lp.len()])).collect();
-                if edges.iter().any(|e| hit.contains(e)) { out.extend(edges.into_iter().map(Component::Edge)); }
+                if edges.iter().any(|e| hit.contains(e)) {
+                    out.extend(edges.into_iter().map(Component::Edge));
+                }
             }
             out
         }
         SubLevel::Element => {
             let element = mesh.elements();
-            let hit: HashSet<usize> = picked.iter()
-                .filter_map(|c| if let Component::Polygon(p) = c { element.get(*p as usize).copied() } else { None }).collect();
-            (0..mesh.polys.len()).filter(|p| hit.contains(&element[*p])).map(|p| Component::Polygon(p as u32)).collect()
+            let hit: HashSet<usize> = picked
+                .iter()
+                .filter_map(|c| {
+                    if let Component::Polygon(p) = c {
+                        element.get(*p as usize).copied()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            (0..mesh.polys.len())
+                .filter(|p| hit.contains(&element[*p]))
+                .map(|p| Component::Polygon(p as u32))
+                .collect()
         }
         _ => picked,
     }
 }
 
-// ============================================================================
 // TESTS
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn cube() -> PolyMesh { PolyMesh::from_mesh(&crate::node_graph::nodes::create_cube(1.0)) }
-    fn grid(n: u32) -> PolyMesh { PolyMesh::from_mesh(&crate::node_graph::nodes::create_grid(n, n, n as f32)) }
+    fn cube() -> PolyMesh {
+        PolyMesh::from_mesh(&crate::node_graph::nodes::create_cube(1.0))
+    }
+    fn grid(n: u32) -> PolyMesh {
+        PolyMesh::from_mesh(&crate::node_graph::nodes::create_grid(n, n, n as f32))
+    }
 
     fn top() -> PolySelection {
-        PolySelection { source: SelSource::ByNormal { dir: [0.0, 1.0, 0.0], angle: 5.0 }, ..Default::default() }
+        PolySelection {
+            source: SelSource::ByNormal {
+                dir: [0.0, 1.0, 0.0],
+                angle: 5.0,
+            },
+            ..Default::default()
+        }
     }
-    fn op(selection: PolySelection, kind: PolyOpKind) -> PolyOp { PolyOp::new(selection, kind) }
-    fn area(m: &PolyMesh, p: usize) -> f32 { m.area_normal(p).length() * 0.5 }
+    fn op(selection: PolySelection, kind: PolyOpKind) -> PolyOp {
+        PolyOp::new(selection, kind)
+    }
+    fn area(m: &PolyMesh, p: usize) -> f32 {
+        m.area_normal(p).length() * 0.5
+    }
 
     #[test]
     fn primitives_face_outwards() {
@@ -1094,13 +1527,17 @@ mod tests {
         let s = PolyMesh::from_mesh(&md);
         assert!(s.volume() > 3.9 && s.volume() < 4.19, "{}", s.volume());
         for p in 0..s.polys.len() {
-            if s.area_normal(p).length() < 1e-6 { continue; }
+            if s.area_normal(p).length() < 1e-6 {
+                continue;
+            }
             assert!(s.normal(p).dot(s.centroid(p)) > 0.0, "polygon {p}");
         }
         for t in md.indices.chunks_exact(3) {
             let [a, b, c] = [0, 1, 2].map(|k| Vec3::from_array(md.vertices[t[k] as usize]));
             let n = (b - a).cross(c - a);
-            if n.length() < 1e-7 { continue; }
+            if n.length() < 1e-7 {
+                continue;
+            }
             assert!(n.dot(a + b + c) > 0.0);
         }
         for (v, n) in md.vertices.iter().zip(&md.normals) {
@@ -1108,7 +1545,9 @@ mod tests {
         }
         // Grid: faces up.
         let g = grid(3);
-        for p in 0..g.polys.len() { assert!(g.normal(p).y > 0.99); }
+        for p in 0..g.polys.len() {
+            assert!(g.normal(p).y > 0.99);
+        }
     }
 
     #[test]
@@ -1118,14 +1557,23 @@ mod tests {
         assert!(c.polys.iter().all(|p| p.len() == 4));
         assert!(c.is_closed());
         assert!((c.volume() - 1.0).abs() < 1e-5);
-        for p in 0..6 { assert!(c.normal(p).dot(c.centroid(p)) > 0.49); }
+        for p in 0..6 {
+            assert!(c.normal(p).dot(c.centroid(p)) > 0.49);
+        }
         assert_eq!(c.edges().len(), 12);
     }
 
     #[test]
     fn extrude_one_face() {
         let mut m = cube();
-        op(top(), PolyOpKind::Extrude { height: 0.5, mode: ExtrudeMode::Group }).apply(&mut m);
+        op(
+            top(),
+            PolyOpKind::Extrude {
+                height: 0.5,
+                mode: ExtrudeMode::Group,
+            },
+        )
+        .apply(&mut m);
         assert_eq!((m.verts.len(), m.polys.len()), (12, 10));
         assert!(m.is_closed());
         assert!((m.volume() - 1.5).abs() < 1e-5);
@@ -1143,13 +1591,27 @@ mod tests {
         let mut m = grid(3);
         let sel = PolySelection::picked_polys(vec![0, 1]);
         let mut by_poly = m.clone();
-        op(sel.clone(), PolyOpKind::Extrude { height: 1.0, mode: ExtrudeMode::Group }).apply(&mut m);
+        op(
+            sel.clone(),
+            PolyOpKind::Extrude {
+                height: 1.0,
+                mode: ExtrudeMode::Group,
+            },
+        )
+        .apply(&mut m);
         // 6 border edges -> 6 walls, 6 new vertices.
         assert_eq!(m.polys.len(), 9 + 6);
         assert_eq!(m.verts.len(), 16 + 6);
         assert!((m.centroid(0).y - 1.0).abs() < 1e-5 && (m.centroid(1).y - 1.0).abs() < 1e-5);
         // By polygon: each cell gets its own four walls.
-        op(sel, PolyOpKind::Extrude { height: 1.0, mode: ExtrudeMode::ByPolygon }).apply(&mut by_poly);
+        op(
+            sel,
+            PolyOpKind::Extrude {
+                height: 1.0,
+                mode: ExtrudeMode::ByPolygon,
+            },
+        )
+        .apply(&mut by_poly);
         assert_eq!(by_poly.polys.len(), 9 + 8);
         assert_eq!(by_poly.verts.len(), 16 + 8);
     }
@@ -1158,8 +1620,18 @@ mod tests {
     fn extrude_whole_closed_mesh_offsets_it() {
         // Every face selected: no border, so local-normal extrude just moves the surface.
         let mut m = cube();
-        let all = PolySelection { source: SelSource::All, ..Default::default() };
-        op(all, PolyOpKind::Extrude { height: 0.1, mode: ExtrudeMode::LocalNormal }).apply(&mut m);
+        let all = PolySelection {
+            source: SelSource::All,
+            ..Default::default()
+        };
+        op(
+            all,
+            PolyOpKind::Extrude {
+                height: 0.1,
+                mode: ExtrudeMode::LocalNormal,
+            },
+        )
+        .apply(&mut m);
         assert_eq!((m.verts.len(), m.polys.len()), (8, 6));
         assert!(m.is_closed());
         assert!(m.volume() > 1.0);
@@ -1168,8 +1640,18 @@ mod tests {
     #[test]
     fn by_polygon_extrude_of_all_faces() {
         let mut m = cube();
-        let all = PolySelection { source: SelSource::All, ..Default::default() };
-        op(all, PolyOpKind::Extrude { height: 1.0, mode: ExtrudeMode::ByPolygon }).apply(&mut m);
+        let all = PolySelection {
+            source: SelSource::All,
+            ..Default::default()
+        };
+        op(
+            all,
+            PolyOpKind::Extrude {
+                height: 1.0,
+                mode: ExtrudeMode::ByPolygon,
+            },
+        )
+        .apply(&mut m);
         // Six unit boxes on a unit cube: a plus shape in 3D.
         assert_eq!(m.polys.len(), 6 + 24);
         assert!(m.is_closed());
@@ -1179,7 +1661,14 @@ mod tests {
     #[test]
     fn inset_keeps_surface_and_shrinks_face() {
         let mut m = cube();
-        op(top(), PolyOpKind::Inset { amount: 0.25, by_polygon: false }).apply(&mut m);
+        op(
+            top(),
+            PolyOpKind::Inset {
+                amount: 0.25,
+                by_polygon: false,
+            },
+        )
+        .apply(&mut m);
         assert_eq!((m.verts.len(), m.polys.len()), (12, 10));
         assert!(m.is_closed());
         assert!((m.volume() - 1.0).abs() < 1e-5);
@@ -1193,18 +1682,40 @@ mod tests {
     fn group_inset_follows_the_outline() {
         // 2 x 1 block of cells on a grid, inset as one: 1.5 x 0.5 remains.
         let mut m = grid(3);
-        op(PolySelection::picked_polys(vec![0, 1]), PolyOpKind::Inset { amount: 0.25, by_polygon: false }).apply(&mut m);
+        op(
+            PolySelection::picked_polys(vec![0, 1]),
+            PolyOpKind::Inset {
+                amount: 0.25,
+                by_polygon: false,
+            },
+        )
+        .apply(&mut m);
         assert!((area(&m, 0) + area(&m, 1) - 1.5 * 0.5).abs() < 1e-5);
         // Separately: two 0.5 x 0.5 squares.
         let mut m = grid(3);
-        op(PolySelection::picked_polys(vec![0, 1]), PolyOpKind::Inset { amount: 0.25, by_polygon: true }).apply(&mut m);
+        op(
+            PolySelection::picked_polys(vec![0, 1]),
+            PolyOpKind::Inset {
+                amount: 0.25,
+                by_polygon: true,
+            },
+        )
+        .apply(&mut m);
         assert!((area(&m, 0) - 0.25).abs() < 1e-5 && (area(&m, 1) - 0.25).abs() < 1e-5);
     }
 
     #[test]
     fn bevel_raises_and_scales() {
         let mut m = cube();
-        op(top(), PolyOpKind::Bevel { height: 0.5, outline: -0.25, mode: ExtrudeMode::Group }).apply(&mut m);
+        op(
+            top(),
+            PolyOpKind::Bevel {
+                height: 0.5,
+                outline: -0.25,
+                mode: ExtrudeMode::Group,
+            },
+        )
+        .apply(&mut m);
         assert!(m.is_closed());
         let p = top().poly_mask(&m).iter().position(|s| *s).unwrap();
         assert!((m.centroid(p).y - 1.0).abs() < 1e-5);
@@ -1214,7 +1725,15 @@ mod tests {
         assert!((m.volume() - expect).abs() < 1e-4, "{} vs {expect}", m.volume());
         // Positive outline flares out.
         let mut m = cube();
-        op(top(), PolyOpKind::Bevel { height: 0.5, outline: 0.25, mode: ExtrudeMode::Group }).apply(&mut m);
+        op(
+            top(),
+            PolyOpKind::Bevel {
+                height: 0.5,
+                outline: 0.25,
+                mode: ExtrudeMode::Group,
+            },
+        )
+        .apply(&mut m);
         let p = top().poly_mask(&m).iter().position(|s| *s).unwrap();
         assert!((area(&m, p) - 2.25).abs() < 1e-4);
     }
@@ -1226,16 +1745,35 @@ mod tests {
         let top_face = PolySelection::picked_polys(vec![3]);
         assert_eq!(cube().normal(3), Vec3::Y);
         let ops = vec![
-            op(top_face.clone(), PolyOpKind::Inset { amount: 0.1, by_polygon: false }),
-            op(top_face.clone(), PolyOpKind::Extrude { height: 0.5, mode: ExtrudeMode::Group }),
-            op(top_face.clone(), PolyOpKind::Bevel { height: 0.2, outline: -0.1, mode: ExtrudeMode::Group }),
+            op(
+                top_face.clone(),
+                PolyOpKind::Inset {
+                    amount: 0.1,
+                    by_polygon: false,
+                },
+            ),
+            op(
+                top_face.clone(),
+                PolyOpKind::Extrude {
+                    height: 0.5,
+                    mode: ExtrudeMode::Group,
+                },
+            ),
+            op(
+                top_face.clone(),
+                PolyOpKind::Bevel {
+                    height: 0.2,
+                    outline: -0.1,
+                    mode: ExtrudeMode::Group,
+                },
+            ),
         ];
         let m = apply_ops(&cube(), &ops, 3);
         assert!(m.is_closed());
         assert_eq!(m.polys.len(), 6 + 12);
         assert!((m.centroid(3).y - 1.2).abs() < 1e-5);
-        assert!((area(&m, 3) - 0.6 * 0.6).abs() < 1e-5);          // 1 - 2*0.1 - 2*0.1 per side
-        // Box, plus a 0.8 x 0.8 x 0.5 column, plus a frustum from 0.8 to 0.6.
+        assert!((area(&m, 3) - 0.6 * 0.6).abs() < 1e-5); // 1 - 2*0.1 - 2*0.1 per side
+                                                         // Box, plus a 0.8 x 0.8 x 0.5 column, plus a frustum from 0.8 to 0.6.
         let expect = 1.0 + 0.64 * 0.5 + 0.2 / 3.0 * (0.64 + 0.36 + 0.48);
         assert!((m.volume() - expect).abs() < 1e-4, "{} vs {expect}", m.volume());
         // Stopping early gives the intermediate mesh; a disabled step is skipped.
@@ -1247,28 +1785,87 @@ mod tests {
 
     #[test]
     fn selection_rules() {
-        let g = grid(4);     // 4 x 4 cells from -2 to 2
-        let all = PolySelection { source: SelSource::All, ..Default::default() };
+        let g = grid(4); // 4 x 4 cells from -2 to 2
+        let all = PolySelection {
+            source: SelSource::All,
+            ..Default::default()
+        };
         assert_eq!(all.count(&g), 16);
         let corner = PolySelection::picked_polys(vec![0]);
-        assert_eq!(PolySelection { grow: 1, ..corner.clone() }.count(&g), 4);
-        assert_eq!(PolySelection { grow: 2, ..corner.clone() }.count(&g), 9);
-        assert_eq!(PolySelection { invert: true, ..corner.clone() }.count(&g), 15);
-        assert_eq!(PolySelection { grow: -1, ..all.clone() }.count(&g), 16);   // open grid: nothing outside to shrink from
-        let inner = PolySelection { source: SelSource::InBox { min: [-1.0, -1.0, -1.0], max: [1.0, 1.0, 1.0] }, ..Default::default() };
+        assert_eq!(
+            PolySelection {
+                grow: 1,
+                ..corner.clone()
+            }
+            .count(&g),
+            4
+        );
+        assert_eq!(
+            PolySelection {
+                grow: 2,
+                ..corner.clone()
+            }
+            .count(&g),
+            9
+        );
+        assert_eq!(
+            PolySelection {
+                invert: true,
+                ..corner.clone()
+            }
+            .count(&g),
+            15
+        );
+        assert_eq!(
+            PolySelection {
+                grow: -1,
+                ..all.clone()
+            }
+            .count(&g),
+            16
+        ); // open grid: nothing outside to shrink from
+        let inner = PolySelection {
+            source: SelSource::InBox {
+                min: [-1.0, -1.0, -1.0],
+                max: [1.0, 1.0, 1.0],
+            },
+            ..Default::default()
+        };
         assert_eq!(inner.count(&g), 4);
-        assert_eq!(PolySelection { grow: -1, ..PolySelection { grow: 0, ..inner.clone() } }.count(&g), 0);
+        assert_eq!(
+            PolySelection {
+                grow: -1,
+                ..PolySelection {
+                    grow: 0,
+                    ..inner.clone()
+                }
+            }
+            .count(&g),
+            0
+        );
 
         let c = cube();
         assert_eq!(top().count(&c), 1);
-        let upper = PolySelection { source: SelSource::ByNormal { dir: [0.0, 1.0, 0.0], angle: 95.0 }, ..Default::default() };
+        let upper = PolySelection {
+            source: SelSource::ByNormal {
+                dir: [0.0, 1.0, 0.0],
+                angle: 95.0,
+            },
+            ..Default::default()
+        };
         assert_eq!(upper.count(&c), 5);
         // Vertex and edge levels.
-        let v = PolySelection { level: SubLevel::Vertex, ..top() };
+        let v = PolySelection {
+            level: SubLevel::Vertex,
+            ..top()
+        };
         assert_eq!(v.count(&c), 4);
         assert_eq!(v.poly_mask(&c).iter().filter(|s| **s).count(), 1);
         assert_eq!(PolySelection { grow: 1, ..v.clone() }.count(&c), 8);
-        let e = PolySelection { level: SubLevel::Edge, ..top() };
+        let e = PolySelection {
+            level: SubLevel::Edge,
+            ..top()
+        };
         assert_eq!(e.count(&c), 4);
         assert_eq!(e.poly_mask(&c).iter().filter(|s| **s).count(), 1);
         assert_eq!(PolySelection { grow: 1, ..e.clone() }.count(&c), 8);
@@ -1278,7 +1875,11 @@ mod tests {
     fn camera(eye: Vec3) -> PickView {
         let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
         let proj = Mat4::perspective_rh(45f32.to_radians(), 800.0 / 600.0, 0.1, 100.0);
-        PickView { view_proj: proj * view, size: Vec2::new(800.0, 600.0), eye }
+        PickView {
+            view_proj: proj * view,
+            size: Vec2::new(800.0, 600.0),
+            eye,
+        }
     }
 
     #[test]
@@ -1287,20 +1888,29 @@ mod tests {
         let view = camera(Vec3::new(0.0, 0.0, 5.0));
         let centre = Vec2::new(400.0, 300.0);
         // Looking down -Z at the +Z face.
-        let Some(Component::Polygon(p)) = pick_point(&c, &view, SubLevel::Polygon, centre, 8.0) else { panic!("no face") };
+        let Some(Component::Polygon(p)) = pick_point(&c, &view, SubLevel::Polygon, centre, 8.0) else {
+            panic!("no face")
+        };
         assert!(c.normal(p as usize).z > 0.9);
-        assert_eq!(pick_point(&c, &view, SubLevel::Polygon, Vec2::new(10.0, 10.0), 8.0), None);
+        assert_eq!(
+            pick_point(&c, &view, SubLevel::Polygon, Vec2::new(10.0, 10.0), 8.0),
+            None
+        );
 
         // A corner of the front face.
         let corner = Vec3::new(0.5, 0.5, 0.5);
         let px = view.project(corner).unwrap();
-        let Some(Component::Vertex(v)) = pick_point(&c, &view, SubLevel::Vertex, px + Vec2::new(3.0, -2.0), 8.0) else { panic!("no vertex") };
+        let Some(Component::Vertex(v)) = pick_point(&c, &view, SubLevel::Vertex, px + Vec2::new(3.0, -2.0), 8.0) else {
+            panic!("no vertex")
+        };
         assert!((c.verts[v as usize] - corner).length() < 1e-6);
         assert_eq!(pick_point(&c, &view, SubLevel::Vertex, centre, 8.0), None);
 
         // Middle of the front face's top edge.
         let mid = view.project(Vec3::new(0.0, 0.5, 0.5)).unwrap();
-        let Some(Component::Edge(e)) = pick_point(&c, &view, SubLevel::Edge, mid + Vec2::new(0.0, 2.0), 6.0) else { panic!("no edge") };
+        let Some(Component::Edge(e)) = pick_point(&c, &view, SubLevel::Edge, mid + Vec2::new(0.0, 2.0), 6.0) else {
+            panic!("no edge")
+        };
         let (a, b) = (c.verts[e[0] as usize], c.verts[e[1] as usize]);
         assert!(a.y > 0.4 && b.y > 0.4 && a.z > 0.4 && b.z > 0.4);
     }
@@ -1321,7 +1931,17 @@ mod tests {
         assert_eq!(pick_rect(&c, &view, SubLevel::Edge, a, b).len(), 9);
         // A small box around one projected vertex.
         let px = view.project(Vec3::splat(0.5)).unwrap();
-        assert_eq!(pick_rect(&c, &view, SubLevel::Vertex, px - Vec2::splat(4.0), px + Vec2::splat(4.0)).len(), 1);
+        assert_eq!(
+            pick_rect(
+                &c,
+                &view,
+                SubLevel::Vertex,
+                px - Vec2::splat(4.0),
+                px + Vec2::splat(4.0)
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
@@ -1344,7 +1964,10 @@ mod tests {
         assert_eq!(s.poly_mask(&c), before);
 
         // Each level keeps its own picks.
-        let mut s = PolySelection { level: SubLevel::Edge, ..Default::default() };
+        let mut s = PolySelection {
+            level: SubLevel::Edge,
+            ..Default::default()
+        };
         s.apply_pick(&c, &[Component::Edge([3, 1]), Component::Polygon(0)], PickMode::Replace);
         assert_eq!(s.edges, vec![[1, 3]]);
         assert!(s.polys.is_empty());
@@ -1354,19 +1977,52 @@ mod tests {
     fn stale_picks_are_ignored() {
         // Indices beyond the mesh (after an upstream change) must not panic.
         let c = cube();
-        let s = PolySelection { polys: vec![2, 99], verts: vec![500], edges: vec![[0, 77]], ..Default::default() };
+        let s = PolySelection {
+            polys: vec![2, 99],
+            verts: vec![500],
+            edges: vec![[0, 77]],
+            ..Default::default()
+        };
         assert_eq!(s.count(&c), 1);
-        assert_eq!(PolySelection { level: SubLevel::Vertex, ..s.clone() }.count(&c), 0);
-        assert_eq!(PolySelection { level: SubLevel::Edge, ..s.clone() }.count(&c), 0);
+        assert_eq!(
+            PolySelection {
+                level: SubLevel::Vertex,
+                ..s.clone()
+            }
+            .count(&c),
+            0
+        );
+        assert_eq!(
+            PolySelection {
+                level: SubLevel::Edge,
+                ..s.clone()
+            }
+            .count(&c),
+            0
+        );
         let mut m = c.clone();
-        op(s, PolyOpKind::Extrude { height: 1.0, mode: ExtrudeMode::Group }).apply(&mut m);
+        op(
+            s,
+            PolyOpKind::Extrude {
+                height: 1.0,
+                mode: ExtrudeMode::Group,
+            },
+        )
+        .apply(&mut m);
         assert!(m.is_closed());
     }
 
     #[test]
     fn round_trip_through_mesh_data() {
         let mut m = cube();
-        op(top(), PolyOpKind::Extrude { height: 0.5, mode: ExtrudeMode::Group }).apply(&mut m);
+        op(
+            top(),
+            PolyOpKind::Extrude {
+                height: 0.5,
+                mode: ExtrudeMode::Group,
+            },
+        )
+        .apply(&mut m);
         let md = m.to_mesh();
         assert_eq!(md.face_count, 10);
         assert_eq!(md.indices.len(), 10 * 2 * 3);

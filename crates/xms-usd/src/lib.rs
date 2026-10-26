@@ -1,10 +1,11 @@
 //! `xms-usd`: OpenUSD stage → [`xms_scene::Scene`] translation for XMS | Imago.
 //!
-//! Forked from rray-usd @ <rray commit hash>, 2026-10-09. Only the translator side
-//! is kept: composition (sublayers, references, payloads, variants, inherits…) is
-//! resolved by `openusd`, and `to_scene` captures the composed stage as raw,
-//! USD-shaped data. rray's renderer side (from_scene, emit_* builders, BLAS,
-//! materials → OpenPBR, lights, session) is deliberately not here.
+//! Forked from rray-usd @ <rray commit hash>, 2026-10-09. Only the translator
+//! side is kept: composition (sublayers, references, payloads, variants,
+//! inherits…) is resolved by `openusd`, and `to_scene` captures the composed
+//! stage as raw, USD-shaped data. rray's renderer side (from_scene, emit_*
+//! builders, BLAS, materials → OpenPBR, lights, session) is deliberately not
+//! here.
 //!
 //! | module | role |
 //! |---|---|
@@ -32,9 +33,9 @@ mod values;
 mod xform;
 // mod export;   // later: .usda override-layer export (needs adapting to xms-scene)
 
-pub use to_scene::{translate, translate_phased, translate_stage, SceneOptions, Translated, CURVE_PRIMVAR_PREFIX};
 /// rray's name for [`translate`], kept so code ported from rray reads the same.
 pub use to_scene::translate as translate_to_scene;
+pub use to_scene::{translate, translate_phased, translate_stage, SceneOptions, Translated, CURVE_PRIMVAR_PREFIX};
 
 // Crate-internal helpers, visible to every module through `use crate::*`
 use values::*;

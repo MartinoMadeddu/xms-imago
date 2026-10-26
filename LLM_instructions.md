@@ -1,48 +1,106 @@
 # Instructions for AI assistants
 
-The one instruction file for any AI assistant (Claude, ChatGPT, Copilot, Cursor or other) working on this repository: what to check before starting, and how Martino and Simon work on it, so that anyone pulling the repository can work the same way.
+The one instruction file for any AI assistant (Claude, ChatGPT, Copilot, Cursor
+or other) working on this repository: what to check before starting, and how
+Martino and Simon work on it, so that anyone pulling the repository can work the
+same way.
 
-If you are an AI assistant: read this file and `DESIGN_PHILOSOPHY.md` before working here, run the checks below and report them to the person, and follow both. With every change, update `README.md` and the pages in `docs/` that describe what changed.
+If you are an AI assistant: read this file and `DESIGN_PHILOSOPHY.md` before
+working here, run the checks below and report them to the person, and follow
+both. With every change, update `README.md` and the pages in `docs/` that
+describe what changed.
 
 ## For AI assistants: run these checks first
 
-At the start of a session in this repository, run the checks below and report each one to the person as passed or failed, with the fix when it failed. Do not skip a check because it is probably fine. When something cannot be checked from where you run, say so instead of guessing.
+At the start of a session in this repository, run the checks below and report
+each one to the person as passed or failed, with the fix when it failed. Do not
+skip a check because it is probably fine. When something cannot be checked from
+where you run, say so instead of guessing.
 
-1. **Design philosophy.** Read `DESIGN_PHILOSOPHY.md` and tell the person it exists. Follow it; when a request goes against it, say which point and ask whether to follow the file or update it.
+1. **Design philosophy.** Read `DESIGN_PHILOSOPHY.md` and tell the person it
+   exists. Follow it; when a request goes against it, say which point and ask
+   whether to follow the file or update it.
 
-2. **A workspace that runs commands.** Check that you can run shell commands and keep files between turns. Without it you can only advise, not build, test or produce patches: tell the person, and that their Claude plan or app has to offer it.
+2. **A workspace that runs commands.** Check that you can run shell commands and
+   keep files between turns. Without it you can only advise, not build, test or
+   produce patches: tell the person, and that their Claude plan or app has to
+   offer it.
 
-3. **The program builds and its tests pass.** Clone the repository, install what the README's "Build from source" lists (on Ubuntu or Debian: `build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0`, plus `libwayland-dev libxkbcommon-dev` for a full build), then run `cargo test`. The first build takes a long time. Report how many tests passed. If the examples folder is not found, set `XMS_EXAMPLES` to the repository's `examples` folder.
+3. **The program builds and its tests pass.** Clone the repository, install what
+   the README's "Build from source" lists (on Ubuntu or Debian:
+   `build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0`,
+   plus `libwayland-dev libxkbcommon-dev` for a full build), then run
+   `cargo test`. The first build takes a long time. Report how many tests
+   passed. If the examples folder is not found, set `XMS_EXAMPLES` to the
+   repository's `examples` folder.
 
-4. **GitHub access.** Check that you can read `MartinoMadeddu/xms-imago`, then whether you can push to it.
+4. **GitHub access.** Check that you can read `MartinoMadeddu/xms-imago`, then
+   whether you can push to it.
    - Reading needs nothing for a public repository.
-   - Pushing needs the Claude GitHub App installed on the account that owns the repository, with access to `xms-imago` ([install it here](https://github.com/apps/claude/installations/select_target)). Only the owner (Martino) can install it on that account; a collaborator's own installation does not reach it. If it is installed but not linked, the person can re-link GitHub from [Claude's connector settings](https://claude.ai/customize/connectors?auth_start=github&auth_start_force=1).
-   - If pushing is not possible, or the person prefers it, use the patch workflow below. Do not push unless the person has said you may.
+   - Pushing needs the Claude GitHub App installed on the account that owns the
+     repository, with access to `xms-imago` ([install it
+     here](https://github.com/apps/claude/installations/select_target)). Only
+     the owner (Martino) can install it on that account; a collaborator's own
+     installation does not reach it. If it is installed but not linked, the
+     person can re-link GitHub from [Claude's connector
+     settings](https://claude.ai/customize/connectors?auth_start=github&auth_start_force=1).
+   - If pushing is not possible, or the person prefers it, use the patch
+     workflow below. Do not push unless the person has said you may.
 
-5. **Settings worth switching on in the Claude app.** Ask the person to check these in Settings, and say what each one is for:
-   - **Web search**: research such as skeleton naming conventions, file formats and joint ranges was done with it.
-   - **Generate memory from chats** and **Search and reference past chats**: standing rules (how changes are delivered, who pushes, documentation with every change) carry over between conversations instead of being repeated.
-   - Optional: the Claude desktop app linked to the person's computer, so files on it can be reached directly instead of attached.
+5. **Settings worth switching on in the Claude app.** Ask the person to check
+   these in Settings, and say what each one is for:
+   - **Web search**: research such as skeleton naming conventions, file formats
+     and joint ranges was done with it.
+   - **Generate memory from chats** and **Search and reference past chats**:
+     standing rules (how changes are delivered, who pushes, documentation with
+     every change) carry over between conversations instead of being repeated.
+   - Optional: the Claude desktop app linked to the person's computer, so files
+     on it can be reached directly instead of attached.
 
-6. **Report.** End the checks with one list: what passed, what failed, and what the person has to do.
+6. **Report.** End the checks with one list: what passed, what failed, and what
+   the person has to do.
 
 ## How we work
 
 ### The loop
 
-This is how a change goes from a request in a Claude chat to `main`, with the person running only one block of commands:
+This is how a change goes from a request in a Claude chat to `main`, with the
+person running only one block of commands:
 
-1. **The person asks for a change** in a Claude chat (claude.ai, a Project or the desktop app), in plain words.
-2. **The assistant works in its own copy.** In its workspace it keeps a clone of `MartinoMadeddu/xms-imago` and, before every change, fetches `main` and starts from it, so the change is made against what is really there.
-   - It reads what Martino pushed since the last change (`git log --author=Martino`, his diffs and his docs), and builds on it: his models and functions are used and extended, not replaced. A change that would rewrite something of his is named and asked about first.
-   - It adds to `DESIGN_PHILOSOPHY.md` the decisions his new code shows, in the same patch, with a line in its log.
+1. **The person asks for a change** in a Claude chat (claude.ai, a Project or
+   the desktop app), in plain words.
+2. **The assistant works in its own copy.** In its workspace it keeps a clone of
+   `MartinoMadeddu/xms-imago` and, before every change, fetches `main` and
+   starts from it, so the change is made against what is really there.
+   - It reads what Martino pushed since the last change
+     (`git log --author=Martino`, his diffs and his docs), and builds on it: his
+     models and functions are used and extended, not replaced. A change that
+     would rewrite something of his is named and asked about first.
+   - It adds to `DESIGN_PHILOSOPHY.md` the decisions his new code shows, in the
+     same patch, with a line in its log.
    - It uses the words in `VOCABULARY.md`.
-   - It fetches `main` again just before making the patch. If anything new came in, it rebases onto it first.
+   - It fetches `main` again just before making the patch. If anything new came
+     in, it rebases onto it first.
 
-   It builds, runs `cargo test` (with `XMS_EXAMPLES` set to the examples folder, so the regression suite finds the files), runs the program to look at the result (a screenshot under a virtual display: `xvfb-run` with `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `README.md` and `docs/`.
-3. **The assistant makes one patch** of everything since `origin/main`: `git diff --binary origin/main > xms-<what>-<suffix>.patch`. The suffix is new every time (date and time, `DDMMYYYY-HHMM`): a file sent again under a name already used replaces the earlier one in the chat instead of arriving as a new download, and "Download all" does not appear. `--binary` carries images, example files and solved data. It then checks the patch on a clean copy of `main` (`git worktree add` on `origin/main`, `git apply`), so it is known to apply before it is handed over.
-4. **The assistant sends the files**: the patch, and any screenshot worth looking at, as downloads in the chat, with the block of commands below filled in (patch name and commit message). It says what changed, what was tested and what was not.
-5. **The person clicks "Download all"**, so the files land in `~/Downloads`, and pastes the block into a terminal:
+   It builds, runs `cargo test` (with `XMS_EXAMPLES` set to the examples folder,
+   so the regression suite finds the files), runs the program to look at the
+   result (a screenshot under a virtual display: `xvfb-run` with
+   `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `README.md` and
+   `docs/`.
+3. **The assistant makes one patch** of everything since `origin/main`:
+   `git diff --binary origin/main > xms-<what>-<suffix>.patch`. The suffix is
+   new every time (date and time, `DDMMYYYY-HHMM`): a file sent again under a
+   name already used replaces the earlier one in the chat instead of arriving as
+   a new download, and "Download all" does not appear. `--binary` carries
+   images, example files and solved data. It then checks the patch on a clean
+   copy of `main` (`git worktree add` on `origin/main`, `git apply`), so it is
+   known to apply before it is handed over.
+4. **The assistant sends the files**: the patch, and any screenshot worth
+   looking at, as downloads in the chat, with the block of commands below filled
+   in (patch name and commit message). It says what changed, what was tested and
+   what was not.
+5. **The person clicks "Download all"**, so the files land in `~/Downloads`, and
+   pastes the block into a terminal:
 
        cd ~/Software/Martino_dcc-xms/dcc-xms && \
        git pull --rebase origin main && \
@@ -52,43 +110,102 @@ This is how a change goes from a request in a Claude chat to `main`, with the pe
        git push origin main && \
        cargo run --release
 
-   `git pull --rebase` brings in what others pushed; `git apply` adds the change; the next three lines commit and push it; `cargo run` comes last, so the change is on `main` straight away and the program can stay open as long as the person likes without holding up anyone else. The assistant has built and tested the change before sending it; if something is wrong once it runs, the fix is the next patch. (The path in the first line is Simon's clone; use your own.)
-   The commands are joined with `&&`, so the first one that fails stops the rest: a patch that does not apply is never followed by a commit and a push. The block holds no other commands (no `git rm`): deletions travel in the patch. On 13/10/2026 a block without `&&` committed and pushed only the deletions of a patch that had failed to apply.
-6. **When `git apply` fails**, someone pushed to `main` in between and the patch no longer fits. The person pastes the terminal output into the chat; the assistant fetches `main` again, rebases its work onto it (keeping the other person's version where both changed the same lines of documentation, and saying so), runs the tests again and sends a new patch. Nothing is lost: a failed `git apply` changes nothing, and the commands after it have nothing to commit.
-7. **The next change starts from the last patch.** Until the person says a patch is pushed, the assistant keeps its work committed locally (never pushed) and makes the next patch on top of it, saying in which order to apply them; or folds them into one.
+   `git pull --rebase` brings in what others pushed; `git apply` adds the
+   change; the next three lines commit and push it; `cargo run` comes last, so
+   the change is on `main` straight away and the program can stay open as long
+   as the person likes without holding up anyone else. The assistant has built
+   and tested the change before sending it; if something is wrong once it runs,
+   the fix is the next patch. (The path in the first line is Simon's clone; use
+   your own.) The commands are joined with `&&`, so the first one that fails
+   stops the rest: a patch that does not apply is never followed by a commit and
+   a push. The block holds no other commands (no `git rm`): deletions travel in
+   the patch. On 13/10/2026 a block without `&&` committed and pushed only the
+   deletions of a patch that had failed to apply.
+6. **When `git apply` fails**, someone pushed to `main` in between and the patch
+   no longer fits. The person pastes the terminal output into the chat; the
+   assistant fetches `main` again, rebases its work onto it (keeping the other
+   person's version where both changed the same lines of documentation, and
+   saying so), runs the tests again and sends a new patch. Nothing is lost: a
+   failed `git apply` changes nothing, and the commands after it have nothing to
+   commit.
+7. **The next change starts from the last patch.** Until the person says a patch
+   is pushed, the assistant keeps its work committed locally (never pushed) and
+   makes the next patch on top of it, saying in which order to apply them; or
+   folds them into one.
 
 What this needs:
 
-- On the person's computer: a clone of the repository, `git` signed in to GitHub with push rights to it (as owner or collaborator), and Rust with the libraries in the README, for `cargo run`.
-- For the assistant: a workspace that runs commands and reaches GitHub (check 2 and 4 above). Pushing from the workspace is not needed; the person pushes.
+- On the person's computer: a clone of the repository, `git` signed in to GitHub
+  with push rights to it (as owner or collaborator), and Rust with the libraries
+  in the README, for `cargo run`.
+- For the assistant: a workspace that runs commands and reaches GitHub (check 2
+  and 4 above). Pushing from the workspace is not needed; the person pushes.
 
 ### Placeholder nodes: how a new node is asked for
 
-A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that does not exist yet: its name, its named `inputs` and `outputs`, and a `description` of what it should do, written by the person for you. When given such a file:
+A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that
+does not exist yet: its name, its named `inputs` and `outputs`, and a
+`description` of what it should do, written by the person for you. When given
+such a file:
 
-- Read every placeholder: what is wired into each input, what each output feeds, and the description.
-- Build the node it describes, with its inputs and outputs in that order and named as given (or say why another shape is better, and ask), tests and docs as for any node.
-- Turn the graph into a template with the placeholder replaced by the new node, where that shows how it works.
+- Read every placeholder: what is wired into each input, what each output feeds,
+  and the description.
+- Build the node it describes, with its inputs and outputs in that order and
+  named as given (or say why another shape is better, and ask), tests and docs
+  as for any node.
+- Turn the graph into a template with the placeholder replaced by the new node,
+  where that shows how it works.
 
 ### Conventions
 
-- **Tests with every feature.** New behaviour comes with tests; `cargo test` passes before a change is handed over.
-- **The templates are the regression suite.** `cargo test --release regression` builds every template, cooks it at its view flag and compares the result with `tests/regression/templates.json` (`src/regress.rs`). A change to a loader, an operator or an example file that moves a number fails it, naming the template, the field and both values. When the move is intended, write the baseline again with `XMS_REGRESS_UPDATE=1 cargo test --release regression` and commit the file; a new template needs the baseline written too. Run it with the downloadable example files present (`cargo test --release download_example_files -- --ignored` fetches them), as the GitHub workflow does, or the `missing` field differs.
-- **Read the CI report.** `.github/workflows/tests.yml` runs the build, the download and the tests after every push and writes `ci/report.py`'s Markdown to the job summary and the artifact `test-report`: failed tests with their output, the regression differences, the slowest cooks, build warnings. When the person pastes it or links the run, fix what it names.
-- **Example files are openly licensed.** Every file under `examples/` has a licence that allows passing it on, listed in `examples/CREDITS.md`. A file too big for the repository (over about 10 MB), or under a licence asking for a credit beside it, is not committed: it goes in `SOURCES` in `src/examples.rs` (path under `examples/`, URL, size in bytes, author, licence, page), `.gitignore` leaves it out, and the download dialog (`src/downloads.rs`) fetches it when a graph names it. Searched so far: the Novasci Free Motion Pack (CC0, Mixamo skeleton), the USD Working Group assets (CC BY-SA 4.0 and similar), CMU mocap (BVH only, not read by the program).
-- **Documentation with every change.** `README.md` and the pages in `docs/` that describe what changed are updated in the same change. The website (`site/`) only when something on it is wrong.
-- **A screenshot when something visible changed**, in `docs/`, taken from the running program.
-- **Say what was tested and what was not.** A claim in the docs is measured where it can be.
-- **Files under 100 MB.** GitHub refuses larger ones. A patch sent in the chat must be under 30 MB: a bigger one is split in two, applied one after the other in the same block. Example data goes in as FBX, cut to fewer frames or written without normals to fit (see `examples/ragdoll/README.md`); the program has no compact formats of its own.
-- **Credit.** XMS was created by Martino Madeddu. Additional development by Simon Legrand.
+- **Tests with every feature.** New behaviour comes with tests; `cargo test`
+  passes before a change is handed over.
+- **The templates are the regression suite.** `cargo test --release regression`
+  builds every template, cooks it at its view flag and compares the result with
+  `tests/regression/templates.json` (`src/regress.rs`). A change to a loader, an
+  operator or an example file that moves a number fails it, naming the template,
+  the field and both values. When the move is intended, write the baseline again
+  with `XMS_REGRESS_UPDATE=1 cargo test --release regression` and commit the
+  file; a new template needs the baseline written too. Run it with the
+  downloadable example files present
+  (`cargo test --release download_example_files -- --ignored` fetches them), as
+  the GitHub workflow does, or the `missing` field differs.
+- **Read the CI report.** `.github/workflows/tests.yml` checks the formatting
+  and runs the build, the download and the tests after every push and writes
+  `ci/report.py`'s Markdown to the job summary and the artifact `test-report`:
+  failed tests with their output, the regression differences, the slowest cooks,
+  build warnings. When the person pastes it or links the run, fix what it names.
+- **Example files are openly licensed.** Every file under `examples/` has a
+  licence that allows passing it on, listed in `examples/CREDITS.md`. A file too
+  big for the repository (over about 10 MB), or under a licence asking for a
+  credit beside it, is not committed: it goes in `SOURCES` in `src/examples.rs`
+  (path under `examples/`, URL, size in bytes, author, licence, page),
+  `.gitignore` leaves it out, and the download dialog (`src/downloads.rs`)
+  fetches it when a graph names it. Searched so far: the Novasci Free Motion
+  Pack (CC0, Mixamo skeleton), the USD Working Group assets (CC BY-SA 4.0 and
+  similar), CMU mocap (BVH only, not read by the program).
+- **Documentation with every change.** `README.md` and the pages in `docs/` that
+  describe what changed are updated in the same change. The website (`site/`)
+  only when something on it is wrong.
+- **A screenshot when something visible changed**, in `docs/`, taken from the
+  running program.
+- **Say what was tested and what was not.** A claim in the docs is measured
+  where it can be.
+- **Files under 100 MB.** GitHub refuses larger ones. A patch sent in the chat
+  must be under 30 MB: a bigger one is split in two, applied one after the other
+  in the same block. Example data goes in as FBX, cut to fewer frames or written
+  without normals to fit (see `examples/ragdoll/README.md`); the program has no
+  compact formats of its own.
+- **Credit.** XMS was created by Martino Madeddu. Additional development by
+  Simon Legrand.
 
 ### Code and comments
 
-- **Code requires documentation.** Every public item has a doc comment, and
-  code whose purpose is not obvious from its names has a comment saying why.
+- **Code requires documentation.** Every public item has a doc comment, and code
+  whose purpose is not obvious from its names has a comment saying why.
 - **Order a file top-down by importance**, so the first thing a reader sees is
-  the main type, not a helper: the primary type (and the structs it depends
-  on), then its `impl` blocks, then free-standing helper functions, then
+  the main type, not a helper: the primary type (and the structs it depends on),
+  then its `impl` blocks, then free-standing helper functions, then
   `#[cfg(test)] mod tests`. Don't open a file with a small private helper.
 - **No decorative section dividers.** Don't use box-drawing divider comments
   (`// ── Section ──────`); group code with a plain `//` comment or rely on the
@@ -97,32 +214,35 @@ A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that do
 - **Keep comments that still apply.** Never remove a comment during a refactor
   while it still describes the code.
 - **Comments describe the code as it stands**, not its edit history or the
-  alternatives it didn't take. Don't justify the absence or removal of code,
-  and don't contrast the chosen approach with a rejected one ("no separate X
-  pre-check is needed here", "X was removed because…", "assign directly
-  rather than through Y", "instead of calling Z", "we use A so we don't B").
-  This includes contrasts with a prior implementation's performance or shape
-  ("a subtree walk rather than a full scan", "O(1) instead of the previous
-  O(n)", "now keyed by path"), which only make sense to someone who saw the
-  old code. State the present behaviour positively ("walks the `prefix`
-  subtree") and give a rationale that stands on its own.
+  alternatives it didn't take. Don't justify the absence or removal of code, and
+  don't contrast the chosen approach with a rejected one ("no separate X
+  pre-check is needed here", "X was removed because…", "assign directly rather
+  than through Y", "instead of calling Z", "we use A so we don't B"). This
+  includes contrasts with a prior implementation's performance or shape ("a
+  subtree walk rather than a full scan", "O(1) instead of the previous O(n)",
+  "now keyed by path"), which only make sense to someone who saw the old code.
+  State the present behaviour positively ("walks the `prefix` subtree") and give
+  a rationale that stands on its own.
 - **No planning phases or steps in code.** Don't reference phases or steps
   ("Phase 1", "Step 2", "stage 2") in code, comments, names or fixtures;
   describe what the code does, or, for deferred work, name the missing feature
   in a `TODO`. Commit messages may name the stage of a larger piece of work.
 - **Mark performance left for later.** Where a performance improvement or
   parallelism is possible but not done yet, in new code and when refactoring,
-  leave a `TODO(perf)` comment (`TODO(rayon)` when it is parallelism with
-  rayon) instead of optimizing prematurely. Say what is independent or could
-  run in parallel, so the change can be picked up later by anyone.
-- **Line width.** Rust code is formatted by rustfmt with `rustfmt.toml`
-  (120 columns). Prose wraps at 80 columns: Markdown, plans, design write-ups
-  and the text of doc comments. Format and wrap only what you write or change;
-  reformatting or rewrapping whole files is a commit of its own, not part of a
+  leave a `TODO(perf)` comment (`TODO(rayon)` when it is parallelism with rayon)
+  instead of optimizing prematurely. Say what is independent or could run in
+  parallel, so the change can be picked up later by anyone.
+- **Line width.** Rust code is formatted by rustfmt with `rustfmt.toml` (120
+  columns): run `cargo fmt` before handing a change over; the GitHub workflow
+  fails when the code is not formatted. Prose wraps at 80 columns: Markdown,
+  plans, design write-ups and the text of doc comments. Wrap only what you write
+  or change; rewrapping whole files is a commit of its own, not part of a
   feature.
 - **Proofread.** Read comments, docs and commit messages again before handing
   them over, and reword what is unclear.
 
 ## Flag what does not fit
 
-If any of this cannot be done in your setup (no workspace, no GitHub access, a different workflow the person asks for), tell the person which point does not hold and what changes because of it, before starting work.
+If any of this cannot be done in your setup (no workspace, no GitHub access, a
+different workflow the person asks for), tell the person which point does not
+hold and what changes because of it, before starting work.

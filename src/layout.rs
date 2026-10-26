@@ -1,8 +1,8 @@
 //! Dockable panes: which panes exist, where they sit, and the layout file.
 //!
-//! Every pane is a tab of one dock area. Tabs can be dragged to another
-//! place, stacked, or pulled out as floating windows. The layout is kept in
-//! the config folder and restored at the next start.
+//! Every pane is a tab of one dock area. Tabs can be dragged to another place,
+//! stacked, or pulled out as floating windows. The layout is kept in the config
+//! folder and restored at the next start.
 
 use egui_dock::{DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
@@ -12,57 +12,87 @@ pub enum Pane {
     /// Was "Viewport": layouts saved with that name still load.
     #[serde(alias = "Viewport")]
     Viewer,
-    NodeGraph, SceneExplorer, OperatorStack,
+    NodeGraph,
+    SceneExplorer,
+    OperatorStack,
     /// Was "Properties".
     #[serde(alias = "Properties")]
     Parameters,
-    PrimInspector, Timeline, UvEditor, History,
-    /// The curves of the selected operator's keys.
-    GraphEditor,
-    /// Renders and images: layers (AOVs), exposure, the values under the pointer.
+    PrimInspector,
+    Timeline,
+    UvEditor,
+    History,
+    /// The curves of the selected operator's keys. Layouts saved with
+    /// "GraphEditor" still load.
+    #[serde(alias = "GraphEditor")]
+    CurveEditor,
+    /// Renders and images: layers (AOVs), exposure, the values under the
+    /// pointer.
     ImageViewer,
 }
 
 impl Pane {
     pub const ALL: [Pane; 11] = [
-        Pane::Viewer, Pane::NodeGraph, Pane::SceneExplorer, Pane::OperatorStack,
-        Pane::Parameters, Pane::PrimInspector, Pane::Timeline, Pane::UvEditor, Pane::History, Pane::GraphEditor,
+        Pane::Viewer,
+        Pane::NodeGraph,
+        Pane::SceneExplorer,
+        Pane::OperatorStack,
+        Pane::Parameters,
+        Pane::PrimInspector,
+        Pane::Timeline,
+        Pane::UvEditor,
+        Pane::History,
+        Pane::CurveEditor,
         Pane::ImageViewer,
     ];
 
     pub fn title(self) -> &'static str {
         match self {
-            Pane::Viewer        => "Viewer",
-            Pane::NodeGraph     => "Node Graph",
+            Pane::Viewer => "Viewer",
+            Pane::NodeGraph => "Node Graph",
             Pane::SceneExplorer => "Scene Explorer",
             Pane::OperatorStack => "Operator Stack",
-            Pane::Parameters    => "Parameters",
+            Pane::Parameters => "Parameters",
             Pane::PrimInspector => "Primitive Inspector",
-            Pane::Timeline      => "Timeline",
-            Pane::UvEditor      => "UV Editor",
-            Pane::History       => "History",
-            Pane::GraphEditor   => "Graph Editor",
-            Pane::ImageViewer   => "Image Viewer",
+            Pane::Timeline => "Timeline",
+            Pane::UvEditor => "UV Editor",
+            Pane::History => "History",
+            Pane::CurveEditor => "Curve Editor",
+            Pane::ImageViewer => "Image Viewer",
         }
     }
 }
 
 /// A side of the program window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Edge { Left, Right, Top, Bottom }
+pub enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
 
 impl Edge {
     /// The edge within `reach` of a point, if any. The nearest one wins.
     pub fn near(screen: egui::Rect, p: egui::Pos2, reach: f32) -> Option<Edge> {
         [
-            (Edge::Left, p.x - screen.left()), (Edge::Right, screen.right() - p.x),
-            (Edge::Top, p.y - screen.top()), (Edge::Bottom, screen.bottom() - p.y),
-        ].into_iter().filter(|(_, d)| *d <= reach).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(e, _)| e)
+            (Edge::Left, p.x - screen.left()),
+            (Edge::Right, screen.right() - p.x),
+            (Edge::Top, p.y - screen.top()),
+            (Edge::Bottom, screen.bottom() - p.y),
+        ]
+        .into_iter()
+        .filter(|(_, d)| *d <= reach)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(e, _)| e)
     }
 
     /// Share of the window a pane docked on this edge starts with.
     pub fn share(self) -> f32 {
-        match self { Edge::Left | Edge::Right => 0.22, Edge::Top | Edge::Bottom => 0.16 }
+        match self {
+            Edge::Left | Edge::Right => 0.22,
+            Edge::Top | Edge::Bottom => 0.16,
+        }
     }
 
     /// The strip of the window a pane docked on this edge will take.
@@ -70,9 +100,9 @@ impl Edge {
         let (w, h) = (screen.width() * self.share(), screen.height() * self.share());
         let mut r = screen;
         match self {
-            Edge::Left   => r.set_right(screen.left() + w),
-            Edge::Right  => r.set_left(screen.right() - w),
-            Edge::Top    => r.set_bottom(screen.top() + h),
+            Edge::Left => r.set_right(screen.left() + w),
+            Edge::Right => r.set_left(screen.right() - w),
+            Edge::Top => r.set_bottom(screen.top() + h),
             Edge::Bottom => r.set_top(screen.bottom() - h),
         }
         r
@@ -80,53 +110,59 @@ impl Edge {
 }
 
 pub struct Layout {
-    pub dock:   DockState<Pane>,
+    pub dock: DockState<Pane>,
     /// Locked: tabs cannot be moved, floated or closed. Dividers still resize.
     pub locked: bool,
     /// The layout as last written to disk.
-    saved:      String,
+    saved: String,
     /// Floating windows that have been given their starting size.
-    sized:      Vec<usize>,
+    sized: Vec<usize>,
     /// Pane whose tab the mouse went down on, and whether it has moved since.
     pub tab_drag: Option<(Pane, bool)>,
 }
 
-/// Scene Explorer in a narrow column at the far left, the viewport beside
-/// it with the UV editor and the Image Viewer as tabs behind, the primitive inspector under
-/// both. Then the node graph, then the properties over the operator stack.
-/// Timeline along the bottom of those, History down the whole right side.
-/// The Graph Editor is a tab behind the node graph.
+/// Scene Explorer in a narrow column at the far left, the viewport beside it
+/// with the UV editor and the Image Viewer as tabs behind, the primitive
+/// inspector under both. Then the node graph, then the properties over the
+/// operator stack. Timeline along the bottom of those, History down the whole
+/// right side. The Curve Editor is a tab behind the node graph.
 pub fn default_dock() -> DockState<Pane> {
     let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
     let s = dock.main_surface_mut();
-    let [work, _history]  = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
-    let [top, _timeline]  = s.split_below(work, 0.862, vec![Pane::Timeline]);
-    let [left, right]     = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::GraphEditor]);
-    let [view, _prim]     = s.split_below(left, 0.72, vec![Pane::PrimInspector]);
+    let [work, _history] = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
+    let [top, _timeline] = s.split_below(work, 0.862, vec![Pane::Timeline]);
+    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor]);
+    let [view, _prim] = s.split_below(left, 0.72, vec![Pane::PrimInspector]);
     s.split_left(view, 0.163, vec![Pane::SceneExplorer]);
-    let [_graph, side]    = s.split_right(right, 0.648, vec![Pane::Parameters]);
+    let [_graph, side] = s.split_right(right, 0.648, vec![Pane::Parameters]);
     s.split_below(side, 0.718, vec![Pane::OperatorStack]);
     dock
 }
 
-/// A layout is usable when no pane is in it twice. Panes that are missing
-/// are closed, and can be shown again from the Panes menu.
+/// A layout is usable when no pane is in it twice. Panes that are missing are
+/// closed, and can be shown again from the Panes menu.
 pub fn is_valid(dock: &DockState<Pane>) -> bool {
     let tabs: Vec<Pane> = dock.iter_all_tabs().map(|(_, t)| *t).collect();
     Pane::ALL.iter().all(|p| tabs.iter().filter(|t| *t == p).count() <= 1)
 }
 
-/// The layout as text. Rectangles of panes that have not been laid out yet
-/// are infinite, which JSON cannot hold: they are written as zero. They are
-/// worked out again on the first frame anyway.
+/// The layout as text. Rectangles of panes that have not been laid out yet are
+/// infinite, which JSON cannot hold: they are written as zero. They are worked
+/// out again on the first frame anyway.
 pub fn to_json(dock: &DockState<Pane>, locked: bool) -> Option<String> {
     fn fix(v: &mut serde_json::Value, in_rect: bool) {
         match v {
             serde_json::Value::Null if in_rect => *v = serde_json::json!(0.0),
-            serde_json::Value::Array(a) => for x in a { fix(x, in_rect); },
-            serde_json::Value::Object(o) => for (k, x) in o.iter_mut() {
-                fix(x, in_rect || k == "rect" || k == "viewport");
-            },
+            serde_json::Value::Array(a) => {
+                for x in a {
+                    fix(x, in_rect);
+                }
+            }
+            serde_json::Value::Object(o) => {
+                for (k, x) in o.iter_mut() {
+                    fix(x, in_rect || k == "rect" || k == "viewport");
+                }
+            }
             _ => {}
         }
     }
@@ -135,13 +171,16 @@ pub fn to_json(dock: &DockState<Pane>, locked: bool) -> Option<String> {
     serde_json::to_string(&serde_json::json!({ "locked": locked, "dock": value })).ok()
 }
 
-/// Layout and lock state from text. Files written before the lock existed
-/// hold the layout alone.
+/// Layout and lock state from text. Files written before the lock existed hold
+/// the layout alone.
 pub fn from_json(json: &str) -> Option<(DockState<Pane>, bool)> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     let (dock, locked) = match value.get("dock") {
-        Some(d) => (d.clone(), value.get("locked").and_then(|l| l.as_bool()).unwrap_or(false)),
-        None    => (value, false),
+        Some(d) => (
+            d.clone(),
+            value.get("locked").and_then(|l| l.as_bool()).unwrap_or(false),
+        ),
+        None => (value, false),
     };
     let dock: DockState<Pane> = serde_json::from_value(dock).ok()?;
     is_valid(&dock).then_some((dock, locked))
@@ -150,24 +189,40 @@ pub fn from_json(json: &str) -> Option<(DockState<Pane>, bool)> {
 /// Height of the bar with the close button at the top of a floating window.
 const CLOSE_BAR: f32 = 17.0;
 
-fn file() -> Option<std::path::PathBuf> { crate::file_browser::config_path("layout.json") }
+fn file() -> Option<std::path::PathBuf> {
+    crate::file_browser::config_path("layout.json")
+}
 
 impl Default for Layout {
     fn default() -> Self {
         let text = file().and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
         match from_json(&text) {
             Some((dock, locked)) => {
-                let mut layout = Self { dock, locked, saved: text, sized: vec![], tab_drag: None };
+                let mut layout = Self {
+                    dock,
+                    locked,
+                    saved: text,
+                    sized: vec![],
+                    tab_drag: None,
+                };
                 layout.restore_windows();
                 layout
             }
-            None                 => Self { dock: default_dock(), locked: false, saved: String::new(), sized: vec![], tab_drag: None },
+            None => Self {
+                dock: default_dock(),
+                locked: false,
+                saved: String::new(),
+                sized: vec![],
+                tab_drag: None,
+            },
         }
     }
 }
 
 impl Layout {
-    pub fn reset(&mut self) { self.dock = default_dock(); }
+    pub fn reset(&mut self) {
+        self.dock = default_dock();
+    }
 
     /// Content rectangle of a floating window, once it has been drawn.
     fn window_rect(&self, surface: usize) -> Option<egui::Rect> {
@@ -179,13 +234,18 @@ impl Layout {
     /// Surfaces that are floating windows right now.
     fn windows(&self) -> Vec<usize> {
         (1..self.dock.surfaces_count())
-            .filter(|i| self.dock.get_surface(egui_dock::SurfaceIndex(*i)).and_then(|s| s.node_tree()).is_some())
+            .filter(|i| {
+                self.dock
+                    .get_surface(egui_dock::SurfaceIndex(*i))
+                    .and_then(|s| s.node_tree())
+                    .is_some()
+            })
             .collect()
     }
 
-    /// Put floating windows back where the layout file says they were. The
-    /// file holds the rectangle of each window's content; the window itself
-    /// starts above and left of it by its frame and its close bar.
+    /// Put floating windows back where the layout file says they were. The file
+    /// holds the rectangle of each window's content; the window itself starts
+    /// above and left of it by its frame and its close bar.
     fn restore_windows(&mut self) {
         for i in self.windows() {
             let Some(r) = self.window_rect(i) else { continue };
@@ -203,7 +263,9 @@ impl Layout {
     pub fn size_new_windows(&mut self) {
         let now = self.windows();
         for i in &now {
-            if self.sized.contains(i) { continue; }
+            if self.sized.contains(i) {
+                continue;
+            }
             if let Some(state) = self.dock.get_window_state_mut(egui_dock::SurfaceIndex(*i)) {
                 state.set_size(egui::vec2(440.0, 480.0));
             }
@@ -211,46 +273,65 @@ impl Layout {
         self.sized = now;
     }
 
-    pub fn is_open(&self, pane: Pane) -> bool { self.dock.find_tab(&pane).is_some() }
+    pub fn is_open(&self, pane: Pane) -> bool {
+        self.dock.find_tab(&pane).is_some()
+    }
 
     /// True when the pane sits in a floating window.
     pub fn is_floating(&self, pane: Pane) -> bool {
-        self.dock.find_tab(&pane).map(|at| !at.surface.is_main()).unwrap_or(false)
+        self.dock
+            .find_tab(&pane)
+            .map(|at| !at.surface.is_main())
+            .unwrap_or(false)
     }
 
-    pub fn any_floating(&self) -> bool { Pane::ALL.iter().any(|p| self.is_floating(*p)) }
+    pub fn any_floating(&self) -> bool {
+        Pane::ALL.iter().any(|p| self.is_floating(*p))
+    }
 
     /// Close a pane. It can be shown again with `show`.
     pub fn hide(&mut self, pane: Pane) {
-        if let Some(at) = self.dock.find_tab(&pane) { self.dock.remove_tab(at); }
+        if let Some(at) = self.dock.find_tab(&pane) {
+            self.dock.remove_tab(at);
+        }
     }
 
     /// Show a closed pane, as a tab of the main area.
     pub fn show(&mut self, pane: Pane) {
-        if self.is_open(pane) { return; }
+        if self.is_open(pane) {
+            return;
+        }
         self.dock.main_surface_mut().push_to_focused_leaf(pane);
     }
 
     /// Bring a floating pane back into the main area.
     pub fn dock_pane(&mut self, pane: Pane) {
-        if !self.is_floating(pane) { return; }
+        if !self.is_floating(pane) {
+            return;
+        }
         self.hide(pane);
         self.show(pane);
     }
 
     /// Pull a docked pane out as a floating window.
     pub fn float_pane(&mut self, pane: Pane) {
-        if !self.is_open(pane) || self.is_floating(pane) { return; }
+        if !self.is_open(pane) || self.is_floating(pane) {
+            return;
+        }
         self.hide(pane);
         self.dock.add_window(vec![pane]);
     }
 
     pub fn toggle_float(&mut self, pane: Pane) {
-        if self.is_floating(pane) { self.dock_pane(pane); } else { self.float_pane(pane); }
+        if self.is_floating(pane) {
+            self.dock_pane(pane);
+        } else {
+            self.float_pane(pane);
+        }
     }
 
-    /// Dock a pane along a whole side of the window, next to everything
-    /// else: the place the timeline has in the default layout.
+    /// Dock a pane along a whole side of the window, next to everything else:
+    /// the place the timeline has in the default layout.
     pub fn dock_to_edge(&mut self, pane: Pane, edge: Edge) {
         use egui_dock::{Node, Split};
         self.hide(pane);
@@ -261,16 +342,18 @@ impl Layout {
         }
         // The fraction is the share of the left or upper part.
         let (split, fraction) = match edge {
-            Edge::Left   => (Split::Left,  edge.share()),
-            Edge::Top    => (Split::Above, edge.share()),
-            Edge::Right  => (Split::Right, 1.0 - edge.share()),
+            Edge::Left => (Split::Left, edge.share()),
+            Edge::Top => (Split::Above, edge.share()),
+            Edge::Right => (Split::Right, 1.0 - edge.share()),
             Edge::Bottom => (Split::Below, 1.0 - edge.share()),
         };
         tree.split(NodeIndex::root(), split, fraction, Node::leaf(pane));
     }
 
     pub fn dock_all(&mut self) {
-        for pane in Pane::ALL { self.dock_pane(pane); }
+        for pane in Pane::ALL {
+            self.dock_pane(pane);
+        }
     }
 
     /// Write the layout to a file of the user's choosing.
@@ -279,8 +362,8 @@ impl Layout {
         std::fs::write(path, text).map_err(|e| e.to_string())
     }
 
-    /// Replace the layout with one read from a file. The current layout is
-    /// kept when the file is not a layout.
+    /// Replace the layout with one read from a file. The current layout is kept
+    /// when the file is not a layout.
     pub fn load_from(&mut self, path: &std::path::Path) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let (dock, locked) = from_json(&text).ok_or("not a layout file")?;
@@ -293,10 +376,16 @@ impl Layout {
 
     /// Write the layout if it changed since the last write.
     pub fn save_if_changed(&mut self) {
-        let Some(text) = to_json(&self.dock, self.locked) else { return };
-        if text == self.saved { return; }
+        let Some(text) = to_json(&self.dock, self.locked) else {
+            return;
+        };
+        if text == self.saved {
+            return;
+        }
         if let Some(f) = file() {
-            if let Some(dir) = f.parent() { let _ = std::fs::create_dir_all(dir); }
+            if let Some(dir) = f.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
             let _ = std::fs::write(f, &text);
         }
         self.saved = text;
@@ -307,9 +396,19 @@ impl Layout {
 mod tests {
     use super::*;
 
-    fn layout() -> Layout { Layout { dock: default_dock(), locked: false, saved: String::new(), sized: vec![], tab_drag: None } }
+    fn layout() -> Layout {
+        Layout {
+            dock: default_dock(),
+            locked: false,
+            saved: String::new(),
+            sized: vec![],
+            tab_drag: None,
+        }
+    }
     const ALL: usize = Pane::ALL.len();
-    fn open(l: &Layout) -> usize { Pane::ALL.iter().filter(|p| l.is_open(**p)).count() }
+    fn open(l: &Layout) -> usize {
+        Pane::ALL.iter().filter(|p| l.is_open(**p)).count()
+    }
 
     #[test]
     fn layout_file_round_trip() {
@@ -356,7 +455,13 @@ mod tests {
         let (back, locked) = from_json(&json).expect("layout loads");
         assert!(locked);
         assert_eq!(to_json(&back, true).unwrap(), json);
-        let back = Layout { dock: back, locked, saved: json, sized: vec![], tab_drag: None };
+        let back = Layout {
+            dock: back,
+            locked,
+            saved: json,
+            sized: vec![],
+            tab_drag: None,
+        };
         let a = back.dock.find_tab(&Pane::Parameters).unwrap();
         let b = back.dock.find_tab(&Pane::NodeGraph).unwrap();
         assert_eq!((a.surface, a.node), (b.surface, b.node));
@@ -392,7 +497,9 @@ mod tests {
         assert_eq!(open(&l), ALL);
 
         // Everything closed, then one shown again.
-        for p in Pane::ALL { l.hide(p); }
+        for p in Pane::ALL {
+            l.hide(p);
+        }
         assert_eq!(open(&l), 0);
         l.show(Pane::NodeGraph);
         assert!(l.is_open(Pane::NodeGraph) && !l.is_floating(Pane::NodeGraph));
@@ -427,7 +534,9 @@ mod tests {
         }
         // Onto an empty main area.
         let mut l = layout();
-        for p in Pane::ALL { l.hide(p); }
+        for p in Pane::ALL {
+            l.hide(p);
+        }
         l.dock_to_edge(Pane::Viewer, Edge::Left);
         assert!(l.is_open(Pane::Viewer) && !l.is_floating(Pane::Viewer));
     }
@@ -442,7 +551,10 @@ mod tests {
         assert!(!is_valid(&dock));
         assert!(from_json(&to_json(&dock, false).unwrap()).is_none());
         // A file from before the lock: the layout alone.
-        let old = serde_json::to_string(&serde_json::from_str::<serde_json::Value>(&to_json(&default_dock(), false).unwrap()).unwrap()["dock"]).unwrap();
+        let old = serde_json::to_string(
+            &serde_json::from_str::<serde_json::Value>(&to_json(&default_dock(), false).unwrap()).unwrap()["dock"],
+        )
+        .unwrap();
         let (dock, locked) = from_json(&old).unwrap();
         assert!(is_valid(&dock) && !locked);
     }
@@ -478,9 +590,24 @@ mod tests {
     /// The default is the layout Simon arranged, saved from the program.
     #[test]
     fn the_default_layout_is_the_arranged_one() {
-        let Ok(text) = std::fs::read_to_string(std::env::var("XMS_LAYOUT_FILE").unwrap_or_default()) else { return };
+        let Ok(text) = std::fs::read_to_string(std::env::var("XMS_LAYOUT_FILE").unwrap_or_default()) else {
+            return;
+        };
         let (theirs, _) = from_json(&text).unwrap();
         assert_eq!(shape(&default_dock()), shape(&theirs));
+    }
+
+    /// Panes saved under the names they had: the Curve Editor as "GraphEditor".
+    #[test]
+    fn panes_load_under_their_earlier_names() {
+        for (saved, pane) in [
+            ("Viewport", Pane::Viewer),
+            ("Properties", Pane::Parameters),
+            ("GraphEditor", Pane::CurveEditor),
+        ] {
+            assert_eq!(serde_json::from_str::<Pane>(&format!("\"{saved}\"")).unwrap(), pane);
+        }
+        assert_eq!(serde_json::to_string(&Pane::CurveEditor).unwrap(), "\"CurveEditor\"");
     }
 
     /// A layout file written by the egui_dock of Imago before the egui 0.36
@@ -489,20 +616,34 @@ mod tests {
     #[test]
     fn layouts_saved_before_the_upgrade_still_load() {
         let r = r#"{"min":{"x":0.0,"y":0.0},"max":{"x":0.0,"y":0.0}}"#;
-        let leaf = |tabs: &str| format!(r#"{{"Leaf":{{"rect":{r},"viewport":{r},"tabs":[{tabs}],"active":0,"scroll":0.0}}}}"#);
-        let main = format!(r#"{{"Main":{{"nodes":[{{"Horizontal":{{"rect":{r},"fraction":0.6}}}},{},{}],"focused_node":1}}}}"#,
-            leaf(r#""Viewport","UvEditor""#), leaf(r#""NodeGraph","SceneExplorer","OperatorStack","PrimInspector","Timeline","History""#));
-        let window = format!(r#"{{"Window":[{{"nodes":[{}],"focused_node":null}},{{"screen_rect":null,"dragged":false,"next_position":null,"next_size":null,"new":false}}]}}"#,
-            leaf(r#""Properties""#));
-        let json = format!(r#"{{"locked":true,"dock":{{"surfaces":[{main},{window}],"focused_surface":0,
-            "translations":{{"tab_context_menu":{{"close_button":"Close","eject_button":"Eject"}},"window":{{"close_button_tooltip":"Close"}}}}}}}}"#);
+        let leaf =
+            |tabs: &str| format!(r#"{{"Leaf":{{"rect":{r},"viewport":{r},"tabs":[{tabs}],"active":0,"scroll":0.0}}}}"#);
+        let main = format!(
+            r#"{{"Main":{{"nodes":[{{"Horizontal":{{"rect":{r},"fraction":0.6}}}},{},{}],"focused_node":1}}}}"#,
+            leaf(r#""Viewport","UvEditor""#),
+            leaf(r#""NodeGraph","SceneExplorer","OperatorStack","PrimInspector","Timeline","History""#)
+        );
+        let window = format!(
+            r#"{{"Window":[{{"nodes":[{}],"focused_node":null}},{{"screen_rect":null,"dragged":false,"next_position":null,"next_size":null,"new":false}}]}}"#,
+            leaf(r#""Properties""#)
+        );
+        let json = format!(
+            r#"{{"locked":true,"dock":{{"surfaces":[{main},{window}],"focused_surface":0,
+            "translations":{{"tab_context_menu":{{"close_button":"Close","eject_button":"Eject"}},"window":{{"close_button_tooltip":"Close"}}}}}}}}"#
+        );
         let (dock, locked) = from_json(&json).expect("a layout saved before the upgrade loads");
         assert!(locked);
-        let l = Layout { dock, locked, saved: json, sized: vec![], tab_drag: None };
-        // Every pane of that time; the Graph Editor and the Image Viewer
+        let l = Layout {
+            dock,
+            locked,
+            saved: json,
+            sized: vec![],
+            tab_drag: None,
+        };
+        // Every pane of that time; the Curve Editor and the Image Viewer
         // came later, and are ticked in the Window menu.
         assert_eq!(open(&l), ALL - 2);
-        assert!(!l.is_open(Pane::GraphEditor) && !l.is_open(Pane::ImageViewer));
+        assert!(!l.is_open(Pane::CurveEditor) && !l.is_open(Pane::ImageViewer));
         assert!(l.is_floating(Pane::Parameters) && !l.is_floating(Pane::Viewer));
         let tree = &l.dock[egui_dock::SurfaceIndex::main()];
         match &tree[NodeIndex::root()] {

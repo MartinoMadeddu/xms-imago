@@ -1,6 +1,8 @@
 # Imago vocabulary
 
-One word for one thing. **Primitives** are objects in the stage. The **scene graph** is the network of **operators**. Geometry carries **attributes**. Nodes have **parameters**.
+One word for one thing. **Primitives** are objects in the stage. The **scene
+graph** is the network of **operators**. Geometry carries **attributes**. Nodes
+have **parameters**.
 
 ## Terms
 
@@ -23,7 +25,7 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | How a Merge joins its inputs | (none: always one mesh) | **Auto**, **Primitives**, **Flatten** (Merge's Mode) | Auto goes by the first input. "Flatten" is what Unpack does: everything as one plain mesh. |
 | What the Viewer and the Scene Explorer show | Output node | **view flag** | One operator always has it. |
 | An operator kept at its result while what is above it changes | lock flag | **freeze** (a **frozen** operator) | Says what it does to the cooking. Bypass, freeze, ghost and view are the operator's **flags**. |
-| A number of an operator's parameters set by frame | animated parameter, attribute curve | **keyed** number; its curve is a **channel**, its points **keys** | A channel is named by its place in the parameters (`translation/0`). The pane that shapes channels is the **Graph Editor**. |
+| A number of an operator's parameters set by frame | animated parameter, attribute curve | **keyed** number; its curve is a **channel**, its points **keys** | A channel is named by its place in the parameters (`translation/0`). The pane that shapes channels is the **Curve Editor**, not "Graph Editor": a graph is the scene graph or an ICE graph. |
 | An operator's parameters keyed on frames of its own | local animation, animation clip | **Local Animation** (the operator), its **local frames** from its **Start** to its **End** | Keys the operator wired into it; that operator is not changed. |
 | The frames an operator's output spans | frame range | its **time range** | Local Animations, clips and keys in and above it, put together: a Merge's is the widest. |
 | Inputs lined up in time | time align | **Merge Animation**, its **Align**: Frame to frame, First frame, Last frame, Middle, Stretch to the longest, Shrink to the shortest | Against input A for first, last and middle. |
@@ -59,9 +61,13 @@ One word for one thing. **Primitives** are objects in the stage. The **scene gra
 | Face | polygon or curve | `uniform` |
 | Corner | polygon corner | `faceVarying` |
 
-![The parts of a primitive, with Imago's words for them](docs/imago_geo_parts_v3.png)
+![The parts of a primitive, with Imago's words for
+them](docs/imago_geo_parts_v3.png)
 
-The Primitive Inspector has a tab for each, and one for **Edge**, which is not a context: an edge is two points that follow each other around a face, worked out from the topology. A face's and an edge's points are its **ptIndices**; a corner's point is its **ptIndex**.
+The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
+context: an edge is two points that follow each other around a face, worked out
+from the topology. A face's and an edge's points are its **ptIndices**; a
+corner's point is its **ptIndex**.
 
 ## Panes
 

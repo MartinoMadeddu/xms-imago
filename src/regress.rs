@@ -3,22 +3,22 @@
 //! `tests/regression/templates.json`.
 //!
 //! A template is a working graph on real files, so the suite covers the
-//! loaders, the operators and the examples at once. What is measured is what
-//! a template puts out at its view flag: how many primitives, points,
-//! triangles, copies, materials, cameras; for a clip, its frames, joints,
-//! rate and skin; which example files were missing; and how long the cook
-//! took (recorded, not compared). A template whose files are fetched on
-//! demand (`examples::SOURCES`) is skipped when they are not there, so the
-//! suite passes offline and in full once `download_example_files` has run.
-//! A number that moves fails the test, with
-//! the template, the field and both values in the message, so the change is
-//! either a regression to fix or a new baseline to write:
+//! loaders, the operators and the examples at once. What is measured is what a
+//! template puts out at its view flag: how many primitives, points, triangles,
+//! copies, materials, cameras; for a clip, its frames, joints, rate and skin;
+//! which example files were missing; and how long the cook took (recorded, not
+//! compared). A template whose files are fetched on demand
+//! (`examples::SOURCES`) is skipped when they are not there, so the suite
+//! passes offline and in full once `download_example_files` has run. A number
+//! that moves fails the test, with the template, the field and both values in
+//! the message, so the change is either a regression to fix or a new baseline
+//! to write:
 //!
 //!     cargo test --release regression            # compare
 //!     XMS_REGRESS_UPDATE=1 cargo test --release regression   # write the baseline again
 //!
-//! The GitHub workflow in `.github/workflows/tests.yml` runs it on every
-//! push and pull request and puts the differences in the job summary.
+//! The GitHub workflow in `.github/workflows/tests.yml` runs it on every push
+//! and pull request and puts the differences in the job summary.
 
 use std::collections::BTreeMap;
 
@@ -31,43 +31,43 @@ use crate::types::{EvalResult, IceGraphId};
 /// What one template puts out.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
-    pub nodes:      usize,
+    pub nodes: usize,
     /// The operator with the view flag, and which of its outputs.
-    pub viewed:     String,
-    pub output:     usize,
+    pub viewed: String,
+    pub output: usize,
     /// The kind of result at the view flag: prims, mesh, clip, material, none.
-    pub kind:       String,
-    pub prims:      usize,
+    pub kind: String,
+    pub prims: usize,
     /// Copies of primitives drawn (an instancer's count), over all prims.
-    pub copies:     usize,
-    pub points:     usize,
-    pub triangles:  usize,
-    pub materials:  usize,
-    pub cameras:    usize,
+    pub copies: usize,
+    pub points: usize,
+    pub triangles: usize,
+    pub materials: usize,
+    pub cameras: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clip:       Option<ClipSnapshot>,
+    pub clip: Option<ClipSnapshot>,
     /// Example files the template names that were not found.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub missing:    Vec<String>,
+    pub missing: Vec<String>,
     /// Cook time in milliseconds: recorded for the report, never compared.
     #[serde(default)]
-    pub cook_ms:    u64,
-    /// The graph has a Body Collide (ragdoll) solve: its clip's pose depends
-    /// on whether a result shipped with the examples matches this machine's
-    /// key (it may not, from one platform to another), so where the hips end
-    /// up is not compared.
+    pub cook_ms: u64,
+    /// The graph has a Body Collide (ragdoll) solve: its clip's pose depends on
+    /// whether a result shipped with the examples matches this machine's key
+    /// (it may not, from one platform to another), so where the hips end up is
+    /// not compared.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub solved:     bool,
+    pub solved: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClipSnapshot {
-    pub frames:   usize,
-    pub joints:   usize,
-    pub rate:     String,
-    pub skin:     usize,
-    /// Hips position on the last frame, rounded to the millimetre, so a
-    /// solver or a retarget that moves is seen.
+    pub frames: usize,
+    pub joints: usize,
+    pub rate: String,
+    pub skin: usize,
+    /// Hips position on the last frame, rounded to the millimetre, so a solver
+    /// or a retarget that moves is seen.
     pub hips_end: [f32; 3],
 }
 
@@ -80,17 +80,38 @@ pub fn snapshot(t: &crate::templates::Template) -> Snapshot {
 
 /// Measure a graph at its view flag.
 pub fn measure(g: &NodeGraphState, store: &IceGraphStore) -> Snapshot {
-    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
-        store.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+    let eval =
+        |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
+            store
+                .get(sid)
+                .map(|sg| sg.evaluate(mesh, template))
+                .unwrap_or_else(|| mesh.clone())
+        };
+    let solved = g
+        .nodes
+        .iter()
+        .any(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. }));
+    let mut s = Snapshot {
+        nodes: g.nodes.len(),
+        solved,
+        ..Default::default()
     };
-    let solved = g.nodes.iter().any(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. }));
-    let mut s = Snapshot { nodes: g.nodes.len(), solved, ..Default::default() };
-    s.missing = crate::downloads::file_paths(g).into_iter()
+    s.missing = crate::downloads::file_paths(g)
+        .into_iter()
         .filter(|p| !std::path::Path::new(p).is_file())
-        .map(|p| relative_to_examples(&p)).collect();
+        .map(|p| relative_to_examples(&p))
+        .collect();
     s.missing.sort();
-    let Some(id) = g.view_flag else { s.kind = "none".into(); return s };
-    s.viewed = g.nodes.iter().find(|n| n.id == id).map(|n| n.name.clone()).unwrap_or_default();
+    let Some(id) = g.view_flag else {
+        s.kind = "none".into();
+        return s;
+    };
+    s.viewed = g
+        .nodes
+        .iter()
+        .find(|n| n.id == id)
+        .map(|n| n.name.clone())
+        .unwrap_or_default();
     s.output = g.viewed_output();
     let t0 = std::time::Instant::now();
     let result = g.eval_node_out(id, s.output, &mut Default::default(), &eval);
@@ -99,8 +120,10 @@ pub fn measure(g: &NodeGraphState, store: &IceGraphStore) -> Snapshot {
         None => s.kind = "none".into(),
         Some(EvalResult::Single(m)) => {
             s.kind = "mesh".into();
-            s.prims = 1; s.copies = 1;
-            s.points = m.vertices.len(); s.triangles = m.indices.len() / 3;
+            s.prims = 1;
+            s.copies = 1;
+            s.points = m.vertices.len();
+            s.triangles = m.indices.len() / 3;
         }
         Some(EvalResult::Named(prims)) => {
             s.kind = "prims".into();
@@ -110,36 +133,47 @@ pub fn measure(g: &NodeGraphState, store: &IceGraphStore) -> Snapshot {
                 s.copies += n;
                 s.points += p.mesh.vertices.len() * n;
                 s.triangles += p.mesh.indices.len() / 3 * n;
-                if p.camera.is_some() { s.cameras += 1; }
+                if p.camera.is_some() {
+                    s.cameras += 1;
+                }
             }
             let mut materials: Vec<&str> = prims.iter().filter_map(|p| p.material.as_deref()).collect();
-            materials.sort(); materials.dedup();
+            materials.sort();
+            materials.dedup();
             s.materials = materials.len();
         }
         Some(EvalResult::Anim(c)) => {
             s.kind = "clip".into();
             let h = crate::core::human::Human::of(&c);
             let hips = h.get(crate::core::human::Slot::Hips).or_else(|| c.hip_joint());
-            let hips_end = hips.map(|j| {
-                let p = c.world_pose(c.frames.max(1) - 1)[j].w_axis;
-                [round_mm(p.x), round_mm(p.y), round_mm(p.z)]
-            }).unwrap_or_default();
+            let hips_end = hips
+                .map(|j| {
+                    let p = c.world_pose(c.frames.max(1) - 1)[j].w_axis;
+                    [round_mm(p.x), round_mm(p.y), round_mm(p.z)]
+                })
+                .unwrap_or_default();
             s.clip = Some(ClipSnapshot {
-                frames: c.frames, joints: c.joints.len(),
+                frames: c.frames,
+                joints: c.joints.len(),
                 rate: format!("{}/{}", c.rate.num, c.rate.den),
                 skin: c.skin.as_ref().map(|k| k.positions.len()).unwrap_or(0),
                 hips_end,
             });
         }
-        Some(EvalResult::Material(_)) => { s.kind = "material".into(); s.materials = 1; }
+        Some(EvalResult::Material(_)) => {
+            s.kind = "material".into();
+            s.materials = 1;
+        }
     }
     s
 }
 
-fn round_mm(v: f32) -> f32 { (v * 1000.0).round() / 1000.0 }
+fn round_mm(v: f32) -> f32 {
+    (v * 1000.0).round() / 1000.0
+}
 
-/// A path under the examples folder, as the baseline names it, so the
-/// baseline is the same on every machine.
+/// A path under the examples folder, as the baseline names it, so the baseline
+/// is the same on every machine.
 fn relative_to_examples(p: &str) -> String {
     let p = p.replace('\\', "/");
     match crate::examples::dir() {
@@ -151,17 +185,26 @@ fn relative_to_examples(p: &str) -> String {
     }
 }
 
-/// Where the baseline lives: `tests/regression/templates.json` at the root
-/// of the source tree (XMS_REGRESS_BASELINE overrides it).
+/// Where the baseline lives: `tests/regression/templates.json` at the root of
+/// the source tree (XMS_REGRESS_BASELINE overrides it).
 pub fn baseline_path() -> std::path::PathBuf {
-    if let Some(p) = std::env::var_os("XMS_REGRESS_BASELINE") { return p.into(); }
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("regression").join("templates.json")
+    if let Some(p) = std::env::var_os("XMS_REGRESS_BASELINE") {
+        return p.into();
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("regression")
+        .join("templates.json")
 }
 
 /// The fields of two snapshots that differ, as "field: was X, now Y".
 pub fn differences(was: &Snapshot, now: &Snapshot) -> Vec<String> {
     let mut out = vec![];
-    let mut cmp = |name: &str, a: String, b: String| if a != b { out.push(format!("{name}: was {a}, now {b}")); };
+    let mut cmp = |name: &str, a: String, b: String| {
+        if a != b {
+            out.push(format!("{name}: was {a}, now {b}"));
+        }
+    };
     cmp("nodes", was.nodes.to_string(), now.nodes.to_string());
     cmp("viewed", was.viewed.clone(), now.viewed.clone());
     cmp("output", was.output.to_string(), now.output.to_string());
@@ -182,7 +225,13 @@ pub fn differences(was: &Snapshot, now: &Snapshot) -> Vec<String> {
             // A millimetre either way is the same pose. A solved clip's pose
             // depends on the machine (see `Snapshot::solved`): not compared.
             let moved = a.hips_end.iter().zip(&b.hips_end).any(|(x, y)| (x - y).abs() > 0.0015);
-            if moved && !(was.solved || now.solved) { cmp("clip.hips_end", format!("{:?}", a.hips_end), format!("{:?}", b.hips_end)); }
+            if moved && !(was.solved || now.solved) {
+                cmp(
+                    "clip.hips_end",
+                    format!("{:?}", a.hips_end),
+                    format!("{:?}", b.hips_end),
+                );
+            }
         }
         (None, None) => {}
         (a, b) => cmp("clip", format!("{a:?}"), format!("{b:?}")),
@@ -192,7 +241,10 @@ pub fn differences(was: &Snapshot, now: &Snapshot) -> Vec<String> {
 
 /// Snapshots of every template, by name.
 pub fn all() -> BTreeMap<String, Snapshot> {
-    crate::templates::TEMPLATES.iter().map(|t| (t.name.to_string(), snapshot(t))).collect()
+    crate::templates::TEMPLATES
+        .iter()
+        .map(|t| (t.name.to_string(), snapshot(t)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -211,9 +263,15 @@ mod tests {
             std::fs::write(&path, serde_json::to_string_pretty(&now).unwrap() + "\n").unwrap();
             println!("baseline written: {}", path.display());
         }
-        let was: BTreeMap<String, Snapshot> = std::fs::read_to_string(&path).ok()
+        let was: BTreeMap<String, Snapshot> = std::fs::read_to_string(&path)
+            .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| panic!("no baseline at {}: run with XMS_REGRESS_UPDATE=1 to write it", path.display()));
+            .unwrap_or_else(|| {
+                panic!(
+                    "no baseline at {}: run with XMS_REGRESS_UPDATE=1 to write it",
+                    path.display()
+                )
+            });
         let mut lines: Vec<String> = vec![];
         let mut failed = 0;
         for (name, s) in &now {
@@ -221,24 +279,44 @@ mod tests {
             // them, is skipped, not failed: the baseline holds the numbers
             // with the files there.
             if !s.missing.is_empty() && s.missing.iter().all(|m| crate::examples::downloadable(m).is_some()) {
-                lines.push(format!("SKIPPED  {name}: not downloaded: {} (cargo test --release download_example_files -- --ignored)", s.missing.join(", ")));
+                lines.push(format!(
+                    "SKIPPED  {name}: not downloaded: {} (cargo test --release download_example_files -- --ignored)",
+                    s.missing.join(", ")
+                ));
                 continue;
             }
             match was.get(name) {
                 // The baseline was written without this template's downloads
                 // and this machine has them: nothing to compare with yet.
-                Some(w) if !w.missing.is_empty() && w.missing.iter().all(|m| crate::examples::downloadable(m).is_some()) && s.missing.is_empty() => {
+                Some(w)
+                    if !w.missing.is_empty()
+                        && w.missing.iter().all(|m| crate::examples::downloadable(m).is_some())
+                        && s.missing.is_empty() =>
+                {
                     lines.push(format!("SKIPPED  {name}: the baseline was written without its downloads ({}); write it again with them to compare", w.missing.join(", ")));
                 }
-                None => { lines.push(format!("NEW      {name}: no baseline yet ({} prims, {} triangles, {} ms)", s.prims, s.triangles, s.cook_ms)); failed += 1; }
+                None => {
+                    lines.push(format!(
+                        "NEW      {name}: no baseline yet ({} prims, {} triangles, {} ms)",
+                        s.prims, s.triangles, s.cook_ms
+                    ));
+                    failed += 1;
+                }
                 Some(w) => {
                     let diff = differences(w, s);
-                    if diff.is_empty() { lines.push(format!("ok       {name} ({} ms)", s.cook_ms)); }
-                    else { lines.push(format!("CHANGED  {name}: {}", diff.join("; "))); failed += 1; }
+                    if diff.is_empty() {
+                        lines.push(format!("ok       {name} ({} ms)", s.cook_ms));
+                    } else {
+                        lines.push(format!("CHANGED  {name}: {}", diff.join("; ")));
+                        failed += 1;
+                    }
                 }
             }
         }
-        for name in was.keys().filter(|n| !now.contains_key(*n)) { lines.push(format!("GONE     {name}: in the baseline, no such template now")); failed += 1; }
+        for name in was.keys().filter(|n| !now.contains_key(*n)) {
+            lines.push(format!("GONE     {name}: in the baseline, no such template now"));
+            failed += 1;
+        }
         let report = lines.join("\n");
         println!("{report}");
         if let Some(p) = std::env::var_os("XMS_REGRESS_REPORT") {
@@ -251,14 +329,23 @@ mod tests {
     /// The differences a change makes are named field by field.
     #[test]
     fn differences_are_named() {
-        let a = Snapshot { prims: 3, triangles: 12, kind: "prims".into(), ..Default::default() };
+        let a = Snapshot {
+            prims: 3,
+            triangles: 12,
+            kind: "prims".into(),
+            ..Default::default()
+        };
         let mut b = a.clone();
         assert!(differences(&a, &b).is_empty());
         b.triangles = 14;
         b.missing = vec!["usd/x.usd".into()];
-        assert_eq!(differences(&a, &b), ["triangles: was 12, now 14", "missing: was [], now [\"usd/x.usd\"]"]);
+        assert_eq!(
+            differences(&a, &b),
+            ["triangles: was 12, now 14", "missing: was [], now [\"usd/x.usd\"]"]
+        );
         // Timing is not a difference.
-        b = a.clone(); b.cook_ms = 999;
+        b = a.clone();
+        b.cook_ms = 999;
         assert!(differences(&a, &b).is_empty());
     }
 }

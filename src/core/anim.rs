@@ -12,12 +12,10 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use glam::{EulerRot, Mat4, Quat, Vec3};
 use crate::core::xform::Transform;
+use glam::{EulerRot, Mat4, Quat, Vec3};
 
-// ============================================================================
 // FRAME RATE
-// ============================================================================
 
 /// Rational frame rate: `num / den` frames per second (29.97 = 30000/1001).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -28,22 +26,24 @@ pub struct FrameRate {
 
 /// Rates offered in the UI.
 pub const RATE_PRESETS: &[(&str, FrameRate)] = &[
-    ("23.976", FrameRate { num: 24000,  den: 1001 }),
-    ("24",     FrameRate { num: 24,     den: 1 }),
-    ("25",     FrameRate { num: 25,     den: 1 }),
-    ("29.97",  FrameRate { num: 30000,  den: 1001 }),
-    ("30",     FrameRate { num: 30,     den: 1 }),
-    ("48",     FrameRate { num: 48,     den: 1 }),
-    ("50",     FrameRate { num: 50,     den: 1 }),
-    ("59.94",  FrameRate { num: 60000,  den: 1001 }),
-    ("60",     FrameRate { num: 60,     den: 1 }),
-    ("100",    FrameRate { num: 100,    den: 1 }),
-    ("120",    FrameRate { num: 120,    den: 1 }),
-    ("240",    FrameRate { num: 240,    den: 1 }),
+    ("23.976", FrameRate { num: 24000, den: 1001 }),
+    ("24", FrameRate { num: 24, den: 1 }),
+    ("25", FrameRate { num: 25, den: 1 }),
+    ("29.97", FrameRate { num: 30000, den: 1001 }),
+    ("30", FrameRate { num: 30, den: 1 }),
+    ("48", FrameRate { num: 48, den: 1 }),
+    ("50", FrameRate { num: 50, den: 1 }),
+    ("59.94", FrameRate { num: 60000, den: 1001 }),
+    ("60", FrameRate { num: 60, den: 1 }),
+    ("100", FrameRate { num: 100, den: 1 }),
+    ("120", FrameRate { num: 120, den: 1 }),
+    ("240", FrameRate { num: 240, den: 1 }),
 ];
 
 impl FrameRate {
-    pub const fn new(num: u32, den: u32) -> Self { Self { num, den } }
+    pub const fn new(num: u32, den: u32) -> Self {
+        Self { num, den }
+    }
 
     pub fn fps(&self) -> f64 {
         self.num.max(1) as f64 / self.den.max(1) as f64
@@ -62,9 +62,13 @@ impl FrameRate {
     /// Snap a floating-point rate to a preset, or keep it as a millirate.
     pub fn from_fps(fps: f64) -> Self {
         for (_, r) in RATE_PRESETS {
-            if (r.fps() - fps).abs() < 0.005 { return *r; }
+            if (r.fps() - fps).abs() < 0.005 {
+                return *r;
+            }
         }
-        if fps <= 0.0 || !fps.is_finite() { return Self::new(30, 1); }
+        if fps <= 0.0 || !fps.is_finite() {
+            return Self::new(30, 1);
+        }
         if (fps - fps.round()).abs() < 1e-6 {
             Self::new(fps.round() as u32, 1)
         } else {
@@ -74,69 +78,82 @@ impl FrameRate {
 
     pub fn label(&self) -> String {
         for (name, r) in RATE_PRESETS {
-            if r == self { return (*name).to_string(); }
+            if r == self {
+                return (*name).to_string();
+            }
         }
         let f = self.fps();
-        if (f - f.round()).abs() < 1e-6 { format!("{}", f.round() as i64) } else { format!("{f:.3}") }
+        if (f - f.round()).abs() < 1e-6 {
+            format!("{}", f.round() as i64)
+        } else {
+            format!("{f:.3}")
+        }
     }
 }
 
-// ============================================================================
 // TIMECODE
-// ============================================================================
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Timecode {
     pub negative: bool,
-    pub hours:    i64,
-    pub minutes:  i64,
-    pub seconds:  i64,
-    pub frames:   i64,
-    pub drop:     bool,
+    pub hours: i64,
+    pub minutes: i64,
+    pub seconds: i64,
+    pub frames: i64,
+    pub drop: bool,
 }
 
 impl fmt::Display for Timecode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let sep = if self.drop { ';' } else { ':' };
-        write!(f, "{}{:02}:{:02}:{:02}{}{:02}",
+        write!(
+            f,
+            "{}{:02}:{:02}:{:02}{}{:02}",
             if self.negative { "-" } else { "" },
-            self.hours, self.minutes, self.seconds, sep, self.frames)
+            self.hours,
+            self.minutes,
+            self.seconds,
+            sep,
+            self.frames
+        )
     }
 }
 
 /// Absolute frame number to timecode.
 pub fn frame_to_timecode(frame: i64, rate: FrameRate, drop_frame: bool) -> Timecode {
-    let tb       = rate.timebase();
-    let drop     = drop_frame && rate.supports_drop_frame();
+    let tb = rate.timebase();
+    let drop = drop_frame && rate.supports_drop_frame();
     let negative = frame < 0;
-    let mut f    = frame.abs();
+    let mut f = frame.abs();
 
     if drop {
-        let d        = tb / 15;                 // 2 at 29.97, 4 at 59.94
-        let per_min  = tb * 60 - d;
-        let per_10m  = tb * 600 - d * 9;
-        let tens     = f / per_10m;
-        let rem      = f % per_10m;
+        let d = tb / 15; // 2 at 29.97, 4 at 59.94
+        let per_min = tb * 60 - d;
+        let per_10m = tb * 600 - d * 9;
+        let tens = f / per_10m;
+        let rem = f % per_10m;
         f += d * 9 * tens;
-        if rem > d { f += d * ((rem - d) / per_min); }
+        if rem > d {
+            f += d * ((rem - d) / per_min);
+        }
     }
 
     Timecode {
         negative,
-        hours:   f / (tb * 3600),
+        hours: f / (tb * 3600),
         minutes: (f / (tb * 60)) % 60,
         seconds: (f / tb) % 60,
-        frames:  f % tb,
+        frames: f % tb,
         drop,
     }
 }
 
 /// Timecode fields to absolute frame number.
 pub fn timecode_to_frame(h: i64, m: i64, s: i64, f: i64, rate: FrameRate, drop_frame: bool) -> i64 {
-    let tb    = rate.timebase();
+    let tb = rate.timebase();
     let mut n = (h * 3600 + m * 60 + s) * tb + f;
     if drop_frame && rate.supports_drop_frame() {
-        let d          = tb / 15;
+        let d = tb / 15;
         let total_mins = h * 60 + m;
         n -= d * (total_mins - total_mins / 10);
     }
@@ -147,69 +164,80 @@ pub fn timecode_to_frame(h: i64, m: i64, s: i64, f: i64, rate: FrameRate, drop_f
 /// This is what two clips at different rates have in common.
 pub fn frame_to_tc_seconds(frame: i64, rate: FrameRate, drop_frame: bool) -> f64 {
     let tc = frame_to_timecode(frame, rate, drop_frame);
-    let t  = (tc.hours * 3600 + tc.minutes * 60 + tc.seconds) as f64
-           + tc.frames as f64 / rate.timebase() as f64;
-    if tc.negative { -t } else { t }
+    let t = (tc.hours * 3600 + tc.minutes * 60 + tc.seconds) as f64 + tc.frames as f64 / rate.timebase() as f64;
+    if tc.negative {
+        -t
+    } else {
+        t
+    }
 }
 
 /// Frame under a timecode-axis position (the frame field is floored).
 pub fn tc_seconds_to_frame(t: f64, rate: FrameRate, drop_frame: bool) -> i64 {
-    let a     = t.abs();
+    let a = t.abs();
     let whole = a.floor() as i64;
-    let ff    = ((a - whole as f64) * rate.timebase() as f64 + 1e-6).floor() as i64;
-    let f     = timecode_to_frame(whole / 3600, (whole / 60) % 60, whole % 60, ff, rate, drop_frame);
-    if t < 0.0 { -f } else { f }
+    let ff = ((a - whole as f64) * rate.timebase() as f64 + 1e-6).floor() as i64;
+    let f = timecode_to_frame(whole / 3600, (whole / 60) % 60, whole % 60, ff, rate, drop_frame);
+    if t < 0.0 {
+        -f
+    } else {
+        f
+    }
 }
 
-// ============================================================================
 // SKELETON + CLIP
-// ============================================================================
 
 #[derive(Clone, Debug)]
 pub struct Joint {
-    pub name:   String,
+    pub name: String,
     /// Index into `AnimData::joints`. Parents always come before children.
     pub parent: Option<usize>,
     /// Local rest transform, used when the joint has no samples.
-    pub rest:   Transform,
+    pub rest: Transform,
     /// False for helper transforms (FBX nulls) above or between bones.
     pub is_bone: bool,
-    /// Local rotation of the joint's neutral pose: what the rig shows when
-    /// its animated rotation is zero. Identity unless the rig stores a fixed
-    /// joint orientation (FBX PreRotation).
+    /// Local rotation of the joint's neutral pose: what the rig shows when its
+    /// animated rotation is zero. Identity unless the rig stores a fixed joint
+    /// orientation (FBX PreRotation).
     pub zero_rot: Quat,
 }
 
 impl Joint {
     pub fn new(name: impl Into<String>, parent: Option<usize>, rest: Transform) -> Self {
-        Self { name: name.into(), parent, rest, is_bone: true, zero_rot: Quat::IDENTITY }
+        Self {
+            name: name.into(),
+            parent,
+            rest,
+            is_bone: true,
+            zero_rot: Quat::IDENTITY,
+        }
     }
 }
 
-/// Mesh bound to a skeleton. Each vertex follows one joint, or, when
-/// `weights` is filled in, a blend of up to four.
+/// Mesh bound to a skeleton. Each vertex follows one joint, or, when `weights`
+/// is filled in, a blend of up to four.
 #[derive(Clone, Debug, Default)]
 pub struct SkinMesh {
     /// Bind-pose positions, world space, metres.
     pub positions: Vec<Vec3>,
-    pub normals:   Vec<Vec3>,
+    pub normals: Vec<Vec3>,
     /// Triangles and quads. A triangle repeats its last index.
-    pub faces:     Vec<[u32; 4]>,
+    pub faces: Vec<[u32; 4]>,
     /// Joint index per vertex.
-    pub joint:     Vec<u32>,
+    pub joint: Vec<u32>,
     /// World matrix of every joint in the bind pose.
-    pub bind:      Vec<Mat4>,
-    /// Joints and weights per vertex, heaviest first, summing to one. Empty
-    /// for a mesh whose vertices each follow `joint` alone.
-    pub weights:   Vec<[(u32, f32); 4]>,
+    pub bind: Vec<Mat4>,
+    /// Joints and weights per vertex, heaviest first, summing to one. Empty for
+    /// a mesh whose vertices each follow `joint` alone.
+    pub weights: Vec<[(u32, f32); 4]>,
 }
 
 /// One manual correction applied by the Fix Pose node.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PoseEdit {
-    pub joint:       String,
+    pub joint: String,
     /// Extra rotation, degrees, XYZ, applied in the joint's parent space.
-    pub rotation:    [f32; 3],
+    pub rotation: [f32; 3],
     /// Extra translation, centimetres.
     pub translation: [f32; 3],
 }
@@ -220,82 +248,103 @@ pub type Track = Vec<Transform>;
 #[derive(Clone, Debug)]
 pub struct AnimData {
     /// Take / clip name.
-    pub name:        String,
-    pub joints:      Vec<Joint>,
-    pub rate:        FrameRate,
-    pub drop_frame:  bool,
+    pub name: String,
+    pub joints: Vec<Joint>,
+    pub rate: FrameRate,
+    pub drop_frame: bool,
     /// Absolute frame number of the first sample.
     pub start_frame: i64,
     /// Number of samples per animated track (at least 1).
-    pub frames:      usize,
-    /// One track per joint. Shared so that metadata-only nodes do not copy samples.
-    pub tracks:      Arc<Vec<Track>>,
+    pub frames: usize,
+    /// One track per joint. Shared so that metadata-only nodes do not copy
+    /// samples.
+    pub tracks: Arc<Vec<Track>>,
     /// File the clip was loaded from, without extension ("" if generated).
-    pub source:      String,
+    pub source: String,
     /// Folder of that file.
-    pub source_dir:  String,
+    pub source_dir: String,
     /// Character name, set by the Split node.
-    pub subject:     String,
+    pub subject: String,
     /// Optional mesh bound to the skeleton.
-    pub skin:        Option<Arc<SkinMesh>>,
+    pub skin: Option<Arc<SkinMesh>>,
     /// Axes and unit of the file the clip came from. Written files use them
     /// again, so a clip goes back out with the skeleton it came in with.
-    pub space:       Option<Arc<FileSpace>>,
-    /// What is what in the skeleton, set by hand on a Characterize node.
-    /// Slots not set here are read from the joint names.
-    pub human:       Option<Arc<super::human::Picks>>,
+    pub space: Option<Arc<FileSpace>>,
+    /// What is what in the skeleton, set by hand on a Characterize node. Slots
+    /// not set here are read from the joint names.
+    pub human: Option<Arc<super::human::Picks>>,
 }
 
 /// The axes, unit and joint kinds of a source file.
 ///
-/// Files are read into this program's space: Y up, metres. The conversion
-/// is put on the joints at the top of the hierarchy, as ufbx does it; the
-/// joints under them keep their values as written, in the file's unit. To
-/// write the clip back as it came, `to_internal` is taken off those top
-/// joints again and the file says the axes and unit it had.
+/// Files are read into this program's space: Y up, metres. The conversion is
+/// put on the joints at the top of the hierarchy, as ufbx does it; the joints
+/// under them keep their values as written, in the file's unit. To write the
+/// clip back as it came, `to_internal` is taken off those top joints again and
+/// the file says the axes and unit it had.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileSpace {
     /// FBX axis numbers (0 X, 1 Y, 2 Z) and signs, as in GlobalSettings.
-    pub up:          (i32, i32),
-    pub front:       (i32, i32),
-    pub coord:       (i32, i32),
+    pub up: (i32, i32),
+    pub front: (i32, i32),
+    pub coord: (i32, i32),
     /// Centimetres per file unit (FBX UnitScaleFactor).
-    pub unit_cm:     f64,
+    pub unit_cm: f64,
     /// File world to this program's world: the axis turn and the unit.
     pub to_internal: Mat4,
     /// Joints that are FBX "Root" skeleton nodes rather than "LimbNode".
     pub root_joints: Vec<String>,
     /// Name of the skinned mesh in the file.
-    pub mesh_name:   String,
+    pub mesh_name: String,
 }
 
 impl FileSpace {
-    /// The space of a file with these axes and unit. `to_internal` turns
-    /// the file's right, up and front onto +X, +Y, +Z and scales its unit
-    /// to metres.
+    /// The space of a file with these axes and unit. `to_internal` turns the
+    /// file's right, up and front onto +X, +Y, +Z and scales its unit to
+    /// metres.
     pub fn new(up: (i32, i32), front: (i32, i32), coord: (i32, i32), unit_cm: f64) -> Self {
         let axis = |(a, sgn): (i32, i32)| {
             let mut v = Vec3::ZERO;
             v[a.clamp(0, 2) as usize] = if sgn < 0 { -1.0 } else { 1.0 };
             v
         };
-        let basis = Mat4::from_cols(axis(coord).extend(0.0), axis(up).extend(0.0), axis(front).extend(0.0), glam::Vec4::W);
+        let basis = Mat4::from_cols(
+            axis(coord).extend(0.0),
+            axis(up).extend(0.0),
+            axis(front).extend(0.0),
+            glam::Vec4::W,
+        );
         let unit = (unit_cm * 0.01) as f32;
         let to_internal = Mat4::from_scale(Vec3::splat(unit)) * basis.transpose();
-        Self { up, front, coord, unit_cm, to_internal, root_joints: vec![], mesh_name: String::new() }
+        Self {
+            up,
+            front,
+            coord,
+            unit_cm,
+            to_internal,
+            root_joints: vec![],
+            mesh_name: String::new(),
+        }
     }
 
-    /// Y up, +Z front, +X right, centimetres: what this program writes for
-    /// a clip that did not come from a file.
-    pub fn y_up_cm() -> Self { Self::new((1, 1), (2, 1), (0, 1), 1.0) }
+    /// Y up, +Z front, +X right, centimetres: what this program writes for a
+    /// clip that did not come from a file.
+    pub fn y_up_cm() -> Self {
+        Self::new((1, 1), (2, 1), (0, 1), 1.0)
+    }
 
-    /// Z up, -Y front, +X right, centimetres: Unreal's space. Tests write in it.
+    /// Z up, -Y front, +X right, centimetres: Unreal's space. Tests write in
+    /// it.
     #[cfg(test)]
-    pub fn z_up_cm() -> Self { Self::new((2, 1), (1, -1), (0, 1), 1.0) }
+    pub fn z_up_cm() -> Self {
+        Self::new((2, 1), (1, -1), (0, 1), 1.0)
+    }
 }
 
 impl AnimData {
-    pub fn end_frame(&self) -> i64 { self.start_frame + self.frames.max(1) as i64 - 1 }
+    pub fn end_frame(&self) -> i64 {
+        self.start_frame + self.frames.max(1) as i64 - 1
+    }
 
     /// Real duration, first sample to last.
     pub fn duration_seconds(&self) -> f64 {
@@ -347,12 +396,16 @@ impl AnimData {
     pub fn joint_depths(&self) -> Vec<usize> {
         let mut d = vec![0usize; self.joints.len()];
         for (j, joint) in self.joints.iter().enumerate() {
-            if let Some(p) = joint.parent { if p < j { d[j] = d[p] + 1; } }
+            if let Some(p) = joint.parent {
+                if p < j {
+                    d[j] = d[p] + 1;
+                }
+            }
         }
         d
     }
 
-    // ── Operators ────────────────────────────────────────────────────────────
+    // Operators
 
     /// Rename joints. Samples are shared with the input.
     pub fn renamed(&self, find: &str, replace: &str, strip_namespace: bool, prefix: &str) -> AnimData {
@@ -363,58 +416,80 @@ impl AnimData {
         for j in &mut out.joints {
             let mut n = j.name.clone();
             if strip_namespace {
-                if let Some(i) = n.rfind(':') { n = n[i + 1..].to_string(); }
+                if let Some(i) = n.rfind(':') {
+                    n = n[i + 1..].to_string();
+                }
             }
-            if let Some(re) = &find { n = re.replace_all(&n, replace).into_owned(); }
-            if !prefix.is_empty() { n = format!("{prefix}{n}"); }
+            if let Some(re) = &find {
+                n = re.replace_all(&n, replace).into_owned();
+            }
+            if !prefix.is_empty() {
+                n = format!("{prefix}{n}");
+            }
             j.name = n;
         }
         out
     }
 
-    /// Cut `head` frames from the start and `tail` frames from the end.
-    /// The remaining frames keep their absolute frame numbers.
+    /// Cut `head` frames from the start and `tail` frames from the end. The
+    /// remaining frames keep their absolute frame numbers.
     pub fn trimmed(&self, head: usize, tail: usize) -> AnimData {
-        let n    = self.frames.max(1);
+        let n = self.frames.max(1);
         let head = head.min(n - 1);
         let tail = tail.min(n - 1 - head);
         let keep = n - head - tail;
-        let tracks: Vec<Track> = self.tracks.iter().map(|t| {
-            if t.is_empty() { return vec![]; }
-            let a = head.min(t.len() - 1);
-            let b = (head + keep).min(t.len());
-            t[a..b.max(a + 1)].to_vec()
-        }).collect();
+        let tracks: Vec<Track> = self
+            .tracks
+            .iter()
+            .map(|t| {
+                if t.is_empty() {
+                    return vec![];
+                }
+                let a = head.min(t.len() - 1);
+                let b = (head + keep).min(t.len());
+                t[a..b.max(a + 1)].to_vec()
+            })
+            .collect();
         AnimData {
             start_frame: self.start_frame + head as i64,
-            frames:      keep,
-            tracks:      Arc::new(tracks),
+            frames: keep,
+            tracks: Arc::new(tracks),
             ..self.clone()
         }
     }
 
     /// Resample to a new rate. Start timecode and duration are preserved.
     pub fn resampled(&self, rate: FrameRate) -> AnimData {
-        if rate == self.rate { return self.clone(); }
+        if rate == self.rate {
+            return self.clone();
+        }
         let old_fps = self.rate.fps();
         let new_fps = rate.fps();
-        let frames  = (self.duration_seconds() * new_fps + 1e-6).floor() as usize + 1;
-        let tracks: Vec<Track> = self.tracks.iter().map(|t| {
-            if t.is_empty() { return vec![]; }
-            (0..frames).map(|i| {
-                let src = i as f64 / new_fps * old_fps;
-                let i0  = (src.floor() as usize).min(t.len() - 1);
-                let i1  = (i0 + 1).min(t.len() - 1);
-                lerp_transform(&t[i0], &t[i1], (src - i0 as f64) as f32)
-            }).collect()
-        }).collect();
+        let frames = (self.duration_seconds() * new_fps + 1e-6).floor() as usize + 1;
+        let tracks: Vec<Track> = self
+            .tracks
+            .iter()
+            .map(|t| {
+                if t.is_empty() {
+                    return vec![];
+                }
+                (0..frames)
+                    .map(|i| {
+                        let src = i as f64 / new_fps * old_fps;
+                        let i0 = (src.floor() as usize).min(t.len() - 1);
+                        let i1 = (i0 + 1).min(t.len() - 1);
+                        lerp_transform(&t[i0], &t[i1], (src - i0 as f64) as f32)
+                    })
+                    .collect()
+            })
+            .collect();
         let drop = self.drop_frame && rate.supports_drop_frame();
         AnimData {
             rate,
-            drop_frame:  drop,
+            drop_frame: drop,
             start_frame: tc_seconds_to_frame(self.tc_seconds(self.start_frame), rate, drop),
             frames,
-            tracks:      Arc::new(tracks),
+            tracks: Arc::new(tracks),
             ..self.clone()
         }
     }
@@ -422,23 +497,28 @@ impl AnimData {
     /// Keep every sample and relabel the rate. Playback speed changes; the
     /// start timecode fields are preserved.
     pub fn reinterpreted(&self, rate: FrameRate) -> AnimData {
-        let drop  = self.drop_frame && rate.supports_drop_frame();
+        let drop = self.drop_frame && rate.supports_drop_frame();
         let start = tc_seconds_to_frame(self.tc_seconds(self.start_frame), rate, drop);
-        AnimData { rate, drop_frame: drop, start_frame: start, ..self.clone() }
+        AnimData {
+            rate,
+            drop_frame: drop,
+            start_frame: start,
+            ..self.clone()
+        }
     }
 
     /// Move the clip so its first frame sits at the given timecode.
     pub fn with_start_timecode(&self, h: u32, m: u32, s: u32, f: u32, drop_frame: bool) -> AnimData {
         let drop = drop_frame && self.rate.supports_drop_frame();
         AnimData {
-            drop_frame:  drop,
+            drop_frame: drop,
             start_frame: timecode_to_frame(h as i64, m as i64, s as i64, f as i64, self.rate, drop),
             ..self.clone()
         }
     }
 }
 
-// ── Characters ───────────────────────────────────────────────────────────────
+// Characters
 
 impl AnimData {
     /// Joints below `root`, root first, in hierarchy order.
@@ -454,8 +534,8 @@ impl AnimData {
         out
     }
 
-    /// Roots of the characters in the clip: top-level joints with at least
-    /// one bone below them.
+    /// Roots of the characters in the clip: top-level joints with at least one
+    /// bone below them.
     pub fn character_roots(&self) -> Vec<usize> {
         (0..self.joints.len())
             .filter(|j| self.joints[*j].parent.is_none())
@@ -467,7 +547,11 @@ impl AnimData {
     /// spaces replaced so it is safe in a file name.
     pub fn character_name(&self, root: usize) -> String {
         let n = &self.joints[root].name;
-        let n = if n.to_lowercase().ends_with("_root") { &n[..n.len() - 5] } else { n.as_str() };
+        let n = if n.to_lowercase().ends_with("_root") {
+            &n[..n.len() - 5]
+        } else {
+            n.as_str()
+        };
         n.trim().replace(' ', "_")
     }
 
@@ -475,23 +559,35 @@ impl AnimData {
     pub fn split(&self, root: usize) -> AnimData {
         let ids = self.subtree(root);
         let mut new_index = vec![usize::MAX; self.joints.len()];
-        for (n, j) in ids.iter().enumerate() { new_index[*j] = n; }
-        let joints = ids.iter().map(|j| {
-            let mut joint = self.joints[*j].clone();
-            joint.parent = if *j == root { None } else { joint.parent.map(|p| new_index[p]) };
-            joint
-        }).collect();
-        let tracks = ids.iter().map(|j| self.tracks.get(*j).cloned().unwrap_or_default()).collect();
+        for (n, j) in ids.iter().enumerate() {
+            new_index[*j] = n;
+        }
+        let joints = ids
+            .iter()
+            .map(|j| {
+                let mut joint = self.joints[*j].clone();
+                joint.parent = if *j == root {
+                    None
+                } else {
+                    joint.parent.map(|p| new_index[p])
+                };
+                joint
+            })
+            .collect();
+        let tracks = ids
+            .iter()
+            .map(|j| self.tracks.get(*j).cloned().unwrap_or_default())
+            .collect();
         AnimData {
             joints,
-            tracks:  Arc::new(tracks),
+            tracks: Arc::new(tracks),
             subject: self.character_name(root),
-            skin:    None,
+            skin: None,
             ..self.clone()
         }
     }
 
-    // ── Poses ────────────────────────────────────────────────────────────────
+    // Poses
 
     /// First bone of the skeleton: the joint that carries the hip height.
     pub fn hip_joint(&self) -> Option<usize> {
@@ -503,19 +599,29 @@ impl AnimData {
     /// rest height of the hips when given.
     pub fn auto_tpose(&self, hip_height: Option<f32>) -> AnimData {
         let hip = self.hip_joint();
-        let tracks: Vec<Track> = self.joints.iter().enumerate().map(|(j, joint)| {
-            let mut t = joint.rest;
-            t.rotation = joint.zero_rot;
-            let above_hips = hip.map(|h| j < h && !joint.is_bone).unwrap_or(false);
-            if joint.parent.is_none() || above_hips {
-                t.translation = Vec3::ZERO;
-            }
-            if Some(j) == hip {
-                t.translation = Vec3::new(0.0, hip_height.unwrap_or(t.translation.y), 0.0);
-            }
-            vec![t]
-        }).collect();
-        AnimData { frames: 1, tracks: Arc::new(tracks), skin: None, ..self.clone() }
+        let tracks: Vec<Track> = self
+            .joints
+            .iter()
+            .enumerate()
+            .map(|(j, joint)| {
+                let mut t = joint.rest;
+                t.rotation = joint.zero_rot;
+                let above_hips = hip.map(|h| j < h && !joint.is_bone).unwrap_or(false);
+                if joint.parent.is_none() || above_hips {
+                    t.translation = Vec3::ZERO;
+                }
+                if Some(j) == hip {
+                    t.translation = Vec3::new(0.0, hip_height.unwrap_or(t.translation.y), 0.0);
+                }
+                vec![t]
+            })
+            .collect();
+        AnimData {
+            frames: 1,
+            tracks: Arc::new(tracks),
+            skin: None,
+            ..self.clone()
+        }
     }
 
     /// Apply manual corrections to every frame.
@@ -528,26 +634,36 @@ impl AnimData {
                 Some(j) => vec![j],
                 None => {
                     let p = crate::core::pattern::NamePattern::new(&e.joint);
-                    (0..self.joints.len()).filter(|j| p.matches(&self.joints[*j].name)).collect()
+                    (0..self.joints.len())
+                        .filter(|j| p.matches(&self.joints[*j].name))
+                        .collect()
                 }
             };
             let rot = Quat::from_euler(
                 EulerRot::ZYX,
-                e.rotation[2].to_radians(), e.rotation[1].to_radians(), e.rotation[0].to_radians(),
+                e.rotation[2].to_radians(),
+                e.rotation[1].to_radians(),
+                e.rotation[0].to_radians(),
             );
             let tr = Vec3::from_array(e.translation) * 0.01;
             for j in targets {
-                if tracks[j].is_empty() { tracks[j] = vec![self.joints[j].rest; self.frames.max(1)]; }
+                if tracks[j].is_empty() {
+                    tracks[j] = vec![self.joints[j].rest; self.frames.max(1)];
+                }
                 for t in tracks[j].iter_mut() {
-                    t.rotation     = (rot * t.rotation).normalize();
+                    t.rotation = (rot * t.rotation).normalize();
                     t.translation += tr;
                 }
             }
         }
-        AnimData { tracks: Arc::new(tracks), skin: None, ..self.clone() }
+        AnimData {
+            tracks: Arc::new(tracks),
+            skin: None,
+            ..self.clone()
+        }
     }
 
-    // ── Proxy mesh ───────────────────────────────────────────────────────────
+    // Proxy mesh
 
     /// Sphere per bone and cylinder per bone-to-child link, built in the pose
     /// of the first frame and bound rigidly. `thickness` scales the radii.
@@ -556,19 +672,34 @@ impl AnimData {
         let pos: Vec<Vec3> = bind.iter().map(|m| m.w_axis.truncate()).collect();
         let mut kids: Vec<Vec<usize>> = vec![vec![]; self.joints.len()];
         for (j, joint) in self.joints.iter().enumerate() {
-            if let Some(p) = joint.parent { if joint.is_bone { kids[p].push(j); } }
+            if let Some(p) = joint.parent {
+                if joint.is_bone {
+                    kids[p].push(j);
+                }
+            }
         }
-        let mut mesh = SkinMesh { bind, ..Default::default() };
+        let mut mesh = SkinMesh {
+            bind,
+            ..Default::default()
+        };
         let k = thickness.max(0.01);
         for (j, joint) in self.joints.iter().enumerate() {
-            if !joint.is_bone { continue; }
+            if !joint.is_bone {
+                continue;
+            }
             let mut lens: Vec<f32> = kids[j].iter().map(|c| pos[j].distance(pos[*c])).collect();
             if let Some(p) = joint.parent {
-                if self.joints[p].is_bone { lens.push(pos[j].distance(pos[p])); }
+                if self.joints[p].is_bone {
+                    lens.push(pos[j].distance(pos[p]));
+                }
             }
             lens.retain(|l| *l > 1e-6);
             let shortest = lens.iter().copied().fold(f32::MAX, f32::min);
-            let r = if lens.is_empty() { 0.01 } else { (0.18 * shortest).clamp(0.0035, 0.03) };
+            let r = if lens.is_empty() {
+                0.01
+            } else {
+                (0.18 * shortest).clamp(0.0035, 0.03)
+            };
             mesh.add_sphere(pos[j], r * k, j as u32);
             for c in &kids[j] {
                 let len = pos[j].distance(pos[*c]);
@@ -577,7 +708,10 @@ impl AnimData {
                 }
             }
         }
-        AnimData { skin: Some(Arc::new(mesh)), ..self.clone() }
+        AnimData {
+            skin: Some(Arc::new(mesh)),
+            ..self.clone()
+        }
     }
 }
 
@@ -596,11 +730,15 @@ impl SkinMesh {
         let mut rows: Vec<Vec<u32>> = vec![];
         for j in 1..RINGS {
             let th = std::f32::consts::PI * j as f32 / RINGS as f32;
-            rows.push((0..SEG).map(|i| {
-                let ph = std::f32::consts::TAU * i as f32 / SEG as f32;
-                let n  = Vec3::new(th.sin() * ph.cos(), th.cos(), th.sin() * ph.sin());
-                self.add(c + n * r, n, joint)
-            }).collect());
+            rows.push(
+                (0..SEG)
+                    .map(|i| {
+                        let ph = std::f32::consts::TAU * i as f32 / SEG as f32;
+                        let n = Vec3::new(th.sin() * ph.cos(), th.cos(), th.sin() * ph.sin());
+                        self.add(c + n * r, n, joint)
+                    })
+                    .collect(),
+            );
         }
         let bot = self.add(c - Vec3::Y * r, -Vec3::Y, joint);
         for i in 0..SEG {
@@ -620,21 +758,25 @@ impl SkinMesh {
         let refv = if axis.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
         let u = axis.cross(refv).normalize();
         let v = axis.cross(u);
-        let ring: Vec<(u32, u32)> = (0..SEG).map(|i| {
-            let ph = std::f32::consts::TAU * i as f32 / SEG as f32;
-            let n  = u * ph.cos() + v * ph.sin();
-            (self.add(a + n * r, n, joint), self.add(b + n * r, n, joint))
-        }).collect();
+        let ring: Vec<(u32, u32)> = (0..SEG)
+            .map(|i| {
+                let ph = std::f32::consts::TAU * i as f32 / SEG as f32;
+                let n = u * ph.cos() + v * ph.sin();
+                (self.add(a + n * r, n, joint), self.add(b + n * r, n, joint))
+            })
+            .collect();
         for i in 0..SEG {
             let k = (i + 1) % SEG;
             self.faces.push([ring[i].0, ring[k].0, ring[k].1, ring[i].1]);
         }
     }
 
-    pub fn is_tri(face: &[u32; 4]) -> bool { face[2] == face[3] }
+    pub fn is_tri(face: &[u32; 4]) -> bool {
+        face[2] == face[3]
+    }
 
-    /// Positions and normals with every vertex carried by its joint.
-    /// `pose` holds the current world matrix of every joint.
+    /// Positions and normals with every vertex carried by its joint. `pose`
+    /// holds the current world matrix of every joint.
     pub fn deformed(&self, pose: &[Mat4]) -> (Vec<Vec3>, Vec<Vec3>) {
         let skin: Vec<Mat4> = pose.iter().zip(&self.bind).map(|(p, b)| *p * b.inverse()).collect();
         let mut pos = Vec::with_capacity(self.positions.len());
@@ -644,7 +786,9 @@ impl SkinMesh {
             for i in 0..self.positions.len() {
                 let (mut p, mut n) = (Vec3::ZERO, Vec3::ZERO);
                 for (j, w) in self.weights[i] {
-                    if w <= 0.0 { continue; }
+                    if w <= 0.0 {
+                        continue;
+                    }
                     let Some(m) = skin.get(j as usize) else { continue };
                     p += m.transform_point3(self.positions[i]) * w;
                     n += m.transform_vector3(self.normals[i]) * w;
@@ -664,17 +808,17 @@ impl SkinMesh {
 }
 
 fn lerp_transform(a: &Transform, b: &Transform, t: f32) -> Transform {
-    if t <= 0.0 { return *a; }
+    if t <= 0.0 {
+        return *a;
+    }
     Transform {
         translation: a.translation.lerp(b.translation, t),
-        rotation:    a.rotation.slerp(b.rotation, t),
-        scale:       a.scale.lerp(b.scale, t),
+        rotation: a.rotation.slerp(b.rotation, t),
+        scale: a.scale.lerp(b.scale, t),
     }
 }
 
-// ============================================================================
 // TEST CLIP GENERATOR
-// ============================================================================
 
 /// Procedural biped walking on the spot. Joint names carry a namespace so the
 /// rename node has something to clean. Starts at 01:00:00:00.
@@ -684,48 +828,55 @@ pub fn create_test_clip(seconds: f32, rate: FrameRate) -> AnimData {
     const NS: &str = "Take01:";
     // (name, parent, rest translation)
     let defs: [(&str, Option<usize>, [f32; 3]); 19] = [
-        ("Hips",         None,     [ 0.00, 0.95, 0.0]),
-        ("Spine",        Some(0),  [ 0.00, 0.12, 0.0]),
-        ("Chest",        Some(1),  [ 0.00, 0.22, 0.0]),
-        ("Neck",         Some(2),  [ 0.00, 0.22, 0.0]),
-        ("Head",         Some(3),  [ 0.00, 0.14, 0.0]),
-        ("LeftUpLeg",    Some(0),  [ 0.10,-0.05, 0.0]),
-        ("LeftLeg",      Some(5),  [ 0.00,-0.43, 0.0]),
-        ("LeftFoot",     Some(6),  [ 0.00,-0.42, 0.0]),
-        ("LeftToe",      Some(7),  [ 0.00,-0.05, 0.14]),
-        ("RightUpLeg",   Some(0),  [-0.10,-0.05, 0.0]),
-        ("RightLeg",     Some(9),  [ 0.00,-0.43, 0.0]),
-        ("RightFoot",    Some(10), [ 0.00,-0.42, 0.0]),
-        ("RightToe",     Some(11), [ 0.00,-0.05, 0.14]),
-        ("LeftArm",      Some(2),  [ 0.19, 0.16, 0.0]),
-        ("LeftForeArm",  Some(13), [ 0.00,-0.28, 0.0]),
-        ("LeftHand",     Some(14), [ 0.00,-0.26, 0.0]),
-        ("RightArm",     Some(2),  [-0.19, 0.16, 0.0]),
-        ("RightForeArm", Some(16), [ 0.00,-0.28, 0.0]),
-        ("RightHand",    Some(17), [ 0.00,-0.26, 0.0]),
+        ("Hips", None, [0.00, 0.95, 0.0]),
+        ("Spine", Some(0), [0.00, 0.12, 0.0]),
+        ("Chest", Some(1), [0.00, 0.22, 0.0]),
+        ("Neck", Some(2), [0.00, 0.22, 0.0]),
+        ("Head", Some(3), [0.00, 0.14, 0.0]),
+        ("LeftUpLeg", Some(0), [0.10, -0.05, 0.0]),
+        ("LeftLeg", Some(5), [0.00, -0.43, 0.0]),
+        ("LeftFoot", Some(6), [0.00, -0.42, 0.0]),
+        ("LeftToe", Some(7), [0.00, -0.05, 0.14]),
+        ("RightUpLeg", Some(0), [-0.10, -0.05, 0.0]),
+        ("RightLeg", Some(9), [0.00, -0.43, 0.0]),
+        ("RightFoot", Some(10), [0.00, -0.42, 0.0]),
+        ("RightToe", Some(11), [0.00, -0.05, 0.14]),
+        ("LeftArm", Some(2), [0.19, 0.16, 0.0]),
+        ("LeftForeArm", Some(13), [0.00, -0.28, 0.0]),
+        ("LeftHand", Some(14), [0.00, -0.26, 0.0]),
+        ("RightArm", Some(2), [-0.19, 0.16, 0.0]),
+        ("RightForeArm", Some(16), [0.00, -0.28, 0.0]),
+        ("RightHand", Some(17), [0.00, -0.26, 0.0]),
     ];
 
-    let joints: Vec<Joint> = defs.iter().map(|(n, p, t)| Joint::new(
-        format!("{NS}{n}"), *p, Transform::from_translation(Vec3::from_array(*t)),
-    )).collect();
+    let joints: Vec<Joint> = defs
+        .iter()
+        .map(|(n, p, t)| {
+            Joint::new(
+                format!("{NS}{n}"),
+                *p,
+                Transform::from_translation(Vec3::from_array(*t)),
+            )
+        })
+        .collect();
 
-    let fps    = rate.fps();
+    let fps = rate.fps();
     let frames = ((seconds.max(0.0) as f64 * fps).round() as usize).max(1);
     let mut tracks: Vec<Track> = joints.iter().map(|j| vec![j.rest; frames]).collect();
 
     for i in 0..frames {
-        let t     = i as f64 / fps;
-        let phase = (t * std::f64::consts::TAU) as f32;      // one stride per second
-        let s     = phase.sin();
+        let t = i as f64 / fps;
+        let phase = (t * std::f64::consts::TAU) as f32; // one stride per second
+        let s = phase.sin();
         let rot_x = |a: f32| Quat::from_rotation_x(a);
 
         tracks[0][i].translation.y = 0.95 + 0.02 * (2.0 * phase).cos();
-        tracks[0][i].rotation      = Quat::from_rotation_y(0.08 * s);
-        tracks[2][i].rotation      = Quat::from_rotation_y(-0.12 * s);
+        tracks[0][i].rotation = Quat::from_rotation_y(0.08 * s);
+        tracks[2][i].rotation = Quat::from_rotation_y(-0.12 * s);
 
-        tracks[5][i].rotation  = rot_x(-0.55 * s);
-        tracks[6][i].rotation  = rot_x(0.9 * (-s).max(0.0));
-        tracks[9][i].rotation  = rot_x(0.55 * s);
+        tracks[5][i].rotation = rot_x(-0.55 * s);
+        tracks[6][i].rotation = rot_x(0.9 * (-s).max(0.0));
+        tracks[9][i].rotation = rot_x(0.55 * s);
         tracks[10][i].rotation = rot_x(0.9 * s.max(0.0));
 
         tracks[13][i].rotation = rot_x(0.5 * s);
@@ -735,40 +886,38 @@ pub fn create_test_clip(seconds: f32, rate: FrameRate) -> AnimData {
     }
 
     AnimData {
-        name:        "TestWalk".into(),
+        name: "TestWalk".into(),
         joints,
         rate,
-        drop_frame:  false,
+        drop_frame: false,
         start_frame: timecode_to_frame(1, 0, 0, 0, rate, false),
         frames,
-        tracks:      Arc::new(tracks),
-        source:      String::new(),
-        source_dir:  String::new(),
-        subject:     String::new(),
-        skin:        None,
-        space:       None,
-        human:       None,
+        tracks: Arc::new(tracks),
+        source: String::new(),
+        source_dir: String::new(),
+        subject: String::new(),
+        skin: None,
+        space: None,
+        human: None,
     }
 }
 
-// ============================================================================
 // MEMO
-// ============================================================================
 //
 // The graph is re-evaluated often (every panel asks for its own node), so an
 // operator must not redo its work unless its parameters or its input changed.
 // The key is the node's parameters plus the identity of the input clip.
 
 struct MemoEntry {
-    _input: Option<Arc<AnimData>>,   // kept alive so the pointer in the key stays unique
+    _input: Option<Arc<AnimData>>, // kept alive so the pointer in the key stays unique
     output: Option<Arc<AnimData>>,
 }
 
 static MEMO: OnceLock<Mutex<HashMap<u64, MemoEntry>>> = OnceLock::new();
 
 pub fn memo(
-    params:  &str,
-    input:   Option<&Arc<AnimData>>,
+    params: &str,
+    input: Option<&Arc<AnimData>>,
     compute: impl FnOnce() -> Option<AnimData>,
 ) -> Option<Arc<AnimData>> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -782,14 +931,20 @@ pub fn memo(
     }
     let output = compute().map(Arc::new);
     let mut map = map.lock().unwrap();
-    if map.len() > 24 { map.clear(); }   // entries hold whole clips
-    map.insert(key, MemoEntry { _input: input.cloned(), output: output.clone() });
+    if map.len() > 24 {
+        map.clear();
+    } // entries hold whole clips
+    map.insert(
+        key,
+        MemoEntry {
+            _input: input.cloned(),
+            output: output.clone(),
+        },
+    );
     output
 }
 
-// ============================================================================
 // TESTS
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -802,7 +957,10 @@ mod tests {
         let r = FrameRate::new(24, 1);
         assert_eq!(frame_to_timecode(0, r, false).to_string(), "00:00:00:00");
         assert_eq!(frame_to_timecode(86400, r, false).to_string(), "01:00:00:00");
-        assert_eq!(frame_to_timecode(86400 + 24 * 61 + 5, r, false).to_string(), "01:01:01:05");
+        assert_eq!(
+            frame_to_timecode(86400 + 24 * 61 + 5, r, false).to_string(),
+            "01:01:01:05"
+        );
         assert_eq!(timecode_to_frame(1, 1, 1, 5, r, false), 86400 + 24 * 61 + 5);
     }
 
@@ -814,7 +972,10 @@ mod tests {
         assert_eq!(frame_to_timecode(107892, NTSC, true).to_string(), "01:00:00;00");
         for f in [0i64, 1, 1799, 1800, 17981, 17982, 107892, 250_000] {
             let tc = frame_to_timecode(f, NTSC, true);
-            assert_eq!(timecode_to_frame(tc.hours, tc.minutes, tc.seconds, tc.frames, NTSC, true), f);
+            assert_eq!(
+                timecode_to_frame(tc.hours, tc.minutes, tc.seconds, tc.frames, NTSC, true),
+                f
+            );
         }
     }
 
@@ -909,12 +1070,20 @@ mod tests {
     #[test]
     fn fix_pose_by_pattern_reaches_every_match() {
         let c = create_test_clip(1.0, FrameRate::new(30, 1));
-        let edit = |joint: &str| PoseEdit { joint: joint.into(), rotation: [0.0; 3], translation: [0.0, 10.0, 0.0] };
-        let moved = |a: &AnimData| (0..a.joints.len())
-            .filter(|j| a.tracks[*j].first().map(|t| t.translation) != c.tracks[*j].first().map(|t| t.translation)
-                        && !a.tracks[*j].is_empty())
-            .count();
-        let one  = c.pose_fixed(&[edit("LeftUpLeg")]);
+        let edit = |joint: &str| PoseEdit {
+            joint: joint.into(),
+            rotation: [0.0; 3],
+            translation: [0.0, 10.0, 0.0],
+        };
+        let moved = |a: &AnimData| {
+            (0..a.joints.len())
+                .filter(|j| {
+                    a.tracks[*j].first().map(|t| t.translation) != c.tracks[*j].first().map(|t| t.translation)
+                        && !a.tracks[*j].is_empty()
+                })
+                .count()
+        };
+        let one = c.pose_fixed(&[edit("LeftUpLeg")]);
         let many = c.pose_fixed(&[edit("UpLeg$")]);
         assert_eq!(moved(&one), 1);
         assert_eq!(moved(&many), 2);
@@ -948,16 +1117,25 @@ mod tests {
             tracks.push(vec![]);
             for (j, joint) in c.joints.iter().enumerate() {
                 let mut joint = joint.clone();
-                joint.name   = format!("{name}_{}", joint.name.trim_start_matches("Take01:"));
+                joint.name = format!("{name}_{}", joint.name.trim_start_matches("Take01:"));
                 joint.parent = Some(joint.parent.map(|p| base + 1 + p).unwrap_or(base));
                 joints.push(joint);
                 let mut t = c.tracks[j].clone();
-                if j == 0 { for x in &mut t { x.translation.x += ci as f32 * 2.0; } }
+                if j == 0 {
+                    for x in &mut t {
+                        x.translation.x += ci as f32 * 2.0;
+                    }
+                }
                 tracks.push(t);
             }
         }
         assert_eq!(joints.len(), 2 * (n + 1));
-        AnimData { joints, tracks: Arc::new(tracks), source: "take".into(), ..c }
+        AnimData {
+            joints,
+            tracks: Arc::new(tracks),
+            source: "take".into(),
+            ..c
+        }
     }
 
     #[test]
@@ -991,7 +1169,10 @@ mod tests {
         assert_eq!(t.local(0, 0).translation, Vec3::ZERO);
         // Hips: centred, rest height kept. The animated clip is offset in X.
         assert_eq!(t.local(1, 0).translation, Vec3::new(0.0, 0.95, 0.0));
-        assert_eq!(c.auto_tpose(Some(1.1)).local(1, 0).translation, Vec3::new(0.0, 1.1, 0.0));
+        assert_eq!(
+            c.auto_tpose(Some(1.1)).local(1, 0).translation,
+            Vec3::new(0.0, 1.1, 0.0)
+        );
         // Bone offsets are untouched.
         assert_eq!(t.local(2, 0).translation, c.joints[2].rest.translation);
     }
@@ -1009,7 +1190,9 @@ mod tests {
         let t = create_test_clip(1.0, FrameRate::new(30, 1)).auto_tpose(None);
         let before = t.world_pose(0);
         let fixed = t.pose_fixed(&[PoseEdit {
-            joint: "Take01:LeftArm".into(), rotation: [0.0, 0.0, 90.0], translation: [0.0; 3],
+            joint: "Take01:LeftArm".into(),
+            rotation: [0.0, 0.0, 90.0],
+            translation: [0.0; 3],
         }]);
         let after = fixed.world_pose(0);
         // Forearm hung straight down from the arm; +90 about Z swings it to +X.
@@ -1032,10 +1215,15 @@ mod tests {
         assert!(p.iter().zip(&skin.positions).all(|(a, b)| (*a - *b).length() < 1e-5));
         // Move the hips: every vertex follows.
         let moved = s.pose_fixed(&[PoseEdit {
-            joint: "Take01:Hips".into(), rotation: [0.0; 3], translation: [0.0, 50.0, 0.0],
+            joint: "Take01:Hips".into(),
+            rotation: [0.0; 3],
+            translation: [0.0, 50.0, 0.0],
         }]);
         let (p, _) = skin.deformed(&moved.world_pose(0));
-        assert!(p.iter().zip(&skin.positions).all(|(a, b)| ((*a - *b) - Vec3::Y * 0.5).length() < 1e-5));
+        assert!(p
+            .iter()
+            .zip(&skin.positions)
+            .all(|(a, b)| ((*a - *b) - Vec3::Y * 0.5).length() < 1e-5));
     }
 
     #[test]

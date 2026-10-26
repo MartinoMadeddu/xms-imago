@@ -1,6 +1,8 @@
 # Viewer navigation
 
-The menu at the top left of the Viewer chooses the navigation style. The choice is kept between sessions. The question mark next to the menu shows or hides the keys of the current style.
+The menu at the top left of the Viewer chooses the navigation style. The choice
+is kept between sessions. The question mark next to the menu shows or hides the
+keys of the current style.
 
 | Style | Orbit | Pan | Zoom drag | Zoom in |
 |---|---|---|---|---|
@@ -21,7 +23,10 @@ In every style:
 
 Notes:
 
-- Houdini: Alt works as well as Space. Space plays the timeline only on a tap, with no mouse button used while it was held.
-- The zoom directions of the XSI and Modo styles were not confirmed against those packages.
+- Houdini: Alt works as well as Space. Space plays the timeline only on a tap,
+  with no mouse button used while it was held.
+- The zoom directions of the XSI and Modo styles were not confirmed against
+  those packages.
 - A camera drag has to start inside the Viewer.
-- Navigation follows the cursor position, not raw mouse motion, so it works through remote desktops and mouse sharing tools.
+- Navigation follows the cursor position, not raw mouse motion, so it works
+  through remote desktops and mouse sharing tools.

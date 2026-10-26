@@ -1,5 +1,5 @@
-//! The program's state: everything the interface, the graph and the Viewer
-//! work on, in one place, owned by whatever shell runs the program.
+//! The program's state: everything the interface, the graph and the Viewer work
+//! on, in one place, owned by whatever shell runs the program.
 //!
 //! The eframe app owns it (`eframe_app.rs`). Nothing in it depends on the
 //! shell.
@@ -25,34 +25,34 @@ pub struct ViewportRect(pub Option<egui::Rect>);
 #[derive(Default)]
 pub struct AppState {
     /// The root scene graph, and what changed in it.
-    pub graph:      NodeGraphState,
-    pub revision:   GraphRevision,
+    pub graph: NodeGraphState,
+    pub revision: GraphRevision,
     /// ICE graphs, and which one is open.
-    pub subnets:    IceGraphStore,
-    pub nav:        GraphNavigation,
+    pub subnets: IceGraphStore,
+    pub nav: GraphNavigation,
     /// What the panes show.
-    pub stack:      OperatorStack,
-    pub hierarchy:  SceneHierarchy,
+    pub stack: OperatorStack,
+    pub hierarchy: SceneHierarchy,
     pub prim_state: PrimInspectorState,
-    pub uv_state:   UvEditorState,
-    pub playback:   Playback,
-    pub vp_rect:    ViewportRect,
-    pub layout:     Layout,
+    pub uv_state: UvEditorState,
+    pub playback: Playback,
+    pub vp_rect: ViewportRect,
+    pub layout: Layout,
     /// Files: the graph's own, the browser, recent files, questions before
     /// losing changes or writing over a file.
     pub graph_file: GraphFile,
-    pub browser:    FileBrowser,
-    pub recent:     Recent,
+    pub browser: FileBrowser,
+    pub recent: Recent,
     pub save_first: SaveFirst,
-    pub confirm:    Confirm,
+    pub confirm: Confirm,
     /// Undo and redo.
-    pub history:    History,
+    pub history: History,
     /// Write FBX running over a folder, in the background.
-    pub batch:      BatchState,
+    pub batch: BatchState,
     /// Example files a graph names that can be fetched.
-    pub downloads:  Downloads,
-    /// The Graph Editor's view and selection.
-    pub graph_editor: crate::graph_editor::GraphEditor,
+    pub downloads: Downloads,
+    /// The Curve Editor's view and selection.
+    pub curve_editor: crate::curve_editor::CurveEditor,
     /// The Image Viewer: the image shown, and the render going.
     pub image_viewer: crate::image_viewer::ImageViewerState,
 }

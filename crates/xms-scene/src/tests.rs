@@ -63,7 +63,10 @@ fn world_transforms_and_reset() {
     let w = s.world_xform_at(&p("/A/B"), 0.0);
     assert_eq!(w.transform_point([0.0; 3]), [1.0, 2.0, 0.0]);
     s.edit(&p("/A/B"), Dirty::TRANSFORM, |prim| prim.reset_xform_stack = true);
-    assert_eq!(s.world_xform_at(&p("/A/B"), 0.0).transform_point([0.0; 3]), [0.0, 2.0, 0.0]);
+    assert_eq!(
+        s.world_xform_at(&p("/A/B"), 0.0).transform_point([0.0; 3]),
+        [0.0, 2.0, 0.0]
+    );
 }
 
 #[test]
@@ -94,7 +97,10 @@ fn motion_samples_follow_animated_ancestors() {
 fn insert_remove_and_changes() {
     let mut s = Scene::new();
     s.insert(Prim::new(p("/World/Lion/body"), PrimKind::Mesh(Box::default())));
-    assert!(s.contains(&p("/World")) && s.contains(&p("/World/Lion")), "ancestors created");
+    assert!(
+        s.contains(&p("/World")) && s.contains(&p("/World/Lion")),
+        "ancestors created"
+    );
     let c = s.take_changes();
     assert_eq!(c.added.len(), 3);
     assert!(c.dirty.is_empty(), "added prims aren't also dirty");
@@ -134,7 +140,13 @@ fn inherited_binding_and_visibility() {
     assert_eq!(s.resolved_material(&p("/World/Lion/body")), Some(p("/Looks/Gold")));
     assert!(s.visible_at(&p("/World/Lion/body"), 5.0));
     assert!(!s.visible_at(&p("/World/Lion/body"), 10.0));
-    assert_eq!(s.traverse(&Path::root()).iter().map(|x| x.as_str().to_string()).collect::<Vec<_>>(), vec!["/", "/World", "/World/Lion", "/World/Lion/body"]);
+    assert_eq!(
+        s.traverse(&Path::root())
+            .iter()
+            .map(|x| x.as_str().to_string())
+            .collect::<Vec<_>>(),
+        vec!["/", "/World", "/World/Lion", "/World/Lion/body"]
+    );
 }
 
 #[test]
@@ -143,7 +155,12 @@ fn quaternion_nlerp() {
     let b: Quatf = [0.0, 0.0, -0.0, -1.0]; // same rotation, opposite sign
     let q = nlerp(&a, &b, 0.5);
     assert!((q[3].abs() - 1.0).abs() < 1e-6, "shortest arc, normalized");
-    let c: Quatf = [0.0, 0.0, std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2];
+    let c: Quatf = [
+        0.0,
+        0.0,
+        std::f32::consts::FRAC_1_SQRT_2,
+        std::f32::consts::FRAC_1_SQRT_2,
+    ];
     let q = nlerp(&a, &c, 0.5);
     let len: f32 = q.iter().map(|x| x * x).sum::<f32>().sqrt();
     assert!((len - 1.0).abs() < 1e-6);
@@ -151,7 +168,11 @@ fn quaternion_nlerp() {
 
 #[test]
 fn shutter_interval() {
-    let t = SceneTime { time: 10.0, shutter_open: -0.25, shutter_close: 0.25 };
+    let t = SceneTime {
+        time: 10.0,
+        shutter_open: -0.25,
+        shutter_close: 0.25,
+    };
     assert_eq!(t.interval(), (9.75, 10.25));
     assert!(t.has_motion_blur());
     assert!(!SceneTime::default().has_motion_blur());
@@ -165,10 +186,16 @@ fn summary_counts() {
     mesh.face_vertex_counts = vec![4];
     mesh.subdivision.scheme = Some("catmullClark".into());
     s.insert(Prim::new(p("/World/m"), PrimKind::Mesh(Box::new(mesh))));
-    s.insert(Prim::new(p("/World/ball"), PrimKind::Gprim(Box::new(Gprim::Sphere { radius: 1.0 }))));
+    s.insert(Prim::new(
+        p("/World/ball"),
+        PrimKind::Gprim(Box::new(Gprim::Sphere { radius: 1.0 })),
+    ));
     s.insert(xform("/World/spin", vec![(0.0, [0.0; 3]), (1.0, [1.0, 0.0, 0.0])]));
     let sum = s.summary();
-    assert_eq!((sum.meshes, sum.mesh_faces, sum.mesh_points, sum.subdivision_meshes), (1, 1, 4, 1));
+    assert_eq!(
+        (sum.meshes, sum.mesh_faces, sum.mesh_points, sum.subdivision_meshes),
+        (1, 1, 4, 1)
+    );
     assert_eq!(sum.gprims, 1);
     assert_eq!((sum.animated_points, sum.animated_xforms, sum.samples), (1, 1, 4));
     assert!(sum.to_string().contains("meshes 1"));

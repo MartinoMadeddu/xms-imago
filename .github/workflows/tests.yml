@@ -1,5 +1,5 @@
-# Runs the tests and the regression suite on every push and pull request,
-# and writes a report for whoever has to act on it: the failed tests with
+# Checks the formatting and runs the tests and the regression suite on every
+# push and pull request, and writes a report for whoever has to act on it: the failed tests with
 # their output, the templates whose numbers moved, the warnings. The report
 # is the job summary and an artifact (test-report), with the full logs.
 #
@@ -36,6 +36,20 @@ jobs:
           sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # rustfmt with rustfmt.toml. Kept going when it fails, so the tests
+      # still run; the result step below fails the job.
+      - name: Formatting
+        id: fmt
+        continue-on-error: true
+        # bash named explicitly runs with pipefail, so the check's failure
+        # passes through tee.
+        shell: bash
+        run: |
+          mkdir -p report
+          cargo fmt --all --check 2>&1 | tee report/fmt.log
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -80,7 +94,12 @@ jobs:
           retention-days: 30
 
       - name: Result
-        if: steps.tests.outcome == 'failure'
+        if: steps.tests.outcome == 'failure' || steps.fmt.outcome == 'failure'
         run: |
-          echo "Tests failed: see the summary above and the test-report artifact."
+          if [ "${{ steps.fmt.outcome }}" = failure ]; then
+            echo "Code not formatted: run cargo fmt (report/fmt.log has the diff)."
+          fi
+          if [ "${{ steps.tests.outcome }}" = failure ]; then
+            echo "Tests failed: see the summary above and the test-report artifact."
+          fi
           exit 1

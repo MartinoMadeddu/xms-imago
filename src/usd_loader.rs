@@ -1,18 +1,19 @@
+use crate::types::MeshData;
+use glam::{Mat4, Quat, Vec3};
 /// USD mesh loader.
 ///
-/// - .usda : parsed with a hand-written recursive-descent parser (no external deps)
+/// - .usda : parsed with a hand-written recursive-descent parser (no external
+///   deps)
 /// - .usdc : loaded via the `openusd` crate's usdc reader
-/// - .usdz : treated as a zip; the first .usda/.usdc inside is extracted and loaded
+/// - .usdz : treated as a zip; the first .usda/.usdc inside is extracted and
+///   loaded
 ///
-/// Extracts all Mesh prims, triangulates quads/ngons via fan triangulation,
-/// and accumulates xformOp transforms down the prim hierarchy so meshes
-/// appear at correct world-space positions.
-
+/// Extracts all Mesh prims, triangulates quads/ngons via fan triangulation, and
+/// accumulates xformOp transforms down the prim hierarchy so meshes appear at
+/// correct world-space positions.
 use std::path::Path;
-use glam::{Mat4, Vec3, Quat};
-use crate::types::MeshData;
 
-// ── Public result type ────────────────────────────────────────────────────────
+// Public result type
 
 #[derive(Debug)]
 pub enum UsdError {
@@ -22,37 +23,45 @@ pub enum UsdError {
 impl std::fmt::Display for UsdError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UsdError::Io(e)    => write!(f, "IO error: {e}"),
+            UsdError::Io(e) => write!(f, "IO error: {e}"),
             UsdError::Parse(s) => write!(f, "Parse error: {s}"),
         }
     }
 }
-impl From<std::io::Error> for UsdError { fn from(e: std::io::Error) -> Self { Self::Io(e) } }
+impl From<std::io::Error> for UsdError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
 
 pub type UsdResult<T> = Result<T, UsdError>;
 
-// ── Entry point ───────────────────────────────────────────────────────────────
+// Entry point
 
 pub fn load_usd_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
-    let ext = path.extension()
+    let ext = path
+        .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
 
     match ext.as_str() {
-        "usda" => { let src = std::fs::read_to_string(path)?; parse_usda_meshes(&src) }
+        "usda" => {
+            let src = std::fs::read_to_string(path)?;
+            parse_usda_meshes(&src)
+        }
         "usdc" => load_usdc_meshes(path),
         "usdz" => load_usdz_meshes(path),
-        other  => Err(UsdError::Parse(format!("Unsupported extension: .{other}"))),
+        other => Err(UsdError::Parse(format!("Unsupported extension: .{other}"))),
     }
 }
 
-// ============================================================================
 // TRANSFORM HELPERS
-// ============================================================================
 
 /// A flat USD matrix as a bevy matrix: see `usd_scene::mat4_from_usd`.
-fn mat4_from_usd_flat(v: &[f64]) -> Mat4 { crate::usd_scene::mat4_from_usd(v) }
+fn mat4_from_usd_flat(v: &[f64]) -> Mat4 {
+    crate::usd_scene::mat4_from_usd(v)
+}
 
 fn mat4_from_translate(t: [f64; 3]) -> Mat4 {
     Mat4::from_translation(Vec3::new(t[0] as f32, t[1] as f32, t[2] as f32))
@@ -76,16 +85,16 @@ fn mat4_from_rotate_xyz_degrees(r: [f64; 3]) -> Mat4 {
 
 /// Apply a world-space Mat4 to all vertices of a MeshData in place.
 fn apply_transform(mesh: &mut MeshData, xform: &Mat4) {
-    if *xform == Mat4::IDENTITY { return; }
+    if *xform == Mat4::IDENTITY {
+        return;
+    }
     for v in &mut mesh.vertices {
-        let p  = xform.transform_point3(Vec3::new(v[0], v[1], v[2]));
+        let p = xform.transform_point3(Vec3::new(v[0], v[1], v[2]));
         *v = [p.x, p.y, p.z];
     }
 }
 
-// ============================================================================
 // USDA TEXT PARSER
-// ============================================================================
 
 pub fn parse_usda_meshes(src: &str) -> UsdResult<Vec<(String, MeshData)>> {
     let mut results = Vec::new();
@@ -95,7 +104,7 @@ pub fn parse_usda_meshes(src: &str) -> UsdResult<Vec<(String, MeshData)>> {
     Ok(results)
 }
 
-// ── Tokeniser ─────────────────────────────────────────────────────────────────
+// Tokeniser
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
@@ -117,22 +126,50 @@ fn tokenize(src: &str) -> Vec<Tok> {
     let mut chars = src.chars().peekable();
     while let Some(&c) = chars.peek() {
         match c {
-            '#' => { while chars.next().map(|c| c != '\n').unwrap_or(false) {} }
-            c if c.is_whitespace() => { chars.next(); }
-            '{' => { chars.next(); out.push(Tok::LBrace); }
-            '}' => { chars.next(); out.push(Tok::RBrace); }
-            '[' => { chars.next(); out.push(Tok::LBracket); }
-            ']' => { chars.next(); out.push(Tok::RBracket); }
-            '(' => { chars.next(); out.push(Tok::LParen); }
-            ')' => { chars.next(); out.push(Tok::RParen); }
-            ',' => { chars.next(); out.push(Tok::Comma); }
-            '=' => { chars.next(); out.push(Tok::Eq); }
+            '#' => while chars.next().map(|c| c != '\n').unwrap_or(false) {},
+            c if c.is_whitespace() => {
+                chars.next();
+            }
+            '{' => {
+                chars.next();
+                out.push(Tok::LBrace);
+            }
+            '}' => {
+                chars.next();
+                out.push(Tok::RBrace);
+            }
+            '[' => {
+                chars.next();
+                out.push(Tok::LBracket);
+            }
+            ']' => {
+                chars.next();
+                out.push(Tok::RBracket);
+            }
+            '(' => {
+                chars.next();
+                out.push(Tok::LParen);
+            }
+            ')' => {
+                chars.next();
+                out.push(Tok::RParen);
+            }
+            ',' => {
+                chars.next();
+                out.push(Tok::Comma);
+            }
+            '=' => {
+                chars.next();
+                out.push(Tok::Eq);
+            }
             '"' => {
                 chars.next();
                 let mut s = String::new();
                 while let Some(&c) = chars.peek() {
                     chars.next();
-                    if c == '"' { break; }
+                    if c == '"' {
+                        break;
+                    }
                     s.push(c);
                 }
                 out.push(Tok::Str(s));
@@ -149,49 +186,87 @@ fn tokenize(src: &str) -> Vec<Tok> {
                     }
                 }
                 while let Some(&c) = chars.peek() {
-                    if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E'
-                        || c == '+' || (c == '-' && s.contains('e'))
-                    { s.push(c); chars.next(); } else { break; }
+                    if c.is_ascii_digit()
+                        || c == '.'
+                        || c == 'e'
+                        || c == 'E'
+                        || c == '+'
+                        || (c == '-' && s.contains('e'))
+                    {
+                        s.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
                 }
-                if let Ok(n) = s.parse::<f64>() { out.push(Tok::Num(n)); }
-                else { out.push(Tok::Word(s)); }
+                if let Ok(n) = s.parse::<f64>() {
+                    out.push(Tok::Num(n));
+                } else {
+                    out.push(Tok::Word(s));
+                }
             }
             _ => {
                 let mut s = String::new();
                 while let Some(&c) = chars.peek() {
-                    if c.is_whitespace() || "{}[](),=\"#".contains(c) { break; }
-                    s.push(c); chars.next();
+                    if c.is_whitespace() || "{}[](),=\"#".contains(c) {
+                        break;
+                    }
+                    s.push(c);
+                    chars.next();
                 }
-                if !s.is_empty() { out.push(Tok::Word(s)); }
+                if !s.is_empty() {
+                    out.push(Tok::Word(s));
+                }
             }
         }
     }
     out
 }
 
-// ── Recursive block parser ────────────────────────────────────────────────────
+// Recursive block parser
 
 fn parse_block(
-    toks:         &[Tok],
-    pos:          &mut usize,
+    toks: &[Tok],
+    pos: &mut usize,
     current_path: &str,
     parent_xform: Mat4,
-    results:      &mut Vec<(String, MeshData)>,
+    results: &mut Vec<(String, MeshData)>,
 ) {
     while *pos < toks.len() {
         match &toks[*pos] {
-            Tok::RBrace => { *pos += 1; return; }
+            Tok::RBrace => {
+                *pos += 1;
+                return;
+            }
             Tok::Word(w) if w == "def" || w == "over" || w == "class" => {
                 *pos += 1;
                 let type_name = if let Some(Tok::Word(t)) = toks.get(*pos) {
-                    if t != "\"" { let t = t.clone(); *pos += 1; t } else { String::new() }
-                } else { String::new() };
+                    if t != "\"" {
+                        let t = t.clone();
+                        *pos += 1;
+                        t
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
                 let prim_name = match toks.get(*pos) {
-                    Some(Tok::Str(s)) => { let s = s.clone(); *pos += 1; s }
-                    Some(Tok::Word(s)) => { let s = s.clone(); *pos += 1; s }
+                    Some(Tok::Str(s)) => {
+                        let s = s.clone();
+                        *pos += 1;
+                        s
+                    }
+                    Some(Tok::Word(s)) => {
+                        let s = s.clone();
+                        *pos += 1;
+                        s
+                    }
                     _ => String::new(),
                 };
-                if toks.get(*pos) == Some(&Tok::LParen) { skip_parens(toks, pos); }
+                if toks.get(*pos) == Some(&Tok::LParen) {
+                    skip_parens(toks, pos);
+                }
                 let child_path = if current_path == "/" {
                     format!("/{prim_name}")
                 } else {
@@ -206,13 +281,14 @@ fn parse_block(
                         }
                     } else {
                         // Collect xformOps for this non-mesh prim, then recurse
-                        let local_xform = parse_xform_block(toks, pos, &child_path,
-                                                             parent_xform, results);
+                        let local_xform = parse_xform_block(toks, pos, &child_path, parent_xform, results);
                         let _ = local_xform; // recurse already handled inside
                     }
                 }
             }
-            _ => { *pos += 1; }
+            _ => {
+                *pos += 1;
+            }
         }
     }
 }
@@ -220,11 +296,11 @@ fn parse_block(
 /// Parse a non-Mesh prim block: collect xformOps, build local→world matrix,
 /// then recurse into child prims with the accumulated transform.
 fn parse_xform_block(
-    toks:         &[Tok],
-    pos:          &mut usize,
+    toks: &[Tok],
+    pos: &mut usize,
     current_path: &str,
     parent_xform: Mat4,
-    results:      &mut Vec<(String, MeshData)>,
+    results: &mut Vec<(String, MeshData)>,
 ) -> Mat4 {
     // We do two passes over the block tokens:
     // First pass: collect xformOps and xformOpOrder, build local matrix.
@@ -233,27 +309,36 @@ fn parse_xform_block(
     let block_start = *pos;
 
     // --- Pass 1: scan for xformOps without recursing into child defs ---
-    let mut translate  = None::<[f64; 3]>;
-    let mut scale      = None::<[f64; 3]>;
-    let mut orient     = None::<[f64; 4]>;
+    let mut translate = None::<[f64; 3]>;
+    let mut scale = None::<[f64; 3]>;
+    let mut orient = None::<[f64; 4]>;
     let mut rotate_xyz = None::<[f64; 3]>;
-    let mut matrix     = None::<Vec<f64>>;
+    let mut matrix = None::<Vec<f64>>;
 
     let mut depth = 1usize;
     let mut t = block_start;
     while t < toks.len() && depth > 0 {
         match &toks[t] {
-            Tok::LBrace => { depth += 1; t += 1; }
-            Tok::RBrace => { depth -= 1; t += 1; }
+            Tok::LBrace => {
+                depth += 1;
+                t += 1;
+            }
+            Tok::RBrace => {
+                depth -= 1;
+                t += 1;
+            }
             Tok::Word(w) => {
                 // Look for lines like:
                 //   double3 xformOp:translate = (x, y, z)
                 //   float3  xformOp:scale     = (x, y, z)
                 //   quatf   xformOp:orient    = (w, x, y, z)
                 //   matrix4d xformOp:transform = ( ... )
-                if w.starts_with("xformOp:") || w == "xformOp:translate"
-                    || w == "xformOp:scale" || w == "xformOp:orient"
-                    || w == "xformOp:transform" || w == "xformOp:rotateXYZ"
+                if w.starts_with("xformOp:")
+                    || w == "xformOp:translate"
+                    || w == "xformOp:scale"
+                    || w == "xformOp:orient"
+                    || w == "xformOp:transform"
+                    || w == "xformOp:rotateXYZ"
                 {
                     // scan back to find the actual op name token
                 }
@@ -265,8 +350,9 @@ fn parse_xform_block(
                     let op = w.clone();
                     let mut tt = t + 1;
                     // skip to '='
-                    while tt < toks.len() && toks[tt] != Tok::Eq
-                          && toks[tt] != Tok::LBrace && toks[tt] != Tok::RBrace { tt += 1; }
+                    while tt < toks.len() && toks[tt] != Tok::Eq && toks[tt] != Tok::LBrace && toks[tt] != Tok::RBrace {
+                        tt += 1;
+                    }
                     if toks.get(tt) == Some(&Tok::Eq) {
                         tt += 1;
                         if op.contains("translate") {
@@ -284,7 +370,9 @@ fn parse_xform_block(
                 }
                 t += 1;
             }
-            _ => { t += 1; }
+            _ => {
+                t += 1;
+            }
         }
     }
 
@@ -293,7 +381,8 @@ fn parse_xform_block(
         mat4_from_usd_flat(&m)
     } else {
         let t_mat = translate.map(mat4_from_translate).unwrap_or(Mat4::IDENTITY);
-        let r_mat = orient.map(mat4_from_orient)
+        let r_mat = orient
+            .map(mat4_from_orient)
             .or_else(|| rotate_xyz.map(mat4_from_rotate_xyz_degrees))
             .unwrap_or(Mat4::IDENTITY);
         let s_mat = scale.map(mat4_from_scale).unwrap_or(Mat4::IDENTITY);
@@ -309,65 +398,81 @@ fn parse_xform_block(
     world_xform
 }
 
-// ── Inline value parsers (no pos mutation side-effects on the outer loop) ────
+// Inline value parsers (no pos mutation side-effects on the outer loop)
 
 fn parse_triple_inline(toks: &[Tok], pos: &mut usize) -> [f64; 3] {
     let mut out = [0.0f64; 3];
     // value can be bare `x, y, z` or `(x, y, z)`
-    if toks.get(*pos) == Some(&Tok::LParen) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::LParen) {
+        *pos += 1;
+    }
     for i in 0..3 {
         out[i] = eat_num(toks, pos);
         eat_comma(toks, pos);
     }
-    if toks.get(*pos) == Some(&Tok::RParen) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::RParen) {
+        *pos += 1;
+    }
     out
 }
 
 fn parse_quad_inline(toks: &[Tok], pos: &mut usize) -> [f64; 4] {
     let mut out = [0.0f64; 4];
-    if toks.get(*pos) == Some(&Tok::LParen) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::LParen) {
+        *pos += 1;
+    }
     for i in 0..4 {
         out[i] = eat_num(toks, pos);
         eat_comma(toks, pos);
     }
-    if toks.get(*pos) == Some(&Tok::RParen) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::RParen) {
+        *pos += 1;
+    }
     out
 }
 
 fn parse_matrix16_inline(toks: &[Tok], pos: &mut usize) -> Vec<f64> {
     let mut out = Vec::with_capacity(16);
     // matrix4d is written as ( (r0c0,r0c1,r0c2,r0c3), (r1...), ... )
-    if toks.get(*pos) == Some(&Tok::LParen) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::LParen) {
+        *pos += 1;
+    }
     for _ in 0..4 {
-        if toks.get(*pos) == Some(&Tok::LParen) { *pos += 1; }
+        if toks.get(*pos) == Some(&Tok::LParen) {
+            *pos += 1;
+        }
         for _ in 0..4 {
             out.push(eat_num(toks, pos));
             eat_comma(toks, pos);
         }
-        if toks.get(*pos) == Some(&Tok::RParen) { *pos += 1; }
+        if toks.get(*pos) == Some(&Tok::RParen) {
+            *pos += 1;
+        }
         eat_comma(toks, pos);
     }
-    if toks.get(*pos) == Some(&Tok::RParen) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::RParen) {
+        *pos += 1;
+    }
     out
 }
 
-// ── Mesh prim parser ──────────────────────────────────────────────────────────
+// Mesh prim parser
 
 fn parse_mesh_prim(
-    toks:    &[Tok],
-    pos:     &mut usize,
-    path:    &str,
+    toks: &[Tok],
+    pos: &mut usize,
+    path: &str,
     results: &mut Vec<(String, MeshData)>,
 ) -> Option<MeshData> {
-    let mut points:     Option<Vec<[f32; 3]>> = None;
-    let mut fv_counts:  Option<Vec<usize>>    = None;
-    let mut fv_indices: Option<Vec<usize>>    = None;
+    let mut points: Option<Vec<[f32; 3]>> = None;
+    let mut fv_counts: Option<Vec<usize>> = None;
+    let mut fv_indices: Option<Vec<usize>> = None;
     // Mesh prims can also carry their own xformOps
-    let mut translate  = None::<[f64; 3]>;
-    let mut scale      = None::<[f64; 3]>;
-    let mut orient     = None::<[f64; 4]>;
+    let mut translate = None::<[f64; 3]>;
+    let mut scale = None::<[f64; 3]>;
+    let mut orient = None::<[f64; 4]>;
     let mut rotate_xyz = None::<[f64; 3]>;
-    let mut matrix     = None::<Vec<f64>>;
+    let mut matrix = None::<Vec<f64>>;
 
     while *pos < toks.len() && toks[*pos] != Tok::RBrace {
         if let Tok::Word(w) = &toks[*pos] {
@@ -381,16 +486,24 @@ fn parse_mesh_prim(
         let mut attr_name = String::new();
         let mut temp = *pos;
         while temp < toks.len() && toks[temp] != Tok::Eq && toks[temp] != Tok::RBrace {
-            if let Tok::Word(w) = &toks[temp] { attr_name = w.clone(); }
+            if let Tok::Word(w) = &toks[temp] {
+                attr_name = w.clone();
+            }
             temp += 1;
         }
 
         if toks.get(temp) == Some(&Tok::Eq) {
             *pos = temp + 1;
             match attr_name.as_str() {
-                "points"            => { points     = Some(parse_vec3_array(toks, pos)); }
-                "faceVertexCounts"  => { fv_counts  = Some(parse_int_array(toks, pos)); }
-                "faceVertexIndices" => { fv_indices = Some(parse_int_array(toks, pos)); }
+                "points" => {
+                    points = Some(parse_vec3_array(toks, pos));
+                }
+                "faceVertexCounts" => {
+                    fv_counts = Some(parse_int_array(toks, pos));
+                }
+                "faceVertexIndices" => {
+                    fv_indices = Some(parse_int_array(toks, pos));
+                }
                 n if n.contains("xformOp:translate") => {
                     translate = Some(parse_triple_inline(toks, pos));
                 }
@@ -406,25 +519,30 @@ fn parse_mesh_prim(
                 n if n.contains("xformOp:transform") => {
                     matrix = Some(parse_matrix16_inline(toks, pos));
                 }
-                _ => { skip_value(toks, pos); }
+                _ => {
+                    skip_value(toks, pos);
+                }
             }
         } else {
-            if *pos == line_start { *pos += 1; }
+            if *pos == line_start {
+                *pos += 1;
+            }
         }
     }
 
-    if toks.get(*pos) == Some(&Tok::RBrace) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::RBrace) {
+        *pos += 1;
+    }
 
-    let pts    = points?;
+    let pts = points?;
     let counts = fv_counts?;
-    let idxs   = fv_indices?;
-    if pts.is_empty() { return None; }
+    let idxs = fv_indices?;
+    if pts.is_empty() {
+        return None;
+    }
 
     let tri_idx = triangulate(&counts, &idxs);
-    let mut mesh = MeshData::from_triangles(
-        pts,
-        tri_idx.into_iter().map(|i| i as u32).collect(),
-    );
+    let mut mesh = MeshData::from_triangles(pts, tri_idx.into_iter().map(|i| i as u32).collect());
     mesh.polys = polygons(&counts, &idxs);
     mesh.face_count = mesh.polys.len();
 
@@ -433,7 +551,8 @@ fn parse_mesh_prim(
         mat4_from_usd_flat(&m)
     } else {
         let t_mat = translate.map(mat4_from_translate).unwrap_or(Mat4::IDENTITY);
-        let r_mat = orient.map(mat4_from_orient)
+        let r_mat = orient
+            .map(mat4_from_orient)
             .or_else(|| rotate_xyz.map(mat4_from_rotate_xyz_degrees))
             .unwrap_or(Mat4::IDENTITY);
         let s_mat = scale.map(mat4_from_scale).unwrap_or(Mat4::IDENTITY);
@@ -444,52 +563,82 @@ fn parse_mesh_prim(
     Some(mesh)
 }
 
-// ── Array parsers ─────────────────────────────────────────────────────────────
+// Array parsers
 
 fn parse_vec3_array(toks: &[Tok], pos: &mut usize) -> Vec<[f32; 3]> {
     let mut out = Vec::new();
-    if toks.get(*pos) != Some(&Tok::LBracket) { return out; }
+    if toks.get(*pos) != Some(&Tok::LBracket) {
+        return out;
+    }
     *pos += 1;
     while *pos < toks.len() && toks[*pos] != Tok::RBracket {
-        if toks.get(*pos) == Some(&Tok::LParen) { *pos += 1; }
+        if toks.get(*pos) == Some(&Tok::LParen) {
+            *pos += 1;
+        }
         let x = eat_num(toks, pos);
         eat_comma(toks, pos);
         let y = eat_num(toks, pos);
         eat_comma(toks, pos);
         let z = eat_num(toks, pos);
-        if toks.get(*pos) == Some(&Tok::RParen) { *pos += 1; }
+        if toks.get(*pos) == Some(&Tok::RParen) {
+            *pos += 1;
+        }
         eat_comma(toks, pos);
         out.push([x as f32, y as f32, z as f32]);
     }
-    if toks.get(*pos) == Some(&Tok::RBracket) { *pos += 1; }
-    if toks.get(*pos) == Some(&Tok::LParen) { skip_parens(toks, pos); }
+    if toks.get(*pos) == Some(&Tok::RBracket) {
+        *pos += 1;
+    }
+    if toks.get(*pos) == Some(&Tok::LParen) {
+        skip_parens(toks, pos);
+    }
     out
 }
 
 fn parse_int_array(toks: &[Tok], pos: &mut usize) -> Vec<usize> {
     let mut out = Vec::new();
-    if toks.get(*pos) != Some(&Tok::LBracket) { return out; }
+    if toks.get(*pos) != Some(&Tok::LBracket) {
+        return out;
+    }
     *pos += 1;
     while *pos < toks.len() && toks[*pos] != Tok::RBracket {
-        if let Some(Tok::Num(n)) = toks.get(*pos) { out.push(*n as usize); *pos += 1; }
-        else { *pos += 1; }
+        if let Some(Tok::Num(n)) = toks.get(*pos) {
+            out.push(*n as usize);
+            *pos += 1;
+        } else {
+            *pos += 1;
+        }
         eat_comma(toks, pos);
     }
-    if toks.get(*pos) == Some(&Tok::RBracket) { *pos += 1; }
-    if toks.get(*pos) == Some(&Tok::LParen) { skip_parens(toks, pos); }
+    if toks.get(*pos) == Some(&Tok::RBracket) {
+        *pos += 1;
+    }
+    if toks.get(*pos) == Some(&Tok::LParen) {
+        skip_parens(toks, pos);
+    }
     out
 }
 
-// ── Token helpers ─────────────────────────────────────────────────────────────
+// Token helpers
 
 fn eat_num(toks: &[Tok], pos: &mut usize) -> f64 {
-    if let Some(Tok::Num(n)) = toks.get(*pos) { let v = *n; *pos += 1; v } else { 0.0 }
+    if let Some(Tok::Num(n)) = toks.get(*pos) {
+        let v = *n;
+        *pos += 1;
+        v
+    } else {
+        0.0
+    }
 }
 fn eat_comma(toks: &[Tok], pos: &mut usize) {
-    if toks.get(*pos) == Some(&Tok::Comma) { *pos += 1; }
+    if toks.get(*pos) == Some(&Tok::Comma) {
+        *pos += 1;
+    }
 }
 fn skip_parens(toks: &[Tok], pos: &mut usize) {
-    if toks.get(*pos) != Some(&Tok::LParen) { return; }
+    if toks.get(*pos) != Some(&Tok::LParen) {
+        return;
+    }
     *pos += 1;
     let mut depth = 1usize;
     while *pos < toks.len() && depth > 0 {
@@ -514,22 +663,30 @@ fn skip_value(toks: &[Tok], pos: &mut usize) {
                 }
                 *pos += 1;
             }
-            if toks.get(*pos) == Some(&Tok::LParen) { skip_parens(toks, pos); }
+            if toks.get(*pos) == Some(&Tok::LParen) {
+                skip_parens(toks, pos);
+            }
         }
         Some(Tok::LParen) => skip_parens(toks, pos),
-        _ => { *pos += 1; }
+        _ => {
+            *pos += 1;
+        }
     }
 }
 
-// ── Triangulation ─────────────────────────────────────────────────────────────
+// Triangulation
 
 /// Face-vertex counts and indices as one vertex loop per polygon.
 fn polygons(counts: &[usize], indices: &[usize]) -> Vec<Vec<u32>> {
     let mut out = Vec::with_capacity(counts.len());
     let mut at = 0;
     for n in counts {
-        if at + n > indices.len() { break; }
-        if *n >= 3 { out.push(indices[at..at + n].iter().map(|i| *i as u32).collect()); }
+        if at + n > indices.len() {
+            break;
+        }
+        if *n >= 3 {
+            out.push(indices[at..at + n].iter().map(|i| *i as u32).collect());
+        }
         at += n;
     }
     out
@@ -539,7 +696,10 @@ fn triangulate(counts: &[usize], indices: &[usize]) -> Vec<usize> {
     let mut out = Vec::new();
     let mut offset = 0;
     for &n in counts {
-        if n < 3 || offset + n > indices.len() { offset += n; continue; }
+        if n < 3 || offset + n > indices.len() {
+            offset += n;
+            continue;
+        }
         let face = &indices[offset..offset + n];
         for i in 1..(n - 1) {
             out.push(face[0]);
@@ -551,16 +711,13 @@ fn triangulate(counts: &[usize], indices: &[usize]) -> Vec<usize> {
     out
 }
 
-// ============================================================================
 // USDC BINARY LOADER
-// ============================================================================
 
 fn load_usdc_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
-    use openusd::usdc::read_file;
     use openusd::sdf::{self, Value};
+    use openusd::usdc::read_file;
 
-    let mut data = read_file(path)
-        .map_err(|e| UsdError::Parse(e.to_string()))?;
+    let mut data = read_file(path).map_err(|e| UsdError::Parse(e.to_string()))?;
 
     let mut queue: Vec<(sdf::Path, Mat4)> = vec![(sdf::Path::abs_root(), Mat4::IDENTITY)];
     let mut mesh_paths: Vec<(sdf::Path, Mat4)> = Vec::new();
@@ -578,7 +735,9 @@ fn load_usdc_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
             } else {
                 format!("{parent}/{child_name}")
             };
-            let Ok(child_path) = sdf::path(&child_str) else { continue };
+            let Ok(child_path) = sdf::path(&child_str) else {
+                continue;
+            };
 
             // Collect xformOps for this prim
             let local = usdc_collect_xform(&mut data, &child_path);
@@ -599,38 +758,33 @@ fn load_usdc_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
     let mut results = Vec::new();
 
     for (mesh_path, world_xform) in mesh_paths {
-        let prop_path = |prop: &str| -> Option<sdf::Path> {
-            sdf::path(&format!("{mesh_path}.{prop}")).ok()
-        };
+        let prop_path = |prop: &str| -> Option<sdf::Path> { sdf::path(&format!("{mesh_path}.{prop}")).ok() };
         let mut get_default = |prop: &str| -> Option<Value> {
             let pp = prop_path(prop)?;
             data.get(&pp, "default").ok().map(|v| v.into_owned())
         };
 
         let points: Vec<[f32; 3]> = match get_default("points") {
-            Some(Value::Vec3f(flat)) => flat.chunks_exact(3)
-                .map(|c| [c[0], c[1], c[2]])
-                .collect(),
+            Some(Value::Vec3f(flat)) => flat.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect(),
             _ => continue,
         };
         let fv_counts: Vec<usize> = match get_default("faceVertexCounts") {
-            Some(Value::IntVec(arr))   => arr.into_iter().map(|x| x as usize).collect(),
+            Some(Value::IntVec(arr)) => arr.into_iter().map(|x| x as usize).collect(),
             Some(Value::Int64Vec(arr)) => arr.into_iter().map(|x| x as usize).collect(),
             _ => continue,
         };
         let fv_indices: Vec<usize> = match get_default("faceVertexIndices") {
-            Some(Value::IntVec(arr))   => arr.into_iter().map(|x| x as usize).collect(),
+            Some(Value::IntVec(arr)) => arr.into_iter().map(|x| x as usize).collect(),
             Some(Value::Int64Vec(arr)) => arr.into_iter().map(|x| x as usize).collect(),
             _ => continue,
         };
 
-        if points.is_empty() { continue; }
+        if points.is_empty() {
+            continue;
+        }
 
         let tri_idx = triangulate(&fv_counts, &fv_indices);
-        let mut mesh = MeshData::from_triangles(
-            points,
-            tri_idx.into_iter().map(|i| i as u32).collect(),
-        );
+        let mut mesh = MeshData::from_triangles(points, tri_idx.into_iter().map(|i| i as u32).collect());
         mesh.polys = polygons(&fv_counts, &fv_indices);
         mesh.face_count = mesh.polys.len();
         apply_transform(&mut mesh, &world_xform);
@@ -641,48 +795,56 @@ fn load_usdc_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
 }
 
 /// Read xformOp properties off a usdc prim and return its local Mat4.
-fn usdc_collect_xform(
-    data: &mut Box<dyn openusd::sdf::AbstractData>,
-    path: &openusd::sdf::Path,
-) -> Mat4 {
+fn usdc_collect_xform(data: &mut Box<dyn openusd::sdf::AbstractData>, path: &openusd::sdf::Path) -> Mat4 {
     use openusd::sdf::Value;
 
-    let mut translate  = None::<[f64; 3]>;
-    let mut scale      = None::<[f64; 3]>;
-    let mut orient     = None::<[f64; 4]>;
-    let mut matrix     = None::<Vec<f64>>;
+    let mut translate = None::<[f64; 3]>;
+    let mut scale = None::<[f64; 3]>;
+    let mut orient = None::<[f64; 4]>;
+    let mut matrix = None::<Vec<f64>>;
 
-    let prop_names = ["xformOp:translate", "xformOp:scale",
-                      "xformOp:orient",    "xformOp:transform"];
+    let prop_names = [
+        "xformOp:translate",
+        "xformOp:scale",
+        "xformOp:orient",
+        "xformOp:transform",
+    ];
 
     for prop in prop_names {
-        let Ok(pp) = openusd::sdf::path(&format!("{path}.{prop}")) else { continue };
+        let Ok(pp) = openusd::sdf::path(&format!("{path}.{prop}")) else {
+            continue;
+        };
         let Ok(val) = data.get(&pp, "default") else { continue };
         match (prop, val.into_owned()) {
-            ("xformOp:translate", Value::Vec3d(v)) =>
-                { translate = Some([v[0], v[1], v[2]]); }
-            ("xformOp:translate", Value::Vec3f(v)) =>
-                { translate = Some([v[0] as f64, v[1] as f64, v[2] as f64]); }
-            ("xformOp:scale", Value::Vec3f(v)) =>
-                { scale = Some([v[0] as f64, v[1] as f64, v[2] as f64]); }
-            ("xformOp:orient", Value::Quatf(v)) =>
-                { orient = Some([v[0] as f64, v[1] as f64, v[2] as f64, v[3] as f64]); }
-            ("xformOp:transform", Value::Matrix4d(v)) =>
-                { matrix = Some(v.iter().map(|&x| x as f64).collect()); }
+            ("xformOp:translate", Value::Vec3d(v)) => {
+                translate = Some([v[0], v[1], v[2]]);
+            }
+            ("xformOp:translate", Value::Vec3f(v)) => {
+                translate = Some([v[0] as f64, v[1] as f64, v[2] as f64]);
+            }
+            ("xformOp:scale", Value::Vec3f(v)) => {
+                scale = Some([v[0] as f64, v[1] as f64, v[2] as f64]);
+            }
+            ("xformOp:orient", Value::Quatf(v)) => {
+                orient = Some([v[0] as f64, v[1] as f64, v[2] as f64, v[3] as f64]);
+            }
+            ("xformOp:transform", Value::Matrix4d(v)) => {
+                matrix = Some(v.iter().map(|&x| x as f64).collect());
+            }
             _ => {}
         }
     }
 
-    if let Some(m) = matrix { return mat4_from_usd_flat(&m); }
+    if let Some(m) = matrix {
+        return mat4_from_usd_flat(&m);
+    }
     let t = translate.map(mat4_from_translate).unwrap_or(Mat4::IDENTITY);
     let r = orient.map(mat4_from_orient).unwrap_or(Mat4::IDENTITY);
     let s = scale.map(mat4_from_scale).unwrap_or(Mat4::IDENTITY);
     t * r * s
 }
 
-// ============================================================================
 // USDZ — zip container
-// ============================================================================
 
 fn load_usdz_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
     let bytes = std::fs::read(path)?;
@@ -691,19 +853,18 @@ fn load_usdz_meshes(path: &Path) -> UsdResult<Vec<(String, MeshData)>> {
 
     let mut i = 0usize;
     while i + 30 < bytes.len() {
-        if &bytes[i..i+4] == b"PK\x03\x04" {
-            let name_len  = u16::from_le_bytes([bytes[i+26], bytes[i+27]]) as usize;
-            let extra_len = u16::from_le_bytes([bytes[i+28], bytes[i+29]]) as usize;
-            let comp_size = u32::from_le_bytes([bytes[i+18], bytes[i+19],
-                                                bytes[i+20], bytes[i+21]]) as usize;
+        if &bytes[i..i + 4] == b"PK\x03\x04" {
+            let name_len = u16::from_le_bytes([bytes[i + 26], bytes[i + 27]]) as usize;
+            let extra_len = u16::from_le_bytes([bytes[i + 28], bytes[i + 29]]) as usize;
+            let comp_size = u32::from_le_bytes([bytes[i + 18], bytes[i + 19], bytes[i + 20], bytes[i + 21]]) as usize;
             let name_start = i + 30;
-            let name_end   = name_start + name_len;
+            let name_end = name_start + name_len;
             let data_start = name_end + extra_len;
-            let data_end   = data_start + comp_size;
+            let data_end = data_start + comp_size;
 
             if name_end <= bytes.len() {
                 let name = String::from_utf8_lossy(&bytes[name_start..name_end]).to_string();
-                let ext  = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+                let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
                 if (ext == "usda" || ext == "usdc") && data_end <= bytes.len() {
                     let data = &bytes[data_start..data_end];
                     let out_path = tmp.join(&name);

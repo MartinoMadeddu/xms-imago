@@ -4,12 +4,12 @@
 //! below it; opening it hands the decision to its children. A prim with no
 //! children (a mesh) is drawn as geometry once its parent is open, and so is
 //! everything below a prim whose geometry toggle is on. "Show all geometry"
-//! draws everything. So the island first shows one box per root prim, and
-//! only what is opened costs anything to draw.
+//! draws everything. So the island first shows one box per root prim, and only
+//! what is opened costs anything to draw.
 //!
 //! The boxes come from the packed primitives as they arrive at the viewport,
-//! not from the file: a Transform or Prune upstream moves or removes them.
-//! A point instancer's box covers every copy.
+//! not from the file: a Transform or Prune upstream moves or removes them. A
+//! point instancer's box covers every copy.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
@@ -23,22 +23,28 @@ use crate::usd_scene::StageTree;
 pub type Bounds = (Vec3, Vec3);
 
 fn union(a: Option<Bounds>, b: Bounds) -> Option<Bounds> {
-    Some(match a { Some(a) => (a.0.min(b.0), a.1.max(b.1)), None => b })
+    Some(match a {
+        Some(a) => (a.0.min(b.0), a.1.max(b.1)),
+        None => b,
+    })
 }
 
-/// Boxes remembered by key, each with the mesh it was measured on: a key
-/// whose mesh is gone is stale. Meshes that are gone are let go when the
-/// map has doubled since it was last cleared, not on every insert: a stage
-/// with 240,000 live meshes would otherwise sweep the whole map each time
-/// (quadratic, most of the first frame's time on Moana).
+/// Boxes remembered by key, each with the mesh it was measured on: a key whose
+/// mesh is gone is stale. Meshes that are gone are let go when the map has
+/// doubled since it was last cleared, not on every insert: a stage with 240,000
+/// live meshes would otherwise sweep the whole map each time (quadratic, most
+/// of the first frame's time on Moana).
 struct Kept<K> {
-    map:  HashMap<K, (Weak<MeshData>, Option<Bounds>)>,
+    map: HashMap<K, (Weak<MeshData>, Option<Bounds>)>,
     next: usize,
 }
 
 impl<K: std::hash::Hash + Eq> Kept<K> {
     fn get(&self, key: &K, mesh: &Arc<MeshData>) -> Option<Option<Bounds>> {
-        self.map.get(key).filter(|(w, _)| w.upgrade().is_some_and(|m| Arc::ptr_eq(&m, mesh))).map(|(_, b)| *b)
+        self.map
+            .get(key)
+            .filter(|(w, _)| w.upgrade().is_some_and(|m| Arc::ptr_eq(&m, mesh)))
+            .map(|(_, b)| *b)
     }
 
     fn insert(&mut self, key: K, mesh: &Arc<MeshData>, b: Option<Bounds>) {
@@ -50,15 +56,24 @@ impl<K: std::hash::Hash + Eq> Kept<K> {
     }
 }
 
-/// The box of a mesh in its own space. Remembered per shared mesh, so a
-/// heavy model is measured once, and kept while the mesh lives.
+/// The box of a mesh in its own space. Remembered per shared mesh, so a heavy
+/// model is measured once, and kept while the mesh lives.
 pub fn local_bounds(mesh: &Arc<MeshData>) -> Option<Bounds> {
     static KEPT: Mutex<Option<Kept<usize>>> = Mutex::new(None);
     let key = Arc::as_ptr(mesh) as usize;
     let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    let kept = kept.get_or_insert_with(|| Kept { map: HashMap::new(), next: 8192 });
-    if let Some(b) = kept.get(&key, mesh) { return b; }
-    let b = mesh.vertices.iter().chain(&mesh.points).chain(&mesh.curve_points)
+    let kept = kept.get_or_insert_with(|| Kept {
+        map: HashMap::new(),
+        next: 8192,
+    });
+    if let Some(b) = kept.get(&key, mesh) {
+        return b;
+    }
+    let b = mesh
+        .vertices
+        .iter()
+        .chain(&mesh.points)
+        .chain(&mesh.curve_points)
         .map(|v| Vec3::from_array(*v))
         .fold(None, |acc, v| union(acc, (v, v)));
     kept.insert(key, mesh, b);
@@ -80,10 +95,14 @@ pub fn moved_bounds(b: Bounds, m: &Mat4) -> Bounds {
 /// Where a packed primitive is drawn, every copy included.
 pub fn world_bounds(p: &Prim) -> Option<Bounds> {
     let local = local_bounds(&p.mesh)?;
-    if !p.place.is_placed() { return Some(local); }
+    if !p.place.is_placed() {
+        return Some(local);
+    }
     let copies = p.place.matrices();
     let around = || copies.iter().fold(None, |acc, m| union(acc, moved_bounds(local, m)));
-    if copies.len() < 256 { return around(); }
+    if copies.len() < 256 {
+        return around();
+    }
     // A point instancer: its copies measured once, not on every frame the
     // scene is built. Keyed by the mesh and the placements (their address,
     // count, and the first and last copy's position, so placements made
@@ -91,71 +110,111 @@ pub fn world_bounds(p: &Prim) -> Option<Bounds> {
     type Key = (usize, usize, usize, [u32; 6]);
     static KEPT: Mutex<Option<Kept<Key>>> = Mutex::new(None);
     let (a, b) = (copies[0].w_axis, copies[copies.len() - 1].w_axis);
-    let key: Key = (Arc::as_ptr(&p.mesh) as usize, copies.as_ptr() as usize, copies.len(),
-                    [a.x.to_bits(), a.y.to_bits(), a.z.to_bits(), b.x.to_bits(), b.y.to_bits(), b.z.to_bits()]);
+    let key: Key = (
+        Arc::as_ptr(&p.mesh) as usize,
+        copies.as_ptr() as usize,
+        copies.len(),
+        [
+            a.x.to_bits(),
+            a.y.to_bits(),
+            a.z.to_bits(),
+            b.x.to_bits(),
+            b.y.to_bits(),
+            b.z.to_bits(),
+        ],
+    );
     let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    let kept = kept.get_or_insert_with(|| Kept { map: HashMap::new(), next: 8192 });
-    if let Some(b) = kept.get(&key, &p.mesh) { return b; }
+    let kept = kept.get_or_insert_with(|| Kept {
+        map: HashMap::new(),
+        next: 8192,
+    });
+    if let Some(b) = kept.get(&key, &p.mesh) {
+        return b;
+    }
     let b = around();
     kept.insert(key, &p.mesh, b);
     b
 }
 
-/// Split packed primitives into those drawn as geometry and the boxes drawn
-/// in place of the others.
+/// Split packed primitives into those drawn as geometry and the boxes drawn in
+/// place of the others.
 pub fn split(prims: Vec<Prim>, hierarchy: &SceneHierarchy) -> (Vec<Prim>, Vec<Bounds>) {
-    if hierarchy.show_all_geometry { return (prims, vec![]); }
+    if hierarchy.show_all_geometry {
+        return (prims, vec![]);
+    }
     let mut trees: Vec<Arc<StageTree>> = vec![];
     for p in &prims {
         if let Some(t) = &p.stage {
-            if !t.nodes.is_empty() && !trees.iter().any(|x| Arc::ptr_eq(x, t)) { trees.push(t.clone()); }
+            if !t.nodes.is_empty() && !trees.iter().any(|x| Arc::ptr_eq(x, t)) {
+                trees.push(t.clone());
+            }
         }
     }
-    if trees.is_empty() { return (prims, vec![]); }
+    if trees.is_empty() {
+        return (prims, vec![]);
+    }
     let mut boxes = vec![];
-    let mut boxed: HashSet<usize> = HashSet::new();   // indices into `prims`
+    let mut boxed: HashSet<usize> = HashSet::new(); // indices into `prims`
     for tree in &trees {
         let mine: Vec<usize> = (0..prims.len())
             .filter(|&i| prims[i].stage.as_ref().is_some_and(|t| Arc::ptr_eq(t, tree)))
             .collect();
         decide(tree, &prims, &mine, hierarchy, &mut boxes, &mut boxed);
     }
-    let geometry = prims.into_iter().enumerate().filter(|(i, _)| !boxed.contains(i)).map(|(_, p)| p).collect();
+    let geometry = prims
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !boxed.contains(i))
+        .map(|(_, p)| p)
+        .collect();
     (geometry, boxes)
 }
 
 /// One stage: walk its hierarchy from the top, as the explorer shows it.
 fn decide(
-    tree:      &StageTree,
-    prims:     &[Prim],
-    mine:      &[usize],
+    tree: &StageTree,
+    prims: &[Prim],
+    mine: &[usize],
     hierarchy: &SceneHierarchy,
-    boxes:     &mut Vec<Bounds>,
-    boxed:     &mut HashSet<usize>,
+    boxes: &mut Vec<Bounds>,
+    boxed: &mut HashSet<usize>,
 ) {
     let nodes = &tree.nodes;
     let n = nodes.len();
     // The stage's own index of its prims, when it has one for every prim;
     // made here otherwise (a tree built by hand, in a test).
     let made: HashMap<String, usize>;
-    let index = if tree.index.len() == n { &tree.index } else {
-        made = nodes.iter().enumerate().map(|(i, node)| (node.path.clone(), i)).collect();
+    let index = if tree.index.len() == n {
+        &tree.index
+    } else {
+        made = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (node.path.clone(), i))
+            .collect();
         &made
     };
 
     // Each primitive belongs to the prim of its path, or else to the nearest
     // listed prim above it.
-    let mut owner: Vec<(usize, usize)> = vec![];   // (primitive, node)
+    let mut owner: Vec<(usize, usize)> = vec![]; // (primitive, node)
     let mut own: Vec<Option<Bounds>> = vec![None; n];
     for &k in mine {
         let mut path = prims[k].path.as_str();
         let node = loop {
-            if let Some(&i) = index.get(path) { break Some(i); }
-            match path.rfind('/') { Some(0) | None => break None, Some(cut) => path = &path[..cut] }
+            if let Some(&i) = index.get(path) {
+                break Some(i);
+            }
+            match path.rfind('/') {
+                Some(0) | None => break None,
+                Some(cut) => path = &path[..cut],
+            }
         };
         let Some(node) = node else { continue };
         owner.push((k, node));
-        if let Some(b) = world_bounds(&prims[k]) { own[node] = union(own[node], b); }
+        if let Some(b) = world_bounds(&prims[k]) {
+            own[node] = union(own[node], b);
+        }
     }
 
     // Parents, the end of each subtree, and the box around each subtree.
@@ -164,15 +223,24 @@ fn decide(
     let mut open: Vec<usize> = vec![];
     for i in 0..n {
         while let Some(&p) = open.last() {
-            if nodes[p].depth >= nodes[i].depth { end[p] = i; open.pop(); } else { break; }
+            if nodes[p].depth >= nodes[i].depth {
+                end[p] = i;
+                open.pop();
+            } else {
+                break;
+            }
         }
-        if let Some(&p) = open.last() { parent[i] = p; }
+        if let Some(&p) = open.last() {
+            parent[i] = p;
+        }
         open.push(i);
     }
     let mut total = own;
     for i in (0..n).rev() {
         if parent[i] != usize::MAX {
-            if let Some(b) = total[i] { total[parent[i]] = union(total[parent[i]], b); }
+            if let Some(b) = total[i] {
+                total[parent[i]] = union(total[parent[i]], b);
+            }
         }
     }
 
@@ -183,20 +251,45 @@ fn decide(
     while i < n {
         let node = &nodes[i];
         let leaf = end[i] == i + 1;
-        if leaf || hierarchy.shows_geometry(&node.path) { i = end[i]; continue; }
-        if hierarchy.is_expanded(&node.path) { i += 1; continue; }
-        if let Some(b) = total[i] { boxes.push(b); }
-        for c in covered.iter_mut().take(end[i]).skip(i) { *c = true; }
+        if leaf || hierarchy.shows_geometry(&node.path) {
+            i = end[i];
+            continue;
+        }
+        if hierarchy.is_expanded(&node.path) {
+            i += 1;
+            continue;
+        }
+        if let Some(b) = total[i] {
+            boxes.push(b);
+        }
+        for c in covered.iter_mut().take(end[i]).skip(i) {
+            *c = true;
+        }
         i = end[i];
     }
     for (k, node) in owner {
-        if covered[node] { boxed.insert(k); }
+        if covered[node] {
+            boxed.insert(k);
+        }
     }
 }
 
 /// Every box as edges, in one line mesh: one draw for all of them.
 pub fn box_lines(boxes: &[Bounds]) -> (Vec<[f32; 3]>, Vec<u32>) {
-    const EDGES: [[u32; 2]; 12] = [[0, 1], [1, 3], [3, 2], [2, 0], [4, 5], [5, 7], [7, 6], [6, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const EDGES: [[u32; 2]; 12] = [
+        [0, 1],
+        [1, 3],
+        [3, 2],
+        [2, 0],
+        [4, 5],
+        [5, 7],
+        [7, 6],
+        [6, 4],
+        [0, 4],
+        [1, 5],
+        [2, 6],
+        [3, 7],
+    ];
     let mut points = Vec::with_capacity(boxes.len() * 8);
     let mut lines = Vec::with_capacity(boxes.len() * 24);
     for (lo, hi) in boxes {
@@ -208,7 +301,9 @@ pub fn box_lines(boxes: &[Bounds]) -> (Vec<[f32; 3]>, Vec<u32>) {
                 if c & 4 != 0 { hi.z } else { lo.z },
             ]);
         }
-        for [a, b] in EDGES { lines.extend([base + a, base + b]); }
+        for [a, b] in EDGES {
+            lines.extend([base + a, base + b]);
+        }
     }
     (points, lines)
 }
@@ -220,23 +315,46 @@ mod tests {
     use crate::usd_scene::StageNode;
 
     fn node(path: &str, depth: usize, ty: &str) -> StageNode {
-        StageNode { path: path.into(), name: path.rsplit('/').next().unwrap().into(), type_name: ty.into(), depth, ..Default::default() }
+        StageNode {
+            path: path.into(),
+            name: path.rsplit('/').next().unwrap().into(),
+            type_name: ty.into(),
+            depth,
+            ..Default::default()
+        }
     }
     fn cube_at(path: &str, x: f32, tree: &Arc<StageTree>) -> Prim {
-        let mesh = crate::node_graph::nodes::transform(&crate::node_graph::nodes::create_cube(1.0), Vec3::new(x, 0.0, 0.0), Vec3::ZERO, Vec3::ONE);
-        Prim { stage: Some(tree.clone()), ..Prim::new(path.into(), mesh) }
+        let mesh = crate::node_graph::nodes::transform(
+            &crate::node_graph::nodes::create_cube(1.0),
+            Vec3::new(x, 0.0, 0.0),
+            Vec3::ZERO,
+            Vec3::ONE,
+        );
+        Prim {
+            stage: Some(tree.clone()),
+            ..Prim::new(path.into(), mesh)
+        }
     }
 
     #[test]
     fn closed_prims_are_boxes_and_open_ones_hand_down() {
-        let tree = Arc::new(StageTree { nodes: vec![
-            node("/world", 1, "Xform"),
-            node("/world/a", 2, "Mesh"),
-            node("/world/grp", 2, "Xform"),
-            node("/world/grp/b", 3, "Mesh"),
-            node("/world/grp/c", 3, "Mesh"),
-        ], ..Default::default() });
-        let prims = || vec![cube_at("/world/a", 0.0, &tree), cube_at("/world/grp/b", 10.0, &tree), cube_at("/world/grp/c", 20.0, &tree)];
+        let tree = Arc::new(StageTree {
+            nodes: vec![
+                node("/world", 1, "Xform"),
+                node("/world/a", 2, "Mesh"),
+                node("/world/grp", 2, "Xform"),
+                node("/world/grp/b", 3, "Mesh"),
+                node("/world/grp/c", 3, "Mesh"),
+            ],
+            ..Default::default()
+        });
+        let prims = || {
+            vec![
+                cube_at("/world/a", 0.0, &tree),
+                cube_at("/world/grp/b", 10.0, &tree),
+                cube_at("/world/grp/c", 20.0, &tree),
+            ]
+        };
         let mut h = SceneHierarchy::default();
 
         // Everything closed: one box around the three cubes, no geometry.
@@ -248,7 +366,10 @@ mod tests {
         // /world open: its mesh is geometry, the closed group is a box.
         h.set_expanded("/world", true);
         let (geo, boxes) = split(prims(), &h);
-        assert_eq!(geo.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), vec!["/world/a"]);
+        assert_eq!(
+            geo.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(),
+            vec!["/world/a"]
+        );
         assert_eq!(boxes.len(), 1);
 
         // The group's geometry toggle on: everything is geometry.
@@ -265,8 +386,16 @@ mod tests {
     #[test]
     fn a_point_instancer_box_covers_every_copy() {
         let mesh = Arc::new(crate::node_graph::nodes::create_cube(1.0));
-        let place = Placement::Many((0..3).map(|i| Mat4::from_translation(Vec3::new(0.0, i as f32 * 5.0, 0.0))).collect());
-        let p = Prim { mesh, place, ..Prim::new("/trees/proto".into(), MeshData::default()) };
+        let place = Placement::Many(
+            (0..3)
+                .map(|i| Mat4::from_translation(Vec3::new(0.0, i as f32 * 5.0, 0.0)))
+                .collect(),
+        );
+        let p = Prim {
+            mesh,
+            place,
+            ..Prim::new("/trees/proto".into(), MeshData::default())
+        };
         let b = world_bounds(&p).unwrap();
         assert!((b.0.y + 0.5).abs() < 1e-5 && (b.1.y - 10.5).abs() < 1e-5);
     }

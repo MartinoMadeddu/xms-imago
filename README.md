@@ -1,47 +1,90 @@
 # XMS | Imago
 
-**A node-based 3D application written in Rust.** Model, import, animate and export, with every step a node you can go back and change.
+**A node-based 3D application written in Rust.** Model, import, animate and
+export, with every step a node you can go back and change.
 
-Created by [Martino Madeddu](https://github.com/MartinoMadeddu). Additional development by [Simon Legrand](https://github.com/srlegrand).
+Created by [Martino Madeddu](https://github.com/MartinoMadeddu). Additional
+development by [Simon Legrand](https://github.com/srlegrand).
 
-![XMS | Imago with the sea mine template: one Edit Poly node, eleven operations on a cube, 9,600 polygons](docs/xms_imago.png)
+![XMS | Imago with the sea mine template: one Edit Poly node, eleven operations
+on a cube, 9,600 polygons](docs/xms_imago.png)
 
-**[xms | imago website](https://martinomadeddu.github.io/xms-imago/)** · **[Download a build](https://github.com/MartinoMadeddu/xms-imago/releases)** for Linux, macOS or Windows, pick a template, and start changing numbers.
+**[xms | imago website](https://martinomadeddu.github.io/xms-imago/)** ·
+**[Download a build](https://github.com/MartinoMadeddu/xms-imago/releases)** for
+Linux, macOS or Windows, pick a template, and start changing numbers.
 
 [![The website](docs/xms_site.png)](https://martinomadeddu.github.io/xms-imago/)
 
 
 ## Everything stays live
 
-Nothing is baked. A mesh is a cube node followed by the operations that shaped it. A mocap clip is a file node followed by the trims, renames and retimes applied to it. Change any value upstream and everything after it follows.
+Nothing is baked. A mesh is a cube node followed by the operations that shaped
+it. A mocap clip is a file node followed by the trims, renames and retimes
+applied to it. Change any value upstream and everything after it follows.
 
 ![Twelve of the built-in templates](docs/xms_templates.png)
 
-Fifty templates ship with the program, one for each area of it, in three parts: Martino's (composed USD stages: composition, curves and points, point instancers, native instances, purposes, cameras, materials; ICE: spherify, a shrink-wrap, a binding deformer built by hand, instancing), Simon's (modelling, UV, USD models, animation and mocap, FBX and characters) and XMS's (lighting and rendering: the DeLorean lit by a dome and a rect light and rendered with Karma through husk). Each loads a working graph and tells you what to try.
+Fifty templates ship with the program, one for each area of it, in three parts:
+Martino's (composed USD stages: composition, curves and points, point
+instancers, native instances, purposes, cameras, materials; ICE: spherify, a
+shrink-wrap, a binding deformer built by hand, instancing), Simon's (modelling,
+UV, USD models, animation and mocap, FBX and characters) and XMS's (lighting and
+rendering: the DeLorean lit by a dome and a rect light and rendered with Karma
+through husk). Each loads a working graph and tells you what to try.
 
 ## Polygon modelling in a single node
 
-Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly modifier of 3ds Max.
+Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
+modifier of 3ds Max.
 
-- **Five selection levels:** vertex, edge, border, polygon, element. Pick in the Viewer, or select by rule so the selection adapts when the mesh changes
-- **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset, outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach, tessellate, triangulate, turn, relax, subdivide and more
+- **Five selection levels:** vertex, edge, border, polygon, element. Pick in the
+  Viewer, or select by rule so the selection adapts when the mesh changes
+- **Twenty-seven operations:** extrude (polygon, edge, vertex), bevel, inset,
+  outline, hinge, chamfer, slice, bridge, connect, weld, collapse, cap, detach,
+  tessellate, triangulate, turn, relax, subdivide and more
 - **Soft selection:** a falloff distance on Transform
-- **Keys:** any number of any operator can be keyed (S keys the selected one at the playhead; the Keys group in Parameters keys one number). The timeline shows the scene's range and the keys, which drag to move. The Graph Editor shapes the curves: tangent types (Auto, Spline, Clamped, Linear, Flat, Stepped, Plateau), broken and weighted handles, infinity (cycle, cycle with offset, oscillate), insert, copy and paste. Local Animation keys the operator before it on frames of its own, from a start to an end; every operator shows its time range on the timeline (a Merge the widest); Merge Animation lines its inputs up in time (first, last or middle frame, stretch, shrink). See [docs/keys.md](docs/keys.md)
+- **Keys:** any number of any operator can be keyed (S keys the selected one at
+  the playhead; the Keys group in Parameters keys one number). The timeline
+  shows the scene's range and the keys, which drag to move. The Curve Editor
+  shapes the curves: tangent types (Auto, Spline, Clamped, Linear, Flat,
+  Stepped, Plateau), broken and weighted handles, infinity (cycle, cycle with
+  offset, oscillate), insert, copy and paste. Local Animation keys the operator
+  before it on frames of its own, from a start to an end; every operator shows
+  its time range on the timeline (a Merge the widest); Merge Animation lines its
+  inputs up in time (first, last or middle frame, stretch, shrink). See
+  [docs/keys.md](docs/keys.md)
 
-![The bouncing ball template: its curves in the Graph Editor, its keys on the timeline](docs/xms_keys.png)
+![The bouncing ball template: its curves in the Curve Editor, its keys on the
+timeline](docs/xms_keys.png)
 
-- **Node flags:** bypass, view, freeze (keep a node's result while what is above it changes) and ghost (its output drawn as a grey wireframe in the Viewer) on each node's title. The middle button held on a node shows what it puts out and how long it took to cook
-- **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each drag becomes an operation you can edit afterwards. A Transform or Camera node has the same handles, writing into its parameters; clicking a primitive in the Viewer selects it
-- **Collapse when you are done:** freeze operations one by one or all at once, or let the node collapse them as you go. Collapsed operations still follow the mesh coming in
+- **Node flags:** bypass, view, freeze (keep a node's result while what is above
+  it changes) and ghost (its output drawn as a grey wireframe in the Viewer) on
+  each node's title. The middle button held on a node shows what it puts out and
+  how long it took to cook
+- **Manipulators:** move, rotate and scale in the Viewer on Q, W, E, R. Each
+  drag becomes an operation you can edit afterwards. A Transform or Camera node
+  has the same handles, writing into its parameters; clicking a primitive in the
+  Viewer selects it
+- **Collapse when you are done:** freeze operations one by one or all at once,
+  or let the node collapse them as you go. Collapsed operations still follow the
+  mesh coming in
 
-![Edit Poly: collapsed and live operations, with the move manipulator on the selection](docs/xms_edit_poly.png)
+![Edit Poly: collapsed and live operations, with the move manipulator on the
+selection](docs/xms_edit_poly.png)
 
 ## UV unwrapping
 
-- **UV Unwrap:** cuts the mesh into charts where the surface bends past an angle, flattens each chart with least squares conformal maps (Lévy, Petitjean, Ray and Maillot, 2002) and packs the charts into the unit square. Box and planar projection are there too
-- **UDIM tiles:** set a tile count and the separate pieces of the mesh are spread over them. Pieces close together share a tile, and the most surface goes to 1001
-- **UV Transform and UV Edit:** move, turn, scale and flip the whole layout or single islands
-- **UV Editor pane:** the layout of the selected node, with zoom, pan and island dragging
+- **UV Unwrap:** cuts the mesh into charts where the surface bends past an
+  angle, flattens each chart with least squares conformal maps (Lévy, Petitjean,
+  Ray and Maillot, 2002) and packs the charts into the unit square. Box and
+  planar projection are there too
+- **UDIM tiles:** set a tile count and the separate pieces of the mesh are
+  spread over them. Pieces close together share a tile, and the most surface
+  goes to 1001
+- **UV Transform and UV Edit:** move, turn, scale and flip the whole layout or
+  single islands
+- **UV Editor pane:** the layout of the selected node, with zoom, pan and island
+  dragging
 
 ![The sea mine unwrapped: 339 islands in the UV Editor](docs/xms_uv_editor.png)
 
@@ -49,109 +92,269 @@ Edit Poly keeps a whole modelling session in one node, modelled on the Edit Poly
 
 ## USD, at production size
 
-- **Composed stages:** sublayers, references, payloads, inherits, specializes and variants, in text and binary files, resolved as usdview would
-- **Primitives:** one piece per mesh, curves or points prim, in its own space with every primvar, placed by its transform and passed along without copying
-- **Instancing kept:** native instances and point instancers hold each prototype once. Moving a forest moves matrices, and the Viewer draws thousands of copies in one call. ICE's Instancer makes point instancers, written as USD's `PointInstancer`
-- **Draw modes and a triangle budget:** prims drawn as geometry, bounding boxes or axes at their origin, as USD's `model:drawMode` says or as a right-click in the Scene Explorer chooses; past 20 million triangles a frame the heaviest are drawn as boxes (one per instance for a prototype, however many prims it has), and the Viewer says so. A point instancer's instances are listed in the Scene Explorer when asked, picked and outlined one by one
-- **Light by default:** the Scene Explorer drives the Viewer with bbox view expansions levels. Closed prims are bboxes, opening one shows what is inside, and guide, proxy and render purposes switch on and off
-- **Each operator says what it works on:** Transform, Edit Poly and Prune list their Primitive Locations in a Prims Location tab, as paths with wildcards, filled by dragging prims from the Scene Explorer. The pieces listed are edited, each staying itself, and the rest pass through. Pick Primitives does it for the operators after it
-- **Set values on any prim:** Set Attribute sets primvars for rendering and properties such as visibility, purpose, kind and active, on meshes, groups, cameras or lights, one row per value
-- **Sublayer, reference or payload:** Load USD brings a file in whole at its own paths, or its default prim at a Primitive Location (`/root` by default), written back as a sublayer, a reference or a payload
-- **Write it back:** Write USD saves what the scene graph changed as an override layer over the original file. Only what changed is written, and the layer opens on its own in usdview or rray
-- **Materials and textures in the Viewer**, straight from the `.usdz`: PNG, JPEG, TIFF, TGA, HDR and OpenEXR, and UDIM tiles from a `<UDIM>` path (`body.<UDIM>.exr`), each part of the mesh showing the tile its UVs fall in
-- **Make and bind materials:** the Material operator is a UsdPreviewSurface (colour, metallic, roughness, opacity, emissive, clearcoat, a texture file per input), named by the operator. Material Binding takes any number of them, puts them under `/materials` and binds each to the prims its rows list; Write USD writes them
-- **MaterialX:** the MaterialX operator makes a material from a graph of MaterialX nodes (MaterialX 1.39's libraries: standard_surface, open_pbr_surface, UsdPreviewSurface, gltf_pbr, textures, procedurals, maths, every node by its MaterialX name). Connecting picks the nodes' types. Write USD writes it as a MaterialX shading network (UsdPreviewSurface ones as USD has them); the Viewer shows its surface shader's values and textures. `.mtlx` files are imported (node graphs laid out flat, file prefixes and includes followed: every MaterialX example reads) and written, and a stage's materials become MaterialX operators with one click (see [MaterialX](docs/materialx.md))
-- **Lights:** every UsdLux light of a file read as a primitive with its values, and the Light operator, one operator with a Type (Dome, Rect, Point, Sphere, Disk, Cylinder, Distant) and an add-menu entry for each, its parameters laid out from UsdLux's schemas; Write USD writes them (see [Lights](docs/usd.md#lights))
-- **Cameras:** a file's cameras and those the Camera operator makes, with their lens and gate as USD has them, moved by Transform, written back by Write USD, and looked through from the Viewer's camera menu
-- **Image Viewer pane:** render the scene the view flag shows from its top bar (which RenderSettings prim, which camera, Render, Stop) with husk, kick or your own command line (⚙, with tokens), the image coming in as it renders; every layer (AOV) and channel of an EXR, exposure, gamma, sRGB, zoom and the float values under the pointer (see [Rendering](docs/render.md#image-viewer))
-- **Rendering, as USD has it:** Render Commons makes the RenderSettings prim (camera, resolution, pixel aspect, conform, overscan, motion blur, depth of field, purposes) and its RenderProduct; Render Settings puts a renderer's settings on it (Karma, Arnold, or a Custom renderer whose settings you name, `rray:spp`), from a JSON definition per renderer, and ticks its standard AOVs as RenderVars; Render Variables adds or overrides RenderVars row by row. Write USD writes them, and Render Command runs husk (or any command line) on the layer, in the background, with its output and progress in its panel (see [Rendering](docs/render.md))
-- **What is in the file:** materials, cameras, skeletons and lights are listed on the node, along with what is not read yet
+- **Composed stages:** sublayers, references, payloads, inherits, specializes
+  and variants, in text and binary files, resolved as usdview would
+- **Primitives:** one piece per mesh, curves or points prim, in its own space
+  with every primvar, placed by its transform and passed along without copying
+- **Instancing kept:** native instances and point instancers hold each prototype
+  once. Moving a forest moves matrices, and the Viewer draws thousands of copies
+  in one call. ICE's Instancer makes point instancers, written as USD's
+  `PointInstancer`
+- **Draw modes and a triangle budget:** prims drawn as geometry, bounding boxes
+  or axes at their origin, as USD's `model:drawMode` says or as a right-click in
+  the Scene Explorer chooses; past 20 million triangles a frame the heaviest are
+  drawn as boxes (one per instance for a prototype, however many prims it has),
+  and the Viewer says so. A point instancer's instances are listed in the Scene
+  Explorer when asked, picked and outlined one by one
+- **Light by default:** the Scene Explorer drives the Viewer with bbox view
+  expansions levels. Closed prims are bboxes, opening one shows what is inside,
+  and guide, proxy and render purposes switch on and off
+- **Each operator says what it works on:** Transform, Edit Poly and Prune list
+  their Primitive Locations in a Prims Location tab, as paths with wildcards,
+  filled by dragging prims from the Scene Explorer. The pieces listed are
+  edited, each staying itself, and the rest pass through. Pick Primitives does
+  it for the operators after it
+- **Set values on any prim:** Set Attribute sets primvars for rendering and
+  properties such as visibility, purpose, kind and active, on meshes, groups,
+  cameras or lights, one row per value
+- **Sublayer, reference or payload:** Load USD brings a file in whole at its own
+  paths, or its default prim at a Primitive Location (`/root` by default),
+  written back as a sublayer, a reference or a payload
+- **Write it back:** Write USD saves what the scene graph changed as an override
+  layer over the original file. Only what changed is written, and the layer
+  opens on its own in usdview or rray
+- **Materials and textures in the Viewer**, straight from the `.usdz`: PNG,
+  JPEG, TIFF, TGA, HDR and OpenEXR, and UDIM tiles from a `<UDIM>` path
+  (`body.<UDIM>.exr`), each part of the mesh showing the tile its UVs fall in
+- **Make and bind materials:** the Material operator is a UsdPreviewSurface
+  (colour, metallic, roughness, opacity, emissive, clearcoat, a texture file per
+  input), named by the operator. Material Binding takes any number of them, puts
+  them under `/materials` and binds each to the prims its rows list; Write USD
+  writes them
+- **MaterialX:** the MaterialX operator makes a material from a graph of
+  MaterialX nodes (MaterialX 1.39's libraries: standard_surface,
+  open_pbr_surface, UsdPreviewSurface, gltf_pbr, textures, procedurals, maths,
+  every node by its MaterialX name). Connecting picks the nodes' types. Write
+  USD writes it as a MaterialX shading network (UsdPreviewSurface ones as USD
+  has them); the Viewer shows its surface shader's values and textures. `.mtlx`
+  files are imported (node graphs laid out flat, file prefixes and includes
+  followed: every MaterialX example reads) and written, and a stage's materials
+  become MaterialX operators with one click (see [MaterialX](docs/materialx.md))
+- **Lights:** every UsdLux light of a file read as a primitive with its values,
+  and the Light operator, one operator with a Type (Dome, Rect, Point, Sphere,
+  Disk, Cylinder, Distant) and an add-menu entry for each, its parameters laid
+  out from UsdLux's schemas; Write USD writes them (see
+  [Lights](docs/usd.md#lights))
+- **Cameras:** a file's cameras and those the Camera operator makes, with their
+  lens and gate as USD has them, moved by Transform, written back by Write USD,
+  and looked through from the Viewer's camera menu
+- **Image Viewer pane:** render the scene the view flag shows from its top bar
+  (which RenderSettings prim, which camera, Render, Stop) with husk, kick or
+  your own command line (⚙, with tokens), the image coming in as it renders;
+  every layer (AOV) and channel of an EXR, exposure, gamma, sRGB, zoom and the
+  float values under the pointer (see [Rendering](docs/render.md#image-viewer))
+- **Rendering, as USD has it:** Render Commons makes the RenderSettings prim
+  (camera, resolution, pixel aspect, conform, overscan, motion blur, depth of
+  field, purposes) and its RenderProduct; Render Settings puts a renderer's
+  settings on it (Karma, Arnold, or a Custom renderer whose settings you name,
+  `rray:spp`), from a JSON definition per renderer, and ticks its standard AOVs
+  as RenderVars; Render Variables adds or overrides RenderVars row by row. Write
+  USD writes them, and Render Command runs husk (or any command line) on the
+  layer, in the background, with its output and progress in its panel (see
+  [Rendering](docs/render.md))
+- **What is in the file:** materials, cameras, skeletons and lights are listed
+  on the node, along with what is not read yet
 - **UVs from the file**, shown in a UV editor that draws a million edges
 
-![A 461,595 triangle USD model with its packed textures](docs/xms_usd_textured.png)
+![A 461,595 triangle USD model with its packed
+textures](docs/xms_usd_textured.png)
 
 ![One wheel picked and pulled out](docs/xms_usd_pick.png)
 
-Every primitive is one geometry, in USD's terms: points, faces (polygons or curves) and their corners, with attributes on each, and on the primitive as a whole. The Primitive Inspector shows them tab by tab, with edges worked out from the faces.
+Every primitive is one geometry, in USD's terms: points, faces (polygons or
+curves) and their corners, with attributes on each, and on the primitive as a
+whole. The Primitive Inspector shows them tab by tab, with edges worked out from
+the faces.
 
-![The parts of a primitive: point, edge, face, corner and object](docs/imago_geo_parts_v3.png)
+![The parts of a primitive: point, edge, face, corner and
+object](docs/imago_geo_parts_v3.png)
 
 ## Motion capture, from take to engine
 
-Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and write the files your engine wants, in one graph that runs over the whole folder.
+Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and
+write the files your engine wants, in one graph that runs over the whole folder.
 
-- **Real frame rates and timecode:** rational rates, drop-frame, and a timeline that takes its range from whichever node is selected
+- **Real frame rates and timecode:** rational rates, drop-frame, and a timeline
+  that takes its range from whichever node is selected
 - **Clip nodes:** rename joints, trim, retime, set timecode
-- **Clip tools:** mirror, smooth, in place, blend, loop, retarget, time warp, prune joints, floor
-- **Any human skeleton:** Unreal, MetaHuman, Mixamo, HumanIK, Biped, Rigify, Unity, VRM, VRoid, Character Creator, Daz, SMPL, Xsens, OptiTrack, Rokoko, ARKit, Kinect, CMU and more are read from their joint names, with their twist joints in line or beside the limb. A Characterize node shows what was read and sets the rest by hand. Retarget matches joints by the part of the body they are, so a Mixamo take drives an Unreal skeleton
-- **One Transform for everything:** the node that moves a mesh or a USD asset moves a clip too, by its top joints, so a skinned mesh moves once, with its skeleton
-- **Name patterns, not typing:** nodes that work on joints by name take comma-separated regular expressions, with a picker listing the joints coming in and a live match count
-- **Everything in an FBX:** Load FBX gives the clip, every mesh as a primitive with its normals, UVs, material and skin weights, and the rest skeleton in its bind pose; cameras, lights, materials, blend shapes and takes are listed
-- **Skin weights by name, after KineFX:** weights live on the geometry by joint name. Capture makes them by proximity to the bones; Skin puts them on any animation whose joints have those names
-- **Retarget with the human solver:** Retarget takes each skeleton in the pose its skin was bound in; Reach then puts hands and feet where the source has them, scaled, and the Body Collide node's human pass keeps elbows and knees right. Human Limits does that pass on any clip something moved
-- **A folder in, retargeted and skinned out:** a template takes a folder of raw takes through retarget, Reach and Body Collide onto a skinned character; Write FBX solves Body Collide for every file as it writes
-- **Batch nodes:** split characters, auto T-pose, fix pose, proxy skin, write FBX
-- **Write FBX, the skeleton it came in with:** after any process, a clip goes back out with the source file's joint names, hierarchy, Root and LimbNode kinds, axes and unit, so an engine sees an animation of the skeleton it already has. Motion only, or with the mesh, skin and bind pose. One file or the whole folder, in the background
+- **Clip tools:** mirror, smooth, in place, blend, loop, retarget, time warp,
+  prune joints, floor
+- **Any human skeleton:** Unreal, MetaHuman, Mixamo, HumanIK, Biped, Rigify,
+  Unity, VRM, VRoid, Character Creator, Daz, SMPL, Xsens, OptiTrack, Rokoko,
+  ARKit, Kinect, CMU and more are read from their joint names, with their twist
+  joints in line or beside the limb. A Characterize node shows what was read and
+  sets the rest by hand. Retarget matches joints by the part of the body they
+  are, so a Mixamo take drives an Unreal skeleton
+- **One Transform for everything:** the node that moves a mesh or a USD asset
+  moves a clip too, by its top joints, so a skinned mesh moves once, with its
+  skeleton
+- **Name patterns, not typing:** nodes that work on joints by name take
+  comma-separated regular expressions, with a picker listing the joints coming
+  in and a live match count
+- **Everything in an FBX:** Load FBX gives the clip, every mesh as a primitive
+  with its normals, UVs, material and skin weights, and the rest skeleton in its
+  bind pose; cameras, lights, materials, blend shapes and takes are listed
+- **Skin weights by name, after KineFX:** weights live on the geometry by joint
+  name. Capture makes them by proximity to the bones; Skin puts them on any
+  animation whose joints have those names
+- **Retarget with the human solver:** Retarget takes each skeleton in the pose
+  its skin was bound in; Reach then puts hands and feet where the source has
+  them, scaled, and the Body Collide node's human pass keeps elbows and knees
+  right. Human Limits does that pass on any clip something moved
+- **A folder in, retargeted and skinned out:** a template takes a folder of raw
+  takes through retarget, Reach and Body Collide onto a skinned character; Write
+  FBX solves Body Collide for every file as it writes
+- **Batch nodes:** split characters, auto T-pose, fix pose, proxy skin, write
+  FBX
+- **Write FBX, the skeleton it came in with:** after any process, a clip goes
+  back out with the source file's joint names, hierarchy, Root and LimbNode
+  kinds, axes and unit, so an engine sees an animation of the skeleton it
+  already has. Motion only, or with the mesh, skin and bind pose. One file or
+  the whole folder, in the background
 
-![Characterize: the skeleton read as Unreal 5 / MetaHuman, every part found, twist joints beside the limbs](docs/xms_characterize.png)
+![Characterize: the skeleton read as Unreal 5 / MetaHuman, every part found,
+twist joints beside the limbs](docs/xms_characterize.png)
 
 ![A two-character motion capture take, loaded from FBX](docs/xms_mocap.png)
 
-![Retarget: a captured character driving a skeleton with another rest pose](docs/xms_retarget.png)
+![Retarget: a captured character driving a skeleton with another rest
+pose](docs/xms_retarget.png)
 
-![The timeline follows the selected node: here a trimmed range over the incoming clip](docs/xms_anim_timeline.png)
+![The timeline follows the selected node: here a trimmed range over the incoming
+clip](docs/xms_anim_timeline.png)
 
 ## Body Collide: a capture that respects the set
 
-The actor sat on a box. The character sits in a car, with its hips in the cushion and its feet under the floor. Wire the take and the set into a Body Collide node and press Solve: the character is kept out of the set and out of itself, joints give way as far as each may, and no bone changes length. Where the capture walks the character through a door that was not there on the day, it follows the capture through and is caught again on the other side.
+The actor sat on a box. The character sits in a car, with its hips in the
+cushion and its feet under the floor. Wire the take and the set into a Body
+Collide node and press Solve: the character is kept out of the set and out of
+itself, joints give way as far as each may, and no bone changes length. Where
+the capture walks the character through a door that was not there on the day, it
+follows the capture through and is caught again on the other side.
 
-The result then goes through a human IK pass: elbows and knees bend about their hinge the way round the capture bends them, never past what a human joint does, pointing near where the capture points them; wrists and ankles stay within their range; twist joints take their share. On the template's take no elbow or knee is left bent the wrong way (8 frames before the pass) and no wrist or ankle past its range; wrists and ankles stay within 2.4 cm of where the solve put them.
+The result then goes through a human IK pass: elbows and knees bend about their
+hinge the way round the capture bends them, never past what a human joint does,
+pointing near where the capture points them; wrists and ankles stay within their
+range; twist joints take their share. On the template's take no elbow or knee is
+left bent the wrong way (8 frames before the pass) and no wrist or ankle past
+its range; wrists and ankles stay within 2.4 cm of where the solve put them.
 
-A take of 12,227 frames against a car of 1.7 million triangles solves in about five minutes on two cores, a chunk of frames at a time. The "Body Collide: into the car" template ships with that take, the car and the solved result, so it opens solved; "Body Collide: obstacle course" shows the cases it handles one by one, on a course of boxes. Display on the node shows the character's skin, its rigid pieces, or the hulls that collide. See [docs/body-collide.md](docs/body-collide.md).
+A take of 12,227 frames against a car of 1.7 million triangles solves in about
+five minutes on two cores, a chunk of frames at a time. The "Body Collide: into
+the car" template ships with that take, the car and the solved result, so it
+opens solved; "Body Collide: obstacle course" shows the cases it handles one by
+one, on a course of boxes. Display on the node shows the character's skin, its
+rigid pieces, or the hulls that collide. See
+[docs/body-collide.md](docs/body-collide.md).
 
-![Body Collide: the take in the car, showing the hulls that collide](docs/xms_body_collide.png)
+![Body Collide: the take in the car, showing the hulls that
+collide](docs/xms_body_collide.png)
 
 ## Undo, with a history you can see
 
-Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters, Edit Poly operations, wires, names, bypass, node positions. The camera, the layout and the selection are not part of it, so undo never moves your view.
+Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes,
+parameters, Edit Poly operations, wires, names, bypass, node positions. The
+camera, the layout and the selection are not part of it, so undo never moves
+your view.
 
-- **One step per gesture:** a slider dragged over two hundred frames is one step, made when the mouse is let go
-- **Named from what changed:** "SeaMine: #6 Bevel height 0.12 to 0.29", "Connect Cube to SeaMine", "Template: Edit Poly: sea mine". Nobody writes the names; they come from the difference
-- **History pane:** every step, the current one marked. Click any step to go there
-- **Nothing is lost:** undo, then change something, and the undone steps stay as a branch you can go back to
+- **One step per gesture:** a slider dragged over two hundred frames is one
+  step, made when the mouse is let go
+- **Named from what changed:** "SeaMine: #6 Bevel height 0.12 to 0.29", "Connect
+  Cube to SeaMine", "Template: Edit Poly: sea mine". Nobody writes the names;
+  they come from the difference
+- **History pane:** every step, the current one marked. Click any step to go
+  there
+- **Nothing is lost:** undo, then change something, and the undone steps stay as
+  a branch you can go back to
 - **Picks fold in:** picking polygons and extruding them is one step
-- **Cheap:** a step stores only the nodes that changed. Pin a step to keep it whatever the memory
+- **Cheap:** a step stores only the nodes that changed. Pin a step to keep it
+  whatever the memory
 
-![The History pane: a moved node, a Bevel changed, a bypass, and two undone steps kept as a branch](docs/xms_history.png)
+![The History pane: a moved node, a Bevel changed, a bypass, and two undone
+steps kept as a branch](docs/xms_history.png)
 
 ## An interface that gets out of the way
 
-- **Bypass any node:** the ring at the left of a node switches it off and passes its input through
+- **Bypass any node:** the ring at the left of a node switches it off and passes
+  its input through
 
-- **Dock anything anywhere:** every pane is a tab. Drag it beside another pane, stack it, float it, or drop it on a side of the window to span that whole side
-- **Lock it:** one padlock freezes the layout once you are happy. Dividers still resize
-- **Frame it:** F, G, Z or . frames the selection, down to selected vertices, edges and polygons. A or H frames everything
-- **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer controls, from a menu
-- **Remembered:** layout, floating windows, theme and navigation style come back at the next start
-- **Copy and paste nodes:** Ctrl+C and Ctrl+V (Cmd on macOS), with their wires and ICE graphs, between windows and from one session to the next; inside an ICE graph too
-- **Add or open:** opening a file or a template asks whether to add it to the graph or open it as new, and asks to save first before anything is replaced
-- **Menus:** File, Edit and Window at the top left, as in other programs. File has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an FBX, a USD), Quit and, at the bottom, Templates (the ready-made graphs by author, then by area), with the usual shortcuts. The top bar shows the file and whether it is saved; closing, New, opening a file or loading a template over unsaved changes asks first, and nothing writes over a file that exists without asking (Save As, Save layout, Write FBX, Write USD)
-- **Fast:** each operator's result is kept until it or something above it changes, as in Houdini: selecting, redrawing and playing cook nothing again, and a change cooks only what is below it
-- **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange for whatever is selected or active). A colour editor changes any of them, and has a **Dark fields** switch (dark grey text and number fields with light text; off by default, `DARK_FIELD_BG=1` turns it on for a run) and a **1995 tabs** switch (the Parameters pane's tabs bevelled, the open one raised over the others; off by default, when they look like the panes' tabs)
+- **Dock anything anywhere:** every pane is a tab. Drag it beside another pane,
+  stack it, float it, or drop it on a side of the window to span that whole side
+- **Lock it:** one padlock freezes the layout once you are happy. Dividers still
+  resize
+- **Frame it:** F, G, Z or . frames the selection, down to selected vertices,
+  edges and polygons. A or H frames everything
+- **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer
+  controls, from a menu
+- **Remembered:** layout, floating windows, theme and navigation style come back
+  at the next start
+- **Copy and paste nodes:** Ctrl+C and Ctrl+V (Cmd on macOS), with their wires
+  and ICE graphs, between windows and from one session to the next; inside an
+  ICE graph too
+- **Add or open:** opening a file or a template asks whether to add it to the
+  graph or open it as new, and asks to save first before anything is replaced
+- **Menus:** File, Edit and Window at the top left, as in other programs. File
+  has New, Open, Open Recent (the last ten), Save, Save As, Import (a graph, an
+  FBX, a USD), Quit and, at the bottom, Templates (the ready-made graphs by
+  author, then by area), with the usual shortcuts. The top bar shows the file
+  and whether it is saved; closing, New, opening a file or loading a template
+  over unsaved changes asks first, and nothing writes over a file that exists
+  without asking (Save As, Save layout, Write FBX, Write USD)
+- **Fast:** each operator's result is kept until it or something above it
+  changes, as in Houdini: selecting, redrawing and playing cook nothing again,
+  and a change cooks only what is below it
+- **Three themes, all editable:** Light, Dark, and ADHD (dark blues, with orange
+  for whatever is selected or active). A colour editor changes any of them, and
+  has a **Dark fields** switch (dark grey text and number fields with light
+  text; off by default, `DARK_FIELD_BG=1` turns it on for a run) and a **1995
+  tabs** switch (the Parameters pane's tabs bevelled, the open one raised over
+  the others; off by default, when they look like the panes' tabs)
 - **Layouts as files:** save a layout, load it back, pass it to someone else
-- **Wires and selection the same in every graph** (scene, ICE, MaterialX): click a wire to select it and Delete takes it off; drag from an input to pick its wire up and drop it elsewhere or on the canvas to unplug it (Ctrl+drag an output for all its wires); click a port then the canvas to unplug it; drag a box to select nodes, move and delete them together
-- **Data type colours, one set for every graph:** float teal-green and string red-beige (as Houdini's VOPs), integer and boolean blue, vector yellow, quaternion dark yellow, colour orange, matrix light purple, material purple
+- **Wires and selection the same in every graph** (scene, ICE, MaterialX): click
+  a wire to select it and Delete takes it off; drag from an input to pick its
+  wire up and drop it elsewhere or on the canvas to unplug it (Ctrl+drag an
+  output for all its wires); click a port then the canvas to unplug it; drag a
+  box to select nodes, move and delete them together
+- **Data type colours, one set for every graph:** float teal-green and string
+  red-beige (as Houdini's VOPs), integer and boolean blue, vector yellow,
+  quaternion dark yellow, colour orange, matrix light purple, material purple
 - **Node names are one word:** a space typed becomes an underscore
-- **A file browser that knows sequences:** numbered files listed as one entry, and UDIM tiles as their `<UDIM>` path, ready for a texture input
-- **One add menu:** nine categories, each a submenu; every node has one name, the same in the menu, on the node and in its parameters
-- **Parameters that line up:** every node laid out the same way, labels in one column, values filling the other, explanations in tooltips
-- **Variables down the wires:** `$NAME` is the same everywhere (the graph's file, `$JOB`, the frames, File > Variables, the environment); `{name}` comes down the wires from the operators above: Write USD's `{usd}`, Render Settings' `{delegate}`, a **Set Variable**'s `{shot}`. Typing `$` or `{` in a field lists them
-- **Pass Through:** an organising node, narrower and square-cornered: what comes in goes out unchanged (geometry, a clip, a material). A place to gather wires or branch from in a big graph
-- **Placeholder node:** sketch a node that does not exist yet: name it, give it named inputs and outputs, describe what it should do. Data goes through unchanged, and the description travels in the saved graph for whoever builds it
-- **A tidy graph:** templates load laid out and framed, "Tidy" does the same to your own graph, and a right-click on an output adds the next node under it, already wired
-- **Compact lists:** the operator stack stays in one column however long the chain is
+- **A file browser that knows sequences:** numbered files listed as one entry,
+  and UDIM tiles as their `<UDIM>` path, ready for a texture input
+- **One add menu:** nine categories, each a submenu; every node has one name,
+  the same in the menu, on the node and in its parameters
+- **Parameters that line up:** every node laid out the same way, labels in one
+  column, values filling the other, explanations in tooltips
+- **Variables down the wires:** `$NAME` is the same everywhere (the graph's
+  file, `$JOB`, the frames, File > Variables, the environment); `{name}` comes
+  down the wires from the operators above: Write USD's `{usd}`, Render Settings'
+  `{delegate}`, a **Set Variable**'s `{shot}`. Typing `$` or `{` in a field
+  lists them
+- **Pass Through:** an organising node, narrower and square-cornered: what comes
+  in goes out unchanged (geometry, a clip, a material). A place to gather wires
+  or branch from in a big graph
+- **Placeholder node:** sketch a node that does not exist yet: name it, give it
+  named inputs and outputs, describe what it should do. Data goes through
+  unchanged, and the description travels in the saved graph for whoever builds
+  it
+- **A tidy graph:** templates load laid out and framed, "Tidy" does the same to
+  your own graph, and a right-click on an output adds the next node under it,
+  already wired
+- **Compact lists:** the operator stack stays in one column however long the
+  chain is
 
-![A bypassed node, and the joint picker of Prune Joints](docs/xms_bypass_pick.png)
+![A bypassed node, and the joint picker of Prune
+Joints](docs/xms_bypass_pick.png)
 
 ![The ADHD theme, with the colour editor](docs/xms_theme_adhd.png)
 
@@ -163,15 +366,37 @@ Ctrl+Z and Ctrl+Shift+Z undo and redo everything in the scene: nodes, parameters
 
 ## Also in the box
 
-- Cube, sphere and grid shapes, each a primitive at its Primitive Location; Transform; Merge, of any number of inputs, as primitives or into one mesh
-- ICE graphs: graphs inside a node, in an editor loosely modelled after Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame, ↓ and ↑ to go in and out). Get Data reads an attribute (any the Primitive Inspector shows, from any context), maths nodes work on it, Set Data writes it, and the Execution Ports runs its Execute ports in order over every point (or face, corner, object), on each primitive in its own space. Closest Point on Surface finds the nearest places on a reference input's meshes (a BVH over their triangles), to read anything there: shrink-wraps and other deformers. Matrices (compose from axes and an origin, multiply, invert, transpose, transform points and vectors) and each sample's triangle (`triP`, `bary`) build frames on a surface by hand. Compiled and run in parallel batches by the ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
-- Primitive Inspector: the attributes of the selected node or primitive. Object, Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's control points are points, its segments edges, the curve a face), Joint and Bone tabs for a clip, and a Properties tab for the selected prims themselves (groups, cameras and lights too): each property's value and where it comes from
+- Cube, sphere and grid shapes, each a primitive at its Primitive Location;
+  Transform; Merge, of any number of inputs, as primitives or into one mesh
+- ICE graphs: graphs inside a node, in an editor loosely modelled after
+  Softimage ICE (typed ports and wires, collapsible nodes, zoom, pan and frame,
+  ↓ and ↑ to go in and out). Get Data reads an attribute (any the Primitive
+  Inspector shows, from any context), maths nodes work on it, Set Data writes
+  it, and the Execution Ports runs its Execute ports in order over every point
+  (or face, corner, object), on each primitive in its own space. Closest Point
+  on Surface finds the nearest places on a reference input's meshes (a BVH over
+  their triangles), to read anything there: shrink-wraps and other deformers.
+  Matrices (compose from axes and an origin, multiply, invert, transpose,
+  transform points and vectors) and each sample's triangle (`triP`, `bary`)
+  build frames on a surface by hand. Compiled and run in parallel batches by the
+  ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
+- Primitive Inspector: the attributes of the selected node or primitive. Object,
+  Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's
+  control points are points, its segments edges, the curve a face), Joint and
+  Bone tabs for a clip, and a Properties tab for the selected prims themselves
+  (groups, cameras and lights too): each property's value and where it comes
+  from
 - Graphs saved and loaded as JSON, with the graph inside every ICE node
-- Variables in paths and command lines (`$JOB/assets/set.usda`, `$GNAME.$F4.exr`): the graph's file and frames, its own variables and `$JOB` (File > Variables, saved with it), the environment; typing `$` lists them
+- Variables in paths and command lines (`$JOB/assets/set.usda`,
+  `$GNAME.$F4.exr`): the graph's file and frames, its own variables and `$JOB`
+  (File > Variables, saved with it), the environment; typing `$` lists them
 
 ## Get it
 
-**Download:** binaries for Linux, macOS and Windows are built from every change to `main` and published on the [Releases page](https://github.com/MartinoMadeddu/xms-imago/releases). See [docs/releases.md](docs/releases.md).
+**Download:** binaries for Linux, macOS and Windows are built from every change
+to `main` and published on the [Releases
+page](https://github.com/MartinoMadeddu/xms-imago/releases). See
+[docs/releases.md](docs/releases.md).
 
 **Build from source** (Rust 1.95 or newer; `rustup update` brings it):
 
@@ -183,41 +408,86 @@ On Ubuntu or Debian, first:
 
 ## Documentation
 
-[docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD, geometry, Viewer navigation, animation and mocap, keys and the Graph Editor, Body Collide, builds and releases.
+[docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD,
+geometry, Viewer navigation, animation and mocap, keys and the Curve Editor,
+Body Collide, builds and releases.
 
 ## Contributing
 
-XMS | Imago is Martino Madeddu's project: other work builds on his and does not overwrite it. Read [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) first: how the program should work and why. Add to it when a decision is made, and update the README and the pages in `docs/` with every change. The operators Imago has and plans are in [XMS_CORE_OPS_SPEC.md](XMS_CORE_OPS_SPEC.md).
+XMS | Imago is Martino Madeddu's project: other work builds on his and does not
+overwrite it. Read [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) first: how the
+program should work and why. Add to it when a decision is made, and update the
+README and the pages in `docs/` with every change. The operators Imago has and
+plans are in [XMS_CORE_OPS_SPEC.md](XMS_CORE_OPS_SPEC.md).
 
-Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists what it should check (workspace, build, GitHub access, settings) and the loop changes go through: the assistant sends a patch made on top of `main`, you download it and run one block of commands that applies, commits and pushes it, then runs the program.
+Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists
+what it should check (workspace, build, GitHub access, settings) and the loop
+changes go through: the assistant sends a patch made on top of `main`, you
+download it and run one block of commands that applies, commits and pushes it,
+then runs the program.
 
 ## Not done yet
 
 - Undo inside ICE graphs, and history saved with the graph
-- Edit Poly: interactive cut and quickslice, extrude along spline, target weld, attach, smoothing groups, material IDs, paint deformation, constraints
-- Rendering from inside Imago: the render operators author UsdRender prims for husk, kick and other renderers
-- USD: normal and roughness maps in the Viewer, depth of field and gate offsets when looking through a camera, animation and skinning, per-face material subsets, writing time samples and edits inside instances
-- UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept through Edit Poly, UVs written to FBX files. Unwrapping is LSCM only: ABF++, SLIM and BFF are not implemented
-- Mocap: contact detection and foot locking (Reach follows the source's feet); FBX blend shapes applied, cameras and lights drawn
+- Edit Poly: interactive cut and quickslice, extrude along spline, target weld,
+  attach, smoothing groups, material IDs, paint deformation, constraints
+- Rendering from inside Imago: the render operators author UsdRender prims for
+  husk, kick and other renderers
+- USD: normal and roughness maps in the Viewer, depth of field and gate offsets
+  when looking through a camera, animation and skinning, per-face material
+  subsets, writing time samples and edits inside instances
+- UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept
+  through Edit Poly, UVs written to FBX files. Unwrapping is LSCM only: ABF++,
+  SLIM and BFF are not implemented
+- Mocap: contact detection and foot locking (Reach follows the source's feet);
+  FBX blend shapes applied, cameras and lights drawn
 - Timeline zoom and pan
 - Curve cleanup
-- The program icon inside the file itself (Windows Explorer, macOS dock). The window and task bar icon is set on X11 and Windows
-- Viewer interaction has been tested with simulated input, not yet thoroughly by hand
-- Import into Unreal has not been tried here. Written files are compared with their source FBX bone for bone (names, parents, kinds, axes, unit, local values), on a MetaHuman take
+- The program icon inside the file itself (Windows Explorer, macOS dock). The
+  window and task bar icon is set on X11 and Windows
+- Viewer interaction has been tested with simulated input, not yet thoroughly by
+  hand
+- Import into Unreal has not been tried here. Written files are compared with
+  their source FBX bone for bone (names, parents, kinds, axes, unit, local
+  values), on a MetaHuman take
 
 ## Example files
 
-- `examples/DeLorean.usdz` is by VTX (https://sketchfab.com/VTX_car), under CC BY-NC-SA 4.0, included with the permission of its author. See `examples/CREDITS.md`.
-- `examples/ragdoll/` holds Simon Legrand's take and car for the Body Collide template, as FBX, with the solved result: `split/into_the_car_.fbx` is frames 1200 to 9199 of the take, `car.fbx` the car. See [examples/ragdoll/README.md](examples/ragdoll/README.md).
-- `examples/mocap/novasci/` holds four clips of the Novasci Free Motion Pack (CC0); `examples/usd/teapot/` and `examples/usd/mini_car_kit/` are from the USD Working Group's assets. `examples/CREDITS.md` lists every file's author and licence.
-- Files too big for the repository, or under a licence that asks for a credit, are fetched on demand: a graph naming one opens a dialog that says where it comes from and under which licence, and downloads it into the examples folder. See [docs/templates.md](docs/templates.md#example-files-fetched-on-demand).
+- `examples/DeLorean.usdz` is by VTX (https://sketchfab.com/VTX_car), under CC
+  BY-NC-SA 4.0, included with the permission of its author. See
+  `examples/CREDITS.md`.
+- `examples/ragdoll/` holds Simon Legrand's take and car for the Body Collide
+  template, as FBX, with the solved result: `split/into_the_car_.fbx` is frames
+  1200 to 9199 of the take, `car.fbx` the car. See
+  [examples/ragdoll/README.md](examples/ragdoll/README.md).
+- `examples/mocap/novasci/` holds four clips of the Novasci Free Motion Pack
+  (CC0); `examples/usd/teapot/` and `examples/usd/mini_car_kit/` are from the
+  USD Working Group's assets. `examples/CREDITS.md` lists every file's author
+  and licence.
+- Files too big for the repository, or under a licence that asks for a credit,
+  are fetched on demand: a graph naming one opens a dialog that says where it
+  comes from and under which licence, and downloads it into the examples folder.
+  See [docs/templates.md](docs/templates.md#example-files-fetched-on-demand).
 
 ## Tests
 
-`cargo test --release` runs the unit tests and the regression suite: every template built, cooked and compared with `tests/regression/templates.json` (see [docs/templates.md](docs/templates.md#the-templates-as-a-regression-suite)). The GitHub workflow in `.github/workflows/tests.yml` runs both after every push and pull request, fetches the downloadable example files first (`cargo test --release download_example_files -- --ignored`), and writes a report in the job summary: failed tests with their output, the templates that changed and by what, the slowest cooks, build warnings. The report is also the artifact `test-report` of the run.
+`cargo test --release` runs the unit tests and the regression suite: every
+template built, cooked and compared with `tests/regression/templates.json` (see
+[docs/templates.md](docs/templates.md#the-templates-as-a-regression-suite)). The
+GitHub workflow in `.github/workflows/tests.yml` runs both after every push and
+pull request, checks the code is formatted (`cargo fmt --check`, with
+`rustfmt.toml`), fetches the downloadable example files first
+(`cargo test --release download_example_files -- --ignored`), and writes a
+report in the job summary: failed tests with their output, the templates that
+changed and by what, the slowest cooks, build warnings. The report is also the
+artifact `test-report` of the run.
 
 ## Credit
 
-XMS|Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu): the node graph, the Viewer, the ICE graphs, the USD loader and composed stages, GPU instancing and the look of the interface.
+XMS|Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu):
+the node graph, the Viewer, the ICE graphs, the USD loader and composed stages,
+GPU instancing and the look of the interface.
 
-Additional development by [Simon Legrand](https://github.com/srlegrand): polygon modelling, UV, USD at production size, motion capture, Body Collide, the dockable interface and the website.
+Additional development by [Simon Legrand](https://github.com/srlegrand): polygon
+modelling, UV, USD at production size, motion capture, Body Collide, the
+dockable interface and the website.

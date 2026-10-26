@@ -1,10 +1,15 @@
 # XMS Core Operator Specification
 
 **Status:** Draft v0.4 (20/10/2026), checked against `main` at c05c497
-**Scope:** The minimum operator set needed to load, modify, author and render OpenUSD scenes.
-**Principle:** One operator per USD concept (prims, properties, composition arcs, collections, render prims). Operators edit a USD scene; they do not translate it into a separate scene format.
+**Scope:** The minimum operator set needed to load, modify, author and render
+OpenUSD scenes. **Principle:** One operator per USD concept (prims, properties,
+composition arcs, collections, render prims). Operators edit a USD scene; they
+do not translate it into a separate scene format.
 
-Words follow `VOCABULARY.md`: a node of the scene graph is an **operator**, its settings are **parameters** (in the Parameters pane), an object in the stage is a **primitive** (prim for short). Each operator below has a **Status** in Imago today:
+Words follow `VOCABULARY.md`: a node of the scene graph is an **operator**, its
+settings are **parameters** (in the Parameters pane), an object in the stage is
+a **primitive** (prim for short). Each operator below has a **Status** in Imago
+today:
 
 | Status | Meaning |
 |---|---|
@@ -27,19 +32,31 @@ Every operator input and output carries one of three things (`EvalResult`):
 | **Plain mesh** | One mesh with no path: not yet a primitive | Unpack, Merge set to Flatten, ICE on a plain mesh |
 | **Clip** | A skeleton and its animation (FBX takes, mocap) | Load FBX (Clip, Rest), Test Clip, the animation and mocap operators |
 
-There is no separate "packed" state: "packed" was dropped from the vocabulary, and everything that has a path is a primitive. FBX meshes come in as primitives too; only clips stay outside USD for now.
+There is no separate "packed" state: "packed" was dropped from the vocabulary,
+and everything that has a path is a primitive. FBX meshes come in as primitives
+too; only clips stay outside USD for now.
 
-The scene is what the operator with the **view flag** puts out (the viewed output, for operators with several). There is no Output operator: one operator always has the view flag, as Houdini's display flag. The Viewer draws that scene, the Scene Explorer lists it as its tree and the Primitive Inspector shows it.
+The scene is what the operator with the **view flag** puts out (the viewed
+output, for operators with several). There is no Output operator: one operator
+always has the view flag, as Houdini's display flag. The Viewer draws that
+scene, the Scene Explorer lists it as its tree and the Primitive Inspector shows
+it.
 
 ### 1.2 Merge rule
 
 Status: **Done** (any number of inputs, one kept free).
 
-The **first input drives** the result. Merge has a **Mode**: Auto (by the first input), Primitives, Flatten.
+The **first input drives** the result. Merge has a **Mode**: Auto (by the first
+input), Primitives, Flatten.
 
-- First input **primitives** (Auto): the inputs are merged as primitives, each keeping its path. A plain mesh among them becomes a primitive at `/mesh`.
-- First input a **plain mesh or a clip** (Auto): everything is flattened into one plain mesh, as Unpack does.
-- On a path two inputs have, the **later input is stronger**, as an `over` on the same path: its prim takes the first one's place, and what it leaves unset (material, stage, purpose) is read from the first. A shape put on the path of a file's prim is written as a change to that prim.
+- First input **primitives** (Auto): the inputs are merged as primitives, each
+  keeping its path. A plain mesh among them becomes a primitive at `/mesh`.
+- First input a **plain mesh or a clip** (Auto): everything is flattened into
+  one plain mesh, as Unpack does.
+- On a path two inputs have, the **later input is stronger**, as an `over` on
+  the same path: its prim takes the first one's place, and what it leaves unset
+  (material, stage, purpose) is read from the first. A shape put on the path of
+  a file's prim is written as a change to that prim.
 
 ### 1.3 Targeting model
 
@@ -61,13 +78,24 @@ List entries accept:
 
 Rules:
 
-- An **empty list means every primitive**: the operator works as it would with no list. Exception: Prune with an empty list prunes nothing.
-- The list belongs to its operator. The operators after it see the primitives as they came in, not the list.
-- Pick Primitives, the older way of choosing prims for the operators below it, stays for older graphs. An operator with an empty list still works on what an upstream Pick chose.
-- The operators that have the Prims Location tab are listed by `core::locations::takes_locations`. Each subset-aware operator in this spec adds itself there.
-- An operator that sets a value on a prim **names** prims instead (`core::locations::names_prims`, Set Attribute): a path is that prim alone, of any type (a group, a camera, a light as well as a mesh), so a value on a group is one opinion on the group. `/set/*` names the children of `/set`, `/set/**` `/set` and everything below it. **Done**
+- An **empty list means every primitive**: the operator works as it would with
+  no list. Exception: Prune with an empty list prunes nothing.
+- The list belongs to its operator. The operators after it see the primitives as
+  they came in, not the list.
+- Pick Primitives, the older way of choosing prims for the operators below it,
+  stays for older graphs. An operator with an empty list still works on what an
+  upstream Pick chose.
+- The operators that have the Prims Location tab are listed by
+  `core::locations::takes_locations`. Each subset-aware operator in this spec
+  adds itself there.
+- An operator that sets a value on a prim **names** prims instead
+  (`core::locations::names_prims`, Set Attribute): a path is that prim alone, of
+  any type (a group, a camera, a light as well as a mesh), so a value on a group
+  is one opinion on the group. `/set/*` names the children of `/set`, `/set/**`
+  `/set` and everything below it. **Done**
 
-> One convention covers Prune, Material Assign, Set Attribute, Variant Select and every other subset-aware operator.
+> One convention covers Prune, Material Assign, Set Attribute, Variant Select
+> and every other subset-aware operator.
 
 ### 1.4 Compounds
 
@@ -78,11 +106,16 @@ Status: **Not yet** for the scene graph.
 - **Nested compounds are supported.**
 - Materials are compounds (section 9).
 
-Today the only graph inside an operator is the **ICE graph** of an ICE operator: it runs on each primitive (or the picked ones) in the primitive's own space and writes attributes. Scene-graph compounds should be dived into the same way as ICE graphs: double-click, or ↓ and ↑.
+Today the only graph inside an operator is the **ICE graph** of an ICE operator:
+it runs on each primitive (or the picked ones) in the primitive's own space and
+writes attributes. Scene-graph compounds should be dived into the same way as
+ICE graphs: double-click, or ↓ and ↑.
 
 ### 1.5 Operator definition template
 
-Each operator below is described with: **Purpose**, **Inputs**, **Parameters**, **Targeting** (Primitive Location / Primitive Locations / none), **USD mapping** and **Status**.
+Each operator below is described with: **Purpose**, **Inputs**, **Parameters**,
+**Targeting** (Primitive Location / Primitive Locations / none), **USD mapping**
+and **Status**.
 
 ---
 
@@ -91,18 +124,35 @@ Each operator below is described with: **Purpose**, **Inputs**, **Parameters**, 
 ### 2.1 Load USD
 - **Purpose:** Open a layer from disk and output its stage as primitives.
 - **Inputs:** none
-- **Parameters:** file path; load mode (`open`, `reference`, `payload`, `sublayer`); population mask (optional); load payloads on/off
-- **Targeting:** Primitive Location (mount location when loaded as reference or payload)
+- **Parameters:** file path; load mode (`open`, `reference`, `payload`,
+  `sublayer`); population mask (optional); load payloads on/off
+- **Targeting:** Primitive Location (mount location when loaded as reference or
+  payload)
 - **USD mapping:** `UsdStage::Open`, references, payloads, sublayers
-- **Status:** **Partial.** Opens `.usda`, `.usdc` and `.usdz` composed (sublayers, references, payloads, inherits, specializes, variants), one primitive per mesh, curves or points prim, with materials, purposes and instancing; cameras, lights and skeletons are listed. **Modes:** Sublayer (the whole stage at its paths, written as a sublayer), Reference and Payload (the file's default prim, or a named one, at a Primitive Location, `/root` by default, its paths rebased; written as `references` or `payload` on that prim, with the axis and unit transform where the file's differ from the layer's). Not yet: `open` as its own mode, population mask, payload control, layer offsets.
+- **Status:** **Partial.** Opens `.usda`, `.usdc` and `.usdz` composed
+  (sublayers, references, payloads, inherits, specializes, variants), one
+  primitive per mesh, curves or points prim, with materials, purposes and
+  instancing; cameras, lights and skeletons are listed. **Modes:** Sublayer (the
+  whole stage at its paths, written as a sublayer), Reference and Payload (the
+  file's default prim, or a named one, at a Primitive Location, `/root` by
+  default, its paths rebased; written as `references` or `payload` on that prim,
+  with the axis and unit transform where the file's differ from the layer's).
+  Not yet: `open` as its own mode, population mask, payload control, layer
+  offsets.
 
 ### 2.2 Write USD (Save / Export Layer)
 - **Purpose:** Write the authored result to disk.
 - **Inputs:** scene
-- **Parameters:** file path; format (`usda`, `usdc`, `usdz`); flatten on/off; target layer (root, session, specific sublayer)
+- **Parameters:** file path; format (`usda`, `usdc`, `usdz`); flatten on/off;
+  target layer (root, session, specific sublayer)
 - **Targeting:** none
 - **USD mapping:** `Export`, `Flatten`, `Save`
-- **Status:** **Partial.** Write USD writes an **override layer** (`.usda`): it sublayers each stage's file and holds only what changed (moved prims, changed points, topology and primvars, blocked attributes, pruned prims deactivated, material binding and purpose). Prims made in Imago are written as `def`s under `def Xform` parents, with a `defaultPrim`. Not yet: `usdc`/`usdz`, flatten, choosing the target layer, time samples over a frame range.
+- **Status:** **Partial.** Write USD writes an **override layer** (`.usda`): it
+  sublayers each stage's file and holds only what changed (moved prims, changed
+  points, topology and primvars, blocked attributes, pruned prims deactivated,
+  material binding and purpose). Prims made in Imago are written as `def`s under
+  `def Xform` parents, with a `defaultPrim`. Not yet: `usdc`/`usdz`, flatten,
+  choosing the target layer, time samples over a frame range.
 
 ### 2.3 Sublayer
 - **Purpose:** Add layers to the layer stack.
@@ -117,51 +167,93 @@ Each operator below is described with: **Purpose**, **Inputs**, **Parameters**, 
 - **Inputs:** scene
 - **Parameters:** cache on/off; invalidate
 - **Targeting:** none
-- **Status:** **Partial**, as a flag rather than an operator: Freeze on any operator's title holds its result through changes upstream (saved with the graph; the result itself is not, so it cooks once when the graph is opened). Every operator's result is otherwise kept until it or something above it changes (keyed by parameters and inputs). Not yet: keeping a frozen result on disk.
+- **Status:** **Partial**, as a flag rather than an operator: Freeze on any
+  operator's title holds its result through changes upstream (saved with the
+  graph; the result itself is not, so it cooks once when the graph is opened).
+  Every operator's result is otherwise kept until it or something above it
+  changes (keyed by parameters and inputs). Not yet: keeping a frozen result on
+  disk.
 
 ---
 
 ## 3. Prim Creation
 
-All operators in this section take a **Primitive Location**. Parents on the path are created as Xforms.
+All operators in this section take a **Primitive Location**. Parents on the path
+are created as Xforms.
 
 ### 3.1 Create Prim
 - **Purpose:** Generic prim creation.
-- **Parameters:** name; schema type; specifier (`def`, `over`, `class`); applied API schemas
+- **Parameters:** name; schema type; specifier (`def`, `over`, `class`); applied
+  API schemas
 - **USD mapping:** `DefinePrim`, `OverridePrim`, `CreateClassPrim`
 - **Status:** **Not yet.**
 
 ### 3.2 Xform / Scope
 - **Purpose:** Grouping prims (Xform has a transform, Scope does not).
-- **Status:** **Partial.** Xforms are made implicitly for the parents of a Primitive Location. No operator authors one on its own, and there is no Scope.
+- **Status:** **Partial.** Xforms are made implicitly for the parents of a
+  Primitive Location. No operator authors one on its own, and there is no Scope.
 
 ### 3.3 Basic Primitives
 Cube, Sphere, Cylinder, Cone, Capsule, Plane.
 - **Parameters:** size/radius/height/axis; transform; subdivision hint
-- **USD mapping:** `UsdGeomCube`, `UsdGeomSphere`, `UsdGeomCylinder`, `UsdGeomCone`, `UsdGeomCapsule`, `UsdGeomPlane`
-- **Status:** **Partial.** Cube, Sphere and Grid (the Plane) exist as **shapes**: they make `Mesh` prims, so Edit Poly, the UV operators and ICE can edit them. Not yet: Cylinder, Cone, Capsule, and an option to author the implicit `UsdGeom` schemas instead of a mesh. Implicit shapes in files are not read yet.
+- **USD mapping:** `UsdGeomCube`, `UsdGeomSphere`, `UsdGeomCylinder`,
+  `UsdGeomCone`, `UsdGeomCapsule`, `UsdGeomPlane`
+- **Status:** **Partial.** Cube, Sphere and Grid (the Plane) exist as
+  **shapes**: they make `Mesh` prims, so Edit Poly, the UV operators and ICE can
+  edit them. Not yet: Cylinder, Cone, Capsule, and an option to author the
+  implicit `UsdGeom` schemas instead of a mesh. Implicit shapes in files are not
+  read yet.
 
 ### 3.4 Mesh / BasisCurves / Points
 - **Purpose:** Author or import explicit geometry.
-- **Parameters:** points; face counts/indices (mesh); curve basis/type/wrap (curves); widths; normals; subdivision scheme
+- **Parameters:** points; face counts/indices (mesh); curve basis/type/wrap
+  (curves); widths; normals; subdivision scheme
 - **USD mapping:** `UsdGeomMesh`, `UsdGeomBasisCurves`, `UsdGeomPoints`
-- **Status:** **Partial.** All three are read with their primvars, kept as authored, shown in the Primitive Inspector (Point, Edge, Face, Corner, Object) and written back by Write USD. Explicit geometry comes from files and shapes; there is no operator that authors raw points or indices.
+- **Status:** **Partial.** All three are read with their primvars, kept as
+  authored, shown in the Primitive Inspector (Point, Edge, Face, Corner, Object)
+  and written back by Write USD. Explicit geometry comes from files and shapes;
+  there is no operator that authors raw points or indices.
 
 ### 3.5 Camera
-- **Parameters:** projection; focal length; horizontal/vertical aperture; clipping range; focus distance; f-stop; shutter open/close
+- **Parameters:** projection; focal length; horizontal/vertical aperture;
+  clipping range; focus distance; f-stop; shutter open/close
 - **USD mapping:** `UsdGeomCamera`
-- **Status:** **Partial.** Cameras are primitives with no geometry (`Prim::camera`): a file's, read with every value above but the shutter, and the **Camera** operator's, at a Primitive Location with Translate and Rotate. Transform moves them; Write USD writes the operator's as `def Camera` and a file's moved camera as its transform; a pruned one is deactivated. The Viewer draws them and looks through any of them (its camera menu), showing the whole gate. Not yet: shutter, gate offsets and depth of field in the Viewer, animated cameras, editing a file camera's lens.
+- **Status:** **Partial.** Cameras are primitives with no geometry
+  (`Prim::camera`): a file's, read with every value above but the shutter, and
+  the **Camera** operator's, at a Primitive Location with Translate and Rotate.
+  Transform moves them; Write USD writes the operator's as `def Camera` and a
+  file's moved camera as its transform; a pruned one is deactivated. The Viewer
+  draws them and looks through any of them (its camera menu), showing the whole
+  gate. Not yet: shutter, gate offsets and depth of field in the Viewer,
+  animated cameras, editing a file camera's lens.
 
 ### 3.6 Lights
 Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
-- **Parameters:** intensity; exposure; color/temperature; shaping (cone, focus); texture (dome); size
+- **Parameters:** intensity; exposure; color/temperature; shaping (cone, focus);
+  texture (dome); size
 - **USD mapping:** `UsdLux*` schemas, `LightAPI`, `ShapingAPI`, `ShadowAPI`
-- **Status:** **Partial.** Lights are primitives with no geometry (`Prim::light`, `core::light`): a file's, read with every value (LightAPI's, each type's, cone shaping), moved by Transform and written back, and the **Light** operator's: one operator with a Type (Dome, Rect, Point, Sphere, Disk, Cylinder, Distant), an add-menu entry per type, its parameters laid out from `assets/usdlux.json` (OpenUSD's schemas), written as `def DomeLight` and so on with every value; drawn in the Viewer as their shapes, in their colour, picked by them. Not yet: lighting with them, Portal, ShapingAPI and ShadowAPI in the operator, a file's light's values edited.
+- **Status:** **Partial.** Lights are primitives with no geometry
+  (`Prim::light`, `core::light`): a file's, read with every value (LightAPI's,
+  each type's, cone shaping), moved by Transform and written back, and the
+  **Light** operator's: one operator with a Type (Dome, Rect, Point, Sphere,
+  Disk, Cylinder, Distant), an add-menu entry per type, its parameters laid out
+  from `assets/usdlux.json` (OpenUSD's schemas), written as `def DomeLight` and
+  so on with every value; drawn in the Viewer as their shapes, in their colour,
+  picked by them. Not yet: lighting with them, Portal, ShapingAPI and ShadowAPI
+  in the operator, a file's light's values edited.
 
 ### 3.7 Point Instancer
-- **Parameters:** prototypes (relationship); proto indices; positions; orientations; scales; velocities; angular velocities; ids
+- **Parameters:** prototypes (relationship); proto indices; positions;
+  orientations; scales; velocities; angular velocities; ids
 - **USD mapping:** `UsdGeomPointInstancer`
-- **Status:** **Partial.** Instancers and native instances are read and drawn by GPU instancing, and Transform moves their placements. Nested instancers (in another's prototype) are drawn through the outer one at each of its copies, down to four deep, and follow its points. Authored by ICE's Instancer (positions, prototypes, proto indices, orientations, scales, at a path chosen), kept as a file's are and written as a `PointInstancer` with its prototypes below it (see `docs/ice.md`). Not yet: prototypes written as references to their files, editing a file instancer's prototypes.
+- **Status:** **Partial.** Instancers and native instances are read and drawn by
+  GPU instancing, and Transform moves their placements. Nested instancers (in
+  another's prototype) are drawn through the outer one at each of its copies,
+  down to four deep, and follow its points. Authored by ICE's Instancer
+  (positions, prototypes, proto indices, orientations, scales, at a path
+  chosen), kept as a file's are and written as a `PointInstancer` with its
+  prototypes below it (see `docs/ice.md`). Not yet: prototypes written as
+  references to their files, editing a file instancer's prototypes.
 
 ---
 
@@ -190,9 +282,15 @@ Imago operators not in the original list:
 
 ## 5. Composition Arcs
 
-All take **Primitive Locations** (targets) unless noted. Arc strength follows USD's LIVRPS ordering: Local, Inherits, VariantSets, References, Payloads, Specializes.
+All take **Primitive Locations** (targets) unless noted. Arc strength follows
+USD's LIVRPS ordering: Local, Inherits, VariantSets, References, Payloads,
+Specializes.
 
-Status for the whole section: **Read only**, but for references and payloads to a file. Every arc is resolved when a file is loaded (what usdview shows, Imago shows). Load USD's Reference and Payload modes author one reference or payload to its file's prim (2.1); there is no operator yet adding an arc to a prim already in the scene.
+Status for the whole section: **Read only**, but for references and payloads to
+a file. Every arc is resolved when a file is loaded (what usdview shows, Imago
+shows). Load USD's Reference and Payload modes author one reference or payload
+to its file's prim (2.1); there is no operator yet adding an arc to a prim
+already in the scene.
 
 | Operator | Purpose | Key parameters |
 |---|---|---|
@@ -204,7 +302,10 @@ Status for the whole section: **Read only**, but for references and payloads to 
 | **Variant Set** | Define a variant set and its variants | set name; variant names; per-variant edits (sub-network) |
 | **Variant Select** | Choose a variant | set name; variant name |
 
-> **Open question:** do list-edit operations (prepend/append/delete/explicit) need to be exposed on every arc operator, or only in an advanced tab? (A third tab next to Parameters and Prims Location would fit the Parameters pane as it is.)
+> **Open question:** do list-edit operations (prepend/append/delete/explicit)
+> need to be exposed on every arc operator, or only in an advanced tab? (A third
+> tab next to Parameters and Prims Location would fit the Parameters pane as it
+> is.)
 
 ---
 
@@ -212,13 +313,27 @@ Status for the whole section: **Read only**, but for references and payloads to 
 
 All take **Primitive Locations**.
 
-**What the scene graph writes, and what ICE writes.** Scene-graph operators author light opinions: one value per primitive, which keep the override layer small. Values per point, per face or per corner are ICE's, once it is refactored: changing them rewrites the primitive's whole arrays, and Write USD writes them in full. Geometry operators (Edit Poly, the UV operators) still change topology, points and UVs, which is what they are for.
+**What the scene graph writes, and what ICE writes.** Scene-graph operators
+author light opinions: one value per primitive, which keep the override layer
+small. Values per point, per face or per corner are ICE's, once it is
+refactored: changing them rewrites the primitive's whole arrays, and Write USD
+writes them in full. Geometry operators (Edit Poly, the UV operators) still
+change topology, points and UVs, which is what they are for.
 
-Attribute contexts in Imago map to USD interpolations: Object = `constant`, Point = `vertex`, Face = `uniform`, Corner = `faceVarying`. `varying` is read as Point and has no context of its own yet. Every Imago attribute is a primvar (`primvars:name`), apart from the built-in `points`, `normals` and `widths`.
+Attribute contexts in Imago map to USD interpolations: Object = `constant`,
+Point = `vertex`, Face = `uniform`, Corner = `faceVarying`. `varying` is read as
+Point and has no context of its own yet. Every Imago attribute is a primvar
+(`primvars:name`), apart from the built-in `points`, `normals` and `widths`.
 
 ### 6.1 Set Attribute
-- **Purpose:** One value per primitive, for anything the scene graph sets on a prim: a primvar the renderer sees, or a property of the prim. The only "set" operator of the scene graph: it does what USD's Set Attribute, Set Primvar, Set Metadata, Set Active, Set Kind, Set Purpose, Set Visibility and Subdivision Scheme do.
-- **Parameters:** a list of rows, one value each, so one operator can set several things on the same prims. Each row: context; name; value type; value; time (default value, or a sample at the current frame).
+- **Purpose:** One value per primitive, for anything the scene graph sets on a
+  prim: a primvar the renderer sees, or a property of the prim. The only "set"
+  operator of the scene graph: it does what USD's Set Attribute, Set Primvar,
+  Set Metadata, Set Active, Set Kind, Set Purpose, Set Visibility and
+  Subdivision Scheme do.
+- **Parameters:** a list of rows, one value each, so one operator can set
+  several things on the same prims. Each row: context; name; value type; value;
+  time (default value, or a sample at the current frame).
 - **Context:**
 
   | Context | Written as | Use |
@@ -226,7 +341,8 @@ Attribute contexts in Imago map to USD interpolations: Object = `constant`, Poin
   | **Object** | `primvars:name`, `interpolation = "constant"` | Data for rendering: shaders read it by name, and on a group it reaches every prim below that does not set its own (`displayColor`, a shader variation id) |
   | **Property** | the prim's own attribute or metadata, `name` as typed | What the prim is and how it is used: schema properties (`visibility`, `purpose`, `subdivisionScheme`, `doubleSided`, a camera's `focalLength`, a light's `intensity`), metadata (`active`, `kind`, `instanceable`), and data that is not for rendering (asset ids, `userProperties:*`). Not seen by shaders, not inherited, on any prim type |
 
-- **Property presets:** the name field offers the common ones, each with its type and, where USD fixes them, its values:
+- **Property presets:** the name field offers the common ones, each with its
+  type and, where USD fixes them, its values:
 
   | Property | Values | Written as |
   |---|---|---|
@@ -239,31 +355,80 @@ Attribute contexts in Imago map to USD interpolations: Object = `constant`, Poin
   | `doubleSided` | on, off | attribute (`uniform bool`) |
 
   Any other name can be typed, with its value type chosen.
-- **Value types:** `bool`, `int`, `float`, `double`, `string`, `token`, `float2`/`float3`/`float4`, `color3f`, `asset`; arrays later.
-- **USD mapping:** `UsdGeomPrimvarsAPI::CreatePrimvar` (Object); `UsdAttribute::Set` or `UsdPrim::SetMetadata` (Property, chosen by the name)
+- **Value types:** `bool`, `int`, `float`, `double`, `string`, `token`,
+  `float2`/`float3`/`float4`, `color3f`, `asset`; arrays later.
+- **USD mapping:** `UsdGeomPrimvarsAPI::CreatePrimvar` (Object);
+  `UsdAttribute::Set` or `UsdPrim::SetMetadata` (Property, chosen by the name)
 - **Notes:**
-  - Object values show in the Primitive Inspector's Object tab, as Object attributes do. Property values show in its Properties tab, with where each comes from: the file, Imago, the Set Attribute operator that set it, or the group it is inherited from.
-  - Both contexts reach prims without geometry (an Xform, a camera, a light, a material): their values are opinions in the stage's tree (`StageTree::opinions`), written by Write USD as `over`s on their path. The Xforms Imago makes above a shape's Primitive Location take values too: each primitive below carries them (`Prim::above`), and Write USD writes them once on the Xform.
-  - Values per point, face or corner are not offered: they are ICE's (see above).
-  - Arbitrary metadata beyond the presets (`customData`, `documentation`) can come later as more Property names.
-- **Status:** **Partial.** Rows of Object and Property values, the presets above, every value type, on the prims its Prims Location tab names (any prim of a stage) or, with none, on every primitive coming in (or the picked ones). In Imago: an Object value is an Object attribute of the primitive's `Geo`; `purpose` is the primitive's purpose; `active` off takes the prim, and what is below it, out of the scene; `visibility` invisible hides it, and what is below it, in the Viewer. Write USD writes them all (`primvars:name` constant, attributes, `uniform` where the schema has it, metadata). Values on a group are inherited below it in Imago as in USD: visibility, active, purpose where a primitive has none, Object values where it has no attribute of that name (shown in the Primitive Inspector). Not yet: time samples (values are default values), arrays, `customData` and `documentation`, inherited Object values read by ICE.
+  - Object values show in the Primitive Inspector's Object tab, as Object
+    attributes do. Property values show in its Properties tab, with where each
+    comes from: the file, Imago, the Set Attribute operator that set it, or the
+    group it is inherited from.
+  - Both contexts reach prims without geometry (an Xform, a camera, a light, a
+    material): their values are opinions in the stage's tree
+    (`StageTree::opinions`), written by Write USD as `over`s on their path. The
+    Xforms Imago makes above a shape's Primitive Location take values too: each
+    primitive below carries them (`Prim::above`), and Write USD writes them once
+    on the Xform.
+  - Values per point, face or corner are not offered: they are ICE's (see
+    above).
+  - Arbitrary metadata beyond the presets (`customData`, `documentation`) can
+    come later as more Property names.
+- **Status:** **Partial.** Rows of Object and Property values, the presets
+  above, every value type, on the prims its Prims Location tab names (any prim
+  of a stage) or, with none, on every primitive coming in (or the picked ones).
+  In Imago: an Object value is an Object attribute of the primitive's `Geo`;
+  `purpose` is the primitive's purpose; `active` off takes the prim, and what is
+  below it, out of the scene; `visibility` invisible hides it, and what is below
+  it, in the Viewer. Write USD writes them all (`primvars:name` constant,
+  attributes, `uniform` where the schema has it, metadata). Values on a group
+  are inherited below it in Imago as in USD: visibility, active, purpose where a
+  primitive has none, Object values where it has no attribute of that name
+  (shown in the Primitive Inspector). Not yet: time samples (values are default
+  values), arrays, `customData` and `documentation`, inherited Object values
+  read by ICE.
 
 ### 6.2 Set Relationship
 - **Parameters:** relationship name; target list; list-edit op
-- **Status:** **Not yet** (material binding is the only relationship written, when it changed).
+- **Status:** **Not yet** (material binding is the only relationship written,
+  when it changed).
 
 ### 6.3 Transform
-- **Parameters:** translate; rotate (with order); scale; pivot; xformOp stack order; reset xform stack
+- **Parameters:** translate; rotate (with order); scale; pivot; xformOp stack
+  order; reset xform stack
 - **USD mapping:** `UsdGeomXformable` xformOps
-- **Status:** **Partial.** Translate, Rotate (X then Y then Z) and Scale, on the prims its Prims Location tab lists (or every prim). Moves placements, not points; instanced copies move as matrices; clips move too. Written back as one `xformOp:transform` that keeps the prim following its parents; `!resetXformStack!` is read and kept. Not yet: rotation order, pivot, authoring separate xformOps.
+- **Status:** **Partial.** Translate, Rotate (X then Y then Z) and Scale, on the
+  prims its Prims Location tab lists (or every prim). Moves placements, not
+  points; instanced copies move as matrices; clips move too. Written back as one
+  `xformOp:transform` that keeps the prim following its parents;
+  `!resetXformStack!` is read and kept. Not yet: rotation order, pivot,
+  authoring separate xformOps.
 
 ### 6.4 Attribute Delete / Rename
 - **Parameters:** attribute name pattern; new name
-- **Status:** **Not yet** (attributes an operator drops are written as blocked, `= None`).
+- **Status:** **Not yet** (attributes an operator drops are written as blocked,
+  `= None`).
 
 ### 6.5 ICE (programmable operator)
-- **Purpose:** Programmable operator for deformers and primvar manipulation: where values per point, face and corner are written.
-- **Status:** **Partial.** The ICE operator holds an ICE graph that runs per primitive, in its own space, on the ICE engine (`crates/xms-ice`): an Execution Ports node runs Set Data nodes over every point, face, corner or the object; Get Data, constants and maths feed them (see `docs/ice.md`). Get Data reads across contexts (a face its points, a point the faces around it, made one by average, sum, min or max) and lists every attribute of the geometry coming in, with what the topology gives under the Primitive Inspector's names (a face's corners, first corner, normal, area; a corner's point, face and place in it). Set Data writes into any context in the same way (a face from its points, a point from the faces around it). Arrays and lists (Get Array Data), Scatter on Surface and the Instancer, and spatial queries: Closest Point on Surface searches a reference input's meshes (taken into the graph's space, a BVH over their triangles) and Get Data and Get Array Data read there, through their Samples input, and from another prim of the same topology through their Geometry input (attribute transfer by element, or samples read on an animated copy). Not yet: neighbours, closest points on points, ray casts, snippets. A graph file keeps each ICE node's graph.
+- **Purpose:** Programmable operator for deformers and primvar manipulation:
+  where values per point, face and corner are written.
+- **Status:** **Partial.** The ICE operator holds an ICE graph that runs per
+  primitive, in its own space, on the ICE engine (`crates/xms-ice`): an
+  Execution Ports node runs Set Data nodes over every point, face, corner or the
+  object; Get Data, constants and maths feed them (see `docs/ice.md`). Get Data
+  reads across contexts (a face its points, a point the faces around it, made
+  one by average, sum, min or max) and lists every attribute of the geometry
+  coming in, with what the topology gives under the Primitive Inspector's names
+  (a face's corners, first corner, normal, area; a corner's point, face and
+  place in it). Set Data writes into any context in the same way (a face from
+  its points, a point from the faces around it). Arrays and lists (Get Array
+  Data), Scatter on Surface and the Instancer, and spatial queries: Closest
+  Point on Surface searches a reference input's meshes (taken into the graph's
+  space, a BVH over their triangles) and Get Data and Get Array Data read there,
+  through their Samples input, and from another prim of the same topology
+  through their Geometry input (attribute transfer by element, or samples read
+  on an animated copy). Not yet: neighbours, closest points on points, ray
+  casts, snippets. A graph file keeps each ICE node's graph.
 
 ---
 
@@ -275,26 +440,32 @@ Attribute contexts in Imago map to USD interpolations: Object = `constant`, Poin
 | **Set Time Samples** | Author samples | attribute; sample list | Not yet (Write USD writes values at the current frame) |
 | **Resample** | Interpolate to a new sample set | rate; interpolation (held/linear) | Partial: Retime (Resample) for clips |
 | **Motion Blur Attrs** | Velocity, acceleration, shutter | velocities attr; accelerations attr; shutter open/close | Not yet |
-| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Graph Editor (`core::keys`, `docs/keys.md`); cooked at the playhead. Not written to USD as time samples yet |
+| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Curve Editor (`core::keys`, `docs/keys.md`); cooked at the playhead. Not written to USD as time samples yet |
 | **Local Animation** | Key the parameters of the operator before it, on frames of its own | start; end | **Done** (`node_graph::local`) |
 | **Merge Animation** | Merge, each input moved in time | align (frame to frame, first, last, middle, stretch, shrink); match rate | **Done** for animated parameters; for clips, only input A's is put out, retimed by Stretch and Shrink |
 
-USD time samples are read at the stage's start time only. Skeletal animation, skinning and blend shapes from USD are not read yet. Imago's mocap operators (Split Characters, Retarget, Reach, Body Collide, Capture, Skin…) work on clips and stay outside this spec.
+USD time samples are read at the stage's start time only. Skeletal animation,
+skinning and blend shapes from USD are not read yet. Imago's mocap operators
+(Split Characters, Retarget, Reach, Body Collide, Capture, Skin…) work on clips
+and stay outside this spec.
 
 ---
 
 ## 8. Collections & Linking
 
-Status for the whole section: **Not yet.** Collections would also be the third kind of Primitive Locations entry (1.3).
+Status for the whole section: **Not yet.** Collections would also be the third
+kind of Primitive Locations entry (1.3).
 
 ### 8.1 Create Collection
-- **Parameters:** name; include list; exclude list; expansion rule (`explicitOnly`, `expandPrims`, `expandPrimsAndProperties`)
+- **Parameters:** name; include list; exclude list; expansion rule
+  (`explicitOnly`, `expandPrims`, `expandPrimsAndProperties`)
 - **USD mapping:** `UsdCollectionAPI`
 
 ### 8.2 Light Linking / Shadow Linking
 - **Targeting:** Primitive Locations of the lights
 - **Parameters:** include collection; exclude collection
-- **USD mapping:** `collection:lightLink`, `collection:shadowLink` on `UsdLuxLightAPI`
+- **USD mapping:** `collection:lightLink`, `collection:shadowLink` on
+  `UsdLuxLightAPI`
 
 ### 8.3 Material Binding by Collection
 - **Parameters:** collection; material; binding strength
@@ -304,20 +475,38 @@ Status for the whole section: **Not yet.** Collections would also be the third k
 
 ## 9. Materials
 
-Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with the texture behind each input, listed in Load USD's parameters and drawn in the Viewer (colour, emissive, opacity textures; PNG, JPEG, TIFF, TGA, HDR, OpenEXR; UDIM tiles from a `<UDIM>` path). Bindings stay with their prims and are written back when changed. The Material operator makes a UsdPreviewSurface (9.1); Material Binding puts materials in the scene and binds them (9.2).
+Materials are **read**: UsdPreviewSurface, OpenPBR and Standard Surface, with
+the texture behind each input, listed in Load USD's parameters and drawn in the
+Viewer (colour, emissive, opacity textures; PNG, JPEG, TIFF, TGA, HDR, OpenEXR;
+UDIM tiles from a `<UDIM>` path). Bindings stay with their prims and are written
+back when changed. The Material operator makes a UsdPreviewSurface (9.1);
+Material Binding puts materials in the scene and binds them (9.2).
 
 ### 9.1 Create Material
-- A **compound operator**: contains other operators, and you can dive into the graph inside.
+- A **compound operator**: contains other operators, and you can dive into the
+  graph inside.
 - Nested compounds are supported.
 - **Outputs:** surface, displacement, volume
 - **USD mapping:** `UsdShadeMaterial`, with a shading network underneath
-- **Status:** **Partial.** The **Material** operator is the simple form: a UsdPreviewSurface with fixed inputs (diffuse and emissive colour, metallic, roughness, opacity, opacity threshold, IOR, clearcoat) and a texture file per input (diffuse, emissive, metallic, roughness, opacity, normal, occlusion). Its output is one material, named by the operator; viewed, it is drawn on a sphere. Written as a `Material` with a `UsdPreviewSurface`, a `UsdUVTexture` per file and a `UsdPrimvarReader_float2` for `st`. The graph form is the **MaterialX** operator (9.4), which puts out the same material; the Material operator stays as the quick form.
+- **Status:** **Partial.** The **Material** operator is the simple form: a
+  UsdPreviewSurface with fixed inputs (diffuse and emissive colour, metallic,
+  roughness, opacity, opacity threshold, IOR, clearcoat) and a texture file per
+  input (diffuse, emissive, metallic, roughness, opacity, normal, occlusion).
+  Its output is one material, named by the operator; viewed, it is drawn on a
+  sphere. Written as a `Material` with a `UsdPreviewSurface`, a `UsdUVTexture`
+  per file and a `UsdPrimvarReader_float2` for `st`. The graph form is the
+  **MaterialX** operator (9.4), which puts out the same material; the Material
+  operator stays as the quick form.
 
 ### 9.2 Material Assign (Mat Bindings)
 In Imago: **Material Binding**.
-- **Inputs:** the scene, on top; one port per material, on the left, numbered (the materials feed into the operator)
-- **Material Library Location:** where the plugged materials go in the scene, `/materials` by default, each by its operator's name. Two materials with one name are reported.
-- **Parameters:** an ordered **binding list**. Each row is a numbered entry holding a location pattern, as in a Prims Location tab:
+- **Inputs:** the scene, on top; one port per material, on the left, numbered
+  (the materials feed into the operator)
+- **Material Library Location:** where the plugged materials go in the scene,
+  `/materials` by default, each by its operator's name. Two materials with one
+  name are reported.
+- **Parameters:** an ordered **binding list**. Each row is a numbered entry
+  holding a location pattern, as in a Prims Location tab:
 
   ```
   1  /root/char/geo/head
@@ -325,11 +514,22 @@ In Imago: **Material Binding**.
   3  /root/*/*/glass
   4  (empty row for the next entry)
   ```
-- **Per-row options:** material: the input of the same number by default, any input with a material, or Location: a material already in the scene, by path, on a line under the row (typed, picked or dropped); strength (`strongerThanDescendants` / `weakerThanDescendants`); purpose (`allPurpose`, `preview`, `full`)
+- **Per-row options:** material: the input of the same number by default, any
+  input with a material, or Location: a material already in the scene, by path,
+  on a line under the row (typed, picked or dropped); strength
+  (`strongerThanDescendants` / `weakerThanDescendants`); purpose (`allPurpose`,
+  `preview`, `full`)
 - **USD mapping:** `UsdShadeMaterialBindingAPI`
-- **Status:** **Partial.** Material Binding: the scene on top, a material input per number on the left (one always free), the Material Library Location, and its rows on its Bindings tab (same matching rules, a count per row, drag and drop from the Scene Explorer), each with a Material column. The later row wins. Written as `def Material`s under Scopes and `material:binding` on each primitive. Not yet: a binding on a group kept as one inherited opinion, strength, purpose, collections.
+- **Status:** **Partial.** Material Binding: the scene on top, a material input
+  per number on the left (one always free), the Material Library Location, and
+  its rows on its Bindings tab (same matching rules, a count per row, drag and
+  drop from the Scene Explorer), each with a Material column. The later row
+  wins. Written as `def Material`s under Scopes and `material:binding` on each
+  primitive. Not yet: a binding on a group kept as one inherited opinion,
+  strength, purpose, collections.
 
-> **Rule (recommended):** when two rows match the same prim, the **later row wins**, as the later input wins in Merge.
+> **Rule (recommended):** when two rows match the same prim, the **later row
+> wins**, as the later input wins in Merge.
 
 ### 9.3 Material Variants
 - Uses Variant Set / Variant Select (section 5) scoped to a material.
@@ -340,7 +540,20 @@ In Imago: **Material Binding**.
 - Studio OSL-backed nodes (wrapped as nodedefs)
 - OpenPBR surface
 - **Output nodes:** Surface, Displacement, Volume
-- **Status:** **Partial.** The **MaterialX** operator holds a graph of these, a graph kind of its own (see [MaterialX](docs/materialx.md)): MaterialX 1.39's libraries (stdlib, pbrlib, bxdf with standard_surface, open_pbr_surface, UsdPreviewSurface and gltf_pbr, cmlib, nprlib, lights), 824 definitions of 226 nodes, each node's definition chosen from the types connected to it. Edited in the Node Graph pane, its nodes' parameters laid out from their definitions; saved as its MaterialX document; written by Write USD as a MaterialX shading network (`outputs:mtlx:surface`, each shader's `info:id` its definition); shown in the Viewer by its surface shader's values and textures. `.mtlx` files imported (each material an operator, node graphs laid out flat; every MaterialX example reads) and written; a stage's MaterialX and UsdPreviewSurface materials made into MaterialX operators. Not yet: the whole graph as a Viewer shader, nodes a `.mtlx` file defines itself. OpenPBR is read and shown.
+- **Status:** **Partial.** The **MaterialX** operator holds a graph of these, a
+  graph kind of its own (see [MaterialX](docs/materialx.md)): MaterialX 1.39's
+  libraries (stdlib, pbrlib, bxdf with standard_surface, open_pbr_surface,
+  UsdPreviewSurface and gltf_pbr, cmlib, nprlib, lights), 824 definitions of 226
+  nodes, each node's definition chosen from the types connected to it. Edited in
+  the Node Graph pane, its nodes' parameters laid out from their definitions;
+  saved as its MaterialX document; written by Write USD as a MaterialX shading
+  network (`outputs:mtlx:surface`, each shader's `info:id` its definition);
+  shown in the Viewer by its surface shader's values and textures. `.mtlx` files
+  imported (each material an operator, node graphs laid out flat; every
+  MaterialX example reads) and written; a stage's MaterialX and
+  UsdPreviewSurface materials made into MaterialX operators. Not yet: the whole
+  graph as a Viewer shader, nodes a `.mtlx` file defines itself. OpenPBR is read
+  and shown.
 
 ---
 
@@ -364,45 +577,112 @@ All take **Primitive Locations** where they edit prims.
 
 ## 11. Rendering
 
-Status for the section: **Partial.** Three operators author the UsdRender prims a renderer reads (11.1 to 11.3), in the **Render** category of the add menu; Write USD writes them. Render Command (11.4) runs husk, or any command line, on the layer Write USD writes; nothing renders inside Imago yet. The plan for rendering inside Imago is rray as its render delegate (see `ARCHITECTURE.md`).
+Status for the section: **Partial.** Three operators author the UsdRender prims
+a renderer reads (11.1 to 11.3), in the **Render** category of the add menu;
+Write USD writes them. Render Command (11.4) runs husk, or any command line, on
+the layer Write USD writes; nothing renders inside Imago yet. The plan for
+rendering inside Imago is rray as its render delegate (see `ARCHITECTURE.md`).
 
-The render prims are primitives with no geometry (`Prim::render`, `core::render`), listed in the Scene Explorer and the Primitive Inspector, not drawn. Each operator takes the scene on one input and hands it on with its render prims added or changed. A render prim that comes from a file is changed with an `over`; relationships on it are appended (`append rel`) since Imago does not read the file's targets.
+The render prims are primitives with no geometry (`Prim::render`,
+`core::render`), listed in the Scene Explorer and the Primitive Inspector, not
+drawn. Each operator takes the scene on one input and hands it on with its
+render prims added or changed. A render prim that comes from a file is changed
+with an `over`; relationships on it are appended (`append rel`) since Imago does
+not read the file's targets.
 
 ### 11.1 Render Settings
-In Imago: **Render Commons** (what is rendered) and **Render Settings** (how a renderer renders it).
+In Imago: **Render Commons** (what is rendered) and **Render Settings** (how a
+renderer renders it).
 
 **Render Commons**
-- **Primitive Location:** `/Render/Settings` by default. It is the RenderSettings prim the layer names (`renderSettingsPrimPath`).
-- **Parameters:** camera (the relationship; empty: the first camera coming in, picked from a list); resolution, with presets; pixel aspect ratio; aspect ratio conform policy; overscan, as `dataWindowNDC` from -overscan to 1 + overscan; motion blur and depth of field on or off (`disableMotionBlur`, `disableDepthOfField`); included purposes; the product's path and output image.
-- **Makes:** a RenderProduct (`/Render/Products/beauty`) with `productName` and `productType = "raster"`, in the settings' `products`. Filtering and bit depth are per RenderVar, or the renderer's own settings: not here.
+- **Primitive Location:** `/Render/Settings` by default. It is the
+  RenderSettings prim the layer names (`renderSettingsPrimPath`).
+- **Parameters:** camera (the relationship; empty: the first camera coming in,
+  picked from a list); resolution, with presets; pixel aspect ratio; aspect
+  ratio conform policy; overscan, as `dataWindowNDC` from -overscan to 1 +
+  overscan; motion blur and depth of field on or off (`disableMotionBlur`,
+  `disableDepthOfField`); included purposes; the product's path and output
+  image.
+- **Makes:** a RenderProduct (`/Render/Products/beauty`) with `productName` and
+  `productType = "raster"`, in the settings' `products`. Filtering and bit depth
+  are per RenderVar, or the renderer's own settings: not here.
 
 **Render Settings**
-- **Finds** the RenderSettings prim of the scene coming in, without following wires: the one the layer names (Render Commons'), else the first made in Imago, else the first of a file (changed with an `over`), else it makes one at its Primitive Location (`/Render/Settings`).
-- **Renderer:** Karma, Arnold, any renderer with a definition file, or **Custom**. A definition is a JSON file: the renderer's namespace and its settings (namespaced attribute name, type, default, group, label, help, range, choices), and its standard AOVs (name, `sourceName`, `sourceType`, `dataType`, group, whether ticked by default). Karma's and Arnold's come with Imago (`assets/renderers`); files in the renderers folder (`$XMS_RENDERERS`, else `renderers` in Imago's config folder) add renderers or replace one of the same name.
-- **Settings tab:** the definition's settings, by group, written as namespaced attributes on the RenderSettings prim (`karma:global:bucketsize`, `arnold:global:AA_samples`). Every setting is written, changed or not. Extra rows add settings the definition does not list, under its namespace unless the name has one.
-- **Custom:** a name field for the renderer, used as the namespace; its settings are rows of name, type and value (`rray` with `spp` and `bounce` writes `rray:spp` and `rray:bounce`).
-- **AOVs tab:** the renderer's standard AOVs as checkboxes, by group (the beauty ticked). Each ticked AOV is a RenderVar beside the product (`/Render/Products/Vars/<name>`), added to its `orderedVars`.
-- **USD mapping:** `UsdRenderSettings`, renderer settings as namespaced attributes on it.
-- **Status:** **Partial.** Not yet: the `renderSettingsPrimPath` of a file read (a file's first RenderSettings prim is taken), several RenderSettings prims chosen between, settings that change over time. Karma's settings and AOVs are those Houdini 20.5's Karma Render Settings writes (checked against a Houdini stage); a few AOVs not in that stage are marked unconfirmed. Rendered with husk from Imago: done (Martino, 20/10/2026).
+- **Finds** the RenderSettings prim of the scene coming in, without following
+  wires: the one the layer names (Render Commons'), else the first made in
+  Imago, else the first of a file (changed with an `over`), else it makes one at
+  its Primitive Location (`/Render/Settings`).
+- **Renderer:** Karma, Arnold, any renderer with a definition file, or
+  **Custom**. A definition is a JSON file: the renderer's namespace and its
+  settings (namespaced attribute name, type, default, group, label, help, range,
+  choices), and its standard AOVs (name, `sourceName`, `sourceType`, `dataType`,
+  group, whether ticked by default). Karma's and Arnold's come with Imago
+  (`assets/renderers`); files in the renderers folder (`$XMS_RENDERERS`, else
+  `renderers` in Imago's config folder) add renderers or replace one of the same
+  name.
+- **Settings tab:** the definition's settings, by group, written as namespaced
+  attributes on the RenderSettings prim (`karma:global:bucketsize`,
+  `arnold:global:AA_samples`). Every setting is written, changed or not. Extra
+  rows add settings the definition does not list, under its namespace unless the
+  name has one.
+- **Custom:** a name field for the renderer, used as the namespace; its settings
+  are rows of name, type and value (`rray` with `spp` and `bounce` writes
+  `rray:spp` and `rray:bounce`).
+- **AOVs tab:** the renderer's standard AOVs as checkboxes, by group (the beauty
+  ticked). Each ticked AOV is a RenderVar beside the product
+  (`/Render/Products/Vars/<name>`), added to its `orderedVars`.
+- **USD mapping:** `UsdRenderSettings`, renderer settings as namespaced
+  attributes on it.
+- **Status:** **Partial.** Not yet: the `renderSettingsPrimPath` of a file read
+  (a file's first RenderSettings prim is taken), several RenderSettings prims
+  chosen between, settings that change over time. Karma's settings and AOVs are
+  those Houdini 20.5's Karma Render Settings writes (checked against a Houdini
+  stage); a few AOVs not in that stage are marked unconfirmed. Rendered with
+  husk from Imago: done (Martino, 20/10/2026).
 
 ### 11.2 Render Product
 - **Parameters:** output path (`productName`); product type; ordered render vars
 - **USD mapping:** `UsdRenderProduct`
-- **Status:** **Partial.** Made by Render Commons (output path, `raster`), its RenderVars added by Render Settings' AOVs tab and Render Variables. Not yet: a camera or resolution override per product, several products from one operator.
+- **Status:** **Partial.** Made by Render Commons (output path, `raster`), its
+  RenderVars added by Render Settings' AOVs tab and Render Variables. Not yet: a
+  camera or resolution override per product, several products from one operator.
 
 ### 11.3 Render Var
 In Imago: **Render Variables**.
-- **Product:** a path, picked from the products coming in. Empty: the RenderSettings prim's first product, else the first coming in, else `/Render/Products/beauty` (made, and added to the scene's RenderSettings prim).
-- **Rows:** one RenderVar each: on or off, name, `sourceName` (empty: the name), `sourceType` (raw, lpe, primvar, intrinsic), `dataType`, and extras: other attributes the renderer reads on it, picked or typed (`driver:parameters:aov:format`, `arnold:filter`, `arnold:width`). A row can be filled from any renderer's standard AOVs.
-- **Replace:** on, the product holds these RenderVars alone, in order; off, they are added to its own, a row replacing the RenderVar of its name. A row turned off is taken off the product.
-- **USD mapping:** `UsdRenderVar`, at `<product's parent>/Vars/<name>`, with `driver:parameters:aov:name` (husk needs it)
-- **Status:** **Partial.** Not yet: RenderVars shared by name between products listed as such.
+- **Product:** a path, picked from the products coming in. Empty: the
+  RenderSettings prim's first product, else the first coming in, else
+  `/Render/Products/beauty` (made, and added to the scene's RenderSettings
+  prim).
+- **Rows:** one RenderVar each: on or off, name, `sourceName` (empty: the name),
+  `sourceType` (raw, lpe, primvar, intrinsic), `dataType`, and extras: other
+  attributes the renderer reads on it, picked or typed
+  (`driver:parameters:aov:format`, `arnold:filter`, `arnold:width`). A row can
+  be filled from any renderer's standard AOVs.
+- **Replace:** on, the product holds these RenderVars alone, in order; off, they
+  are added to its own, a row replacing the RenderVar of its name. A row turned
+  off is taken off the product.
+- **USD mapping:** `UsdRenderVar`, at `<product's parent>/Vars/<name>`, with
+  `driver:parameters:aov:name` (husk needs it)
+- **Status:** **Partial.** Not yet: RenderVars shared by name between products
+  listed as such.
 
 ### 11.4 Render
 - **Purpose:** Trigger the render.
 - **Parameters:** frame range; output mode (local / farm); denoise on/off
 - **Inputs:** scene (must contain Render Settings)
-- **Status:** **Partial**, as **Render Command**: a command line run on the system when Run is pressed (never on cook), after a Write USD: `{usd}` is its layer as it comes down the wires, written first if asked (any `{name}` from above reads too: Render Settings' `{delegate}`, a Set Variable's); the built-ins `$F`, `$F4`, `$FSTART`, `$FEND`, `$N` with the run's frames, `$OPNAME` and the rest (`$USD` and `$NAME` from older graphs still read); presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once or per frame; folder and environment variables; run in the background with Stop (ending what it started), its progress in the panel and its output in a Console tab. The **Image Viewer** pane renders the scene the view flag shows without either operator: its RenderSettings and camera menus, Render and Stop, husk run on a temporary layer, the image read again as husk saves it. Not yet: rendering inside Imago (rray), denoise, farm submission, animated layers.
+- **Status:** **Partial**, as **Render Command**: a command line run on the
+  system when Run is pressed (never on cook), after a Write USD: `{usd}` is its
+  layer as it comes down the wires, written first if asked (any `{name}` from
+  above reads too: Render Settings' `{delegate}`, a Set Variable's); the
+  built-ins `$F`, `$F4`, `$FSTART`, `$FEND`, `$N` with the run's frames,
+  `$OPNAME` and the rest (`$USD` and `$NAME` from older graphs still read);
+  presets for husk (Karma CPU and XPU, Arnold); the scene range or its own, once
+  or per frame; folder and environment variables; run in the background with
+  Stop (ending what it started), its progress in the panel and its output in a
+  Console tab. The **Image Viewer** pane renders the scene the view flag shows
+  without either operator: its RenderSettings and camera menus, Render and Stop,
+  husk run on a temporary layer, the image read again as husk saves it. Not yet:
+  rendering inside Imago (rray), denoise, farm submission, animated layers.
 
 ---
 

@@ -1,6 +1,6 @@
-//! ICE graphs: the graph inside an ICE operator, as the editor holds it
-//! (nodes, wires, positions, values on unconnected inputs), and running it
-//! on a primitive's geometry with the ICE engine (`xms_ice`).
+//! ICE graphs: the graph inside an ICE operator, as the editor holds it (nodes,
+//! wires, positions, values on unconnected inputs), and running it on a
+//! primitive's geometry with the ICE engine (`xms_ice`).
 //!
 //! A graph ends in its **Execution Ports** root (named ExecutionPorts):
 //! its Execute ports run in order,
@@ -17,10 +17,10 @@ use xms_ice::{Input, Math, Node, Op, Value};
 use crate::core::geo::{Context, Geo};
 use crate::types::{ConnectionId, IceGraphId, IceGraphNodeType, NodeId};
 
-/// What one of the ICE operator's reference inputs brings into its graph:
-/// every prim of the scene wired there, by path (Get Reference lists them),
-/// and the meshes among them, where they are in the world (Closest Point
-/// on Surface searches them).
+/// What one of the ICE operator's reference inputs brings into its graph: every
+/// prim of the scene wired there, by path (Get Reference lists them), and the
+/// meshes among them, where they are in the world (Closest Point on Surface
+/// searches them).
 pub type Reference = xms_ice::Reference;
 
 thread_local! {
@@ -29,9 +29,9 @@ thread_local! {
     /// before each primitive (`set_space`), taken by `evaluate`.
     static SPACE: std::cell::Cell<glam::Mat4> = const { std::cell::Cell::new(glam::Mat4::IDENTITY) };
     /// What the Instancers of the last graph run on this thread made. The
-    /// evaluator's type gives back geometry only; the ICE operator, which
-    /// runs a graph and then turns its instances into prims, takes them
-    /// from here (`take_instances`).
+    /// evaluator's type gives back geometry only; the ICE operator, which runs
+    /// a graph and then turns its instances into prims, takes them from here
+    /// (`take_instances`).
     static INSTANCES: std::cell::RefCell<Vec<(xms_ice::Instances, crate::types::DrawMode)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -56,91 +56,93 @@ pub struct GraphNavigation {
 
 #[derive(Clone)]
 pub struct IceGraphInputSocket {
-    pub name:             String,
-    pub value_hint:       &'static str,
+    pub name: String,
+    pub value_hint: &'static str,
     pub connected_output: Option<(NodeId, usize)>,
-    /// What the input takes while nothing is wired to it. `None` for
-    /// Execute ports.
-    pub value:            Option<Value>,
+    /// What the input takes while nothing is wired to it. `None` for Execute
+    /// ports.
+    pub value: Option<Value>,
 }
 
 #[derive(Clone)]
 pub struct IceGraphOutputSocket {
-    pub name:       String,
+    pub name: String,
     pub value_hint: &'static str,
 }
 
 #[derive(Clone)]
 pub struct IceGraphNode {
-    pub id:        NodeId,
-    pub name:      String,
+    pub id: NodeId,
+    pub name: String,
     pub node_type: IceGraphNodeType,
-    pub position:  egui::Pos2,
-    pub inputs:    Vec<IceGraphInputSocket>,
-    pub outputs:   Vec<IceGraphOutputSocket>,
+    pub position: egui::Pos2,
+    pub inputs: Vec<IceGraphInputSocket>,
+    pub outputs: Vec<IceGraphOutputSocket>,
 }
 
 #[derive(Clone)]
 pub struct IceGraphConnection {
-    pub id:          ConnectionId,
-    pub from_node:   NodeId,
+    pub id: ConnectionId,
+    pub from_node: NodeId,
     pub from_output: usize,
-    pub to_node:     NodeId,
-    pub to_input:    usize,
+    pub to_node: NodeId,
+    pub to_input: usize,
 }
 
-/// The name a new graph's root is given (its type: Execution Ports).
-/// A root still named as before, `ICE Tree`, is renamed when read.
+/// The name a new graph's root is given (its type: Execution Ports). A root
+/// still named as before, `ICE Tree`, is renamed when read.
 pub const ROOT_NAME: &str = "ExecutionPorts";
 
 #[derive(Clone)]
 pub struct IceGraph {
-    pub id:                 IceGraphId,
-    pub name:               String,
-    pub nodes:              Vec<IceGraphNode>,
-    pub connections:        Vec<IceGraphConnection>,
-    pub next_node_id:       usize,
+    pub id: IceGraphId,
+    pub name: String,
+    pub nodes: Vec<IceGraphNode>,
+    pub connections: Vec<IceGraphConnection>,
+    pub next_node_id: usize,
     pub next_connection_id: usize,
-    pub selected_node:      Option<NodeId>,
-    /// Every node selected (a box, or Shift+click): moved and deleted
-    /// together. `selected_node` is the one whose parameters are shown.
-    pub selected_nodes:     Vec<NodeId>,
+    pub selected_node: Option<NodeId>,
+    /// Every node selected (a box, or Shift+click): moved and deleted together.
+    /// `selected_node` is the one whose parameters are shown.
+    pub selected_nodes: Vec<NodeId>,
     /// The wire selected: Delete takes it off.
-    pub selected_wire:      Option<ConnectionId>,
+    pub selected_wire: Option<ConnectionId>,
     /// Where a box being dragged out to select nodes started, on the canvas.
-    pub marquee:            Option<egui::Pos2>,
-    /// A port clicked to unplug: a click on the empty canvas takes its
-    /// wires off (`graph_ports`).
-    pub unplug:             Option<crate::graph_ports::Picked<NodeId, usize>>,
-    /// The inputs whose wires were picked up off an output (Ctrl+drag): let
-    /// go of on another output they go there, anywhere else they are gone.
-    pub carrying:           Vec<(NodeId, usize)>,
-    /// The wire being drawn was dragged, not clicked: let go of over no
-    /// input, it is gone.
-    pub wire_dragged:       bool,
-    pub dragging_node:      Option<NodeId>,
-    pub drag_offset:        egui::Vec2,
-    pub connecting_from:    Option<(NodeId, usize)>,
-    pub pan_offset:         egui::Vec2,
+    pub marquee: Option<egui::Pos2>,
+    /// A port clicked to unplug: a click on the empty canvas takes its wires
+    /// off (`graph_ports`).
+    pub unplug: Option<crate::graph_ports::Picked<NodeId, usize>>,
+    /// The inputs whose wires were picked up off an output (Ctrl+drag): let go
+    /// of on another output they go there, anywhere else they are gone.
+    pub carrying: Vec<(NodeId, usize)>,
+    /// The wire being drawn was dragged, not clicked: let go of over no input,
+    /// it is gone.
+    pub wire_dragged: bool,
+    pub dragging_node: Option<NodeId>,
+    pub drag_offset: egui::Vec2,
+    pub connecting_from: Option<(NodeId, usize)>,
+    pub pan_offset: egui::Vec2,
     /// View scale of the tree: 1 is actual size.
-    pub zoom:               f32,
-    /// Why the graph did not compile the last time it ran, and at which
-    /// node: shown on that node and above the canvas.
-    pub error:              Arc<Mutex<Option<(NodeId, String)>>>,
-    /// The type of each node's output on the geometry the graph last ran
-    /// on (`refresh_types`), for the colours of its ports and wires.
-    pub types:              Arc<Mutex<HashMap<NodeId, xms_ice::Ty>>>,
-    /// The nodes whose output is an array (`refresh_types`): drawn and
-    /// named apart from single values.
-    pub arrays:             Arc<Mutex<std::collections::HashSet<NodeId>>>,
+    pub zoom: f32,
+    /// Why the graph did not compile the last time it ran, and at which node:
+    /// shown on that node and above the canvas.
+    pub error: Arc<Mutex<Option<(NodeId, String)>>>,
+    /// The type of each node's output on the geometry the graph last ran on
+    /// (`refresh_types`), for the colours of its ports and wires.
+    pub types: Arc<Mutex<HashMap<NodeId, xms_ice::Ty>>>,
+    /// The nodes whose output is an array (`refresh_types`): drawn and named
+    /// apart from single values.
+    pub arrays: Arc<Mutex<std::collections::HashSet<NodeId>>>,
     /// The geometry the graph last ran on, sharing its columns (a copy costs
     /// next to nothing): the editor works out the types and Get Data's list
     /// from it when it draws, not every run.
-    pub last_input:         Arc<Mutex<Option<Geo>>>,
+    pub last_input: Arc<Mutex<Option<Geo>>>,
 }
 
 /// No transform: the identity matrix, as a value.
-pub fn identity() -> Value { Value::Mat4(glam::Mat4::IDENTITY.to_cols_array()) }
+pub fn identity() -> Value {
+    Value::Mat4(glam::Mat4::IDENTITY.to_cols_array())
+}
 
 /// The name a type goes by on ports and wires (and their colour).
 pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
@@ -161,26 +163,45 @@ pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
 impl IceGraph {
     pub fn new(id: IceGraphId, name: String) -> Self {
         let mut g = Self {
-            id, name,
-            nodes: vec![], connections: vec![],
-            next_node_id: 0, next_connection_id: 0,
-            selected_node: None, selected_nodes: vec![], selected_wire: None, marquee: None, unplug: None,
-            carrying: vec![], wire_dragged: false,
+            id,
+            name,
+            nodes: vec![],
+            connections: vec![],
+            next_node_id: 0,
+            next_connection_id: 0,
+            selected_node: None,
+            selected_nodes: vec![],
+            selected_wire: None,
+            marquee: None,
+            unplug: None,
+            carrying: vec![],
+            wire_dragged: false,
             dragging_node: None,
             drag_offset: egui::Vec2::ZERO,
-            connecting_from: None, pan_offset: egui::Vec2::ZERO, zoom: 1.0,
+            connecting_from: None,
+            pan_offset: egui::Vec2::ZERO,
+            zoom: 1.0,
             error: Arc::default(),
             types: Arc::default(),
             arrays: Arc::default(),
             last_input: Arc::default(),
         };
-        g.add_node(ROOT_NAME.into(), IceGraphNodeType::Root { context: Context::Point }, egui::pos2(500.0, 200.0));
+        g.add_node(
+            ROOT_NAME.into(),
+            IceGraphNodeType::Root {
+                context: Context::Point,
+            },
+            egui::pos2(500.0, 200.0),
+        );
         g
     }
 
     /// The graph's root: the Execution Ports node.
     pub fn root(&self) -> Option<NodeId> {
-        self.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::Root { .. })).map(|n| n.id)
+        self.nodes
+            .iter()
+            .find(|n| matches!(n.node_type, IceGraphNodeType::Root { .. }))
+            .map(|n| n.id)
     }
 
     pub fn add_node(&mut self, name: String, t: IceGraphNodeType, pos: egui::Pos2) -> NodeId {
@@ -188,41 +209,109 @@ impl IceGraph {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&t);
-        self.nodes.push(IceGraphNode { id, name, node_type: t, position: pos, inputs, outputs });
+        self.nodes.push(IceGraphNode {
+            id,
+            name,
+            node_type: t,
+            position: pos,
+            inputs,
+            outputs,
+        });
         id
     }
 
-    /// A node's ports. Unconnected inputs start with a value that leaves
-    /// what comes in unchanged where it can: 0 to add, 1 to multiply.
+    /// A node's ports. Unconnected inputs start with a value that leaves what
+    /// comes in unchanged where it can: 0 to add, 1 to multiply.
     pub fn create_sockets(t: &IceGraphNodeType) -> (Vec<IceGraphInputSocket>, Vec<IceGraphOutputSocket>) {
         let input = |name: &str, value: f32| IceGraphInputSocket {
-            name: name.into(), value_hint: "Any", connected_output: None, value: Some(Value::Float(value)),
+            name: name.into(),
+            value_hint: "Any",
+            connected_output: None,
+            value: Some(Value::Float(value)),
         };
-        let output = |name: &str, hint: &'static str| IceGraphOutputSocket { name: name.into(), value_hint: hint };
+        let output = |name: &str, hint: &'static str| IceGraphOutputSocket {
+            name: name.into(),
+            value_hint: hint,
+        };
         match t {
             IceGraphNodeType::Root { .. } => (vec![execute_port(1)], vec![]),
             // Samples, unwired: the geometry's own elements. Geometry,
             // unwired: the geometry the graph runs on.
-            IceGraphNodeType::GetData { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) },
-                                                      IceGraphInputSocket { value: None, ..input("Geometry", 0.0) }], vec![output("Value", "Any")]),
+            IceGraphNodeType::GetData { .. } => (
+                vec![
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Samples", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Geometry", 0.0)
+                    },
+                ],
+                vec![output("Value", "Any")],
+            ),
             IceGraphNodeType::SetData { .. } => (vec![input("Value", 0.0)], vec![output("Execute", "Execute")]),
             IceGraphNodeType::Constant { value } => (vec![], vec![output("Value", type_hint(value.ty()))]),
             IceGraphNodeType::Math { op } => {
                 let inputs = match op {
                     Math::Multiply | Math::Divide => vec![input("A", 1.0), input("B", 1.0)],
                     Math::Lerp => vec![input("A", 0.0), input("B", 1.0), input("T", 0.5)],
-                    Math::Rotate => vec![IceGraphInputSocket { value: Some(Value::Quat([0.0, 0.0, 0.0, 1.0])), ..input("Rotation", 0.0) },
-                                         IceGraphInputSocket { value: Some(Value::Vec3([1.0, 0.0, 0.0])), ..input("Vector", 0.0) }],
-                    Math::AxisAngle => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Axis", 0.0) }, input("Angle", 0.0)],
-                    Math::Euler => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Angles", 0.0) }],
+                    Math::Rotate => vec![
+                        IceGraphInputSocket {
+                            value: Some(Value::Quat([0.0, 0.0, 0.0, 1.0])),
+                            ..input("Rotation", 0.0)
+                        },
+                        IceGraphInputSocket {
+                            value: Some(Value::Vec3([1.0, 0.0, 0.0])),
+                            ..input("Vector", 0.0)
+                        },
+                    ],
+                    Math::AxisAngle => vec![
+                        IceGraphInputSocket {
+                            value: Some(Value::Vec3([0.0, 1.0, 0.0])),
+                            ..input("Axis", 0.0)
+                        },
+                        input("Angle", 0.0),
+                    ],
+                    Math::Euler => vec![IceGraphInputSocket {
+                        value: Some(Value::Vec3([0.0; 3])),
+                        ..input("Angles", 0.0)
+                    }],
                     // A matrix, none (the identity) when not wired.
-                    Math::Invert | Math::Transpose => vec![IceGraphInputSocket { value: Some(identity()), ..input("Matrix", 0.0) }],
-                    Math::TransformPoint => vec![IceGraphInputSocket { value: Some(identity()), ..input("Matrix", 0.0) },
-                                                 IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Position", 0.0) }],
-                    Math::TransformVector => vec![IceGraphInputSocket { value: Some(identity()), ..input("Matrix", 0.0) },
-                                                  IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Vector", 0.0) }],
-                    Math::Distance => vec![IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("A", 0.0) },
-                                           IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("B", 0.0) }],
+                    Math::Invert | Math::Transpose => vec![IceGraphInputSocket {
+                        value: Some(identity()),
+                        ..input("Matrix", 0.0)
+                    }],
+                    Math::TransformPoint => vec![
+                        IceGraphInputSocket {
+                            value: Some(identity()),
+                            ..input("Matrix", 0.0)
+                        },
+                        IceGraphInputSocket {
+                            value: Some(Value::Vec3([0.0; 3])),
+                            ..input("Position", 0.0)
+                        },
+                    ],
+                    Math::TransformVector => vec![
+                        IceGraphInputSocket {
+                            value: Some(identity()),
+                            ..input("Matrix", 0.0)
+                        },
+                        IceGraphInputSocket {
+                            value: Some(Value::Vec3([0.0, 1.0, 0.0])),
+                            ..input("Vector", 0.0)
+                        },
+                    ],
+                    Math::Distance => vec![
+                        IceGraphInputSocket {
+                            value: Some(Value::Vec3([0.0; 3])),
+                            ..input("A", 0.0)
+                        },
+                        IceGraphInputSocket {
+                            value: Some(Value::Vec3([0.0; 3])),
+                            ..input("B", 0.0)
+                        },
+                    ],
                     op if op.arity() == 1 => vec![input("Value", 0.0)],
                     _ => vec![input("A", 0.0), input("B", 0.0)],
                 };
@@ -231,26 +320,45 @@ impl IceGraph {
             // A count of 0: one value per element. The Seed, unwired: each
             // element's own number.
             IceGraphNodeType::Random { .. } => (
-                vec![input("Min", 0.0), input("Max", 1.0), IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) },
-                     IceGraphInputSocket { value: None, ..input("Seed", 0.0) }],
+                vec![
+                    input("Min", 0.0),
+                    input("Max", 1.0),
+                    IceGraphInputSocket {
+                        value: Some(Value::Int(0)),
+                        ..input("Count", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Seed", 0.0)
+                    },
+                ],
                 vec![output("Value", "Any")],
             ),
             IceGraphNodeType::Concat => (vec![array_port(1), array_port(2)], vec![output("Array", "Any")]),
             // Its parts, by what it makes: numbers 0 (a rotation's real
             // part 1: none), vectors zero.
-            IceGraphNodeType::Compose { op } => (op.inputs().iter().map(|&(name, ty)| {
-                let value = match ty {
-                    // A matrix's axes, unwired: the world's.
-                    xms_ice::Ty::Vec3 if name == "X Axis" => Value::Vec3([1.0, 0.0, 0.0]),
-                    xms_ice::Ty::Vec3 if name == "Y Axis" => Value::Vec3([0.0, 1.0, 0.0]),
-                    xms_ice::Ty::Vec3 if name == "Z Axis" => Value::Vec3([0.0, 0.0, 1.0]),
-                    xms_ice::Ty::Vec2 => Value::Vec2([0.0; 2]),
-                    xms_ice::Ty::Vec3 => Value::Vec3([0.0; 3]),
-                    _ if name == "Real" => Value::Float(1.0),
-                    _ => Value::Float(0.0),
-                };
-                IceGraphInputSocket { value: Some(value), ..input(name, 0.0) }
-            }).collect(), vec![output("Vector", "Any")]),
+            IceGraphNodeType::Compose { op } => (
+                op.inputs()
+                    .iter()
+                    .map(|&(name, ty)| {
+                        let value = match ty {
+                            // A matrix's axes, unwired: the world's.
+                            xms_ice::Ty::Vec3 if name == "X Axis" => Value::Vec3([1.0, 0.0, 0.0]),
+                            xms_ice::Ty::Vec3 if name == "Y Axis" => Value::Vec3([0.0, 1.0, 0.0]),
+                            xms_ice::Ty::Vec3 if name == "Z Axis" => Value::Vec3([0.0, 0.0, 1.0]),
+                            xms_ice::Ty::Vec2 => Value::Vec2([0.0; 2]),
+                            xms_ice::Ty::Vec3 => Value::Vec3([0.0; 3]),
+                            _ if name == "Real" => Value::Float(1.0),
+                            _ => Value::Float(0.0),
+                        };
+                        IceGraphInputSocket {
+                            value: Some(value),
+                            ..input(name, 0.0)
+                        }
+                    })
+                    .collect(),
+                vec![output("Vector", "Any")],
+            ),
             // What it takes apart, zero (no rotation) when not wired; an
             // output per part.
             IceGraphNodeType::Decompose { op } => {
@@ -261,64 +369,141 @@ impl IceGraph {
                     xms_ice::Ty::Mat4 => ("Matrix", identity()),
                     _ => ("Vector", Value::Vec3([0.0; 3])),
                 };
-                (vec![IceGraphInputSocket { value: Some(value), ..input(name, 0.0) }],
-                 op.outputs().iter().map(|(n, _)| output(*n, "Any")).collect())
+                (
+                    vec![IceGraphInputSocket {
+                        value: Some(value),
+                        ..input(name, 0.0)
+                    }],
+                    op.outputs().iter().map(|(n, _)| output(*n, "Any")).collect(),
+                )
             }
             // Outputs in `xms_ice::SCATTER_*`'s order.
             IceGraphNodeType::Scatter { .. } => (
-                vec![IceGraphInputSocket { value: Some(Value::Int(1000)), ..input("Count", 0.0) }],
-                vec![output("Positions", "Any"), output("Normals", "Any"), output("Surface Samples", "Any")],
+                vec![IceGraphInputSocket {
+                    value: Some(Value::Int(1000)),
+                    ..input("Count", 0.0)
+                }],
+                vec![
+                    output("Positions", "Any"),
+                    output("Normals", "Any"),
+                    output("Surface Samples", "Any"),
+                ],
             ),
             // Outputs in `xms_ice::CLOSEST_*`'s order. The Origin, the
             // points', is wired; a radius of 0: anywhere.
-            IceGraphNodeType::ClosestPoint => (vec![
-                IceGraphInputSocket { value: None, ..input("Geometry", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Vec3([0.0; 3])), ..input("Origin", 0.0) },
-                input("Radius", 0.0),
-            ], vec![output("Surface Samples", "Any"), output("Distance", "Any")]),
+            IceGraphNodeType::ClosestPoint => (
+                vec![
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Geometry", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: Some(Value::Vec3([0.0; 3])),
+                        ..input("Origin", 0.0)
+                    },
+                    input("Radius", 0.0),
+                ],
+                vec![output("Surface Samples", "Any"), output("Distance", "Any")],
+            ),
             // Normals +Y (none) and a random turn about it, when not wired;
             // a count of 0, one per element (or per normal of an array).
-            IceGraphNodeType::RandomOrientation { .. } => (vec![
-                IceGraphInputSocket { value: Some(Value::Vec3([0.0, 1.0, 0.0])), ..input("Normals", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Vec3([0.0, 360.0, 0.0])), ..input("Random Rotation", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Count", 0.0) },
-                IceGraphInputSocket { value: None, ..input("Seed", 0.0) },
-            ], vec![output("Orientations", "Any")]),
+            IceGraphNodeType::RandomOrientation { .. } => (
+                vec![
+                    IceGraphInputSocket {
+                        value: Some(Value::Vec3([0.0, 1.0, 0.0])),
+                        ..input("Normals", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: Some(Value::Vec3([0.0, 360.0, 0.0])),
+                        ..input("Random Rotation", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: Some(Value::Int(0)),
+                        ..input("Count", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Seed", 0.0)
+                    },
+                ],
+                vec![output("Orientations", "Any")],
+            ),
             IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
-            IceGraphNodeType::GetArrayData { .. } => (vec![IceGraphInputSocket { value: None, ..input("Samples", 0.0) },
-                                                           IceGraphInputSocket { value: None, ..input("Geometry", 0.0) }], vec![output("Array", "Any")]),
+            IceGraphNodeType::GetArrayData { .. } => (
+                vec![
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Samples", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Geometry", 0.0)
+                    },
+                ],
+                vec![output("Array", "Any")],
+            ),
             // A PointInstancer's attributes; one orientation and scale for
             // all when not wired, a prototype picked at random (-1).
-            IceGraphNodeType::Instancer { .. } => (vec![
-                IceGraphInputSocket { value: None, ..input("Positions", 0.0) },
-                IceGraphInputSocket { value: None, ..input("Prototypes", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Int(-1)), ..input("Proto Indices", 0.0) },
-                IceGraphInputSocket { value: Some(Value::Quat([0.0, 0.0, 0.0, 1.0])), ..input("Orientations", 0.0) },
-                input("Scales", 1.0),
-            ], vec![output("Execute", "Execute")]),
+            IceGraphNodeType::Instancer { .. } => (
+                vec![
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Positions", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Prototypes", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: Some(Value::Int(-1)),
+                        ..input("Proto Indices", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: Some(Value::Quat([0.0, 0.0, 0.0, 1.0])),
+                        ..input("Orientations", 0.0)
+                    },
+                    input("Scales", 1.0),
+                ],
+                vec![output("Execute", "Execute")],
+            ),
             IceGraphNodeType::Array { op } => {
-                let mut inputs = vec![IceGraphInputSocket { value: None, ..input("Array", 0.0) }];
-                if *op == xms_ice::ArrayOp::Element { inputs.push(IceGraphInputSocket { value: Some(Value::Int(0)), ..input("Index", 0.0) }); }
+                let mut inputs = vec![IceGraphInputSocket {
+                    value: None,
+                    ..input("Array", 0.0)
+                }];
+                if *op == xms_ice::ArrayOp::Element {
+                    inputs.push(IceGraphInputSocket {
+                        value: Some(Value::Int(0)),
+                        ..input("Index", 0.0)
+                    });
+                }
                 (inputs, vec![output("Result", "Any")])
             }
         }
     }
 
-    /// A node's ports made again for what it now is (Compose changed what
-    /// it makes, Decompose what it takes apart): the wires into inputs and
-    /// out of outputs still there kept, the others taken off.
+    /// A node's ports made again for what it now is (Compose changed what it
+    /// makes, Decompose what it takes apart): the wires into inputs and out of
+    /// outputs still there kept, the others taken off.
     pub fn resync_sockets(&mut self, id: NodeId) {
-        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else { return };
+        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else {
+            return;
+        };
         let (mut inputs, outputs) = Self::create_sockets(&n.node_type);
-        for (new, old) in inputs.iter_mut().zip(&n.inputs) { new.connected_output = old.connected_output; }
+        for (new, old) in inputs.iter_mut().zip(&n.inputs) {
+            new.connected_output = old.connected_output;
+        }
         let (ins, outs) = (inputs.len(), outputs.len());
         n.inputs = inputs;
         n.outputs = outputs;
-        self.connections.retain(|c| (c.to_node != id || c.to_input < ins) && (c.from_node != id || c.from_output < outs));
+        self.connections
+            .retain(|c| (c.to_node != id || c.to_input < ins) && (c.from_node != id || c.from_output < outs));
         // Inputs of other nodes wired to an output that is gone: free.
         for other in self.nodes.iter_mut() {
             for input in other.inputs.iter_mut() {
-                if input.connected_output.is_some_and(|(from, k)| from == id && k >= outs) { input.connected_output = None; }
+                if input.connected_output.is_some_and(|(from, k)| from == id && k >= outs) {
+                    input.connected_output = None;
+                }
             }
         }
     }
@@ -344,26 +529,42 @@ impl IceGraph {
         }
         self.connections.push(IceGraphConnection {
             id,
-            from_node: from, from_output: from_out,
-            to_node:   to,   to_input:    to_in,
+            from_node: from,
+            from_output: from_out,
+            to_node: to,
+            to_input: to_in,
         });
     }
 
-    /// Delete a node and the wires to and from it. The root stays: every
-    /// ICE graph has one. Returns whether it was deleted.
+    /// Delete a node and the wires to and from it. The root stays: every ICE
+    /// graph has one. Returns whether it was deleted.
     pub fn remove_node(&mut self, id: NodeId) -> bool {
-        let Some(node) = self.nodes.iter().find(|n| n.id == id) else { return false };
-        if matches!(node.node_type, IceGraphNodeType::Root { .. }) { return false; }
-        let wires: Vec<ConnectionId> = self.connections.iter()
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
+            return false;
+        };
+        if matches!(node.node_type, IceGraphNodeType::Root { .. }) {
+            return false;
+        }
+        let wires: Vec<ConnectionId> = self
+            .connections
+            .iter()
             .filter(|c| c.from_node == id || c.to_node == id)
             .map(|c| c.id)
             .collect();
-        for cid in wires { self.remove_connection(cid); }
+        for cid in wires {
+            self.remove_connection(cid);
+        }
         self.nodes.retain(|n| n.id != id);
-        if self.selected_node == Some(id) { self.selected_node = None; }
+        if self.selected_node == Some(id) {
+            self.selected_node = None;
+        }
         self.selected_nodes.retain(|n| *n != id);
-        if self.dragging_node == Some(id) { self.dragging_node = None; }
-        if self.connecting_from.is_some_and(|(n, _)| n == id) { self.connecting_from = None; }
+        if self.dragging_node == Some(id) {
+            self.dragging_node = None;
+        }
+        if self.connecting_from.is_some_and(|(n, _)| n == id) {
+            self.connecting_from = None;
+        }
         true
     }
 
@@ -376,99 +577,150 @@ impl IceGraph {
         }
         let mut ids = std::mem::take(&mut self.selected_nodes);
         ids.extend(self.selected_node);
-        for id in ids { self.remove_node(id); }
+        for id in ids {
+            self.remove_node(id);
+        }
     }
 
     /// Take off every wire of a picked port (`graph_ports::Picked`).
     pub fn unplug(&mut self, picked: &crate::graph_ports::Picked<NodeId, usize>) {
-        let off: Vec<ConnectionId> = self.connections.iter()
+        let off: Vec<ConnectionId> = self
+            .connections
+            .iter()
             .filter(|c| picked.holds(c.from_node, &c.from_output, c.to_node, &c.to_input))
-            .map(|c| c.id).collect();
-        for cid in off { self.remove_connection(cid); }
+            .map(|c| c.id)
+            .collect();
+        for cid in off {
+            self.remove_connection(cid);
+        }
     }
 
     pub fn remove_connection(&mut self, cid: ConnectionId) {
         if let Some(c) = self.connections.iter().find(|c| c.id == cid) {
             let (tn, ti) = (c.to_node, c.to_input);
             if let Some(n) = self.nodes.iter_mut().find(|n| n.id == tn) {
-                if let Some(inp) = n.inputs.get_mut(ti) { inp.connected_output = None; }
+                if let Some(inp) = n.inputs.get_mut(ti) {
+                    inp.connected_output = None;
+                }
             }
         }
         self.connections.retain(|c| c.id != cid);
-        if self.selected_wire == Some(cid) { self.selected_wire = None; }
+        if self.selected_wire == Some(cid) {
+            self.selected_wire = None;
+        }
     }
 
-    /// The graph as the engine takes it, and the editor's node at each of
-    /// its positions (so an error can be shown on the right node).
+    /// The graph as the engine takes it, and the editor's node at each of its
+    /// positions (so an error can be shown on the right node).
     fn to_engine(&self) -> (xms_ice::Graph, Vec<NodeId>) {
         let ids: Vec<NodeId> = self.nodes.iter().map(|n| n.id).collect();
-        let nodes = self.nodes.iter().map(|n| {
-            let root = matches!(n.node_type, IceGraphNodeType::Root { .. });
-            // Get Data and Get Array Data read at samples when their
-            // Samples input is wired, from another prim when their
-            // Geometry is; an unwired one is not an input to run (the
-            // engine takes [Samples, Geometry], [Samples] or [Geometry]).
-            let reads = matches!(n.node_type, IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. });
-            let sampled = reads && n.inputs.first().is_some_and(|i| i.connected_output.is_some());
-            let op = match &n.node_type {
-                IceGraphNodeType::Root { context } => Op::Root { context: *context },
-                IceGraphNodeType::GetData { name, context, .. } if sampled => Op::GetDataAt { name: name.clone(), context: *context },
-                IceGraphNodeType::GetArrayData { name, context } if sampled => Op::GetArrayDataAt { name: name.clone(), context: *context },
-                IceGraphNodeType::GetData { name, context, reduce } => Op::GetData { name: name.clone(), context: *context, reduce: *reduce },
-                IceGraphNodeType::SetData { name, context, reduce } => Op::SetData { name: name.clone(), context: *context, reduce: *reduce },
-                IceGraphNodeType::Constant { value } => Op::Constant(*value),
-                IceGraphNodeType::Math { op } => Op::Math(*op),
-                IceGraphNodeType::Random { seed } => Op::Random { seed: *seed },
-                IceGraphNodeType::Array { op } => Op::Array(*op),
-                IceGraphNodeType::Compose { op } => Op::Compose(*op),
-                IceGraphNodeType::Decompose { op } => Op::Decompose(*op),
-                IceGraphNodeType::Scatter { seed, weight } => Op::Scatter { seed: *seed, weight: weight.clone() },
-                IceGraphNodeType::ClosestPoint => Op::ClosestPoint,
-                IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData { name: name.clone(), context: *context },
-                IceGraphNodeType::RandomOrientation { seed } => Op::RandomOrientation { seed: *seed },
-                IceGraphNodeType::Concat => Op::Concat,
-                // Rows as they are: `evaluate` turns them into the paths they
-                // name on the reference input.
-                IceGraphNodeType::GetReference { input, paths } => Op::GetReference {
-                    input: *input as usize,
-                    paths: crate::core::locations::is_set(paths).then(|| paths.clone()),
-                },
-                IceGraphNodeType::Instancer { path, seed, .. } => Op::Instancer { path: path.clone(), seed: *seed },
-            };
-            let inputs = n.inputs.iter().filter_map(|i| {
-                let wired = i.connected_output.and_then(|(from, output)| {
-                    ids.iter().position(|id| *id == from).map(|node| Input::Wire { node, output })
-                });
-                match wired {
-                    Some(w) => Some(w),
-                    // The root's free Execute ports are not inputs to run,
-                    // nor an unwired Samples.
-                    None if root || reads => None,
-                    None => Some(Input::Value(i.value.unwrap_or(Value::Float(0.0)))),
-                }
-            }).collect();
-            Node { op, inputs }
-        }).collect();
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| {
+                let root = matches!(n.node_type, IceGraphNodeType::Root { .. });
+                // Get Data and Get Array Data read at samples when their
+                // Samples input is wired, from another prim when their
+                // Geometry is; an unwired one is not an input to run (the
+                // engine takes [Samples, Geometry], [Samples] or [Geometry]).
+                let reads = matches!(
+                    n.node_type,
+                    IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
+                );
+                let sampled = reads && n.inputs.first().is_some_and(|i| i.connected_output.is_some());
+                let op = match &n.node_type {
+                    IceGraphNodeType::Root { context } => Op::Root { context: *context },
+                    IceGraphNodeType::GetData { name, context, .. } if sampled => Op::GetDataAt {
+                        name: name.clone(),
+                        context: *context,
+                    },
+                    IceGraphNodeType::GetArrayData { name, context } if sampled => Op::GetArrayDataAt {
+                        name: name.clone(),
+                        context: *context,
+                    },
+                    IceGraphNodeType::GetData { name, context, reduce } => Op::GetData {
+                        name: name.clone(),
+                        context: *context,
+                        reduce: *reduce,
+                    },
+                    IceGraphNodeType::SetData { name, context, reduce } => Op::SetData {
+                        name: name.clone(),
+                        context: *context,
+                        reduce: *reduce,
+                    },
+                    IceGraphNodeType::Constant { value } => Op::Constant(*value),
+                    IceGraphNodeType::Math { op } => Op::Math(*op),
+                    IceGraphNodeType::Random { seed } => Op::Random { seed: *seed },
+                    IceGraphNodeType::Array { op } => Op::Array(*op),
+                    IceGraphNodeType::Compose { op } => Op::Compose(*op),
+                    IceGraphNodeType::Decompose { op } => Op::Decompose(*op),
+                    IceGraphNodeType::Scatter { seed, weight } => Op::Scatter {
+                        seed: *seed,
+                        weight: weight.clone(),
+                    },
+                    IceGraphNodeType::ClosestPoint => Op::ClosestPoint,
+                    IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData {
+                        name: name.clone(),
+                        context: *context,
+                    },
+                    IceGraphNodeType::RandomOrientation { seed } => Op::RandomOrientation { seed: *seed },
+                    IceGraphNodeType::Concat => Op::Concat,
+                    // Rows as they are: `evaluate` turns them into the paths they
+                    // name on the reference input.
+                    IceGraphNodeType::GetReference { input, paths } => Op::GetReference {
+                        input: *input as usize,
+                        paths: crate::core::locations::is_set(paths).then(|| paths.clone()),
+                    },
+                    IceGraphNodeType::Instancer { path, seed, .. } => Op::Instancer {
+                        path: path.clone(),
+                        seed: *seed,
+                    },
+                };
+                let inputs = n
+                    .inputs
+                    .iter()
+                    .filter_map(|i| {
+                        let wired = i.connected_output.and_then(|(from, output)| {
+                            ids.iter()
+                                .position(|id| *id == from)
+                                .map(|node| Input::Wire { node, output })
+                        });
+                        match wired {
+                            Some(w) => Some(w),
+                            // The root's free Execute ports are not inputs to run,
+                            // nor an unwired Samples.
+                            None if root || reads => None,
+                            None => Some(Input::Value(i.value.unwrap_or(Value::Float(0.0)))),
+                        }
+                    })
+                    .collect();
+                Node { op, inputs }
+            })
+            .collect();
         (xms_ice::Graph { nodes }, ids)
     }
 
-    /// The nodes wired into the root, the root among them: the only ones
-    /// a run computes.
+    /// The nodes wired into the root, the root among them: the only ones a run
+    /// computes.
     fn reaching_root(&self) -> HashSet<NodeId> {
         let mut found: HashSet<NodeId> = HashSet::new();
         let mut todo: Vec<NodeId> = self.root().into_iter().collect();
         while let Some(id) = todo.pop() {
-            if !found.insert(id) { continue; }
-            let Some(n) = self.nodes.iter().find(|n| n.id == id) else { continue };
+            if !found.insert(id) {
+                continue;
+            }
+            let Some(n) = self.nodes.iter().find(|n| n.id == id) else {
+                continue;
+            };
             todo.extend(n.inputs.iter().filter_map(|i| i.connected_output.map(|(from, _)| from)));
         }
         found
     }
 
-    /// What the graph computes: the nodes wired into the root, what each
-    /// input takes and the wires between them. Not where nodes are drawn,
-    /// their names or what is selected, nor a node wired to nothing yet:
-    /// moving a node or putting a new one down does not run the graph again.
+    /// What the graph computes: the nodes wired into the root, what each input
+    /// takes and the wires between them. Not where nodes are drawn, their names
+    /// or what is selected, nor a node wired to nothing yet: moving a node or
+    /// putting a new one down does not run the graph again.
     pub fn content_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -487,25 +739,37 @@ impl IceGraph {
         h.finish()
     }
 
-    /// Work out the type of every node's output, wired or not, on the
-    /// geometry the graph last ran on. Cheap (no attribute is read), so the
-    /// editor does it as it draws.
+    /// Work out the type of every node's output, wired or not, on the geometry
+    /// the graph last ran on. Cheap (no attribute is read), so the editor does
+    /// it as it draws.
     pub fn refresh_types(&self) {
-        let Some(input) = self.last_input.lock().ok().and_then(|g| g.clone()) else { return };
+        let Some(input) = self.last_input.lock().ok().and_then(|g| g.clone()) else {
+            return;
+        };
         let (graph, ids) = self.to_engine();
-        let types: HashMap<NodeId, xms_ice::Ty> = xms_ice::output_types(&graph, &input).into_iter().enumerate()
+        let types: HashMap<NodeId, xms_ice::Ty> = xms_ice::output_types(&graph, &input)
+            .into_iter()
+            .enumerate()
             .filter_map(|(k, t)| Some((*ids.get(k)?, t?)))
             .collect();
-        if let Ok(mut kept) = self.types.lock() { *kept = types; }
-        let arrays = xms_ice::output_arrays(&graph).into_iter().enumerate()
+        if let Ok(mut kept) = self.types.lock() {
+            *kept = types;
+        }
+        let arrays = xms_ice::output_arrays(&graph)
+            .into_iter()
+            .enumerate()
             .filter_map(|(k, a)| a.then(|| ids.get(k).copied()).flatten())
             .collect();
-        if let Ok(mut kept) = self.arrays.lock() { *kept = arrays; }
+        if let Ok(mut kept) = self.arrays.lock() {
+            *kept = arrays;
+        }
     }
 
     /// Whether an output gives an array, as `refresh_types` found.
     pub fn output_is_array(&self, node: NodeId, output: usize) -> bool {
-        let Some(n) = self.nodes.iter().find(|n| n.id == node) else { return false };
+        let Some(n) = self.nodes.iter().find(|n| n.id == node) else {
+            return false;
+        };
         n.outputs.get(output).is_some_and(|o| o.value_hint != "Execute")
             && self.arrays.lock().is_ok_and(|a| a.contains(&node))
     }
@@ -514,15 +778,24 @@ impl IceGraph {
     /// context, each attribute's name and kind, stored ones then those made
     /// from the topology, as the Primitive Inspector lists them.
     #[cfg(test)]
-    pub fn readable(&self) -> Vec<(Context, String, String)> { readable(&self.last_input) }
+    pub fn readable(&self) -> Vec<(Context, String, String)> {
+        readable(&self.last_input)
+    }
 }
 
 /// What Get Data can read on the geometry kept in `last` (see
 /// `IceGraph::readable`).
 pub fn readable(last: &Mutex<Option<Geo>>) -> Vec<(Context, String, String)> {
-    let Some(input) = last.lock().ok().and_then(|g| g.clone()) else { return vec![] };
-    let mut out: Vec<(Context, String, String)> = Context::ALL.into_iter()
-        .flat_map(|c| input.attrs(c).map(move |(n, a)| (c, n.to_string(), format!("{:?}", a.column.kind()))))
+    let Some(input) = last.lock().ok().and_then(|g| g.clone()) else {
+        return vec![];
+    };
+    let mut out: Vec<(Context, String, String)> = Context::ALL
+        .into_iter()
+        .flat_map(|c| {
+            input
+                .attrs(c)
+                .map(move |(n, a)| (c, n.to_string(), format!("{:?}", a.column.kind())))
+        })
         .collect();
     for &(c, n, t) in xms_ice::derived::DERIVED {
         let stored = out.iter().any(|(oc, on, _)| *oc == c && on.as_str() == n);
@@ -543,9 +816,17 @@ impl IceGraph {
             _ => match &n.node_type {
                 IceGraphNodeType::Constant { value } => Some(value.ty()),
                 // Positions and normals, then the samples.
-                IceGraphNodeType::Scatter { .. } => Some(if output == xms_ice::SCATTER_SAMPLES { xms_ice::Ty::Sample } else { xms_ice::Ty::Vec3 }),
+                IceGraphNodeType::Scatter { .. } => Some(if output == xms_ice::SCATTER_SAMPLES {
+                    xms_ice::Ty::Sample
+                } else {
+                    xms_ice::Ty::Vec3
+                }),
                 // The samples, then the distances.
-                IceGraphNodeType::ClosestPoint => Some(if output == xms_ice::CLOSEST_DISTANCE { xms_ice::Ty::Float } else { xms_ice::Ty::Sample }),
+                IceGraphNodeType::ClosestPoint => Some(if output == xms_ice::CLOSEST_DISTANCE {
+                    xms_ice::Ty::Float
+                } else {
+                    xms_ice::Ty::Sample
+                }),
                 // Each part its own type, whatever comes in.
                 IceGraphNodeType::Decompose { op } => op.outputs().get(output).map(|o| o.1),
                 _ => self.types.lock().ok()?.get(&node).copied(),
@@ -554,57 +835,93 @@ impl IceGraph {
     }
 
     /// Run the graph on a geometry, in its own space. What it does not set
-    /// stays shared with `input`. A graph that does not compile gives
-    /// `input` back, and says why on the node that broke it.
+    /// stays shared with `input`. A graph that does not compile gives `input`
+    /// back, and says why on the node that broke it.
     pub fn evaluate(&self, input: &Geo, references: &[Reference]) -> Geo {
         let (mut graph, ids) = self.to_engine();
         // Get Reference's rows, as Primitive Locations name prims: the paths
         // on its input each row names, row by row, each once.
         for node in &mut graph.nodes {
-            if let Op::GetReference { input, paths: Some(rows) } = &mut node.op {
-                let there = references.get(*input - 1).map(|r| r.paths.as_slice()).unwrap_or_default();
+            if let Op::GetReference {
+                input,
+                paths: Some(rows),
+            } = &mut node.op
+            {
+                let there = references
+                    .get(*input - 1)
+                    .map(|r| r.paths.as_slice())
+                    .unwrap_or_default();
                 let mut named: Vec<String> = vec![];
                 for row in crate::core::locations::rows(rows) {
                     for p in there.iter().filter(|p| crate::core::locations::names(row, p)) {
-                        if !named.contains(p) { named.push(p.clone()); }
+                        if !named.contains(p) {
+                            named.push(p.clone());
+                        }
                     }
                 }
                 *rows = named;
             }
         }
         // Kept for the editor: its columns are shared, not copied.
-        if let Ok(mut last) = self.last_input.lock() { *last = Some(input.clone()); }
+        if let Ok(mut last) = self.last_input.lock() {
+            *last = Some(input.clone());
+        }
         // Where the primitive is, once: the next graph starts in place.
         let space = SPACE.with(|s| s.replace(glam::Mat4::IDENTITY));
         let result = xms_ice::compile_with(&graph, input, references).map(|plan| {
             let ran = xms_ice::run_in(&plan, input, space, &HashMap::new(), references);
             // Each with its Instancer's draw mode, found by its path.
-            let made = ran.instances.into_iter().map(|i| {
-                let mode = self.nodes.iter().find_map(|n| match &n.node_type {
-                    IceGraphNodeType::Instancer { path, draw_mode, .. } if path.trim() == i.path => Some(*draw_mode),
-                    _ => None,
-                }).unwrap_or_default();
-                (i, mode)
-            }).collect();
+            let made = ran
+                .instances
+                .into_iter()
+                .map(|i| {
+                    let mode = self
+                        .nodes
+                        .iter()
+                        .find_map(|n| match &n.node_type {
+                            IceGraphNodeType::Instancer { path, draw_mode, .. } if path.trim() == i.path => {
+                                Some(*draw_mode)
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or_default();
+                    (i, mode)
+                })
+                .collect();
             INSTANCES.with(|i| *i.borrow_mut() = made);
             ran.geo
         });
         let mut error = self.error.lock().unwrap_or_else(|e| e.into_inner());
         match result {
-            Ok(out) => { *error = None; out }
-            Err(e) => { *error = ids.get(e.node).map(|id| (*id, e.message)); input.clone() }
+            Ok(out) => {
+                *error = None;
+                out
+            }
+            Err(e) => {
+                *error = ids.get(e.node).map(|id| (*id, e.message));
+                input.clone()
+            }
         }
     }
 }
 
-/// The root's Execute port number `n`.
-/// Concatenate Arrays' input `n` (from 1).
+/// The root's Execute port number `n`. Concatenate Arrays' input `n` (from 1).
 pub(crate) fn array_port(n: usize) -> IceGraphInputSocket {
-    IceGraphInputSocket { name: format!("Array {n}"), value_hint: "Any", connected_output: None, value: None }
+    IceGraphInputSocket {
+        name: format!("Array {n}"),
+        value_hint: "Any",
+        connected_output: None,
+        value: None,
+    }
 }
 
 pub(crate) fn execute_port(n: usize) -> IceGraphInputSocket {
-    IceGraphInputSocket { name: format!("Port {n}"), value_hint: "Execute", connected_output: None, value: None }
+    IceGraphInputSocket {
+        name: format!("Port {n}"),
+        value_hint: "Execute",
+        connected_output: None,
+        value: None,
+    }
 }
 
 #[derive(Default)]
@@ -620,7 +937,9 @@ impl IceGraphStore {
         self.subnets.insert(id, IceGraph::new(id, name));
         id
     }
-    pub fn get(&self,         id: IceGraphId) -> Option<&IceGraph>     { self.subnets.get(&id)     }
+    pub fn get(&self, id: IceGraphId) -> Option<&IceGraph> {
+        self.subnets.get(&id)
+    }
 
     /// What every graph computes (`IceGraph::content_hash`), together.
     pub fn content_hash(&self) -> u64 {
@@ -628,10 +947,14 @@ impl IceGraphStore {
         let mut ids: Vec<&IceGraphId> = self.subnets.keys().collect();
         ids.sort_by_key(|i| i.0);
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        for id in ids { (id.0, self.subnets[id].content_hash()).hash(&mut h); }
+        for id in ids {
+            (id.0, self.subnets[id].content_hash()).hash(&mut h);
+        }
         h.finish()
     }
-    pub fn get_mut(&mut self, id: IceGraphId) -> Option<&mut IceGraph> { self.subnets.get_mut(&id) }
+    pub fn get_mut(&mut self, id: IceGraphId) -> Option<&mut IceGraph> {
+        self.subnets.get_mut(&id)
+    }
 }
 
 #[cfg(test)]
@@ -644,7 +967,11 @@ mod tests {
         let mut g = IceGraph::new(IceGraphId(0), "double".into());
         let root = g.root().unwrap();
         let p = g.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
-        let mul = g.add_node("Multiply".into(), IceGraphNodeType::Math { op: Math::Multiply }, egui::pos2(0.0, 0.0));
+        let mul = g.add_node(
+            "Multiply".into(),
+            IceGraphNodeType::Math { op: Math::Multiply },
+            egui::pos2(0.0, 0.0),
+        );
         let set = g.add_node("Set P".into(), IceGraphNodeType::set("P"), egui::pos2(0.0, 0.0));
         g.nodes.iter_mut().find(|n| n.id == mul).unwrap().inputs[1].value = Some(Value::Float(2.0));
         g.add_connection(p, 0, mul, 0);
@@ -656,19 +983,33 @@ mod tests {
     #[test]
     fn a_graph_runs_on_geo_and_shares_what_it_does_not_set() {
         let g = doubling();
-        let mut geo = Geo::from_polygons(vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], vec![3], vec![0, 1, 2]);
-        geo.set(Context::Face, "heat", Attr::new(Column::Float(Arc::new(vec![0.5])), Role::None));
+        let mut geo = Geo::from_polygons(
+            vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            vec![3],
+            vec![0, 1, 2],
+        );
+        geo.set(
+            Context::Face,
+            "heat",
+            Attr::new(Column::Float(Arc::new(vec![0.5])), Role::None),
+        );
         let out = g.evaluate(&geo, &[]);
         assert_eq!(out.points()[1], [0.0, 2.0, 0.0]);
-        assert!(!out.attr(Context::Point, POINTS).unwrap().same(geo.attr(Context::Point, POINTS).unwrap()));
-        assert!(out.attr(Context::Face, "heat").unwrap().same(geo.attr(Context::Face, "heat").unwrap()));
+        assert!(!out
+            .attr(Context::Point, POINTS)
+            .unwrap()
+            .same(geo.attr(Context::Point, POINTS).unwrap()));
+        assert!(out
+            .attr(Context::Face, "heat")
+            .unwrap()
+            .same(geo.attr(Context::Face, "heat").unwrap()));
         assert!(out.topology.same(&geo.topology));
         assert!(g.error.lock().unwrap().is_none());
     }
 
     /// Moving a node, renaming it or selecting it does not change what the
-    /// graph computes; a value does. The types of the outputs are known
-    /// once it has run.
+    /// graph computes; a value does. The types of the outputs are known once it
+    /// has run.
     #[test]
     fn the_hash_follows_what_the_graph_computes() {
         let mut g = doubling();
@@ -677,7 +1018,11 @@ mod tests {
         g.nodes[1].name = "moved".into();
         g.selected_node = Some(g.nodes[1].id);
         assert_eq!(g.content_hash(), before);
-        let mul = g.nodes.iter().position(|n| matches!(n.node_type, IceGraphNodeType::Math { .. })).unwrap();
+        let mul = g
+            .nodes
+            .iter()
+            .position(|n| matches!(n.node_type, IceGraphNodeType::Math { .. }))
+            .unwrap();
         g.nodes[mul].inputs[1].value = Some(Value::Float(3.0));
         assert_ne!(g.content_hash(), before);
         let geo = Geo::from_points(vec![[1.0, 2.0, 3.0]]);
@@ -688,25 +1033,37 @@ mod tests {
     }
 
     /// A new attribute on the second port, from a constant, reaches the
-    /// primitive's primvars (what the Primitive Inspector lists); written
-    /// per face from a per-point graph, it is a uniform primvar.
+    /// primitive's primvars (what the Primitive Inspector lists); written per
+    /// face from a per-point graph, it is a uniform primvar.
     #[test]
     fn a_new_attribute_reaches_the_primvars() {
         use crate::core::geo_mesh::GeoMesh;
         let mut g = doubling();
         let root = g.root().unwrap();
-        let k = g.add_node("Constant".into(), IceGraphNodeType::Constant { value: Value::Float(2.5) }, egui::pos2(0.0, 0.0));
+        let k = g.add_node(
+            "Constant".into(),
+            IceGraphNodeType::Constant {
+                value: Value::Float(2.5),
+            },
+            egui::pos2(0.0, 0.0),
+        );
         let set = g.add_node("Set".into(), IceGraphNodeType::set("test"), egui::pos2(0.0, 0.0));
         g.add_connection(k, 0, set, 0);
         g.add_connection(set, 0, root, 1);
-        let geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], vec![3], vec![0, 1, 2]);
+        let geo = Geo::from_polygons(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            vec![3],
+            vec![0, 1, 2],
+        );
         let out = g.evaluate(&geo, &[]);
         assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
         let mesh = out.to_mesh();
         let pv = mesh.primvars.iter().find(|p| p.name == "test").expect("a test primvar");
         assert_eq!(pv.interp, crate::types::PrimVarInterp::Vertex);
         assert_eq!(pv.values, vec![vec![2.5]; 3]);
-        if let IceGraphNodeType::SetData { context, .. } = &mut g.nodes.iter_mut().find(|n| n.id == set).unwrap().node_type {
+        if let IceGraphNodeType::SetData { context, .. } =
+            &mut g.nodes.iter_mut().find(|n| n.id == set).unwrap().node_type
+        {
             *context = Some(Context::Face);
         }
         let mesh = g.evaluate(&geo, &[]).to_mesh();
@@ -715,26 +1072,51 @@ mod tests {
         assert_eq!(pv.values, vec![vec![2.5]]);
     }
 
-    /// A picked port's wires come off: an input's one wire, an output's
-    /// every wire. Deleting the selection takes the selected wire first,
-    /// else every selected node but the root.
+    /// A picked port's wires come off: an input's one wire, an output's every
+    /// wire. Deleting the selection takes the selected wire first, else every
+    /// selected node but the root.
     #[test]
     fn unplugging_and_deleting_the_selection() {
         use crate::graph_ports::Picked;
         let mut g = doubling();
         let root = g.root().unwrap();
-        let p = g.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::GetData { .. })).unwrap().id;
-        let mul = g.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::Math { .. })).unwrap().id;
+        let p = g
+            .nodes
+            .iter()
+            .find(|n| matches!(n.node_type, IceGraphNodeType::GetData { .. }))
+            .unwrap()
+            .id;
+        let mul = g
+            .nodes
+            .iter()
+            .find(|n| matches!(n.node_type, IceGraphNodeType::Math { .. }))
+            .unwrap()
+            .id;
         // P feeds both of Multiply's inputs: unplugging P's output takes both.
         g.add_connection(p, 0, mul, 1);
         g.unplug(&Picked::Output(p, 0));
         assert!(g.connections.iter().all(|c| c.from_node != p));
-        assert!(g.nodes.iter().find(|n| n.id == mul).unwrap().inputs.iter().all(|i| i.connected_output.is_none()));
+        assert!(g
+            .nodes
+            .iter()
+            .find(|n| n.id == mul)
+            .unwrap()
+            .inputs
+            .iter()
+            .all(|i| i.connected_output.is_none()));
         // An input: its wire only.
-        let set = g.nodes.iter().find(|n| matches!(n.node_type, IceGraphNodeType::SetData { .. })).unwrap().id;
+        let set = g
+            .nodes
+            .iter()
+            .find(|n| matches!(n.node_type, IceGraphNodeType::SetData { .. }))
+            .unwrap()
+            .id;
         g.unplug(&Picked::Input(set, 0));
         assert!(g.connections.iter().all(|c| c.to_node != set));
-        assert!(g.connections.iter().any(|c| c.to_node == root), "Set's Execute still goes into the root");
+        assert!(
+            g.connections.iter().any(|c| c.to_node == root),
+            "Set's Execute still goes into the root"
+        );
         // The selected wire goes first, then the nodes; the root stays.
         let wire = g.connections[0].id;
         g.selected_wire = Some(wire);
@@ -748,21 +1130,38 @@ mod tests {
         assert!(g.selected_nodes.is_empty());
     }
 
-    /// Putting a node down, wired to nothing, does not run the graph again;
-    /// its type is known all the same, and Get Data's list has what the
-    /// topology gives too.
+    /// Putting a node down, wired to nothing, does not run the graph again; its
+    /// type is known all the same, and Get Data's list has what the topology
+    /// gives too.
     #[test]
     fn a_node_wired_to_nothing_does_not_change_the_hash() {
         let mut g = doubling();
-        let geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], vec![3], vec![0, 1, 2]);
+        let geo = Geo::from_polygons(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            vec![3],
+            vec![0, 1, 2],
+        );
         g.evaluate(&geo, &[]);
         let before = g.content_hash();
-        let get = g.add_node("Get".into(), IceGraphNodeType::GetData { name: "area".into(), context: Some(Context::Face), reduce: xms_ice::Reduce::Average }, egui::pos2(0.0, 0.0));
+        let get = g.add_node(
+            "Get".into(),
+            IceGraphNodeType::GetData {
+                name: "area".into(),
+                context: Some(Context::Face),
+                reduce: xms_ice::Reduce::Average,
+            },
+            egui::pos2(0.0, 0.0),
+        );
         assert_eq!(g.content_hash(), before);
         g.refresh_types();
         assert_eq!(g.output_type(get, 0), Some(xms_ice::Ty::Float));
         let readable = g.readable();
-        assert!(readable.iter().any(|(c, n, _)| *c == Context::Face && n == "firstCorner"), "{readable:?}");
+        assert!(
+            readable
+                .iter()
+                .any(|(c, n, _)| *c == Context::Face && n == "firstCorner"),
+            "{readable:?}"
+        );
         assert!(readable.iter().any(|(c, n, _)| *c == Context::Point && n == POINTS));
     }
 
@@ -772,20 +1171,50 @@ mod tests {
     fn concatenate_arrays_keeps_an_input_free_and_joins_paths() {
         let mut g = IceGraph::new(IceGraphId(0), "join".into());
         let root = g.root().unwrap();
-        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) { n.node_type = IceGraphNodeType::Root { context: Context::Object }; }
-        let a = g.add_node("A".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
-        let b = g.add_node("B".into(), IceGraphNodeType::GetReference { input: 2, paths: vec![] }, egui::pos2(0.0, 0.0));
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root {
+                context: Context::Object,
+            };
+        }
+        let a = g.add_node(
+            "A".into(),
+            IceGraphNodeType::GetReference {
+                input: 1,
+                paths: vec![],
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let b = g.add_node(
+            "B".into(),
+            IceGraphNodeType::GetReference {
+                input: 2,
+                paths: vec![],
+            },
+            egui::pos2(0.0, 0.0),
+        );
         let join = g.add_node("Join".into(), IceGraphNodeType::Concat, egui::pos2(0.0, 0.0));
         g.add_connection(a, 0, join, 0);
         g.add_connection(b, 0, join, 1);
-        assert_eq!(g.nodes.iter().find(|n| n.id == join).unwrap().inputs.len(), 3, "one free");
-        let size = g.add_node("Size".into(), IceGraphNodeType::Array { op: xms_ice::ArrayOp::Size }, egui::pos2(0.0, 0.0));
+        assert_eq!(
+            g.nodes.iter().find(|n| n.id == join).unwrap().inputs.len(),
+            3,
+            "one free"
+        );
+        let size = g.add_node(
+            "Size".into(),
+            IceGraphNodeType::Array {
+                op: xms_ice::ArrayOp::Size,
+            },
+            egui::pos2(0.0, 0.0),
+        );
         let set = g.add_node("Set".into(), IceGraphNodeType::set("n"), egui::pos2(0.0, 0.0));
         g.add_connection(join, 0, size, 0);
         g.add_connection(size, 0, set, 0);
         g.add_connection(set, 0, root, 0);
-        let refs: Vec<Reference> = [vec!["/a".to_string()], vec!["/b".to_string(), "/c".into()]].into_iter()
-            .map(|paths| Reference { paths, meshes: vec![] }).collect();
+        let refs: Vec<Reference> = [vec!["/a".to_string()], vec!["/b".to_string(), "/c".into()]]
+            .into_iter()
+            .map(|paths| Reference { paths, meshes: vec![] })
+            .collect();
         let out = g.evaluate(&Geo::from_points(vec![[0.0; 3]]), &refs);
         assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
         assert_eq!(out.attr(Context::Object, "n").unwrap().column.ints().unwrap(), &[3]);
@@ -799,7 +1228,10 @@ mod tests {
         let empty = IceGraph::new(IceGraphId(1), "empty".into());
         let geo = Geo::from_points(vec![[1.0, 2.0, 3.0]]);
         let out = empty.evaluate(&geo, &[]);
-        assert!(out.attr(Context::Point, POINTS).unwrap().same(geo.attr(Context::Point, POINTS).unwrap()));
+        assert!(out
+            .attr(Context::Point, POINTS)
+            .unwrap()
+            .same(geo.attr(Context::Point, POINTS).unwrap()));
     }
 
     #[test]
@@ -820,15 +1252,35 @@ mod tests {
     fn a_graph_reads_the_paths_on_its_reference_inputs() {
         let mut g = IceGraph::new(IceGraphId(0), "refs".into());
         let root = g.root().unwrap();
-        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) { n.node_type = IceGraphNodeType::Root { context: Context::Object }; }
-        let paths = g.add_node("Pines".into(), IceGraphNodeType::GetReference { input: 1, paths: vec!["**/pine*".into()] }, egui::pos2(0.0, 0.0));
-        let size = g.add_node("Size".into(), IceGraphNodeType::Array { op: xms_ice::ArrayOp::Size }, egui::pos2(0.0, 0.0));
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root {
+                context: Context::Object,
+            };
+        }
+        let paths = g.add_node(
+            "Pines".into(),
+            IceGraphNodeType::GetReference {
+                input: 1,
+                paths: vec!["**/pine*".into()],
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let size = g.add_node(
+            "Size".into(),
+            IceGraphNodeType::Array {
+                op: xms_ice::ArrayOp::Size,
+            },
+            egui::pos2(0.0, 0.0),
+        );
         let set = g.add_node("Set n".into(), IceGraphNodeType::set("n"), egui::pos2(0.0, 0.0));
         g.add_connection(paths, 0, size, 0);
         g.add_connection(size, 0, set, 0);
         g.add_connection(set, 0, root, 0);
         let geo = Geo::from_points(vec![[0.0; 3]]);
-        let refs = vec![Reference { paths: vec!["/trees/pine".to_string(), "/trees/oak".into(), "/more/pine_2".into()], meshes: vec![] }];
+        let refs = vec![Reference {
+            paths: vec!["/trees/pine".to_string(), "/trees/oak".into(), "/more/pine_2".into()],
+            meshes: vec![],
+        }];
         let out = g.evaluate(&geo, &refs);
         assert_eq!(out.attr(Context::Object, "n").unwrap().column.ints().unwrap(), &[2]);
         // Its output is an array of paths, and says so.
@@ -838,9 +1290,9 @@ mod tests {
     }
 
     /// A shrink-wrap: per point, Closest Point on Surface on the reference
-    /// input's mesh, then P there. The reference is placed in the world
-    /// and so is the primitive: the points land on the reference where the
-    /// Viewer shows it, in the primitive's own space.
+    /// input's mesh, then P there. The reference is placed in the world and so
+    /// is the primitive: the points land on the reference where the Viewer
+    /// shows it, in the primitive's own space.
     #[test]
     fn the_ice_operator_wraps_points_onto_a_placed_reference_mesh() {
         use crate::node_graph::NodeGraphState;
@@ -850,7 +1302,14 @@ mod tests {
         {
             let g = subnets.get_mut(sid).unwrap();
             let root = g.root().unwrap();
-            let refs = g.add_node("Get".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
+            let refs = g.add_node(
+                "Get".into(),
+                IceGraphNodeType::GetReference {
+                    input: 1,
+                    paths: vec![],
+                },
+                egui::pos2(0.0, 0.0),
+            );
             let p = g.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
             let near = g.add_node("Near".into(), IceGraphNodeType::ClosestPoint, egui::pos2(0.0, 0.0));
             // Get Data with its Samples wired: P read where each landed.
@@ -866,17 +1325,52 @@ mod tests {
         // side, moved over 10 along X.
         let mut graph = NodeGraphState::default();
         let small = graph.add_node("Small".into(), NodeType::cube(0.5), egui::pos2(0.0, 0.0));
-        let up = graph.add_node("Up".into(), NodeType::Transform { translation: glam::Vec3::new(0.0, 3.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 0.0));
+        let up = graph.add_node(
+            "Up".into(),
+            NodeType::Transform {
+                translation: glam::Vec3::new(0.0, 3.0, 0.0),
+                rotation: glam::Vec3::ZERO,
+                scale: glam::Vec3::ONE,
+            },
+            egui::pos2(0.0, 0.0),
+        );
         let big = graph.add_node("Big".into(), NodeType::cube(2.0), egui::pos2(0.0, 0.0));
-        let over = graph.add_node("Over".into(), NodeType::Transform { translation: glam::Vec3::new(10.0, 0.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE }, egui::pos2(0.0, 0.0));
-        let ice = graph.add_node("ICE".into(), NodeType::Ice { id: sid, name: "Wrap".into(), references: 1 }, egui::pos2(0.0, 0.0));
+        let over = graph.add_node(
+            "Over".into(),
+            NodeType::Transform {
+                translation: glam::Vec3::new(10.0, 0.0, 0.0),
+                rotation: glam::Vec3::ZERO,
+                scale: glam::Vec3::ONE,
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let ice = graph.add_node(
+            "ICE".into(),
+            NodeType::Ice {
+                id: sid,
+                name: "Wrap".into(),
+                references: 1,
+            },
+            egui::pos2(0.0, 0.0),
+        );
         graph.add_connection(small, 0, up, 0);
         graph.add_connection(big, 0, over, 0);
         graph.add_connection(up, 0, ice, 0);
         graph.add_connection(over, 0, ice, 1);
-        let eval = |sid: IceGraphId, mesh: &Geo, refs: &[Reference]| subnets.get(sid).map(|sg| sg.evaluate(mesh, refs)).unwrap_or_else(|| mesh.clone());
-        let Some(EvalResult::Named(prims)) = graph.eval_node_out(ice, 0, &mut HashMap::new(), &eval) else { panic!("prims come out") };
-        assert!(subnets.get(sid).unwrap().error.lock().unwrap().is_none(), "{:?}", subnets.get(sid).unwrap().error.lock().unwrap());
+        let eval = |sid: IceGraphId, mesh: &Geo, refs: &[Reference]| {
+            subnets
+                .get(sid)
+                .map(|sg| sg.evaluate(mesh, refs))
+                .unwrap_or_else(|| mesh.clone())
+        };
+        let Some(EvalResult::Named(prims)) = graph.eval_node_out(ice, 0, &mut HashMap::new(), &eval) else {
+            panic!("prims come out")
+        };
+        assert!(
+            subnets.get(sid).unwrap().error.lock().unwrap().is_none(),
+            "{:?}",
+            subnets.get(sid).unwrap().error.lock().unwrap()
+        );
         let p = &prims[0];
         let world = p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY);
         // Every point, in the world, on the big cube: on its faces at x = 9.
@@ -898,11 +1392,39 @@ mod tests {
         {
             let g = subnets.get_mut(sid).unwrap();
             let root = g.root().unwrap();
-            if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) { n.node_type = IceGraphNodeType::Root { context: Context::Object }; }
-            let at = g.add_node("Scatter".into(), IceGraphNodeType::Scatter { seed: 1, weight: String::new() }, egui::pos2(0.0, 0.0));
-            if let Some(n) = g.nodes.iter_mut().find(|n| n.id == at) { n.inputs[0].value = Some(Value::Int(12)); }
-            let protos = g.add_node("Get".into(), IceGraphNodeType::GetReference { input: 1, paths: vec![] }, egui::pos2(0.0, 0.0));
-            let inst = g.add_node("Instancer".into(), IceGraphNodeType::Instancer { path: "scatter".into(), seed: 0, draw_mode: Default::default() }, egui::pos2(0.0, 0.0));
+            if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) {
+                n.node_type = IceGraphNodeType::Root {
+                    context: Context::Object,
+                };
+            }
+            let at = g.add_node(
+                "Scatter".into(),
+                IceGraphNodeType::Scatter {
+                    seed: 1,
+                    weight: String::new(),
+                },
+                egui::pos2(0.0, 0.0),
+            );
+            if let Some(n) = g.nodes.iter_mut().find(|n| n.id == at) {
+                n.inputs[0].value = Some(Value::Int(12));
+            }
+            let protos = g.add_node(
+                "Get".into(),
+                IceGraphNodeType::GetReference {
+                    input: 1,
+                    paths: vec![],
+                },
+                egui::pos2(0.0, 0.0),
+            );
+            let inst = g.add_node(
+                "Instancer".into(),
+                IceGraphNodeType::Instancer {
+                    path: "scatter".into(),
+                    seed: 0,
+                    draw_mode: Default::default(),
+                },
+                egui::pos2(0.0, 0.0),
+            );
             g.add_connection(at, 0, inst, 0);
             g.add_connection(protos, 0, inst, 1);
             g.add_connection(inst, 0, root, 0);
@@ -911,21 +1433,55 @@ mod tests {
         let mut graph = NodeGraphState::default();
         let ground = graph.add_node("Ground".into(), NodeType::cube(4.0), egui::pos2(0.0, 0.0));
         let proto = graph.add_node("Proto".into(), NodeType::cube(0.2), egui::pos2(0.0, 0.0));
-        let ice = graph.add_node("ICE".into(), NodeType::Ice { id: sid, name: "Scatter".into(), references: 1 }, egui::pos2(0.0, 0.0));
+        let ice = graph.add_node(
+            "ICE".into(),
+            NodeType::Ice {
+                id: sid,
+                name: "Scatter".into(),
+                references: 1,
+            },
+            egui::pos2(0.0, 0.0),
+        );
         graph.add_connection(ground, 0, ice, 0);
         graph.add_connection(proto, 0, ice, 1);
-        let eval = |sid: IceGraphId, mesh: &Geo, refs: &[Reference]| subnets.get(sid).map(|sg| sg.evaluate(mesh, refs)).unwrap_or_else(|| mesh.clone());
-        let Some(EvalResult::Named(prims)) = graph.eval_node_out(ice, 0, &mut HashMap::new(), &eval) else { panic!("prims come out") };
+        let eval = |sid: IceGraphId, mesh: &Geo, refs: &[Reference]| {
+            subnets
+                .get(sid)
+                .map(|sg| sg.evaluate(mesh, refs))
+                .unwrap_or_else(|| mesh.clone())
+        };
+        let Some(EvalResult::Named(prims)) = graph.eval_node_out(ice, 0, &mut HashMap::new(), &eval) else {
+            panic!("prims come out")
+        };
         // The scene's cube; beside it a point instancer of 12 points, and the
         // prototype's cube under it, drawn at each of them.
         let ground_path = prims[0].path.clone();
-        let parent = ground_path.rsplit_once('/').map(|(p, _)| p.to_string()).unwrap_or_default();
-        let inst = prims.iter().find(|p| p.instancing.is_some()).expect("a point instancer");
-        assert_eq!(inst.path, format!("{parent}/scatter"), "beside the primitive, not under it");
+        let parent = ground_path
+            .rsplit_once('/')
+            .map(|(p, _)| p.to_string())
+            .unwrap_or_default();
+        let inst = prims
+            .iter()
+            .find(|p| p.instancing.is_some())
+            .expect("a point instancer");
+        assert_eq!(
+            inst.path,
+            format!("{parent}/scatter"),
+            "beside the primitive, not under it"
+        );
         assert_eq!(inst.geo.as_ref().unwrap().points().len(), 12);
         let protos: Vec<_> = prims.iter().filter(|p| p.instanced_by.is_some()).collect();
-        assert_eq!(protos.len(), 1, "{:?}", prims.iter().map(|p| &p.path).collect::<Vec<_>>());
-        assert!(protos[0].path.starts_with(&format!("{}/Prototypes/", inst.path)), "{}", protos[0].path);
+        assert_eq!(
+            protos.len(),
+            1,
+            "{:?}",
+            prims.iter().map(|p| &p.path).collect::<Vec<_>>()
+        );
+        assert!(
+            protos[0].path.starts_with(&format!("{}/Prototypes/", inst.path)),
+            "{}",
+            protos[0].path
+        );
         assert!(matches!(&protos[0].place, Placement::Many(m) if m.len() == 12));
         assert_eq!(inst.instancing.as_ref().unwrap().len(), 1);
     }

@@ -1,12 +1,12 @@
 //! A MaterialX graph: nodes of the library, their values and connections.
 //!
-//! As in a MaterialX document, a connection belongs to the input it goes
-//! into: an input is either a value or the output of another node. A node
-//! keeps only what is set on it; anything else is its definition's default.
-//! Nodes are known by a number that stays the same when they are renamed.
+//! As in a MaterialX document, a connection belongs to the input it goes into:
+//! an input is either a value or the output of another node. A node keeps only
+//! what is set on it; anything else is its definition's default. Nodes are
+//! known by a number that stays the same when they are renamed.
 //!
-//! A node is one node whatever types it takes: connecting may change which
-//! of its definitions it is (`connect`), as MaterialX's own editors do.
+//! A node is one node whatever types it takes: connecting may change which of
+//! its definitions it is (`connect`), as MaterialX's own editors do.
 
 use crate::library::{Library, NodeDef};
 use crate::types::{Type, Value};
@@ -16,7 +16,10 @@ use crate::types::{Type, Value};
 pub enum Binding {
     Value(Value),
     /// The output `output` of the node numbered `node`.
-    Connect { node: u32, output: String },
+    Connect {
+        node: u32,
+        output: String,
+    },
 }
 
 /// A node of a graph.
@@ -49,7 +52,9 @@ impl Node {
         }
     }
 
-    fn unset(&mut self, input: &str) { self.inputs.retain(|(n, _)| n != input); }
+    fn unset(&mut self, input: &str) {
+        self.inputs.retain(|(n, _)| n != input);
+    }
 }
 
 /// A graph of MaterialX nodes.
@@ -59,10 +64,14 @@ pub struct Graph {
     next: u32,
 }
 
-/// A name MaterialX and USD take: letters, digits and `_`, not starting
-/// with a digit.
+/// A name MaterialX and USD take: letters, digits and `_`, not starting with a
+/// digit.
 pub fn identifier(name: &str) -> String {
-    let mut out: String = name.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+    let mut out: String = name
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect();
     if out.is_empty() {
         out = "node".into();
     }
@@ -73,54 +82,90 @@ pub fn identifier(name: &str) -> String {
 }
 
 impl Graph {
-    pub fn new() -> Graph { Graph::default() }
+    pub fn new() -> Graph {
+        Graph::default()
+    }
 
     /// A new material: a `standard_surface` into a `surfacematerial`.
     pub fn standard_surface(lib: &Library) -> Graph {
         let mut g = Graph::new();
-        let surface = g.add(lib, "standard_surface", [0.0, 0.0]).expect("standard_surface is in the library");
-        let material = g.add(lib, "surfacematerial", [320.0, 0.0]).expect("surfacematerial is in the library");
-        g.connect(lib, surface, "out", material, "surfaceshader").expect("a surface shader goes into a material");
+        let surface = g
+            .add(lib, "standard_surface", [0.0, 0.0])
+            .expect("standard_surface is in the library");
+        let material = g
+            .add(lib, "surfacematerial", [320.0, 0.0])
+            .expect("surfacematerial is in the library");
+        g.connect(lib, surface, "out", material, "surfaceshader")
+            .expect("a surface shader goes into a material");
         g
     }
 
-    pub fn node(&self, id: u32) -> Option<&Node> { self.nodes.iter().find(|n| n.id == id) }
-    pub fn node_mut(&mut self, id: u32) -> Option<&mut Node> { self.nodes.iter_mut().find(|n| n.id == id) }
-    pub fn by_name(&self, name: &str) -> Option<&Node> { self.nodes.iter().find(|n| n.name == name) }
+    pub fn node(&self, id: u32) -> Option<&Node> {
+        self.nodes.iter().find(|n| n.id == id)
+    }
+    pub fn node_mut(&mut self, id: u32) -> Option<&mut Node> {
+        self.nodes.iter_mut().find(|n| n.id == id)
+    }
+    pub fn by_name(&self, name: &str) -> Option<&Node> {
+        self.nodes.iter().find(|n| n.name == name)
+    }
 
     /// The definition a node is.
-    pub fn def<'l>(&self, lib: &'l Library, id: u32) -> Option<&'l NodeDef> { lib.def(&self.node(id)?.def) }
+    pub fn def<'l>(&self, lib: &'l Library, id: u32) -> Option<&'l NodeDef> {
+        lib.def(&self.node(id)?.def)
+    }
 
-    /// `base` if no node has it, else `base` followed by the first number
-    /// that makes it unique.
+    /// `base` if no node has it, else `base` followed by the first number that
+    /// makes it unique.
     pub fn unique_name(&self, base: &str) -> String {
         let base = identifier(base);
         if self.by_name(&base).is_none() {
             return base;
         }
         let stem = base.trim_end_matches(|c: char| c.is_ascii_digit());
-        (1..).map(|k| format!("{stem}{k}")).find(|n| self.by_name(n).is_none()).unwrap()
+        (1..)
+            .map(|k| format!("{stem}{k}"))
+            .find(|n| self.by_name(n).is_none())
+            .unwrap()
     }
 
-    /// Add a node of the library, as its default definition, named after
-    /// it and numbered (`image1`). None when the library has no such node.
+    /// Add a node of the library, as its default definition, named after it and
+    /// numbered (`image1`). None when the library has no such node.
     pub fn add(&mut self, lib: &Library, node: &str, pos: [f32; 2]) -> Option<u32> {
         let def = lib.default_def(node)?;
         let id = self.next;
         self.next += 1;
         // `image1`, `image2`; `separate3_1` for a node ending in a digit.
-        let stem = if node.ends_with(|c: char| c.is_ascii_digit()) { format!("{node}_") } else { node.to_string() };
+        let stem = if node.ends_with(|c: char| c.is_ascii_digit()) {
+            format!("{node}_")
+        } else {
+            node.to_string()
+        };
         let name = self.unique_name(&format!("{stem}1"));
-        self.nodes.push(Node { id, name, node: node.to_string(), def: def.name.clone(), pos, inputs: vec![] });
+        self.nodes.push(Node {
+            id,
+            name,
+            node: node.to_string(),
+            def: def.name.clone(),
+            pos,
+            inputs: vec![],
+        });
         Some(id)
     }
 
-    /// Add a node as read from a file: its node and definition given as
-    /// they are, its name kept (the reader makes it unique).
+    /// Add a node as read from a file: its node and definition given as they
+    /// are, its name kept (the reader makes it unique).
     pub fn push(&mut self, name: String, node: String, def: String, pos: [f32; 2]) -> u32 {
         let id = self.next;
         self.next += 1;
-        self.nodes.push(Node { id, name, node, def, pos, inputs: vec![] });
+        self.nodes.push(Node {
+            id,
+            name,
+            node,
+            def,
+            pos,
+            inputs: vec![],
+        });
         id
     }
 
@@ -129,7 +174,8 @@ impl Graph {
         let before = self.nodes.len();
         self.nodes.retain(|n| n.id != id);
         for n in &mut self.nodes {
-            n.inputs.retain(|(_, b)| !matches!(b, Binding::Connect { node, .. } if *node == id));
+            n.inputs
+                .retain(|(_, b)| !matches!(b, Binding::Connect { node, .. } if *node == id));
         }
         self.nodes.len() != before
     }
@@ -156,8 +202,8 @@ impl Graph {
         }
     }
 
-    /// Set an input as read from a file: a value, or a connection, kept as
-    /// it is, with no check of its types (`wire_ok` tells).
+    /// Set an input as read from a file: a value, or a connection, kept as it
+    /// is, with no check of its types (`wire_ok` tells).
     pub fn bind(&mut self, id: u32, input: &str, b: Binding) {
         if let Some(n) = self.node_mut(id) {
             n.set(input, b);
@@ -223,29 +269,35 @@ impl Graph {
     }
 
     /// Connecting `from` into `to` would make a loop.
-    pub fn would_loop(&self, from: u32, to: u32) -> bool { from == to || self.upstream(from).contains(&to) }
+    pub fn would_loop(&self, from: u32, to: u32) -> bool {
+        from == to || self.upstream(from).contains(&to)
+    }
 
-    /// The definition `id` would be with `input` receiving `ty`, keeping
-    /// what else is connected: the one it is when that takes it, else the
-    /// first that does, with its output type kept if it can be.
+    /// The definition `id` would be with `input` receiving `ty`, keeping what
+    /// else is connected: the one it is when that takes it, else the first that
+    /// does, with its output type kept if it can be.
     fn retyped_for_input<'l>(&self, lib: &'l Library, id: u32, input: &str, ty: Type) -> Option<&'l NodeDef> {
         let node = self.node(id)?;
         let current = lib.def(&node.def)?;
-        let mut connected: Vec<(String, Type)> =
-            self.connected_types(lib, id).into_iter().filter(|(n, _)| n != input).collect();
+        let mut connected: Vec<(String, Type)> = self
+            .connected_types(lib, id)
+            .into_iter()
+            .filter(|(n, _)| n != input)
+            .collect();
         connected.push((input.to_string(), ty));
         let refs: Vec<(&str, Type)> = connected.iter().map(|(n, t)| (n.as_str(), *t)).collect();
         if Library::fits(current, &refs, None) {
             return Some(current);
         }
-        lib.resolve(&node.node, &refs, Some(current.out_type())).or_else(|| lib.resolve(&node.node, &refs, None))
+        lib.resolve(&node.node, &refs, Some(current.out_type()))
+            .or_else(|| lib.resolve(&node.node, &refs, None))
     }
 
-    /// The definitions that make `id`'s output `output` give `ty`: `id`
-    /// made the first definition of itself that does, and, where what is
-    /// connected to it then no longer fits, the nodes it reads made other
-    /// definitions too, up the graph (an `image` into a `multiply` into a
-    /// colour makes both colour nodes). None when no such definitions are.
+    /// The definitions that make `id`'s output `output` give `ty`: `id` made
+    /// the first definition of itself that does, and, where what is connected
+    /// to it then no longer fits, the nodes it reads made other definitions
+    /// too, up the graph (an `image` into a `multiply` into a colour makes both
+    /// colour nodes). None when no such definitions are.
     fn plan_output(&self, lib: &Library, id: u32, output: &str, ty: Type, depth: usize) -> Option<Vec<(u32, String)>> {
         let node = self.node(id)?;
         if depth > 8 {
@@ -257,8 +309,16 @@ impl Graph {
             }
             let mut plan = vec![(id, d.name.clone())];
             for (input, b) in &node.inputs {
-                let Binding::Connect { node: src, output: src_out } = b else { continue };
-                let Some(want) = d.input(input).map(|i| i.ty) else { continue 'defs };
+                let Binding::Connect {
+                    node: src,
+                    output: src_out,
+                } = b
+                else {
+                    continue;
+                };
+                let Some(want) = d.input(input).map(|i| i.ty) else {
+                    continue 'defs;
+                };
                 if self.output_type(lib, *src, src_out) == Some(want) {
                     continue;
                 }
@@ -272,8 +332,8 @@ impl Graph {
         None
     }
 
-    /// Make a node another definition of itself: values set on inputs it
-    /// no longer has, or of another type, are dropped.
+    /// Make a node another definition of itself: values set on inputs it no
+    /// longer has, or of another type, are dropped.
     fn retype(&mut self, lib: &Library, id: u32, def: &NodeDef) {
         let Some(node) = self.node_mut(id) else { return };
         if node.def == def.name {
@@ -289,22 +349,32 @@ impl Graph {
     }
 
     /// Connect the output `output` of `from` into `input` of `to`. When the
-    /// types differ, `to` becomes the definition of itself that takes the
-    /// type (an `add` given a colour becomes `ND_add_color3`); failing
-    /// that, `from` becomes the definition that gives the type (an `image`
-    /// into a colour reads a colour), and the nodes it reads with it where
-    /// they must (`plan_output`). Refused, with why, when neither can,
-    /// when it would make a loop, or when there is no such port.
+    /// types differ, `to` becomes the definition of itself that takes the type
+    /// (an `add` given a colour becomes `ND_add_color3`); failing that, `from`
+    /// becomes the definition that gives the type (an `image` into a colour
+    /// reads a colour), and the nodes it reads with it where they must
+    /// (`plan_output`). Refused, with why, when neither can, when it would make
+    /// a loop, or when there is no such port.
     pub fn connect(&mut self, lib: &Library, from: u32, output: &str, to: u32, input: &str) -> Result<(), String> {
         let (Some(src), Some(dst)) = (self.node(from), self.node(to)) else {
             return Err("no such node".into());
         };
         if self.would_loop(from, to) {
-            return Err(format!("{} already reads from {}: that would make a loop", src.name, dst.name));
+            return Err(format!(
+                "{} already reads from {}: that would make a loop",
+                src.name, dst.name
+            ));
         }
-        let dst_def = lib.def(&dst.def).ok_or_else(|| format!("{} is not in the library", dst.def))?;
-        let src_def = lib.def(&src.def).ok_or_else(|| format!("{} is not in the library", src.def))?;
-        let src_ty = src_def.output(output).map(|o| o.ty).ok_or_else(|| format!("{} has no output {output}", src.name))?;
+        let dst_def = lib
+            .def(&dst.def)
+            .ok_or_else(|| format!("{} is not in the library", dst.def))?;
+        let src_def = lib
+            .def(&src.def)
+            .ok_or_else(|| format!("{} is not in the library", src.def))?;
+        let src_ty = src_def
+            .output(output)
+            .map(|o| o.ty)
+            .ok_or_else(|| format!("{} has no output {output}", src.name))?;
         // The input must be one the node has in some definition.
         if !lib.variants(&dst.node).any(|d| d.input(input).is_some()) {
             return Err(format!("{} has no input {input}", dst.name));
@@ -322,11 +392,19 @@ impl Graph {
                 }
             } else {
                 let into = want.map(|t| format!(" ({t})")).unwrap_or_default();
-                return Err(format!("{src_name}.{output} is a {src_ty}: {dst_name}.{input}{into} does not take it"));
+                return Err(format!(
+                    "{src_name}.{output} is a {src_ty}: {dst_name}.{input}{into} does not take it"
+                ));
             }
         }
         if let Some(n) = self.node_mut(to) {
-            n.set(input, Binding::Connect { node: from, output: output.to_string() });
+            n.set(
+                input,
+                Binding::Connect {
+                    node: from,
+                    output: output.to_string(),
+                },
+            );
         }
         Ok(())
     }
@@ -338,19 +416,23 @@ impl Graph {
         }
     }
 
-    /// Whether what is connected to an input is of its type (a wire made
-    /// wrong by a later change is drawn red).
+    /// Whether what is connected to an input is of its type (a wire made wrong
+    /// by a later change is drawn red).
     pub fn wire_ok(&self, lib: &Library, to: u32, input: &str) -> bool {
-        let Some((from, output)) = self.source(to, input) else { return true };
+        let Some((from, output)) = self.source(to, input) else {
+            return true;
+        };
         let want = self.def(lib, to).and_then(|d| d.input(input)).map(|i| i.ty);
         want.is_some() && self.output_type(lib, from, output) == want
     }
 
-    /// The inputs of `to` that the output `output` of `from` can go into,
-    /// as they are or with `to` or `from` made another definition: what a
-    /// wire dropped on the node offers.
+    /// The inputs of `to` that the output `output` of `from` can go into, as
+    /// they are or with `to` or `from` made another definition: what a wire
+    /// dropped on the node offers.
     pub fn inputs_taking(&self, lib: &Library, from: u32, output: &str, to: u32) -> Vec<String> {
-        let (Some(src_ty), Some(dst)) = (self.output_type(lib, from, output), self.node(to)) else { return vec![] };
+        let (Some(src_ty), Some(dst)) = (self.output_type(lib, from, output), self.node(to)) else {
+            return vec![];
+        };
         if self.would_loop(from, to) {
             return vec![];
         }
@@ -375,24 +457,35 @@ impl Graph {
     }
 
     /// The material the graph puts out: its first `surfacematerial` node.
-    pub fn material(&self) -> Option<u32> { self.nodes.iter().find(|n| n.node == "surfacematerial").map(|n| n.id) }
+    pub fn material(&self) -> Option<u32> {
+        self.nodes.iter().find(|n| n.node == "surfacematerial").map(|n| n.id)
+    }
 
     /// The node feeding a material's surface: its `surfaceshader` input.
-    pub fn surface_shader(&self) -> Option<u32> { self.source(self.material()?, "surfaceshader").map(|(n, _)| n) }
+    pub fn surface_shader(&self) -> Option<u32> {
+        self.source(self.material()?, "surfaceshader").map(|(n, _)| n)
+    }
 
     /// Lay the nodes out from right to left: the nodes nothing reads (the
-    /// material) in the right column, each node one column left of the
-    /// leftmost node it feeds, down each column in the order they are
-    /// read. For graphs read from files, which say nothing of where nodes go.
+    /// material) in the right column, each node one column left of the leftmost
+    /// node it feeds, down each column in the order they are read. For graphs
+    /// read from files, which say nothing of where nodes go.
     pub fn arrange(&mut self) {
         const COLUMN: f32 = 300.0;
         const GAP: f32 = 34.0;
         let ids: Vec<u32> = self.nodes.iter().map(|n| n.id).collect();
         let reads = |g: &Graph, id: u32| -> Vec<u32> {
-            g.node(id).map(|n| n.inputs.iter().filter_map(|(_, b)| match b {
-                Binding::Connect { node, .. } => Some(*node),
-                Binding::Value(_) => None,
-            }).collect()).unwrap_or_default()
+            g.node(id)
+                .map(|n| {
+                    n.inputs
+                        .iter()
+                        .filter_map(|(_, b)| match b {
+                            Binding::Connect { node, .. } => Some(*node),
+                            Binding::Value(_) => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
         };
         // Columns: 0 for what nothing reads, then one more than the
         // furthest node read from, until nothing moves.
@@ -408,23 +501,46 @@ impl Graph {
                     }
                 }
             }
-            if !moved { break; }
+            if !moved {
+                break;
+            }
         }
         // The order down each column: as found from the nodes nothing
         // reads, inputs in order.
         let mut order: Vec<u32> = vec![];
-        let sinks: Vec<u32> = ids.iter().copied().filter(|id| !ids.iter().any(|o| reads(self, *o).contains(id))).collect();
+        let sinks: Vec<u32> = ids
+            .iter()
+            .copied()
+            .filter(|id| !ids.iter().any(|o| reads(self, *o).contains(id)))
+            .collect();
         let mut todo: Vec<u32> = sinks.into_iter().rev().collect();
         while let Some(id) = todo.pop() {
-            if order.contains(&id) { continue; }
+            if order.contains(&id) {
+                continue;
+            }
             order.push(id);
-            for src in reads(self, id).into_iter().rev() { todo.push(src); }
+            for src in reads(self, id).into_iter().rev() {
+                todo.push(src);
+            }
         }
-        for id in &ids { if !order.contains(id) { order.push(*id); } }
+        for id in &ids {
+            if !order.contains(id) {
+                order.push(*id);
+            }
+        }
         // A node's height: its title, and a row for each output and
         // connected input (nodes with many inputs show those only).
         let height = |g: &Graph, id: u32| -> f32 {
-            let rows = g.node(id).map(|n| 1 + n.inputs.iter().filter(|(_, b)| matches!(b, Binding::Connect { .. })).count()).unwrap_or(1);
+            let rows = g
+                .node(id)
+                .map(|n| {
+                    1 + n
+                        .inputs
+                        .iter()
+                        .filter(|(_, b)| matches!(b, Binding::Connect { .. }))
+                        .count()
+                })
+                .unwrap_or(1);
             32.0 + rows as f32 * 15.0 + 8.0
         };
         let mut next_y: std::collections::HashMap<usize, f32> = Default::default();
@@ -433,7 +549,9 @@ impl Graph {
             let y = next_y.entry(c).or_insert(0.0);
             let at = [-(c as f32) * COLUMN, *y];
             *y += height(self, id) + GAP;
-            if let Some(n) = self.node_mut(id) { n.pos = at; }
+            if let Some(n) = self.node_mut(id) {
+                n.pos = at;
+            }
         }
     }
 }
@@ -442,7 +560,9 @@ impl Graph {
 mod tests {
     use super::*;
 
-    fn lib() -> &'static Library { Library::standard() }
+    fn lib() -> &'static Library {
+        Library::standard()
+    }
 
     #[test]
     fn a_new_material_is_a_standard_surface() {
@@ -452,7 +572,10 @@ mod tests {
         assert_eq!(g.node(m).unwrap().name, "surfacematerial1");
         let s = g.surface_shader().unwrap();
         assert_eq!(g.node(s).unwrap().name, "standard_surface1");
-        assert_eq!(g.value(lib(), s, "base_color"), Some(&Value::Floats(vec![0.8, 0.8, 0.8])));
+        assert_eq!(
+            g.value(lib(), s, "base_color"),
+            Some(&Value::Floats(vec![0.8, 0.8, 0.8]))
+        );
         assert!(g.wire_ok(lib(), m, "surfaceshader"));
     }
 
@@ -554,6 +677,9 @@ mod tests {
         assert_eq!(offered[0], "base");
         // A material takes the surface shader only.
         let m = g.material().unwrap();
-        assert_eq!(g.inputs_taking(lib, s, "out", m), ["surfaceshader", "backsurfaceshader"]);
+        assert_eq!(
+            g.inputs_taking(lib, s, "out", m),
+            ["surfaceshader", "backsurfaceshader"]
+        );
     }
 }

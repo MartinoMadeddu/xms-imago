@@ -4,28 +4,56 @@
 use glam::Vec2;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum NavStyle { #[default] Maya, Houdini, Xsi, Blender, Max, Modo, Unreal }
+pub enum NavStyle {
+    #[default]
+    Maya,
+    Houdini,
+    Xsi,
+    Blender,
+    Max,
+    Modo,
+    Unreal,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NavAction { Orbit, Pan, Zoom }
+pub enum NavAction {
+    Orbit,
+    Pan,
+    Zoom,
+}
 
 /// Keys and buttons held right now. `alt` includes Cmd / Super.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Held {
-    pub alt: bool, pub shift: bool, pub ctrl: bool, pub space: bool, pub s: bool,
-    pub lmb: bool, pub mmb: bool, pub rmb: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub ctrl: bool,
+    pub space: bool,
+    pub s: bool,
+    pub lmb: bool,
+    pub mmb: bool,
+    pub rmb: bool,
 }
 
 impl NavStyle {
     pub const ALL: [NavStyle; 7] = [
-        NavStyle::Maya, NavStyle::Houdini, NavStyle::Xsi, NavStyle::Blender,
-        NavStyle::Max, NavStyle::Modo, NavStyle::Unreal,
+        NavStyle::Maya,
+        NavStyle::Houdini,
+        NavStyle::Xsi,
+        NavStyle::Blender,
+        NavStyle::Max,
+        NavStyle::Modo,
+        NavStyle::Unreal,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
-            NavStyle::Maya => "Maya", NavStyle::Houdini => "Houdini", NavStyle::Xsi => "XSI",
-            NavStyle::Blender => "Blender", NavStyle::Max => "Max", NavStyle::Modo => "Modo",
+            NavStyle::Maya => "Maya",
+            NavStyle::Houdini => "Houdini",
+            NavStyle::Xsi => "XSI",
+            NavStyle::Blender => "Blender",
+            NavStyle::Max => "Max",
+            NavStyle::Modo => "Modo",
             NavStyle::Unreal => "Unreal",
         }
     }
@@ -39,46 +67,75 @@ impl NavStyle {
         use NavAction::*;
         // Alt (or another key) with the three buttons, as in Maya.
         let maya = |key: bool| -> Option<NavAction> {
-            if !key { return None; }
-            if h.lmb && h.mmb { Some(Zoom) }
-            else if h.lmb { Some(Orbit) }
-            else if h.mmb { Some(Pan) }
-            else if h.rmb { Some(Zoom) }
-            else { None }
+            if !key {
+                return None;
+            }
+            if h.lmb && h.mmb {
+                Some(Zoom)
+            } else if h.lmb {
+                Some(Orbit)
+            } else if h.mmb {
+                Some(Pan)
+            } else if h.rmb {
+                Some(Zoom)
+            } else {
+                None
+            }
         };
         match self {
             NavStyle::Maya | NavStyle::Unreal => maya(h.alt),
             NavStyle::Houdini => maya(h.space || h.alt),
             NavStyle::Xsi => {
-                if !h.s { None }
-                else if h.rmb { Some(Orbit) }
-                else if h.lmb { Some(Pan) }
-                else if h.mmb { Some(Zoom) }
-                else { None }
+                if !h.s {
+                    None
+                } else if h.rmb {
+                    Some(Orbit)
+                } else if h.lmb {
+                    Some(Pan)
+                } else if h.mmb {
+                    Some(Zoom)
+                } else {
+                    None
+                }
             }
             NavStyle::Blender => {
-                if !h.mmb { None }
-                else if h.shift { Some(Pan) }
-                else if h.ctrl { Some(Zoom) }
-                else { Some(Orbit) }
+                if !h.mmb {
+                    None
+                } else if h.shift {
+                    Some(Pan)
+                } else if h.ctrl {
+                    Some(Zoom)
+                } else {
+                    Some(Orbit)
+                }
             }
             NavStyle::Max => {
-                if !h.mmb { None }
-                else if h.ctrl && h.alt { Some(Zoom) }
-                else if h.alt { Some(Orbit) }
-                else { Some(Pan) }
+                if !h.mmb {
+                    None
+                } else if h.ctrl && h.alt {
+                    Some(Zoom)
+                } else if h.alt {
+                    Some(Orbit)
+                } else {
+                    Some(Pan)
+                }
             }
             NavStyle::Modo => {
-                if !(h.alt && h.lmb) { None }
-                else if h.shift { Some(Pan) }
-                else if h.ctrl { Some(Zoom) }
-                else { Some(Orbit) }
+                if !(h.alt && h.lmb) {
+                    None
+                } else if h.shift {
+                    Some(Pan)
+                } else if h.ctrl {
+                    Some(Zoom)
+                } else {
+                    Some(Orbit)
+                }
             }
         }
     }
 
-    /// True while a key is held that hands the left mouse button to the
-    /// camera, so selection tools stay out of the way.
+    /// True while a key is held that hands the left mouse button to the camera,
+    /// so selection tools stay out of the way.
     pub fn claims_left_button(self, h: Held) -> bool {
         match self {
             NavStyle::Maya | NavStyle::Unreal | NavStyle::Modo => h.alt,
@@ -90,8 +147,8 @@ impl NavStyle {
         }
     }
 
-    /// Zoom from a drag in pixels: positive moves in. Horizontal styles
-    /// zoom in to the right, vertical ones upwards.
+    /// Zoom from a drag in pixels: positive moves in. Horizontal styles zoom in
+    /// to the right, vertical ones upwards.
     pub fn zoom(self, delta: Vec2) -> f32 {
         match self {
             NavStyle::Maya | NavStyle::Houdini | NavStyle::Unreal | NavStyle::Modo => delta.x,
@@ -102,19 +159,35 @@ impl NavStyle {
     /// 1 when a pan drag pulls the scene along with the cursor, -1 when it
     /// moves the camera with the cursor instead.
     pub fn pan_sign(self) -> f32 {
-        if self == NavStyle::Unreal { -1.0 } else { 1.0 }
+        if self == NavStyle::Unreal {
+            -1.0
+        } else {
+            1.0
+        }
     }
 
     /// Lines for the help box in the viewport.
     pub fn help(self) -> [&'static str; 3] {
         match self {
-            NavStyle::Maya    => ["Alt + LMB: orbit", "Alt + MMB: pan", "Alt + RMB: zoom (left / right)"],
-            NavStyle::Unreal  => ["Alt + LMB: orbit", "Alt + MMB: pan (reversed)", "Alt + RMB: zoom (left / right)"],
-            NavStyle::Houdini => ["Space + LMB: orbit", "Space + MMB: pan", "Space + RMB: zoom (left / right)"],
-            NavStyle::Xsi     => ["S + RMB: orbit", "S + LMB: pan", "S + MMB: zoom (up / down)"],
+            NavStyle::Maya => ["Alt + LMB: orbit", "Alt + MMB: pan", "Alt + RMB: zoom (left / right)"],
+            NavStyle::Unreal => [
+                "Alt + LMB: orbit",
+                "Alt + MMB: pan (reversed)",
+                "Alt + RMB: zoom (left / right)",
+            ],
+            NavStyle::Houdini => [
+                "Space + LMB: orbit",
+                "Space + MMB: pan",
+                "Space + RMB: zoom (left / right)",
+            ],
+            NavStyle::Xsi => ["S + RMB: orbit", "S + LMB: pan", "S + MMB: zoom (up / down)"],
             NavStyle::Blender => ["MMB: orbit", "Shift + MMB: pan", "Ctrl + MMB: zoom (up / down)"],
-            NavStyle::Max     => ["Alt + MMB: orbit", "MMB: pan", "Ctrl + Alt + MMB: zoom (up / down)"],
-            NavStyle::Modo    => ["Alt + LMB: orbit", "Alt + Shift + LMB: pan", "Alt + Ctrl + LMB: zoom (left / right)"],
+            NavStyle::Max => ["Alt + MMB: orbit", "MMB: pan", "Ctrl + Alt + MMB: zoom (up / down)"],
+            NavStyle::Modo => [
+                "Alt + LMB: orbit",
+                "Alt + Shift + LMB: pan",
+                "Alt + Ctrl + LMB: zoom (left / right)",
+            ],
         }
     }
 }
@@ -122,7 +195,7 @@ impl NavStyle {
 /// The chosen style. Kept between sessions in the config folder.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NavSettings {
-    pub style:       NavStyle,
+    pub style: NavStyle,
     /// Swap the direction of the zoom drag.
     pub invert_zoom: bool,
 }
@@ -132,7 +205,10 @@ impl Default for NavSettings {
         crate::file_browser::config_path("navigation.txt")
             .and_then(|f| std::fs::read_to_string(f).ok())
             .map(|s| Self::parse(&s))
-            .unwrap_or(Self { style: NavStyle::Maya, invert_zoom: false })
+            .unwrap_or(Self {
+                style: NavStyle::Maya,
+                invert_zoom: false,
+            })
     }
 }
 
@@ -146,12 +222,20 @@ impl NavSettings {
     }
 
     pub fn to_text(self) -> String {
-        format!("{}\n{}\n", self.style.label(), if self.invert_zoom { "invert" } else { "normal" })
+        format!(
+            "{}\n{}\n",
+            self.style.label(),
+            if self.invert_zoom { "invert" } else { "normal" }
+        )
     }
 
     pub fn save(self) {
-        let Some(file) = crate::file_browser::config_path("navigation.txt") else { return };
-        if let Some(parent) = file.parent() { let _ = std::fs::create_dir_all(parent); }
+        let Some(file) = crate::file_browser::config_path("navigation.txt") else {
+            return;
+        };
+        if let Some(parent) = file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let _ = std::fs::write(file, self.to_text());
     }
 
@@ -169,9 +253,14 @@ mod tests {
         let mut out = Held::default();
         for k in keys.split('+').map(|k| k.trim()) {
             match k {
-                "alt" => out.alt = true, "shift" => out.shift = true, "ctrl" => out.ctrl = true,
-                "space" => out.space = true, "s" => out.s = true,
-                "lmb" => out.lmb = true, "mmb" => out.mmb = true, "rmb" => out.rmb = true,
+                "alt" => out.alt = true,
+                "shift" => out.shift = true,
+                "ctrl" => out.ctrl = true,
+                "space" => out.space = true,
+                "s" => out.s = true,
+                "lmb" => out.lmb = true,
+                "mmb" => out.mmb = true,
+                "rmb" => out.rmb = true,
                 "" => {}
                 other => panic!("unknown key {other}"),
             }
@@ -182,21 +271,37 @@ mod tests {
     #[test]
     fn each_style_maps_its_own_combinations() {
         let cases: &[(NavStyle, &str, Option<NavAction>)] = &[
-            (NavStyle::Maya, "alt+lmb", Some(Orbit)), (NavStyle::Maya, "alt+mmb", Some(Pan)),
-            (NavStyle::Maya, "alt+rmb", Some(Zoom)), (NavStyle::Maya, "alt+lmb+mmb", Some(Zoom)),
-            (NavStyle::Maya, "lmb", None), (NavStyle::Maya, "mmb", None), (NavStyle::Maya, "space+lmb", None),
-            (NavStyle::Houdini, "space+lmb", Some(Orbit)), (NavStyle::Houdini, "space+mmb", Some(Pan)),
-            (NavStyle::Houdini, "space+rmb", Some(Zoom)), (NavStyle::Houdini, "alt+lmb", Some(Orbit)),
+            (NavStyle::Maya, "alt+lmb", Some(Orbit)),
+            (NavStyle::Maya, "alt+mmb", Some(Pan)),
+            (NavStyle::Maya, "alt+rmb", Some(Zoom)),
+            (NavStyle::Maya, "alt+lmb+mmb", Some(Zoom)),
+            (NavStyle::Maya, "lmb", None),
+            (NavStyle::Maya, "mmb", None),
+            (NavStyle::Maya, "space+lmb", None),
+            (NavStyle::Houdini, "space+lmb", Some(Orbit)),
+            (NavStyle::Houdini, "space+mmb", Some(Pan)),
+            (NavStyle::Houdini, "space+rmb", Some(Zoom)),
+            (NavStyle::Houdini, "alt+lmb", Some(Orbit)),
             (NavStyle::Houdini, "lmb", None),
-            (NavStyle::Xsi, "s+rmb", Some(Orbit)), (NavStyle::Xsi, "s+lmb", Some(Pan)),
-            (NavStyle::Xsi, "s+mmb", Some(Zoom)), (NavStyle::Xsi, "alt+lmb", None), (NavStyle::Xsi, "rmb", None),
-            (NavStyle::Blender, "mmb", Some(Orbit)), (NavStyle::Blender, "shift+mmb", Some(Pan)),
-            (NavStyle::Blender, "ctrl+mmb", Some(Zoom)), (NavStyle::Blender, "alt+lmb", None),
-            (NavStyle::Max, "mmb", Some(Pan)), (NavStyle::Max, "alt+mmb", Some(Orbit)),
-            (NavStyle::Max, "ctrl+alt+mmb", Some(Zoom)), (NavStyle::Max, "alt+lmb", None),
-            (NavStyle::Modo, "alt+lmb", Some(Orbit)), (NavStyle::Modo, "alt+shift+lmb", Some(Pan)),
-            (NavStyle::Modo, "alt+ctrl+lmb", Some(Zoom)), (NavStyle::Modo, "alt+mmb", None),
-            (NavStyle::Unreal, "alt+lmb", Some(Orbit)), (NavStyle::Unreal, "alt+mmb", Some(Pan)),
+            (NavStyle::Xsi, "s+rmb", Some(Orbit)),
+            (NavStyle::Xsi, "s+lmb", Some(Pan)),
+            (NavStyle::Xsi, "s+mmb", Some(Zoom)),
+            (NavStyle::Xsi, "alt+lmb", None),
+            (NavStyle::Xsi, "rmb", None),
+            (NavStyle::Blender, "mmb", Some(Orbit)),
+            (NavStyle::Blender, "shift+mmb", Some(Pan)),
+            (NavStyle::Blender, "ctrl+mmb", Some(Zoom)),
+            (NavStyle::Blender, "alt+lmb", None),
+            (NavStyle::Max, "mmb", Some(Pan)),
+            (NavStyle::Max, "alt+mmb", Some(Orbit)),
+            (NavStyle::Max, "ctrl+alt+mmb", Some(Zoom)),
+            (NavStyle::Max, "alt+lmb", None),
+            (NavStyle::Modo, "alt+lmb", Some(Orbit)),
+            (NavStyle::Modo, "alt+shift+lmb", Some(Pan)),
+            (NavStyle::Modo, "alt+ctrl+lmb", Some(Zoom)),
+            (NavStyle::Modo, "alt+mmb", None),
+            (NavStyle::Unreal, "alt+lmb", Some(Orbit)),
+            (NavStyle::Unreal, "alt+mmb", Some(Pan)),
             (NavStyle::Unreal, "alt+rmb", Some(Zoom)),
         ];
         for (style, keys, want) in cases {
@@ -211,7 +316,7 @@ mod tests {
     #[test]
     fn zoom_and_pan_directions() {
         let right = Vec2::new(10.0, 0.0);
-        let up = Vec2::new(0.0, -10.0);   // screen y grows downwards
+        let up = Vec2::new(0.0, -10.0); // screen y grows downwards
         for style in [NavStyle::Maya, NavStyle::Houdini, NavStyle::Unreal, NavStyle::Modo] {
             assert!(style.zoom(right) > 0.0 && style.zoom(-right) < 0.0);
             assert_eq!(style.zoom(up), 0.0, "{}", style.label());
@@ -223,7 +328,10 @@ mod tests {
         for style in NavStyle::ALL {
             assert_eq!(style.pan_sign(), if style == NavStyle::Unreal { -1.0 } else { 1.0 });
         }
-        let inv = NavSettings { style: NavStyle::Maya, invert_zoom: true };
+        let inv = NavSettings {
+            style: NavStyle::Maya,
+            invert_zoom: true,
+        };
         assert!(inv.zoom(right) < 0.0);
     }
 
@@ -245,7 +353,19 @@ mod tests {
                 assert_eq!(NavSettings::parse(&s.to_text()), s);
             }
         }
-        assert_eq!(NavSettings::parse("nonsense"), NavSettings { style: NavStyle::Maya, invert_zoom: false });
-        assert_eq!(NavSettings::parse(""), NavSettings { style: NavStyle::Maya, invert_zoom: false });
+        assert_eq!(
+            NavSettings::parse("nonsense"),
+            NavSettings {
+                style: NavStyle::Maya,
+                invert_zoom: false
+            }
+        );
+        assert_eq!(
+            NavSettings::parse(""),
+            NavSettings {
+                style: NavStyle::Maya,
+                invert_zoom: false
+            }
+        );
     }
 }

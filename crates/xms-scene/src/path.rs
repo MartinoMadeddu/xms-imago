@@ -65,12 +65,18 @@ impl Path {
         if name.is_empty() || name.contains('/') || name.contains('.') {
             return Err(format!("invalid prim name: `{name}`"));
         }
-        Ok(if self.is_root() { Path(Arc::from(format!("/{name}"))) } else { Path(Arc::from(format!("{}/{name}", self.0))) })
+        Ok(if self.is_root() {
+            Path(Arc::from(format!("/{name}")))
+        } else {
+            Path(Arc::from(format!("{}/{name}", self.0)))
+        })
     }
 
     /// Whether `self` is `other` or below it.
     pub fn has_prefix(&self, other: &Path) -> bool {
-        other.is_root() || &*self.0 == &*other.0 || (self.0.starts_with(&*other.0) && self.0.as_bytes().get(other.0.len()) == Some(&b'/'))
+        other.is_root()
+            || &*self.0 == &*other.0
+            || (self.0.starts_with(&*other.0) && self.0.as_bytes().get(other.0.len()) == Some(&b'/'))
     }
 }
 

@@ -10,8 +10,12 @@
 | `usd/teapot/` | USD Working Group assets (https://github.com/usd-wg/assets); Fancy Teapot from PolyHaven's Tea Set by James Ray Cook, Jurita Burger and Rico Cilliers | CC0 (public domain) |
 | `usd/mini_car_kit/` | RYStorm, through the USD Working Group assets | CC0 (public domain) |
 
-The motion capture take in `takes/` and the files in `ragdoll/` are Simon Legrand's, described in `docs/templates.md` and `ragdoll/README.md`.
+The motion capture take in `takes/` and the files in `ragdoll/` are Simon
+Legrand's, described in `docs/templates.md` and `ragdoll/README.md`.
 
-Files a template can download, with their licences, are listed in `src/examples.rs` (`SOURCES`) and in `docs/templates.md`; they are not in the repository.
+Files a template can download, with their licences, are listed in
+`src/examples.rs` (`SOURCES`) and in `docs/templates.md`; they are not in the
+repository.
 
-`DeLorean.usdz` is not covered by the licence of the program. It is included with the permission of its author.
+`DeLorean.usdz` is not covered by the licence of the program. It is included
+with the permission of its author.

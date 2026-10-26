@@ -1,6 +1,6 @@
-//! Name patterns: comma-separated regular expressions matched against joint
-//! and other names. Case is ignored and a pattern matches anywhere in the
-//! name, so a plain word still means "contains this word".
+//! Name patterns: comma-separated regular expressions matched against joint and
+//! other names. Case is ignored and a pattern matches anywhere in the name, so
+//! a plain word still means "contains this word".
 
 use regex::{Regex, RegexBuilder};
 
@@ -9,12 +9,18 @@ pub fn parts(text: &str) -> Vec<&str> {
     let mut out = vec![];
     let (mut depth, mut start, mut escaped) = (0i32, 0usize, false);
     for (i, c) in text.char_indices() {
-        if escaped { escaped = false; continue; }
+        if escaped {
+            escaped = false;
+            continue;
+        }
         match c {
             '\\' => escaped = true,
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => depth = (depth - 1).max(0),
-            ',' if depth == 0 => { out.push(&text[start..i]); start = i + 1; }
+            ',' if depth == 0 => {
+                out.push(&text[start..i]);
+                start = i + 1;
+            }
             _ => {}
         }
     }
@@ -36,21 +42,34 @@ pub fn compile(part: &str) -> Regex {
 pub struct NamePattern(Vec<Regex>);
 
 impl NamePattern {
-    pub fn new(text: &str) -> Self { NamePattern(parts(text).into_iter().map(compile).collect()) }
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
-    pub fn matches(&self, name: &str) -> bool { self.0.iter().any(|r| r.is_match(name)) }
+    pub fn new(text: &str) -> Self {
+        NamePattern(parts(text).into_iter().map(compile).collect())
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn matches(&self, name: &str) -> bool {
+        self.0.iter().any(|r| r.is_match(name))
+    }
 }
 
 /// The first part of `text` that is not a valid expression, with the reason.
 pub fn error(text: &str) -> Option<String> {
-    parts(text).into_iter().find_map(|p| build(p).err().map(|e| {
-        let why = e.to_string();
-        format!("\"{p}\" is matched as plain text: {}", why.lines().last().unwrap_or("").trim())
-    }))
+    parts(text).into_iter().find_map(|p| {
+        build(p).err().map(|e| {
+            let why = e.to_string();
+            format!(
+                "\"{p}\" is matched as plain text: {}",
+                why.lines().last().unwrap_or("").trim()
+            )
+        })
+    })
 }
 
 /// The part that matches exactly `name` and nothing else.
-pub fn exact(name: &str) -> String { format!("^{}$", regex::escape(name)) }
+pub fn exact(name: &str) -> String {
+    format!("^{}$", regex::escape(name))
+}
 
 /// True when `text` holds the exact part for `name`.
 #[cfg(test)]
@@ -64,8 +83,10 @@ pub fn toggle(text: &mut String, name: &str) {
     let e = exact(name);
     let mut list: Vec<String> = parts(text).into_iter().map(String::from).collect();
     match list.iter().position(|p| *p == e) {
-        Some(i) => { list.remove(i); }
-        None    => list.push(e),
+        Some(i) => {
+            list.remove(i);
+        }
+        None => list.push(e),
     }
     *text = list.join(", ");
 }

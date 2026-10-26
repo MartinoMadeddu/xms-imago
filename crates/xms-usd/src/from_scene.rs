@@ -1,7 +1,7 @@
-//! Import through the scene layer: walk an [`rray_scene::Scene`]
-//! instead of the USD stage, emitting the same batches as [`Ctx::walk`]. The
-//! readers here fill the same input structs as the USD readers and call the same
-//! `emit_*` functions, so the two paths can only differ in what they read.
+//! Import through the scene layer: walk an [`rray_scene::Scene`] instead of the
+//! USD stage, emitting the same batches as [`Ctx::walk`]. The readers here fill
+//! the same input structs as the USD readers and call the same `emit_*`
+//! functions, so the two paths can only differ in what they read.
 //!
 //! Lights, the dome, cameras and render settings still read from the stage (at
 //! the scene layer's transform), as do materials; they move in phase 2b-2.
@@ -57,8 +57,8 @@ fn indexed(pv: &rs::Primvar, t: f64) -> Option<(u8, Vec<[f32; 4]>)> {
     })
 }
 
-/// A primvar's values at `t` as floats, without indices (as [`raw`]); float arrays
-/// are moved, not converted.
+/// A primvar's values at `t` as floats, without indices (as [`raw`]); float
+/// arrays are moved, not converted.
 fn take_floats(pv: rs::Primvar, t: f64) -> Option<Vec<f32>> {
     Some(match pv.values.into_at(t)? {
         rs::PrimvarValues::Float(v) => v,
@@ -66,7 +66,8 @@ fn take_floats(pv: rs::Primvar, t: f64) -> Option<Vec<f32>> {
     })
 }
 
-/// A 3-component primvar's values at `t`, without indices (as [`raw`] with 3 dims).
+/// A 3-component primvar's values at `t`, without indices (as [`raw`] with 3
+/// dims).
 fn take_float3(pv: rs::Primvar, t: f64) -> Option<Vec<[f32; 3]>> {
     match pv.values.into_at(t)? {
         rs::PrimvarValues::Float3(v) => Some(v),
@@ -77,7 +78,8 @@ fn take_float3(pv: rs::Primvar, t: f64) -> Option<Vec<[f32; 3]>> {
     }
 }
 
-/// A 2-component primvar's values at `t` with its indices applied (as [`indexed`]).
+/// A 2-component primvar's values at `t` with its indices applied (as
+/// [`indexed`]).
 fn take_float2_indexed(pv: rs::Primvar, t: f64) -> Option<Vec<[f32; 2]>> {
     let indices = pv.indices;
     let v = match pv.values.into_at(t)? {
@@ -96,10 +98,10 @@ fn take_float2_indexed(pv: rs::Primvar, t: f64) -> Option<Vec<[f32; 2]>> {
     })
 }
 
-/// Move the data of curve prims drawn exactly once (outside PointInstancers and native
-/// prototypes, which can be walked more than once) out of the scene layer, so the walk
-/// hands it to the curve builder without copying. The scene layer keeps the prims
-/// (with empty data); it's freed after the walk anyway.
+/// Move the data of curve prims drawn exactly once (outside PointInstancers and
+/// native prototypes, which can be walked more than once) out of the scene
+/// layer, so the walk hands it to the curve builder without copying. The scene
+/// layer keeps the prims (with empty data); it's freed after the walk anyway.
 pub(crate) fn take_curve_payloads(sc: &mut rs::Scene) -> crate::HashMap<rs::Path, rs::Curves> {
     let mut out = crate::HashMap::default();
     let paths: Vec<rs::Path> = sc
@@ -134,12 +136,12 @@ fn find<'a>(pvs: &'a [rs::Primvar], name: &str) -> Option<&'a rs::Primvar> {
 }
 
 impl<'s> Ctx<'s> {
-    /// The scene-layer counterpart of [`Ctx::walk`].
-    /// Points that change during the shutter (deformation blur): (the points at shutter
-    /// open, normalized key times starting with 0, the points at each later key: every
-    /// sample inside the shutter, and close). `None` when the shutter is closed, the
-    /// points are static or don't change in it, or their count changes (topology
-    /// changes can't be interpolated).
+    /// The scene-layer counterpart of [`Ctx::walk`]. Points that change during
+    /// the shutter (deformation blur): (the points at shutter open, normalized
+    /// key times starting with 0, the points at each later key: every sample
+    /// inside the shutter, and close). `None` when the shutter is closed, the
+    /// points are static or don't change in it, or their count changes
+    /// (topology changes can't be interpolated).
     pub(crate) fn point_keys(&self, pts: &rs::Sampled<Vec<rs::Vec3f>>, t: f64) -> Option<(Vec<[f32; 3]>, Vec<f32>, Vec<Vec<[f32; 3]>>)> {
         let (open, close) = (t + self.shutter.0, t + self.shutter.1);
         if close <= open || !pts.is_animated() {
@@ -161,8 +163,9 @@ impl<'s> Ctx<'s> {
     }
 
     /// A prim's world transforms across the shutter (the import's root rotation
-    /// included), at the scene layer's sample times inside it plus its ends, with
-    /// times normalized to [0, 1]; `None` when the shutter is closed or it doesn't move.
+    /// included), at the scene layer's sample times inside it plus its ends,
+    /// with times normalized to [0, 1]; `None` when the shutter is closed or it
+    /// doesn't move.
     pub(crate) fn motion_keys(&self, sc: &rs::Scene, path: &rs::Path, t: f64) -> Option<Arc<MotionKeys>> {
         let (open, close) = (t + self.shutter.0, t + self.shutter.1);
         if close <= open {
@@ -399,8 +402,8 @@ impl<'s> Ctx<'s> {
         self.t_mesh += t0.elapsed();
     }
 
-    /// `c` is owned: data moved out of the scene layer (see [`take_curve_payloads`]) is
-    /// handed on without copying.
+    /// `c` is owned: data moved out of the scene layer (see
+    /// [`take_curve_payloads`]) is handed on without copying.
     fn curves_scene(&mut self, prim: &rs::Prim, c: rs::Curves, t: f64, world: &M4, inh: &Inherit, out: &mut Emit) {
         if !self.import_curves {
             *self.skipped.entry("BasisCurves (import disabled)".into()).or_default() += 1;

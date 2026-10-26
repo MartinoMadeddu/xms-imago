@@ -1,6 +1,6 @@
-//! A small XML reader, enough for MaterialX documents: elements, attributes
-//! and comments, the five named entities and numeric character references.
-//! Text between elements is not kept (MaterialX puts nothing there), nor are
+//! A small XML reader, enough for MaterialX documents: elements, attributes and
+//! comments, the five named entities and numeric character references. Text
+//! between elements is not kept (MaterialX puts nothing there), nor are
 //! processing instructions, CDATA or a DOCTYPE, which are skipped.
 
 /// An element: its name, its attributes in document order, its children.
@@ -40,7 +40,11 @@ impl std::error::Error for XmlError {}
 
 /// The root element of a document.
 pub fn parse(text: &str) -> Result<Element, XmlError> {
-    let mut r = Reader { s: text.as_bytes(), text, i: 0 };
+    let mut r = Reader {
+        s: text.as_bytes(),
+        text,
+        i: 0,
+    };
     r.misc()?;
     if r.i >= r.s.len() {
         return Err(r.err("no root element"));
@@ -61,7 +65,10 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn err(&self, what: &str) -> XmlError {
-        XmlError { at: self.i, what: what.to_string() }
+        XmlError {
+            at: self.i,
+            what: what.to_string(),
+        }
     }
 
     fn starts(&self, p: &str) -> bool {
@@ -121,7 +128,10 @@ impl<'a> Reader<'a> {
             return Err(self.err("expected an element"));
         }
         self.i += 1;
-        let mut el = Element { name: self.name()?, ..Default::default() };
+        let mut el = Element {
+            name: self.name()?,
+            ..Default::default()
+        };
         // Attributes, up to `>` or `/>`.
         loop {
             self.skip_ws();
@@ -268,7 +278,10 @@ mod tests {
 
     #[test]
     fn entities_round_trip() {
-        assert_eq!(unescape("a &lt; b &amp;&amp; c &gt; d &quot;e&quot; &#65;&#x42;"), "a < b && c > d \"e\" AB");
+        assert_eq!(
+            unescape("a &lt; b &amp;&amp; c &gt; d &quot;e&quot; &#65;&#x42;"),
+            "a < b && c > d \"e\" AB"
+        );
         assert_eq!(unescape("&unknown; &"), "&unknown; &");
         let s = "x < \"y\" & z";
         assert_eq!(unescape(&escape(s)), s);

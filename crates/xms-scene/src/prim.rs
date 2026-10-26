@@ -66,17 +66,18 @@ impl Lerp for PrimvarValues {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Primvar {
     pub name: String,
-    /// Authored interpolation; `None` = unauthored (consumers apply USD's default,
-    /// or infer it from the array length as the importer does)
+    /// Authored interpolation; `None` = unauthored (consumers apply USD's
+    /// default, or infer it from the array length as the importer does)
     pub interpolation: Option<Interpolation>,
     pub values: Sampled<PrimvarValues>,
     pub indices: Option<Vec<u32>>,
 }
 
 impl Subdivision {
-    /// An authored subdivision scheme renderers refine (`catmullClark` or `loop`).
-    /// Only authored schemes count: exporters often leave plain polygon meshes
-    /// unauthored, and USD's schema fallback would make them all subdivision surfaces.
+    /// An authored subdivision scheme renderers refine (`catmullClark` or
+    /// `loop`). Only authored schemes count: exporters often leave plain
+    /// polygon meshes unauthored, and USD's schema fallback would make them all
+    /// subdivision surfaces.
     pub fn is_tagged(&self) -> bool {
         matches!(self.scheme.as_deref(), Some("catmullClark" | "loop"))
     }
@@ -85,8 +86,8 @@ impl Subdivision {
 /// Subdivision settings (UsdGeomMesh `subdivisionScheme` and tags).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Subdivision {
-    /// Authored `subdivisionScheme` (`catmullClark`, `loop`, `bilinear`, `none`);
-    /// `None` = unauthored
+    /// Authored `subdivisionScheme` (`catmullClark`, `loop`, `bilinear`,
+    /// `none`); `None` = unauthored
     pub scheme: Option<String>,
     /// Refinement level requested for this mesh (renderer attribute), if any
     pub level: Option<u32>,
@@ -186,7 +187,8 @@ pub struct Instancer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShaderNode {
     pub path: Path,
-    /// `info:id` (e.g. `ND_open_pbr_surface_surfaceshader`, `UsdPreviewSurface`)
+    /// `info:id` (e.g. `ND_open_pbr_surface_surfaceshader`,
+    /// `UsdPreviewSurface`)
     pub id: String,
     /// The prim's USD type (`Shader`, …), for nodes without an `info:id`
     pub type_name: String,
@@ -214,7 +216,10 @@ pub enum ShaderValue {
     /// A file path (`asset`)
     Asset(String),
     /// Connected to `node`'s output `output`
-    Connection { node: Path, output: String },
+    Connection {
+        node: Path,
+        output: String,
+    },
 }
 
 /// UsdShadeMaterial: its shader network and terminal connections. Compiled by
@@ -222,24 +227,45 @@ pub enum ShaderValue {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Material {
     pub nodes: Vec<ShaderNode>,
-    /// Surface terminal (`outputs:surface` / `outputs:mtlx:surface`): node path and output
+    /// Surface terminal (`outputs:surface` / `outputs:mtlx:surface`): node path
+    /// and output
     pub surface: Option<(Path, String)>,
     pub displacement: Option<(Path, String)>,
     pub volume: Option<(Path, String)>,
-    /// A MaterialX document this material comes from, if any (path, target material)
+    /// A MaterialX document this material comes from, if any (path, target
+    /// material)
     pub mtlx_document: Option<(String, String)>,
 }
 
 /// UsdLux light kinds, with their shape parameters.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LightKind {
-    Distant { angle: f32 },
-    Sphere { radius: f32, treat_as_point: bool },
-    Rect { width: f32, height: f32, texture: Option<String> },
-    Disk { radius: f32 },
-    Cylinder { radius: f32, length: f32, treat_as_line: bool },
+    Distant {
+        angle: f32,
+    },
+    Sphere {
+        radius: f32,
+        treat_as_point: bool,
+    },
+    Rect {
+        width: f32,
+        height: f32,
+        texture: Option<String>,
+    },
+    Disk {
+        radius: f32,
+    },
+    Cylinder {
+        radius: f32,
+        length: f32,
+        treat_as_line: bool,
+    },
     /// `pole_axis`: `DomeLight_1`'s `poleAxis` token ("Y", "Z" or "scene")
-    Dome { texture: Option<String>, format: Option<String>, pole_axis: Option<String> },
+    Dome {
+        texture: Option<String>,
+        format: Option<String>,
+        pole_axis: Option<String>,
+    },
 }
 
 /// UsdLux light. Intensity-like values may be animated.
@@ -259,13 +285,15 @@ pub struct Light {
     pub camera_visible: bool,
 }
 
-/// UsdGeomCamera (lengths in scene units; aperture in tenths of a scene unit as in USD).
+/// UsdGeomCamera (lengths in scene units; aperture in tenths of a scene unit as
+/// in USD).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Camera {
     pub projection_orthographic: bool,
     pub focal_length: Sampled<f32>,
-    /// Apertures and offsets in double precision: USD's fallbacks (20.955, 15.2908)
-    /// aren't exact in f32, and renderers derive the field of view from them
+    /// Apertures and offsets in double precision: USD's fallbacks (20.955,
+    /// 15.2908) aren't exact in f32, and renderers derive the field of view
+    /// from them
     pub horizontal_aperture: f64,
     pub vertical_aperture: f64,
     pub horizontal_aperture_offset: f64,
@@ -297,7 +325,8 @@ impl Default for Camera {
     }
 }
 
-/// UsdRenderSettings (the parts a renderer reads), plus other attributes by name.
+/// UsdRenderSettings (the parts a renderer reads), plus other attributes by
+/// name.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct RenderSettings {
     pub camera: Option<Path>,
@@ -318,8 +347,11 @@ pub enum PrimKind {
     Gprim(Box<Gprim>),
     Instancer(Box<Instancer>),
     /// A native instance of the subtree at `prototype`
-    Instance { prototype: Path },
-    /// A material; its shader nodes live inside its network, not as prims of their own
+    Instance {
+        prototype: Path,
+    },
+    /// A material; its shader nodes live inside its network, not as prims of
+    /// their own
     Material(Box<Material>),
     Light(Box<Light>),
     Camera(Box<Camera>),
@@ -336,7 +368,8 @@ pub enum Purpose {
     Guide,
 }
 
-/// A prim: its kind, transform, and the inherited-style attributes renderers use.
+/// A prim: its kind, transform, and the inherited-style attributes renderers
+/// use.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Prim {
     pub path: Path,
@@ -351,14 +384,16 @@ pub struct Prim {
     pub purpose: Purpose,
     /// `material:binding` target (resolved by inheritance at sync)
     pub material_binding: Option<Path>,
-    /// Shadow opacity override (`primvars:rray:opaque`); `None` = inherited / setting
+    /// Shadow opacity override (`primvars:rray:opaque`); `None` = inherited /
+    /// setting
     pub opaque: Option<bool>,
-    /// Primvars of prims whose kind has no list of its own (gprims: `displayColor`, …)
+    /// Primvars of prims whose kind has no list of its own (gprims:
+    /// `displayColor`, …)
     pub primvars: Vec<Primvar>,
-    /// What the prim authors that the fields above do not carry, by name,
-    /// for listing it: its `kind` and `instanceable` metadata, and its
-    /// attributes with one value (`purpose` and `visibility` among them when
-    /// authored on this prim, `doubleSided`, `subdivisionScheme`, a light's
+    /// What the prim authors that the fields above do not carry, by name, for
+    /// listing it: its `kind` and `instanceable` metadata, and its attributes
+    /// with one value (`purpose` and `visibility` among them when authored on
+    /// this prim, `doubleSided`, `subdivisionScheme`, a light's
     /// `inputs:intensity`, `userProperties:*`). Arrays, primvars, transforms
     /// and relationships are not listed here.
     pub authored: Vec<(String, ShaderValue)>,
