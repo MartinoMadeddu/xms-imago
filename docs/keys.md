@@ -1,11 +1,11 @@
-# Keys, the Graph Editor and animation in time
+# Keys, the Curve Editor and animation in time
 
 Any number among an operator's parameters can be keyed: a Transform's translate,
 rotate and scale, a sphere's radius, a camera's focal length, a UV Transform's
 offset. The operator then cooks, at each frame, with the value its curve gives
 there. Moving the playhead moves the scene.
 
-![The bouncing ball template: the Graph Editor beside the node graph, the Keys
+![The bouncing ball template: the Curve Editor beside the node graph, the Keys
 group under the parameters, the keys of Bounce on the timeline](xms_keys.png)
 
 ## Setting keys
@@ -15,7 +15,7 @@ group under the parameters, the keys of Bounce on the timeline](xms_keys.png)
 | Key every number of the selected operator at the playhead | Tap S (anywhere but a text field), or Key all in the Keys group, or right-click the timeline |
 | Key one number | Click its diamond in the Keys group, at the bottom of Parameters |
 | Change a keyed number | Change it in Parameters, or drag a handle in the Viewer: it is keyed at the playhead with the new value |
-| Take a key away | Click its filled diamond; Delete keys here in the Keys group or on the timeline's right-click menu; Delete in the Graph Editor |
+| Take a key away | Click its filled diamond; Delete keys here in the Keys group or on the timeline's right-click menu; Delete in the Curve Editor |
 
 The Keys group lists the numbers of the selected operator that can be keyed,
 with their values at the playhead. A diamond is filled red on a key, hollow red
@@ -49,13 +49,13 @@ Right-click the track: key all at the playhead, or delete the keys there. When
 the selected operator gives a clip, the timeline follows the clip as before, and
 the operator's keys show on it at their time.
 
-## The Graph Editor
+## The Curve Editor
 
-A pane (Window menu, Graph Editor). In the default layout it is a tab behind the
+A pane (Window menu, Curve Editor). In the default layout it is a tab behind the
 Node Graph. A layout saved before it existed does not have it: tick it in the
 Window menu, or Reset layout.
 
-![The Graph Editor with the curves of Bounce](xms_graph_editor.png)
+![The Curve Editor with the curves of Bounce](xms_curve_editor.png)
 
 Frames run across, values up. The channels list at the left has the selected
 operator's keyed numbers, each in its colour (X red, Y green, Z blue): click one
@@ -118,7 +118,7 @@ changed, so one operator can feed several Local Animations, each with its own
 timing.
 
 When a Local Animation is selected, the timeline shows its range over the
-scene's and its keys where they fall, and says the local frame; the Graph Editor
+scene's and its keys where they fall, and says the local frame; the Curve Editor
 shows its curves on local frames. Its parameters show the operator it keys and
 its range.
 

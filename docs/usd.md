@@ -437,13 +437,13 @@ Sphere, Disk, Cylinder, Distant (a point light is a sphere light with **Treat as
 Point** on, as USD has it: UsdLux has no point light of its own). The add menu's
 **Lights** category has an entry for each, the same operator set to that type:
 Dome Light, Rect Light, Point Light… Changing its Type keeps the values both
-types have, and its Primitive Location when it was the type's own
-(`/lights/dome` becomes `/lights/rect`).
+types have, and its Primitive Location.
 
-- **Primitive Location**: `/lights/dome`, `/lights/rect`, `/lights/point`… by
-  type. **Translate** and **Rotate**, as the Camera's, with the Viewer's
-  handles. A new light is 2 m up and 4 m back, turned 30° down; a dome at the
-  origin (where a dome is does not matter, its rotation turns the environment).
+- **Primitive Location**: `/lights/$OPNAME`, under `/lights` and named after the
+  operator (`/lights/DomeLight` for a new Dome Light), whatever its type.
+  **Translate** and **Rotate**, as the Camera's, with the Viewer's handles. A
+  new light is 2 m up and 4 m back, turned 30° down; a dome at the origin (where
+  a dome is does not matter, its rotation turns the environment).
 - **Light**: Intensity, Exposure (stops), Colour, Use Temperature and
   Temperature (kelvin), Normalize. **Contribution**: Diffuse and Specular
   multipliers. **Shape**: the type's own: a dome's Texture, Format (automatic,

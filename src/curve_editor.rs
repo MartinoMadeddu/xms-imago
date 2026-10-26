@@ -1,4 +1,4 @@
-//! The Graph Editor: the curves of the selected operator's keyed numbers, frame
+//! The Curve Editor: the curves of the selected operator's keyed numbers, frame
 //! across, value up, to shape by their keys and tangents.
 //!
 //! | To | Do this |
@@ -26,8 +26,8 @@ use crate::node_graph::NodeGraphState;
 use crate::timeline::Playback;
 use crate::types::NodeId;
 
-/// The Graph Editor's own state: what it looks at and what is selected.
-pub struct GraphEditor {
+/// The Curve Editor's own state: what it looks at and what is selected.
+pub struct CurveEditor {
     node: Option<NodeId>,
     /// Channels shown; empty: all.
     shown: Vec<String>,
@@ -43,9 +43,9 @@ pub struct GraphEditor {
     clipboard: Vec<(String, Vec<Key>)>,
 }
 
-impl Default for GraphEditor {
+impl Default for CurveEditor {
     fn default() -> Self {
-        GraphEditor {
+        CurveEditor {
             node: None,
             shown: vec![],
             selected: vec![],
@@ -161,7 +161,7 @@ fn around(points: impl Iterator<Item = (f64, f64)>) -> Option<[f64; 4]> {
     })
 }
 
-impl GraphEditor {
+impl CurveEditor {
     fn is_selected(&self, path: &str, frame: f64) -> bool {
         self.selected.iter().any(|(p, f)| p == path && (f - frame).abs() < 1e-6)
     }
@@ -189,8 +189,8 @@ enum Mode {
     Remove,
 }
 
-/// The Graph Editor pane.
-pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState, pb: &mut Playback) {
+/// The Curve Editor pane.
+pub fn draw(ui: &mut egui::Ui, ed: &mut CurveEditor, graph: &mut NodeGraphState, pb: &mut Playback) {
     let id = graph.selected_node;
     if ed.node != id {
         ed.node = id;
@@ -241,7 +241,7 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
     toolbar(ui, ed, graph, id, &kind);
     ui.separator();
 
-    egui::Panel::left(egui::Id::new("graph_editor_channels"))
+    egui::Panel::left(egui::Id::new("curve_editor_channels"))
         .resizable(true)
         .default_size(150.0)
         .show(ui, |ui| {
@@ -870,7 +870,7 @@ pub fn draw(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState,
 /// A key on the nearest visible curve under the pointer, at its frame, with the
 /// value the curve has there, so the curve keeps its shape.
 fn insert_on_curve(
-    ed: &mut GraphEditor,
+    ed: &mut CurveEditor,
     graph: &mut NodeGraphState,
     id: NodeId,
     visible: &[String],
@@ -912,7 +912,7 @@ fn empty(ui: &mut egui::Ui, msg: &str) {
 
 /// Tangent types, Break, Unify, Weighted, infinities, Snap, and the frame and
 /// value of the selected keys.
-fn toolbar(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState, id: NodeId, kind: &str) {
+fn toolbar(ui: &mut egui::Ui, ed: &mut CurveEditor, graph: &mut NodeGraphState, id: NodeId, kind: &str) {
     let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) else {
         return;
     };
@@ -1079,7 +1079,7 @@ fn toolbar(ui: &mut egui::Ui, ed: &mut GraphEditor, graph: &mut NodeGraphState, 
     });
 }
 
-fn ed_visible(ed: &GraphEditor, node: &crate::node_graph::GraphNode) -> Vec<String> {
+fn ed_visible(ed: &CurveEditor, node: &crate::node_graph::GraphNode) -> Vec<String> {
     if ed.shown.is_empty() {
         node.channels.iter().map(|c| c.path.clone()).collect()
     } else {

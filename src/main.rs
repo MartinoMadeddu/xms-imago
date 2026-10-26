@@ -1,6 +1,7 @@
 mod app;
 mod batch;
 mod core;
+mod curve_editor;
 mod downloads;
 mod edits;
 mod eframe_app;
@@ -9,7 +10,6 @@ mod examples_stage;
 mod fbx_loader;
 mod fbx_writer;
 mod file_browser;
-mod graph_editor;
 mod graph_io;
 mod graph_ports;
 mod history;
@@ -116,7 +116,7 @@ pub(crate) fn draw_ui(
         save_first,
         confirm,
         batch,
-        graph_editor,
+        curve_editor,
         image_viewer,
         ..
     } = app;
@@ -537,7 +537,7 @@ pub(crate) fn draw_ui(
             uv_state: &mut *uv_state,
             history: &mut *history,
             confirm: &mut *confirm,
-            graph_editor: &mut *graph_editor,
+            curve_editor: &mut *curve_editor,
             image_viewer: &mut *image_viewer,
         };
         let style = theme::dock_style(root.style());
@@ -854,7 +854,7 @@ struct Panes<'a> {
     /// Pane whose tab the mouse button went down on this frame.
     tab_pressed: &'a mut Option<Pane>,
     uv_state: &'a mut uv_editor::UvEditorState,
-    graph_editor: &'a mut graph_editor::GraphEditor,
+    curve_editor: &'a mut curve_editor::CurveEditor,
     image_viewer: &'a mut image_viewer::ImageViewerState,
     history: &'a mut history::History,
     confirm: &'a mut Confirm,
@@ -1017,8 +1017,8 @@ impl egui_dock::TabViewer for Panes<'_> {
                     .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy));
             }
 
-            Pane::GraphEditor => {
-                graph_editor::draw(ui, self.graph_editor, self.graph, self.playback);
+            Pane::CurveEditor => {
+                curve_editor::draw(ui, self.curve_editor, self.graph, self.playback);
             }
 
             Pane::History => {

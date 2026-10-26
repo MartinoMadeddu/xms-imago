@@ -73,9 +73,9 @@ pub enum NodeType {
         #[serde(default)]
         camera: crate::core::camera::Camera,
     },
-    /// A UsdLux light at its Primitive Location (`/lights/dome` and so on by
-    /// default), placed by `translate` and `rotate` (degrees, X then Y then Z):
-    /// Dome, Rect, Sphere (a point light when treated as one), Disk, Cylinder,
+    /// A UsdLux light at its Primitive Location (`/lights/$OPNAME` by default),
+    /// placed by `translate` and `rotate` (degrees, X then Y then Z): Dome,
+    /// Rect, Sphere (a point light when treated as one), Disk, Cylinder,
     /// Distant, chosen by its Type. The add menu has an entry per type, each
     /// this operator set to it. See `core::light`.
     Light {
@@ -557,7 +557,7 @@ pub enum MergeMode {
 /// A Primitive Location as typed, made a valid USD path: segments split on `/`
 /// (empty ones dropped), each a USD identifier (letters, digits and `_`, not
 /// starting with a digit; anything else becomes `_`). Nothing usable gives
-/// `fallback`.
+/// `fallback`, its variables put in the same way.
 pub fn prim_location(text: &str, fallback: &str) -> String {
     // `/root/$OPNAME`, `/shots/$GNAME`: its variables put in.
     let text = if crate::core::vars::has_vars(text) {
@@ -581,7 +581,11 @@ pub fn prim_location(text: &str, fallback: &str) -> String {
         })
         .collect();
     if segments.is_empty() {
-        fallback.to_string()
+        if crate::core::vars::has_vars(fallback) {
+            prim_location(fallback, "/")
+        } else {
+            fallback.to_string()
+        }
     } else {
         format!("/{}", segments.join("/"))
     }
@@ -654,7 +658,7 @@ impl NodeType {
         light.operator_defaults();
         let dome = light.kind == crate::core::light::LightType::Dome;
         NodeType::Light {
-            location: crate::core::light::default_location(&light),
+            location: crate::core::light::DEFAULT_LOCATION.into(),
             translate: if dome { [0.0; 3] } else { [0.0, 2.0, 4.0] },
             rotate: if dome { [0.0; 3] } else { [-30.0, 0.0, 0.0] },
             light,

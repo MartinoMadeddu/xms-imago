@@ -22,8 +22,10 @@ pub enum Pane {
     Timeline,
     UvEditor,
     History,
-    /// The curves of the selected operator's keys.
-    GraphEditor,
+    /// The curves of the selected operator's keys. Layouts saved with
+    /// "GraphEditor" still load.
+    #[serde(alias = "GraphEditor")]
+    CurveEditor,
     /// Renders and images: layers (AOVs), exposure, the values under the
     /// pointer.
     ImageViewer,
@@ -40,7 +42,7 @@ impl Pane {
         Pane::Timeline,
         Pane::UvEditor,
         Pane::History,
-        Pane::GraphEditor,
+        Pane::CurveEditor,
         Pane::ImageViewer,
     ];
 
@@ -55,7 +57,7 @@ impl Pane {
             Pane::Timeline => "Timeline",
             Pane::UvEditor => "UV Editor",
             Pane::History => "History",
-            Pane::GraphEditor => "Graph Editor",
+            Pane::CurveEditor => "Curve Editor",
             Pane::ImageViewer => "Image Viewer",
         }
     }
@@ -123,13 +125,13 @@ pub struct Layout {
 /// with the UV editor and the Image Viewer as tabs behind, the primitive
 /// inspector under both. Then the node graph, then the properties over the
 /// operator stack. Timeline along the bottom of those, History down the whole
-/// right side. The Graph Editor is a tab behind the node graph.
+/// right side. The Curve Editor is a tab behind the node graph.
 pub fn default_dock() -> DockState<Pane> {
     let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
     let s = dock.main_surface_mut();
     let [work, _history] = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
     let [top, _timeline] = s.split_below(work, 0.862, vec![Pane::Timeline]);
-    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::GraphEditor]);
+    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor]);
     let [view, _prim] = s.split_below(left, 0.72, vec![Pane::PrimInspector]);
     s.split_left(view, 0.163, vec![Pane::SceneExplorer]);
     let [_graph, side] = s.split_right(right, 0.648, vec![Pane::Parameters]);
@@ -595,6 +597,19 @@ mod tests {
         assert_eq!(shape(&default_dock()), shape(&theirs));
     }
 
+    /// Panes saved under the names they had: the Curve Editor as "GraphEditor".
+    #[test]
+    fn panes_load_under_their_earlier_names() {
+        for (saved, pane) in [
+            ("Viewport", Pane::Viewer),
+            ("Properties", Pane::Parameters),
+            ("GraphEditor", Pane::CurveEditor),
+        ] {
+            assert_eq!(serde_json::from_str::<Pane>(&format!("\"{saved}\"")).unwrap(), pane);
+        }
+        assert_eq!(serde_json::to_string(&Pane::CurveEditor).unwrap(), "\"CurveEditor\"");
+    }
+
     /// A layout file written by the egui_dock of Imago before the egui 0.36
     /// upgrade (0.13), with the pane names of that time: it still loads, with
     /// its splits, tabs, floating window and lock.
@@ -625,10 +640,10 @@ mod tests {
             sized: vec![],
             tab_drag: None,
         };
-        // Every pane of that time; the Graph Editor and the Image Viewer
+        // Every pane of that time; the Curve Editor and the Image Viewer
         // came later, and are ticked in the Window menu.
         assert_eq!(open(&l), ALL - 2);
-        assert!(!l.is_open(Pane::GraphEditor) && !l.is_open(Pane::ImageViewer));
+        assert!(!l.is_open(Pane::CurveEditor) && !l.is_open(Pane::ImageViewer));
         assert!(l.is_floating(Pane::Parameters) && !l.is_floating(Pane::Viewer));
         let tree = &l.dock[egui_dock::SurfaceIndex::main()];
         match &tree[NodeIndex::root()] {

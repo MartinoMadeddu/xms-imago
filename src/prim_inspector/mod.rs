@@ -590,15 +590,17 @@ fn load_of(
 /// one below it (for an Xform Imago made above a shape).
 fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str) -> Option<NodeId> {
     use crate::types::{prim_location, NodeType};
-    let at = |n: &crate::node_graph::GraphNode| match &n.node_type {
-        NodeType::CreateCube { location, .. } => Some(prim_location(location, "/cube")),
-        NodeType::CreateSphere { location, .. } => Some(prim_location(location, "/sphere")),
-        NodeType::CreateGrid { location, .. } => Some(prim_location(location, "/grid")),
-        NodeType::Camera { location, .. } => Some(prim_location(location, "/camera")),
-        NodeType::Light { location, light, .. } => {
-            Some(prim_location(location, &crate::core::light::default_location(light)))
+    // Each location read as its operator's own, so `$OPNAME` is its name.
+    let at = |n: &crate::node_graph::GraphNode| {
+        let _o = graph.reading(n);
+        match &n.node_type {
+            NodeType::CreateCube { location, .. } => Some(prim_location(location, "/cube")),
+            NodeType::CreateSphere { location, .. } => Some(prim_location(location, "/sphere")),
+            NodeType::CreateGrid { location, .. } => Some(prim_location(location, "/grid")),
+            NodeType::Camera { location, .. } => Some(prim_location(location, "/camera")),
+            NodeType::Light { location, .. } => Some(prim_location(location, crate::core::light::DEFAULT_LOCATION)),
+            _ => None,
         }
-        _ => None,
     };
     upstream(graph, view, |n| {
         at(n).is_some_and(|p| p == path || p.starts_with(&format!("{path}/")))

@@ -510,17 +510,9 @@ pub fn light_prim(path: &str, light: Light, place: crate::types::Placement) -> c
     }
 }
 
-/// Where the Light operator puts a light of this kind unless told:
-/// `/lights/dome`.
-pub fn default_location(light: &Light) -> String {
-    if light.is_point() {
-        return "/lights/point".into();
-    }
-    format!(
-        "/lights/{}",
-        light.kind.usd().trim_end_matches("Light").to_ascii_lowercase()
-    )
-}
+/// Where the Light operator puts its light unless told: under `/lights`, named
+/// after the operator (`/lights/DomeLight`), whatever its type.
+pub const DEFAULT_LOCATION: &str = "/lights/$OPNAME";
 
 #[cfg(test)]
 mod tests {
@@ -577,17 +569,30 @@ mod tests {
     fn a_point_is_a_sphere_and_types_keep_what_they_share() {
         let p = Light::point();
         assert!(p.is_point() && p.kind == LightType::Sphere);
-        assert_eq!(
-            (p.label(), default_location(&p).as_str()),
-            ("Point Light", "/lights/point")
-        );
+        assert_eq!(p.label(), "Point Light");
         let mut l = Light::new(LightType::Rect);
         l.set("inputs:intensity", Value::Float(8.0));
         l.set("inputs:width", Value::Float(2.0));
         l.set_kind(LightType::Disk);
         assert_eq!(l.value("inputs:intensity"), Some(Value::Float(8.0)), "kept");
         assert!(!l.values.contains_key("inputs:width"), "a disk has no width");
-        assert_eq!(default_location(&l), "/lights/disk");
+    }
+
+    #[test]
+    fn a_light_is_named_after_its_operator() {
+        let _o = crate::core::vars::operator("Key Light");
+        assert_eq!(crate::types::prim_location(DEFAULT_LOCATION, "/"), "/lights/Key_Light");
+        assert_eq!(
+            crate::types::prim_location("", DEFAULT_LOCATION),
+            "/lights/Key_Light",
+            "an empty location is the default, its variables put in"
+        );
+        for kind in [Light::new(LightType::Dome), Light::point()] {
+            match crate::types::NodeType::light(kind) {
+                crate::types::NodeType::Light { location, .. } => assert_eq!(location, DEFAULT_LOCATION),
+                _ => unreachable!(),
+            }
+        }
     }
 
     #[test]

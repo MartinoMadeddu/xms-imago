@@ -54,7 +54,7 @@ pub fn evaluate_node_type(
             rotate,
             light,
         } => Some(EvalResult::Named(vec![crate::core::light::light_prim(
-            &crate::types::prim_location(location, &crate::core::light::default_location(light)),
+            &crate::types::prim_location(location, crate::core::light::DEFAULT_LOCATION),
             light.clone(),
             Placement::One(transform_matrix(
                 Vec3::from(*translate),

@@ -440,7 +440,7 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 | **Set Time Samples** | Author samples | attribute; sample list | Not yet (Write USD writes values at the current frame) |
 | **Resample** | Interpolate to a new sample set | rate; interpolation (held/linear) | Partial: Retime (Resample) for clips |
 | **Motion Blur Attrs** | Velocity, acceleration, shutter | velocities attr; accelerations attr; shutter open/close | Not yet |
-| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Graph Editor (`core::keys`, `docs/keys.md`); cooked at the playhead. Not written to USD as time samples yet |
+| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Curve Editor (`core::keys`, `docs/keys.md`); cooked at the playhead. Not written to USD as time samples yet |
 | **Local Animation** | Key the parameters of the operator before it, on frames of its own | start; end | **Done** (`node_graph::local`) |
 | **Merge Animation** | Merge, each input moved in time | align (frame to frame, first, last, middle, stretch, shrink); match rate | **Done** for animated parameters; for clips, only input A's is put out, retimed by Stretch and Shrink |
 

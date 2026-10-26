@@ -91,7 +91,7 @@ it is opened, or until Show all geometry is ticked.
 | Template | Shows |
 |---|---|
 | Local Animation and Merge Animation | Rise keys a cube's Transform on frames 1 to 24, Roll a ball's on 49 to 60, each on frames of its own. AsTheyAre (Merge) shows frames 1 to 60; LinedUp (Merge Animation, First frame, viewed) plays both from frame 1. See [Keys](keys.md#local-animation) |
-| Keys: a bouncing ball | A sphere's Transform with translate X and Y and scale Y keyed: Y cycled, linear on the floor and flat at the top, X cycled with offset so the ball keeps moving on, scale squashing on contact. Open the Graph Editor with Bounce selected (see [Keys](keys.md)) |
+| Keys: a bouncing ball | A sphere's Transform with translate X and Y and scale Y keyed: Y cycled, linear on the floor and flat at the top, X cycled with offset so the ball keeps moving on, scale squashing on contact. Open the Curve Editor with Bounce selected (see [Keys](keys.md)) |
 | Clip basics | Test Clip, Rename Joints, Trim, Retime and Set Timecode in a chain. Select each node to see the timeline follow |
 | FBX import | The example take loaded with Load FBX and trimmed by a second at each end |
 | T-pose and export | Auto T-Pose, Fix Pose lowering the arms, Proxy Skin and Write FBX |

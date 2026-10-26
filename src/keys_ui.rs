@@ -11,7 +11,7 @@ use crate::node_graph::keying::kind_of;
 use crate::node_graph::NodeGraphState;
 use crate::types::NodeId;
 
-/// Red of keys, as on the timeline and in the Graph Editor.
+/// Red of keys, as on the timeline and in the Curve Editor.
 pub fn key_red() -> egui::Color32 {
     crate::theme::c(215, 60, 50)
 }

@@ -181,7 +181,7 @@ delivered. Then:
   by its place in the parameters, so an operator written tomorrow is animatable
   without code of its own. A keyed number shown in Parameters or moved by a
   handle is its value at the playhead, and changing it keys it there: nothing
-  typed is lost when the playhead moves. Curves are shaped in the Graph Editor,
+  typed is lost when the playhead moves. Curves are shaped in the Curve Editor,
   with the tangents and infinities animators know.
 - Animation can have a time of its own. A Local Animation keys the operator
   before it on local frames placed anywhere in the scene, and leaves that
@@ -1011,3 +1011,6 @@ which shows everything Y up in metres, writes the transform that does it.
   columns, `rustfmt.toml`), which the GitHub workflow now checks; Markdown and
   doc comments wrapped at 80 columns; divider comments made plain comments
   (Martino).
+- 26/10/2026: lights are made at `/lights/$OPNAME` by default, named after their
+  operator whatever their type; the Graph Editor is the Curve Editor, as "graph"
+  is the scene graph or an ICE graph (Martino).

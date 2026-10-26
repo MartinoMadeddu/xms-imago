@@ -1,7 +1,7 @@
 //! The Light operator's parameters: where it is, its type, and its UsdLux
 //! values, laid out from `assets/usdlux.json` (see `core::light`).
 
-use crate::core::light::{default_location, Light, LightType};
+use crate::core::light::{Light, LightType, DEFAULT_LOCATION};
 use crate::core::properties::Value;
 use crate::core::render::Param;
 
@@ -26,8 +26,7 @@ pub fn light_rows(
     io: &mut super::ui::PanelIo,
     node: crate::types::NodeId,
 ) {
-    let fallback = default_location(light);
-    let path = crate::types::prim_location(location, &fallback);
+    let path = crate::types::prim_location(location, DEFAULT_LOCATION);
     group(
         ui,
         "Primitive",
@@ -37,7 +36,7 @@ pub fn light_rows(
                 "Primitive Location",
                 Some("A USD path, such as /lights/key. Variables are put in: /lights/$OPNAME"),
                 location,
-                &fallback,
+                DEFAULT_LOCATION,
                 false,
             );
             if path != location.trim() {
@@ -81,9 +80,6 @@ pub fn light_rows(
                     });
             });
             if pick != now {
-                // A location left as the type's own follows the new type.
-                let followed =
-                    location.trim().is_empty() || crate::types::prim_location(location, &fallback) == fallback;
                 match pick {
                     Pick::Point => {
                         light.set_kind(LightType::Sphere);
@@ -94,9 +90,6 @@ pub fn light_rows(
                         light.set("treatAsPoint", Value::Bool(false));
                     }
                     Pick::Kind(k) => light.set_kind(k),
-                }
-                if followed {
-                    *location = default_location(light);
                 }
             }
             f.value("USD", light.kind.usd());

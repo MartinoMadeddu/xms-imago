@@ -104,7 +104,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: MARTINO, group: "USD stages", name: "USD: material binding", build: usd_material_binding,
         hint: "Two Material operators wired into a Material Binding: car paint on the whole model, chrome on the wheels (the later row wins). Textured mode shows them" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Keys: a bouncing ball", build: keys_bounce,
-        hint: "A sphere keyed to bounce along the grid: open the Graph Editor to see its curves, press Play" },
+        hint: "A sphere keyed to bounce along the grid: open the Curve Editor to see its curves, press Play" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Local Animation and Merge Animation", build: local_animation,
         hint: "Two animations on frames of their own, merged as they are and lined up in time" },
     Template { by: SIMON, group: "Animation & Mocap", name: "Clip basics", build: clip_basics,
@@ -299,7 +299,7 @@ fn keys_bounce(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         }
     }
     finish(g, merge, mv);
-    "Keys: Bounce's translate X and Y and scale Y are keyed. Press Play, or open the Graph Editor (Window menu) with Bounce selected: Y is cycled, X cycled with offset so the ball keeps going. Select a key there and pick a tangent type, or drag it.".into()
+    "Keys: Bounce's translate X and Y and scale Y are keyed. Press Play, or open the Curve Editor (Window menu) with Bounce selected: Y is cycled, X cycled with offset so the ball keeps going. Select a key there and pick a tangent type, or drag it.".into()
 }
 
 /// Two Local Animations of different lengths at different times, merged as they

@@ -37,7 +37,7 @@ pub enum Tangent {
     Stepped,
     /// Spline, flat at peaks, troughs and ends, never overshooting.
     Plateau,
-    /// As dragged in the Graph Editor: `in_slope`, `out_slope`.
+    /// As dragged in the Curve Editor: `in_slope`, `out_slope`.
     Fixed,
 }
 

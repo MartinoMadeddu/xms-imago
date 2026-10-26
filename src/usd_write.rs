@@ -1352,7 +1352,13 @@ def Scope "Render" {{
         rect.set("inputs:width", Value::Float(2.0));
         rect.set("inputs:intensity", Value::Float(5.0));
         let mut made = vec![];
-        for l in [Light::new(LightType::Dome), rect, Light::point()] {
+        // Each named as its operator would be: `/lights/$OPNAME`.
+        for (name, l) in [
+            ("dome", Light::new(LightType::Dome)),
+            ("rect", rect),
+            ("point", Light::point()),
+        ] {
+            let _o = crate::core::vars::operator(name);
             let Some(EvalResult::Named(p)) =
                 crate::node_graph::nodes::evaluate_node_type(&crate::types::NodeType::light(l), &[], &pass, 0)
             else {

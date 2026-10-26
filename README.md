@@ -45,7 +45,7 @@ modifier of 3ds Max.
 - **Soft selection:** a falloff distance on Transform
 - **Keys:** any number of any operator can be keyed (S keys the selected one at
   the playhead; the Keys group in Parameters keys one number). The timeline
-  shows the scene's range and the keys, which drag to move. The Graph Editor
+  shows the scene's range and the keys, which drag to move. The Curve Editor
   shapes the curves: tangent types (Auto, Spline, Clamped, Linear, Flat,
   Stepped, Plateau), broken and weighted handles, infinity (cycle, cycle with
   offset, oscillate), insert, copy and paste. Local Animation keys the operator
@@ -54,7 +54,7 @@ modifier of 3ds Max.
   inputs up in time (first, last or middle frame, stretch, shrink). See
   [docs/keys.md](docs/keys.md)
 
-![The bouncing ball template: its curves in the Graph Editor, its keys on the
+![The bouncing ball template: its curves in the Curve Editor, its keys on the
 timeline](docs/xms_keys.png)
 
 - **Node flags:** bypass, view, freeze (keep a node's result while what is above
@@ -409,7 +409,7 @@ On Ubuntu or Debian, first:
 ## Documentation
 
 [docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD,
-geometry, Viewer navigation, animation and mocap, keys and the Graph Editor,
+geometry, Viewer navigation, animation and mocap, keys and the Curve Editor,
 Body Collide, builds and releases.
 
 ## Contributing
