@@ -1,8 +1,11 @@
 # Edit Poly
 
-One node that holds an ordered list of polygon operations, modelled on the Edit Poly modifier of 3ds Max. Add it from the add-node menu under Modify, and connect a mesh to its input.
+One node that holds an ordered list of polygon operations, modelled on the Edit
+Poly modifier of 3ds Max. Add it from the add-node menu under Modify, and
+connect a mesh to its input.
 
-While an Edit Poly node is selected, the Viewer shows that node with a wireframe and the current selection, whatever the view flag says.
+While an Edit Poly node is selected, the Viewer shows that node with a wireframe
+and the current selection, whatever the view flag says.
 
 ## Selection
 
@@ -20,11 +23,14 @@ Sources:
 | By normal | Polygons facing within an angle of a direction |
 | In box | Components inside an axis-aligned box |
 
-In the Viewer: click replaces the selection, Ctrl adds, Shift removes, dragging draws a box. Only the side facing the camera can be picked.
+In the Viewer: click replaces the selection, Ctrl adds, Shift removes, dragging
+draws a box. Only the side facing the camera can be picked.
 
-Modifiers: Grow, Shrink, Invert, Clear. At Edge level, Loop and Ring extend the selection.
+Modifiers: Grow, Shrink, Invert, Clear. At Edge level, Loop and Ring extend the
+selection.
 
-A rule-based selection is stored as the rule, so the operation adapts when the incoming mesh changes. A picked selection is stored as component indices.
+A rule-based selection is stored as the rule, so the operation adapts when the
+incoming mesh changes. A picked selection is stored as component indices.
 
 ## Operations
 
@@ -60,7 +66,9 @@ Each operation uses the selection that was active when it was added.
 | Triangulate | Polygon | Splits polygons into triangles |
 | Turn | Edge | Turns the edge shared by two triangles |
 
-In the list, each live operation has: an enable checkbox, a button to edit its selection (the Viewer then shows the mesh entering that operation), move up, move down, collapse, remove.
+In the list, each live operation has: an enable checkbox, a button to edit its
+selection (the Viewer then shows the mesh entering that operation), move up,
+move down, collapse, remove.
 
 ## Manipulators
 
@@ -71,11 +79,15 @@ In the list, each live operation has: an enable checkbox, a button to edit its s
 | E | Rotate |
 | R | Scale |
 
-The manipulator sits at the centre of the selection, on world axes. Move and Scale also have a centre handle: free move in the screen plane, and uniform scale.
+The manipulator sits at the centre of the selection, on world axes. Move and
+Scale also have a centre handle: free move in the screen plane, and uniform
+scale.
 
-Each drag is stored as a Transform operation. Further drags on the same selection update that operation. A scale after a rotation starts a new one.
+Each drag is stored as a Transform operation. Further drags on the same
+selection update that operation. A scale after a rotation starts a new one.
 
-The same handles and keys work on a selected Transform or Camera node, writing into its parameters: see [Interface](interface.md#manipulators).
+The same handles and keys work on a selected Transform or Camera node, writing
+into its parameters: see [Interface](interface.md#manipulators).
 
 The Delete key in the Viewer adds a Delete operation.
 
@@ -83,11 +95,18 @@ The Delete key in the Viewer adds a Delete operation.
 
 Two modes, chosen on the node:
 
-- Keep live: operations stay editable. Collapse them one by one, or with Collapse all.
+- Keep live: operations stay editable. Collapse them one by one, or with
+  Collapse all.
 - Auto-collapse: adding an operation collapses the ones before it.
 
-A collapsed operation is frozen and hidden from the list. It is still applied, in order, and still replays when the incoming mesh changes. A run of collapsed operations shows as one line with a Restore button. Collapsing a disabled operation removes it.
+A collapsed operation is frozen and hidden from the list. It is still applied,
+in order, and still replays when the incoming mesh changes. A run of collapsed
+operations shows as one line with a Restore button. Collapsing a disabled
+operation removes it.
 
 ## Not done yet
 
-Interactive cut and quickslice, extrude along spline, target weld, attach, edge split, MSmooth on a selection, preserve UVs, smoothing groups, material IDs, paint deformation, constraints, local manipulator axes. UVs do not pass through Edit Poly: unwrap after it.
+Interactive cut and quickslice, extrude along spline, target weld, attach, edge
+split, MSmooth on a selection, preserve UVs, smoothing groups, material IDs,
+paint deformation, constraints, local manipulator axes. UVs do not pass through
+Edit Poly: unwrap after it.

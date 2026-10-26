@@ -1,11 +1,11 @@
 //! A graph as a MaterialX document (`.mtlx`), and back.
 //!
-//! Each node is an element named after its node, with its name, the type
-//! of its output (`multioutput` for nodes with several), its definition,
-//! and where it is drawn (`xpos`, `ypos`, in canvas units). Under it, the
-//! inputs set on it: a value, or the node (and output, for nodes with
-//! several) it reads. This is how Imago saves a MaterialX operator's graph,
-//! and how it writes `.mtlx` files.
+//! Each node is an element named after its node, with its name, the type of its
+//! output (`multioutput` for nodes with several), its definition, and where it
+//! is drawn (`xpos`, `ypos`, in canvas units). Under it, the inputs set on it:
+//! a value, or the node (and output, for nodes with several) it reads. This is
+//! how Imago saves a MaterialX operator's graph, and how it writes `.mtlx`
+//! files.
 
 use crate::graph::{Binding, Graph};
 use crate::library::Library;
@@ -48,7 +48,11 @@ pub fn write(graph: &Graph, lib: &Library) -> String {
                 Binding::Connect { node, output } => {
                     let Some(src) = graph.node(*node) else { continue };
                     let several = lib.def(&src.def).is_some_and(|d| d.outputs.len() > 1);
-                    let out_attr = if several { format!(" output=\"{}\"", escape(output)) } else { String::new() };
+                    let out_attr = if several {
+                        format!(" output=\"{}\"", escape(output))
+                    } else {
+                        String::new()
+                    };
                     out.push_str(&format!(
                         "    <input name=\"{}\" type=\"{ity}\" nodename=\"{}\"{out_attr} />\n",
                         escape(input),
@@ -65,18 +69,28 @@ pub fn write(graph: &Graph, lib: &Library) -> String {
 
 /// The graph a MaterialX document holds: the nodes at its top level.
 /// Definitions, node graphs, looks and other elements are not read. A node
-/// without a `nodedef` takes the definition its output and input types
-/// give. Refused, with why, on a node or a definition the library does not
-/// have, a value that does not read as its type, or a connection to a node
-/// that is not there.
+/// without a `nodedef` takes the definition its output and input types give.
+/// Refused, with why, on a node or a definition the library does not have, a
+/// value that does not read as its type, or a connection to a node that is not
+/// there.
 pub fn read(text: &str, lib: &Library) -> Result<Graph, String> {
     let root = xml::parse(text).map_err(|e| e.to_string())?;
     if root.name != "materialx" {
         return Err(format!("root is <{}>, not <materialx>", root.name));
     }
     const NOT_NODES: [&str; 12] = [
-        "typedef", "nodedef", "nodegraph", "implementation", "look", "lookgroup", "collection", "geominfo",
-        "unitdef", "unittypedef", "targetdef", "backdrop",
+        "typedef",
+        "nodedef",
+        "nodegraph",
+        "implementation",
+        "look",
+        "lookgroup",
+        "collection",
+        "geominfo",
+        "unitdef",
+        "unittypedef",
+        "targetdef",
+        "backdrop",
     ];
     let mut g = Graph::new();
     let mut wires: Vec<(u32, String, String, String)> = vec![];
@@ -96,7 +110,12 @@ pub fn read(text: &str, lib: &Library) -> Result<Graph, String> {
             }
         };
         let num = |k: &str| el.attr(k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
-        let id = g.push(name.to_string(), def.node.clone(), def.name.clone(), [num("xpos"), num("ypos")]);
+        let id = g.push(
+            name.to_string(),
+            def.node.clone(),
+            def.name.clone(),
+            [num("xpos"), num("ypos")],
+        );
         for i in el.children_named("input") {
             let input = i.attr("name").ok_or_else(|| format!("{name}: an input has no name"))?;
             let Some(idef) = def.input(input) else {
@@ -107,24 +126,40 @@ pub fn read(text: &str, lib: &Library) -> Result<Graph, String> {
                 wires.push((id, input.to_string(), src.to_string(), output.to_string()));
                 // Its place among the inputs kept; the node is found below.
                 if let Some(n) = g.node_mut(id) {
-                    n.inputs.push((input.to_string(), Binding::Connect { node: u32::MAX, output: output.to_string() }));
+                    n.inputs.push((
+                        input.to_string(),
+                        Binding::Connect {
+                            node: u32::MAX,
+                            output: output.to_string(),
+                        },
+                    ));
                 }
             } else if let Some(text) = i.attr("value") {
-                let v = Value::parse(idef.ty, text).ok_or_else(|| format!("{name}.{input}: {text:?} is not a {}", idef.ty))?;
+                let v = Value::parse(idef.ty, text)
+                    .ok_or_else(|| format!("{name}.{input}: {text:?} is not a {}", idef.ty))?;
                 g.set_value(id, input, v);
             }
         }
     }
     for (to, input, src, output) in wires {
-        let from = g.by_name(&src).map(|n| n.id).ok_or_else(|| format!("{input} reads {src}, which is not in the document"))?;
+        let from = g
+            .by_name(&src)
+            .map(|n| n.id)
+            .ok_or_else(|| format!("{input} reads {src}, which is not in the document"))?;
         // Connected as written: the definitions are those the document gives.
         let out = match g.def(lib, from) {
             Some(d) if d.output(&output).is_some() => output,
             Some(d) => d.outputs.first().map(|o| o.name.clone()).unwrap_or(output),
             None => output,
         };
-        if let Some(slot) = g.node_mut(to).and_then(|n| n.inputs.iter_mut().find(|(i, _)| *i == input)) {
-            slot.1 = Binding::Connect { node: from, output: out };
+        if let Some(slot) = g
+            .node_mut(to)
+            .and_then(|n| n.inputs.iter_mut().find(|(i, _)| *i == input))
+        {
+            slot.1 = Binding::Connect {
+                node: from,
+                output: out,
+            };
         }
     }
     Ok(g)
@@ -148,10 +183,16 @@ mod tests {
 
         let text = write(&g, lib);
         assert!(text.contains("<standard_surface name=\"standard_surface1\" type=\"surfaceshader\" nodedef=\"ND_standard_surface_surfaceshader\""), "{text}");
-        assert!(text.contains("<input name=\"base_color\" type=\"color3\" nodename=\"image1\" />"), "{text}");
+        assert!(
+            text.contains("<input name=\"base_color\" type=\"color3\" nodename=\"image1\" />"),
+            "{text}"
+        );
         assert!(text.contains("value=\"tex/wood &lt;1&gt;.png\""), "{text}");
         assert!(text.contains("type=\"multioutput\""), "{text}");
-        assert!(text.contains("<input name=\"metalness\" type=\"float\" nodename=\"separate3_1\" output=\"outg\" />"), "{text}");
+        assert!(
+            text.contains("<input name=\"metalness\" type=\"float\" nodename=\"separate3_1\" output=\"outg\" />"),
+            "{text}"
+        );
 
         let back = read(&text, lib).unwrap();
         assert_eq!(back.nodes.len(), g.nodes.len());
@@ -160,9 +201,15 @@ mod tests {
         }
         let s2 = back.surface_shader().unwrap();
         assert_eq!(back.node(s2).unwrap().name, "standard_surface1");
-        assert_eq!(back.value(lib, s2, "specular_roughness"), Some(&Value::Floats(vec![0.35])));
+        assert_eq!(
+            back.value(lib, s2, "specular_roughness"),
+            Some(&Value::Floats(vec![0.35]))
+        );
         let (src, _) = back.source(s2, "base_color").unwrap();
-        assert_eq!(back.value(lib, src, "file"), Some(&Value::String("tex/wood <1>.png".into())));
+        assert_eq!(
+            back.value(lib, src, "file"),
+            Some(&Value::String("tex/wood <1>.png".into()))
+        );
         assert_eq!(back.source(s2, "metalness").map(|(_, o)| o), Some("outg"));
         // Written again, the same document.
         assert_eq!(write(&back, lib), text);
@@ -197,7 +244,13 @@ mod tests {
         let bad = |body: &str| read(&format!("<materialx>{body}</materialx>"), lib).unwrap_err();
         assert!(bad("<nope name=\"a\" type=\"float\"/>").contains("no nope node"));
         assert!(bad("<add name=\"a\" type=\"float\" nodedef=\"ND_nope\"/>").contains("not in the library"));
-        assert!(bad("<add name=\"a\" type=\"float\"><input name=\"in1\" type=\"float\" value=\"x\"/></add>").contains("is not a float"));
-        assert!(bad("<add name=\"a\" type=\"float\"><input name=\"in1\" type=\"float\" nodename=\"b\"/></add>").contains("not in the document"));
+        assert!(
+            bad("<add name=\"a\" type=\"float\"><input name=\"in1\" type=\"float\" value=\"x\"/></add>")
+                .contains("is not a float")
+        );
+        assert!(
+            bad("<add name=\"a\" type=\"float\"><input name=\"in1\" type=\"float\" nodename=\"b\"/></add>")
+                .contains("not in the document")
+        );
     }
 }

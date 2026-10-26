@@ -39,12 +39,37 @@ pub enum Type {
 
 impl Type {
     pub const ALL: [Type; 31] = [
-        Type::Boolean, Type::Integer, Type::Float, Type::Color3, Type::Color4, Type::Vector2, Type::Vector3,
-        Type::Vector4, Type::Matrix33, Type::Matrix44, Type::String, Type::Filename, Type::Geomname,
-        Type::IntegerArray, Type::FloatArray, Type::Color3Array, Type::Color4Array, Type::Vector2Array,
-        Type::Vector3Array, Type::Vector4Array, Type::StringArray, Type::GeomnameArray, Type::Bsdf, Type::Edf,
-        Type::Vdf, Type::SurfaceShader, Type::DisplacementShader, Type::VolumeShader, Type::LightShader,
-        Type::Material, Type::None,
+        Type::Boolean,
+        Type::Integer,
+        Type::Float,
+        Type::Color3,
+        Type::Color4,
+        Type::Vector2,
+        Type::Vector3,
+        Type::Vector4,
+        Type::Matrix33,
+        Type::Matrix44,
+        Type::String,
+        Type::Filename,
+        Type::Geomname,
+        Type::IntegerArray,
+        Type::FloatArray,
+        Type::Color3Array,
+        Type::Color4Array,
+        Type::Vector2Array,
+        Type::Vector3Array,
+        Type::Vector4Array,
+        Type::StringArray,
+        Type::GeomnameArray,
+        Type::Bsdf,
+        Type::Edf,
+        Type::Vdf,
+        Type::SurfaceShader,
+        Type::DisplacementShader,
+        Type::VolumeShader,
+        Type::LightShader,
+        Type::Material,
+        Type::None,
     ];
 
     /// Its name in a document.
@@ -89,8 +114,8 @@ impl Type {
         Type::ALL.into_iter().find(|t| t.name() == name)
     }
 
-    /// How many floats a value of it holds: 1 for float, 3 for color3,
-    /// 16 for matrix44; 0 for anything that is not floats.
+    /// How many floats a value of it holds: 1 for float, 3 for color3, 16 for
+    /// matrix44; 0 for anything that is not floats.
     pub fn floats(self) -> usize {
         match self {
             Type::Float => 1,
@@ -104,7 +129,9 @@ impl Type {
     }
 
     /// A colour (shown with a colour swatch).
-    pub fn is_color(self) -> bool { matches!(self, Type::Color3 | Type::Color4) }
+    pub fn is_color(self) -> bool {
+        matches!(self, Type::Color3 | Type::Color4)
+    }
 
     /// A closure or a shader: what flows between shading nodes, not a value
     /// that can be typed in.
@@ -123,11 +150,15 @@ impl Type {
     }
 
     /// A list of values.
-    pub fn is_array(self) -> bool { self.name().ends_with("array") }
+    pub fn is_array(self) -> bool {
+        self.name().ends_with("array")
+    }
 }
 
 impl std::fmt::Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(self.name()) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 /// A value of a given type, as a document writes it.
@@ -146,8 +177,8 @@ pub enum Value {
 }
 
 impl Value {
-    /// The value `text` is for `ty`. A closure, shader or `none` has no
-    /// value; text that does not read as the type is `None` too.
+    /// The value `text` is for `ty`. A closure, shader or `none` has no value;
+    /// text that does not read as the type is `None` too.
     pub fn parse(ty: Type, text: &str) -> Option<Value> {
         let text = text.trim();
         match ty {
@@ -162,11 +193,21 @@ impl Value {
                 v.filter(|v| v.len() == t.floats()).map(Value::Floats)
             }
             Type::String | Type::Filename | Type::Geomname => Some(Value::String(text.to_string())),
-            Type::IntegerArray => list(text).iter().map(|x| x.parse().ok()).collect::<Option<Vec<i32>>>().map(Value::IntegerArray),
-            Type::FloatArray | Type::Color3Array | Type::Color4Array | Type::Vector2Array | Type::Vector3Array
-            | Type::Vector4Array => {
-                list(text).iter().map(|x| x.parse().ok()).collect::<Option<Vec<f32>>>().map(Value::FloatArray)
-            }
+            Type::IntegerArray => list(text)
+                .iter()
+                .map(|x| x.parse().ok())
+                .collect::<Option<Vec<i32>>>()
+                .map(Value::IntegerArray),
+            Type::FloatArray
+            | Type::Color3Array
+            | Type::Color4Array
+            | Type::Vector2Array
+            | Type::Vector3Array
+            | Type::Vector4Array => list(text)
+                .iter()
+                .map(|x| x.parse().ok())
+                .collect::<Option<Vec<f32>>>()
+                .map(Value::FloatArray),
             Type::StringArray | Type::GeomnameArray => {
                 Some(Value::StringArray(list(text).into_iter().map(String::from).collect()))
             }
@@ -200,12 +241,20 @@ impl Value {
 /// A float as a document writes it: always with a decimal point.
 fn float_text(x: f32) -> String {
     let s = format!("{x}");
-    if s.contains('.') || s.contains('e') || s.contains("inf") || s.contains("NaN") { s } else { format!("{s}.0") }
+    if s.contains('.') || s.contains('e') || s.contains("inf") || s.contains("NaN") {
+        s
+    } else {
+        format!("{s}.0")
+    }
 }
 
 /// The comma-separated items of a value.
 fn list(s: &str) -> Vec<&str> {
-    if s.is_empty() { vec![] } else { s.split(',').map(str::trim).collect() }
+    if s.is_empty() {
+        vec![]
+    } else {
+        s.split(',').map(str::trim).collect()
+    }
 }
 
 #[cfg(test)]
@@ -223,9 +272,15 @@ mod tests {
 
     #[test]
     fn values_read_as_their_type() {
-        assert_eq!(Value::parse(Type::Color3, "0.8, 0.8, 0.8"), Some(Value::Floats(vec![0.8, 0.8, 0.8])));
+        assert_eq!(
+            Value::parse(Type::Color3, "0.8, 0.8, 0.8"),
+            Some(Value::Floats(vec![0.8, 0.8, 0.8]))
+        );
         // Written without spaces too (`uimin="0,0,0"`).
-        assert_eq!(Value::parse(Type::Color3, "0,0,1"), Some(Value::Floats(vec![0.0, 0.0, 1.0])));
+        assert_eq!(
+            Value::parse(Type::Color3, "0,0,1"),
+            Some(Value::Floats(vec![0.0, 0.0, 1.0]))
+        );
         assert_eq!(Value::parse(Type::Color3, "0.8, 0.8"), None);
         assert_eq!(Value::parse(Type::Float, "0"), Some(Value::Floats(vec![0.0])));
         assert_eq!(Value::parse(Type::Integer, "3"), Some(Value::Integer(3)));
@@ -233,7 +288,9 @@ mod tests {
         assert_eq!(Value::parse(Type::Filename, ""), Some(Value::String(String::new())));
         assert_eq!(Value::parse(Type::FloatArray, ""), Some(Value::FloatArray(vec![])));
         assert_eq!(Value::parse(Type::SurfaceShader, ""), None);
-        assert_eq!(Value::parse(Type::Matrix33, "1,0,0, 0,1,0, 0,0,1").map(|v| v.to_text()),
-                   Some("1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0".to_string()));
+        assert_eq!(
+            Value::parse(Type::Matrix33, "1,0,0, 0,1,0, 0,0,1").map(|v| v.to_text()),
+            Some("1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0".to_string())
+        );
     }
 }

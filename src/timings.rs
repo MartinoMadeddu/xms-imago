@@ -26,13 +26,25 @@ pub struct Span {
 
 /// Start timing a step.
 pub fn span(label: impl Into<String>) -> Span {
-    if on() { Span { label: label.into(), start: Some(Instant::now()) } } else { Span { label: String::new(), start: None } }
+    if on() {
+        Span {
+            label: label.into(),
+            start: Some(Instant::now()),
+        }
+    } else {
+        Span {
+            label: String::new(),
+            start: None,
+        }
+    }
 }
 
 impl Span {
     /// Add what was found to the line printed (counts, sizes).
     pub fn note(&mut self, what: impl std::fmt::Display) {
-        if self.start.is_some() { self.label = format!("{} ({what})", self.label); }
+        if self.start.is_some() {
+            self.label = format!("{} ({what})", self.label);
+        }
     }
 }
 

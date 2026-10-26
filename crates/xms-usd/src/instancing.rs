@@ -1,4 +1,5 @@
-//! Native instancing, PointInstancer and prototypes (stored once, referenced by instances).
+//! Native instancing, PointInstancer and prototypes (stored once, referenced by
+//! instances).
 
 use crate::*;
 
@@ -240,10 +241,11 @@ pub(crate) struct InstancerInput {
     pub invisible: bool,
 }
 
-/// Map an instance-proxy path to where the scene layer holds that prim: the nearest
-/// native-instance ancestor's prefix is replaced by its prototype path, repeatedly
-/// (the remainder may cross further instances inside the prototype). Paths the
-/// scene layer already holds, or that aren't under an instance, come back unchanged.
+/// Map an instance-proxy path to where the scene layer holds that prim: the
+/// nearest native-instance ancestor's prefix is replaced by its prototype path,
+/// repeatedly (the remainder may cross further instances inside the prototype).
+/// Paths the scene layer already holds, or that aren't under an instance, come
+/// back unchanged.
 pub(crate) fn proxy_to_prototype(sc: &xms_scene::Scene, path: xms_scene::Path) -> xms_scene::Path {
     let mut cur = path.clone();
     for _ in 0..16 {
@@ -268,8 +270,8 @@ pub(crate) fn proxy_to_prototype(sc: &xms_scene::Scene, path: xms_scene::Path) -
     path
 }
 
-/// World motion keys followed by a fixed local transform (an instance inside a moving
-/// prim): each key times `local`.
+/// World motion keys followed by a fixed local transform (an instance inside a
+/// moving prim): each key times `local`.
 fn compose_keys(k: &MotionKeys, local: &M4) -> MotionKeys {
     MotionKeys { times: k.times.clone(), xforms: k.xforms.iter().map(|x| to_rows(&(from_rows(x) * local))).collect() }
 }

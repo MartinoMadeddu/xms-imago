@@ -2,11 +2,11 @@
 //! surface shader, and the texture files behind them.
 //!
 //! The Viewer draws a material as a colour, a roughness, a metalness, an
-//! opacity and an emission, each maybe from a texture. Here these are read
-//! from the shader feeding the material's `surfaceshader`, by its own input
-//! names (standard_surface, open_pbr_surface, UsdPreviewSurface, gltf_pbr).
-//! An input fed by a graph shows the first texture file found up that
-//! graph; whatever the graph does to it on the way is not shown.
+//! opacity and an emission, each maybe from a texture. Here these are read from
+//! the shader feeding the material's `surfaceshader`, by its own input names
+//! (standard_surface, open_pbr_surface, UsdPreviewSurface, gltf_pbr). An input
+//! fed by a graph shows the first texture file found up that graph; whatever
+//! the graph does to it on the way is not shown.
 
 use crate::graph::{Binding, Graph};
 use crate::library::Library;
@@ -22,8 +22,8 @@ pub struct Channel<T> {
 /// The material as the Viewer shows it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Preview {
-    /// The shader read: `standard_surface`, ... None when nothing goes into
-    /// the material, or the shader is not one of those read.
+    /// The shader read: `standard_surface`, ... None when nothing goes into the
+    /// material, or the shader is not one of those read.
     pub shader: Option<String>,
     pub color: Channel<[f32; 3]>,
     pub roughness: Channel<f32>,
@@ -39,19 +39,25 @@ impl Default for Preview {
     fn default() -> Self {
         Preview {
             shader: None,
-            color: Channel { value: [0.18; 3], file: None },
+            color: Channel {
+                value: [0.18; 3],
+                file: None,
+            },
             roughness: Channel { value: 0.5, file: None },
             metallic: Channel { value: 0.0, file: None },
             opacity: Channel { value: 1.0, file: None },
-            emission: Channel { value: [0.0; 3], file: None },
+            emission: Channel {
+                value: [0.0; 3],
+                file: None,
+            },
             clearcoat: 0.0,
             normal: None,
         }
     }
 }
 
-/// Which inputs of a shader give what the Viewer shows, and the weights
-/// that scale them.
+/// Which inputs of a shader give what the Viewer shows, and the weights that
+/// scale them.
 struct Inputs {
     color: (&'static str, Option<&'static str>),
     roughness: &'static str,
@@ -105,8 +111,15 @@ fn inputs_of(shader: &str) -> Option<Inputs> {
 }
 
 /// Nodes whose `file` is a texture.
-const TEXTURES: [&str; 7] =
-    ["image", "tiledimage", "hextiledimage", "UsdUVTexture", "gltf_image", "gltf_colorimage", "gltf_normalmap"];
+const TEXTURES: [&str; 7] = [
+    "image",
+    "tiledimage",
+    "hextiledimage",
+    "UsdUVTexture",
+    "gltf_image",
+    "gltf_colorimage",
+    "gltf_normalmap",
+];
 
 /// The first texture file up the graph from an input, if it is connected.
 fn texture_up(graph: &Graph, lib: &Library, id: u32, input: &str) -> Option<String> {
@@ -166,8 +179,15 @@ pub fn preview(graph: &Graph, lib: &Library) -> Preview {
     // A textured colour is white under its texture, as USD shows it.
     let file = tex(names.color.0);
     let w = weight(names.color.1);
-    let c = if file.is_some() { [1.0; 3] } else { colour_of(val(names.color.0)).unwrap_or(p.color.value) };
-    p.color = Channel { value: [c[0] * w, c[1] * w, c[2] * w], file };
+    let c = if file.is_some() {
+        [1.0; 3]
+    } else {
+        colour_of(val(names.color.0)).unwrap_or(p.color.value)
+    };
+    p.color = Channel {
+        value: [c[0] * w, c[1] * w, c[2] * w],
+        file,
+    };
 
     for (slot, input, default) in [
         (&mut p.roughness, names.roughness, 0.5),
@@ -175,7 +195,11 @@ pub fn preview(graph: &Graph, lib: &Library) -> Preview {
         (&mut p.opacity, names.opacity, 1.0),
     ] {
         let file = tex(input);
-        let value = if file.is_some() { default } else { float_of(val(input)).unwrap_or(default) };
+        let value = if file.is_some() {
+            default
+        } else {
+            float_of(val(input)).unwrap_or(default)
+        };
         *slot = Channel { value, file };
     }
 
@@ -183,10 +207,20 @@ pub fn preview(graph: &Graph, lib: &Library) -> Preview {
     let e = colour_of(val(names.emission.0)).unwrap_or([0.0; 3]);
     // OpenPBR's emission is lit by its luminance: off at 0.
     let w = match node.node.as_str() {
-        "open_pbr_surface" => if float_of(val("emission_luminance")).unwrap_or(0.0) > 0.0 { 1.0 } else { 0.0 },
+        "open_pbr_surface" => {
+            if float_of(val("emission_luminance")).unwrap_or(0.0) > 0.0 {
+                1.0
+            } else {
+                0.0
+            }
+        }
         _ => weight(names.emission.1),
     };
-    let e = if file.is_some() { [w; 3] } else { [e[0] * w, e[1] * w, e[2] * w] };
+    let e = if file.is_some() {
+        [w; 3]
+    } else {
+        [e[0] * w, e[1] * w, e[2] * w]
+    };
     p.emission = Channel { value: e, file };
 
     p.clearcoat = float_of(val(names.clearcoat)).unwrap_or(0.0);

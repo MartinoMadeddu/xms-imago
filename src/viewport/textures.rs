@@ -1,15 +1,15 @@
 //! Texture files for the viewport.
 //!
-//! Decoding a set of large images takes seconds, so it happens on
-//! background threads. The viewport asks for a file; until it is ready the
-//! surface shows its plain colour. `generation` moves each time a file
-//! finishes, which is the viewport's cue to rebuild its materials.
+//! Decoding a set of large images takes seconds, so it happens on background
+//! threads. The viewport asks for a file; until it is ready the surface shows
+//! its plain colour. `generation` moves each time a file finishes, which is the
+//! viewport's cue to rebuild its materials.
 //!
 //! PNG, JPEG, TIFF and OpenEXR are read. A float image (EXR) holds linear
-//! light, and is encoded as sRGB as the texture is (an 8-bit image already
-//! is). A `<UDIM>` path is its tiles laid out side by side in one image,
-//! tile 1001 at the bottom left, as the tiles lie in UV space: `tiles` says
-//! how many across and up, and the viewport scales the UVs to match.
+//! light, and is encoded as sRGB as the texture is (an 8-bit image already is).
+//! A `<UDIM>` path is its tiles laid out side by side in one image, tile 1001
+//! at the bottom left, as the tiles lie in UV space: `tiles` says how many
+//! across and up, and the viewport scales the UVs to match.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ pub const MAX_SIDE: u32 = 2048;
 /// A decoded image with its chain of half-size copies, ready for the GPU.
 #[derive(Debug)]
 pub struct Decoded {
-    pub width:  u32,
+    pub width: u32,
     pub height: u32,
     /// How many sizes `pixels` holds, the full size first.
     pub levels: u32,
@@ -34,20 +34,35 @@ pub struct Decoded {
     pub tiles: [u32; 2],
 }
 
-enum State { Loading, Ready(Arc<Decoded>), Failed }
+enum State {
+    Loading,
+    Ready(Arc<Decoded>),
+    Failed,
+}
 
 static CACHE: Mutex<Option<HashMap<PathBuf, State>>> = Mutex::new(None);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Counts finished files and changes of display mode.
-pub fn generation() -> u64 { GENERATION.load(Ordering::Relaxed) }
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
+}
 
 /// Have the viewport rebuild what it shows.
-pub fn touch() { GENERATION.fetch_add(1, Ordering::Relaxed); }
+pub fn touch() {
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+}
 
 /// Files still being decoded.
 pub fn pending() -> usize {
-    CACHE.lock().ok().and_then(|c| c.as_ref().map(|m| m.values().filter(|s| matches!(s, State::Loading)).count())).unwrap_or(0)
+    CACHE
+        .lock()
+        .ok()
+        .and_then(|c| {
+            c.as_ref()
+                .map(|m| m.values().filter(|s| matches!(s, State::Loading)).count())
+        })
+        .unwrap_or(0)
 }
 
 /// Half-size copy of an RGBA image, each pixel the mean of the four it covers.
@@ -60,7 +75,8 @@ fn halve(src: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32) {
             let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
             for c in 0..4 {
                 let at = |px: u32, py: u32| src[((py * w + px) * 4 + c) as usize] as u32;
-                out[((y * nw + x) * 4 + c) as usize] = ((at(x0, y0) + at(x1, y0) + at(x0, y1) + at(x1, y1) + 2) / 4) as u8;
+                out[((y * nw + x) * 4 + c) as usize] =
+                    ((at(x0, y0) + at(x1, y0) + at(x0, y1) + at(x1, y1) + 2) / 4) as u8;
             }
         }
     }
@@ -79,13 +95,24 @@ pub fn with_levels(pixels: Vec<u8>, width: u32, height: u32) -> Decoded {
         (w, h) = (nw, nh);
         levels += 1;
     }
-    Decoded { width, height, levels, pixels: all, has_alpha, tiles: [1, 1] }
+    Decoded {
+        width,
+        height,
+        levels,
+        pixels: all,
+        has_alpha,
+        tiles: [1, 1],
+    }
 }
 
 /// Linear light to an sRGB byte.
 fn srgb(x: f32) -> u8 {
     let x = if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.0 };
-    let s = if x <= 0.003_130_8 { x * 12.92 } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 };
+    let s = if x <= 0.003_130_8 {
+        x * 12.92
+    } else {
+        1.055 * x.powf(1.0 / 2.4) - 0.055
+    };
     (s * 255.0 + 0.5) as u8
 }
 
@@ -97,8 +124,17 @@ fn to_srgb8(img: image::DynamicImage) -> image::RgbaImage {
         D::ImageRgb32F(_) | D::ImageRgba32F(_) => {
             let f = img.into_rgba32f();
             let (w, h) = f.dimensions();
-            let px: Vec<u8> = f.into_raw().chunks_exact(4)
-                .flat_map(|p| [srgb(p[0]), srgb(p[1]), srgb(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8])
+            let px: Vec<u8> = f
+                .into_raw()
+                .chunks_exact(4)
+                .flat_map(|p| {
+                    [
+                        srgb(p[0]),
+                        srgb(p[1]),
+                        srgb(p[2]),
+                        (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+                    ]
+                })
                 .collect();
             image::RgbaImage::from_raw(w, h, px).unwrap_or_default()
         }
@@ -112,7 +148,9 @@ fn read(path: &Path) -> Option<image::DynamicImage> {
 }
 
 fn decode(path: &Path) -> Option<Decoded> {
-    if crate::core::sequences::is_udim(path) { return decode_udim(path); }
+    if crate::core::sequences::is_udim(path) {
+        return decode_udim(path);
+    }
     let mut img = read(path)?;
     if img.width().max(img.height()) > MAX_SIDE {
         img = img.resize(MAX_SIDE, MAX_SIDE, image::imageops::FilterType::Triangle);
@@ -125,13 +163,15 @@ fn decode(path: &Path) -> Option<Decoded> {
 /// Largest side of the image a set of UDIM tiles is laid out in.
 pub const UDIM_SIDE: u32 = 4096;
 
-/// A `<UDIM>` texture: every tile found, each made square at one size, laid
-/// out as the tiles lie in UV space, 1001 at the bottom left. A tile not
-/// there is mid grey. `None` when no tile is found.
+/// A `<UDIM>` texture: every tile found, each made square at one size, laid out
+/// as the tiles lie in UV space, 1001 at the bottom left. A tile not there is
+/// mid grey. `None` when no tile is found.
 fn decode_udim(path: &Path) -> Option<Decoded> {
     use crate::core::sequences::{tile_place, udim_tiles};
     let tiles = udim_tiles(path);
-    if tiles.is_empty() { return None; }
+    if tiles.is_empty() {
+        return None;
+    }
     let cols = tiles.iter().map(|(n, _)| tile_place(*n).0).max().unwrap_or(0) + 1;
     let rows = tiles.iter().map(|(n, _)| tile_place(*n).1).max().unwrap_or(0) + 1;
     let side = (UDIM_SIDE / cols.max(rows)).clamp(32, 1024);
@@ -145,7 +185,9 @@ fn decode_udim(path: &Path) -> Option<Decoded> {
         image::imageops::replace(&mut atlas, &tile, (c * side) as i64, ((rows - 1 - r) * side) as i64);
         any = true;
     }
-    if !any { return None; }
+    if !any {
+        return None;
+    }
     let (w, h) = atlas.dimensions();
     let mut d = with_levels(atlas.into_raw(), w, h);
     d.tiles = [cols, rows];
@@ -165,8 +207,13 @@ pub fn request(path: &Path) -> Option<Arc<Decoded>> {
     cache.insert(path.to_path_buf(), State::Loading);
     let path = path.to_path_buf();
     std::thread::spawn(move || {
-        let state = match decode(&path) { Some(d) => State::Ready(Arc::new(d)), None => State::Failed };
-        if let Ok(mut guard) = CACHE.lock() { guard.get_or_insert_with(HashMap::new).insert(path, state); }
+        let state = match decode(&path) {
+            Some(d) => State::Ready(Arc::new(d)),
+            None => State::Failed,
+        };
+        if let Ok(mut guard) = CACHE.lock() {
+            guard.get_or_insert_with(HashMap::new).insert(path, state);
+        }
         GENERATION.fetch_add(1, Ordering::Relaxed);
     });
     None
@@ -180,7 +227,12 @@ mod tests {
     fn levels_run_down_to_one_pixel() {
         // A 4 x 2 image: left half white, right half black, opaque.
         let mut px = vec![];
-        for _ in 0..2 { for x in 0..4 { let v = if x < 2 { 255 } else { 0 }; px.extend([v, v, v, 255]); } }
+        for _ in 0..2 {
+            for x in 0..4 {
+                let v = if x < 2 { 255 } else { 0 };
+                px.extend([v, v, v, 255]);
+            }
+        }
         let d = with_levels(px, 4, 2);
         assert_eq!(d.levels, 3);
         assert_eq!(d.pixels.len(), (4 * 2 + 2 * 1 + 1) * 4);
@@ -190,21 +242,26 @@ mod tests {
         assert_eq!(d.pixels[40], 128);
     }
 
-    /// A `<UDIM>` path is its tiles in one image, laid out as in UV space:
-    /// 1001 at the bottom left, 1002 to its right, 1011 above it.
+    /// A `<UDIM>` path is its tiles in one image, laid out as in UV space: 1001
+    /// at the bottom left, 1002 to its right, 1011 above it.
     #[test]
     fn udim_tiles_are_laid_out_as_in_uv_space() {
         let dir = std::env::temp_dir().join("xms_udim_texture_test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         for (n, c) in [(1001, [255, 0, 0]), (1002, [0, 255, 0]), (1011, [0, 0, 255])] {
-            image::RgbaImage::from_pixel(8, 8, image::Rgba([c[0], c[1], c[2], 255])).save(dir.join(format!("t.{n}.png"))).unwrap();
+            image::RgbaImage::from_pixel(8, 8, image::Rgba([c[0], c[1], c[2], 255]))
+                .save(dir.join(format!("t.{n}.png")))
+                .unwrap();
         }
         let d = decode(&dir.join("t.<UDIM>.png")).expect("tiles found");
         assert_eq!(d.tiles, [2, 2]);
         let (w, h) = (d.width, d.height);
         assert_eq!(w, h);
-        let at = |x: u32, y: u32| { let k = ((y * w + x) * 4) as usize; [d.pixels[k], d.pixels[k + 1], d.pixels[k + 2]] };
+        let at = |x: u32, y: u32| {
+            let k = ((y * w + x) * 4) as usize;
+            [d.pixels[k], d.pixels[k + 1], d.pixels[k + 2]]
+        };
         let (q, b) = (w / 4, h - h / 4);
         assert_eq!(at(q, b), [255, 0, 0], "1001: bottom left");
         assert_eq!(at(w - q, b), [0, 255, 0], "1002: bottom right");
@@ -220,19 +277,32 @@ mod tests {
         let dir = std::env::temp_dir().join("xms_texture_test");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("dot.png");
-        let img = image::RgbaImage::from_fn(8, 8, |x, _| image::Rgba([x as u8 * 30, 0, 0, if x == 0 { 0 } else { 255 }]));
+        let img = image::RgbaImage::from_fn(8, 8, |x, _| {
+            image::Rgba([x as u8 * 30, 0, 0, if x == 0 { 0 } else { 255 }])
+        });
         img.save(&file).unwrap();
         let before = generation();
         assert!(request(&file).is_none(), "the first call only starts the work");
         let mut got = None;
-        for _ in 0..200 { got = request(&file); if got.is_some() { break; } std::thread::sleep(std::time::Duration::from_millis(10)); }
+        for _ in 0..200 {
+            got = request(&file);
+            if got.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         let d = got.expect("decoded");
         assert_eq!((d.width, d.height, d.levels), (8, 8, 4));
         assert!(d.has_alpha && generation() > before);
         // A file that is not an image fails quietly and is not retried forever.
         let bad = dir.join("bad.png");
         std::fs::write(&bad, b"not an image").unwrap();
-        for _ in 0..100 { if request(&bad).is_none() && pending() == 0 { break; } std::thread::sleep(std::time::Duration::from_millis(10)); }
+        for _ in 0..100 {
+            if request(&bad).is_none() && pending() == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(request(&bad).is_none());
     }
 }

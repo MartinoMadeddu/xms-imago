@@ -1,17 +1,17 @@
 //! The MaterialX operator: a material made from a graph of MaterialX nodes.
 //!
-//! The graph lives in the operator (`NodeType::MaterialX`), so saving,
-//! copying, pasting and undo take it with the operator; it is saved as a
-//! MaterialX document (`saved`). The nodes, their definitions and how
-//! connecting picks them are `xms_matx`'s. The operator puts out a
-//! `Material` like the Material operator's, named by the operator, holding
-//! its graph: Write USD writes the graph as a MaterialX shading network,
-//! the Viewer shows what it can of it (`xms_matx::preview`).
+//! The graph lives in the operator (`NodeType::MaterialX`), so saving, copying,
+//! pasting and undo take it with the operator; it is saved as a MaterialX
+//! document (`saved`). The nodes, their definitions and how connecting picks
+//! them are `xms_matx`'s. The operator puts out a `Material` like the Material
+//! operator's, named by the operator, holding its graph: Write USD writes the
+//! graph as a MaterialX shading network, the Viewer shows what it can of it
+//! (`xms_matx::preview`).
 //!
-//! The graph is opened in the Node Graph pane (double-click the operator,
-//! or ↓): `ui` draws and edits it, `params` lays out the parameters of the
-//! node selected in it. What the canvas shows (pan, zoom, which node is
-//! selected) is view state, kept with the pane, not in the graph.
+//! The graph is opened in the Node Graph pane (double-click the operator, or
+//! ↓): `ui` draws and edits it, `params` lays out the parameters of the node
+//! selected in it. What the canvas shows (pan, zoom, which node is selected) is
+//! view state, kept with the pane, not in the graph.
 
 pub mod from_usd;
 pub mod params;
@@ -25,10 +25,14 @@ use crate::core::material::PreviewSurface;
 use crate::types::NodeId;
 
 /// MaterialX's node library, read once.
-pub fn lib() -> &'static Library { Library::standard() }
+pub fn lib() -> &'static Library {
+    Library::standard()
+}
 
 /// A new graph: a `standard_surface` into a `surfacematerial`.
-pub fn new_graph() -> Graph { Graph::standard_surface(lib()) }
+pub fn new_graph() -> Graph {
+    Graph::standard_surface(lib())
+}
 
 /// A graph saved in a graph file: as the MaterialX document it is.
 pub mod saved {
@@ -45,17 +49,25 @@ pub mod saved {
     }
 }
 
-/// The graph with the variables in its strings put in (`$JOB/tex/wood.png`),
-/// as USD is written: renderers read `$JOB` as it is. The graph itself
-/// when no string has one.
+/// The graph with the variables in its strings put in (`$JOB/tex/wood.png`), as
+/// USD is written: renderers read `$JOB` as it is. The graph itself when no
+/// string has one.
 pub fn with_variables_put_in(graph: &Graph) -> std::borrow::Cow<'_, Graph> {
     use xms_matx::{Binding, Value};
-    let has = graph.nodes.iter().any(|n| n.inputs.iter().any(|(_, b)| matches!(b, Binding::Value(Value::String(s)) if crate::core::vars::has_vars(s))));
-    if !has { return std::borrow::Cow::Borrowed(graph); }
+    let has = graph.nodes.iter().any(|n| {
+        n.inputs
+            .iter()
+            .any(|(_, b)| matches!(b, Binding::Value(Value::String(s)) if crate::core::vars::has_vars(s)))
+    });
+    if !has {
+        return std::borrow::Cow::Borrowed(graph);
+    }
     let mut g = graph.clone();
     for n in &mut g.nodes {
         for (_, b) in &mut n.inputs {
-            if let Binding::Value(Value::String(s)) = b { *s = crate::core::vars::expand(s, &[]); }
+            if let Binding::Value(Value::String(s)) = b {
+                *s = crate::core::vars::expand(s, &[]);
+            }
         }
     }
     std::borrow::Cow::Owned(g)
@@ -82,29 +94,30 @@ pub fn surface_of(graph: &Graph) -> PreviewSurface {
         ("opacity", p.opacity.file),
         ("normal", p.normal),
     ] {
-        if let Some(f) = file { s.textures.insert(input.to_string(), f); }
+        if let Some(f) = file {
+            s.textures.insert(input.to_string(), f);
+        }
     }
     s
 }
 
-/// The canvas of an open MaterialX graph: where it is looked at from, what
-/// is selected and what is being done. Kept per operator, for the session.
+/// The canvas of an open MaterialX graph: where it is looked at from, what is
+/// selected and what is being done. Kept per operator, for the session.
 #[derive(Clone, Debug)]
 pub struct View {
     pub pan: egui::Vec2,
     pub zoom: f32,
     /// The node selected in the graph: its parameters are shown.
     pub selected: Option<u32>,
-    /// Every node selected (a box, or Shift+click): moved and deleted
-    /// together.
+    /// Every node selected (a box, or Shift+click): moved and deleted together.
     pub selected_nodes: Vec<u32>,
     /// Where a box being dragged out to select nodes started, on the canvas.
     pub marquee: Option<egui::Pos2>,
-    /// A port clicked to unplug: a click on the empty canvas takes its
-    /// wires off (`graph_ports`).
+    /// A port clicked to unplug: a click on the empty canvas takes its wires
+    /// off (`graph_ports`).
     pub unplug: Option<crate::graph_ports::Picked<u32, String>>,
-    /// The inputs whose wires were picked up off an output (Ctrl+drag): let
-    /// go of on another output they go there, anywhere else they are gone.
+    /// The inputs whose wires were picked up off an output (Ctrl+drag): let go
+    /// of on another output they go there, anywhere else they are gone.
     pub carrying: Vec<(u32, String)>,
     /// The wire selected: the node and input it goes into. Delete takes it off.
     pub selected_wire: Option<(u32, String)>,
@@ -118,9 +131,9 @@ pub struct View {
     pub message: String,
     /// Framed once when first opened.
     pub framed: bool,
-    /// Nodes folded the other way from their default: a node with a few
-    /// inputs shows them all unless toggled, one with many shows the
-    /// connected ones only unless toggled.
+    /// Nodes folded the other way from their default: a node with a few inputs
+    /// shows them all unless toggled, one with many shows the connected ones
+    /// only unless toggled.
     pub toggled: Vec<u32>,
 }
 
@@ -134,18 +147,38 @@ pub struct Drop {
 
 impl Default for View {
     fn default() -> Self {
-        View { pan: egui::vec2(60.0, 60.0), zoom: 1.0, selected: None, selected_nodes: vec![], marquee: None, unplug: None, carrying: vec![],
-               selected_wire: None, wiring: None, dragging: None,
-               drag_offset: egui::Vec2::ZERO, drop: None, message: String::new(), framed: false, toggled: vec![] }
+        View {
+            pan: egui::vec2(60.0, 60.0),
+            zoom: 1.0,
+            selected: None,
+            selected_nodes: vec![],
+            marquee: None,
+            unplug: None,
+            carrying: vec![],
+            selected_wire: None,
+            wiring: None,
+            dragging: None,
+            drag_offset: egui::Vec2::ZERO,
+            drop: None,
+            message: String::new(),
+            framed: false,
+            toggled: vec![],
+        }
     }
 }
 
-fn view_id(op: NodeId) -> egui::Id { egui::Id::new(("materialx_view", op.0)) }
+fn view_id(op: NodeId) -> egui::Id {
+    egui::Id::new(("materialx_view", op.0))
+}
 
 /// The view of an operator's graph.
-pub fn view(ctx: &egui::Context, op: NodeId) -> View { ctx.data(|d| d.get_temp(view_id(op))).unwrap_or_default() }
+pub fn view(ctx: &egui::Context, op: NodeId) -> View {
+    ctx.data(|d| d.get_temp(view_id(op))).unwrap_or_default()
+}
 
-pub fn set_view(ctx: &egui::Context, op: NodeId, v: View) { ctx.data_mut(|d| d.insert_temp(view_id(op), v)); }
+pub fn set_view(ctx: &egui::Context, op: NodeId, v: View) {
+    ctx.data_mut(|d| d.insert_temp(view_id(op), v));
+}
 
 #[cfg(test)]
 mod tests {
@@ -160,7 +193,9 @@ mod tests {
         let json = serde_json::to_string(&t).unwrap();
         assert!(json.contains("standard_surface"), "{json}");
         let back: crate::types::NodeType = serde_json::from_str(&json).unwrap();
-        let crate::types::NodeType::MaterialX { graph } = back else { panic!() };
+        let crate::types::NodeType::MaterialX { graph } = back else {
+            panic!()
+        };
         assert_eq!(graph, g);
     }
 

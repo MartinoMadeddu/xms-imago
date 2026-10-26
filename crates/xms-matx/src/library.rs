@@ -3,9 +3,9 @@
 //!
 //! A MaterialX node, such as `add` or `standard_surface`, has one definition
 //! per type it works on (`ND_add_float`, `ND_add_color3`, `ND_add_color3FA`
-//! ...), and sometimes per version (`standard_surface` 1.0.0 and 1.0.1). A
-//! node in a graph is one node: which of its definitions it is follows from
-//! what is connected to it (`Library::resolve`).
+//! ...), and sometimes per version (`standard_surface` 1.0.0 and 1.0.1). A node
+//! in a graph is one node: which of its definitions it is follows from what is
+//! connected to it (`Library::resolve`).
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -16,37 +16,124 @@ use crate::xml::{self, Element};
 /// The vendored library files, in the order they are read: stdlib first (it
 /// declares the data types), then pbrlib and the shading models.
 pub const FILES: &[(&str, &str)] = &[
-    ("stdlib/stdlib_defs.mtlx", include_str!("../libraries/stdlib/stdlib_defs.mtlx")),
-    ("stdlib/stdlib_ng.mtlx", include_str!("../libraries/stdlib/stdlib_ng.mtlx")),
-    ("pbrlib/pbrlib_defs.mtlx", include_str!("../libraries/pbrlib/pbrlib_defs.mtlx")),
-    ("pbrlib/pbrlib_ng.mtlx", include_str!("../libraries/pbrlib/pbrlib_ng.mtlx")),
-    ("bxdf/standard_surface.mtlx", include_str!("../libraries/bxdf/standard_surface.mtlx")),
-    ("bxdf/open_pbr_surface.mtlx", include_str!("../libraries/bxdf/open_pbr_surface.mtlx")),
-    ("bxdf/usd_preview_surface.mtlx", include_str!("../libraries/bxdf/usd_preview_surface.mtlx")),
+    (
+        "stdlib/stdlib_defs.mtlx",
+        include_str!("../libraries/stdlib/stdlib_defs.mtlx"),
+    ),
+    (
+        "stdlib/stdlib_ng.mtlx",
+        include_str!("../libraries/stdlib/stdlib_ng.mtlx"),
+    ),
+    (
+        "pbrlib/pbrlib_defs.mtlx",
+        include_str!("../libraries/pbrlib/pbrlib_defs.mtlx"),
+    ),
+    (
+        "pbrlib/pbrlib_ng.mtlx",
+        include_str!("../libraries/pbrlib/pbrlib_ng.mtlx"),
+    ),
+    (
+        "bxdf/standard_surface.mtlx",
+        include_str!("../libraries/bxdf/standard_surface.mtlx"),
+    ),
+    (
+        "bxdf/open_pbr_surface.mtlx",
+        include_str!("../libraries/bxdf/open_pbr_surface.mtlx"),
+    ),
+    (
+        "bxdf/usd_preview_surface.mtlx",
+        include_str!("../libraries/bxdf/usd_preview_surface.mtlx"),
+    ),
     ("bxdf/gltf_pbr.mtlx", include_str!("../libraries/bxdf/gltf_pbr.mtlx")),
-    ("bxdf/disney_principled.mtlx", include_str!("../libraries/bxdf/disney_principled.mtlx")),
-    ("bxdf/lama/lama_add.mtlx", include_str!("../libraries/bxdf/lama/lama_add.mtlx")),
-    ("bxdf/lama/lama_conductor.mtlx", include_str!("../libraries/bxdf/lama/lama_conductor.mtlx")),
-    ("bxdf/lama/lama_dielectric.mtlx", include_str!("../libraries/bxdf/lama/lama_dielectric.mtlx")),
-    ("bxdf/lama/lama_diffuse.mtlx", include_str!("../libraries/bxdf/lama/lama_diffuse.mtlx")),
-    ("bxdf/lama/lama_emission.mtlx", include_str!("../libraries/bxdf/lama/lama_emission.mtlx")),
-    ("bxdf/lama/lama_generalized_schlick.mtlx", include_str!("../libraries/bxdf/lama/lama_generalized_schlick.mtlx")),
-    ("bxdf/lama/lama_iridescence.mtlx", include_str!("../libraries/bxdf/lama/lama_iridescence.mtlx")),
-    ("bxdf/lama/lama_layer.mtlx", include_str!("../libraries/bxdf/lama/lama_layer.mtlx")),
-    ("bxdf/lama/lama_mix.mtlx", include_str!("../libraries/bxdf/lama/lama_mix.mtlx")),
-    ("bxdf/lama/lama_sheen.mtlx", include_str!("../libraries/bxdf/lama/lama_sheen.mtlx")),
-    ("bxdf/lama/lama_sss.mtlx", include_str!("../libraries/bxdf/lama/lama_sss.mtlx")),
-    ("bxdf/lama/lama_surface.mtlx", include_str!("../libraries/bxdf/lama/lama_surface.mtlx")),
-    ("bxdf/lama/lama_translucent.mtlx", include_str!("../libraries/bxdf/lama/lama_translucent.mtlx")),
-    ("bxdf/translation/open_pbr_to_standard_surface.mtlx", include_str!("../libraries/bxdf/translation/open_pbr_to_standard_surface.mtlx")),
-    ("bxdf/translation/standard_surface_to_gltf_pbr.mtlx", include_str!("../libraries/bxdf/translation/standard_surface_to_gltf_pbr.mtlx")),
-    ("bxdf/translation/standard_surface_to_open_pbr.mtlx", include_str!("../libraries/bxdf/translation/standard_surface_to_open_pbr.mtlx")),
-    ("bxdf/translation/standard_surface_to_usd.mtlx", include_str!("../libraries/bxdf/translation/standard_surface_to_usd.mtlx")),
-    ("cmlib/cmlib_defs.mtlx", include_str!("../libraries/cmlib/cmlib_defs.mtlx")),
+    (
+        "bxdf/disney_principled.mtlx",
+        include_str!("../libraries/bxdf/disney_principled.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_add.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_add.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_conductor.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_conductor.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_dielectric.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_dielectric.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_diffuse.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_diffuse.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_emission.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_emission.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_generalized_schlick.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_generalized_schlick.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_iridescence.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_iridescence.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_layer.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_layer.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_mix.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_mix.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_sheen.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_sheen.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_sss.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_sss.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_surface.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_surface.mtlx"),
+    ),
+    (
+        "bxdf/lama/lama_translucent.mtlx",
+        include_str!("../libraries/bxdf/lama/lama_translucent.mtlx"),
+    ),
+    (
+        "bxdf/translation/open_pbr_to_standard_surface.mtlx",
+        include_str!("../libraries/bxdf/translation/open_pbr_to_standard_surface.mtlx"),
+    ),
+    (
+        "bxdf/translation/standard_surface_to_gltf_pbr.mtlx",
+        include_str!("../libraries/bxdf/translation/standard_surface_to_gltf_pbr.mtlx"),
+    ),
+    (
+        "bxdf/translation/standard_surface_to_open_pbr.mtlx",
+        include_str!("../libraries/bxdf/translation/standard_surface_to_open_pbr.mtlx"),
+    ),
+    (
+        "bxdf/translation/standard_surface_to_usd.mtlx",
+        include_str!("../libraries/bxdf/translation/standard_surface_to_usd.mtlx"),
+    ),
+    (
+        "cmlib/cmlib_defs.mtlx",
+        include_str!("../libraries/cmlib/cmlib_defs.mtlx"),
+    ),
     ("cmlib/cmlib_ng.mtlx", include_str!("../libraries/cmlib/cmlib_ng.mtlx")),
-    ("nprlib/nprlib_defs.mtlx", include_str!("../libraries/nprlib/nprlib_defs.mtlx")),
-    ("nprlib/nprlib_ng.mtlx", include_str!("../libraries/nprlib/nprlib_ng.mtlx")),
-    ("lights/lights_defs.mtlx", include_str!("../libraries/lights/lights_defs.mtlx")),
+    (
+        "nprlib/nprlib_defs.mtlx",
+        include_str!("../libraries/nprlib/nprlib_defs.mtlx"),
+    ),
+    (
+        "nprlib/nprlib_ng.mtlx",
+        include_str!("../libraries/nprlib/nprlib_ng.mtlx"),
+    ),
+    (
+        "lights/lights_defs.mtlx",
+        include_str!("../libraries/lights/lights_defs.mtlx"),
+    ),
 ];
 
 /// The MaterialX version the vendored libraries are.
@@ -85,8 +172,8 @@ pub struct Input {
     pub default_geomprop: Option<String>,
     /// The choices of a string input (`enum`), or the names of an integer's.
     pub choices: Vec<String>,
-    /// The values the choices stand for (`enumvalues`), when they are not
-    /// the names themselves.
+    /// The values the choices stand for (`enumvalues`), when they are not the
+    /// names themselves.
     pub choice_values: Option<String>,
     pub doc: Option<String>,
     pub ui: Ui,
@@ -97,7 +184,9 @@ pub struct Input {
 
 impl Input {
     /// Its label: `uiname`, or the name.
-    pub fn label(&self) -> &str { self.ui.name.as_deref().unwrap_or(&self.name) }
+    pub fn label(&self) -> &str {
+        self.ui.name.as_deref().unwrap_or(&self.name)
+    }
 
     pub fn attr(&self, name: &str) -> Option<&str> {
         self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
@@ -138,11 +227,17 @@ pub struct NodeDef {
 }
 
 impl NodeDef {
-    pub fn input(&self, name: &str) -> Option<&Input> { self.inputs.iter().find(|i| i.name == name) }
-    pub fn output(&self, name: &str) -> Option<&Output> { self.outputs.iter().find(|o| o.name == name) }
+    pub fn input(&self, name: &str) -> Option<&Input> {
+        self.inputs.iter().find(|i| i.name == name)
+    }
+    pub fn output(&self, name: &str) -> Option<&Output> {
+        self.outputs.iter().find(|o| o.name == name)
+    }
 
     /// The type of its output, when it has one; else its first.
-    pub fn out_type(&self) -> Type { self.outputs.first().map(|o| o.ty).unwrap_or(Type::None) }
+    pub fn out_type(&self) -> Type {
+        self.outputs.first().map(|o| o.ty).unwrap_or(Type::None)
+    }
 }
 
 /// What went wrong reading a library.
@@ -153,7 +248,9 @@ pub struct LoadError {
 }
 
 impl std::fmt::Display for LoadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}: {}", self.file, self.what) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.file, self.what)
+    }
 }
 
 impl std::error::Error for LoadError {}
@@ -184,16 +281,28 @@ impl Library {
     pub fn read(files: &[(&str, &str)]) -> Result<Library, LoadError> {
         let mut lib = Library::default();
         for (file, text) in files {
-            let root = xml::parse(text).map_err(|e| LoadError { file: file.to_string(), what: e.to_string() })?;
+            let root = xml::parse(text).map_err(|e| LoadError {
+                file: file.to_string(),
+                what: e.to_string(),
+            })?;
             if root.name != "materialx" {
-                return Err(LoadError { file: file.to_string(), what: format!("root is <{}>, not <materialx>", root.name) });
+                return Err(LoadError {
+                    file: file.to_string(),
+                    what: format!("root is <{}>, not <materialx>", root.name),
+                });
             }
             for el in &root.children {
                 match el.name.as_str() {
                     "typedef" => lib.typedefs.extend(el.attr("name").map(String::from)),
                     "nodedef" => {
-                        let def = read_nodedef(el, file).map_err(|what| LoadError { file: file.to_string(), what })?;
-                        lib.add(def).map_err(|what| LoadError { file: file.to_string(), what })?;
+                        let def = read_nodedef(el, file).map_err(|what| LoadError {
+                            file: file.to_string(),
+                            what,
+                        })?;
+                        lib.add(def).map_err(|what| LoadError {
+                            file: file.to_string(),
+                            what,
+                        })?;
                     }
                     _ => {}
                 }
@@ -223,9 +332,9 @@ impl Library {
         Ok(())
     }
 
-    /// Give each definition that inherits its parent's inputs and outputs:
-    /// the parent's first, in their order, its own replacing those of the
-    /// same name, then its new ones.
+    /// Give each definition that inherits its parent's inputs and outputs: the
+    /// parent's first, in their order, its own replacing those of the same
+    /// name, then its new ones.
     fn inherit(&mut self) -> Result<(), LoadError> {
         let mut done = vec![false; self.defs.len()];
         for i in 0..self.defs.len() {
@@ -238,13 +347,19 @@ impl Library {
         if done[i] {
             return Ok(());
         }
-        let err = |def: &NodeDef, what: String| LoadError { file: def.file.clone(), what };
+        let err = |def: &NodeDef, what: String| LoadError {
+            file: def.file.clone(),
+            what,
+        };
         if depth > 16 {
             return Err(err(&self.defs[i], format!("{} inherits in a loop", self.defs[i].name)));
         }
         if let Some(parent) = self.defs[i].inherit.clone() {
             let Some(&p) = self.by_name.get(&parent) else {
-                return Err(err(&self.defs[i], format!("{} inherits {parent}, which is not defined", self.defs[i].name)));
+                return Err(err(
+                    &self.defs[i],
+                    format!("{} inherits {parent}, which is not defined", self.defs[i].name),
+                ));
             };
             self.inherit_one(p, done, depth + 1)?;
             let (inputs, outputs) = (self.defs[p].inputs.clone(), self.defs[p].outputs.clone());
@@ -257,24 +372,32 @@ impl Library {
     }
 
     /// Every definition, in document order.
-    pub fn defs(&self) -> &[NodeDef] { &self.defs }
+    pub fn defs(&self) -> &[NodeDef] {
+        &self.defs
+    }
 
     /// The definition a document names: `ND_add_color3`.
-    pub fn def(&self, name: &str) -> Option<&NodeDef> { self.by_name.get(name).map(|&i| &self.defs[i]) }
+    pub fn def(&self, name: &str) -> Option<&NodeDef> {
+        self.by_name.get(name).map(|&i| &self.defs[i])
+    }
 
     /// Every node, in the order the libraries first define it.
-    pub fn nodes(&self) -> &[String] { &self.nodes }
+    pub fn nodes(&self) -> &[String] {
+        &self.nodes
+    }
 
     /// The group a node is listed under: its first definition's.
-    pub fn group(&self, node: &str) -> Option<&str> { self.variants_all(node).next().map(|d| d.group.as_str()) }
+    pub fn group(&self, node: &str) -> Option<&str> {
+        self.variants_all(node).next().map(|d| d.group.as_str())
+    }
 
     /// A node's definitions of every version.
     pub fn variants_all<'a>(&'a self, node: &str) -> impl Iterator<Item = &'a NodeDef> + 'a {
         self.by_node.get(node).into_iter().flatten().map(|&i| &self.defs[i])
     }
 
-    /// A node's definitions at its current version: the default version for
-    /// a versioned node (`standard_surface` 1.0.1, not 1.0.0).
+    /// A node's definitions at its current version: the default version for a
+    /// versioned node (`standard_surface` 1.0.1, not 1.0.0).
     pub fn variants<'a>(&'a self, node: &str) -> impl Iterator<Item = &'a NodeDef> + 'a {
         self.variants_all(node).filter(move |d| self.is_current(d))
     }
@@ -289,27 +412,31 @@ impl Library {
 
     /// The definition a new node starts as: its first at the current version
     /// (`add` starts as `ND_add_float`).
-    pub fn default_def(&self, node: &str) -> Option<&NodeDef> { self.variants(node).next() }
+    pub fn default_def(&self, node: &str) -> Option<&NodeDef> {
+        self.variants(node).next()
+    }
 
     /// Whether `def` takes what is connected to it: each `(input, type)` in
-    /// `connected` is an input of that type, and its output is `output`, if
-    /// one is asked for.
+    /// `connected` is an input of that type, and its output is `output`, if one
+    /// is asked for.
     pub fn fits(def: &NodeDef, connected: &[(&str, Type)], output: Option<Type>) -> bool {
-        connected.iter().all(|(name, ty)| def.input(name).is_some_and(|i| i.ty == *ty))
+        connected
+            .iter()
+            .all(|(name, ty)| def.input(name).is_some_and(|i| i.ty == *ty))
             && output.is_none_or(|t| def.outputs.iter().any(|o| o.ty == t))
     }
 
-    /// The definition of `node` that takes what is connected (see `fits`):
-    /// the first at the current version, so with nothing connected the
-    /// node's default. None when no definition does: the connection is
-    /// between types the node does not join.
+    /// The definition of `node` that takes what is connected (see `fits`): the
+    /// first at the current version, so with nothing connected the node's
+    /// default. None when no definition does: the connection is between types
+    /// the node does not join.
     pub fn resolve(&self, node: &str, connected: &[(&str, Type)], output: Option<Type>) -> Option<&NodeDef> {
         self.variants(node).find(|d| Library::fits(d, connected, output))
     }
 }
 
-/// `base` with `own` laid over it: entries of the same name replaced in
-/// place, new ones after.
+/// `base` with `own` laid over it: entries of the same name replaced in place,
+/// new ones after.
 fn merge<T>(base: Vec<T>, own: Vec<T>, name: impl Fn(&T) -> &String) -> Vec<T> {
     let mut out = base;
     for x in own {
@@ -323,7 +450,10 @@ fn merge<T>(base: Vec<T>, own: Vec<T>, name: impl Fn(&T) -> &String) -> Vec<T> {
 
 fn read_nodedef(el: &Element, file: &str) -> Result<NodeDef, String> {
     let name = el.attr("name").ok_or("a nodedef has no name")?.to_string();
-    let node = el.attr("node").ok_or_else(|| format!("{name} has no node"))?.to_string();
+    let node = el
+        .attr("node")
+        .ok_or_else(|| format!("{name} has no node"))?
+        .to_string();
     let mut def = NodeDef {
         group: el.attr("nodegroup").unwrap_or("").to_string(),
         ui_name: el.attr("uiname").map(String::from),
@@ -339,8 +469,12 @@ fn read_nodedef(el: &Element, file: &str) -> Result<NodeDef, String> {
     };
     for c in &el.children {
         match c.name.as_str() {
-            "input" => def.inputs.push(read_input(c).map_err(|e| format!("{}: {e}", def.name))?),
-            "output" => def.outputs.push(read_output(c).map_err(|e| format!("{}: {e}", def.name))?),
+            "input" => def
+                .inputs
+                .push(read_input(c).map_err(|e| format!("{}: {e}", def.name))?),
+            "output" => def
+                .outputs
+                .push(read_output(c).map_err(|e| format!("{}: {e}", def.name))?),
             _ => {}
         }
     }
@@ -348,7 +482,9 @@ fn read_nodedef(el: &Element, file: &str) -> Result<NodeDef, String> {
 }
 
 fn read_type(el: &Element) -> Result<Type, String> {
-    let t = el.attr("type").ok_or_else(|| format!("{} has no type", el.attr("name").unwrap_or("?")))?;
+    let t = el
+        .attr("type")
+        .ok_or_else(|| format!("{} has no type", el.attr("name").unwrap_or("?")))?;
     Type::from_name(t).ok_or_else(|| format!("unknown type {t}"))
 }
 
@@ -380,7 +516,10 @@ fn read_input(el: &Element) -> Result<Input, String> {
         value,
         uniform: el.attr("uniform") == Some("true"),
         default_geomprop: el.attr("defaultgeomprop").map(String::from),
-        choices: el.attr("enum").map(|e| e.split(',').map(|s| s.trim().to_string()).collect()).unwrap_or_default(),
+        choices: el
+            .attr("enum")
+            .map(|e| e.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
         choice_values: el.attr("enumvalues").map(String::from),
         doc: el.attr("doc").map(String::from),
         ui,

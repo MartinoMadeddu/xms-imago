@@ -1,7 +1,7 @@
-//! Export edits as a USD override layer (`.usda`): a layer that sublayers the original
-//! stage and holds only `over` opinions (plus new `def` prims for rray's camera and
-//! render settings). Opening it gives the full scene with the edits on top; the
-//! original files are never modified.
+//! Export edits as a USD override layer (`.usda`): a layer that sublayers the
+//! original stage and holds only `over` opinions (plus new `def` prims for
+//! rray's camera and render settings). Opening it gives the full scene with the
+//! edits on top; the original files are never modified.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -63,9 +63,9 @@ pub struct OverrideLayer {
 }
 
 impl OverrideLayer {
-    /// A layer over `source`, carrying the stage metadata a root layer must hold
-    /// (stage-level metadata is only read from the root layer, so without it a Z-up
-    /// stage would open Y-up).
+    /// A layer over `source`, carrying the stage metadata a root layer must
+    /// hold (stage-level metadata is only read from the root layer, so without
+    /// it a Z-up stage would open Y-up).
     pub fn new(source: &Path, up_axis: &str, meters_per_unit: Option<f64>, time_range: Option<(f64, f64)>) -> Self {
         OverrideLayer {
             source: source.to_path_buf(),
@@ -83,12 +83,14 @@ impl OverrideLayer {
         self.prims.entry(prim.to_string()).or_default().lines.push(format!("{decl} = {value}"));
     }
 
-    /// Define a new prim of `type_name` (its ancestors become `over`s unless defined).
+    /// Define a new prim of `type_name` (its ancestors become `over`s unless
+    /// defined).
     pub fn define(&mut self, prim: &str, type_name: &str) {
         self.prims.entry(prim.to_string()).or_default().def_type = Some(type_name.to_string());
     }
 
-    /// A note written into the layer as a comment (edits that couldn't be written).
+    /// A note written into the layer as a comment (edits that couldn't be
+    /// written).
     pub fn note(&mut self, note: &str) {
         self.notes.push(note.to_string());
     }
@@ -135,8 +137,8 @@ impl OverrideLayer {
         self.set(path, "uniform token[] xformOpOrder", "[\"xformOp:transform\"]");
     }
 
-    /// A RenderSettings prim (made the stage's `renderSettingsPrimPath`) with the
-    /// resolution, camera and rray's settings (`crate::RRAY_SETTINGS`).
+    /// A RenderSettings prim (made the stage's `renderSettingsPrimPath`) with
+    /// the resolution, camera and rray's settings (`crate::RRAY_SETTINGS`).
     pub fn render_settings(&mut self, path: &str, camera: &str, resolution: [u32; 2], s: &rray_render::render::RenderSettings) {
         self.define(path, "RenderSettings");
         self.set(path, "rel camera", &format!("<{camera}>"));
@@ -156,7 +158,8 @@ impl OverrideLayer {
         self.render_settings = Some(path.to_string());
     }
 
-    /// The layer's text, for writing at `out` (the sublayer path is made relative to it).
+    /// The layer's text, for writing at `out` (the sublayer path is made
+    /// relative to it).
     pub fn to_usda(&self, out: &Path) -> String {
         let mut s = String::from("#usda 1.0\n(\n");
         let name = self.source.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -239,8 +242,8 @@ impl OverrideLayer {
     }
 }
 
-/// The source stage as seen from the output's folder: relative when both share a
-/// root, absolute otherwise; forward slashes.
+/// The source stage as seen from the output's folder: relative when both share
+/// a root, absolute otherwise; forward slashes.
 fn sublayer_path(source: &Path, out: &Path) -> String {
     let abs = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     let (src, base) = (abs(source), abs(out.parent().unwrap_or(Path::new("."))));
@@ -263,8 +266,8 @@ fn sublayer_path(source: &Path, out: &Path) -> String {
     s.replace('\\', "/")
 }
 
-/// The shader inputs to write for a material edit (`before` = as imported, `after` =
-/// as edited), and notes for edits that can't be written.
+/// The shader inputs to write for a material edit (`before` = as imported,
+/// `after` = as edited), and notes for edits that can't be written.
 pub fn material_overrides(src: &MaterialSource, before: &Material, after: &Material) -> (Vec<(String, ExportValue)>, Vec<String>) {
     let mut out: Vec<(String, ExportValue)> = Vec::new();
     let mut notes: Vec<String> = Vec::new();

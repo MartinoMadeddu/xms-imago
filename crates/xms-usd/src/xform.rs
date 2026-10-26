@@ -3,7 +3,8 @@
 
 use crate::*;
 
-/// gf matrices are row-major with row vectors; nalgebra here uses column vectors.
+/// gf matrices are row-major with row vectors; nalgebra here uses column
+/// vectors.
 pub(crate) fn gf_to_col(m: gf::Matrix4d) -> M4 {
     M4::from_row_slice(&m.0).transpose()
 }

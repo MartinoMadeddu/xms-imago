@@ -2,9 +2,7 @@
 
 use crate::*;
 
-// ---------------------------------------------------------------------------
 // Value helpers (sdf::Value -> plain Rust)
-// ---------------------------------------------------------------------------
 
 pub(crate) fn tok(v: &Value) -> Option<String> {
     match v {
@@ -58,7 +56,9 @@ pub(crate) fn vec3_array(v: Value) -> Option<Vec<[f32; 3]>> {
     match v {
         Value::Vec3fVec(a) if a.len() >= PAR_CONVERT => Some(a.par_iter().map(|p| [p.x, p.y, p.z]).collect()),
         Value::Vec3fVec(a) => Some(a.iter().map(|p| [p.x, p.y, p.z]).collect()),
-        Value::Vec3dVec(a) if a.len() >= PAR_CONVERT => Some(a.par_iter().map(|p| [p.x as f32, p.y as f32, p.z as f32]).collect()),
+        Value::Vec3dVec(a) if a.len() >= PAR_CONVERT => {
+            Some(a.par_iter().map(|p| [p.x as f32, p.y as f32, p.z as f32]).collect())
+        }
         Value::Vec3dVec(a) => Some(a.iter().map(|p| [p.x as f32, p.y as f32, p.z as f32]).collect()),
         other => match other.coerce_to_kind(ValueKind::Vec3fVec) {
             Ok(Value::Vec3fVec(a)) => Some(a.iter().map(|p| [p.x, p.y, p.z]).collect()),
@@ -131,7 +131,11 @@ pub(crate) fn numeric_values(v: Value) -> Option<(u8, Vec<[f32; 4]>)> {
 }
 
 pub(crate) fn type_of(prim: &Prim) -> String {
-    prim.type_name().ok().flatten().map(|t| t.as_str().to_string()).unwrap_or_default()
+    prim.type_name()
+        .ok()
+        .flatten()
+        .map(|t| t.as_str().to_string())
+        .unwrap_or_default()
 }
 
 pub(crate) fn binding(prim: &Prim) -> Option<String> {

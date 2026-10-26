@@ -1,6 +1,6 @@
 //! Attributes made from the topology rather than stored: the columns the
-//! Primitive Inspector shows that no `Geo` holds, readable by Get Data like
-//! any other (a stored attribute of the same name wins).
+//! Primitive Inspector shows that no `Geo` holds, readable by Get Data like any
+//! other (a stored attribute of the same name wins).
 //!
 //! | Context | Name               | Type  | What                                        |
 //! |---------|--------------------|-------|---------------------------------------------|
@@ -37,14 +37,18 @@ pub const DERIVED: &[(Context, &str, Ty)] = &[
 ];
 
 /// Polygons only: a normal and an area need a surface.
-fn polygons_only(name: &str) -> bool { matches!(name, "N" | "area") }
+fn polygons_only(name: &str) -> bool {
+    matches!(name, "N" | "area")
+}
 
 /// The type of the derived attribute `name` in `ctx` on `geo`, if `geo`'s
 /// topology has it.
 pub fn ty(geo: &Geo, ctx: Context, name: &str) -> Option<Ty> {
     let (_, _, t) = DERIVED.iter().find(|(c, n, _)| *c == ctx && *n == name)?;
     // Every geometry has points, numbered.
-    if ctx == Context::Point { return Some(*t); }
+    if ctx == Context::Point {
+        return Some(*t);
+    }
     match &geo.topology {
         Topology::Points => None,
         Topology::Curves { .. } if polygons_only(name) => None,
@@ -79,35 +83,62 @@ pub fn column(geo: &Geo, ctx: Context, name: &str) -> Option<Column> {
         (Context::Point, "ptIndex") => int((0..geo.points().len() as i32).collect()),
         (Context::Face, "faceIndex") => int((0..counts.len() as i32).collect()),
         (Context::Face, "corners") => int(counts.iter().map(|&c| c as i32).collect()),
-        (Context::Face, "firstCorner") => int(counts.iter().scan(0i32, |at, &c| { let s = *at; *at += c as i32; Some(s) }).collect()),
+        (Context::Face, "firstCorner") => int(counts
+            .iter()
+            .scan(0i32, |at, &c| {
+                let s = *at;
+                *at += c as i32;
+                Some(s)
+            })
+            .collect()),
         (Context::Face, "N") | (Context::Face, "area") => {
             let pts = geo.points();
             let at = |c: u32| pts.get(corner_point[c as usize] as usize).copied().unwrap_or([0.0; 3]);
             let mut start = 0u32;
             // Newell's: twice the area, along the normal; flat or not.
-            let area_normals: Vec<[f32; 3]> = counts.iter().map(|&n| {
-                let mut s = [0.0f32; 3];
-                for k in 0..n {
-                    let (a, b) = (at(start + k), at(start + (k + 1) % n));
-                    s[0] += (a[1] - b[1]) * (a[2] + b[2]);
-                    s[1] += (a[2] - b[2]) * (a[0] + b[0]);
-                    s[2] += (a[0] - b[0]) * (a[1] + b[1]);
-                }
-                start += n;
-                if matches!(geo.topology, Topology::Mesh { left_handed: true, .. }) { [-s[0], -s[1], -s[2]] } else { s }
-            }).collect();
+            let area_normals: Vec<[f32; 3]> = counts
+                .iter()
+                .map(|&n| {
+                    let mut s = [0.0f32; 3];
+                    for k in 0..n {
+                        let (a, b) = (at(start + k), at(start + (k + 1) % n));
+                        s[0] += (a[1] - b[1]) * (a[2] + b[2]);
+                        s[1] += (a[2] - b[2]) * (a[0] + b[0]);
+                        s[2] += (a[0] - b[0]) * (a[1] + b[1]);
+                    }
+                    start += n;
+                    if matches!(geo.topology, Topology::Mesh { left_handed: true, .. }) {
+                        [-s[0], -s[1], -s[2]]
+                    } else {
+                        s
+                    }
+                })
+                .collect();
             let len = |v: &[f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
             Some(if name == "N" {
-                Column::Vec3(Arc::new(area_normals.iter().map(|v| {
-                    let l = len(v);
-                    if l > 0.0 { [v[0] / l, v[1] / l, v[2] / l] } else { [0.0; 3] }
-                }).collect()))
+                Column::Vec3(Arc::new(
+                    area_normals
+                        .iter()
+                        .map(|v| {
+                            let l = len(v);
+                            if l > 0.0 {
+                                [v[0] / l, v[1] / l, v[2] / l]
+                            } else {
+                                [0.0; 3]
+                            }
+                        })
+                        .collect(),
+                ))
             } else {
                 Column::Float(Arc::new(area_normals.iter().map(|v| len(v) * 0.5).collect()))
             })
         }
         (Context::Corner, "ptIndex") => int(corner_point.iter().map(|&p| p as i32).collect()),
-        (Context::Corner, "faceIndex") => int(counts.iter().enumerate().flat_map(|(f, &c)| (0..c).map(move |_| f as i32)).collect()),
+        (Context::Corner, "faceIndex") => int(counts
+            .iter()
+            .enumerate()
+            .flat_map(|(f, &c)| (0..c).map(move |_| f as i32))
+            .collect()),
         (Context::Corner, "localCornerIndex") => int(counts.iter().flat_map(|&c| 0..c as i32).collect()),
         _ => None,
     }

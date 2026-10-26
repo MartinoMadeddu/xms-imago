@@ -1,9 +1,9 @@
 //! Timeline panel.
 //!
-//! The timeline has no range, rate or timecode of its own. Every frame it
-//! takes them from the clip produced by the selected node, so selecting a
-//! Trim node shows the trimmed range and selecting a Retime node shows the
-//! new rate. The clip entering the node is drawn behind it for context.
+//! The timeline has no range, rate or timecode of its own. Every frame it takes
+//! them from the clip produced by the selected node, so selecting a Trim node
+//! shows the trimmed range and selecting a Retime node shows the new rate. The
+//! clip entering the node is drawn behind it for context.
 
 pub mod ui;
 
@@ -13,33 +13,42 @@ use crate::core::anim::AnimData;
 use crate::node_graph::NodeGraphState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RulerUnit { Frames, Timecode }
+pub enum RulerUnit {
+    Frames,
+    Timecode,
+}
 
 pub struct Playback {
     /// Playhead on the timecode axis, in seconds (see `frame_to_tc_seconds`).
-    /// Not a frame number, so it stays on the same timecode when the
-    /// selection changes rate.
-    pub time:    f64,
+    /// Not a frame number, so it stays on the same timecode when the selection
+    /// changes rate.
+    pub time: f64,
     /// Fraction of a frame accumulated while playing.
-    pub frac:    f64,
+    pub frac: f64,
     pub playing: bool,
     pub looping: bool,
-    pub ruler:   RulerUnit,
+    pub ruler: RulerUnit,
 }
 
 impl Default for Playback {
     fn default() -> Self {
-        Self { time: 0.0, frac: 0.0, playing: false, looping: true, ruler: RulerUnit::Frames }
+        Self {
+            time: 0.0,
+            frac: 0.0,
+            playing: false,
+            looping: true,
+            ruler: RulerUnit::Frames,
+        }
     }
 }
 
 /// What the timeline is showing this frame.
 pub struct TimelineSource {
-    pub node_name:      String,
+    pub node_name: String,
     /// Clip produced by the node. Defines range, rate and timecode.
-    pub clip:           Arc<AnimData>,
+    pub clip: Arc<AnimData>,
     /// Clip entering the node, if any.
-    pub input:          Option<Arc<AnimData>>,
+    pub input: Option<Arc<AnimData>>,
     /// False when nothing is selected and the viewed node is used instead.
     pub from_selection: bool,
 }
@@ -58,7 +67,7 @@ pub fn resolve_source(graph: &NodeGraphState) -> TimelineState {
         Some(id) => (id, true),
         None => match graph.display_source() {
             Some(id) => (id, false),
-            None     => return TimelineState::Nothing,
+            None => return TimelineState::Nothing,
         },
     };
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
@@ -74,7 +83,8 @@ pub fn resolve_source(graph: &NodeGraphState) -> TimelineState {
     let input = if node.node_type.is_anim_generator() {
         None
     } else {
-        node.inputs.first()
+        node.inputs
+            .first()
             .and_then(|s| s.connected_output)
             .and_then(|(src, out)| graph.eval_anim_out(src, out))
             // An operator that passes the clip on unchanged has no input to compare.

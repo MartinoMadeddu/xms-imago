@@ -96,7 +96,13 @@ pub struct StageInfo {
 
 impl Default for StageInfo {
     fn default() -> Self {
-        StageInfo { z_up: false, meters_per_unit: None, time_range: None, source: None, default_prim: None }
+        StageInfo {
+            z_up: false,
+            meters_per_unit: None,
+            time_range: None,
+            source: None,
+            default_prim: None,
+        }
     }
 }
 
@@ -134,9 +140,21 @@ pub struct Summary {
 impl std::fmt::Display for Summary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "prims {} ({} groups)", self.prims, self.groups)?;
-        writeln!(f, "meshes {} · {} faces · {} points · {} subdivision", self.meshes, self.mesh_faces, self.mesh_points, self.subdivision_meshes)?;
-        writeln!(f, "curves {} ({} vertices) · points prims {} · gprims {}", self.curves, self.curve_segments_hint, self.points, self.gprims)?;
-        writeln!(f, "instancers {} ({} instances) · native instances {}", self.instancers, self.instancer_instances, self.instances)?;
+        writeln!(
+            f,
+            "meshes {} · {} faces · {} points · {} subdivision",
+            self.meshes, self.mesh_faces, self.mesh_points, self.subdivision_meshes
+        )?;
+        writeln!(
+            f,
+            "curves {} ({} vertices) · points prims {} · gprims {}",
+            self.curves, self.curve_segments_hint, self.points, self.gprims
+        )?;
+        writeln!(
+            f,
+            "instancers {} ({} instances) · native instances {}",
+            self.instancers, self.instancer_instances, self.instances
+        )?;
         writeln!(
             f,
             "materials {} ({} shader nodes, {} from .mtlx documents) · lights {} · cameras {} · render settings {}",
@@ -298,8 +316,11 @@ impl Scene {
     /// (transform, visibility, material binding) are propagated to descendants.
     pub fn take_changes(&mut self) -> Changes {
         let mut dirty: HashMap<Path, Dirty> = std::mem::take(&mut self.dirty);
-        let seeds: Vec<(Path, Dirty)> =
-            dirty.iter().filter(|(_, d)| d.intersects(Dirty::INHERITED)).map(|(p, d)| (p.clone(), *d & Dirty::INHERITED)).collect();
+        let seeds: Vec<(Path, Dirty)> = dirty
+            .iter()
+            .filter(|(_, d)| d.intersects(Dirty::INHERITED))
+            .map(|(p, d)| (p.clone(), *d & Dirty::INHERITED))
+            .collect();
         for (p, d) in seeds {
             let mut stack: Vec<Path> = self.children(&p).to_vec();
             while let Some(c) = stack.pop() {
@@ -309,19 +330,31 @@ impl Scene {
         }
         // Still-present additions, each once (a prim re-added after a removal appears twice in the list)
         let mut set = std::mem::take(&mut self.added_set);
-        let added: Vec<Path> = std::mem::take(&mut self.added).into_iter().filter(|p| set.remove(p)).collect();
+        let added: Vec<Path> = std::mem::take(&mut self.added)
+            .into_iter()
+            .filter(|p| set.remove(p))
+            .collect();
         for a in &added {
             dirty.remove(a);
         }
         let mut dirty: Vec<(Path, Dirty)> = dirty.into_iter().collect();
         dirty.sort_by(|a, b| a.0.cmp(&b.0));
-        Changes { added, removed: std::mem::take(&mut self.removed), dirty, time: std::mem::take(&mut self.time_changed) }
+        Changes {
+            added,
+            removed: std::mem::take(&mut self.removed),
+            dirty,
+            time: std::mem::take(&mut self.time_changed),
+        }
     }
 
-    /// Counts per prim kind, geometry sizes and animated values, for diagnostics.
+    /// Counts per prim kind, geometry sizes and animated values, for
+    /// diagnostics.
     pub fn summary(&self) -> Summary {
         use crate::prim::PrimKind as K;
-        let mut s = Summary { prims: self.prims.len(), ..Summary::default() };
+        let mut s = Summary {
+            prims: self.prims.len(),
+            ..Summary::default()
+        };
         fn primvar_anim(pvs: &[crate::prim::Primvar], s: &mut Summary) {
             for pv in pvs {
                 if pv.values.is_animated() {
@@ -448,7 +481,8 @@ impl Scene {
         times.into_iter().map(|t| (t, self.world_xform_at(path, t))).collect()
     }
 
-    /// Effective visibility at time `t`: invisible if the prim or any ancestor is.
+    /// Effective visibility at time `t`: invisible if the prim or any ancestor
+    /// is.
     pub fn visible_at(&self, path: &Path, t: f64) -> bool {
         let mut cur = Some(path.clone());
         while let Some(p) = cur {
@@ -461,7 +495,8 @@ impl Scene {
         true
     }
 
-    /// The material bound to `path`, inherited from the nearest ancestor with a binding.
+    /// The material bound to `path`, inherited from the nearest ancestor with a
+    /// binding.
     pub fn resolved_material(&self, path: &Path) -> Option<Path> {
         let mut cur = Some(path.clone());
         while let Some(p) = cur {

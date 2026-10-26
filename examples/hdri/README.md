@@ -6,4 +6,5 @@
 
 To make it again: `python3 make_sky.py sky.hdr`.
 
-A dome light's 📂 browses for your own (EXR, HDR); Poly Haven (https://polyhaven.com/hdris) has many under CC0.
+A dome light's 📂 browses for your own (EXR, HDR); Poly Haven
+(https://polyhaven.com/hdris) has many under CC0.

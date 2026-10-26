@@ -1,17 +1,17 @@
 //! What a scene network has changed in a composed stage.
 //!
-//! Every packed primitive from a stage carries its `source`: itself as it
-//! was loaded. Edits are what no longer shares with that source. Because
-//! columns are shared and copied only when written, this is a comparison of
-//! pointers, not of values: an attribute still pointing at the loaded column
-//! is unedited, however large it is.
+//! Every packed primitive from a stage carries its `source`: itself as it was
+//! loaded. Edits are what no longer shares with that source. Because columns
+//! are shared and copied only when written, this is a comparison of pointers,
+//! not of values: an attribute still pointing at the loaded column is unedited,
+//! however large it is.
 //!
 //! An `EditSet` is the list of those differences for the primitives arriving
-//! somewhere (the output, or any node). Writing USD turns it into opinions
-//! (an override layer); a render delegate uses it to update only what
-//! changed. Comparing two nodes' outputs, rather than one against the
-//! source, gives the edits of the nodes between them: Solaris-style stacked
-//! layers come from the same function.
+//! somewhere (the output, or any node). Writing USD turns it into opinions (an
+//! override layer); a render delegate uses it to update only what changed.
+//! Comparing two nodes' outputs, rather than one against the source, gives the
+//! edits of the nodes between them: Solaris-style stacked layers come from the
+//! same function.
 
 // Read by Write USD and the delegates, next.
 #![allow(dead_code)]
@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use crate::core::geo::{Context, Geo};
 use crate::core::properties::{Opinions, Value};
-use crate::types::{Prim, Placement, Purpose};
+use crate::types::{Placement, Prim, Purpose};
 use crate::usd_scene::StageTree;
 
 /// What changed in one primitive.
@@ -44,16 +44,22 @@ pub struct PrimEdit {
     pub purpose: Option<Purpose>,
     /// Properties set on it (Set Attribute), by name.
     pub props: Vec<(String, Value)>,
-    /// The geometry can no longer be traced to the source (several
-    /// primitives merged into one): everything is to be written, from the
-    /// primitive's mesh, where it is drawn.
+    /// The geometry can no longer be traced to the source (several primitives
+    /// merged into one): everything is to be written, from the primitive's
+    /// mesh, where it is drawn.
     pub replaced: bool,
 }
 
 impl PrimEdit {
     pub fn is_empty(&self) -> bool {
-        self.place.is_none() && !self.topology && self.attrs.is_empty() && self.removed.is_empty()
-            && self.material.is_none() && self.purpose.is_none() && self.props.is_empty() && !self.replaced
+        self.place.is_none()
+            && !self.topology
+            && self.attrs.is_empty()
+            && self.removed.is_empty()
+            && self.material.is_none()
+            && self.purpose.is_none()
+            && self.props.is_empty()
+            && !self.replaced
     }
 }
 
@@ -82,12 +88,21 @@ impl EditSet {
 /// What one primitive changed against its source. `None` without a source.
 pub fn prim_edit(p: &Prim) -> Option<PrimEdit> {
     let src = p.source.as_ref()?;
-    let mut e = PrimEdit { path: p.path.clone(), ..Default::default() };
+    let mut e = PrimEdit {
+        path: p.path.clone(),
+        ..Default::default()
+    };
     // A point instancer's prototype is placed by the instancer's points:
     // where its copies are is the instancer's edit, not its own.
-    if p.instanced_by.is_none() && !p.place.same(&src.place) { e.place = Some(p.place.clone()); }
-    if p.material != src.material { e.material = Some(p.material.clone()); }
-    if p.purpose != src.purpose { e.purpose = Some(p.purpose); }
+    if p.instanced_by.is_none() && !p.place.same(&src.place) {
+        e.place = Some(p.place.clone());
+    }
+    if p.material != src.material {
+        e.material = Some(p.material.clone());
+    }
+    if p.purpose != src.purpose {
+        e.purpose = Some(p.purpose);
+    }
     // Nothing is read as a property when loading: every one is an edit.
     e.props = p.props.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     match &p.geo {
@@ -118,7 +133,10 @@ fn diff_geo(src: &Geo, cur: &Geo, e: &mut PrimEdit) {
 pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
     let mut set = EditSet::default();
     let mut present: HashSet<&str> = HashSet::new();
-    for p in prims.iter().filter(|p| p.stage.as_deref().is_some_and(|t| std::ptr::eq(t, tree))) {
+    for p in prims
+        .iter()
+        .filter(|p| p.stage.as_deref().is_some_and(|t| std::ptr::eq(t, tree)))
+    {
         present.insert(p.path.as_str());
         match prim_edit(p) {
             Some(e) if !e.is_empty() => set.prims.push(e),
@@ -128,20 +146,40 @@ pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
     }
     // Prims deactivated by an opinion: what is below them goes with them,
     // and needs no opinion of its own.
-    let off: Vec<&str> = tree.opinions.iter()
+    let off: Vec<&str> = tree
+        .opinions
+        .iter()
         .filter(|(_, o)| o.props.get("active") == Some(&Value::Bool(false)))
-        .map(|(path, _)| path.as_str()).collect();
-    let below_off = |path: &str| off.iter().any(|g| path.strip_prefix(g).is_some_and(|rest| rest.starts_with('/')));
+        .map(|(path, _)| path.as_str())
+        .collect();
+    let below_off = |path: &str| {
+        off.iter()
+            .any(|g| path.strip_prefix(g).is_some_and(|rest| rest.starts_with('/')))
+    };
     // Geometry the stage has (and that was drawn: hidden prims never arrive)
     // which no longer arrives.
     // Cameras are primitives too: a pruned one is deactivated.
-    let geometry = ["Mesh", "BasisCurves", "NurbsCurves", "HermiteCurves", "Points", "Camera"];
-    set.removed = tree.nodes.iter()
+    let geometry = [
+        "Mesh",
+        "BasisCurves",
+        "NurbsCurves",
+        "HermiteCurves",
+        "Points",
+        "Camera",
+    ];
+    set.removed = tree
+        .nodes
+        .iter()
         .filter(|n| !n.hidden && geometry.contains(&n.type_name.as_str()) && !present.contains(n.path.as_str()))
         .filter(|n| !below_off(&n.path))
         .map(|n| n.path.clone())
         .collect();
-    set.opinions = tree.opinions.iter().filter(|(_, o)| !o.is_empty()).map(|(k, v)| (k.clone(), v.clone())).collect();
+    set.opinions = tree
+        .opinions
+        .iter()
+        .filter(|(_, o)| !o.is_empty())
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     set
 }
 
@@ -152,12 +190,20 @@ pub fn edits_between(before: &[Prim], after: &[Prim]) -> EditSet {
     let mut set = EditSet::default();
     let earlier: std::collections::HashMap<&str, &Prim> = before.iter().map(|p| (p.path.as_str(), p)).collect();
     for p in after {
-        let Some(b) = earlier.get(p.path.as_str()) else { set.added.push(p.path.clone()); continue };
+        let Some(b) = earlier.get(p.path.as_str()) else {
+            set.added.push(p.path.clone());
+            continue;
+        };
         // Measure against the earlier primitive as if it were the source.
         let base = Prim {
-            source: b.geo.clone().map(|geo| Arc::new(crate::types::Source {
-                geo, place: b.place.clone(), material: b.material.clone(), purpose: b.purpose,
-            })),
+            source: b.geo.clone().map(|geo| {
+                Arc::new(crate::types::Source {
+                    geo,
+                    place: b.place.clone(),
+                    material: b.material.clone(),
+                    purpose: b.purpose,
+                })
+            }),
             ..p.clone()
         };
         // Properties: those set or changed since `before`.
@@ -168,43 +214,81 @@ pub fn edits_between(before: &[Prim], after: &[Prim]) -> EditSet {
         match edit {
             Some(e) if !e.is_empty() => set.prims.push(e),
             Some(_) => {}
-            None => set.prims.push(PrimEdit { path: p.path.clone(), replaced: true, ..Default::default() }),
+            None => set.prims.push(PrimEdit {
+                path: p.path.clone(),
+                replaced: true,
+                ..Default::default()
+            }),
         }
     }
     let now: HashSet<&str> = after.iter().map(|p| p.path.as_str()).collect();
-    set.removed = before.iter().filter(|p| !now.contains(p.path.as_str())).map(|p| p.path.clone()).collect();
+    set.removed = before
+        .iter()
+        .filter(|p| !now.contains(p.path.as_str()))
+        .map(|p| p.path.clone())
+        .collect();
     set
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::geo_mesh::GeoMesh;
     use crate::core::geo::{Attr, Column, Role, POINTS, ST};
+    use crate::core::geo_mesh::GeoMesh;
     use crate::types::{MeshData, Source};
     use crate::usd_scene::StageNode;
     use glam::{Mat4, Vec3};
 
     fn node(path: &str, ty: &str) -> StageNode {
-        StageNode { path: path.into(), name: path.rsplit('/').next().unwrap().into(), type_name: ty.into(), depth: 1, ..Default::default() }
+        StageNode {
+            path: path.into(),
+            name: path.rsplit('/').next().unwrap().into(),
+            type_name: ty.into(),
+            depth: 1,
+            ..Default::default()
+        }
     }
 
     /// A loaded quad: its geometry, placement and source, on a stage.
     fn loaded(path: &str, tree: &Arc<StageTree>) -> Prim {
-        let mut geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]], vec![4], vec![0, 1, 2, 3]);
-        geo.set(Context::Corner, ST, Attr::new(Column::Vec2(Arc::new(vec![[0.0, 0.0]; 4])), Role::TexCoord));
+        let mut geo = Geo::from_polygons(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+            vec![4],
+            vec![0, 1, 2, 3],
+        );
+        geo.set(
+            Context::Corner,
+            ST,
+            Attr::new(Column::Vec2(Arc::new(vec![[0.0, 0.0]; 4])), Role::TexCoord),
+        );
         let geo = Arc::new(geo);
         let place = Placement::One(Mat4::IDENTITY);
         Prim {
-            mesh: Arc::new(geo.to_mesh()), geo: Some(geo.clone()), place: place.clone(), stage: Some(tree.clone()),
+            mesh: Arc::new(geo.to_mesh()),
+            geo: Some(geo.clone()),
+            place: place.clone(),
+            stage: Some(tree.clone()),
             material: Some("/looks/a".into()),
-            source: Some(Arc::new(Source { geo, place, material: Some("/looks/a".into()), purpose: Purpose::Default })),
+            source: Some(Arc::new(Source {
+                geo,
+                place,
+                material: Some("/looks/a".into()),
+                purpose: Purpose::Default,
+            })),
             ..Prim::new(path.into(), MeshData::default())
         }
     }
 
     fn stage() -> Arc<StageTree> {
-        Arc::new(StageTree { nodes: vec![node("/a", "Mesh"), node("/b", "Mesh"), node("/c", "Mesh"), node("/looks", "Scope")], ..Default::default() })
+        Arc::new(StageTree {
+            nodes: vec![
+                node("/a", "Mesh"),
+                node("/b", "Mesh"),
+                node("/c", "Mesh"),
+                node("/looks", "Scope"),
+            ],
+            ..Default::default()
+        })
     }
 
     #[test]
@@ -233,7 +317,10 @@ mod tests {
 
         let set = edit_set(&[a, b, made], &tree);
         let ea = &set.prims[0];
-        assert_eq!((ea.path.as_str(), ea.attrs.clone(), ea.topology, ea.place.is_some()), ("/a", vec![(Context::Point, Arc::from(POINTS))], false, false));
+        assert_eq!(
+            (ea.path.as_str(), ea.attrs.clone(), ea.topology, ea.place.is_some()),
+            ("/a", vec![(Context::Point, Arc::from(POINTS))], false, false)
+        );
         let eb = &set.prims[1];
         assert!(eb.place.is_some() && eb.attrs.is_empty());
         assert_eq!(eb.material, Some(Some("/looks/b".into())));

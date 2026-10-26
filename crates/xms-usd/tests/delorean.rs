@@ -22,6 +22,9 @@ fn delorean() {
     for w in &tr.warnings {
         println!("note: {w}");
     }
-    println!("{total} prims · {meshes} meshes · {materials} materials · {:.2} s", tr.seconds);
+    println!(
+        "{total} prims · {meshes} meshes · {materials} materials · {:.2} s",
+        tr.seconds
+    );
     assert_eq!(meshes, 43);
 }

@@ -1,10 +1,9 @@
 //! Running Write FBX nodes, for the current file or for every file of the
-//! folder loaders upstream. The work runs on its own thread so the window
-//! stays responsive; progress is read back through `BatchState`.
+//! folder loaders upstream. The work runs on its own thread so the window stays
+//! responsive; progress is read back through `BatchState`.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-
 
 use crate::fbx_loader::list_fbx;
 use crate::fbx_writer::{resolve_path, write_fbx};
@@ -14,11 +13,11 @@ use crate::types::{NodeId, NodeType};
 #[derive(Default)]
 pub struct Progress {
     pub running: bool,
-    pub done:    usize,
-    pub total:   usize,
+    pub done: usize,
+    pub total: usize,
     pub written: usize,
-    pub failed:  usize,
-    pub log:     Vec<String>,
+    pub failed: usize,
+    pub log: Vec<String>,
 }
 
 #[derive(Default, Clone)]
@@ -26,7 +25,9 @@ pub struct BatchState(pub Arc<Mutex<Progress>>);
 
 /// Every Write FBX node of the graph.
 pub fn write_nodes(graph: &NodeGraphState) -> Vec<NodeId> {
-    graph.nodes.iter()
+    graph
+        .nodes
+        .iter()
         .filter(|n| matches!(n.node_type, NodeType::WriteFbx { .. }))
         .map(|n| n.id)
         .collect()
@@ -38,46 +39,82 @@ pub fn upstream_folder_loaders(graph: &NodeGraphState, targets: &[NodeId]) -> Ve
     let mut todo: Vec<NodeId> = targets.to_vec();
     let mut out = vec![];
     while let Some(id) = todo.pop() {
-        if !seen.insert(id) { continue; }
-        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { continue };
-        if matches!(node.node_type, NodeType::LoadFbxDir { .. }) { out.push(id); }
-        todo.extend(node.inputs.iter().filter_map(|i| i.connected_output.map(|(src, _)| src)));
+        if !seen.insert(id) {
+            continue;
+        }
+        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
+            continue;
+        };
+        if matches!(node.node_type, NodeType::LoadFbxDir { .. }) {
+            out.push(id);
+        }
+        todo.extend(
+            node.inputs
+                .iter()
+                .filter_map(|i| i.connected_output.map(|(src, _)| src)),
+        );
     }
     out
 }
 
 /// Number of files a batch over these loaders covers.
 pub fn file_count(graph: &NodeGraphState, loaders: &[NodeId]) -> usize {
-    loaders.iter().filter_map(|id| graph.nodes.iter().find(|n| n.id == *id)).map(|n| match &n.node_type {
-        NodeType::LoadFbxDir { dir, .. } => list_fbx(dir).len(),
-        _ => 0,
-    }).max().unwrap_or(0)
+    loaders
+        .iter()
+        .filter_map(|id| graph.nodes.iter().find(|n| n.id == *id))
+        .map(|n| match &n.node_type {
+            NodeType::LoadFbxDir { dir, .. } => list_fbx(dir).len(),
+            _ => 0,
+        })
+        .max()
+        .unwrap_or(0)
 }
 
-/// Body Collide nodes the given nodes take their clip from, those nearest
-/// the source first.
+/// Body Collide nodes the given nodes take their clip from, those nearest the
+/// source first.
 fn upstream_collides(graph: &NodeGraphState, targets: &[NodeId]) -> Vec<NodeId> {
     fn visit(graph: &NodeGraphState, id: NodeId, seen: &mut HashSet<NodeId>, out: &mut Vec<NodeId>) {
-        if !seen.insert(id) { return; }
-        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
-        for src in node.inputs.iter().filter_map(|i| i.connected_output.map(|(s, _)| s)) { visit(graph, src, seen, out); }
-        if matches!(node.node_type, NodeType::Ragdoll { .. }) && !node.bypassed { out.push(id); }
+        if !seen.insert(id) {
+            return;
+        }
+        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
+            return;
+        };
+        for src in node.inputs.iter().filter_map(|i| i.connected_output.map(|(s, _)| s)) {
+            visit(graph, src, seen, out);
+        }
+        if matches!(node.node_type, NodeType::Ragdoll { .. }) && !node.bypassed {
+            out.push(id);
+        }
     }
     let (mut seen, mut out) = (HashSet::new(), vec![]);
-    for id in targets { visit(graph, *id, &mut seen, &mut out); }
+    for id in targets {
+        visit(graph, *id, &mut seen, &mut out);
+    }
     out
 }
 
-/// Solve the Body Collide nodes upstream that have no result for what
-/// reaches them now. A batch over a folder solves each file as it goes.
+/// Solve the Body Collide nodes upstream that have no result for what reaches
+/// them now. A batch over a folder solves each file as it goes.
 fn solve_upstream(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progress>) {
     for id in upstream_collides(graph, targets) {
-        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { continue };
-        let NodeType::Ragdoll { settings, .. } = &node.node_type else { continue };
-        let (Some(clip), collider) = graph.ragdoll_inputs(id) else { continue };
+        let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
+            continue;
+        };
+        let NodeType::Ragdoll { settings, .. } = &node.node_type else {
+            continue;
+        };
+        let (Some(clip), collider) = graph.ragdoll_inputs(id) else {
+            continue;
+        };
         let t0 = std::time::Instant::now();
         let line = match crate::ragdoll::solve_now(clip.clone(), collider, settings.clone()) {
-            Ok(true) => format!("{}: solved {} frames in {:.0} s", node.name, clip.frames, t0.elapsed().as_secs_f32()),
+            Ok(true) => format!(
+                "{}: solved {} frames in {:.0} s",
+                node.name,
+                clip.frames,
+                t0.elapsed().as_secs_f32()
+            ),
             Ok(false) => format!("{}: already solved", node.name),
             Err(e) => format!("FAILED  {}: {e}", node.name),
         };
@@ -85,23 +122,39 @@ fn solve_upstream(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<P
     }
 }
 
-/// Run the given Write nodes once against the graph as it stands, after
-/// solving the Body Collide nodes they take their clip from.
+/// Run the given Write nodes once against the graph as it stands, after solving
+/// the Body Collide nodes they take their clip from.
 fn write_once(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progress>) {
     solve_upstream(graph, targets, progress);
     for id in targets {
-        let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else { continue };
-        let NodeType::WriteFbx { path, mesh } = &node.node_type else { continue };
+        let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else {
+            continue;
+        };
+        let NodeType::WriteFbx { path, mesh } = &node.node_type else {
+            continue;
+        };
         let line = match graph.eval_anim(*id) {
             None => Err(format!("{}: no clip reaches this node", node.name)),
             Some(clip) => {
-                let out = { let _o = graph.operator(node.id); resolve_path(path, &clip) };
+                let out = {
+                    let _o = graph.operator(node.id);
+                    resolve_path(path, &clip)
+                };
                 match write_fbx(&out, &clip, true, *mesh) {
                     Ok(s) => Ok(format!(
                         "{}  ({} joints, {}{})",
-                        out.display(), s.joints,
-                        if s.frames > 0 { format!("{} frames", s.frames) } else { "pose only".into() },
-                        if s.vertices > 0 { format!(", mesh {} verts", s.vertices) } else { String::new() },
+                        out.display(),
+                        s.joints,
+                        if s.frames > 0 {
+                            format!("{} frames", s.frames)
+                        } else {
+                            "pose only".into()
+                        },
+                        if s.vertices > 0 {
+                            format!(", mesh {} verts", s.vertices)
+                        } else {
+                            String::new()
+                        },
                     )),
                     Err(e) => Err(format!("{}: {}: {e}", node.name, out.display())),
                 }
@@ -109,8 +162,14 @@ fn write_once(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progr
         };
         let mut p = progress.lock().unwrap();
         match line {
-            Ok(l)  => { p.written += 1; p.log.push(l); }
-            Err(l) => { p.failed += 1;  p.log.push(format!("FAILED  {l}")); }
+            Ok(l) => {
+                p.written += 1;
+                p.log.push(l);
+            }
+            Err(l) => {
+                p.failed += 1;
+                p.log.push(format!("FAILED  {l}"));
+            }
         }
     }
 }
@@ -119,7 +178,7 @@ fn write_once(graph: &NodeGraphState, targets: &[NodeId], progress: &Mutex<Progr
 /// loader through its whole folder.
 pub fn run(graph: &NodeGraphState, targets: &[NodeId], all_files: bool, progress: &Mutex<Progress>) {
     let loaders = upstream_folder_loaders(graph, targets);
-    let count   = if all_files { file_count(graph, &loaders) } else { 0 };
+    let count = if all_files { file_count(graph, &loaders) } else { 0 };
 
     if !all_files || loaders.is_empty() {
         progress.lock().unwrap().total = 1;
@@ -134,11 +193,18 @@ pub fn run(graph: &NodeGraphState, targets: &[NodeId], all_files: bool, progress
                 if let NodeType::LoadFbxDir { dir, index, .. } = &mut n.node_type {
                     *index = i as u32;
                     if let Some(f) = list_fbx(dir).get(i) {
-                        name = f.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                        name = f
+                            .file_name()
+                            .map(|x| x.to_string_lossy().to_string())
+                            .unwrap_or_default();
                     }
                 }
             }
-            progress.lock().unwrap().log.push(format!("[{}/{}] {}", i + 1, count, name));
+            progress
+                .lock()
+                .unwrap()
+                .log
+                .push(format!("[{}/{}] {}", i + 1, count, name));
             write_once(&g, targets, progress);
             progress.lock().unwrap().done = i + 1;
         }
@@ -149,47 +215,66 @@ pub fn run(graph: &NodeGraphState, targets: &[NodeId], all_files: bool, progress
     p.running = false;
 }
 
-/// Files a run would write over, for the question asked before it starts.
-/// For the current file: each output that exists. For every file of a
-/// folder: the output folders that already hold FBX files, with how many,
-/// since the names come from files not loaded yet.
+/// Files a run would write over, for the question asked before it starts. For
+/// the current file: each output that exists. For every file of a folder: the
+/// output folders that already hold FBX files, with how many, since the names
+/// come from files not loaded yet.
 pub fn existing_outputs(graph: &NodeGraphState, targets: &[NodeId], all_files: bool) -> Vec<String> {
     let mut paths = vec![];
     for id in targets {
-        let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else { continue };
-        let NodeType::WriteFbx { path, .. } = &node.node_type else { continue };
-        if let Some(clip) = graph.eval_anim(*id) { let _o = graph.operator(node.id); paths.push(resolve_path(path, &clip)); }
+        let Some(node) = graph.nodes.iter().find(|n| n.id == *id) else {
+            continue;
+        };
+        let NodeType::WriteFbx { path, .. } = &node.node_type else {
+            continue;
+        };
+        if let Some(clip) = graph.eval_anim(*id) {
+            let _o = graph.operator(node.id);
+            paths.push(resolve_path(path, &clip));
+        }
     }
     let many = all_files && !upstream_folder_loaders(graph, targets).is_empty();
     if !many {
-        let mut out: Vec<String> = paths.iter().filter(|p| p.is_file()).map(|p| p.display().to_string()).collect();
+        let mut out: Vec<String> = paths
+            .iter()
+            .filter(|p| p.is_file())
+            .map(|p| p.display().to_string())
+            .collect();
         out.dedup();
         return out;
     }
-    let mut dirs: Vec<std::path::PathBuf> = paths.iter().filter_map(|p| p.parent().map(|d| d.to_path_buf())).collect();
+    let mut dirs: Vec<std::path::PathBuf> = paths
+        .iter()
+        .filter_map(|p| p.parent().map(|d| d.to_path_buf()))
+        .collect();
     dirs.sort();
     dirs.dedup();
-    dirs.into_iter().filter_map(|d| {
-        let n = list_fbx(&d.to_string_lossy()).len();
-        (n > 0).then(|| format!("{} ({n} FBX file{} there)", d.display(), if n == 1 { "" } else { "s" }))
-    }).collect()
+    dirs.into_iter()
+        .filter_map(|d| {
+            let n = list_fbx(&d.to_string_lossy()).len();
+            (n > 0).then(|| format!("{} ({n} FBX file{} there)", d.display(), if n == 1 { "" } else { "s" }))
+        })
+        .collect()
 }
 
 /// Start a batch in the background. Does nothing while one is running.
 pub fn start(state: &BatchState, graph: &NodeGraphState, targets: Vec<NodeId>, all_files: bool) {
     {
         let mut p = state.0.lock().unwrap();
-        if p.running { return; }
-        *p = Progress { running: true, ..Default::default() };
+        if p.running {
+            return;
+        }
+        *p = Progress {
+            running: true,
+            ..Default::default()
+        };
     }
     let graph = graph.clone();
     let shared = state.0.clone();
     std::thread::spawn(move || run(&graph, &targets, all_files, &shared));
 }
 
-// ============================================================================
 // TESTS
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -219,13 +304,17 @@ mod tests {
             tracks.push(vec![]);
             for (j, joint) in c.joints.iter().enumerate() {
                 let mut joint = joint.clone();
-                joint.name   = format!("{name}_{}", joint.name.trim_start_matches("Take01:"));
+                joint.name = format!("{name}_{}", joint.name.trim_start_matches("Take01:"));
                 joint.parent = Some(joint.parent.map(|p| base + 1 + p).unwrap_or(base));
                 joints.push(joint);
                 tracks.push(c.tracks[j].clone());
             }
         }
-        let two = crate::core::anim::AnimData { joints, tracks: std::sync::Arc::new(tracks), ..c };
+        let two = crate::core::anim::AnimData {
+            joints,
+            tracks: std::sync::Arc::new(tracks),
+            ..c
+        };
         for take in ["take_A", "take_B", "take_C"] {
             write_fbx(&dir.join(format!("{take}.fbx")), &two, true, true).unwrap();
         }
@@ -233,7 +322,9 @@ mod tests {
         let mut g = NodeGraphState::default();
         mocap_split_template(&mut g);
         for n in &mut g.nodes {
-            if let NodeType::LoadFbxDir { dir: d, .. } = &mut n.node_type { *d = dir.to_string_lossy().to_string(); }
+            if let NodeType::LoadFbxDir { dir: d, .. } = &mut n.node_type {
+                *d = dir.to_string_lossy().to_string();
+            }
         }
         let targets = write_nodes(&g);
         assert_eq!(targets.len(), 4);
@@ -246,7 +337,9 @@ mod tests {
 
         for take in ["take_A", "take_B", "take_C"] {
             for ch in ["Skeleton_001", "Skeleton_002"] {
-                let anim = load_fbx(dir.join("split").join(format!("{take}_{ch}.fbx")).to_str().unwrap(), 0).unwrap().anim;
+                let anim = load_fbx(dir.join("split").join(format!("{take}_{ch}.fbx")).to_str().unwrap(), 0)
+                    .unwrap()
+                    .anim;
                 assert_eq!(anim.joints.len(), 20);
                 assert_eq!(anim.frames, 60);
                 assert!(!anim.joints[0].is_bone && anim.joints[1].is_bone);
@@ -259,15 +352,21 @@ mod tests {
                 assert_eq!(scene.skin_deformers[0].clusters.len(), 19);
                 // Same bones, same hierarchy, in the animation and the T-pose.
                 let t = load_fbx(tpose.to_str().unwrap(), 0).unwrap().anim;
-                let names = |a: &crate::core::anim::AnimData| a.joints.iter()
-                    .map(|j| (j.name.clone(), j.parent.map(|p| a.joints[p].name.clone()))).collect::<Vec<_>>();
+                let names = |a: &crate::core::anim::AnimData| {
+                    a.joints
+                        .iter()
+                        .map(|j| (j.name.clone(), j.parent.map(|p| a.joints[p].name.clone())))
+                        .collect::<Vec<_>>()
+                };
                 assert_eq!(names(&t), names(&anim));
             }
         }
 
         // A second output that matches nothing fails loudly and leaves the rest alone.
         for n in &mut g.nodes {
-            if let NodeType::SplitSkeleton { picks } = &mut n.node_type { picks[1] = SplitPick::Joint("nope".into()); }
+            if let NodeType::SplitSkeleton { picks } = &mut n.node_type {
+                picks[1] = SplitPick::Joint("nope".into());
+            }
         }
         let progress = Mutex::new(Progress::default());
         run(&g, &targets, false, &progress);
@@ -284,24 +383,60 @@ mod tests {
         let mut g = NodeGraphState::default();
         let p = |x: f32, y: f32| egui::pos2(x, y);
         // A clip no other test makes: its own rate and length.
-        let walk = g.add_node("Walk".into(), NodeType::TestClip { seconds: 0.4, fps_num: 25, fps_den: 1 }, p(0.0, 0.0));
-        let body = g.add_node("Body".into(), NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, p(0.0, 100.0));
-        let write = g.add_node("Write".into(), NodeType::WriteFbx { path: dir.join("walk.fbx").to_string_lossy().to_string(), mesh: false }, p(0.0, 200.0));
+        let walk = g.add_node(
+            "Walk".into(),
+            NodeType::TestClip {
+                seconds: 0.4,
+                fps_num: 25,
+                fps_den: 1,
+            },
+            p(0.0, 0.0),
+        );
+        let body = g.add_node(
+            "Body".into(),
+            NodeType::Ragdoll {
+                settings: Default::default(),
+                view: Default::default(),
+                limits: Default::default(),
+            },
+            p(0.0, 100.0),
+        );
+        let write = g.add_node(
+            "Write".into(),
+            NodeType::WriteFbx {
+                path: dir.join("walk.fbx").to_string_lossy().to_string(),
+                mesh: false,
+            },
+            p(0.0, 200.0),
+        );
         g.add_connection(walk, 0, body, 0);
         g.add_connection(body, 0, write, 0);
         let (clip, collider) = g.ragdoll_inputs(body);
-        let NodeType::Ragdoll { settings, .. } = g.nodes.iter().find(|n| n.id == body).unwrap().node_type else { panic!() };
-        crate::ragdoll::clear(crate::ragdoll::key(clip.as_ref().unwrap(), collider.as_ref(), &settings));
+        let NodeType::Ragdoll { settings, .. } = g.nodes.iter().find(|n| n.id == body).unwrap().node_type else {
+            panic!()
+        };
+        crate::ragdoll::clear(crate::ragdoll::key(
+            clip.as_ref().unwrap(),
+            collider.as_ref(),
+            &settings,
+        ));
 
         let _ = std::fs::remove_dir_all(&dir);
         assert!(existing_outputs(&g, &[write], false).is_empty());
         let progress = Mutex::new(Progress::default());
         run(&g, &[write], false, &progress);
         // Written once: the next run asks before writing over it.
-        assert_eq!(existing_outputs(&g, &[write], false), vec![dir.join("walk.fbx").display().to_string()]);
+        assert_eq!(
+            existing_outputs(&g, &[write], false),
+            vec![dir.join("walk.fbx").display().to_string()]
+        );
         let p1 = progress.lock().unwrap();
         assert_eq!((p1.written, p1.failed), (1, 0), "{:#?}", p1.log);
-        assert!(p1.log.iter().any(|l| l.starts_with("Body: solved 10 frames")), "{:#?}", p1.log);
+        assert!(
+            p1.log.iter().any(|l| l.starts_with("Body: solved 10 frames")),
+            "{:#?}",
+            p1.log
+        );
         drop(p1);
         let progress = Mutex::new(Progress::default());
         run(&g, &[write], false, &progress);
@@ -313,13 +448,17 @@ mod tests {
     /// XMS_REFERENCE_DIR to the output of the reference Python script.
     #[test]
     fn sample_take_matches_reference() {
-        let (Ok(dir), Ok(reference)) = (std::env::var("XMS_SAMPLE_DIR"), std::env::var("XMS_REFERENCE_DIR")) else { return };
+        let (Ok(dir), Ok(reference)) = (std::env::var("XMS_SAMPLE_DIR"), std::env::var("XMS_REFERENCE_DIR")) else {
+            return;
+        };
         let _ = std::fs::remove_dir_all(std::path::Path::new(&dir).join("split"));
 
         let mut g = NodeGraphState::default();
         mocap_split_template(&mut g);
         for n in &mut g.nodes {
-            if let NodeType::LoadFbxDir { dir: d, .. } = &mut n.node_type { *d = dir.clone(); }
+            if let NodeType::LoadFbxDir { dir: d, .. } = &mut n.node_type {
+                *d = dir.clone();
+            }
         }
         let targets = write_nodes(&g);
         let progress = Mutex::new(Progress::default());
@@ -336,7 +475,10 @@ mod tests {
             let mine = load_fbx(&format!("{dir}/split/{name}"), 0).unwrap().anim;
             let refr = load_fbx(&format!("{reference}/{name}"), 0).unwrap().anim;
             assert_eq!(mine.joints.len(), refr.joints.len());
-            assert_eq!((mine.frames, mine.start_frame, mine.rate), (refr.frames, refr.start_frame, refr.rate));
+            assert_eq!(
+                (mine.frames, mine.start_frame, mine.rate),
+                (refr.frames, refr.start_frame, refr.rate)
+            );
             for (a, b) in mine.joints.iter().zip(&refr.joints) {
                 assert_eq!((&a.name, a.parent, a.is_bone), (&b.name, b.parent, b.is_bone));
             }
@@ -349,7 +491,11 @@ mod tests {
                     worst_rot = worst_rot.max(mine.local(j, f).rotation.angle_between(refr.local(j, f).rotation));
                 }
             }
-            println!("{ch}: worst position error {:.4} mm, worst rotation error {:.5} deg", worst * 1000.0, worst_rot.to_degrees());
+            println!(
+                "{ch}: worst position error {:.4} mm, worst rotation error {:.5} deg",
+                worst * 1000.0,
+                worst_rot.to_degrees()
+            );
             assert!(worst < 2e-4 && worst_rot < 2e-3);
 
             // T-pose: same bone positions and mesh size as the reference.
@@ -359,7 +505,11 @@ mod tests {
             let (pa, pb) = (mine.world_pose(0), refr.world_pose(0));
             for j in 0..mine.joints.len() {
                 assert_eq!(mine.joints[j].name, refr.joints[j].name);
-                assert!(close(pa[j].w_axis.truncate(), pb[j].w_axis.truncate(), 1e-5), "{}", mine.joints[j].name);
+                assert!(
+                    close(pa[j].w_axis.truncate(), pb[j].w_axis.truncate(), 1e-5),
+                    "{}",
+                    mine.joints[j].name
+                );
                 assert!(mine.local(j, 0).rotation.angle_between(glam::Quat::IDENTITY) < 1e-5);
             }
             let sa = ufbx::load_file(&format!("{dir}/split/{name}"), ufbx::LoadOpts::default()).unwrap();
@@ -372,7 +522,10 @@ mod tests {
             for (a, b) in sa.meshes[0].vertices.iter().zip(sb.meshes[0].vertices.iter()) {
                 worst_v = worst_v.max(((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt());
             }
-            println!("{ch}: T-pose mesh {} verts, worst vertex difference {:.5} cm", sa.meshes[0].num_vertices, worst_v);
+            println!(
+                "{ch}: T-pose mesh {} verts, worst vertex difference {:.5} cm",
+                sa.meshes[0].num_vertices, worst_v
+            );
             assert!(worst_v < 1e-3);
         }
     }

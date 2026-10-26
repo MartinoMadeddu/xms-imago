@@ -1,8 +1,9 @@
 //! `.mtlx` documents referenced from the root layer.
 //!
-//! Only the reference scan is kept from rray's materialx.rs: compiling MaterialX
-//! graphs into shading programs is renderer work and stays in rray. The scene
-//! layer just records which document (and prim in it) a material points at.
+//! Only the reference scan is kept from rray's materialx.rs: compiling
+//! MaterialX graphs into shading programs is renderer work and stays in rray.
+//! The scene layer just records which document (and prim in it) a material
+//! points at.
 
 use crate::HashMap;
 use std::path::Path;
@@ -16,7 +17,9 @@ use std::path::Path;
 /// return nothing.
 pub(crate) fn scan_mtlx_references(layer: &Path) -> HashMap<String, (String, String)> {
     let mut out = HashMap::default();
-    let Ok(text) = std::fs::read_to_string(layer) else { return out };
+    let Ok(text) = std::fs::read_to_string(layer) else {
+        return out;
+    };
     if !text.trim_start().starts_with("#usda") {
         return out;
     }
@@ -56,7 +59,11 @@ pub(crate) fn scan_mtlx_references(layer: &Path) -> HashMap<String, (String, Str
                         path.push('/');
                         path.push_str(&name);
                         if let Some((file, target)) = mtlx_ref(&meta) {
-                            let file = if Path::new(&file).is_absolute() { file } else { dir.join(file).to_string_lossy().into_owned() };
+                            let file = if Path::new(&file).is_absolute() {
+                                file
+                            } else {
+                                dir.join(file).to_string_lossy().into_owned()
+                            };
                             out.insert(path, (file, target));
                         }
                         stack.push((name, depth));

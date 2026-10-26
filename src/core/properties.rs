@@ -2,27 +2,27 @@
 //! them, and how what is set on a prim reaches the prims below it.
 //!
 //! - `Value` and `ValueType`: one value of a USD attribute or metadata, by
-//!   type. An Object value (a constant primvar) becomes an Object attribute
-//!   of a primitive's `Geo` (`Value::attr`); a Property value is kept in the
+//!   type. An Object value (a constant primvar) becomes an Object attribute of
+//!   a primitive's `Geo` (`Value::attr`); a Property value is kept in the
 //!   primitive's `props`.
-//! - `SetContext`: whether a value is an Object value (a constant primvar)
-//!   or a Property (the prim's own attribute or metadata).
+//! - `SetContext`: whether a value is an Object value (a constant primvar) or a
+//!   Property (the prim's own attribute or metadata).
 //! - The properties Imago knows (`PROPERTY_PRESETS`, `OBJECT_PRESETS`): their
 //!   types, their values where USD fixes them, and how each is written
 //!   (`written`: an attribute, `uniform`, or metadata).
-//! - `Opinions`: values on a prim that is not a geometry primitive (a group,
-//!   a camera, a light, a material, an Xform Imago made), kept in its
-//!   stage's tree (`StageTree::opinions`) or carried by the primitives below
-//!   it (`Prim::above`).
+//! - `Opinions`: values on a prim that is not a geometry primitive (a group, a
+//!   camera, a light, a material, an Xform Imago made), kept in its stage's
+//!   tree (`StageTree::opinions`) or carried by the primitives below it
+//!   (`Prim::above`).
 //! - Inheritance, in Imago as in USD: `visibility` invisible hides what is
 //!   below (`invisible`), `purpose` comes from the nearest prim that has one
 //!   (`purpose_from`, `purpose_of`), Object values reach the primitives below
 //!   that have no attribute of that name (`above`, `inherited_primvars`).
 //!
-//! Set Attribute (`core::set_attribute`) is the operator that sets them;
-//! Load USD reads what a file authors as the same values; Write USD writes
-//! them; the Viewer, the Scene Explorer and the Primitive Inspector read the
-//! inheritance from here.
+//! Set Attribute (`core::set_attribute`) is the operator that sets them; Load
+//! USD reads what a file authors as the same values; Write USD writes them; the
+//! Viewer, the Scene Explorer and the Primitive Inspector read the inheritance
+//! from here.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -30,31 +30,64 @@ use std::sync::Arc;
 use crate::core::geo::{Attr, Column, Role};
 use crate::types::{Prim, Purpose};
 
-// ── Values ──────────────────────────────────────────────────────────────────
+// Values
 
 /// The USD type of a value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ValueType {
-    Bool, Int, #[default] Float, Double, String, Token, Float2, Float3, Float4, Color3f, Asset,
+    Bool,
+    Int,
+    #[default]
+    Float,
+    Double,
+    String,
+    Token,
+    Float2,
+    Float3,
+    Float4,
+    Color3f,
+    Asset,
 }
 
 impl ValueType {
     pub const ALL: [ValueType; 11] = [
-        ValueType::Bool, ValueType::Int, ValueType::Float, ValueType::Double, ValueType::String, ValueType::Token,
-        ValueType::Float2, ValueType::Float3, ValueType::Float4, ValueType::Color3f, ValueType::Asset,
+        ValueType::Bool,
+        ValueType::Int,
+        ValueType::Float,
+        ValueType::Double,
+        ValueType::String,
+        ValueType::Token,
+        ValueType::Float2,
+        ValueType::Float3,
+        ValueType::Float4,
+        ValueType::Color3f,
+        ValueType::Asset,
     ];
     /// The types an Object value can have: those a `Geo` column holds.
     pub const OBJECT: [ValueType; 8] = [
-        ValueType::Bool, ValueType::Int, ValueType::Float, ValueType::Token,
-        ValueType::Float2, ValueType::Float3, ValueType::Float4, ValueType::Color3f,
+        ValueType::Bool,
+        ValueType::Int,
+        ValueType::Float,
+        ValueType::Token,
+        ValueType::Float2,
+        ValueType::Float3,
+        ValueType::Float4,
+        ValueType::Color3f,
     ];
 
     /// The type's name in USD.
     pub fn usd(self) -> &'static str {
         match self {
-            ValueType::Bool => "bool", ValueType::Int => "int", ValueType::Float => "float", ValueType::Double => "double",
-            ValueType::String => "string", ValueType::Token => "token", ValueType::Float2 => "float2",
-            ValueType::Float3 => "float3", ValueType::Float4 => "float4", ValueType::Color3f => "color3f",
+            ValueType::Bool => "bool",
+            ValueType::Int => "int",
+            ValueType::Float => "float",
+            ValueType::Double => "double",
+            ValueType::String => "string",
+            ValueType::Token => "token",
+            ValueType::Float2 => "float2",
+            ValueType::Float3 => "float3",
+            ValueType::Float4 => "float4",
+            ValueType::Color3f => "color3f",
             ValueType::Asset => "asset",
         }
     }
@@ -98,7 +131,9 @@ pub enum Value {
 }
 
 impl Default for Value {
-    fn default() -> Self { Value::Float(0.0) }
+    fn default() -> Self {
+        Value::Float(0.0)
+    }
 }
 
 impl Value {
@@ -106,7 +141,13 @@ impl Value {
     /// `$OPNAME`); `keep_frames`: the frame's left for a renderer (`$F4`).
     /// Numbers as they are.
     pub fn with_variables_put_in(&self, keep_frames: bool) -> Value {
-        let put = |s: &str| if keep_frames { crate::core::vars::expand_keeping_frames(s) } else { crate::core::vars::expand(s, &[]) };
+        let put = |s: &str| {
+            if keep_frames {
+                crate::core::vars::expand_keeping_frames(s)
+            } else {
+                crate::core::vars::expand(s, &[])
+            }
+        };
         match self {
             Value::String(s) if crate::core::vars::has_vars(s) => Value::String(put(s)),
             Value::Token(s) if crate::core::vars::has_vars(s) => Value::Token(put(s)),
@@ -117,10 +158,17 @@ impl Value {
 
     pub fn kind(&self) -> ValueType {
         match self {
-            Value::Bool(_) => ValueType::Bool, Value::Int(_) => ValueType::Int, Value::Float(_) => ValueType::Float,
-            Value::Double(_) => ValueType::Double, Value::String(_) => ValueType::String, Value::Token(_) => ValueType::Token,
-            Value::Float2(_) => ValueType::Float2, Value::Float3(_) => ValueType::Float3, Value::Float4(_) => ValueType::Float4,
-            Value::Color3f(_) => ValueType::Color3f, Value::Asset(_) => ValueType::Asset,
+            Value::Bool(_) => ValueType::Bool,
+            Value::Int(_) => ValueType::Int,
+            Value::Float(_) => ValueType::Float,
+            Value::Double(_) => ValueType::Double,
+            Value::String(_) => ValueType::String,
+            Value::Token(_) => ValueType::Token,
+            Value::Float2(_) => ValueType::Float2,
+            Value::Float3(_) => ValueType::Float3,
+            Value::Float4(_) => ValueType::Float4,
+            Value::Color3f(_) => ValueType::Color3f,
+            Value::Asset(_) => ValueType::Asset,
         }
     }
 
@@ -134,7 +182,9 @@ impl Value {
             Value::Float2(v) => v.to_vec(),
             Value::Float3(v) | Value::Color3f(v) => v.to_vec(),
             Value::Float4(v) => v.to_vec(),
-            Value::String(s) | Value::Token(s) | Value::Asset(s) => s.trim().parse::<f32>().map(|x| vec![x]).unwrap_or_default(),
+            Value::String(s) | Value::Token(s) | Value::Asset(s) => {
+                s.trim().parse::<f32>().map(|x| vec![x]).unwrap_or_default()
+            }
         }
     }
 
@@ -155,7 +205,13 @@ impl Value {
             Value::Bool(b) => b.to_string(),
             Value::Int(i) => i.to_string(),
             Value::Float(x) => num(*x),
-            Value::Double(x) => if x.is_finite() { format!("{x}") } else { "0".into() },
+            Value::Double(x) => {
+                if x.is_finite() {
+                    format!("{x}")
+                } else {
+                    "0".into()
+                }
+            }
             Value::String(s) | Value::Token(s) => quoted(s),
             Value::Float2(v) => tuple(v),
             Value::Float3(v) | Value::Color3f(v) => tuple(v),
@@ -164,9 +220,11 @@ impl Value {
         }
     }
 
-    /// The value as the Primitive Inspector shows it: text as it is,
-    /// numbers as `.usda` writes them.
-    pub fn display(&self) -> String { self.text() }
+    /// The value as the Primitive Inspector shows it: text as it is, numbers as
+    /// `.usda` writes them.
+    pub fn display(&self) -> String {
+        self.text()
+    }
 
     /// Its numbers, for the types that are numbers.
     pub fn numbers(&self) -> Option<Vec<f32>> {
@@ -178,7 +236,10 @@ impl Value {
 
     /// The token, when the value is one (or a string).
     pub fn token(&self) -> Option<&str> {
-        match self { Value::Token(s) | Value::String(s) => Some(s.trim()), _ => None }
+        match self {
+            Value::Token(s) | Value::String(s) => Some(s.trim()),
+            _ => None,
+        }
     }
 
     /// As an Object attribute of a `Geo`: one value. `None` for the types a
@@ -199,8 +260,7 @@ impl Value {
     }
 }
 
-
-// ── Contexts and the properties Imago knows ─────────────────────────────────
+// Contexts and the properties Imago knows
 
 /// What a row's value is in USD.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -217,16 +277,20 @@ pub enum SetContext {
 /// How a Property is written: as an attribute (`uniform` or not), or as
 /// metadata.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Written { Attribute, Uniform, Metadata }
+pub enum Written {
+    Attribute,
+    Uniform,
+    Metadata,
+}
 
-/// A name the name field offers, with its type and, where USD fixes them,
-/// its values.
+/// A name the name field offers, with its type and, where USD fixes them, its
+/// values.
 pub struct Preset {
-    pub name:    &'static str,
-    pub ty:      ValueType,
-    pub tokens:  &'static [&'static str],
+    pub name: &'static str,
+    pub ty: ValueType,
+    pub tokens: &'static [&'static str],
     pub written: Written,
-    pub hint:    &'static str,
+    pub hint: &'static str,
 }
 
 /// The common Properties.
@@ -253,15 +317,28 @@ pub const PROPERTY_PRESETS: &[Preset] = &[
 
 /// The common Object values.
 pub const OBJECT_PRESETS: &[Preset] = &[
-    Preset { name: "displayColor", ty: ValueType::Color3f, tokens: &[], written: Written::Attribute,
-        hint: "The colour a renderer uses without a material, and a shader can read" },
-    Preset { name: "displayOpacity", ty: ValueType::Float, tokens: &[], written: Written::Attribute,
-        hint: "The opacity a renderer uses without a material" },
+    Preset {
+        name: "displayColor",
+        ty: ValueType::Color3f,
+        tokens: &[],
+        written: Written::Attribute,
+        hint: "The colour a renderer uses without a material, and a shader can read",
+    },
+    Preset {
+        name: "displayOpacity",
+        ty: ValueType::Float,
+        tokens: &[],
+        written: Written::Attribute,
+        hint: "The opacity a renderer uses without a material",
+    },
 ];
 
 /// The preset of a name, in a context.
 pub fn preset(context: SetContext, name: &str) -> Option<&'static Preset> {
-    let list = match context { SetContext::Object => OBJECT_PRESETS, SetContext::Property => PROPERTY_PRESETS };
+    let list = match context {
+        SetContext::Object => OBJECT_PRESETS,
+        SetContext::Property => PROPERTY_PRESETS,
+    };
     list.iter().find(|p| p.name == name.trim())
 }
 
@@ -271,7 +348,7 @@ pub fn written(name: &str) -> Written {
     preset(SetContext::Property, name).map_or(Written::Attribute, |p| p.written)
 }
 
-// ── Opinions on prims without geometry ──────────────────────────────────────
+// Opinions on prims without geometry
 
 /// The values set on one path of a stage that is not a geometry primitive.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -279,25 +356,32 @@ pub struct Opinions {
     /// Object values: constant primvars.
     pub primvars: BTreeMap<String, Value>,
     /// Property values: attributes and metadata by name.
-    pub props:    BTreeMap<String, Value>,
+    pub props: BTreeMap<String, Value>,
 }
 
 impl Opinions {
-    pub fn is_empty(&self) -> bool { self.primvars.is_empty() && self.props.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.primvars.is_empty() && self.props.is_empty()
+    }
 
     /// `other` over these: its values win.
     pub fn merge(&mut self, other: &Opinions) {
-        self.primvars.extend(other.primvars.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.props.extend(other.props.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.primvars
+            .extend(other.primvars.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.props
+            .extend(other.props.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
 }
 
-// ── Inheritance ─────────────────────────────────────────────────────────────
+// Inheritance
 
 /// A purpose from its token. A render prim stays one with its proxy.
 pub fn purpose(token: &str, was: Purpose) -> Purpose {
     match token {
-        "render" => match was { Purpose::Render { has_proxy } => Purpose::Render { has_proxy }, _ => Purpose::Render { has_proxy: false } },
+        "render" => match was {
+            Purpose::Render { has_proxy } => Purpose::Render { has_proxy },
+            _ => Purpose::Render { has_proxy: false },
+        },
         "proxy" => Purpose::Proxy,
         "guide" => Purpose::Guide,
         _ => Purpose::Default,
@@ -316,32 +400,41 @@ pub fn parents(path: &str) -> Vec<String> {
     (1..names.len()).map(|n| format!("/{}", names[..n].join("/"))).collect()
 }
 
-/// The values set on the prims above a primitive, the furthest first: on
-/// prims of its stage, and on the Xforms Imago made above it.
+/// The values set on the prims above a primitive, the furthest first: on prims
+/// of its stage, and on the Xforms Imago made above it.
 pub fn above(p: &Prim) -> Vec<(&str, &Opinions)> {
     let mut v: Vec<(&str, &Opinions)> = p.above.iter().map(|(k, o)| (k.as_str(), o)).collect();
     if let Some(t) = &p.stage {
-        v.extend(t.opinions.iter()
-            .filter(|(path, _)| **path != p.path && is_below(&p.path, path))
-            .map(|(k, o)| (k.as_str(), o)));
+        v.extend(
+            t.opinions
+                .iter()
+                .filter(|(path, _)| **path != p.path && is_below(&p.path, path))
+                .map(|(k, o)| (k.as_str(), o)),
+        );
     }
     v.sort_by_key(|(k, _)| k.matches('/').count());
     v
 }
 
-/// Whether a primitive is invisible: set so on itself, or on a prim above
-/// it (USD inherits `invisible`).
+/// Whether a primitive is invisible: set so on itself, or on a prim above it
+/// (USD inherits `invisible`).
 pub fn invisible(p: &Prim) -> bool {
     let off = |v: Option<&Value>| v.and_then(Value::token) == Some("invisible");
     off(p.props.get("visibility")) || above(p).iter().any(|(_, o)| off(o.props.get("visibility")))
 }
 
-/// How the scene says a primitive is drawn: USD's `model:drawMode`, on it
-/// or on the nearest prim above it that has one (`inherited` passes on to
-/// the one above). `None`: nothing says.
+/// How the scene says a primitive is drawn: USD's `model:drawMode`, on it or on
+/// the nearest prim above it that has one (`inherited` passes on to the one
+/// above). `None`: nothing says.
 pub fn draw_mode(p: &Prim) -> Option<crate::types::DrawMode> {
-    let mode = |o: &BTreeMap<String, Value>| o.get("model:drawMode").and_then(Value::token).and_then(crate::types::DrawMode::from_token);
-    if let Some(m) = mode(p.props.as_ref()) { return Some(m); }
+    let mode = |o: &BTreeMap<String, Value>| {
+        o.get("model:drawMode")
+            .and_then(Value::token)
+            .and_then(crate::types::DrawMode::from_token)
+    };
+    if let Some(m) = mode(p.props.as_ref()) {
+        return Some(m);
+    }
     above(p).iter().rev().find_map(|(_, o)| mode(&o.props))
 }
 
@@ -352,29 +445,42 @@ pub enum PurposeFrom {
     Set,
     /// Authored on the primitive in its file.
     File,
-    /// Inherited from the prim above at this path: set there by Set
-    /// Attribute (`true`), or authored there in the file (`false`).
+    /// Inherited from the prim above at this path: set there by Set Attribute
+    /// (`true`), or authored there in the file (`false`).
     Above(String, bool),
     /// Nothing says: the default.
     Unset,
 }
 
 /// Where a primitive's purpose comes from. As in USD, a purpose on the
-/// primitive itself wins; else the nearest prim above it with one, whether
-/// the file authors it there or Set Attribute set it there (on the same
-/// prim, Set Attribute's is the stronger opinion). A purpose a loaded
-/// primitive only inherited from its file does not hide a nearer one.
+/// primitive itself wins; else the nearest prim above it with one, whether the
+/// file authors it there or Set Attribute set it there (on the same prim, Set
+/// Attribute's is the stronger opinion). A purpose a loaded primitive only
+/// inherited from its file does not hide a nearer one.
 pub fn purpose_from(p: &Prim) -> PurposeFrom {
-    let set_here = p.source.as_ref().map_or(p.purpose != Purpose::Default, |s| s.purpose != p.purpose);
-    if set_here { return PurposeFrom::Set; }
+    let set_here = p
+        .source
+        .as_ref()
+        .map_or(p.purpose != Purpose::Default, |s| s.purpose != p.purpose);
+    if set_here {
+        return PurposeFrom::Set;
+    }
     let tree = p.stage.as_deref();
     let authored = |path: &str| tree.is_some_and(|t| t.authored(path, "purpose").is_some());
-    if authored(&p.path) { return PurposeFrom::File; }
+    if authored(&p.path) {
+        return PurposeFrom::File;
+    }
     let depth = |path: &str| path.matches('/').count();
-    let set_above = above(p).into_iter().rev()
+    let set_above = above(p)
+        .into_iter()
+        .rev()
         .find(|(_, o)| o.props.get("purpose").and_then(Value::token).is_some())
         .map(|(path, _)| path.to_string());
-    let file_above = if p.purpose != Purpose::Default { parents(&p.path).into_iter().rev().find(|a| authored(a)) } else { None };
+    let file_above = if p.purpose != Purpose::Default {
+        parents(&p.path).into_iter().rev().find(|a| authored(a))
+    } else {
+        None
+    };
     match (set_above, file_above) {
         (Some(s), Some(f)) if depth(&f) > depth(&s) => PurposeFrom::Above(f, false),
         (Some(s), _) => PurposeFrom::Above(s, true),
@@ -386,23 +492,35 @@ pub fn purpose_from(p: &Prim) -> PurposeFrom {
 /// The purpose a primitive is drawn with (see `purpose_from`).
 pub fn purpose_of(p: &Prim) -> Purpose {
     // Most primitives: nothing above them set a purpose.
-    if !above(p).iter().any(|(_, o)| o.props.contains_key("purpose")) { return p.purpose; }
+    if !above(p).iter().any(|(_, o)| o.props.contains_key("purpose")) {
+        return p.purpose;
+    }
     match purpose_from(p) {
-        PurposeFrom::Above(path, true) => above(p).into_iter()
+        PurposeFrom::Above(path, true) => above(p)
+            .into_iter()
             .find(|(k, _)| *k == path)
-            .and_then(|(_, o)| o.props.get("purpose").and_then(Value::token).map(|t| purpose(t, Purpose::Default)))
+            .and_then(|(_, o)| {
+                o.props
+                    .get("purpose")
+                    .and_then(Value::token)
+                    .map(|t| purpose(t, Purpose::Default))
+            })
             .unwrap_or(p.purpose),
         _ => p.purpose,
     }
 }
 
-/// The Object values a primitive inherits from the prims above it, the
-/// nearest winning, where it has no attribute of that name itself.
+/// The Object values a primitive inherits from the prims above it, the nearest
+/// winning, where it has no attribute of that name itself.
 pub fn inherited_primvars(p: &Prim) -> Vec<(String, Value)> {
     let mut values: BTreeMap<String, Value> = BTreeMap::new();
     for (_, o) in above(p) {
-        for (k, v) in &o.primvars { values.insert(k.clone(), v.clone()); }
+        for (k, v) in &o.primvars {
+            values.insert(k.clone(), v.clone());
+        }
     }
-    let own = |name: &str| p.geo.as_ref().map_or(false, |g| g.find(name).is_some()) || p.mesh.primvars.iter().any(|v| v.name == name);
+    let own = |name: &str| {
+        p.geo.as_ref().map_or(false, |g| g.find(name).is_some()) || p.mesh.primvars.iter().any(|v| v.name == name)
+    };
     values.into_iter().filter(|(k, _)| !own(k)).collect()
 }

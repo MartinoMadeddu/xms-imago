@@ -1,52 +1,54 @@
 //! Binary FBX export (version 7500).
 //!
 //! Writes a clip as a skeleton with baked Translation / Rotation curves, and
-//! its bound mesh, if wanted, as geometry with a skin deformer and a bind
-//! pose. XYZ Euler rotations, one key per frame.
+//! its bound mesh, if wanted, as geometry with a skin deformer and a bind pose.
+//! XYZ Euler rotations, one key per frame.
 //!
-//! A clip read from a file is written in that file's axes and unit, with
-//! its joints as they were: the same names, hierarchy, kinds ("Root" or
-//! "LimbNode") and local values. An engine that imported the source sees
-//! the same skeleton. A clip made in the program is written Y up, in
-//! centimetres.
+//! A clip read from a file is written in that file's axes and unit, with its
+//! joints as they were: the same names, hierarchy, kinds ("Root" or "LimbNode")
+//! and local values. An engine that imported the source sees the same skeleton.
+//! A clip made in the program is written Y up, in centimetres.
 //!
 //! The file is built as a tree of nodes in memory and serialised in one pass.
 
 use std::io::Write;
 use std::path::Path;
 
-use glam::{Mat4, Quat, Vec3};
 use crate::core::xform::Transform;
 use flate2::{write::ZlibEncoder, Compression};
+use glam::{Mat4, Quat, Vec3};
 
 use crate::core::anim::{AnimData, FileSpace, FrameRate, SkinMesh};
 
 /// FBX time units per second.
 const KTIME: i128 = 46_186_158_000;
-/// Internal unit is the metre; a clip made in the program is written in centimetres.
+/// Internal unit is the metre; a clip made in the program is written in
+/// centimetres.
 const CM: f32 = 100.0;
 const VERSION: u32 = 7500;
 
 const MAGIC: &[u8] = b"Kaydara FBX Binary  \x00\x1a\x00";
 // File id, creation time and footer id belong together. This is a matching
 // set taken from a file written by the FBX SDK.
-const FILE_ID: [u8; 16] = [43, 183, 46, 233, 180, 38, 205, 195, 185, 198, 189, 46, 168, 44, 255, 246];
+const FILE_ID: [u8; 16] = [
+    43, 183, 46, 233, 180, 38, 205, 195, 185, 198, 189, 46, 168, 44, 255, 246,
+];
 const CREATION_TIME: &str = "2026-07-31 10:44:37:785";
-const FOOT_ID: [u8; 16] = [250, 188, 168, 13, 215, 206, 209, 98, 181, 115, 249, 136, 19, 248, 40, 118];
+const FOOT_ID: [u8; 16] = [
+    250, 188, 168, 13, 215, 206, 209, 98, 181, 115, 249, 136, 19, 248, 40, 118,
+];
 const FOOT_MAGIC: [u8; 16] = [
     0xf8, 0x5a, 0x8c, 0x6a, 0xde, 0xf5, 0xd9, 0x7e, 0xec, 0xe9, 0x0c, 0xe3, 0x75, 0x8f, 0x29, 0x0b,
 ];
 
 pub struct WriteStats {
-    pub joints:   usize,
+    pub joints: usize,
     /// Frames of animation written (0 for a static pose).
-    pub frames:   usize,
+    pub frames: usize,
     pub vertices: usize,
 }
 
-// ============================================================================
 // NODE TREE
-// ============================================================================
 
 enum Prop {
     Bool(bool),
@@ -62,14 +64,24 @@ enum Prop {
 }
 
 struct Node {
-    name:  &'static str,
+    name: &'static str,
     props: Vec<Prop>,
-    kids:  Vec<Node>,
+    kids: Vec<Node>,
 }
 
-fn node(name: &'static str, props: Vec<Prop>, kids: Vec<Node>) -> Node { Node { name, props, kids } }
-fn leaf(name: &'static str, props: Vec<Prop>) -> Node { Node { name, props, kids: vec![] } }
-fn s(v: &str) -> Prop { Prop::Str(v.as_bytes().to_vec()) }
+fn node(name: &'static str, props: Vec<Prop>, kids: Vec<Node>) -> Node {
+    Node { name, props, kids }
+}
+fn leaf(name: &'static str, props: Vec<Prop>) -> Node {
+    Node {
+        name,
+        props,
+        kids: vec![],
+    }
+}
+fn s(v: &str) -> Prop {
+    Prop::Str(v.as_bytes().to_vec())
+}
 
 /// Object name with its class, the way FBX stores it: "name\0\x01Class".
 fn named(name: &str, class: &str) -> Prop {
@@ -85,10 +97,18 @@ fn p(name: &str, ty: &str, sub: &str, flags: &str, values: Vec<Prop>) -> Node {
     props.extend(values);
     leaf("P", props)
 }
-fn p_int(name: &str, v: i32) -> Node { p(name, "int", "Integer", "", vec![Prop::I32(v)]) }
-fn p_enum(name: &str, v: i32) -> Node { p(name, "enum", "", "", vec![Prop::I32(v)]) }
-fn p_double(name: &str, v: f64) -> Node { p(name, "double", "Number", "", vec![Prop::F64(v)]) }
-fn p_time(name: &str, v: i64) -> Node { p(name, "KTime", "Time", "", vec![Prop::I64(v)]) }
+fn p_int(name: &str, v: i32) -> Node {
+    p(name, "int", "Integer", "", vec![Prop::I32(v)])
+}
+fn p_enum(name: &str, v: i32) -> Node {
+    p(name, "enum", "", "", vec![Prop::I32(v)])
+}
+fn p_double(name: &str, v: f64) -> Node {
+    p(name, "double", "Number", "", vec![Prop::F64(v)])
+}
+fn p_time(name: &str, v: i64) -> Node {
+    p(name, "KTime", "Time", "", vec![Prop::I64(v)])
+}
 fn p_vec(name: &str, flags: &str, v: [f64; 3]) -> Node {
     p(name, name, "", flags, v.iter().map(|x| Prop::F64(*x)).collect())
 }
@@ -113,12 +133,32 @@ fn array_prop(out: &mut Vec<u8>, tag: u8, count: usize, raw: Vec<u8>) -> std::io
 
 fn write_prop(out: &mut Vec<u8>, prop: &Prop) -> std::io::Result<()> {
     match prop {
-        Prop::Bool(v) => { out.push(b'C'); out.push(*v as u8); }
-        Prop::I32(v)  => { out.push(b'I'); out.extend_from_slice(&v.to_le_bytes()); }
-        Prop::F64(v)  => { out.push(b'D'); out.extend_from_slice(&v.to_le_bytes()); }
-        Prop::I64(v)  => { out.push(b'L'); out.extend_from_slice(&v.to_le_bytes()); }
-        Prop::Str(v)  => { out.push(b'S'); out.extend_from_slice(&(v.len() as u32).to_le_bytes()); out.extend_from_slice(v); }
-        Prop::Raw(v)  => { out.push(b'R'); out.extend_from_slice(&(v.len() as u32).to_le_bytes()); out.extend_from_slice(v); }
+        Prop::Bool(v) => {
+            out.push(b'C');
+            out.push(*v as u8);
+        }
+        Prop::I32(v) => {
+            out.push(b'I');
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        Prop::F64(v) => {
+            out.push(b'D');
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        Prop::I64(v) => {
+            out.push(b'L');
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        Prop::Str(v) => {
+            out.push(b'S');
+            out.extend_from_slice(&(v.len() as u32).to_le_bytes());
+            out.extend_from_slice(v);
+        }
+        Prop::Raw(v) => {
+            out.push(b'R');
+            out.extend_from_slice(&(v.len() as u32).to_le_bytes());
+            out.extend_from_slice(v);
+        }
         Prop::ArrF32(v) => array_prop(out, b'f', v.len(), v.iter().flat_map(|x| x.to_le_bytes()).collect())?,
         Prop::ArrF64(v) => array_prop(out, b'd', v.len(), v.iter().flat_map(|x| x.to_le_bytes()).collect())?,
         Prop::ArrI32(v) => array_prop(out, b'i', v.len(), v.iter().flat_map(|x| x.to_le_bytes()).collect())?,
@@ -136,11 +176,15 @@ fn write_node(out: &mut Vec<u8>, n: &Node) -> std::io::Result<()> {
     out.extend_from_slice(&[0u8; HEADER]);
     out.extend_from_slice(n.name.as_bytes());
     let props_start = out.len();
-    for prop in &n.props { write_prop(out, prop)?; }
+    for prop in &n.props {
+        write_prop(out, prop)?;
+    }
     let props_len = out.len() - props_start;
     // A node with children, or with nothing at all, ends with a null record.
     if !n.kids.is_empty() || n.props.is_empty() {
-        for k in &n.kids { write_node(out, k)?; }
+        for k in &n.kids {
+            write_node(out, k)?;
+        }
         out.extend_from_slice(&[0u8; HEADER]);
     }
     let end = out.len() as u64;
@@ -151,35 +195,48 @@ fn write_node(out: &mut Vec<u8>, n: &Node) -> std::io::Result<()> {
     Ok(())
 }
 
-// ============================================================================
 // CONVERSIONS
-// ============================================================================
 
 /// FBX time of an absolute frame.
 fn ktime(frame: i64, rate: FrameRate) -> i64 {
     let num = rate.num.max(1) as i128;
     let den = rate.den.max(1) as i128;
-    let v   = frame as i128 * KTIME * den;
+    let v = frame as i128 * KTIME * den;
     ((v + v.signum() * num / 2) / num) as i64
 }
 
 /// FBX SDK time mode for a rate, and the custom rate when there is no match.
 fn time_mode(rate: FrameRate, drop_frame: bool) -> (i32, f64) {
     let mode = match (rate.num, rate.den) {
-        (120, 1) => 1, (100, 1) => 2, (60, 1) => 3, (50, 1) => 4, (48, 1) => 5,
+        (120, 1) => 1,
+        (100, 1) => 2,
+        (60, 1) => 3,
+        (50, 1) => 4,
+        (48, 1) => 5,
         (30, 1) => 6,
-        (30000, 1001) => if drop_frame { 8 } else { 9 },
-        (25, 1) => 10, (24, 1) => 11, (1000, 1) => 12, (24000, 1001) => 13,
-        (96, 1) => 15, (72, 1) => 16, (60000, 1001) => 17,
+        (30000, 1001) => {
+            if drop_frame {
+                8
+            } else {
+                9
+            }
+        }
+        (25, 1) => 10,
+        (24, 1) => 11,
+        (1000, 1) => 12,
+        (24000, 1001) => 13,
+        (96, 1) => 15,
+        (72, 1) => 16,
+        (60000, 1001) => 17,
         _ => 14,
     };
     (mode, if mode == 14 { rate.fps() } else { -1.0 })
 }
 
-/// Quaternion to FBX XYZ Euler angles in degrees (R = Rz * Ry * Rx).
-/// From the rotation matrix, in double precision, with Y from atan2: a
-/// library conversion that treats anything near 90 degrees of Y as the
-/// singular case was half a degree out on a captured clavicle at 89.7.
+/// Quaternion to FBX XYZ Euler angles in degrees (R = Rz * Ry * Rx). From the
+/// rotation matrix, in double precision, with Y from atan2: a library
+/// conversion that treats anything near 90 degrees of Y as the singular case
+/// was half a degree out on a captured clavicle at 89.7.
 fn euler_xyz(q: Quat) -> [f64; 3] {
     let q = glam::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64).normalize();
     let m = glam::DMat3::from_quat(q);
@@ -198,28 +255,37 @@ fn euler_xyz(q: Quat) -> [f64; 3] {
     [x.to_degrees(), y.to_degrees(), z.to_degrees()]
 }
 
-/// Pick the representation of `e` closest to `prev`, so curves stay
-/// continuous across the +-180 wrap and interpolate cleanly between keys.
+/// Pick the representation of `e` closest to `prev`, so curves stay continuous
+/// across the +-180 wrap and interpolate cleanly between keys.
 fn unroll(prev: [f64; 3], e: [f64; 3]) -> [f64; 3] {
     let near = |v: f64, r: f64| v + ((r - v) / 360.0).round() * 360.0;
     let a = [near(e[0], prev[0]), near(e[1], prev[1]), near(e[2], prev[2])];
     // Same rotation: (x + 180, 180 - y, z + 180).
-    let b = [near(e[0] + 180.0, prev[0]), near(180.0 - e[1], prev[1]), near(e[2] + 180.0, prev[2])];
+    let b = [
+        near(e[0] + 180.0, prev[0]),
+        near(180.0 - e[1], prev[1]),
+        near(e[2] + 180.0, prev[2]),
+    ];
     let d = |c: [f64; 3]| (0..3).map(|i| (c[i] - prev[i]).abs()).sum::<f64>();
-    if d(b) < d(a) { b } else { a }
+    if d(b) < d(a) {
+        b
+    } else {
+        a
+    }
 }
 
 fn matrix(m: Mat4) -> Prop {
     Prop::ArrF64(m.to_cols_array().iter().map(|x| *x as f64).collect())
 }
 
-// ============================================================================
 // SCENE
-// ============================================================================
 
 struct Ids(i64);
 impl Ids {
-    fn next(&mut self) -> i64 { self.0 += 1; self.0 }
+    fn next(&mut self) -> i64 {
+        self.0 += 1;
+        self.0
+    }
 }
 
 fn oo(src: i64, dst: i64) -> Node {
@@ -231,23 +297,35 @@ fn op(src: i64, dst: i64, prop: &str) -> Node {
 
 fn curve(id: i64, times: &[i64], values: Vec<f32>) -> Node {
     let n = times.len() as i32;
-    node("AnimationCurve", vec![Prop::I64(id), named("", "AnimCurve"), s("")], vec![
-        leaf("Default", vec![Prop::F64(values.first().copied().unwrap_or(0.0) as f64)]),
-        leaf("KeyVer", vec![Prop::I32(4009)]),
-        leaf("KeyTime", vec![Prop::ArrI64(times.to_vec())]),
-        leaf("KeyValueFloat", vec![Prop::ArrF32(values)]),
-        // One attribute block shared by every key: cubic, flat user tangents,
-        // default weights. Same block the FBX SDK writes for baked data.
-        leaf("KeyAttrFlags", vec![Prop::ArrI32(vec![8456])]),
-        leaf("KeyAttrDataFloat", vec![Prop::ArrF32(vec![0.0, 0.0, f32::from_bits(218_434_821), 0.0])]),
-        leaf("KeyAttrRefCount", vec![Prop::ArrI32(vec![n])]),
-    ])
+    node(
+        "AnimationCurve",
+        vec![Prop::I64(id), named("", "AnimCurve"), s("")],
+        vec![
+            leaf(
+                "Default",
+                vec![Prop::F64(values.first().copied().unwrap_or(0.0) as f64)],
+            ),
+            leaf("KeyVer", vec![Prop::I32(4009)]),
+            leaf("KeyTime", vec![Prop::ArrI64(times.to_vec())]),
+            leaf("KeyValueFloat", vec![Prop::ArrF32(values)]),
+            // One attribute block shared by every key: cubic, flat user tangents,
+            // default weights. Same block the FBX SDK writes for baked data.
+            leaf("KeyAttrFlags", vec![Prop::ArrI32(vec![8456])]),
+            leaf(
+                "KeyAttrDataFloat",
+                vec![Prop::ArrF32(vec![0.0, 0.0, f32::from_bits(218_434_821), 0.0])],
+            ),
+            leaf("KeyAttrRefCount", vec![Prop::ArrI32(vec![n])]),
+        ],
+    )
 }
 
 /// The skinned mesh, in the file's space (`to_file`).
 fn geometry(id: i64, name: &str, skin: &SkinMesh, to_file: Mat4) -> Node {
     let turn = glam::Mat3::from_mat4(to_file);
-    let verts: Vec<f64> = skin.positions.iter()
+    let verts: Vec<f64> = skin
+        .positions
+        .iter()
         .map(|v| to_file.transform_point3(*v))
         .flat_map(|v| [v.x as f64, v.y as f64, v.z as f64])
         .collect();
@@ -264,9 +342,13 @@ fn geometry(id: i64, name: &str, skin: &SkinMesh, to_file: Mat4) -> Node {
             }
         }
     }
-    let layer_el = |ty: &str| node("LayerElement", vec![], vec![
-        leaf("Type", vec![s(ty)]), leaf("TypedIndex", vec![Prop::I32(0)]),
-    ]);
+    let layer_el = |ty: &str| {
+        node(
+            "LayerElement",
+            vec![],
+            vec![leaf("Type", vec![s(ty)]), leaf("TypedIndex", vec![Prop::I32(0)])],
+        )
+    };
     // Without normals (a set), the reader makes its own from the polygons.
     let with_normals = !skin.normals.is_empty();
     let mut kids = vec![
@@ -275,33 +357,50 @@ fn geometry(id: i64, name: &str, skin: &SkinMesh, to_file: Mat4) -> Node {
         leaf("GeometryVersion", vec![Prop::I32(124)]),
     ];
     if with_normals {
-        kids.push(node("LayerElementNormal", vec![Prop::I32(0)], vec![
-            leaf("Version", vec![Prop::I32(101)]),
-            leaf("Name", vec![s("")]),
-            leaf("MappingInformationType", vec![s("ByPolygonVertex")]),
-            leaf("ReferenceInformationType", vec![s("Direct")]),
-            leaf("Normals", vec![Prop::ArrF64(normals)]),
-        ]));
+        kids.push(node(
+            "LayerElementNormal",
+            vec![Prop::I32(0)],
+            vec![
+                leaf("Version", vec![Prop::I32(101)]),
+                leaf("Name", vec![s("")]),
+                leaf("MappingInformationType", vec![s("ByPolygonVertex")]),
+                leaf("ReferenceInformationType", vec![s("Direct")]),
+                leaf("Normals", vec![Prop::ArrF64(normals)]),
+            ],
+        ));
     }
-    kids.push(node("LayerElementSmoothing", vec![Prop::I32(0)], vec![
-        leaf("Version", vec![Prop::I32(102)]),
-        leaf("Name", vec![s("")]),
-        leaf("MappingInformationType", vec![s("ByPolygon")]),
-        leaf("ReferenceInformationType", vec![s("Direct")]),
-        leaf("Smoothing", vec![Prop::ArrI32(vec![1; skin.faces.len()])]),
-    ]));
+    kids.push(node(
+        "LayerElementSmoothing",
+        vec![Prop::I32(0)],
+        vec![
+            leaf("Version", vec![Prop::I32(102)]),
+            leaf("Name", vec![s("")]),
+            leaf("MappingInformationType", vec![s("ByPolygon")]),
+            leaf("ReferenceInformationType", vec![s("Direct")]),
+            leaf("Smoothing", vec![Prop::ArrI32(vec![1; skin.faces.len()])]),
+        ],
+    ));
     let mut layer = vec![leaf("Version", vec![Prop::I32(100)])];
-    if with_normals { layer.push(layer_el("LayerElementNormal")); }
+    if with_normals {
+        layer.push(layer_el("LayerElementNormal"));
+    }
     layer.push(layer_el("LayerElementSmoothing"));
     kids.push(node("Layer", vec![Prop::I32(0)], layer));
-    node("Geometry", vec![Prop::I64(id), named(name, "Geometry"), s("Mesh")], kids)
+    node(
+        "Geometry",
+        vec![Prop::I64(id), named(name, "Geometry"), s("Mesh")],
+        kids,
+    )
 }
 
-/// Write `clip` to `path`. With `animation` false, or a single-frame clip,
-/// the file holds the pose of the first frame and no animation.
+/// Write `clip` to `path`. With `animation` false, or a single-frame clip, the
+/// file holds the pose of the first frame and no animation.
 pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool) -> std::io::Result<WriteStats> {
     if clip.joints.is_empty() {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "clip has no joints"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "clip has no joints",
+        ));
     }
     // From this program's space to the file's. The joints at the top of the
     // hierarchy carry the conversion (`pre` then their own transform then
@@ -311,73 +410,119 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
     // in the file's unit. A clip made here: metres to centimetres throughout.
     let (space, pre, post) = match clip.space.as_deref() {
         Some(sp) => (sp.clone(), sp.to_internal.inverse(), Mat4::IDENTITY),
-        None => (FileSpace::y_up_cm(), Mat4::from_scale(Vec3::splat(CM)), Mat4::from_scale(Vec3::splat(1.0 / CM))),
+        None => (
+            FileSpace::y_up_cm(),
+            Mat4::from_scale(Vec3::splat(CM)),
+            Mat4::from_scale(Vec3::splat(1.0 / CM)),
+        ),
     };
     let post_inv = post.inverse();
     let to_file = |j: usize, l: &Transform| -> Transform {
         let m = l.compute_matrix();
-        let f = if clip.joints[j].parent.is_none() { pre * m * post } else { post_inv * m * post };
+        let f = if clip.joints[j].parent.is_none() {
+            pre * m * post
+        } else {
+            post_inv * m * post
+        };
         Transform::from_matrix(f)
     };
     let bind_matrix = |m: &Mat4| matrix(pre * *m * post);
-    let frames    = clip.frames.max(1);
-    let animated  = animation && frames > 1;
-    let take      = if clip.name.is_empty() { "Take 001" } else { clip.name.as_str() };
-    let t_start   = ktime(clip.start_frame, clip.rate);
-    let t_stop    = ktime(clip.end_frame(), clip.rate);
-    let mut ids   = Ids(1_000_000);
+    let frames = clip.frames.max(1);
+    let animated = animation && frames > 1;
+    let take = if clip.name.is_empty() {
+        "Take 001"
+    } else {
+        clip.name.as_str()
+    };
+    let t_start = ktime(clip.start_frame, clip.rate);
+    let t_stop = ktime(clip.end_frame(), clip.rate);
+    let mut ids = Ids(1_000_000);
     let mut objects: Vec<Node> = vec![];
-    let mut conns:   Vec<Node> = vec![];
+    let mut conns: Vec<Node> = vec![];
 
-    // ── Skeleton ─────────────────────────────────────────────────────────────
+    // Skeleton
     let joint_ids: Vec<i64> = clip.joints.iter().map(|_| ids.next()).collect();
     for (j, joint) in clip.joints.iter().enumerate() {
         let is_root = joint.is_bone && space.root_joints.iter().any(|r| *r == joint.name);
-        let (class, flags): (&str, &[&str]) = if is_root { ("Root", &["Null", "Skeleton", "Root"]) }
-            else if joint.is_bone { ("LimbNode", &["Skeleton"]) } else { ("Null", &["Null"]) };
+        let (class, flags): (&str, &[&str]) = if is_root {
+            ("Root", &["Null", "Skeleton", "Root"])
+        } else if joint.is_bone {
+            ("LimbNode", &["Skeleton"])
+        } else {
+            ("Null", &["Null"])
+        };
         let attr = ids.next();
-        objects.push(node("NodeAttribute", vec![Prop::I64(attr), named(&joint.name, "NodeAttribute"), s(class)], vec![
-            leaf("TypeFlags", flags.iter().map(|f| s(f)).collect()),
-        ]));
+        objects.push(node(
+            "NodeAttribute",
+            vec![Prop::I64(attr), named(&joint.name, "NodeAttribute"), s(class)],
+            vec![leaf("TypeFlags", flags.iter().map(|f| s(f)).collect())],
+        ));
 
         let has_track = animated && clip.tracks.get(j).map(|t| t.len() > 1).unwrap_or(false);
         let flag = if has_track { "A+" } else { "A" };
         let l = to_file(j, &clip.local(j, 0));
         let mut props = vec![
             p_int("DefaultAttributeIndex", 0),
-            p_vec("Lcl Translation", flag,
-                [l.translation.x as f64, l.translation.y as f64, l.translation.z as f64]),
+            p_vec(
+                "Lcl Translation",
+                flag,
+                [l.translation.x as f64, l.translation.y as f64, l.translation.z as f64],
+            ),
             p_vec("Lcl Rotation", flag, euler_xyz(l.rotation)),
         ];
         if (l.scale - Vec3::ONE).abs().max_element() > 1e-6 {
-            props.push(p_vec("Lcl Scaling", "A", [l.scale.x as f64, l.scale.y as f64, l.scale.z as f64]));
+            props.push(p_vec(
+                "Lcl Scaling",
+                "A",
+                [l.scale.x as f64, l.scale.y as f64, l.scale.z as f64],
+            ));
         }
-        objects.push(node("Model", vec![Prop::I64(joint_ids[j]), named(&joint.name, "Model"), s(class)], vec![
-            leaf("Version", vec![Prop::I32(232)]),
-            node("Properties70", vec![], props),
-            leaf("Shading", vec![Prop::Bool(true)]),
-            leaf("Culling", vec![s("CullingOff")]),
-        ]));
+        objects.push(node(
+            "Model",
+            vec![Prop::I64(joint_ids[j]), named(&joint.name, "Model"), s(class)],
+            vec![
+                leaf("Version", vec![Prop::I32(232)]),
+                node("Properties70", vec![], props),
+                leaf("Shading", vec![Prop::Bool(true)]),
+                leaf("Culling", vec![s("CullingOff")]),
+            ],
+        ));
         conns.push(oo(joint_ids[j], joint.parent.map(|p| joint_ids[p]).unwrap_or(0)));
         conns.push(oo(attr, joint_ids[j]));
     }
 
-    // ── Animation ────────────────────────────────────────────────────────────
+    // Animation
     if animated {
         let stack = ids.next();
         let layer = ids.next();
-        objects.push(node("AnimationStack", vec![Prop::I64(stack), named(take, "AnimStack"), s("")], vec![
-            node("Properties70", vec![], vec![
-                p_time("LocalStart", t_start), p_time("LocalStop", t_stop),
-                p_time("ReferenceStart", t_start), p_time("ReferenceStop", t_stop),
-            ]),
-        ]));
-        objects.push(node("AnimationLayer", vec![Prop::I64(layer), named("Base Layer", "AnimLayer"), s("")], vec![]));
+        objects.push(node(
+            "AnimationStack",
+            vec![Prop::I64(stack), named(take, "AnimStack"), s("")],
+            vec![node(
+                "Properties70",
+                vec![],
+                vec![
+                    p_time("LocalStart", t_start),
+                    p_time("LocalStop", t_stop),
+                    p_time("ReferenceStart", t_start),
+                    p_time("ReferenceStop", t_stop),
+                ],
+            )],
+        ));
+        objects.push(node(
+            "AnimationLayer",
+            vec![Prop::I64(layer), named("Base Layer", "AnimLayer"), s("")],
+            vec![],
+        ));
         conns.push(oo(layer, stack));
 
-        let times: Vec<i64> = (0..frames).map(|i| ktime(clip.start_frame + i as i64, clip.rate)).collect();
+        let times: Vec<i64> = (0..frames)
+            .map(|i| ktime(clip.start_frame + i as i64, clip.rate))
+            .collect();
         for (j, _) in clip.joints.iter().enumerate() {
-            let Some(track) = clip.tracks.get(j).filter(|t| t.len() > 1) else { continue };
+            let Some(track) = clip.tracks.get(j).filter(|t| t.len() > 1) else {
+                continue;
+            };
             let n = frames.min(track.len());
 
             let mut tr: [Vec<f32>; 3] = Default::default();
@@ -395,11 +540,19 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
 
             for (label, prop, channels) in [("T", "Lcl Translation", tr), ("R", "Lcl Rotation", ro)] {
                 let cn = ids.next();
-                objects.push(node("AnimationCurveNode", vec![Prop::I64(cn), named(label, "AnimCurveNode"), s("")], vec![
-                    node("Properties70", vec![], ["d|X", "d|Y", "d|Z"].iter().zip(&channels).map(|(ch, v)| {
-                        p(ch, "Number", "", "A", vec![Prop::F64(v[0] as f64)])
-                    }).collect()),
-                ]));
+                objects.push(node(
+                    "AnimationCurveNode",
+                    vec![Prop::I64(cn), named(label, "AnimCurveNode"), s("")],
+                    vec![node(
+                        "Properties70",
+                        vec![],
+                        ["d|X", "d|Y", "d|Z"]
+                            .iter()
+                            .zip(&channels)
+                            .map(|(ch, v)| p(ch, "Number", "", "A", vec![Prop::F64(v[0] as f64)]))
+                            .collect(),
+                    )],
+                ));
                 conns.push(oo(cn, layer));
                 conns.push(op(cn, joint_ids[j], prop));
                 for (ch, values) in ["d|X", "d|Y", "d|Z"].iter().zip(channels) {
@@ -411,25 +564,45 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
         }
     }
 
-    // ── Mesh, skin, bind pose ────────────────────────────────────────────────
+    // Mesh, skin, bind pose
     let mut vertices = 0;
-    if let Some(skin) = clip.skin.as_ref().filter(|s| with_mesh && !s.positions.is_empty() && s.bind.len() == clip.joints.len()) {
+    if let Some(skin) = clip
+        .skin
+        .as_ref()
+        .filter(|s| with_mesh && !s.positions.is_empty() && s.bind.len() == clip.joints.len())
+    {
         vertices = skin.positions.len();
-        let base = if clip.subject.is_empty() { take } else { clip.subject.as_str() };
-        let mesh_name = if space.mesh_name.is_empty() { format!("{base}_Mesh") } else { space.mesh_name.clone() };
+        let base = if clip.subject.is_empty() {
+            take
+        } else {
+            clip.subject.as_str()
+        };
+        let mesh_name = if space.mesh_name.is_empty() {
+            format!("{base}_Mesh")
+        } else {
+            space.mesh_name.clone()
+        };
         let (mesh, geo, deformer, pose) = (ids.next(), ids.next(), ids.next(), ids.next());
 
         objects.push(geometry(geo, &mesh_name, skin, pre));
-        objects.push(node("Model", vec![Prop::I64(mesh), named(&mesh_name, "Model"), s("Mesh")], vec![
-            leaf("Version", vec![Prop::I32(232)]),
-            node("Properties70", vec![], vec![p_int("DefaultAttributeIndex", 0)]),
-            leaf("Shading", vec![Prop::Bool(true)]),
-            leaf("Culling", vec![s("CullingOff")]),
-        ]));
-        objects.push(node("Deformer", vec![Prop::I64(deformer), named(&mesh_name, "Deformer"), s("Skin")], vec![
-            leaf("Version", vec![Prop::I32(101)]),
-            leaf("Link_DeformAcuracy", vec![Prop::F64(50.0)]),
-        ]));
+        objects.push(node(
+            "Model",
+            vec![Prop::I64(mesh), named(&mesh_name, "Model"), s("Mesh")],
+            vec![
+                leaf("Version", vec![Prop::I32(232)]),
+                node("Properties70", vec![], vec![p_int("DefaultAttributeIndex", 0)]),
+                leaf("Shading", vec![Prop::Bool(true)]),
+                leaf("Culling", vec![s("CullingOff")]),
+            ],
+        ));
+        objects.push(node(
+            "Deformer",
+            vec![Prop::I64(deformer), named(&mesh_name, "Deformer"), s("Skin")],
+            vec![
+                leaf("Version", vec![Prop::I32(101)]),
+                leaf("Link_DeformAcuracy", vec![Prop::F64(50.0)]),
+            ],
+        ));
         conns.extend([oo(mesh, 0), oo(geo, mesh), oo(deformer, geo)]);
 
         // One cluster per joint: the vertices it moves and by how much.
@@ -437,38 +610,64 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
         if skin.weights.len() == skin.positions.len() {
             for (vi, list) in skin.weights.iter().enumerate() {
                 for (j, w) in list {
-                    if *w <= 0.0 { continue; }
-                    if let Some(l) = by_joint.get_mut(*j as usize) { l.push((vi as i32, *w as f64)); }
+                    if *w <= 0.0 {
+                        continue;
+                    }
+                    if let Some(l) = by_joint.get_mut(*j as usize) {
+                        l.push((vi as i32, *w as f64));
+                    }
                 }
             }
         } else {
             for (vi, j) in skin.joint.iter().enumerate() {
-                if let Some(list) = by_joint.get_mut(*j as usize) { list.push((vi as i32, 1.0)); }
+                if let Some(list) = by_joint.get_mut(*j as usize) {
+                    list.push((vi as i32, 1.0));
+                }
             }
         }
         for (j, list) in by_joint.into_iter().enumerate() {
-            if list.is_empty() { continue; }
+            if list.is_empty() {
+                continue;
+            }
             let cluster = ids.next();
             let (verts, weights): (Vec<i32>, Vec<f64>) = list.into_iter().unzip();
-            objects.push(node("Deformer", vec![Prop::I64(cluster), named(&clip.joints[j].name, "SubDeformer"), s("Cluster")], vec![
-                leaf("Version", vec![Prop::I32(100)]),
-                leaf("UserData", vec![s(""), s("")]),
-                leaf("Indexes", vec![Prop::ArrI32(verts)]),
-                leaf("Weights", vec![Prop::ArrF64(weights)]),
-                // Mesh space to joint space at bind time, and the joint's world matrix.
-                leaf("Transform", vec![matrix((pre * skin.bind[j] * post).inverse())]),
-                leaf("TransformLink", vec![bind_matrix(&skin.bind[j])]),
-            ]));
+            objects.push(node(
+                "Deformer",
+                vec![
+                    Prop::I64(cluster),
+                    named(&clip.joints[j].name, "SubDeformer"),
+                    s("Cluster"),
+                ],
+                vec![
+                    leaf("Version", vec![Prop::I32(100)]),
+                    leaf("UserData", vec![s(""), s("")]),
+                    leaf("Indexes", vec![Prop::ArrI32(verts)]),
+                    leaf("Weights", vec![Prop::ArrF64(weights)]),
+                    // Mesh space to joint space at bind time, and the joint's world matrix.
+                    leaf("Transform", vec![matrix((pre * skin.bind[j] * post).inverse())]),
+                    leaf("TransformLink", vec![bind_matrix(&skin.bind[j])]),
+                ],
+            ));
             conns.extend([oo(cluster, deformer), oo(joint_ids[j], cluster)]);
         }
 
-        let mut pose_nodes = vec![node("PoseNode", vec![], vec![
-            leaf("Node", vec![Prop::I64(mesh)]), leaf("Matrix", vec![matrix(Mat4::IDENTITY)]),
-        ])];
+        let mut pose_nodes = vec![node(
+            "PoseNode",
+            vec![],
+            vec![
+                leaf("Node", vec![Prop::I64(mesh)]),
+                leaf("Matrix", vec![matrix(Mat4::IDENTITY)]),
+            ],
+        )];
         for (j, m) in skin.bind.iter().enumerate() {
-            pose_nodes.push(node("PoseNode", vec![], vec![
-                leaf("Node", vec![Prop::I64(joint_ids[j])]), leaf("Matrix", vec![bind_matrix(m)]),
-            ]));
+            pose_nodes.push(node(
+                "PoseNode",
+                vec![],
+                vec![
+                    leaf("Node", vec![Prop::I64(joint_ids[j])]),
+                    leaf("Matrix", vec![bind_matrix(m)]),
+                ],
+            ));
         }
         let mut kids = vec![
             leaf("Type", vec![s("BindPose")]),
@@ -476,17 +675,38 @@ pub fn write_fbx(path: &Path, clip: &AnimData, animation: bool, with_mesh: bool)
             leaf("NbPoseNodes", vec![Prop::I32(pose_nodes.len() as i32)]),
         ];
         kids.extend(pose_nodes);
-        objects.push(node("Pose", vec![Prop::I64(pose), named("BindPose", "Pose"), s("BindPose")], kids));
+        objects.push(node(
+            "Pose",
+            vec![Prop::I64(pose), named("BindPose", "Pose"), s("BindPose")],
+            kids,
+        ));
     }
 
-    let out = file_bytes(&space, clip.rate, clip.drop_frame, animated, take, t_start, t_stop, objects, conns, &mut ids)?;
+    let out = file_bytes(
+        &space,
+        clip.rate,
+        clip.drop_frame,
+        animated,
+        take,
+        t_start,
+        t_stop,
+        objects,
+        conns,
+        &mut ids,
+    )?;
 
     if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() { std::fs::create_dir_all(dir)?; }
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir)?;
+        }
     }
     std::fs::write(path, out)?;
 
-    Ok(WriteStats { joints: clip.joints.len(), frames: if animated { frames } else { 0 }, vertices })
+    Ok(WriteStats {
+        joints: clip.joints.len(),
+        frames: if animated { frames } else { 0 },
+        vertices,
+    })
 }
 
 /// Meshes standing on their own, no skeleton, no animation: a set. Each
@@ -510,116 +730,227 @@ pub fn write_meshes_fbx(path: &Path, meshes: &[(String, &crate::types::MeshData)
                 match poly.len() {
                     3 => faces.push([poly[0], poly[1], poly[2], poly[2]]),
                     4 => faces.push([poly[0], poly[1], poly[2], poly[3]]),
-                    n if n > 4 => for k in 1..n - 1 { faces.push([poly[0], poly[k], poly[k + 1], poly[k + 1]]); },
+                    n if n > 4 => {
+                        for k in 1..n - 1 {
+                            faces.push([poly[0], poly[k], poly[k + 1], poly[k + 1]]);
+                        }
+                    }
                     _ => {}
                 }
             }
         } else {
-            for t in m.indices.chunks_exact(3) { faces.push([t[0], t[1], t[2], t[2]]); }
+            for t in m.indices.chunks_exact(3) {
+                faces.push([t[0], t[1], t[2], t[2]]);
+            }
         }
         let positions: Vec<Vec3> = m.vertices.iter().map(|v| Vec3::from_array(*v)).collect();
         // No normals: the reader makes them from the polygons, and a set
         // of a million polygons is a third of the size without them.
         vertices += positions.len();
-        let skin = SkinMesh { positions, faces, ..Default::default() };
+        let skin = SkinMesh {
+            positions,
+            faces,
+            ..Default::default()
+        };
         let (model, geo) = (ids.next(), ids.next());
         objects.push(geometry(geo, name, &skin, pre));
-        objects.push(node("Model", vec![Prop::I64(model), named(name, "Model"), s("Mesh")], vec![
-            leaf("Version", vec![Prop::I32(232)]),
-            node("Properties70", vec![], vec![p_int("DefaultAttributeIndex", 0)]),
-            leaf("Shading", vec![Prop::Bool(true)]),
-            leaf("Culling", vec![s("CullingOff")]),
-        ]));
+        objects.push(node(
+            "Model",
+            vec![Prop::I64(model), named(name, "Model"), s("Mesh")],
+            vec![
+                leaf("Version", vec![Prop::I32(232)]),
+                node("Properties70", vec![], vec![p_int("DefaultAttributeIndex", 0)]),
+                leaf("Shading", vec![Prop::Bool(true)]),
+                leaf("Culling", vec![s("CullingOff")]),
+            ],
+        ));
         conns.extend([oo(model, 0), oo(geo, model)]);
     }
-    let out = file_bytes(&space, FrameRate::new(30, 1), false, false, "", 0, 0, objects, conns, &mut ids)?;
+    let out = file_bytes(
+        &space,
+        FrameRate::new(30, 1),
+        false,
+        false,
+        "",
+        0,
+        0,
+        objects,
+        conns,
+        &mut ids,
+    )?;
     if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() { std::fs::create_dir_all(dir)?; }
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir)?;
+        }
     }
     std::fs::write(path, out)?;
-    Ok(WriteStats { joints: 0, frames: 0, vertices })
+    Ok(WriteStats {
+        joints: 0,
+        frames: 0,
+        vertices,
+    })
 }
 
-/// The whole file: header, settings, definitions counted from `objects`,
-/// the objects and their connections, takes, footer.
+/// The whole file: header, settings, definitions counted from `objects`, the
+/// objects and their connections, takes, footer.
 #[allow(clippy::too_many_arguments)]
-fn file_bytes(space: &FileSpace, rate: FrameRate, drop_frame: bool, animated: bool, take: &str, t_start: i64, t_stop: i64,
-              objects: Vec<Node>, conns: Vec<Node>, ids: &mut Ids) -> std::io::Result<Vec<u8>> {
-    // ── Definitions ──────────────────────────────────────────────────────────
+fn file_bytes(
+    space: &FileSpace,
+    rate: FrameRate,
+    drop_frame: bool,
+    animated: bool,
+    take: &str,
+    t_start: i64,
+    t_stop: i64,
+    objects: Vec<Node>,
+    conns: Vec<Node>,
+    ids: &mut Ids,
+) -> std::io::Result<Vec<u8>> {
+    // Definitions
     let mut counts: Vec<(&'static str, i32)> = vec![];
     for o in &objects {
         match counts.iter_mut().find(|c| c.0 == o.name) {
             Some(c) => c.1 += 1,
-            None    => counts.push((o.name, 1)),
+            None => counts.push((o.name, 1)),
         }
     }
     let total = 1 + counts.iter().map(|c| c.1).sum::<i32>();
     let mut defs = vec![
         leaf("Version", vec![Prop::I32(100)]),
         leaf("Count", vec![Prop::I32(total)]),
-        node("ObjectType", vec![s("GlobalSettings")], vec![leaf("Count", vec![Prop::I32(1)])]),
+        node(
+            "ObjectType",
+            vec![s("GlobalSettings")],
+            vec![leaf("Count", vec![Prop::I32(1)])],
+        ),
     ];
     for (ty, n) in &counts {
-        defs.push(node("ObjectType", vec![s(ty)], vec![leaf("Count", vec![Prop::I32(*n)])]));
+        defs.push(node(
+            "ObjectType",
+            vec![s(ty)],
+            vec![leaf("Count", vec![Prop::I32(*n)])],
+        ));
     }
 
-    // ── Sections ─────────────────────────────────────────────────────────────
+    // Sections
     let (mode, custom_rate) = time_mode(rate, drop_frame);
     let top = vec![
-        node("FBXHeaderExtension", vec![], vec![
-            leaf("FBXHeaderVersion", vec![Prop::I32(1003)]),
-            leaf("FBXVersion", vec![Prop::I32(VERSION as i32)]),
-            leaf("EncryptionType", vec![Prop::I32(0)]),
-            node("CreationTimeStamp", vec![], vec![
-                leaf("Version", vec![Prop::I32(1000)]),
-                leaf("Year", vec![Prop::I32(2026)]), leaf("Month", vec![Prop::I32(7)]), leaf("Day", vec![Prop::I32(31)]),
-                leaf("Hour", vec![Prop::I32(10)]), leaf("Minute", vec![Prop::I32(44)]), leaf("Second", vec![Prop::I32(37)]),
-                leaf("Millisecond", vec![Prop::I32(785)]),
-            ]),
-            leaf("Creator", vec![s("XMS FBX writer")]),
-            node("SceneInfo", vec![named("GlobalInfo", "SceneInfo"), s("UserData")], vec![
-                leaf("Type", vec![s("UserData")]),
-                leaf("Version", vec![Prop::I32(100)]),
-                node("MetaData", vec![], vec![
-                    leaf("Version", vec![Prop::I32(100)]),
-                    leaf("Title", vec![s("XMS Scene")]), leaf("Subject", vec![s("Exported from XMS")]),
-                    leaf("Author", vec![s("")]), leaf("Keywords", vec![s("")]),
-                    leaf("Revision", vec![s("")]), leaf("Comment", vec![s("")]),
-                ]),
-                node("Properties70", vec![], vec![]),
-            ]),
-        ]),
+        node(
+            "FBXHeaderExtension",
+            vec![],
+            vec![
+                leaf("FBXHeaderVersion", vec![Prop::I32(1003)]),
+                leaf("FBXVersion", vec![Prop::I32(VERSION as i32)]),
+                leaf("EncryptionType", vec![Prop::I32(0)]),
+                node(
+                    "CreationTimeStamp",
+                    vec![],
+                    vec![
+                        leaf("Version", vec![Prop::I32(1000)]),
+                        leaf("Year", vec![Prop::I32(2026)]),
+                        leaf("Month", vec![Prop::I32(7)]),
+                        leaf("Day", vec![Prop::I32(31)]),
+                        leaf("Hour", vec![Prop::I32(10)]),
+                        leaf("Minute", vec![Prop::I32(44)]),
+                        leaf("Second", vec![Prop::I32(37)]),
+                        leaf("Millisecond", vec![Prop::I32(785)]),
+                    ],
+                ),
+                leaf("Creator", vec![s("XMS FBX writer")]),
+                node(
+                    "SceneInfo",
+                    vec![named("GlobalInfo", "SceneInfo"), s("UserData")],
+                    vec![
+                        leaf("Type", vec![s("UserData")]),
+                        leaf("Version", vec![Prop::I32(100)]),
+                        node(
+                            "MetaData",
+                            vec![],
+                            vec![
+                                leaf("Version", vec![Prop::I32(100)]),
+                                leaf("Title", vec![s("XMS Scene")]),
+                                leaf("Subject", vec![s("Exported from XMS")]),
+                                leaf("Author", vec![s("")]),
+                                leaf("Keywords", vec![s("")]),
+                                leaf("Revision", vec![s("")]),
+                                leaf("Comment", vec![s("")]),
+                            ],
+                        ),
+                        node("Properties70", vec![], vec![]),
+                    ],
+                ),
+            ],
+        ),
         leaf("FileId", vec![Prop::Raw(FILE_ID.to_vec())]),
         leaf("CreationTime", vec![s(CREATION_TIME)]),
         leaf("Creator", vec![s("XMS FBX writer")]),
-        node("GlobalSettings", vec![], vec![
-            leaf("Version", vec![Prop::I32(1000)]),
-            node("Properties70", vec![], vec![
-                p_int("UpAxis", space.up.0), p_int("UpAxisSign", space.up.1),
-                p_int("FrontAxis", space.front.0), p_int("FrontAxisSign", space.front.1),
-                p_int("CoordAxis", space.coord.0), p_int("CoordAxisSign", space.coord.1),
-                p_int("OriginalUpAxis", space.up.0), p_int("OriginalUpAxisSign", space.up.1),
-                p_double("UnitScaleFactor", space.unit_cm), p_double("OriginalUnitScaleFactor", space.unit_cm),
-                p("AmbientColor", "ColorRGB", "Color", "", vec![Prop::F64(0.0), Prop::F64(0.0), Prop::F64(0.0)]),
-                p("DefaultCamera", "KString", "", "", vec![s("Producer Perspective")]),
-                p_enum("TimeMode", mode), p_enum("TimeProtocol", 2), p_enum("SnapOnFrameMode", 0),
-                p_time("TimeSpanStart", if animated { t_start } else { 0 }),
-                p_time("TimeSpanStop", if animated { t_stop } else { KTIME as i64 }),
-                p_double("CustomFrameRate", custom_rate),
-                p("TimeMarker", "Compound", "", "", vec![]),
-                p_int("CurrentTimeMarker", -1),
-            ]),
-        ]),
-        node("Documents", vec![], vec![
-            leaf("Count", vec![Prop::I32(1)]),
-            node("Document", vec![Prop::I64(ids.next()), s("Scene"), s("Scene")], vec![
-                node("Properties70", vec![], vec![
-                    p("SourceObject", "object", "", "", vec![]),
-                    p("ActiveAnimStackName", "KString", "", "", vec![s(if animated { take } else { "" })]),
-                ]),
-                leaf("RootNode", vec![Prop::I64(0)]),
-            ]),
-        ]),
+        node(
+            "GlobalSettings",
+            vec![],
+            vec![
+                leaf("Version", vec![Prop::I32(1000)]),
+                node(
+                    "Properties70",
+                    vec![],
+                    vec![
+                        p_int("UpAxis", space.up.0),
+                        p_int("UpAxisSign", space.up.1),
+                        p_int("FrontAxis", space.front.0),
+                        p_int("FrontAxisSign", space.front.1),
+                        p_int("CoordAxis", space.coord.0),
+                        p_int("CoordAxisSign", space.coord.1),
+                        p_int("OriginalUpAxis", space.up.0),
+                        p_int("OriginalUpAxisSign", space.up.1),
+                        p_double("UnitScaleFactor", space.unit_cm),
+                        p_double("OriginalUnitScaleFactor", space.unit_cm),
+                        p(
+                            "AmbientColor",
+                            "ColorRGB",
+                            "Color",
+                            "",
+                            vec![Prop::F64(0.0), Prop::F64(0.0), Prop::F64(0.0)],
+                        ),
+                        p("DefaultCamera", "KString", "", "", vec![s("Producer Perspective")]),
+                        p_enum("TimeMode", mode),
+                        p_enum("TimeProtocol", 2),
+                        p_enum("SnapOnFrameMode", 0),
+                        p_time("TimeSpanStart", if animated { t_start } else { 0 }),
+                        p_time("TimeSpanStop", if animated { t_stop } else { KTIME as i64 }),
+                        p_double("CustomFrameRate", custom_rate),
+                        p("TimeMarker", "Compound", "", "", vec![]),
+                        p_int("CurrentTimeMarker", -1),
+                    ],
+                ),
+            ],
+        ),
+        node(
+            "Documents",
+            vec![],
+            vec![
+                leaf("Count", vec![Prop::I32(1)]),
+                node(
+                    "Document",
+                    vec![Prop::I64(ids.next()), s("Scene"), s("Scene")],
+                    vec![
+                        node(
+                            "Properties70",
+                            vec![],
+                            vec![
+                                p("SourceObject", "object", "", "", vec![]),
+                                p(
+                                    "ActiveAnimStackName",
+                                    "KString",
+                                    "",
+                                    "",
+                                    vec![s(if animated { take } else { "" })],
+                                ),
+                            ],
+                        ),
+                        leaf("RootNode", vec![Prop::I64(0)]),
+                    ],
+                ),
+            ],
+        ),
         node("References", vec![], vec![]),
         node("Definitions", vec![], defs),
         node("Objects", vec![], objects),
@@ -627,21 +958,27 @@ fn file_bytes(space: &FileSpace, rate: FrameRate, drop_frame: bool, animated: bo
         node("Takes", vec![], {
             let mut k = vec![leaf("Current", vec![s(if animated { take } else { "" })])];
             if animated {
-                k.push(node("Take", vec![s(take)], vec![
-                    leaf("FileName", vec![s(&format!("{}.tak", take.replace(' ', "_")))]),
-                    leaf("LocalTime", vec![Prop::I64(t_start), Prop::I64(t_stop)]),
-                    leaf("ReferenceTime", vec![Prop::I64(t_start), Prop::I64(t_stop)]),
-                ]));
+                k.push(node(
+                    "Take",
+                    vec![s(take)],
+                    vec![
+                        leaf("FileName", vec![s(&format!("{}.tak", take.replace(' ', "_")))]),
+                        leaf("LocalTime", vec![Prop::I64(t_start), Prop::I64(t_stop)]),
+                        leaf("ReferenceTime", vec![Prop::I64(t_start), Prop::I64(t_stop)]),
+                    ],
+                ));
             }
             k
         }),
     ];
 
-    // ── Serialise ────────────────────────────────────────────────────────────
+    // Serialise
     let mut out: Vec<u8> = Vec::with_capacity(1 << 20);
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&VERSION.to_le_bytes());
-    for n in &top { write_node(&mut out, n)?; }
+    for n in &top {
+        write_node(&mut out, n)?;
+    }
     out.extend_from_slice(&[0u8; HEADER]);
     out.extend_from_slice(&FOOT_ID);
     out.extend_from_slice(&[0u8; 4]);
@@ -654,24 +991,38 @@ fn file_bytes(space: &FileSpace, rate: FrameRate, drop_frame: bool, animated: bo
     Ok(out)
 }
 
-/// An output path for one clip, with its variables put in (`core::vars`):
-/// its own `{dir}` source folder, `{file}` source file name, `{char}`
-/// character, `{take}` take name, and the built-ins (`$GDIR`…). Adds
-/// ".fbx" when the result has no extension.
+/// An output path for one clip, with its variables put in (`core::vars`): its
+/// own `{dir}` source folder, `{file}` source file name, `{char}` character,
+/// `{take}` take name, and the built-ins (`$GDIR`…). Adds ".fbx" when the
+/// result has no extension.
 pub fn resolve_path(pattern: &str, clip: &AnimData) -> std::path::PathBuf {
     let safe = |v: &str| v.trim().replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-    let file = if clip.source.is_empty() { safe(&clip.name) } else { safe(&clip.source) };
-    let dir  = if clip.source_dir.is_empty() { ".".to_string() } else { clip.source_dir.clone() };
-    let mut out = crate::core::vars::expand(pattern.trim(), &[
-        ("dir", dir), ("file", file), ("char", safe(&clip.subject)), ("take", safe(&clip.name)),
-    ]);
-    if !out.to_lowercase().ends_with(".fbx") { out.push_str(".fbx"); }
+    let file = if clip.source.is_empty() {
+        safe(&clip.name)
+    } else {
+        safe(&clip.source)
+    };
+    let dir = if clip.source_dir.is_empty() {
+        ".".to_string()
+    } else {
+        clip.source_dir.clone()
+    };
+    let mut out = crate::core::vars::expand(
+        pattern.trim(),
+        &[
+            ("dir", dir),
+            ("file", file),
+            ("char", safe(&clip.subject)),
+            ("take", safe(&clip.name)),
+        ],
+    );
+    if !out.to_lowercase().ends_with(".fbx") {
+        out.push_str(".fbx");
+    }
     std::path::PathBuf::from(out)
 }
 
-// ============================================================================
 // TESTS
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -680,7 +1031,9 @@ mod tests {
     fn meshes_go_out_and_come_back() {
         let cube = crate::node_graph::nodes::create_cube(2.0);
         let mut moved = cube.clone();
-        for v in moved.vertices.iter_mut() { v[0] += 5.0; }
+        for v in moved.vertices.iter_mut() {
+            v[0] += 5.0;
+        }
         let path = std::env::temp_dir().join("xms_meshes_out.fbx");
         let stats = write_meshes_fbx(&path, &[("Box".into(), &cube), ("Moved Box".into(), &moved)]).unwrap();
         assert_eq!(stats.vertices, 16);
@@ -692,11 +1045,14 @@ mod tests {
             assert_eq!(g.point_count(), 8);
             let w = p.world();
             let max_x = w.vertices.iter().map(|v| v[0]).fold(f32::MIN, f32::max);
-            assert!((max_x - if p.path.contains("Moved") { 6.0 } else { 1.0 }).abs() < 1e-4, "{}: {max_x}", p.path);
+            assert!(
+                (max_x - if p.path.contains("Moved") { 6.0 } else { 1.0 }).abs() < 1e-4,
+                "{}: {max_x}",
+                p.path
+            );
         }
         assert!(scene.info.bones == 0 && scene.info.takes.is_empty());
     }
-
 
     use super::*;
     use crate::core::anim::{create_test_clip, PoseEdit};
@@ -706,19 +1062,26 @@ mod tests {
         std::env::temp_dir().join(format!("xms_writer_{name}.fbx"))
     }
 
-    fn close(a: Vec3, b: Vec3, eps: f32) -> bool { (a - b).length() < eps }
+    fn close(a: Vec3, b: Vec3, eps: f32) -> bool {
+        (a - b).length() < eps
+    }
 
-    /// Index in `back` of each joint of `c`. Readers return joints in
-    /// hierarchy order, which need not be the order they were written in.
+    /// Index in `back` of each joint of `c`. Readers return joints in hierarchy
+    /// order, which need not be the order they were written in.
     fn remap(c: &AnimData, back: &AnimData) -> Vec<usize> {
-        c.joints.iter()
+        c.joints
+            .iter()
             .map(|j| back.joints.iter().position(|b| b.name == j.name).expect("joint lost"))
             .collect()
     }
 
     #[test]
     fn animation_round_trips_through_ufbx() {
-        for rate in [FrameRate::new(30, 1), FrameRate::new(120, 1), FrameRate::new(30000, 1001)] {
+        for rate in [
+            FrameRate::new(30, 1),
+            FrameRate::new(120, 1),
+            FrameRate::new(30000, 1001),
+        ] {
             let c = create_test_clip(2.0, rate);
             let path = tmp(&format!("anim_{}", rate.num));
             let stats = write_fbx(&path, &c, true, true).unwrap();
@@ -733,14 +1096,21 @@ mod tests {
             let map = remap(&c, &back);
             for (j, b) in c.joints.iter().enumerate() {
                 let a = &back.joints[map[j]];
-                assert_eq!(a.parent.map(|p| back.joints[p].name.clone()), b.parent.map(|p| c.joints[p].name.clone()));
+                assert_eq!(
+                    a.parent.map(|p| back.joints[p].name.clone()),
+                    b.parent.map(|p| c.joints[p].name.clone())
+                );
                 assert!(a.is_bone);
             }
             for f in [0, 1, c.frames / 3, c.frames / 2, c.frames - 1] {
                 let (pa, pb) = (back.world_pose(f), c.world_pose(f));
                 for j in 0..c.joints.len() {
-                    assert!(close(pa[map[j]].w_axis.truncate(), pb[j].w_axis.truncate(), 2e-4),
-                        "rate {rate:?} frame {f} joint {j}: {:?} vs {:?}", pa[map[j]].w_axis, pb[j].w_axis);
+                    assert!(
+                        close(pa[map[j]].w_axis.truncate(), pb[j].w_axis.truncate(), 2e-4),
+                        "rate {rate:?} frame {f} joint {j}: {:?} vs {:?}",
+                        pa[map[j]].w_axis,
+                        pb[j].w_axis
+                    );
                     let (qa, qb) = (back.local(map[j], f).rotation, c.local(j, f).rotation);
                     assert!(qa.angle_between(qb) < 2e-3, "rotation frame {f} joint {j}");
                 }
@@ -768,7 +1138,10 @@ mod tests {
         let back = load_fbx(path.to_str().unwrap(), 0).unwrap().anim;
         let j = remap(&c, &back)[13];
         for f in 0..c.frames {
-            assert!(back.local(j, f).rotation.angle_between(c.local(13, f).rotation) < 2e-3, "frame {f}");
+            assert!(
+                back.local(j, f).rotation.angle_between(c.local(13, f).rotation) < 2e-3,
+                "frame {f}"
+            );
         }
     }
 
@@ -787,15 +1160,20 @@ mod tests {
         }
     }
 
-    /// Reads the written file back through ufbx's own scene view, to check
-    /// what a strict reader sees: node types, mesh, skin clusters, bind pose.
+    /// Reads the written file back through ufbx's own scene view, to check what
+    /// a strict reader sees: node types, mesh, skin clusters, bind pose.
     #[test]
     fn skinned_tpose_is_a_valid_skeletal_mesh() {
         let mut c = create_test_clip(1.0, FrameRate::new(30, 1));
-        c.joints[0].is_bone = false;          // helper root above the bones
+        c.joints[0].is_bone = false; // helper root above the bones
         c.subject = "Skeleton_001".into();
-        let t = c.auto_tpose(None)
-            .pose_fixed(&[PoseEdit { joint: "Take01:LeftArm".into(), rotation: [0.0, 0.0, 80.0], translation: [0.0; 3] }])
+        let t = c
+            .auto_tpose(None)
+            .pose_fixed(&[PoseEdit {
+                joint: "Take01:LeftArm".into(),
+                rotation: [0.0, 0.0, 80.0],
+                translation: [0.0; 3],
+            }])
             .with_proxy_skin(1.0);
         let skin = t.skin.clone().unwrap();
         let path = tmp("skin");
@@ -814,7 +1192,11 @@ mod tests {
         assert_eq!(mesh.num_faces, skin.faces.len());
         assert_eq!(mesh.skin_deformers.len(), 1);
         let v0 = mesh.vertices[0];
-        assert!(close(Vec3::new(v0.x as f32, v0.y as f32, v0.z as f32), skin.positions[0] * CM, 1e-3));
+        assert!(close(
+            Vec3::new(v0.x as f32, v0.y as f32, v0.z as f32),
+            skin.positions[0] * CM,
+            1e-3
+        ));
 
         // One cluster per bone, none for the helper root.
         let sd = &scene.skin_deformers[0];
@@ -839,11 +1221,19 @@ mod tests {
         // world position matches the bind pose.
         let root = scene.nodes.iter().find(|n| *n.element.name == *"Take01:Hips").unwrap();
         assert!(root.bone.is_none());
-        let arm = scene.nodes.iter().find(|n| *n.element.name == *"Take01:LeftForeArm").unwrap();
+        let arm = scene
+            .nodes
+            .iter()
+            .find(|n| *n.element.name == *"Take01:LeftForeArm")
+            .unwrap();
         assert!(arm.bone.is_some());
         let w = &arm.node_to_world;
         let j = t.joints.iter().position(|x| x.name == "Take01:LeftForeArm").unwrap();
-        assert!(close(Vec3::new(w.m03 as f32, w.m13 as f32, w.m23 as f32), skin.bind[j].w_axis.truncate() * CM, 1e-2));
+        assert!(close(
+            Vec3::new(w.m03 as f32, w.m13 as f32, w.m23 as f32),
+            skin.bind[j].w_axis.truncate() * CM,
+            1e-2
+        ));
         assert_eq!(scene.poses.len(), 1);
         assert!(scene.poses[0].is_bind_pose);
         assert_eq!(scene.poses[0].bone_poses.len(), t.joints.len() + 1);
@@ -857,8 +1247,12 @@ mod tests {
         c.subject = "Skeleton_002".into();
         assert_eq!(
             resolve_path("{dir}/split/{file}_{char}_tpose.fbx", &c),
-            std::path::PathBuf::from("/data/day01/split/S3_13_001_Skeleton_002_tpose.fbx"));
-        assert_eq!(resolve_path("/out/{take}", &c), std::path::PathBuf::from("/out/TestWalk.fbx"));
+            std::path::PathBuf::from("/data/day01/split/S3_13_001_Skeleton_002_tpose.fbx")
+        );
+        assert_eq!(
+            resolve_path("/out/{take}", &c),
+            std::path::PathBuf::from("/out/TestWalk.fbx")
+        );
     }
 
     #[test]
@@ -868,32 +1262,84 @@ mod tests {
         assert_eq!(ktime(30000, FrameRate::new(30000, 1001)), 46_186_158_000 * 1001);
     }
 
-    // ── Same skeleton out as in ──────────────────────────────────────────────
+    // Same skeleton out as in
 
-    /// What an importer sees, read without any conversion: axes, unit, and
-    /// per node its name, parent, kind and local transform at some frames.
+    /// What an importer sees, read without any conversion: axes, unit, and per
+    /// node its name, parent, kind and local transform at some frames.
     struct Raw {
         settings: (i64, i64, i64, i64, i64, i64, f64),
         nodes: std::collections::HashMap<String, (String, String, Vec<(Vec3, Quat, Vec3)>)>,
     }
 
     fn raw(path: &std::path::Path, frames: &[i64], fps: f64) -> Raw {
-        let scene = ufbx::load_file(path.to_str().unwrap(), ufbx::LoadOpts { ignore_geometry: true, ignore_embedded: true, ..Default::default() }).unwrap();
+        let scene = ufbx::load_file(
+            path.to_str().unwrap(),
+            ufbx::LoadOpts {
+                ignore_geometry: true,
+                ignore_embedded: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let props = &scene.settings.props;
-        let int = |n: &str| props.props.iter().find(|p| p.name.as_ref() as &str == n).map(|p| p.value_int).unwrap_or(-9);
-        let real = |n: &str| props.props.iter().find(|p| p.name.as_ref() as &str == n).map(|p| p.value_vec4.x as f64).unwrap_or(-9.0);
-        let settings = (int("UpAxis"), int("UpAxisSign"), int("FrontAxis"), int("FrontAxisSign"), int("CoordAxis"), int("CoordAxisSign"), real("UnitScaleFactor"));
+        let int = |n: &str| {
+            props
+                .props
+                .iter()
+                .find(|p| p.name.as_ref() as &str == n)
+                .map(|p| p.value_int)
+                .unwrap_or(-9)
+        };
+        let real = |n: &str| {
+            props
+                .props
+                .iter()
+                .find(|p| p.name.as_ref() as &str == n)
+                .map(|p| p.value_vec4.x as f64)
+                .unwrap_or(-9.0)
+        };
+        let settings = (
+            int("UpAxis"),
+            int("UpAxisSign"),
+            int("FrontAxis"),
+            int("FrontAxisSign"),
+            int("CoordAxis"),
+            int("CoordAxisSign"),
+            real("UnitScaleFactor"),
+        );
         let anim = scene.anim_stacks.first().map(|s| &s.anim);
         let mut nodes = std::collections::HashMap::new();
         for n in scene.nodes.iter().filter(|n| n.bone.is_some()) {
-            let kind = if n.bone.as_ref().unwrap().is_root { "Root" } else { "LimbNode" }.to_string();
-            let parent = n.parent.as_ref().map(|p| p.element.name.to_string()).unwrap_or_default();
-            let samples = frames.iter().map(|f| {
-                let t = match &anim { Some(a) => ufbx::evaluate_transform(a, n, *f as f64 / fps), None => n.local_transform.clone() };
-                (Vec3::new(t.translation.x as f32, t.translation.y as f32, t.translation.z as f32),
-                 Quat::from_xyzw(t.rotation.x as f32, t.rotation.y as f32, t.rotation.z as f32, t.rotation.w as f32),
-                 Vec3::new(t.scale.x as f32, t.scale.y as f32, t.scale.z as f32))
-            }).collect();
+            let kind = if n.bone.as_ref().unwrap().is_root {
+                "Root"
+            } else {
+                "LimbNode"
+            }
+            .to_string();
+            let parent = n
+                .parent
+                .as_ref()
+                .map(|p| p.element.name.to_string())
+                .unwrap_or_default();
+            let samples = frames
+                .iter()
+                .map(|f| {
+                    let t = match &anim {
+                        Some(a) => ufbx::evaluate_transform(a, n, *f as f64 / fps),
+                        None => n.local_transform.clone(),
+                    };
+                    (
+                        Vec3::new(t.translation.x as f32, t.translation.y as f32, t.translation.z as f32),
+                        Quat::from_xyzw(
+                            t.rotation.x as f32,
+                            t.rotation.y as f32,
+                            t.rotation.z as f32,
+                            t.rotation.w as f32,
+                        ),
+                        Vec3::new(t.scale.x as f32, t.scale.y as f32, t.scale.z as f32),
+                    )
+                })
+                .collect();
             nodes.insert(n.element.name.to_string(), (parent, kind, samples));
         }
         Raw { settings, nodes }
@@ -943,14 +1389,35 @@ mod tests {
         // under the top in centimetres, the top carrying the conversion.
         let space = FileSpace::z_up_cm();
         let cm = Mat4::from_scale(Vec3::splat(100.0));
-        let tracks: Vec<Vec<Transform>> = c.tracks.iter().enumerate().map(|(j, tr)| tr.iter().map(|t| {
-            let m = t.compute_matrix();
-            Transform::from_matrix(if c.joints[j].parent.is_none() { m * cm.inverse() } else { cm * m * cm.inverse() })
-        }).collect()).collect();
-        let mut zc = AnimData { tracks: std::sync::Arc::new(tracks), space: Some(std::sync::Arc::new(space)), ..c.clone() };
+        let tracks: Vec<Vec<Transform>> = c
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(j, tr)| {
+                tr.iter()
+                    .map(|t| {
+                        let m = t.compute_matrix();
+                        Transform::from_matrix(if c.joints[j].parent.is_none() {
+                            m * cm.inverse()
+                        } else {
+                            cm * m * cm.inverse()
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+        let mut zc = AnimData {
+            tracks: std::sync::Arc::new(tracks),
+            space: Some(std::sync::Arc::new(space)),
+            ..c.clone()
+        };
         for j in zc.joints.iter_mut() {
             let m = j.rest.compute_matrix();
-            j.rest = Transform::from_matrix(if j.parent.is_none() { m * cm.inverse() } else { cm * m * cm.inverse() });
+            j.rest = Transform::from_matrix(if j.parent.is_none() {
+                m * cm.inverse()
+            } else {
+                cm * m * cm.inverse()
+            });
         }
         let path = tmp("zup");
         write_fbx(&path, &zc, true, false).unwrap();
@@ -959,7 +1426,11 @@ mod tests {
         let r = raw(&path, &frames, 30.0);
         assert_eq!(r.settings, (2, 1, 1, -1, 0, 1, 1.0));
         let hips = &r.nodes["Take01:Hips"].2[0];
-        assert!(close(hips.0, Vec3::new(0.0, 0.0, c.tracks[0][0].translation.y * 100.0), 1e-3), "{:?}", hips.0);
+        assert!(
+            close(hips.0, Vec3::new(0.0, 0.0, c.tracks[0][0].translation.y * 100.0), 1e-3),
+            "{:?}",
+            hips.0
+        );
         // Read back: the same world motion as the original clip.
         let back = load_fbx(path.to_str().unwrap(), 0).unwrap().anim;
         assert_eq!(back.space.as_ref().unwrap().up, (2, 1));
@@ -967,7 +1438,10 @@ mod tests {
             let (wa, wb) = (c.world_pose(f), back.world_pose(f));
             for j in 0..c.joints.len() {
                 let k = back.joints.iter().position(|x| x.name == c.joints[j].name).unwrap();
-                assert!(close(wa[j].w_axis.truncate(), wb[k].w_axis.truncate(), 1e-4), "joint {j} frame {f}");
+                assert!(
+                    close(wa[j].w_axis.truncate(), wb[k].w_axis.truncate(), 1e-4),
+                    "joint {j} frame {f}"
+                );
             }
         }
         // And written again, the same file.
@@ -984,10 +1458,23 @@ mod tests {
         let mut sp = FileSpace::y_up_cm();
         sp.root_joints = vec![c.joints[0].name.clone()];
         let cm = Mat4::from_scale(Vec3::splat(100.0));
-        let tracks: Vec<Vec<Transform>> = c.tracks.iter().enumerate().map(|(j, tr)| tr.iter().map(|t| {
-            let m = t.compute_matrix();
-            Transform::from_matrix(if c.joints[j].parent.is_none() { m * cm.inverse() } else { cm * m * cm.inverse() })
-        }).collect()).collect();
+        let tracks: Vec<Vec<Transform>> = c
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(j, tr)| {
+                tr.iter()
+                    .map(|t| {
+                        let m = t.compute_matrix();
+                        Transform::from_matrix(if c.joints[j].parent.is_none() {
+                            m * cm.inverse()
+                        } else {
+                            cm * m * cm.inverse()
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
         c.tracks = std::sync::Arc::new(tracks);
         c.space = Some(std::sync::Arc::new(sp));
         let path = tmp("rootkind");
@@ -996,21 +1483,29 @@ mod tests {
         assert_eq!(r.nodes["Take01:Hips"].1, "Root");
         assert_eq!(r.nodes["Take01:Spine"].1, "LimbNode");
         let back = load_fbx(path.to_str().unwrap(), 0).unwrap().anim;
-        assert_eq!(back.space.as_ref().unwrap().root_joints, vec!["Take01:Hips".to_string()]);
+        assert_eq!(
+            back.space.as_ref().unwrap().root_joints,
+            vec!["Take01:Hips".to_string()]
+        );
     }
 
     /// A real take, read and written: every bone the same as in the source,
     /// names, parents, kinds, axes, unit and local values. Set
-    /// XMS_SAME_SKELETON to an FBX file to run it; XMS_SAME_SKELETON_RAGDOLL
-    /// to a collider mesh to put a ragdoll solve in between.
+    /// XMS_SAME_SKELETON to an FBX file to run it; XMS_SAME_SKELETON_RAGDOLL to
+    /// a collider mesh to put a ragdoll solve in between.
     #[test]
     #[ignore]
     fn real_take_has_the_same_skeleton() {
-        let Ok(src) = std::env::var("XMS_SAME_SKELETON") else { return };
+        let Ok(src) = std::env::var("XMS_SAME_SKELETON") else {
+            return;
+        };
         let clip = load_fbx(&src, 0).unwrap().anim;
         let fps = clip.rate.fps();
         let a = clip.start_frame + 3000.min(clip.frames as i64 - 1);
-        let trimmed = clip.trimmed(3000.min(clip.frames - 1), clip.frames.saturating_sub(3300).min(clip.frames - 1));
+        let trimmed = clip.trimmed(
+            3000.min(clip.frames - 1),
+            clip.frames.saturating_sub(3300).min(clip.frames - 1),
+        );
         let out = tmp("real_same");
         write_fbx(&out, &trimmed, true, false).unwrap();
         let frames: Vec<i64> = (a..a + 300).step_by(7).collect();
@@ -1020,7 +1515,10 @@ mod tests {
         let s = write_fbx(&with_mesh, &trimmed, true, true).unwrap();
         println!("with mesh: {} vertices", s.vertices);
         let r = raw(&with_mesh, &frames[..1], fps);
-        assert_eq!(r.nodes.len(), raw(std::path::Path::new(&src), &frames[..1], fps).nodes.len());
+        assert_eq!(
+            r.nodes.len(),
+            raw(std::path::Path::new(&src), &frames[..1], fps).nodes.len()
+        );
     }
 
     /// Euler angles give back the rotation they came from, near and at 90
@@ -1029,18 +1527,31 @@ mod tests {
     fn euler_angles_hold_near_gimbal_lock() {
         let back = |e: [f64; 3]| {
             let r = |a: f64| a.to_radians();
-            glam::DQuat::from_rotation_z(r(e[2])) * glam::DQuat::from_rotation_y(r(e[1])) * glam::DQuat::from_rotation_x(r(e[0]))
+            glam::DQuat::from_rotation_z(r(e[2]))
+                * glam::DQuat::from_rotation_y(r(e[1]))
+                * glam::DQuat::from_rotation_x(r(e[0]))
         };
         let mut seed = 7u64;
-        let mut rnd = move || { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0 };
+        let mut rnd = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+        };
         let mut worst = 0.0f64;
         for k in 0..4000 {
-            let y = match k % 4 { 0 => 90.0, 1 => -90.0, 2 => 89.7 + rnd() * 0.3, _ => rnd() * 180.0 };
+            let y = match k % 4 {
+                0 => 90.0,
+                1 => -90.0,
+                2 => 89.7 + rnd() * 0.3,
+                _ => rnd() * 180.0,
+            };
             let q = Quat::from_rotation_z((rnd() * 180.0).to_radians() as f32)
                 * Quat::from_rotation_y((y as f32).to_radians())
                 * Quat::from_rotation_x((rnd() * 180.0).to_radians() as f32);
             let e = euler_xyz(q);
-            let d = glam::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64).normalize().inverse() * back(e);
+            let d = glam::DQuat::from_xyzw(q.x as f64, q.y as f64, q.z as f64, q.w as f64)
+                .normalize()
+                .inverse()
+                * back(e);
             worst = worst.max((2.0 * d.xyz().length().min(1.0).asin()).to_degrees());
         }
         assert!(worst < 1e-3, "worst {worst} degrees");
@@ -1052,13 +1563,23 @@ mod tests {
     #[test]
     #[ignore]
     fn ragdoll_template_writes_the_source_skeleton() {
-        let Ok(src) = std::env::var("XMS_SAME_SKELETON") else { return };
+        let Ok(src) = std::env::var("XMS_SAME_SKELETON") else {
+            return;
+        };
         std::env::set_var("XMS_CACHE_DIR", std::env::temp_dir().join("xms_ragdoll_none"));
         let mut g = crate::node_graph::NodeGraphState::default();
         let mut subnets = crate::ice::IceGraphStore::default();
-        let t = crate::templates::TEMPLATES.iter().find(|t| t.name.starts_with("Body Collide")).unwrap();
+        let t = crate::templates::TEMPLATES
+            .iter()
+            .find(|t| t.name.starts_with("Body Collide"))
+            .unwrap();
         (t.build)(&mut g, &mut subnets);
-        let id = g.nodes.iter().find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. })).unwrap().id;
+        let id = g
+            .nodes
+            .iter()
+            .find(|n| matches!(n.node_type, crate::types::NodeType::Ragdoll { .. }))
+            .unwrap()
+            .id;
         let (take, _) = g.ragdoll_inputs(id);
         let take = take.unwrap();
         let solved = g.eval_anim(id).unwrap();

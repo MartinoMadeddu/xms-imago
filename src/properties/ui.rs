@@ -1,34 +1,37 @@
 //! The Properties pane: the parameters of the selected node.
 //!
 //! Every node is laid out the same way (see `form`): a first group with the
-//! node's type and name, then its parameters in titled groups of aligned
-//! rows, then what came in and what goes out. The same words mean the same
-//! thing everywhere: Translate, Rotate and Scale for every transform, Path
-//! for every file, In and Out for what passes through.
+//! node's type and name, then its parameters in titled groups of aligned rows,
+//! then what came in and what goes out. The same words mean the same thing
+//! everywhere: Translate, Rotate and Scale for every transform, Path for every
+//! file, In and Out for what passes through.
 
-use glam::Vec3;
-use std::sync::Arc;
-use crate::types::{BodyView, MergeMode, NodeId, NodeType, RetimeMode, SplitPick, node_type_icon, node_type_label};
-use crate::core::anim::{AnimData, FrameRate, PoseEdit, RATE_PRESETS};
-use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
 use crate::batch::{self, BatchState};
+use crate::core::anim::{AnimData, FrameRate, PoseEdit, RATE_PRESETS};
 use crate::core::manip::Tool;
-use crate::core::poly::{collapse_all, collapse_op, push_op, restore_run, ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection, SelSource, SubLevel};
-use glam::{EulerRot, Quat};
+use crate::core::poly::{
+    collapse_all, collapse_op, push_op, restore_run, ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection,
+    SelSource, SubLevel,
+};
+use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
+use crate::ice::ui::draw_subnet_node_properties;
+use crate::ice::{GraphNavigation, IceGraphStore};
 use crate::node_graph::NodeGraphState;
 use crate::scene_explorer::OperatorStack;
-use crate::ice::{IceGraphStore, GraphNavigation};
-use crate::ice::ui::draw_subnet_node_properties;
+use crate::types::{node_type_icon, node_type_label, BodyView, MergeMode, NodeId, NodeType, RetimeMode, SplitPick};
+use glam::Vec3;
+use glam::{EulerRot, Quat};
+use std::sync::Arc;
 
 use super::form::{self, group, group_with, ink, FieldExt, Rows, Status};
 
-/// Clips around the selected node and the playhead, so animation nodes can
-/// show what they receive and set parameters from the current frame.
+/// Clips around the selected node and the playhead, so animation nodes can show
+/// what they receive and set parameters from the current frame.
 pub struct AnimContext {
     /// Playhead on the timecode axis, seconds.
-    pub time:   f64,
+    pub time: f64,
     pub output: Option<Arc<AnimData>>,
-    pub input:  Option<Arc<AnimData>>,
+    pub input: Option<Arc<AnimData>>,
 }
 
 /// Things a node's parameters can ask the application to do.
@@ -37,35 +40,35 @@ pub enum PanelAction {
     Write { targets: Vec<NodeId>, all_files: bool },
     /// Run this Write USD node.
     WriteUsd(NodeId),
-    /// Run this Render Command: write the layer above it first if it says
-    /// so, then start its command lines.
+    /// Run this Render Command: write the layer above it first if it says so,
+    /// then start its command lines.
     RunCommand(NodeId),
 }
 
 /// Services the panel can reach beyond the graph.
 pub struct PanelIo<'a> {
     pub browser: &'a mut FileBrowser,
-    pub batch:   &'a BatchState,
-    pub action:  Option<PanelAction>,
+    pub batch: &'a BatchState,
+    pub action: Option<PanelAction>,
     /// Mesh entering the selected node, when it is an Edit Poly node.
     pub poly_input: Option<crate::modelling::InputMesh>,
     /// Viewport tool of the Edit Poly node.
     pub tool: &'a mut Tool,
     /// The rows selected in the Scene Explorer: what "+ Add Location" adds.
     pub scene_paths: Vec<String>,
-    /// Operators to add to the graph after the panel: a name and a type
-    /// (a MaterialX operator made from a stage's material).
+    /// Operators to add to the graph after the panel: a name and a type (a
+    /// MaterialX operator made from a stage's material).
     pub add: Vec<(String, NodeType)>,
 }
 
 pub fn draw_properties_panel(
-    ui:      &mut egui::Ui,
-    graph:   &mut NodeGraphState,
-    scene:   &OperatorStack,
+    ui: &mut egui::Ui,
+    graph: &mut NodeGraphState,
+    scene: &OperatorStack,
     subnets: &mut IceGraphStore,
-    nav:     &GraphNavigation,
-    anim:    &AnimContext,
-    io:      &mut PanelIo,
+    nav: &GraphNavigation,
+    anim: &AnimContext,
+    io: &mut PanelIo,
 ) {
     egui::Frame::NONE
         .fill(ink::PANEL_BG())
@@ -74,12 +77,23 @@ pub fn draw_properties_panel(
             if let Some(sid) = nav.current_subnet {
                 // Every prim on each reference input of the operator the
                 // ICE graph is in, from input 1: what Get Reference picks from.
-                let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
-                let references: Vec<Vec<String>> = graph.nodes.iter()
+                let pass =
+                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let references: Vec<Vec<String>> = graph
+                    .nodes
+                    .iter()
                     .find(|n| matches!(n.node_type, NodeType::Ice { id, .. } if id == sid))
-                    .map(|n| n.inputs.iter().skip(1).map(|i| i.connected_output
-                        .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
-                        .unwrap_or_default()).collect())
+                    .map(|n| {
+                        n.inputs
+                            .iter()
+                            .skip(1)
+                            .map(|i| {
+                                i.connected_output
+                                    .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
+                                    .unwrap_or_default()
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if let Some(sg) = subnets.get_mut(sid) {
                     draw_subnet_node_properties(ui, sg, &references, &io.scene_paths);
@@ -88,8 +102,14 @@ pub fn draw_properties_panel(
             }
             // A MaterialX graph open: the node selected in it.
             if let Some(op) = nav.materialx {
-                let found = graph.nodes.iter_mut().find(|n| n.id == op)
-                    .and_then(|n| match &mut n.node_type { NodeType::MaterialX { graph } => Some((n.name.clone(), graph)), _ => None });
+                let found = graph
+                    .nodes
+                    .iter_mut()
+                    .find(|n| n.id == op)
+                    .and_then(|n| match &mut n.node_type {
+                        NodeType::MaterialX { graph } => Some((n.name.clone(), graph)),
+                        _ => None,
+                    });
                 if let Some((name, g)) = found {
                     crate::materialx::params::inner(ui, op, &name, g, io);
                     return;
@@ -105,43 +125,115 @@ const FBX_EXTS: &[&str] = &["fbx"];
 fn fbx_contents(ui: &mut egui::Ui, info: &crate::fbx_loader::FbxInfo) {
     let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
     if !info.meshes.is_empty() {
-        group(ui, "Geometry", Some("Second output: one packed primitive per mesh node"), |f| {
-            for m in info.meshes.iter().take(12) {
-                let mut what = format!("{}, {}", plural(m.points, "point", "points"), plural(m.polygons, "polygon", "polygons"));
-                if m.skinned { what.push_str(", skinned"); }
-                if m.uv_sets > 0 { what.push_str(", UVs"); }
-                if !m.shapes.is_empty() { what.push_str(&format!(", {}", plural(m.shapes.len(), "blend shape", "blend shapes"))); }
-                f.value(m.path.rsplit('/').next().unwrap_or(&m.path), what);
-            }
-            if info.meshes.len() > 12 { f.value("", format!("and {} more", info.meshes.len() - 12)); }
-            if info.bones > 0 { f.value("Bind pose", if info.bind_pose { "in the file: Rest stands in it" } else { "not in the file: Rest is the first frame" }); }
-        });
+        group(
+            ui,
+            "Geometry",
+            Some("Second output: one packed primitive per mesh node"),
+            |f| {
+                for m in info.meshes.iter().take(12) {
+                    let mut what = format!(
+                        "{}, {}",
+                        plural(m.points, "point", "points"),
+                        plural(m.polygons, "polygon", "polygons")
+                    );
+                    if m.skinned {
+                        what.push_str(", skinned");
+                    }
+                    if m.uv_sets > 0 {
+                        what.push_str(", UVs");
+                    }
+                    if !m.shapes.is_empty() {
+                        what.push_str(&format!(", {}", plural(m.shapes.len(), "blend shape", "blend shapes")));
+                    }
+                    f.value(m.path.rsplit('/').next().unwrap_or(&m.path), what);
+                }
+                if info.meshes.len() > 12 {
+                    f.value("", format!("and {} more", info.meshes.len() - 12));
+                }
+                if info.bones > 0 {
+                    f.value(
+                        "Bind pose",
+                        if info.bind_pose {
+                            "in the file: Rest stands in it"
+                        } else {
+                            "not in the file: Rest is the first frame"
+                        },
+                    );
+                }
+            },
+        );
     }
     if !info.materials.is_empty() {
         group(ui, "Materials", None, |f| {
             for m in info.materials.iter().take(12) {
-                let tex = if m.textures.is_empty() { String::new() } else { format!(", {}", m.textures.iter().map(|(what, file)| format!("{what}: {}", file.rsplit(['/', '\\']).next().unwrap_or(file))).collect::<Vec<_>>().join(", ")) };
-                f.value(&m.name, format!("colour {:.2} {:.2} {:.2}{tex}", m.color[0], m.color[1], m.color[2]));
+                let tex = if m.textures.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ", {}",
+                        m.textures
+                            .iter()
+                            .map(|(what, file)| format!("{what}: {}", file.rsplit(['/', '\\']).next().unwrap_or(file)))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                f.value(
+                    &m.name,
+                    format!("colour {:.2} {:.2} {:.2}{tex}", m.color[0], m.color[1], m.color[2]),
+                );
             }
         });
     }
     if !info.cameras.is_empty() {
         group(ui, "Cameras", None, |f| {
             for c in &info.cameras {
-                let lens = if c.perspective { format!("{:.0} mm on {:.1} × {:.1} mm", c.focal_mm, c.film_mm[0], c.film_mm[1]) } else { "orthographic".into() };
-                f.value(&c.name, format!("{lens}, clip {:.2} to {:.0} m, at {:.2} {:.2} {:.2}{}", c.near, c.far, c.position.x, c.position.y, c.position.z, if c.animated { ", animated" } else { "" }));
+                let lens = if c.perspective {
+                    format!("{:.0} mm on {:.1} × {:.1} mm", c.focal_mm, c.film_mm[0], c.film_mm[1])
+                } else {
+                    "orthographic".into()
+                };
+                f.value(
+                    &c.name,
+                    format!(
+                        "{lens}, clip {:.2} to {:.0} m, at {:.2} {:.2} {:.2}{}",
+                        c.near,
+                        c.far,
+                        c.position.x,
+                        c.position.y,
+                        c.position.z,
+                        if c.animated { ", animated" } else { "" }
+                    ),
+                );
             }
         });
     }
     if !info.lights.is_empty() {
         group(ui, "Lights", None, |f| {
             for l in &info.lights {
-                f.value(&l.name, format!("{}, colour {:.2} {:.2} {:.2}, intensity {:.2}, at {:.2} {:.2} {:.2}", l.kind, l.color[0], l.color[1], l.color[2], l.intensity, l.position.x, l.position.y, l.position.z));
+                f.value(
+                    &l.name,
+                    format!(
+                        "{}, colour {:.2} {:.2} {:.2}, intensity {:.2}, at {:.2} {:.2} {:.2}",
+                        l.kind,
+                        l.color[0],
+                        l.color[1],
+                        l.color[2],
+                        l.intensity,
+                        l.position.x,
+                        l.position.y,
+                        l.position.z
+                    ),
+                );
             }
         });
     }
     if !info.not_read.is_empty() {
-        group(ui, "Not read in full", None, |f| { for n in &info.not_read { f.status(Status::Info, n.clone()); } });
+        group(ui, "Not read in full", None, |f| {
+            for n in &info.not_read {
+                f.status(Status::Info, n.clone());
+            }
+        });
     }
 }
 
@@ -150,32 +242,59 @@ fn limits_group(ui: &mut egui::Ui, limits: &mut crate::core::human_ik::Limits, h
     group(ui, "Human limits", Some(hint), |f| {
         f.toggle("On", None, &mut limits.on);
         f.enabled(limits.on, |f| {
-            f.slider("Swivel", Some("Furthest an elbow or a knee may point away from where it points in the reference"), &mut limits.swivel, 0.0..=90.0, "°");
-            f.slider("Wrist and ankle", Some("Furthest a hand or a foot may turn away from the reference"), &mut limits.give, 0.0..=90.0, "°");
+            f.slider(
+                "Swivel",
+                Some("Furthest an elbow or a knee may point away from where it points in the reference"),
+                &mut limits.swivel,
+                0.0..=90.0,
+                "°",
+            );
+            f.slider(
+                "Wrist and ankle",
+                Some("Furthest a hand or a foot may turn away from the reference"),
+                &mut limits.give,
+                0.0..=90.0,
+                "°",
+            );
         });
     });
 }
 
 /// What a Reach or Human Limits node did.
 fn reach_report(ui: &mut egui::Ui, anim: &AnimContext, reach: bool) {
-    let Some(r) = anim.output.as_ref().and_then(crate::core::reach::report_for) else { return };
+    let Some(r) = anim.output.as_ref().and_then(crate::core::reach::report_for) else {
+        return;
+    };
     group(ui, "Result", None, |f| {
         if reach {
             f.value("Limbs", format!("{}", r.limbs));
-            f.value("Furthest from the goal", format!("{:.1} cm before, {:.1} cm after", r.miss_before * 100.0, r.miss_after * 100.0));
+            f.value(
+                "Furthest from the goal",
+                format!(
+                    "{:.1} cm before, {:.1} cm after",
+                    r.miss_before * 100.0,
+                    r.miss_after * 100.0
+                ),
+            );
         }
         let h = r.human;
-        f.value("Bent the wrong way", format!("{} frames before, {} after", h.flips_before, h.flips_after));
-        f.value("Wrist or ankle past its range", format!("{} frames before, {} after", h.ends_before, h.ends_after));
+        f.value(
+            "Bent the wrong way",
+            format!("{} frames before, {} after", h.flips_before, h.flips_after),
+        );
+        f.value(
+            "Wrist or ankle past its range",
+            format!("{} frames before, {} after", h.ends_before, h.ends_after),
+        );
     });
 }
 
 pub fn draw_properties(
-    ui:     &mut egui::Ui,
-    graph:  &mut NodeGraphState,
-    _scene:   &OperatorStack,
-    anim:   &AnimContext,
-    io:     &mut PanelIo,
+    ui: &mut egui::Ui,
+    graph: &mut NodeGraphState,
+    _scene: &OperatorStack,
+    anim: &AnimContext,
+    io: &mut PanelIo,
 ) {
     let Some(sel_id) = graph.selected_node else {
         ui.colored_label(ink::DIM(), "Select a node to see its parameters.");
@@ -186,47 +305,93 @@ pub fn draw_properties(
     let _operator = graph.operator(sel_id);
     let from_above = graph.from_above(sel_id);
     // The same, for the panel: name, value, the operator it is from.
-    let named = |a: &crate::node_graph::from_above::FromAbove| (
-        a.name.clone(), a.value.clone(), graph.nodes.iter().find(|n| n.id == a.from).map(|n| n.name.clone()).unwrap_or_default(),
-    );
+    let named = |a: &crate::node_graph::from_above::FromAbove| {
+        (
+            a.name.clone(),
+            a.value.clone(),
+            graph
+                .nodes
+                .iter()
+                .find(|n| n.id == a.from)
+                .map(|n| n.name.clone())
+                .unwrap_or_default(),
+        )
+    };
     let above_rows: Vec<(String, String, String)> = from_above.iter().map(named).collect();
     // What it publishes itself, for those below.
-    let own_rows: Vec<(String, String, String)> = graph.going_out(sel_id).iter().filter(|a| a.from == sel_id).map(named).collect();
+    let own_rows: Vec<(String, String, String)> = graph
+        .going_out(sel_id)
+        .iter()
+        .filter(|a| a.from == sel_id)
+        .map(named)
+        .collect();
 
     // Facts about the graph the parameter widgets need, gathered before the
     // node is borrowed for editing.
-    let all_writers  = batch::write_nodes(graph);
-    let batch_files  = batch::file_count(graph, &batch::upstream_folder_loaders(graph, &[sel_id]));
-    let mut resync   = false;
+    let all_writers = batch::write_nodes(graph);
+    let batch_files = batch::file_count(graph, &batch::upstream_folder_loaders(graph, &[sel_id]));
+    let mut resync = false;
     // Tabs: Parameters; Prims Location, for operators that work on
     // primitives (which they work on); Graph Variables, for every operator
     // (the `{name}` that come down the wires to it).
-    let takes = graph.nodes.iter().find(|n| n.id == sel_id).is_some_and(|n| crate::core::locations::takes_locations(&n.node_type));
+    let takes = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == sel_id)
+        .is_some_and(|n| crate::core::locations::takes_locations(&n.node_type));
     let tab_id = egui::Id::new(("parameters_tab_shown", sel_id.0));
     let mut tab = ui.data(|d| d.get_temp::<Tab>(tab_id)).unwrap_or(Tab::Parameters);
-    if tab == Tab::Locations && !takes { tab = Tab::Parameters; }
+    if tab == Tab::Locations && !takes {
+        tab = Tab::Parameters;
+    }
     let on_locations = tab == Tab::Locations;
     // Packed primitives coming into the node: their paths, and which are picked.
     // Asked only for the nodes that list them: it cooks what is upstream.
-    let packed_in: Vec<(String, bool)> = graph.nodes.iter().find(|n| n.id == sel_id)
-        .filter(|n| on_locations || matches!(n.node_type, NodeType::PickPrims { .. } | NodeType::PrunePrims { .. } | NodeType::UnpackPrims | NodeType::SetAttribute { .. }))
-        .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
+    let packed_in: Vec<(String, bool)> = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == sel_id)
+        .filter(|n| {
+            on_locations
+                || matches!(
+                    n.node_type,
+                    NodeType::PickPrims { .. }
+                        | NodeType::PrunePrims { .. }
+                        | NodeType::UnpackPrims
+                        | NodeType::SetAttribute { .. }
+                )
+        })
+        .and_then(|n| n.inputs.first())
+        .and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
             let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
             graph.eval_packed(src, out, &pass)
-        }).unwrap_or_default();
+        })
+        .unwrap_or_default();
     let prim_paths: Vec<String> = packed_in.iter().map(|p| p.0.clone()).collect();
     // An operator whose locations name prims (Set Attribute) can name any
     // prim of the scene coming in: groups, cameras and lights too.
-    let names = graph.nodes.iter().find(|n| n.id == sel_id).is_some_and(|n| crate::core::locations::names_prims(&n.node_type));
+    let names = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == sel_id)
+        .is_some_and(|n| crate::core::locations::names_prims(&n.node_type));
     let scene_in: Vec<String> = if on_locations && names {
-        graph.nodes.iter().find(|n| n.id == sel_id)
-            .and_then(|n| n.inputs.first()).and_then(|i| i.connected_output)
+        graph
+            .nodes
+            .iter()
+            .find(|n| n.id == sel_id)
+            .and_then(|n| n.inputs.first())
+            .and_then(|i| i.connected_output)
             .and_then(|(src, out)| {
-                let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let pass =
+                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
                 graph.eval_scene_paths(src, out, &pass)
-            }).unwrap_or_default()
-    } else { vec![] };
+            })
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
     // What reaches a Material Binding: the material on each input, and the
     // materials of the scene coming in.
     let (binding_ports, scene_materials) = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
@@ -236,7 +401,10 @@ pub fn draw_properties(
         }
         _ => (vec![], vec![]),
     };
-    let port_names: Vec<Option<String>> = binding_ports.iter().map(|m| m.as_ref().map(|m| m.name.clone())).collect();
+    let port_names: Vec<Option<String>> = binding_ports
+        .iter()
+        .map(|m| m.as_ref().map(|m| m.name.clone()))
+        .collect();
     // What reaches a render operator: the scene's cameras, products and
     // RenderSettings prim.
     let render_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
@@ -251,7 +419,10 @@ pub fn draw_properties(
     let command_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommand { .. }) => super::render::CommandIn {
             // `{usd}` as it comes down the wires, and who gave it.
-            writer: above_rows.iter().find(|a| a.0 == "usd").map(|a| (a.2.clone(), a.1.clone())),
+            writer: above_rows
+                .iter()
+                .find(|a| a.0 == "usd")
+                .map(|a| (a.2.clone(), a.1.clone())),
             scene: (graph.scene.start, graph.scene.end),
         },
         _ => Default::default(),
@@ -266,52 +437,117 @@ pub fn draw_properties(
     // Animation lands.
     let time_info: Vec<(String, String)> = match graph.nodes.iter().find(|n| n.id == sel_id) {
         Some(n) if matches!(n.node_type, NodeType::LocalAnimation { .. }) => {
-            let src = n.inputs.first().and_then(|i| i.connected_output).and_then(|(s, _)| graph.nodes.iter().find(|x| x.id == s));
+            let src = n
+                .inputs
+                .first()
+                .and_then(|i| i.connected_output)
+                .and_then(|(s, _)| graph.nodes.iter().find(|x| x.id == s));
             let keyed = n.channels.len();
             let local = graph.node_frame(n);
             vec![
-                ("Keys".into(), match src {
-                    Some(x) => format!("{} ({}): {keyed} number{} keyed", x.name, crate::types::node_type_label(&x.node_type), if keyed == 1 { "" } else { "s" }),
-                    None => "Wire an operator into it: its parameters are keyed here".into(),
-                }),
+                (
+                    "Keys".into(),
+                    match src {
+                        Some(x) => format!(
+                            "{} ({}): {keyed} number{} keyed",
+                            x.name,
+                            crate::types::node_type_label(&x.node_type),
+                            if keyed == 1 { "" } else { "s" }
+                        ),
+                        None => "Wire an operator into it: its parameters are keyed here".into(),
+                    },
+                ),
                 ("Local frame".into(), format!("{local}")),
             ]
         }
-        Some(n) if matches!(n.node_type, NodeType::MergeAnimation { .. }) => {
-            graph.merge_shifts(n).iter().enumerate().filter_map(|(k, (w, r, s))| {
+        Some(n) if matches!(n.node_type, NodeType::MergeAnimation { .. }) => graph
+            .merge_shifts(n)
+            .iter()
+            .enumerate()
+            .filter_map(|(k, (w, r, s))| {
                 let (src, _) = (*w)?;
-                let name = graph.nodes.iter().find(|x| x.id == src).map(|x| x.name.clone()).unwrap_or_default();
-                let port = if k < 26 { ((b'A' + k as u8) as char).to_string() } else { (k + 1).to_string() };
-                Some((port, match r {
-                    Some(r) => { let p = s.place(*r); format!("{name}: frames {:.0} to {:.0}, on {:.0} to {:.0}", r.0, r.1, p.0, p.1) }
-                    None => format!("{name}: not in time"),
-                }))
-            }).collect()
-        }
+                let name = graph
+                    .nodes
+                    .iter()
+                    .find(|x| x.id == src)
+                    .map(|x| x.name.clone())
+                    .unwrap_or_default();
+                let port = if k < 26 {
+                    ((b'A' + k as u8) as char).to_string()
+                } else {
+                    (k + 1).to_string()
+                };
+                Some((
+                    port,
+                    match r {
+                        Some(r) => {
+                            let p = s.place(*r);
+                            format!("{name}: frames {:.0} to {:.0}, on {:.0} to {:.0}", r.0, r.1, p.0, p.1)
+                        }
+                        None => format!("{name}: not in time"),
+                    },
+                ))
+            })
+            .collect(),
         _ => vec![],
     };
     let range_now = graph.time_range(sel_id);
 
-    let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sel_id) else { return };
+    let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sel_id) else {
+        return;
+    };
 
-    // ── The node itself ──────────────────────────────────────────────────────
-    let title = format!("{}  {}", node_type_icon(&node.node_type), node_type_label(&node.node_type));
+    // The node itself
+    let title = format!(
+        "{}  {}",
+        node_type_icon(&node.node_type),
+        node_type_label(&node.node_type)
+    );
     group(ui, &title, None, |f| {
-        f.text("Name", Some("The operator's name in the graph: one word, a space typed becomes an underscore"), &mut node.name, "");
+        f.text(
+            "Name",
+            Some("The operator's name in the graph: one word, a space typed becomes an underscore"),
+            &mut node.name,
+            "",
+        );
     });
-    if node.name.chars().any(char::is_whitespace) { node.name = crate::node_graph::node_name(&node.name); }
+    if node.name.chars().any(char::is_whitespace) {
+        node.name = crate::node_graph::node_name(&node.name);
+    }
 
     {
         // Parameters, Prims Location for those that take it, Graph Variables.
         let set = crate::core::locations::rows(&node.locations).count();
         // Material Binding's rows are its bindings: a location and a material each.
-        let tab_name = if matches!(node.node_type, NodeType::MaterialBinding { .. }) { "Bindings" } else { "Prims Location" };
-        let located_label = if set == 0 { tab_name.to_string() } else { format!("{tab_name} ({set})") };
+        let tab_name = if matches!(node.node_type, NodeType::MaterialBinding { .. }) {
+            "Bindings"
+        } else {
+            "Prims Location"
+        };
+        let located_label = if set == 0 {
+            tab_name.to_string()
+        } else {
+            format!("{tab_name} ({set})")
+        };
         let n = above_rows.len();
-        let vars_label = if n == 0 { "Graph Variables".to_string() } else { format!("Graph Variables ({n})") };
+        let vars_label = if n == 0 {
+            "Graph Variables".to_string()
+        } else {
+            format!("Graph Variables ({n})")
+        };
         let mut shown: Vec<(Tab, &str, Option<&str>)> = vec![(Tab::Parameters, "Parameters", None)];
-        if takes { shown.push((Tab::Locations, located_label.as_str(), Some("The primitives this operator works on. Drop prims from the Scene Explorer here"))); }
-        shown.push((Tab::Variables, vars_label.as_str(), Some("The {name} variables that come down the wires to this operator, read in its fields")));
+        if takes {
+            shown.push((
+                Tab::Locations,
+                located_label.as_str(),
+                Some("The primitives this operator works on. Drop prims from the Scene Explorer here"),
+            ));
+        }
+        shown.push((
+            Tab::Variables,
+            vars_label.as_str(),
+            Some("The {name} variables that come down the wires to this operator, read in its fields"),
+        ));
         let labels: Vec<(&str, Option<&str>)> = shown.iter().map(|(_, l, h)| (*l, *h)).collect();
         let mut open = shown.iter().position(|(t, _, _)| *t == tab).unwrap_or(0);
         let responses = form::tabs(ui, ("parameters", sel_id.0), &labels, &mut open);
@@ -319,7 +555,9 @@ pub fn draw_properties(
         // A prim dragged from the Scene Explorer and dropped on the tab.
         if let Some(k) = shown.iter().position(|(t, _, _)| *t == Tab::Locations) {
             if let Some(p) = responses[k].dnd_release_payload::<crate::types::DraggedPrims>() {
-                for path in &p.0 { add_location(&mut node.locations, path); }
+                for path in &p.0 {
+                    add_location(&mut node.locations, path);
+                }
                 tab = Tab::Locations;
             }
         }
@@ -339,7 +577,11 @@ pub fn draw_properties(
             };
             let paths = if names { &scene_in } else { &prim_paths };
             let binds = match &mut node.node_type {
-                NodeType::MaterialBinding { bindings, .. } => Some(BindColumn { to: bindings, inputs: &port_names, scene: &scene_materials }),
+                NodeType::MaterialBinding { bindings, .. } => Some(BindColumn {
+                    to: bindings,
+                    inputs: &port_names,
+                    scene: &scene_materials,
+                }),
                 _ => None,
             };
             locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind, binds);
@@ -349,7 +591,7 @@ pub fn draw_properties(
     let located = crate::core::locations::is_set(&node.locations);
 
     match &mut node.node_type {
-        // ── Create ───────────────────────────────────────────────────────────
+        // Create
         NodeType::CreateCube { size, location } => {
             location_group(ui, location, "/cube");
             group(ui, "Shape", None, |f| { f.slider("Size", None, size, 0.1..=5.0, " m"); });
@@ -376,7 +618,7 @@ pub fn draw_properties(
             rate_row(f, fps_num, fps_den);
         }),
 
-        // ── Files ────────────────────────────────────────────────────────────
+        // Files
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
@@ -492,7 +734,7 @@ pub fn draw_properties(
             batch_log(ui, io.batch);
         }
 
-        // ── Modify ───────────────────────────────────────────────────────────
+        // Modify
         NodeType::Transform { translation, rotation, scale } => {
             let clip = anim.input.is_some();
             let mut reset = false;
@@ -546,7 +788,7 @@ pub fn draw_properties(
         }),
         NodeType::Ice { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
 
-        // ── Primitives ───────────────────────────────────────────────────────
+        // Primitives
         NodeType::PickPrims { pattern } => group(ui, "Pick", Some("The nodes after this one work on the picked primitives only and pass the others through: Edit Poly, Transform and the UV nodes all do"), |f| {
             pattern_rows(f, "pick_prims", "Paths", pattern, &prim_paths, false);
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
@@ -569,7 +811,7 @@ pub fn draw_properties(
         NodeType::MaterialBinding { library, inputs, .. } => {
             resync |= binding_rows(ui, library, inputs, &binding_ports, crate::core::locations::rows(&node.locations).count());
         }
-        // ── Render ───────────────────────────────────────────────────────────
+        // Render
         NodeType::RenderCommons { scene } => super::render::scene_settings_rows(ui, scene, &render_in),
         NodeType::RenderSettings { renderer } => super::render::renderer_rows(ui, renderer, &render_in, sel_id),
         NodeType::RenderVariables { vars } => super::render::variables_rows(ui, vars, &render_in),
@@ -579,7 +821,7 @@ pub fn draw_properties(
             f.value("Out", "One mesh");
         }),
 
-        // ── UV ───────────────────────────────────────────────────────────────
+        // UV
         NodeType::UvUnwrap { method, angle, margin, axis, tiles } => {
             use crate::core::uv::UvMethod;
             group(ui, "Unwrap", Some("The UV Editor pane shows the layout"), |f| {
@@ -625,7 +867,7 @@ pub fn draw_properties(
             if let Some(i) = remove { edits.remove(i); }
         }
 
-        // ── Animation ────────────────────────────────────────────────────────
+        // Animation
         NodeType::RenameJoints { find, replace, strip_namespace, prefix } => {
             let names: Vec<String> = anim.input.as_ref().map(|c| c.joints.iter().map(|j| j.name.clone()).collect()).unwrap_or_default();
             group(ui, "Rename", Some("Find is a regular expression, case ignored. Replace may use $1, $2 for its groups"), |f| {
@@ -748,7 +990,7 @@ pub fn draw_properties(
             f.status(Status::Info, "Open the graph again to bring this node up to date");
         }),
 
-        // ── Mocap ────────────────────────────────────────────────────────────
+        // Mocap
         NodeType::SplitSkeleton { picks } => {
             let input = anim.input.clone();
             let chars: Vec<(usize, String)> = input.as_ref()
@@ -932,22 +1174,24 @@ pub fn draw_properties(
         NodeType::Characterize { picks } => characterize(ui, picks, &anim.input),
         NodeType::Ragdoll { settings, view, limits } => body_collide(ui, settings, view, limits, &collide_in),
 
-        // ── Modelling ────────────────────────────────────────────────────────
+        // Modelling
         NodeType::EditPoly { ops, pending, edit, auto_collapse } => edit_poly(ui, ops, pending, edit, auto_collapse, io),
 
-        // ── Organise ─────────────────────────────────────────────────────────
+        // Organise
         NodeType::PassThrough => group(ui, "Pass Through", Some("Hands what comes in on to what follows, unchanged: for laying out a big graph. Rename it to say what passes through it"), |f| {
             f.status(Status::Info, "Nothing to set: what comes in goes out");
         }),
         NodeType::SetVariable { vars } => set_variable_rows(ui, vars),
     }
-    if resync { graph.sync_sockets(sel_id); }
+    if resync {
+        graph.sync_sockets(sel_id);
+    }
 }
 
-// ── Variables down the wires ─────────────────────────────────────────────────
+// Variables down the wires
 
-/// Set Variable: its rows, a name and a value each, for every operator
-/// below it as `{name}`.
+/// Set Variable: its rows, a name and a value each, for every operator below it
+/// as `{name}`.
 fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variable>) {
     group(ui, "Variables", Some("Written {name} in the fields of every operator below this one, along the wires: the nearest wins. A value can hold variables: $ built-ins, the rows before it, and {name} from above"), |f| {
         let mut remove = None;
@@ -991,18 +1235,28 @@ fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variab
 
 /// The panel's tabs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Tab { Parameters, Locations, Variables }
+enum Tab {
+    Parameters,
+    Locations,
+    Variables,
+}
 
 /// The Graph Variables tab: the `{name}` that come down the wires to the
-/// operator shown (name, value, the operator it is from), nearest first;
-/// then those it gives the operators below. Empty: nothing.
+/// operator shown (name, value, the operator it is from), nearest first; then
+/// those it gives the operators below. Empty: nothing.
 fn graph_variables_tab(ui: &mut egui::Ui, above: &[(String, String, String)], own: &[(String, String, String)]) {
     let rows = |f: &mut Rows, list: &[(String, String, String)]| {
         for (name, value, from) in list {
-            let shown = if value.is_empty() { "(empty)".to_string() } else { value.clone() };
+            let shown = if value.is_empty() {
+                "(empty)".to_string()
+            } else {
+                value.clone()
+            };
             let hint = format!("From {from}");
             f.row(&format!("{{{name}}}"), Some(hint.as_str()), |ui| {
-                ui.add(egui::Label::new(egui::RichText::new(format!("{shown}   ← {from}")).color(ink::VALUE())).truncate());
+                ui.add(
+                    egui::Label::new(egui::RichText::new(format!("{shown}   ← {from}")).color(ink::VALUE())).truncate(),
+                );
             });
         }
     };
@@ -1010,11 +1264,16 @@ fn graph_variables_tab(ui: &mut egui::Ui, above: &[(String, String, String)], ow
         group(ui, "From Above", Some("Variables the operators above publish, read as {name} in this operator's fields: Write USD's {usd}, Render Settings' {delegate}, a Set Variable's own. The nearest wins"), |f| rows(f, above));
     }
     if !own.is_empty() {
-        group(ui, "Given Below", Some("What this operator publishes for every operator below it, over any of the same name from above"), |f| rows(f, own));
+        group(
+            ui,
+            "Given Below",
+            Some("What this operator publishes for every operator below it, over any of the same name from above"),
+            |f| rows(f, own),
+        );
     }
 }
 
-// ── Characterize ──────────────────────────────────────────────────────────────
+// Characterize
 
 fn characterize(ui: &mut egui::Ui, picks: &mut crate::core::human::Picks, input: &Option<Arc<AnimData>>) {
     use crate::core::human::{Human, Slot};
@@ -1032,16 +1291,36 @@ fn characterize(ui: &mut egui::Ui, picks: &mut crate::core::human::Picks, input:
         if h.usable() { f.status(Status::Ok, "Body Collide and Retarget can use it"); }
         else { f.status(Status::Bad, "Hips and at least one arm or leg are needed"); }
     });
-    if clear { picks.clear(); }
-    let bones: Vec<&str> = clip.joints.iter().filter(|j| j.is_bone).map(|j| j.name.as_str()).collect();
+    if clear {
+        picks.clear();
+    }
+    let bones: Vec<&str> = clip
+        .joints
+        .iter()
+        .filter(|j| j.is_bone)
+        .map(|j| j.name.as_str())
+        .collect();
     let name = |j: Option<usize>| j.map(|j| clip.joints[j].name.clone());
     let chain = |v: &[usize]| match v {
         [] => "None".to_string(),
         [a] => clip.joints[*a].name.clone(),
         [a, .., b] => format!("{} to {} ({})", clip.joints[*a].name, clip.joints[*b].name, v.len()),
     };
-    let twists = |v: &[crate::core::human::Twist]| if v.is_empty() { "None".to_string() } else {
-        v.iter().map(|t| format!("{} ({})", clip.joints[t.joint].name, if t.in_line { "in line" } else { "beside" })).collect::<Vec<_>>().join(", ")
+    let twists = |v: &[crate::core::human::Twist]| {
+        if v.is_empty() {
+            "None".to_string()
+        } else {
+            v.iter()
+                .map(|t| {
+                    format!(
+                        "{} ({})",
+                        clip.joints[t.joint].name,
+                        if t.in_line { "in line" } else { "beside" }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
     };
     let mut set: Option<(Slot, Option<String>)> = None;
     let mut slot_row = |f: &mut Rows, s: Slot| {
@@ -1054,14 +1333,24 @@ fn characterize(ui: &mut egui::Ui, picks: &mut crate::core::human::Picks, input:
         let id = f.ui.id().with(("slot", s));
         f.row(s.label(), None, |ui| {
             let text = egui::RichText::new(&shown).color(if picked.is_some() { ink::VALUE() } else { ink::DIM() });
-            egui::ComboBox::from_id_salt(id).width(ui.available_width() - 8.0).selected_text(text).height(320.0).show_ui(ui, |ui| {
-                if ui.selectable_label(picked.is_none(), "Auto, from the names").clicked() { set = Some((s, None)); }
-                if ui.selectable_label(picked.as_deref() == Some(""), "None").clicked() { set = Some((s, Some(String::new()))); }
-                ui.separator();
-                for b in &bones {
-                    if ui.selectable_label(picked.as_deref() == Some(*b), *b).clicked() { set = Some((s, Some(b.to_string()))); }
-                }
-            });
+            egui::ComboBox::from_id_salt(id)
+                .width(ui.available_width() - 8.0)
+                .selected_text(text)
+                .height(320.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(picked.is_none(), "Auto, from the names").clicked() {
+                        set = Some((s, None));
+                    }
+                    if ui.selectable_label(picked.as_deref() == Some(""), "None").clicked() {
+                        set = Some((s, Some(String::new())));
+                    }
+                    ui.separator();
+                    for b in &bones {
+                        if ui.selectable_label(picked.as_deref() == Some(*b), *b).clicked() {
+                            set = Some((s, Some(b.to_string())));
+                        }
+                    }
+                });
         });
     };
     group(ui, "Trunk", None, |f| {
@@ -1074,25 +1363,51 @@ fn characterize(ui: &mut egui::Ui, picks: &mut crate::core::human::Picks, input:
     });
     for (k, title) in ["Left arm", "Right arm", "Left leg", "Right leg"].iter().enumerate() {
         let limb = &h.limbs[k];
-        let side = if limb.left { crate::core::human::Side::Left } else { crate::core::human::Side::Right };
+        let side = if limb.left {
+            crate::core::human::Side::Left
+        } else {
+            crate::core::human::Side::Right
+        };
         use crate::core::human::Part;
-        let parts: &[Part] = if limb.arm { &[Part::Clavicle, Part::UpperArm, Part::LowerArm, Part::Hand] } else { &[Part::Thigh, Part::Calf, Part::Foot, Part::Toe] };
-        group(ui, title, Some("Twist joints are found by name: in line, between two main joints, or beside the limb"), |f| {
-            for p in parts { slot_row(f, Slot::of(*p, side).unwrap()); }
-            f.value(if limb.arm { "Arm twist" } else { "Thigh twist" }, twists(&limb.upper_twist));
-            f.value(if limb.arm { "Forearm twist" } else { "Calf twist" }, twists(&limb.mid_twist));
-        });
+        let parts: &[Part] = if limb.arm {
+            &[Part::Clavicle, Part::UpperArm, Part::LowerArm, Part::Hand]
+        } else {
+            &[Part::Thigh, Part::Calf, Part::Foot, Part::Toe]
+        };
+        group(
+            ui,
+            title,
+            Some("Twist joints are found by name: in line, between two main joints, or beside the limb"),
+            |f| {
+                for p in parts {
+                    slot_row(f, Slot::of(*p, side).unwrap());
+                }
+                f.value(
+                    if limb.arm { "Arm twist" } else { "Thigh twist" },
+                    twists(&limb.upper_twist),
+                );
+                f.value(
+                    if limb.arm { "Forearm twist" } else { "Calf twist" },
+                    twists(&limb.mid_twist),
+                );
+            },
+        );
     }
     if let Some((s, v)) = set {
         picks.retain(|p| p.0 != s);
-        if let Some(v) = v { picks.push((s, v)); }
+        if let Some(v) = v {
+            picks.push((s, v));
+        }
     }
 }
 
-// ── Body Collide ──────────────────────────────────────────────────────────────
+// Body Collide
 
 fn body_collide(
-    ui: &mut egui::Ui, settings: &mut crate::ragdoll::Settings, view: &mut BodyView, limits: &mut crate::core::human_ik::Limits,
+    ui: &mut egui::Ui,
+    settings: &mut crate::ragdoll::Settings,
+    view: &mut BodyView,
+    limits: &mut crate::core::human_ik::Limits,
     inputs: &(Option<Arc<AnimData>>, Option<Arc<crate::types::MeshData>>),
 ) {
     let (clip, collider) = inputs;
@@ -1112,29 +1427,79 @@ fn body_collide(
             None => f.value("Collider", "None: the character collides with itself only"),
         }
     });
-    group(ui, "Display", Some("What the Viewer draws of the character. The node puts out the clip with its skin either way"), |f| {
-        f.choice("Show", Some("Pieces: the skin cut into one rigid piece per body. Hulls: the shapes the solver collides"),
-            view, &[(BodyView::Skin, "Skin"), (BodyView::Pieces, "Pieces"), (BodyView::Hulls, "Hulls")]);
-    });
+    group(
+        ui,
+        "Display",
+        Some("What the Viewer draws of the character. The node puts out the clip with its skin either way"),
+        |f| {
+            f.choice(
+                "Show",
+                Some("Pieces: the skin cut into one rigid piece per body. Hulls: the shapes the solver collides"),
+                view,
+                &[
+                    (BodyView::Skin, "Skin"),
+                    (BodyView::Pieces, "Pieces"),
+                    (BodyView::Hulls, "Hulls"),
+                ],
+            );
+        },
+    );
     group(ui, "Contact", None, |f| {
-        f.slider("Margin", Some("Soft margin kept between the character and a surface"), &mut settings.margin, 0.0..=5.0, " cm");
+        f.slider(
+            "Margin",
+            Some("Soft margin kept between the character and a surface"),
+            &mut settings.margin,
+            0.0..=5.0,
+            " cm",
+        );
         f.slider("Friction", None, &mut settings.friction, 0.0..=2.0, "");
-        f.slider("Release speed", Some("How fast a limb may be pushed out of a surface"), &mut settings.release, 5.0..=300.0, " cm/s");
-        f.toggle("Self collision", Some("Keep the character out of itself"), &mut settings.self_collision);
+        f.slider(
+            "Release speed",
+            Some("How fast a limb may be pushed out of a surface"),
+            &mut settings.release,
+            5.0..=300.0,
+            " cm/s",
+        );
+        f.toggle(
+            "Self collision",
+            Some("Keep the character out of itself"),
+            &mut settings.self_collision,
+        );
         f.row("Self overlap", Some("How far its parts may overlap"), |ui| {
             ui.add_enabled_ui(settings.self_collision, |ui| {
                 form::slider_look(ui);
                 ui.add(egui::Slider::new(&mut settings.self_slack, 0.0..=10.0).suffix(" cm"));
             });
         });
-        f.choice("Hull detail", Some("How closely the convex hulls follow the skin. Also what Display: Hulls shows"),
-            &mut settings.detail, &[(0, "Coarse"), (1, "Medium"), (2, "Fine")]);
+        f.choice(
+            "Hull detail",
+            Some("How closely the convex hulls follow the skin. Also what Display: Hulls shows"),
+            &mut settings.detail,
+            &[(0, "Coarse"), (1, "Medium"), (2, "Fine")],
+        );
     });
-    group(ui, "Capture", Some("How closely the character follows the capture"), |f| {
-        f.slider("Stiffness", None, &mut settings.stiffness, 0.25..=3.0, "");
-        f.slider("Limb release", Some("A limb further than this from the capture is let go"), &mut settings.limb_limit, 5.0..=100.0, " cm");
-        f.slider_u32("Smoothing", Some("Frames on each side over which the result is evened out"), &mut settings.smooth, 0..=8, "");
-    });
+    group(
+        ui,
+        "Capture",
+        Some("How closely the character follows the capture"),
+        |f| {
+            f.slider("Stiffness", None, &mut settings.stiffness, 0.25..=3.0, "");
+            f.slider(
+                "Limb release",
+                Some("A limb further than this from the capture is let go"),
+                &mut settings.limb_limit,
+                5.0..=100.0,
+                " cm",
+            );
+            f.slider_u32(
+                "Smoothing",
+                Some("Frames on each side over which the result is evened out"),
+                &mut settings.smooth,
+                0..=8,
+                "",
+            );
+        },
+    );
     group(ui, "Trunk", Some("Hips and spine sunk in a seat are lifted onto it, up to Max lift. Deeper than that, they are lifted that far and left in by the rest"), |f| {
         f.slider("Max lift", None, &mut settings.ghost_depth, 1.0..=40.0, " cm");
         f.slider("Rest depth", Some("How far the trunk may rest in a surface"), &mut settings.sink, 0.0..=15.0, " cm");
@@ -1160,28 +1525,51 @@ fn body_collide(
         }
     });
     group(ui, "Solve", None, |f| {
-        let Some(c) = clip else { f.status(Status::Info, "Nothing to solve"); return };
+        let Some(c) = clip else {
+            f.status(Status::Info, "Nothing to solve");
+            return;
+        };
         let key = crate::ragdoll::key(c, collider.as_ref(), settings);
-        let job = crate::ragdoll::job(key).or_else(|| { crate::ragdoll::solved(key); crate::ragdoll::job(key) });
+        let job = crate::ragdoll::job(key).or_else(|| {
+            crate::ragdoll::solved(key);
+            crate::ragdoll::job(key)
+        });
         let start = |c: &Arc<AnimData>| crate::ragdoll::start(c.clone(), collider.clone(), *settings);
         let Some(job) = job else {
-            f.status(Status::Info, "Not solved for these inputs and settings: the clip passes through as it came");
-            if f.buttons("", None, |ui| ui.button("Solve").clicked()) { start(c); }
+            f.status(
+                Status::Info,
+                "Not solved for these inputs and settings: the clip passes through as it came",
+            );
+            if f.buttons("", None, |ui| ui.button("Solve").clicked()) {
+                start(c);
+            }
             return;
         };
         let notes = job.notes.lock().unwrap().clone();
-        if !notes.is_empty() { f.status(Status::Info, notes); }
+        if !notes.is_empty() {
+            f.status(Status::Info, notes);
+        }
         let state = job.state.lock().unwrap();
         match &*state {
             crate::ragdoll::State::Running => {
                 let done = job.done.load(std::sync::atomic::Ordering::Relaxed);
                 let secs = job.started.elapsed().as_secs_f32();
                 let rate = done as f32 / secs.max(0.01);
-                let left = if rate > 0.0 { (job.total.saturating_sub(done)) as f32 / rate } else { 0.0 };
-                f.row("Progress", None, |ui| ui.add(egui::ProgressBar::new(done as f32 / job.total.max(1) as f32)
-                    .text(format!("{done} of {}, {left:.0} s left", job.total))));
+                let left = if rate > 0.0 {
+                    (job.total.saturating_sub(done)) as f32 / rate
+                } else {
+                    0.0
+                };
+                f.row("Progress", None, |ui| {
+                    ui.add(
+                        egui::ProgressBar::new(done as f32 / job.total.max(1) as f32)
+                            .text(format!("{done} of {}, {left:.0} s left", job.total)),
+                    )
+                });
                 drop(state);
-                if f.buttons("", None, |ui| ui.button("Stop").clicked()) { crate::ragdoll::cancel(key); }
+                if f.buttons("", None, |ui| ui.button("Stop").clicked()) {
+                    crate::ragdoll::cancel(key);
+                }
                 f.ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
             }
             crate::ragdoll::State::Done(s) => {
@@ -1189,119 +1577,284 @@ fn body_collide(
                 f.status(Status::Ok, format!("Solved {} frames in {:.1} s", s.frames, s.seconds));
                 drop(state);
                 f.value("In contact", format!("{} frames", r.contact_frames));
-                f.value("Furthest", format!("{:.1} cm from the capture", r.max_deviation * 100.0));
-                f.value("Deepest", format!("{:.1} cm left in the collider", r.max_residual * 100.0));
+                f.value(
+                    "Furthest",
+                    format!("{:.1} cm from the capture", r.max_deviation * 100.0),
+                );
+                f.value(
+                    "Deepest",
+                    format!("{:.1} cm left in the collider", r.max_residual * 100.0),
+                );
                 if r.ghost_ranges.is_empty() {
                     f.value("Passed through", "Never: collisions were on throughout");
                 } else {
-                    f.value("Passed through", format!("{} frames in {} stretch{}", r.ghost_frames, r.ghost_ranges.len(), if r.ghost_ranges.len() == 1 { "" } else { "es" }));
+                    f.value(
+                        "Passed through",
+                        format!(
+                            "{} frames in {} stretch{}",
+                            r.ghost_frames,
+                            r.ghost_ranges.len(),
+                            if r.ghost_ranges.len() == 1 { "" } else { "es" }
+                        ),
+                    );
                     f.row("", None, |ui| {
-                        egui::ScrollArea::vertical().id_salt("collide_ghosts").max_height(110.0).show(ui, |ui| {
-                            for (a, b) in &r.ghost_ranges {
-                                ui.colored_label(ink::DIM(), egui::RichText::new(format!("{} to {}  (frames {} to {})",
-                                    c.timecode(c.start_frame + *a as i64), c.timecode(c.start_frame + *b as i64), a, b)).monospace().small());
-                            }
-                        });
+                        egui::ScrollArea::vertical()
+                            .id_salt("collide_ghosts")
+                            .max_height(110.0)
+                            .show(ui, |ui| {
+                                for (a, b) in &r.ghost_ranges {
+                                    ui.colored_label(
+                                        ink::DIM(),
+                                        egui::RichText::new(format!(
+                                            "{} to {}  (frames {} to {})",
+                                            c.timecode(c.start_frame + *a as i64),
+                                            c.timecode(c.start_frame + *b as i64),
+                                            a,
+                                            b
+                                        ))
+                                        .monospace()
+                                        .small(),
+                                    );
+                                }
+                            });
                     });
                 }
                 f.buttons("", None, |ui| {
-                    if ui.button("Solve again").clicked() { start(c); }
-                    if ui.button("Forget").on_hover_text("Remove the solved result, from memory and from disk").clicked() { crate::ragdoll::clear(key); }
+                    if ui.button("Solve again").clicked() {
+                        start(c);
+                    }
+                    if ui
+                        .button("Forget")
+                        .on_hover_text("Remove the solved result, from memory and from disk")
+                        .clicked()
+                    {
+                        crate::ragdoll::clear(key);
+                    }
                 });
             }
             crate::ragdoll::State::Failed(e) => {
                 let e = e.clone();
                 drop(state);
                 f.status(Status::Bad, e);
-                if f.buttons("", None, |ui| ui.button("Solve").clicked()) { start(c); }
+                if f.buttons("", None, |ui| ui.button("Solve").clicked()) {
+                    start(c);
+                }
             }
             crate::ragdoll::State::Cancelled => {
                 drop(state);
                 f.status(Status::Info, "Stopped: the clip passes through as it came");
-                if f.buttons("", None, |ui| ui.button("Solve").clicked()) { start(c); }
+                if f.buttons("", None, |ui| ui.button("Solve").clicked()) {
+                    start(c);
+                }
             }
         }
     });
 }
 
-// ── Edit Poly ─────────────────────────────────────────────────────────────────
+// Edit Poly
 
 fn edit_poly(
-    ui: &mut egui::Ui, ops: &mut Vec<PolyOp>, pending: &mut PolySelection, edit: &mut Option<usize>,
-    auto_collapse: &mut bool, io: &mut PanelIo,
+    ui: &mut egui::Ui,
+    ops: &mut Vec<PolyOp>,
+    pending: &mut PolySelection,
+    edit: &mut Option<usize>,
+    auto_collapse: &mut bool,
+    io: &mut PanelIo,
 ) {
-    if edit.map(|i| i >= ops.len() || ops[i].collapsed).unwrap_or(false) { *edit = None; }
+    if edit.map(|i| i >= ops.len() || ops[i].collapsed).unwrap_or(false) {
+        *edit = None;
+    }
     let input = io.poly_input.clone();
     // Mesh the selection under edit applies to, and the final mesh.
-    let stage = input.as_ref().map(|m| crate::core::poly::eval_cached_seeded(&m.mesh, m.seed, ops, edit.unwrap_or(ops.len())));
-    let end   = input.as_ref().map(|m| crate::core::poly::eval_cached_seeded(&m.mesh, m.seed, ops, ops.len()));
+    let stage = input
+        .as_ref()
+        .map(|m| crate::core::poly::eval_cached_seeded(&m.mesh, m.seed, ops, edit.unwrap_or(ops.len())));
+    let end = input
+        .as_ref()
+        .map(|m| crate::core::poly::eval_cached_seeded(&m.mesh, m.seed, ops, ops.len()));
 
-    let sel_title = match *edit { Some(i) => format!("Selection of #{} {}", i + 1, ops[i].kind.label()), None => "Selection".into() };
+    let sel_title = match *edit {
+        Some(i) => format!("Selection of #{} {}", i + 1, ops[i].kind.label()),
+        None => "Selection".into(),
+    };
     let mut done = false;
-    group_with(ui, &sel_title, Some("The selection the next operation uses, built in the Viewer or by rule"), |ui| {
-        if edit.is_some() && ui.small_button("Done").on_hover_text("Back to the selection for the next operation").clicked() { done = true; }
-    }, |f| {
-        if edit.is_some() { f.status(Status::Info, "The Viewer shows the mesh before this operation"); }
-        let sel = match *edit { Some(i) if i < ops.len() => &mut ops[i].selection, _ => &mut *pending };
-        selection_rows(f, sel, stage.as_deref());
-        if input.is_none() { f.status(Status::Info, "No mesh connected"); }
-    });
-    if done { *edit = None; }
+    group_with(
+        ui,
+        &sel_title,
+        Some("The selection the next operation uses, built in the Viewer or by rule"),
+        |ui| {
+            if edit.is_some()
+                && ui
+                    .small_button("Done")
+                    .on_hover_text("Back to the selection for the next operation")
+                    .clicked()
+            {
+                done = true;
+            }
+        },
+        |f| {
+            if edit.is_some() {
+                f.status(Status::Info, "The Viewer shows the mesh before this operation");
+            }
+            let sel = match *edit {
+                Some(i) if i < ops.len() => &mut ops[i].selection,
+                _ => &mut *pending,
+            };
+            selection_rows(f, sel, stage.as_deref());
+            if input.is_none() {
+                f.status(Status::Info, "No mesh connected");
+            }
+        },
+    );
+    if done {
+        *edit = None;
+    }
 
-    group(ui, "Viewer tool", Some("Drag a handle in the Viewer: each drag is stored as a Transform operation"), |f| {
-        let mut t = *io.tool;
-        f.choice("Tool", Some("Keys Q, W, E, R"), &mut t, &[(Tool::Select, "Select"), (Tool::Move, "Move"), (Tool::Rotate, "Rotate"), (Tool::Scale, "Scale")]);
-        *io.tool = t;
-    });
+    group(
+        ui,
+        "Viewer tool",
+        Some("Drag a handle in the Viewer: each drag is stored as a Transform operation"),
+        |f| {
+            let mut t = *io.tool;
+            f.choice(
+                "Tool",
+                Some("Keys Q, W, E, R"),
+                &mut t,
+                &[
+                    (Tool::Select, "Select"),
+                    (Tool::Move, "Move"),
+                    (Tool::Rotate, "Rotate"),
+                    (Tool::Scale, "Scale"),
+                ],
+            );
+            *io.tool = t;
+        },
+    );
 
     group(ui, "Add operation", Some("Each uses the selection above"), |f| {
         let base = pending.level.base();
-        let (v, e, p) = (base == SubLevel::Vertex, base == SubLevel::Edge, base == SubLevel::Polygon);
+        let (v, e, p) = (
+            base == SubLevel::Vertex,
+            base == SubLevel::Edge,
+            base == SubLevel::Polygon,
+        );
         let mut add: Option<PolyOpKind> = None;
         let mut line = |f: &mut Rows, title: &str, items: &[(&str, bool, PolyOpKind)]| {
             f.buttons(title, None, |ui| {
                 for (label, on, kind) in items {
-                    if ui.add_enabled(*on, egui::Button::new(*label)).clicked() { add = Some(kind.clone()); }
+                    if ui.add_enabled(*on, egui::Button::new(*label)).clicked() {
+                        add = Some(kind.clone());
+                    }
                 }
             });
         };
-        line(f, "Polygon", &[
-            ("Extrude", true, PolyOpKind::Extrude { height: 0.25, mode: ExtrudeMode::Group }),
-            ("Bevel",   true, PolyOpKind::Bevel { height: 0.25, outline: -0.1, mode: ExtrudeMode::Group }),
-            ("Inset",   true, PolyOpKind::Inset { amount: 0.1, by_polygon: false }),
-            ("Outline", true, PolyOpKind::Outline { amount: 0.05 }),
-            ("Hinge",   true, PolyOpKind::Hinge { angle: 30.0, segments: 4, edge: 0 }),
-            ("Bridge",  p || e, PolyOpKind::Bridge),
-            ("Flip",    true, PolyOpKind::Flip),
-            ("Detach",  true, PolyOpKind::Detach),
-            ("Tessellate", true, PolyOpKind::Tessellate),
-            ("Triangulate", true, PolyOpKind::Triangulate),
-        ]);
-        line(f, "Edge", &[
-            ("Extrude", e, PolyOpKind::ExtrudeEdge { height: 0.0, width: 0.25 }),
-            ("Chamfer", true, PolyOpKind::Chamfer { amount: 0.05 }),
-            ("Connect", e || v, PolyOpKind::Connect { segments: 1 }),
-            ("Remove",  e || v, PolyOpKind::Remove { clean: true }),
-            ("Cap",     true, PolyOpKind::Cap),
-            ("Turn",    e, PolyOpKind::Turn),
-        ]);
-        line(f, "Vertex", &[
-            ("Extrude",  true, PolyOpKind::ExtrudeVertex { height: 0.2, width: 0.1 }),
-            ("Weld",     true, PolyOpKind::Weld { threshold: 0.01 }),
-            ("Collapse", true, PolyOpKind::Collapse),
-            ("Break",    true, PolyOpKind::Break),
-        ]);
-        line(f, "Any", &[
-            ("Transform",   true, PolyOpKind::identity_transform()),
-            ("Delete",      true, PolyOpKind::Delete),
-            ("Make planar", true, PolyOpKind::MakePlanar { axis: None }),
-            ("Relax",       true, PolyOpKind::Relax { amount: 0.5, iterations: 1, hold_border: true }),
-            ("Slice",       true, PolyOpKind::Slice { axis: 1, offset: 0.0 }),
-            ("Insert vertex", true, PolyOpKind::InsertVertex { segments: 1 }),
-        ]);
-        line(f, "Whole mesh", &[
-            ("Subdivide", true, PolyOpKind::Subdivide { iterations: 1 }),
-        ]);
+        line(
+            f,
+            "Polygon",
+            &[
+                (
+                    "Extrude",
+                    true,
+                    PolyOpKind::Extrude {
+                        height: 0.25,
+                        mode: ExtrudeMode::Group,
+                    },
+                ),
+                (
+                    "Bevel",
+                    true,
+                    PolyOpKind::Bevel {
+                        height: 0.25,
+                        outline: -0.1,
+                        mode: ExtrudeMode::Group,
+                    },
+                ),
+                (
+                    "Inset",
+                    true,
+                    PolyOpKind::Inset {
+                        amount: 0.1,
+                        by_polygon: false,
+                    },
+                ),
+                ("Outline", true, PolyOpKind::Outline { amount: 0.05 }),
+                (
+                    "Hinge",
+                    true,
+                    PolyOpKind::Hinge {
+                        angle: 30.0,
+                        segments: 4,
+                        edge: 0,
+                    },
+                ),
+                ("Bridge", p || e, PolyOpKind::Bridge),
+                ("Flip", true, PolyOpKind::Flip),
+                ("Detach", true, PolyOpKind::Detach),
+                ("Tessellate", true, PolyOpKind::Tessellate),
+                ("Triangulate", true, PolyOpKind::Triangulate),
+            ],
+        );
+        line(
+            f,
+            "Edge",
+            &[
+                (
+                    "Extrude",
+                    e,
+                    PolyOpKind::ExtrudeEdge {
+                        height: 0.0,
+                        width: 0.25,
+                    },
+                ),
+                ("Chamfer", true, PolyOpKind::Chamfer { amount: 0.05 }),
+                ("Connect", e || v, PolyOpKind::Connect { segments: 1 }),
+                ("Remove", e || v, PolyOpKind::Remove { clean: true }),
+                ("Cap", true, PolyOpKind::Cap),
+                ("Turn", e, PolyOpKind::Turn),
+            ],
+        );
+        line(
+            f,
+            "Vertex",
+            &[
+                (
+                    "Extrude",
+                    true,
+                    PolyOpKind::ExtrudeVertex {
+                        height: 0.2,
+                        width: 0.1,
+                    },
+                ),
+                ("Weld", true, PolyOpKind::Weld { threshold: 0.01 }),
+                ("Collapse", true, PolyOpKind::Collapse),
+                ("Break", true, PolyOpKind::Break),
+            ],
+        );
+        line(
+            f,
+            "Any",
+            &[
+                ("Transform", true, PolyOpKind::identity_transform()),
+                ("Delete", true, PolyOpKind::Delete),
+                ("Make planar", true, PolyOpKind::MakePlanar { axis: None }),
+                (
+                    "Relax",
+                    true,
+                    PolyOpKind::Relax {
+                        amount: 0.5,
+                        iterations: 1,
+                        hold_border: true,
+                    },
+                ),
+                ("Slice", true, PolyOpKind::Slice { axis: 1, offset: 0.0 }),
+                ("Insert vertex", true, PolyOpKind::InsertVertex { segments: 1 }),
+            ],
+        );
+        line(
+            f,
+            "Whole mesh",
+            &[("Subdivide", true, PolyOpKind::Subdivide { iterations: 1 })],
+        );
         if let Some(kind) = add {
             let selection = pending.clone();
             let level = pending.level;
@@ -1312,7 +1865,12 @@ fn edit_poly(
                     // The same polygons stay selected, as in Edit Poly.
                     PolyOpKind::Extrude { .. } | PolyOpKind::Bevel { .. } | PolyOpKind::Inset { .. } => {
                         let mask = selection.poly_mask(m);
-                        PolySelection { level, ..PolySelection::picked_polys((0..mask.len() as u32).filter(|p| mask[*p as usize]).collect()) }
+                        PolySelection {
+                            level,
+                            ..PolySelection::picked_polys(
+                                (0..mask.len() as u32).filter(|p| mask[*p as usize]).collect(),
+                            )
+                        }
                     }
                     k if k.keeps_indices() => selection.clone(),
                     // The new caps.
@@ -1321,7 +1879,10 @@ fn edit_poly(
                         op.apply(&mut after);
                         PolySelection::picked_polys((before as u32..after.polys.len() as u32).collect())
                     }
-                    _ => PolySelection { level, ..Default::default() },
+                    _ => PolySelection {
+                        level,
+                        ..Default::default()
+                    },
                 };
             }
             push_op(ops, *auto_collapse, PolyOp::new(selection, kind));
@@ -1331,86 +1892,198 @@ fn edit_poly(
 
     let live = ops.iter().filter(|op| !op.collapsed).count();
     let mut collapse_everything = false;
-    group_with(ui, "Operations", None, |ui| {
-        if ui.add_enabled(live > 0, egui::Button::new("Collapse all").small()).clicked() { collapse_everything = true; }
-    }, |f| {
-        f.choice("Mode", Some("Keep live: operations stay editable until collapsed. Auto-collapse: adding one collapses those before it"),
+    group_with(
+        ui,
+        "Operations",
+        None,
+        |ui| {
+            if ui
+                .add_enabled(live > 0, egui::Button::new("Collapse all").small())
+                .clicked()
+            {
+                collapse_everything = true;
+            }
+        },
+        |f| {
+            f.choice("Mode", Some("Keep live: operations stay editable until collapsed. Auto-collapse: adding one collapses those before it"),
             auto_collapse, &[(false, "Keep live"), (true, "Auto-collapse")]);
-        f.value("Count", format!("{} live, {} collapsed", live, ops.len() - live));
-        if let Some(m) = &end { f.value("Result", format!("{} vertices, {} polygons", m.verts.len(), m.polys.len())); }
-    });
-    if collapse_everything { collapse_all(ops); *edit = None; }
+            f.value("Count", format!("{} live, {} collapsed", live, ops.len() - live));
+            if let Some(m) = &end {
+                f.value(
+                    "Result",
+                    format!("{} vertices, {} polygons", m.verts.len(), m.polys.len()),
+                );
+            }
+        },
+    );
+    if collapse_everything {
+        collapse_all(ops);
+        *edit = None;
+    }
 
-    enum ListEdit { Up(usize), Down(usize), Delete(usize), Collapse(usize), Restore(usize) }
+    enum ListEdit {
+        Up(usize),
+        Down(usize),
+        Delete(usize),
+        Collapse(usize),
+        Restore(usize),
+    }
     let mut change = None;
     let count = ops.len();
     let mut i = 0;
     while i < count {
         if ops[i].collapsed {
             let mut j = i;
-            while j + 1 < count && ops[j + 1].collapsed { j += 1; }
+            while j + 1 < count && ops[j + 1].collapsed {
+                j += 1;
+            }
             let n = j - i + 1;
-            let title = if n == 1 { format!("#{} {}  (collapsed)", i + 1, ops[i].kind.label()) } else { format!("#{} to #{}  ({n} collapsed)", i + 1, j + 1) };
+            let title = if n == 1 {
+                format!("#{} {}  (collapsed)", i + 1, ops[i].kind.label())
+            } else {
+                format!("#{} to #{}  ({n} collapsed)", i + 1, j + 1)
+            };
             let names = ops[i..=j].iter().map(|o| o.kind.label()).collect::<Vec<_>>().join(", ");
-            group_with(ui, &title, Some(&names), |ui| {
-                if ui.small_button("Restore").on_hover_text("Make editable again").clicked() { change = Some(ListEdit::Restore(i)); }
-            }, |_| {});
+            group_with(
+                ui,
+                &title,
+                Some(&names),
+                |ui| {
+                    if ui
+                        .small_button("Restore")
+                        .on_hover_text("Make editable again")
+                        .clicked()
+                    {
+                        change = Some(ListEdit::Restore(i));
+                    }
+                },
+                |_| {},
+            );
             i = j + 1;
             continue;
         }
         let title = format!("#{} {}", i + 1, ops[i].kind.label());
         let op = &mut ops[i];
-        group_with(ui, &title, None, |ui| {
-            if ui.small_button("🗑").on_hover_text("Remove").clicked() { change = Some(ListEdit::Delete(i)); }
-            if ui.small_button("✔").on_hover_text("Collapse").clicked() { change = Some(ListEdit::Collapse(i)); }
-            if ui.add_enabled(i + 1 < count, egui::Button::new("⏷").small()).on_hover_text("Later").clicked() { change = Some(ListEdit::Down(i)); }
-            if ui.add_enabled(i > 0, egui::Button::new("⏶").small()).on_hover_text("Earlier").clicked() { change = Some(ListEdit::Up(i)); }
-            if ui.selectable_label(*edit == Some(i), "🎯").on_hover_text("Edit this operation's selection").clicked() {
-                *edit = if *edit == Some(i) { None } else { Some(i) };
-            }
-            form::check(ui, &mut op.enabled).on_hover_text("On");
-        }, |f| op_rows(f, i, &mut op.kind));
+        group_with(
+            ui,
+            &title,
+            None,
+            |ui| {
+                if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                    change = Some(ListEdit::Delete(i));
+                }
+                if ui.small_button("✔").on_hover_text("Collapse").clicked() {
+                    change = Some(ListEdit::Collapse(i));
+                }
+                if ui
+                    .add_enabled(i + 1 < count, egui::Button::new("⏷").small())
+                    .on_hover_text("Later")
+                    .clicked()
+                {
+                    change = Some(ListEdit::Down(i));
+                }
+                if ui
+                    .add_enabled(i > 0, egui::Button::new("⏶").small())
+                    .on_hover_text("Earlier")
+                    .clicked()
+                {
+                    change = Some(ListEdit::Up(i));
+                }
+                if ui
+                    .selectable_label(*edit == Some(i), "🎯")
+                    .on_hover_text("Edit this operation's selection")
+                    .clicked()
+                {
+                    *edit = if *edit == Some(i) { None } else { Some(i) };
+                }
+                form::check(ui, &mut op.enabled).on_hover_text("On");
+            },
+            |f| op_rows(f, i, &mut op.kind),
+        );
         i += 1;
     }
     match change {
-        Some(ListEdit::Up(i))       => { ops.swap(i, i - 1); *edit = None; }
-        Some(ListEdit::Down(i))     => { ops.swap(i, i + 1); *edit = None; }
-        Some(ListEdit::Delete(i))   => { ops.remove(i); *edit = None; }
-        Some(ListEdit::Collapse(i)) => { collapse_op(ops, i); *edit = None; }
-        Some(ListEdit::Restore(i))  => { restore_run(ops, i); }
+        Some(ListEdit::Up(i)) => {
+            ops.swap(i, i - 1);
+            *edit = None;
+        }
+        Some(ListEdit::Down(i)) => {
+            ops.swap(i, i + 1);
+            *edit = None;
+        }
+        Some(ListEdit::Delete(i)) => {
+            ops.remove(i);
+            *edit = None;
+        }
+        Some(ListEdit::Collapse(i)) => {
+            collapse_op(ops, i);
+            *edit = None;
+        }
+        Some(ListEdit::Restore(i)) => {
+            restore_run(ops, i);
+        }
         None => {}
     }
 }
 
 /// The parameters of one Edit Poly operation.
 fn op_rows(f: &mut Rows, i: usize, kind: &mut PolyOpKind) {
-    let modes = [(ExtrudeMode::Group, "Group"), (ExtrudeMode::LocalNormal, "Local normal"), (ExtrudeMode::ByPolygon, "By polygon")];
+    let modes = [
+        (ExtrudeMode::Group, "Group"),
+        (ExtrudeMode::LocalNormal, "Local normal"),
+        (ExtrudeMode::ByPolygon, "By polygon"),
+    ];
     let mode_row = |f: &mut Rows, mode: &mut ExtrudeMode| {
         let id = f.ui.id().with(("poly_mode", i));
         f.row("Mode", None, |ui| form::choice_widget(ui, id, mode, &modes));
     };
     match kind {
-        PolyOpKind::Extrude { height, mode } => { f.drag("Height", None, height, 0.005, ""); mode_row(f, mode); }
+        PolyOpKind::Extrude { height, mode } => {
+            f.drag("Height", None, height, 0.005, "");
+            mode_row(f, mode);
+        }
         PolyOpKind::Bevel { height, outline, mode } => {
             f.drag("Height", None, height, 0.005, "");
             f.drag("Outline", None, outline, 0.005, "");
             mode_row(f, mode);
         }
-        PolyOpKind::Inset { amount, by_polygon } => { f.drag("Amount", None, amount, 0.005, ""); f.toggle("By polygon", None, by_polygon); }
-        PolyOpKind::Transform { translate, rotate, scale, falloff } => {
+        PolyOpKind::Inset { amount, by_polygon } => {
+            f.drag("Amount", None, amount, 0.005, "");
+            f.toggle("By polygon", None, by_polygon);
+        }
+        PolyOpKind::Transform {
+            translate,
+            rotate,
+            scale,
+            falloff,
+        } => {
             f.xyz("Translate", None, translate, 0.01, "");
             // Shown and edited as XYZ angles in degrees.
             let q = Quat::from_array(*rotate).normalize();
             let (x, y, z) = q.to_euler(EulerRot::XYZ);
             let mut deg = [x.to_degrees(), y.to_degrees(), z.to_degrees()];
             if f.xyz("Rotate", None, &mut deg, 0.5, "°") {
-                *rotate = Quat::from_euler(EulerRot::XYZ, deg[0].to_radians(), deg[1].to_radians(), deg[2].to_radians()).to_array();
+                *rotate = Quat::from_euler(
+                    EulerRot::XYZ,
+                    deg[0].to_radians(),
+                    deg[1].to_radians(),
+                    deg[2].to_radians(),
+                )
+                .to_array();
             }
             f.xyz("Scale", None, scale, 0.01, "");
-            f.drag("Soft falloff", Some("Soft selection: vertices within this distance of the selection follow part of the way. 0 is off"), falloff, 0.01, "");
+            f.drag(
+                "Soft falloff",
+                Some("Soft selection: vertices within this distance of the selection follow part of the way. 0 is off"),
+                falloff,
+                0.01,
+                "",
+            );
             *falloff = falloff.max(0.0);
         }
-        PolyOpKind::Chamfer { amount } | PolyOpKind::Outline { amount } => { f.drag("Amount", None, amount, 0.005, ""); }
+        PolyOpKind::Chamfer { amount } | PolyOpKind::Outline { amount } => {
+            f.drag("Amount", None, amount, 0.005, "");
+        }
         PolyOpKind::ExtrudeVertex { height, width } | PolyOpKind::ExtrudeEdge { height, width } => {
             f.drag("Height", None, height, 0.005, "");
             f.drag("Width", None, width, 0.005, "");
@@ -1419,50 +2092,119 @@ fn op_rows(f: &mut Rows, i: usize, kind: &mut PolyOpKind) {
             f.drag("Angle", None, angle, 0.5, "°");
             *angle = angle.clamp(-360.0, 360.0);
             f.drag_u32("Segments", None, segments, 1..=64);
-            f.drag_u32("Hinge edge", Some("Which edge of the selection's outline is the hinge"), edge, 0..=9999);
+            f.drag_u32(
+                "Hinge edge",
+                Some("Which edge of the selection's outline is the hinge"),
+                edge,
+                0..=9999,
+            );
         }
         PolyOpKind::Slice { axis, offset } => {
             f.choice("Across", None, axis, &[(0, "X"), (1, "Y"), (2, "Z")]);
             f.drag("At", None, offset, 0.005, "");
         }
-        PolyOpKind::InsertVertex { segments } => { f.drag_u32("Per edge", None, segments, 1..=64); }
-        PolyOpKind::Remove { clean } => { f.toggle("Clean up", Some("Also remove the vertices left over"), clean); }
-        PolyOpKind::Weld { threshold } => { f.drag("Threshold", None, threshold, 0.001, ""); }
-        PolyOpKind::Connect { segments } => { f.drag_u32("Segments", None, segments, 1..=64); }
-        PolyOpKind::MakePlanar { axis } => { f.choice("Plane", None, axis, &[(None, "Best fit"), (Some(0), "X"), (Some(1), "Y"), (Some(2), "Z")]); }
-        PolyOpKind::Relax { amount, iterations, hold_border } => {
+        PolyOpKind::InsertVertex { segments } => {
+            f.drag_u32("Per edge", None, segments, 1..=64);
+        }
+        PolyOpKind::Remove { clean } => {
+            f.toggle("Clean up", Some("Also remove the vertices left over"), clean);
+        }
+        PolyOpKind::Weld { threshold } => {
+            f.drag("Threshold", None, threshold, 0.001, "");
+        }
+        PolyOpKind::Connect { segments } => {
+            f.drag_u32("Segments", None, segments, 1..=64);
+        }
+        PolyOpKind::MakePlanar { axis } => {
+            f.choice(
+                "Plane",
+                None,
+                axis,
+                &[(None, "Best fit"), (Some(0), "X"), (Some(1), "Y"), (Some(2), "Z")],
+            );
+        }
+        PolyOpKind::Relax {
+            amount,
+            iterations,
+            hold_border,
+        } => {
             f.drag("Amount", None, amount, 0.005, "");
             f.drag_u32("Iterations", None, iterations, 1..=200);
             f.toggle("Hold borders", Some("Open borders stay where they are"), hold_border);
         }
-        PolyOpKind::Subdivide { iterations } => { f.drag_u32("Iterations", None, iterations, 1..=4); }
-        PolyOpKind::Delete | PolyOpKind::Collapse | PolyOpKind::Cap | PolyOpKind::Bridge
-        | PolyOpKind::Detach | PolyOpKind::Break | PolyOpKind::Flip | PolyOpKind::Tessellate
-        | PolyOpKind::Triangulate | PolyOpKind::Turn => {}
+        PolyOpKind::Subdivide { iterations } => {
+            f.drag_u32("Iterations", None, iterations, 1..=4);
+        }
+        PolyOpKind::Delete
+        | PolyOpKind::Collapse
+        | PolyOpKind::Cap
+        | PolyOpKind::Bridge
+        | PolyOpKind::Detach
+        | PolyOpKind::Break
+        | PolyOpKind::Flip
+        | PolyOpKind::Tessellate
+        | PolyOpKind::Triangulate
+        | PolyOpKind::Turn => {}
     }
 }
 
 /// Sub-object level, where the selection comes from, and its modifiers.
 fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>) {
-    f.choice("Level", None, &mut sel.level, &[
-        (SubLevel::Vertex, "Vertex"), (SubLevel::Edge, "Edge"), (SubLevel::Border, "Border"),
-        (SubLevel::Polygon, "Polygon"), (SubLevel::Element, "Element"),
-    ]);
+    f.choice(
+        "Level",
+        None,
+        &mut sel.level,
+        &[
+            (SubLevel::Vertex, "Vertex"),
+            (SubLevel::Edge, "Edge"),
+            (SubLevel::Border, "Border"),
+            (SubLevel::Polygon, "Polygon"),
+            (SubLevel::Element, "Element"),
+        ],
+    );
     #[derive(Clone, Copy, PartialEq)]
-    enum Src { Picked, All, Normal, Box }
-    let mut src = match sel.source { SelSource::Picked => Src::Picked, SelSource::All => Src::All, SelSource::ByNormal { .. } => Src::Normal, SelSource::InBox { .. } => Src::Box };
-    if f.choice("Source", Some("Picked: click or drag a box in the Viewer, Ctrl adds, Shift removes"),
-        &mut src, &[(Src::Picked, "Picked"), (Src::All, "All"), (Src::Normal, "By normal"), (Src::Box, "In box")]) {
+    enum Src {
+        Picked,
+        All,
+        Normal,
+        Box,
+    }
+    let mut src = match sel.source {
+        SelSource::Picked => Src::Picked,
+        SelSource::All => Src::All,
+        SelSource::ByNormal { .. } => Src::Normal,
+        SelSource::InBox { .. } => Src::Box,
+    };
+    if f.choice(
+        "Source",
+        Some("Picked: click or drag a box in the Viewer, Ctrl adds, Shift removes"),
+        &mut src,
+        &[
+            (Src::Picked, "Picked"),
+            (Src::All, "All"),
+            (Src::Normal, "By normal"),
+            (Src::Box, "In box"),
+        ],
+    ) {
         sel.source = match src {
             Src::Picked => SelSource::Picked,
             Src::All => SelSource::All,
-            Src::Normal => SelSource::ByNormal { dir: [0.0, 1.0, 0.0], angle: 45.0 },
+            Src::Normal => SelSource::ByNormal {
+                dir: [0.0, 1.0, 0.0],
+                angle: 45.0,
+            },
             Src::Box => {
                 // Start with a box around the whole mesh.
                 let (mut lo, mut hi) = ([-1.0f32; 3], [1.0f32; 3]);
                 if let Some(m) = mesh.filter(|m| !m.verts.is_empty()) {
-                    lo = [f32::MAX; 3]; hi = [f32::MIN; 3];
-                    for v in &m.verts { for a in 0..3 { lo[a] = lo[a].min(v[a]); hi[a] = hi[a].max(v[a]); } }
+                    lo = [f32::MAX; 3];
+                    hi = [f32::MIN; 3];
+                    for v in &m.verts {
+                        for a in 0..3 {
+                            lo[a] = lo[a].min(v[a]);
+                            hi[a] = hi[a].max(v[a]);
+                        }
+                    }
                 }
                 SelSource::InBox { min: lo, max: hi }
             }
@@ -1470,8 +2212,19 @@ fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>
     }
     match &mut sel.source {
         SelSource::ByNormal { dir, angle } => {
-            f.choice("Facing", None, dir, &[([1.0, 0.0, 0.0], "+X"), ([-1.0, 0.0, 0.0], "-X"), ([0.0, 1.0, 0.0], "+Y"),
-                ([0.0, -1.0, 0.0], "-Y"), ([0.0, 0.0, 1.0], "+Z"), ([0.0, 0.0, -1.0], "-Z")]);
+            f.choice(
+                "Facing",
+                None,
+                dir,
+                &[
+                    ([1.0, 0.0, 0.0], "+X"),
+                    ([-1.0, 0.0, 0.0], "-X"),
+                    ([0.0, 1.0, 0.0], "+Y"),
+                    ([0.0, -1.0, 0.0], "-Y"),
+                    ([0.0, 0.0, 1.0], "+Z"),
+                    ([0.0, 0.0, -1.0], "-Z"),
+                ],
+            );
             f.drag("Within", None, angle, 0.5, "°");
             *angle = angle.clamp(0.0, 180.0);
         }
@@ -1482,50 +2235,114 @@ fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>
         SelSource::Picked | SelSource::All => {}
     }
     f.buttons("Modify", None, |ui| {
-        if ui.button("Shrink").clicked() { sel.grow -= 1; }
-        if ui.button("Grow").clicked() { sel.grow += 1; }
-        if sel.grow != 0 { ui.colored_label(ink::DIM(), format!("{:+}", sel.grow)); }
-        if ui.button("Clear").clicked() { let level = sel.level; *sel = PolySelection { level, ..Default::default() }; }
+        if ui.button("Shrink").clicked() {
+            sel.grow -= 1;
+        }
+        if ui.button("Grow").clicked() {
+            sel.grow += 1;
+        }
+        if sel.grow != 0 {
+            ui.colored_label(ink::DIM(), format!("{:+}", sel.grow));
+        }
+        if ui.button("Clear").clicked() {
+            let level = sel.level;
+            *sel = PolySelection {
+                level,
+                ..Default::default()
+            };
+        }
     });
     f.toggle("Invert", None, &mut sel.invert);
     if let (Some(m), SubLevel::Edge) = (mesh, sel.level) {
         f.buttons("Extend", None, |ui| {
-            if ui.button("Loop").on_hover_text("Extend the selected edges along their loops").clicked() { sel.expand_edges(m, false); }
-            if ui.button("Ring").on_hover_text("Extend the selected edges across their rings").clicked() { sel.expand_edges(m, true); }
+            if ui
+                .button("Loop")
+                .on_hover_text("Extend the selected edges along their loops")
+                .clicked()
+            {
+                sel.expand_edges(m, false);
+            }
+            if ui
+                .button("Ring")
+                .on_hover_text("Extend the selected edges across their rings")
+                .clicked()
+            {
+                sel.expand_edges(m, true);
+            }
         });
     }
     if let Some(m) = mesh {
-        let what = match sel.level.base() { SubLevel::Vertex => "vertices", SubLevel::Polygon => "polygons", _ => "edges" };
+        let what = match sel.level.base() {
+            SubLevel::Vertex => "vertices",
+            SubLevel::Polygon => "polygons",
+            _ => "edges",
+        };
         let polys = sel.poly_mask(m).iter().filter(|s| **s).count();
-        let text = if sel.level.base() == SubLevel::Polygon { format!("{polys} polygons") }
-            else { format!("{} {what}, on {polys} polygons", sel.count(m)) };
+        let text = if sel.level.base() == SubLevel::Polygon {
+            format!("{polys} polygons")
+        } else {
+            format!("{} {what}, on {polys} polygons", sel.count(m))
+        };
         f.value("Selected", text);
     }
 }
 
-// ── Shared rows ───────────────────────────────────────────────────────────────
+// Shared rows
 
-/// A Material node: the name it goes into the scene by, the surface's
-/// inputs, and the texture files feeding them. An input fed by a texture
-/// is greyed out: its value comes from the texture.
-fn material_rows(ui: &mut egui::Ui, s: &mut crate::core::material::PreviewSurface, name: &str, io: &mut PanelIo, node: NodeId) {
+/// A Material node: the name it goes into the scene by, the surface's inputs,
+/// and the texture files feeding them. An input fed by a texture is greyed out:
+/// its value comes from the texture.
+fn material_rows(
+    ui: &mut egui::Ui,
+    s: &mut crate::core::material::PreviewSurface,
+    name: &str,
+    io: &mut PanelIo,
+    node: NodeId,
+) {
     use crate::core::material::{prim_name, TEXTURED};
     group(ui, "Material", Some("Material Binding puts it in the scene under its Material Library Location (/materials by default), by this name. Rename the node to rename it"), |f| {
         f.value("Prim name", prim_name(name));
     });
     let fed = |input: &str| s.texture(input).is_some();
-    let (diffuse, emissive, metallic, roughness, opacity) = (fed("diffuseColor"), fed("emissiveColor"), fed("metallic"), fed("roughness"), fed("opacity"));
-    group(ui, "Surface", Some("A UsdPreviewSurface. Values in linear colour, as USD has them"), |f| {
-        f.enabled(!diffuse, |f| { f.row("Diffuse", None, |ui| colour_fields(ui, &mut s.diffuse_color)); });
-        f.enabled(!metallic, |f| { f.slider("Metallic", None, &mut s.metallic, 0.0..=1.0, ""); });
-        f.enabled(!roughness, |f| { f.slider("Roughness", None, &mut s.roughness, 0.0..=1.0, ""); });
-        f.enabled(!opacity, |f| { f.slider("Opacity", None, &mut s.opacity, 0.0..=1.0, ""); });
-        f.slider("Opacity threshold", Some("Below this opacity the surface is cut out. 0: see-through instead"), &mut s.opacity_threshold, 0.0..=1.0, "");
-        f.slider("IOR", Some("Index of refraction"), &mut s.ior, 1.0..=3.0, "");
-        f.slider("Clearcoat", None, &mut s.clearcoat, 0.0..=1.0, "");
-        f.slider("Coat roughness", None, &mut s.clearcoat_roughness, 0.0..=1.0, "");
-        f.enabled(!emissive, |f| { f.row("Emissive", None, |ui| colour_fields(ui, &mut s.emissive_color)); });
-    });
+    let (diffuse, emissive, metallic, roughness, opacity) = (
+        fed("diffuseColor"),
+        fed("emissiveColor"),
+        fed("metallic"),
+        fed("roughness"),
+        fed("opacity"),
+    );
+    group(
+        ui,
+        "Surface",
+        Some("A UsdPreviewSurface. Values in linear colour, as USD has them"),
+        |f| {
+            f.enabled(!diffuse, |f| {
+                f.row("Diffuse", None, |ui| colour_fields(ui, &mut s.diffuse_color));
+            });
+            f.enabled(!metallic, |f| {
+                f.slider("Metallic", None, &mut s.metallic, 0.0..=1.0, "");
+            });
+            f.enabled(!roughness, |f| {
+                f.slider("Roughness", None, &mut s.roughness, 0.0..=1.0, "");
+            });
+            f.enabled(!opacity, |f| {
+                f.slider("Opacity", None, &mut s.opacity, 0.0..=1.0, "");
+            });
+            f.slider(
+                "Opacity threshold",
+                Some("Below this opacity the surface is cut out. 0: see-through instead"),
+                &mut s.opacity_threshold,
+                0.0..=1.0,
+                "",
+            );
+            f.slider("IOR", Some("Index of refraction"), &mut s.ior, 1.0..=3.0, "");
+            f.slider("Clearcoat", None, &mut s.clearcoat, 0.0..=1.0, "");
+            f.slider("Coat roughness", None, &mut s.clearcoat_roughness, 0.0..=1.0, "");
+            f.enabled(!emissive, |f| {
+                f.row("Emissive", None, |ui| colour_fields(ui, &mut s.emissive_color));
+            });
+        },
+    );
     group(ui, "Textures", Some("Image files feeding the inputs, read through the `st` texture coordinates. Colours are read as sRGB, the rest as they are. An opacity file that is the diffuse file reads its alpha"), |f| {
         for (input, label) in TEXTURED {
             let mut file = s.textures.get(input).cloned().unwrap_or_default();
@@ -1556,13 +2373,21 @@ fn colour_fields(ui: &mut egui::Ui, c: &mut [f32; 3]) {
         let gap = ui.spacing().item_spacing.x;
         let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(30.0);
         let h = ui.spacing().interact_size.y;
-        for x in c.iter_mut() { ui.field_sized([w, h], egui::DragValue::new(x).speed(0.01).range(0.0..=f32::MAX).max_decimals(3)); }
+        for x in c.iter_mut() {
+            ui.field_sized(
+                [w, h],
+                egui::DragValue::new(x)
+                    .speed(0.01)
+                    .range(0.0..=f32::MAX)
+                    .max_decimals(3),
+            );
+        }
     });
 }
 
-/// A row's Material column: the input of its number by default, another
-/// input with a material wired in, or Location: a material already in the
-/// scene, by its path, typed on a line of its own under the row.
+/// A row's Material column: the input of its number by default, another input
+/// with a material wired in, or Location: a material already in the scene, by
+/// its path, typed on a line of its own under the row.
 fn bind_choice(ui: &mut egui::Ui, row: usize, col: &mut BindColumn) {
     use crate::core::material::BindTo;
     let input = |n: usize| match col.inputs.get(n.wrapping_sub(1)) {
@@ -1592,116 +2417,254 @@ fn bind_choice(ui: &mut egui::Ui, row: usize, col: &mut BindColumn) {
         }
     }).response.on_hover_text("The material this row binds: one wired into this operator, or Location, a material already in the scene");
     if let Some(choice) = picked {
-        while col.to.len() <= row { col.to.push(BindTo::Same); }
+        while col.to.len() <= row {
+            col.to.push(BindTo::Same);
+        }
         col.to[row] = choice;
     }
 }
 
-/// Under a row bound by Location: the material's path, typed, picked from
-/// the materials of the scene coming in, or dropped from the Scene Explorer.
+/// Under a row bound by Location: the material's path, typed, picked from the
+/// materials of the scene coming in, or dropped from the Scene Explorer.
 fn material_location_row(f: &mut Rows, row: usize, col: &mut BindColumn) {
     use crate::core::material::BindTo;
     let scene = col.scene;
-    let Some(BindTo::Path(path)) = col.to.get_mut(row) else { return };
+    let Some(BindTo::Path(path)) = col.to.get_mut(row) else {
+        return;
+    };
     f.row("", Some("The material's path in the scene"), |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("↳ 🎨").color(ink::DIM()));
             let w = (ui.available_width() - 52.0).max(60.0);
-            let field = ui.field(egui::TextEdit::singleline(path).desired_width(w).hint_text("/materials/name")
-                .font(egui::TextStyle::Monospace).background_color(location_bg()));
+            let field = ui.field(
+                egui::TextEdit::singleline(path)
+                    .desired_width(w)
+                    .hint_text("/materials/name")
+                    .font(egui::TextStyle::Monospace)
+                    .background_color(location_bg()),
+            );
             if let Some(p) = field.dnd_release_payload::<crate::types::DraggedPrims>() {
-                if let Some(first) = p.0.first() { *path = first.clone(); }
+                if let Some(first) = p.0.first() {
+                    *path = first.clone();
+                }
             }
             ui.add_enabled_ui(!scene.is_empty(), |ui| {
                 crate::menus::menu(ui, "Pick", |ui| {
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                         for m in scene {
-                            if ui.selectable_label(path.trim() == m, m).clicked() { *path = m.clone(); ui.close(); }
+                            if ui.selectable_label(path.trim() == m, m).clicked() {
+                                *path = m.clone();
+                                ui.close();
+                            }
                         }
                     });
-                }).response.on_hover_text("A material of the scene coming in");
+                })
+                .response
+                .on_hover_text("A material of the scene coming in");
             });
         });
     });
     let p = path.trim();
-    if p.is_empty() { f.status(Status::Info, "No material location: the row binds nothing"); }
-    else if !scene.iter().any(|m| m == p) { f.status(Status::Bad, format!("{p}: no material there in the scene coming in")); }
+    if p.is_empty() {
+        f.status(Status::Info, "No material location: the row binds nothing");
+    } else if !scene.iter().any(|m| m == p) {
+        f.status(Status::Bad, format!("{p}: no material there in the scene coming in"));
+    }
 }
 
-/// Material Binding's parameters: where the materials go, and what is on
-/// each input. True when the number of inputs changed.
-fn binding_rows(ui: &mut egui::Ui, library: &mut String, inputs: &mut u32, ports: &[Option<std::sync::Arc<crate::core::material::Material>>], rows: usize) -> bool {
+/// Material Binding's parameters: where the materials go, and what is on each
+/// input. True when the number of inputs changed.
+fn binding_rows(
+    ui: &mut egui::Ui,
+    library: &mut String,
+    inputs: &mut u32,
+    ports: &[Option<std::sync::Arc<crate::core::material::Material>>],
+    rows: usize,
+) -> bool {
     use crate::core::material::{library_path, placed};
-    group(ui, "Material Library", Some("Where the materials wired into this operator go in the scene, each by its operator's name"), |f| {
-        f.row("Location", Some("A USD path. Its parents are Scopes. Variables are put in"), |ui| {
-            let r = ui.field(egui::TextEdit::singleline(&mut *library).hint_text("/materials").desired_width(ui.available_width())
-                .font(egui::TextStyle::Monospace).background_color(location_bg()));
-            crate::variables::complete(ui, &r, library, &[]);
-        });
-        let path = library_path(library);
-        if path != library.trim() { f.status(Status::Info, format!("Used as {path}")); }
-    });
-    let mut changed = false;
-    group(ui, "Materials", Some("One input per material, on the node's left side. Wiring the last one adds another"), |f| {
-        let places = placed(library, ports);
-        for (k, m) in ports.iter().enumerate() {
-            let label = format!("Input {}", k + 1);
-            match (m, places.get(k).cloned().flatten()) {
-                (None, _) => f.value(&label, "No material"),
-                (Some(_), Some(path)) => f.value(&label, path),
-                (Some(m), None) => f.status(Status::Bad, format!("{label}: an earlier input's material is also named {}. That one is used", m.name)),
+    group(
+        ui,
+        "Material Library",
+        Some("Where the materials wired into this operator go in the scene, each by its operator's name"),
+        |f| {
+            f.row(
+                "Location",
+                Some("A USD path. Its parents are Scopes. Variables are put in"),
+                |ui| {
+                    let r = ui.field(
+                        egui::TextEdit::singleline(&mut *library)
+                            .hint_text("/materials")
+                            .desired_width(ui.available_width())
+                            .font(egui::TextStyle::Monospace)
+                            .background_color(location_bg()),
+                    );
+                    crate::variables::complete(ui, &r, library, &[]);
+                },
+            );
+            let path = library_path(library);
+            if path != library.trim() {
+                f.status(Status::Info, format!("Used as {path}"));
             }
-        }
-        changed = f.drag_u32("Inputs", Some("How many material inputs. Fewer drops the wires on the ones taken away"), inputs, 1..=64).changed();
-    });
+        },
+    );
+    let mut changed = false;
+    group(
+        ui,
+        "Materials",
+        Some("One input per material, on the node's left side. Wiring the last one adds another"),
+        |f| {
+            let places = placed(library, ports);
+            for (k, m) in ports.iter().enumerate() {
+                let label = format!("Input {}", k + 1);
+                match (m, places.get(k).cloned().flatten()) {
+                    (None, _) => f.value(&label, "No material"),
+                    (Some(_), Some(path)) => f.value(&label, path),
+                    (Some(m), None) => f.status(
+                        Status::Bad,
+                        format!(
+                            "{label}: an earlier input's material is also named {}. That one is used",
+                            m.name
+                        ),
+                    ),
+                }
+            }
+            changed = f
+                .drag_u32(
+                    "Inputs",
+                    Some("How many material inputs. Fewer drops the wires on the ones taken away"),
+                    inputs,
+                    1..=64,
+                )
+                .changed();
+        },
+    );
     group(ui, "Bindings", Some("The rows are on the Bindings tab"), |f| {
-        if rows == 0 { f.status(Status::Info, "No rows yet: nothing is bound. On the Bindings tab, row 1 binds the material on input 1, row 2 the one on input 2…"); }
-        else { f.status(Status::Info, format!("{rows} rows on the Bindings tab. On a primitive two rows take, the later wins")); }
+        if rows == 0 {
+            f.status(Status::Info, "No rows yet: nothing is bound. On the Bindings tab, row 1 binds the material on input 1, row 2 the one on input 2…");
+        } else {
+            f.status(
+                Status::Info,
+                format!("{rows} rows on the Bindings tab. On a primitive two rows take, the later wins"),
+            );
+        }
     });
     changed
 }
 
-/// How Load USD brings its file in: sublayered, or one prim of it referenced
-/// or payloaded at a Primitive Location.
-fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::LoadMode, location: &mut String, prim: &mut String, convert: bool) {
+/// How Load USD brings its file in: sublayered, or one prim of it referenced or
+/// payloaded at a Primitive Location.
+fn load_mode_rows(
+    ui: &mut egui::Ui,
+    path: &str,
+    mode: &mut crate::usd_scene::LoadMode,
+    location: &mut String,
+    prim: &mut String,
+    convert: bool,
+) {
     use crate::usd_scene::LoadMode;
     let hint = "Sublayer: the whole stage at its own paths; Write USD sublayers the file. Reference: one prim of the file (its default prim) at the Primitive Location, its paths rebased there; Write USD writes a reference on that prim. Payload: as Reference, written as a payload, which other programs load on demand";
     group(ui, "Mode", Some(hint), |f| {
-        f.choice("Mode", None, mode, &[(LoadMode::Sublayer, "Sublayer"), (LoadMode::Reference, "Reference"), (LoadMode::Payload, "Payload")]);
-        if *mode == LoadMode::Sublayer { return; }
-        f.row("Primitive Location", Some("Where the file's prim goes in the scene. Its parents are Xforms. Variables are put in: /set/$OPNAME"), |ui| {
-            let r = ui.field(egui::TextEdit::singleline(&mut *location).hint_text("/root").desired_width(ui.available_width())
-                .font(egui::TextStyle::Monospace).background_color(location_bg()));
-            crate::variables::complete(ui, &r, location, &[]);
-        });
+        f.choice(
+            "Mode",
+            None,
+            mode,
+            &[
+                (LoadMode::Sublayer, "Sublayer"),
+                (LoadMode::Reference, "Reference"),
+                (LoadMode::Payload, "Payload"),
+            ],
+        );
+        if *mode == LoadMode::Sublayer {
+            return;
+        }
+        f.row(
+            "Primitive Location",
+            Some("Where the file's prim goes in the scene. Its parents are Xforms. Variables are put in: /set/$OPNAME"),
+            |ui| {
+                let r = ui.field(
+                    egui::TextEdit::singleline(&mut *location)
+                        .hint_text("/root")
+                        .desired_width(ui.available_width())
+                        .font(egui::TextStyle::Monospace)
+                        .background_color(location_bg()),
+                );
+                crate::variables::complete(ui, &r, location, &[]);
+            },
+        );
         let at = crate::types::prim_location(location, &crate::types::reference_location());
-        if at != location.trim() { f.status(Status::Info, format!("Used as {at}")); }
-        let scene = if path.trim().is_empty() { None } else { crate::usd_scene::load_cached(path.trim(), convert).ok() };
-        let roots: Vec<String> = scene.as_ref().map(|s| s.tree.nodes.iter().filter(|n| n.depth == 1).map(|n| n.path.clone()).collect()).unwrap_or_default();
-        f.row("Prim", Some("The prim of the file it brings in, with everything below it. Empty: the file's default prim"), |ui| {
-            ui.horizontal(|ui| {
-                let w = (ui.available_width() - 48.0).max(60.0);
-                ui.field(egui::TextEdit::singleline(prim).hint_text("default prim").desired_width(w)
-                    .font(egui::TextStyle::Monospace).background_color(location_bg()));
-                ui.add_enabled_ui(!roots.is_empty(), |ui| {
-                    crate::menus::menu(ui, "Pick", |ui| {
-                        if ui.selectable_label(prim.trim().is_empty(), "Default prim").clicked() { prim.clear(); ui.close(); }
-                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                            for r in &roots {
-                                if ui.selectable_label(prim.trim() == r, r).clicked() { *prim = r.clone(); ui.close(); }
+        if at != location.trim() {
+            f.status(Status::Info, format!("Used as {at}"));
+        }
+        let scene = if path.trim().is_empty() {
+            None
+        } else {
+            crate::usd_scene::load_cached(path.trim(), convert).ok()
+        };
+        let roots: Vec<String> = scene
+            .as_ref()
+            .map(|s| {
+                s.tree
+                    .nodes
+                    .iter()
+                    .filter(|n| n.depth == 1)
+                    .map(|n| n.path.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        f.row(
+            "Prim",
+            Some("The prim of the file it brings in, with everything below it. Empty: the file's default prim"),
+            |ui| {
+                ui.horizontal(|ui| {
+                    let w = (ui.available_width() - 48.0).max(60.0);
+                    ui.field(
+                        egui::TextEdit::singleline(prim)
+                            .hint_text("default prim")
+                            .desired_width(w)
+                            .font(egui::TextStyle::Monospace)
+                            .background_color(location_bg()),
+                    );
+                    ui.add_enabled_ui(!roots.is_empty(), |ui| {
+                        crate::menus::menu(ui, "Pick", |ui| {
+                            if ui.selectable_label(prim.trim().is_empty(), "Default prim").clicked() {
+                                prim.clear();
+                                ui.close();
                             }
-                        });
-                    }).response.on_hover_text("The file's root prims");
+                            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                                for r in &roots {
+                                    if ui.selectable_label(prim.trim() == r, r).clicked() {
+                                        *prim = r.clone();
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        })
+                        .response
+                        .on_hover_text("The file's root prims");
+                    });
                 });
-            });
-        });
+            },
+        );
         if let Some(scene) = &scene {
             match crate::usd_scene::referenced_prim(scene, prim) {
                 Some(p) => {
                     let named = crate::types::prim_location(prim, "");
-                    if !named.is_empty() && named != p { f.status(Status::Bad, format!("The file has no {named}: its default prim is used")); }
-                    else if named.is_empty() && scene.default_prim.is_none() { f.status(Status::Info, "The file names no default prim: its first root prim is used"); }
-                    let word = if *mode == LoadMode::Payload { "Payloads" } else { "References" };
+                    if !named.is_empty() && named != p {
+                        f.status(
+                            Status::Bad,
+                            format!("The file has no {named}: its default prim is used"),
+                        );
+                    } else if named.is_empty() && scene.default_prim.is_none() {
+                        f.status(
+                            Status::Info,
+                            "The file names no default prim: its first root prim is used",
+                        );
+                    }
+                    let word = if *mode == LoadMode::Payload {
+                        "Payloads"
+                    } else {
+                        "References"
+                    };
                     f.status(Status::Ok, format!("{word} {p} at {at}"));
                 }
                 None => f.status(Status::Bad, "The file has no prims to bring in"),
@@ -1710,19 +2673,43 @@ fn load_mode_rows(ui: &mut egui::Ui, path: &str, mode: &mut crate::usd_scene::Lo
     });
 }
 
-/// The Camera operator: where it is, where it looks, its lens and gate,
-/// and a button to look through it.
-fn camera_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3], rotate: &mut [f32; 3], c: &mut crate::core::camera::Camera) {
+/// The Camera operator: where it is, where it looks, its lens and gate, and a
+/// button to look through it.
+fn camera_rows(
+    ui: &mut egui::Ui,
+    location: &mut String,
+    translate: &mut [f32; 3],
+    rotate: &mut [f32; 3],
+    c: &mut crate::core::camera::Camera,
+) {
     use crate::core::camera::Projection;
     let path = crate::types::prim_location(location, &crate::types::camera_location());
-    group(ui, "Primitive", Some("Where the camera is in the scene. Its parents are Xforms"), |f| {
-        f.text_vars("Primitive Location", Some("A USD path, such as /camera or /shot/cam_main. Variables are put in: /shot/$OPNAME"), location, "/camera", false);
-        if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
-    });
-    group(ui, "Transform", Some("It looks down its -Z axis, with +Y up. A Transform after it moves it too"), |f| {
-        f.xyz("Translate", None, translate, 0.05, "");
-        f.xyz("Rotate", Some("Degrees, X then Y then Z"), rotate, 0.5, "°");
-    });
+    group(
+        ui,
+        "Primitive",
+        Some("Where the camera is in the scene. Its parents are Xforms"),
+        |f| {
+            f.text_vars(
+                "Primitive Location",
+                Some("A USD path, such as /camera or /shot/cam_main. Variables are put in: /shot/$OPNAME"),
+                location,
+                "/camera",
+                false,
+            );
+            if path != location.trim() {
+                f.status(Status::Info, format!("Used as {path}"));
+            }
+        },
+    );
+    group(
+        ui,
+        "Transform",
+        Some("It looks down its -Z axis, with +Y up. A Transform after it moves it too"),
+        |f| {
+            f.xyz("Translate", None, translate, 0.05, "");
+            f.xyz("Rotate", Some("Degrees, X then Y then Z"), rotate, 0.5, "°");
+        },
+    );
     group(ui, "Lens", Some("As USD has them: focal length and gate in tenths of a scene unit, which is millimetres in a centimetre scene. The field of view comes from their ratio"), |f| {
         f.choice("Projection", None, &mut c.projection, &[(Projection::Perspective, "Perspective"), (Projection::Orthographic, "Orthographic")]);
         f.slider("Focal length", None, &mut c.focal_length, 4.0..=300.0, "");
@@ -1770,30 +2757,62 @@ fn camera_rows(ui: &mut egui::Ui, location: &mut String, translate: &mut [f32; 3
     });
     group(ui, "View", None, |f| {
         let looking = crate::viewer::camera::looking_through().as_deref() == Some(path.as_str());
-        f.buttons("Viewer", Some("The Viewer's camera menu does the same, for every camera of the scene"), |ui| {
-            if looking {
-                if ui.button("Back to Perspective").clicked() { crate::viewer::camera::look_through(None); }
-            } else if ui.button("Look through").clicked() {
-                crate::viewer::camera::look_through(Some(path.clone()));
-            }
-        });
-        if looking { f.status(Status::Ok, "The Viewer looks through it. Navigating leaves it, where it was"); }
+        f.buttons(
+            "Viewer",
+            Some("The Viewer's camera menu does the same, for every camera of the scene"),
+            |ui| {
+                if looking {
+                    if ui.button("Back to Perspective").clicked() {
+                        crate::viewer::camera::look_through(None);
+                    }
+                } else if ui.button("Look through").clicked() {
+                    crate::viewer::camera::look_through(Some(path.clone()));
+                }
+            },
+        );
+        if looking {
+            f.status(
+                Status::Ok,
+                "The Viewer looks through it. Navigating leaves it, where it was",
+            );
+        }
     });
 }
 
 /// Path field with a button that opens the file browser.
-fn path_row(f: &mut Rows, value: &mut String, hint: &str, io: &mut PanelIo, node: NodeId, mode: BrowseMode, title: &str, exts: &[&str]) {
-    f.row("Path", Some("Variables are put in: $JOB/assets/set.usda. Type $ for the list"), |ui| {
-        ui.horizontal(|ui| {
-            let w = ui.available_width() - 34.0;
-            let r = ui.field(egui::TextEdit::singleline(value).hint_text(hint).desired_width(w.max(40.0)));
-            crate::variables::complete(ui, &r, value, &[]);
-            if ui.button("📂").on_hover_text("Browse").clicked() { io.browser.open(BrowseTarget::Node(node), mode, title, exts, ""); }
-        });
-    });
+fn path_row(
+    f: &mut Rows,
+    value: &mut String,
+    hint: &str,
+    io: &mut PanelIo,
+    node: NodeId,
+    mode: BrowseMode,
+    title: &str,
+    exts: &[&str],
+) {
+    f.row(
+        "Path",
+        Some("Variables are put in: $JOB/assets/set.usda. Type $ for the list"),
+        |ui| {
+            ui.horizontal(|ui| {
+                let w = ui.available_width() - 34.0;
+                let r = ui.field(
+                    egui::TextEdit::singleline(value)
+                        .hint_text(hint)
+                        .desired_width(w.max(40.0)),
+                );
+                crate::variables::complete(ui, &r, value, &[]);
+                if ui.button("📂").on_hover_text("Browse").clicked() {
+                    io.browser.open(BrowseTarget::Node(node), mode, title, exts, "");
+                }
+            });
+        },
+    );
     // What it is with its variables put in, when that differs.
     let path = crate::core::vars::expand(value.trim(), &[]);
-    if !path.is_empty() && path != value.trim() { f.status(Status::Info, format!("→ {path}")); }
+    if !path.is_empty() && path != value.trim() {
+        f.status(Status::Info, format!("→ {path}"));
+    }
 }
 
 /// Loaded or not, and the take when the file has several.
@@ -1802,7 +2821,12 @@ fn take_rows(f: &mut Rows, loaded: Result<crate::fbx_loader::LoadedFbx, String>,
         Ok(loaded) => {
             f.status(Status::Ok, "Loaded");
             if loaded.takes.len() > 1 {
-                let options: Vec<(u32, &str)> = loaded.takes.iter().enumerate().map(|(i, n)| (i as u32, n.as_str())).collect();
+                let options: Vec<(u32, &str)> = loaded
+                    .takes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| (i as u32, n.as_str()))
+                    .collect();
                 f.choice("Take", None, take, &options);
             }
         }
@@ -1813,46 +2837,85 @@ fn take_rows(f: &mut Rows, loaded: Result<crate::fbx_loader::LoadedFbx, String>,
 fn rate_row(f: &mut Rows, num: &mut u32, den: &mut u32) {
     let mut cur = FrameRate::new(*num, *den);
     let labels: Vec<String> = RATE_PRESETS.iter().map(|(name, _)| format!("{name} fps")).collect();
-    let options: Vec<(FrameRate, &str)> = RATE_PRESETS.iter().zip(&labels).map(|((_, r), l)| (*r, l.as_str())).collect();
-    if f.choice("Rate", None, &mut cur, &options) { *num = cur.num; *den = cur.den; }
+    let options: Vec<(FrameRate, &str)> = RATE_PRESETS
+        .iter()
+        .zip(&labels)
+        .map(|((_, r), l)| (*r, l.as_str()))
+        .collect();
+    if f.choice("Rate", None, &mut cur, &options) {
+        *num = cur.num;
+        *den = cur.den;
+    }
 }
 
 /// What comes in and what goes out of a clip node.
 fn clip_summary(ui: &mut egui::Ui, anim: &AnimContext, with_input: bool) {
-    let line = |c: &AnimData| format!("{} to {}, {} frames at {} fps{}",
-        c.timecode(c.start_frame), c.timecode(c.end_frame()), c.frames, c.rate.label(), if c.drop_frame { " DF" } else { "" });
+    let line = |c: &AnimData| {
+        format!(
+            "{} to {}, {} frames at {} fps{}",
+            c.timecode(c.start_frame),
+            c.timecode(c.end_frame()),
+            c.frames,
+            c.rate.label(),
+            if c.drop_frame { " DF" } else { "" }
+        )
+    };
     group(ui, "Clip", None, |f| {
         if with_input {
-            match &anim.input { Some(i) => f.value("In", line(i)), None => f.status(Status::Info, "No clip connected") }
+            match &anim.input {
+                Some(i) => f.value("In", line(i)),
+                None => f.status(Status::Info, "No clip connected"),
+            }
         }
-        if let Some(o) = &anim.output { f.value("Out", line(o)); }
+        if let Some(o) = &anim.output {
+            f.value("Out", line(o));
+        }
     });
 }
 
 /// Progress and results of the last write.
 fn batch_log(ui: &mut egui::Ui, batch: &BatchState) {
     let p = batch.0.lock().unwrap();
-    if p.log.is_empty() && !p.running { return; }
-    group(ui, "Log", None, |f| f.wide(|ui| {
-        if p.running {
-            ui.add(egui::ProgressBar::new(p.done as f32 / p.total.max(1) as f32).text(format!("Writing {} of {}", p.done, p.total)));
-        }
-        egui::ScrollArea::vertical().id_salt("batch_log").max_height(260.0).stick_to_bottom(true).show(ui, |ui| {
-            for line in &p.log {
-                let col = if line.starts_with("FAILED") { ink::BAD() } else { ink::LABEL() };
-                ui.colored_label(col, egui::RichText::new(line).small());
+    if p.log.is_empty() && !p.running {
+        return;
+    }
+    group(ui, "Log", None, |f| {
+        f.wide(|ui| {
+            if p.running {
+                ui.add(
+                    egui::ProgressBar::new(p.done as f32 / p.total.max(1) as f32)
+                        .text(format!("Writing {} of {}", p.done, p.total)),
+                );
             }
-        });
-    }));
+            egui::ScrollArea::vertical()
+                .id_salt("batch_log")
+                .max_height(260.0)
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for line in &p.log {
+                        let col = if line.starts_with("FAILED") {
+                            ink::BAD()
+                        } else {
+                            ink::LABEL()
+                        };
+                        ui.colored_label(col, egui::RichText::new(line).small());
+                    }
+                });
+        })
+    });
 }
 
 /// Under a file to read (after `path_row`, which shows what it becomes):
 /// whether it is set, and there.
 fn path_status(f: &mut Rows, typed: &str) {
     let path = crate::core::vars::expand(typed.trim(), &[]);
-    if path.is_empty() { f.status(Status::Info, "No file set"); }
-    else if std::path::Path::new(&path).exists() { f.status(Status::Ok, "Found"); }
-    else { f.status(Status::Bad, "Not found"); }
+    if path.is_empty() {
+        f.status(Status::Info, "No file set");
+    } else if std::path::Path::new(&path).exists() {
+        f.status(Status::Ok, "Found");
+    } else {
+        f.status(Status::Bad, "Not found");
+    }
 }
 
 /// A unit's usual name, for a stage's metersPerUnit.
@@ -1867,24 +2930,48 @@ fn unit_name(metres: f64) -> &'static str {
     }
 }
 
-/// What a USD file holds, from the cached stage (`convert`: read turned to
-/// Y-up and metres).
+/// What a USD file holds, from the cached stage (`convert`: read turned to Y-up
+/// and metres).
 fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
     // A big stage is read in the background: its boxes first, then the
     // whole of it. Say how far it has come.
     let reading = crate::usd_scene::reading(path, convert);
     let scene = match crate::usd_scene::load_cached(path, convert) {
         Ok(s) => s,
-        Err(e) if reading.is_some() => { group(ui, "Stage", None, |f| f.status(Status::Info, e)); return; }
-        Err(e) => { group(ui, "Stage", None, |f| f.status(Status::Bad, format!("Could not read the file: {e}"))); return; }
+        Err(e) if reading.is_some() => {
+            group(ui, "Stage", None, |f| f.status(Status::Info, e));
+            return;
+        }
+        Err(e) => {
+            group(ui, "Stage", None, |f| {
+                f.status(Status::Bad, format!("Could not read the file: {e}"))
+            });
+            return;
+        }
     };
-    if let Some(r) = reading { group(ui, "Stage", None, |f| f.status(Status::Info, r)); }
+    if let Some(r) = reading {
+        group(ui, "Stage", None, |f| f.status(Status::Info, r));
+    }
     let leaf = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
     group(ui, "Stage", None, |f| {
-        f.value("Meshes", format!("{} primitives, {} triangles", scene.meshes.len(), scene.triangles()));
+        f.value(
+            "Meshes",
+            format!("{} primitives, {} triangles", scene.meshes.len(), scene.triangles()),
+        );
         // As the stage says, and what Imago does with it.
-        let kept = if scene.converted { "turned to Y-up" } else { "kept as authored" };
-        f.value("Up axis", if scene.up_axis == "Y" { "Y".to_string() } else { format!("{}, {kept}", scene.up_axis) });
+        let kept = if scene.converted {
+            "turned to Y-up"
+        } else {
+            "kept as authored"
+        };
+        f.value(
+            "Up axis",
+            if scene.up_axis == "Y" {
+                "Y".to_string()
+            } else {
+                format!("{}, {kept}", scene.up_axis)
+            },
+        );
         let unit = match scene.meters_per_unit {
             None => "Not stated (USD's fallback is centimetres): kept as authored".to_string(),
             Some(u) if (u - 1.0).abs() < 1e-9 => "Metres".to_string(),
@@ -1893,21 +2980,33 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
         };
         f.value("Unit", unit);
         if !scene.converted && (scene.up_axis != "Y" || scene.meters_per_unit.is_some_and(|u| (u - 1.0).abs() > 1e-9)) {
-            f.status(Status::Info, "Not Y-up metres: other stages may not match it. Turn on Y-up metres, or move and scale it yourself");
+            f.status(
+                Status::Info,
+                "Not Y-up metres: other stages may not match it. Turn on Y-up metres, or move and scale it yourself",
+            );
         }
-        if let Some((start, end, rate)) = scene.time { f.value("Time", format!("{start} to {end} at {rate} per second")); }
+        if let Some((start, end, rate)) = scene.time {
+            f.value("Time", format!("{start} to {end} at {rate} per second"));
+        }
         let kinds: Vec<String> = scene.prim_counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
         f.value("Prims", kinds.join(", "));
     });
     let list = |ui: &mut egui::Ui, title: String, rows: Vec<(String, String)>| {
-        if rows.is_empty() { return; }
+        if rows.is_empty() {
+            return;
+        }
         egui::CollapsingHeader::new(title).default_open(false).show(ui, |ui| {
-            egui::ScrollArea::vertical().id_salt(ui.id().with("usd_rows")).max_height(180.0).show(ui, |ui| {
-                for (name, detail) in rows {
-                    ui.colored_label(ink::LABEL(), name);
-                    if !detail.is_empty() { ui.colored_label(ink::DIM(), egui::RichText::new(detail).small()); }
-                }
-            });
+            egui::ScrollArea::vertical()
+                .id_salt(ui.id().with("usd_rows"))
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    for (name, detail) in rows {
+                        ui.colored_label(ink::LABEL(), name);
+                        if !detail.is_empty() {
+                            ui.colored_label(ink::DIM(), egui::RichText::new(detail).small());
+                        }
+                    }
+                });
         });
     };
     // Materials: what each is, and a MaterialX operator made from its network.
@@ -1940,103 +3039,228 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
             });
         });
     }
-    list(ui, format!("Cameras ({})", scene.cameras.len()), scene.cameras.iter().map(|c| {
-        let (k, at) = (&c.camera, c.position());
-        (leaf(&c.path), format!("{} {} mm, aperture {} x {}, clip {} to {}, at {:.2} {:.2} {:.2}",
-            k.projection.token(), k.focal_length, k.horizontal_aperture, k.vertical_aperture, k.clipping_range[0], k.clipping_range[1], at[0], at[1], at[2]))
-    }).collect());
-    list(ui, format!("Skeletons ({})", scene.skeletons.len()), scene.skeletons.iter().map(|s| (leaf(&s.path), format!("{} joints", s.joints.len()))).collect());
-    list(ui, format!("Lights ({})", scene.lights.len()), scene.lights.iter().map(|l| {
-        let at = l.place.matrices().first().map(|m| m.w_axis.truncate().to_array()).unwrap_or([0.0; 3]);
-        (leaf(&l.path), format!("{}, intensity {}, at {:.2} {:.2} {:.2}", l.light.kind.usd(), l.light.float("inputs:intensity"), at[0], at[1], at[2]))
-    }).collect());
+    list(
+        ui,
+        format!("Cameras ({})", scene.cameras.len()),
+        scene
+            .cameras
+            .iter()
+            .map(|c| {
+                let (k, at) = (&c.camera, c.position());
+                (
+                    leaf(&c.path),
+                    format!(
+                        "{} {} mm, aperture {} x {}, clip {} to {}, at {:.2} {:.2} {:.2}",
+                        k.projection.token(),
+                        k.focal_length,
+                        k.horizontal_aperture,
+                        k.vertical_aperture,
+                        k.clipping_range[0],
+                        k.clipping_range[1],
+                        at[0],
+                        at[1],
+                        at[2]
+                    ),
+                )
+            })
+            .collect(),
+    );
+    list(
+        ui,
+        format!("Skeletons ({})", scene.skeletons.len()),
+        scene
+            .skeletons
+            .iter()
+            .map(|s| (leaf(&s.path), format!("{} joints", s.joints.len())))
+            .collect(),
+    );
+    list(
+        ui,
+        format!("Lights ({})", scene.lights.len()),
+        scene
+            .lights
+            .iter()
+            .map(|l| {
+                let at = l
+                    .place
+                    .matrices()
+                    .first()
+                    .map(|m| m.w_axis.truncate().to_array())
+                    .unwrap_or([0.0; 3]);
+                (
+                    leaf(&l.path),
+                    format!(
+                        "{}, intensity {}, at {:.2} {:.2} {:.2}",
+                        l.light.kind.usd(),
+                        l.light.float("inputs:intensity"),
+                        at[0],
+                        at[1],
+                        at[2]
+                    ),
+                )
+            })
+            .collect(),
+    );
     if !scene.notes.is_empty() {
         ui.add_space(form::GAP);
-        group(ui, "Not read in full", None, |f| { for n in &scene.notes { f.status(Status::Info, n.clone()); } });
+        group(ui, "Not read in full", None, |f| {
+            for n in &scene.notes {
+                f.status(Status::Info, n.clone());
+            }
+        });
     }
 }
 
-/// A name pattern: comma-separated regular expressions (see
-/// `core::pattern`), with a picker of the names coming in and a match count.
-/// With `single`, the field holds one expression and picking replaces it.
-/// The background of a Primitive Location field: a grey of its own, between
-/// the panel and the other fields, in light and dark schemes alike.
-fn location_bg() -> egui::Color32 { ink::LOCATION() }
+/// A name pattern: comma-separated regular expressions (see `core::pattern`),
+/// with a picker of the names coming in and a match count. With `single`, the
+/// field holds one expression and picking replaces it. The background of a
+/// Primitive Location field: a grey of its own, between the panel and the other
+/// fields, in light and dark schemes alike.
+fn location_bg() -> egui::Color32 {
+    ink::LOCATION()
+}
 
 /// Add a path to a list of Primitive Locations, unless it is there already.
 fn add_location(list: &mut Vec<String>, path: &str) {
     let path = path.trim();
-    if path.is_empty() { list.push(String::new()); return; }
-    if !list.iter().any(|l| l.trim() == path) { list.push(path.to_string()); }
+    if path.is_empty() {
+        list.push(String::new());
+        return;
+    }
+    if !list.iter().any(|l| l.trim() == path) {
+        list.push(path.to_string());
+    }
 }
 
-/// Set Attribute's rows: each a context, a name (the common ones offered),
-/// a type and a value. `located`: the Prims Location tab names prims.
-fn set_attribute_rows(ui: &mut egui::Ui, rows: &mut Vec<crate::core::set_attribute::SetRow>, located: bool, coming_in: usize) {
+/// Set Attribute's rows: each a context, a name (the common ones offered), a
+/// type and a value. `located`: the Prims Location tab names prims.
+fn set_attribute_rows(
+    ui: &mut egui::Ui,
+    rows: &mut Vec<crate::core::set_attribute::SetRow>,
+    located: bool,
+    coming_in: usize,
+) {
     use crate::core::properties::{preset, SetContext, ValueType, OBJECT_PRESETS, PROPERTY_PRESETS};
     use crate::core::set_attribute::SetRow;
     let hint = "One value per prim, on the prims the Prims Location tab names: a group, a camera or a light as well as a mesh. Without locations, on every primitive coming in (or those an earlier Pick Primitives chose). Values per point, face or corner are ICE's";
     group(ui, "Set Attribute", Some(hint), |f| {
-        if located { f.status(Status::Info, "On the prims the Prims Location tab names"); }
-        else if coming_in == 0 { f.status(Status::Info, "No primitives coming in"); }
-        else { f.status(Status::Info, format!("No Prims Location: on the {coming_in} primitives coming in (or the picked ones). Groups, cameras and lights need a location")); }
-        if rows.is_empty() { f.status(Status::Info, "No rows: nothing is set"); }
+        if located {
+            f.status(Status::Info, "On the prims the Prims Location tab names");
+        } else if coming_in == 0 {
+            f.status(Status::Info, "No primitives coming in");
+        } else {
+            f.status(Status::Info, format!("No Prims Location: on the {coming_in} primitives coming in (or the picked ones). Groups, cameras and lights need a location"));
+        }
+        if rows.is_empty() {
+            f.status(Status::Info, "No rows: nothing is set");
+        }
     });
     let context_hint = "Object: a constant primvar (primvars:name), data for rendering that shaders read and the prims below a group inherit. Property: the prim's own attribute or metadata (visibility, purpose, kind, active…), not seen by shaders, not inherited";
     let mut remove = None;
     let mut up = None;
     for (k, row) in rows.iter_mut().enumerate() {
-        let title = format!("{}  {}", k + 1, if row.name.trim().is_empty() { "(no name)" } else { row.name.trim() });
-        group_with(ui, &title, Some("Where two rows set the same name, the later one wins"), |ui| {
-            if ui.small_button("🗑").on_hover_text("Remove this row").clicked() { remove = Some(k); }
-            if k > 0 && ui.small_button("⏶").on_hover_text("Move up").clicked() { up = Some(k); }
-        }, |f| {
-            let was = row.context;
-            f.choice("Context", Some(context_hint), &mut row.context, &[(SetContext::Object, "Object"), (SetContext::Property, "Property")]);
-            // An Object value is a column of a Geo: only the types it holds.
-            if row.context != was && row.context == SetContext::Object && !ValueType::OBJECT.contains(&row.value.kind()) {
-                row.value = ValueType::Float.convert(&row.value);
+        let title = format!(
+            "{}  {}",
+            k + 1,
+            if row.name.trim().is_empty() {
+                "(no name)"
+            } else {
+                row.name.trim()
             }
-            let offered = match row.context { SetContext::Object => OBJECT_PRESETS, SetContext::Property => PROPERTY_PRESETS };
-            let name_hint = match row.context {
+        );
+        group_with(
+            ui,
+            &title,
+            Some("Where two rows set the same name, the later one wins"),
+            |ui| {
+                if ui.small_button("🗑").on_hover_text("Remove this row").clicked() {
+                    remove = Some(k);
+                }
+                if k > 0 && ui.small_button("⏶").on_hover_text("Move up").clicked() {
+                    up = Some(k);
+                }
+            },
+            |f| {
+                let was = row.context;
+                f.choice(
+                    "Context",
+                    Some(context_hint),
+                    &mut row.context,
+                    &[(SetContext::Object, "Object"), (SetContext::Property, "Property")],
+                );
+                // An Object value is a column of a Geo: only the types it holds.
+                if row.context != was
+                    && row.context == SetContext::Object
+                    && !ValueType::OBJECT.contains(&row.value.kind())
+                {
+                    row.value = ValueType::Float.convert(&row.value);
+                }
+                let offered = match row.context {
+                    SetContext::Object => OBJECT_PRESETS,
+                    SetContext::Property => PROPERTY_PRESETS,
+                };
+                let name_hint = match row.context {
                 SetContext::Object => "Written as primvars:name. Pick a common one, or type any name",
                 SetContext::Property => "The attribute or metadata to set. Pick a common one, or type any name (userProperties:assetId, focalLength)",
             };
-            f.row("Name", Some(name_hint), |ui| {
-                ui.horizontal(|ui| {
-                    let w = (ui.available_width() - 48.0).max(60.0);
-                    ui.field(egui::TextEdit::singleline(&mut row.name).desired_width(w).hint_text("name")
-                        .font(egui::TextStyle::Monospace));
-                    crate::menus::menu(ui, "Pick", |ui| {
-                        for p in offered {
-                            if ui.selectable_label(row.name.trim() == p.name, p.name).on_hover_text(p.hint).clicked() {
-                                *row = SetRow::from_preset(row.context, p);
+                f.row("Name", Some(name_hint), |ui| {
+                    ui.horizontal(|ui| {
+                        let w = (ui.available_width() - 48.0).max(60.0);
+                        ui.field(
+                            egui::TextEdit::singleline(&mut row.name)
+                                .desired_width(w)
+                                .hint_text("name")
+                                .font(egui::TextStyle::Monospace),
+                        );
+                        crate::menus::menu(ui, "Pick", |ui| {
+                            for p in offered {
+                                if ui
+                                    .selectable_label(row.name.trim() == p.name, p.name)
+                                    .on_hover_text(p.hint)
+                                    .clicked()
+                                {
+                                    *row = SetRow::from_preset(row.context, p);
+                                }
                             }
-                        }
+                        });
                     });
                 });
-            });
-            let known = preset(row.context, &row.name);
-            match known {
-                // A common name has its type.
-                Some(p) => {
-                    if row.value.kind() != p.ty { row.value = p.ty.convert(&row.value); }
-                    f.value("Type", p.ty.usd());
+                let known = preset(row.context, &row.name);
+                match known {
+                    // A common name has its type.
+                    Some(p) => {
+                        if row.value.kind() != p.ty {
+                            row.value = p.ty.convert(&row.value);
+                        }
+                        f.value("Type", p.ty.usd());
+                    }
+                    None => {
+                        let types: &[ValueType] = match row.context {
+                            SetContext::Object => &ValueType::OBJECT,
+                            SetContext::Property => &ValueType::ALL,
+                        };
+                        let options: Vec<(ValueType, &str)> = types.iter().map(|t| (*t, t.usd())).collect();
+                        let mut ty = row.value.kind();
+                        if f.choice("Type", None, &mut ty, &options) {
+                            row.value = ty.convert(&row.value);
+                        }
+                    }
                 }
-                None => {
-                    let types: &[ValueType] = match row.context { SetContext::Object => &ValueType::OBJECT, SetContext::Property => &ValueType::ALL };
-                    let options: Vec<(ValueType, &str)> = types.iter().map(|t| (*t, t.usd())).collect();
-                    let mut ty = row.value.kind();
-                    if f.choice("Type", None, &mut ty, &options) { row.value = ty.convert(&row.value); }
+                value_row(f, &mut row.value, known.map(|p| p.tokens).unwrap_or(&[]));
+                if row.name.trim().is_empty() {
+                    f.status(Status::Info, "No name: this row sets nothing");
+                } else if let Some(p) = known {
+                    f.status(Status::Info, p.hint);
                 }
-            }
-            value_row(f, &mut row.value, known.map(|p| p.tokens).unwrap_or(&[]));
-            if row.name.trim().is_empty() { f.status(Status::Info, "No name: this row sets nothing"); }
-            else if let Some(p) = known { f.status(Status::Info, p.hint); }
-        });
+            },
+        );
     }
-    if let Some(k) = remove { rows.remove(k); }
-    if let Some(k) = up { rows.swap(k, k - 1); }
+    if let Some(k) = remove {
+        rows.remove(k);
+    }
+    if let Some(k) = up {
+        rows.swap(k, k - 1);
+    }
     group(ui, "Rows", None, |f| {
         f.buttons("Add", Some("Object: a primvar, displayColor to start. Property: an attribute or metadata, visibility to start. Either can be renamed"), |ui| {
             if ui.button("+ Object").clicked() { rows.push(SetRow::from_preset(SetContext::Object, &OBJECT_PRESETS[0])); }
@@ -2054,23 +3278,55 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
             let n = v.len() as f32;
             let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
             let h = ui.spacing().interact_size.y;
-            for x in v.iter_mut() { ui.field_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4)); }
+            for x in v.iter_mut() {
+                ui.field_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4));
+            }
         });
     };
     match v {
-        Value::Bool(b) => { f.toggle("Value", None, b); }
-        Value::Int(i) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.field_sized([ui.available_width(), h], egui::DragValue::new(i).speed(0.1)); }); }
-        Value::Float(x) => { f.drag("Value", None, x, 0.01, ""); }
-        Value::Double(x) => { f.row("Value", None, |ui| { let h = ui.spacing().interact_size.y; ui.field_sized([ui.available_width(), h], egui::DragValue::new(x).speed(0.01)); }); }
+        Value::Bool(b) => {
+            f.toggle("Value", None, b);
+        }
+        Value::Int(i) => {
+            f.row("Value", None, |ui| {
+                let h = ui.spacing().interact_size.y;
+                ui.field_sized([ui.available_width(), h], egui::DragValue::new(i).speed(0.1));
+            });
+        }
+        Value::Float(x) => {
+            f.drag("Value", None, x, 0.01, "");
+        }
+        Value::Double(x) => {
+            f.row("Value", None, |ui| {
+                let h = ui.spacing().interact_size.y;
+                ui.field_sized([ui.available_width(), h], egui::DragValue::new(x).speed(0.01));
+            });
+        }
         Value::Token(s) if !tokens.is_empty() => {
             let options: Vec<(String, &str)> = tokens.iter().map(|t| (t.to_string(), *t)).collect();
             f.choice("Value", None, s, &options);
         }
-        Value::String(s) | Value::Token(s) => { f.text_vars("Value", Some("Variables are put in: $OPNAME, $GNAME…"), s, "", false); }
-        Value::Asset(s) => { f.text_vars("Value", Some("A file path, written as @path@, its variables put in: $JOB/tex/sky.exr"), s, "/path/to/file", false); }
-        Value::Float2(a) => { f.row("Value", None, |ui| fields(ui, a)); }
-        Value::Float3(a) => { f.row("Value", None, |ui| fields(ui, a)); }
-        Value::Float4(a) => { f.row("Value", None, |ui| fields(ui, a)); }
+        Value::String(s) | Value::Token(s) => {
+            f.text_vars("Value", Some("Variables are put in: $OPNAME, $GNAME…"), s, "", false);
+        }
+        Value::Asset(s) => {
+            f.text_vars(
+                "Value",
+                Some("A file path, written as @path@, its variables put in: $JOB/tex/sky.exr"),
+                s,
+                "/path/to/file",
+                false,
+            );
+        }
+        Value::Float2(a) => {
+            f.row("Value", None, |ui| fields(ui, a));
+        }
+        Value::Float3(a) => {
+            f.row("Value", None, |ui| fields(ui, a));
+        }
+        Value::Float4(a) => {
+            f.row("Value", None, |ui| fields(ui, a));
+        }
         Value::Color3f(c) => {
             f.row("Value", None, |ui| {
                 ui.horizontal(|ui| {
@@ -2095,22 +3351,35 @@ pub(crate) enum TabKind {
     Binds,
 }
 
-/// Material Binding's Material column: what each row binds, the material
-/// on each input (its name), and the materials of the scene coming in.
+/// Material Binding's Material column: what each row binds, the material on
+/// each input (its name), and the materials of the scene coming in.
 pub(crate) struct BindColumn<'a> {
-    to:     &'a mut Vec<crate::core::material::BindTo>,
+    to: &'a mut Vec<crate::core::material::BindTo>,
     inputs: &'a [Option<String>],
-    scene:  &'a [String],
+    scene: &'a [String],
 }
 
 /// The Prims Location tab: the Primitive Locations an operator works on, one
 /// per row, each with how many of the primitives coming in it matches.
-pub(crate) fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[String], selected: &[String], kind: TabKind, mut binds: Option<BindColumn>) {
+pub(crate) fn locations_tab(
+    ui: &mut egui::Ui,
+    list: &mut Vec<String>,
+    paths: &[String],
+    selected: &[String],
+    kind: TabKind,
+    mut binds: Option<BindColumn>,
+) {
     use crate::core::locations;
     let names = kind == TabKind::Names;
     let prune = kind == TabKind::Prune;
     let binding = kind == TabKind::Binds;
-    let hits = |row: &str, p: &str| if names { locations::names(row, p) } else { locations::matches(row, p) };
+    let hits = |row: &str, p: &str| {
+        if names {
+            locations::names(row, p)
+        } else {
+            locations::matches(row, p)
+        }
+    };
     let hint = if binding {
         "Each row binds a material to the primitive at its path and every one below it: the material input of the row's number, unless another input is chosen in its Material column, or Location, a material already in the scene by its path. On a primitive two rows take, the later row wins"
     } else if names {
@@ -2118,36 +3387,63 @@ pub(crate) fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[
     } else {
         "A path takes that primitive and everything below it. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/**/lamp*"
     };
-    group(ui, if binding { "Bindings" } else { "Primitive Locations" }, Some(hint), |f| {
-        let mut remove = None;
-        for (k, row) in list.iter_mut().enumerate() {
-            f.row(&format!("{}", k + 1), None, |ui| {
-                ui.horizontal(|ui| {
-                    let w = (ui.available_width() - if binds.is_some() { 180.0 } else { 74.0 }).max(60.0);
-                    // A path, not text: grey, in the code font, so a location
-                    // is told apart from the other text fields at a glance.
-                    ui.field(egui::TextEdit::singleline(row).desired_width(w).hint_text("/path/to/prim")
-                        .font(egui::TextStyle::Monospace).background_color(location_bg()));
-                    // How many of the primitives coming in this row matches.
-                    if !row.trim().is_empty() && !paths.is_empty() {
-                        let n = paths.iter().filter(|p| hits(row, p)).count();
-                        let text = egui::RichText::new(format!("{n}")).monospace();
-                        let label = if n == 0 { ui.colored_label(ink::BAD(), text) } else { ui.label(text) };
-                        label.on_hover_text(if n == 0 { "Matches no primitive coming in".to_string() } else { format!("Matches {n} of the primitives coming in") });
-                    }
-                    if let Some(col) = binds.as_mut() { bind_choice(ui, k, col); }
-                    if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
+    group(
+        ui,
+        if binding { "Bindings" } else { "Primitive Locations" },
+        Some(hint),
+        |f| {
+            let mut remove = None;
+            for (k, row) in list.iter_mut().enumerate() {
+                f.row(&format!("{}", k + 1), None, |ui| {
+                    ui.horizontal(|ui| {
+                        let w = (ui.available_width() - if binds.is_some() { 180.0 } else { 74.0 }).max(60.0);
+                        // A path, not text: grey, in the code font, so a location
+                        // is told apart from the other text fields at a glance.
+                        ui.field(
+                            egui::TextEdit::singleline(row)
+                                .desired_width(w)
+                                .hint_text("/path/to/prim")
+                                .font(egui::TextStyle::Monospace)
+                                .background_color(location_bg()),
+                        );
+                        // How many of the primitives coming in this row matches.
+                        if !row.trim().is_empty() && !paths.is_empty() {
+                            let n = paths.iter().filter(|p| hits(row, p)).count();
+                            let text = egui::RichText::new(format!("{n}")).monospace();
+                            let label = if n == 0 {
+                                ui.colored_label(ink::BAD(), text)
+                            } else {
+                                ui.label(text)
+                            };
+                            label.on_hover_text(if n == 0 {
+                                "Matches no primitive coming in".to_string()
+                            } else {
+                                format!("Matches {n} of the primitives coming in")
+                            });
+                        }
+                        if let Some(col) = binds.as_mut() {
+                            bind_choice(ui, k, col);
+                        }
+                        if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                            remove = Some(k);
+                        }
+                    });
                 });
-            });
-            // Bound to a material of the scene by its path: the path, under the row.
-            if let Some(col) = binds.as_mut() { material_location_row(f, k, col); }
-        }
-        if let Some(k) = remove {
-            list.remove(k);
-            // Its material goes with it.
-            if let Some(col) = binds.as_mut() { if k < col.to.len() { col.to.remove(k); } }
-        }
-        f.row("", None, |ui| {
+                // Bound to a material of the scene by its path: the path, under the row.
+                if let Some(col) = binds.as_mut() {
+                    material_location_row(f, k, col);
+                }
+            }
+            if let Some(k) = remove {
+                list.remove(k);
+                // Its material goes with it.
+                if let Some(col) = binds.as_mut() {
+                    if k < col.to.len() {
+                        col.to.remove(k);
+                    }
+                }
+            }
+            f.row("", None, |ui| {
             ui.horizontal(|ui| {
                 let tip = match selected {
                     [] => "Add a row. Select prims in the Scene Explorer first to add their paths, or drag prims from it and drop them here".to_string(),
@@ -2172,39 +3468,71 @@ pub(crate) fn locations_tab(ui: &mut egui::Ui, list: &mut Vec<String>, paths: &[
                 });
             });
         });
-        let set = locations::is_set(list);
-        let taken = paths.iter().filter(|p| list.iter().any(|row| !row.trim().is_empty() && hits(row, p))).count();
-        match (set, prune) {
-            (false, _) if binding => f.status(Status::Info, "Empty: nothing is bound. Add a row per material: row 1 binds the material on input 1"),
-            (false, false) => f.status(Status::Info, "Empty: every primitive coming in (or those an earlier Pick Primitives chose)"),
-            (false, true) => f.status(Status::Info, "Empty: nothing is pruned"),
-            (true, _) if paths.is_empty() => f.status(Status::Info, "No primitives coming in"),
-            (true, _) if names => f.status(Status::Info, format!("Names {taken} of the {} prims of the scene coming in", paths.len())),
-            (true, _) => f.status(Status::Info, format!("Takes {taken} of the {} primitives coming in", paths.len())),
-        }
-    });
+            let set = locations::is_set(list);
+            let taken = paths
+                .iter()
+                .filter(|p| list.iter().any(|row| !row.trim().is_empty() && hits(row, p)))
+                .count();
+            match (set, prune) {
+                (false, _) if binding => f.status(
+                    Status::Info,
+                    "Empty: nothing is bound. Add a row per material: row 1 binds the material on input 1",
+                ),
+                (false, false) => f.status(
+                    Status::Info,
+                    "Empty: every primitive coming in (or those an earlier Pick Primitives chose)",
+                ),
+                (false, true) => f.status(Status::Info, "Empty: nothing is pruned"),
+                (true, _) if paths.is_empty() => f.status(Status::Info, "No primitives coming in"),
+                (true, _) if names => f.status(
+                    Status::Info,
+                    format!("Names {taken} of the {} prims of the scene coming in", paths.len()),
+                ),
+                (true, _) => f.status(
+                    Status::Info,
+                    format!("Takes {taken} of the {} primitives coming in", paths.len()),
+                ),
+            }
+        },
+    );
 }
 
 fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &[String], single: bool) {
     use crate::core::pattern;
-    let hint = if single { "A regular expression, case ignored" }
-        else { "Comma-separated regular expressions, case ignored. A plain word matches names containing it" };
+    let hint = if single {
+        "A regular expression, case ignored"
+    } else {
+        "Comma-separated regular expressions, case ignored. A plain word matches names containing it"
+    };
     f.row(label, Some(hint), |ui| {
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 48.0).max(60.0);
-            ui.field(egui::TextEdit::singleline(text).desired_width(w).hint_text("regex, regex"));
+            ui.field(
+                egui::TextEdit::singleline(text)
+                    .desired_width(w)
+                    .hint_text("regex, regex"),
+            );
             ui.add_enabled_ui(!names.is_empty(), |ui| {
                 crate::menus::menu(ui, "Pick", |ui| {
                     let filter_id = ui.id().with(id).with("filter");
                     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-                    ui.field(egui::TextEdit::singleline(&mut filter).desired_width(200.0).hint_text("filter the list"));
+                    ui.field(
+                        egui::TextEdit::singleline(&mut filter)
+                            .desired_width(200.0)
+                            .hint_text("filter the list"),
+                    );
                     let shown = pattern::NamePattern::new(&filter);
                     let current = pattern::NamePattern::new(text);
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                         for n in names {
-                            if !shown.is_empty() && !shown.matches(n) { continue; }
+                            if !shown.is_empty() && !shown.matches(n) {
+                                continue;
+                            }
                             if single {
-                                if ui.selectable_label(false, n).clicked() { *text = regex::escape(n); ui.close(); }
+                                if ui.selectable_label(false, n).clicked() {
+                                    *text = regex::escape(n);
+                                    ui.close();
+                                }
                             } else if ui.selectable_label(current.matches(n), n).clicked() {
                                 pattern::toggle(text, n);
                             }
@@ -2217,12 +3545,15 @@ fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &
                         filter.clear();
                     }
                     ui.data_mut(|d| d.insert_temp(filter_id, filter));
-                }).response.on_hover_text("Pick from the names coming in");
+                })
+                .response
+                .on_hover_text("Pick from the names coming in");
             });
         });
     });
-    if let Some(e) = pattern::error(text) { f.status(Status::Bad, e); }
-    else if !names.is_empty() && !text.trim().is_empty() {
+    if let Some(e) = pattern::error(text) {
+        f.status(Status::Bad, e);
+    } else if !names.is_empty() && !text.trim().is_empty() {
         let p = pattern::NamePattern::new(text);
         let n = names.iter().filter(|x| p.matches(x)).count();
         f.status(Status::Info, format!("Matches {n} of {}", names.len()));
@@ -2231,9 +3562,20 @@ fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &
 
 /// The axes and unit a clip is written in.
 fn space_line(c: &AnimData) -> String {
-    let axis = |(a, sgn): (i32, i32)| format!("{}{}", if sgn < 0 { "-" } else { "" }, ["X", "Y", "Z"][a.clamp(0, 2) as usize]);
-    let unit = |cm: f64| match cm { x if (x - 1.0).abs() < 1e-9 => "cm".to_string(), x if (x - 100.0).abs() < 1e-9 => "m".into(),
-        x if (x - 0.1).abs() < 1e-9 => "mm".into(), x if (x - 2.54).abs() < 1e-9 => "inches".into(), x => format!("{x} cm units") };
+    let axis = |(a, sgn): (i32, i32)| {
+        format!(
+            "{}{}",
+            if sgn < 0 { "-" } else { "" },
+            ["X", "Y", "Z"][a.clamp(0, 2) as usize]
+        )
+    };
+    let unit = |cm: f64| match cm {
+        x if (x - 1.0).abs() < 1e-9 => "cm".to_string(),
+        x if (x - 100.0).abs() < 1e-9 => "m".into(),
+        x if (x - 0.1).abs() < 1e-9 => "mm".into(),
+        x if (x - 2.54).abs() < 1e-9 => "inches".into(),
+        x => format!("{x} cm units"),
+    };
     match c.space.as_deref() {
         Some(sp) => format!("{} up, {}, as the source file", axis(sp.up), unit(sp.unit_cm)),
         None => "Y up, cm (made in this program)".into(),
@@ -2244,9 +3586,22 @@ fn space_line(c: &AnimData) -> String {
 /// Parents on the path are plain Xforms. What is typed is cleaned into a USD
 /// path, and the panel says so when that changes it.
 fn location_group(ui: &mut egui::Ui, location: &mut String, fallback: &str) {
-    group(ui, "Primitive", Some("Where the shape is in the scene. Its parents are Xforms"), |f| {
-        f.text_vars("Primitive Location", Some("A USD path, such as /cube or /set/props/box1. Variables are put in: /set/$OPNAME"), location, fallback, false);
-        let path = crate::types::prim_location(location, fallback);
-        if path != location.trim() { f.status(Status::Info, format!("Used as {path}")); }
-    });
+    group(
+        ui,
+        "Primitive",
+        Some("Where the shape is in the scene. Its parents are Xforms"),
+        |f| {
+            f.text_vars(
+                "Primitive Location",
+                Some("A USD path, such as /cube or /set/props/box1. Variables are put in: /set/$OPNAME"),
+                location,
+                fallback,
+                false,
+            );
+            let path = crate::types::prim_location(location, fallback);
+            if path != location.trim() {
+                f.status(Status::Info, format!("Used as {path}"));
+            }
+        },
+    );
 }

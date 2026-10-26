@@ -1,16 +1,15 @@
 //! In-app file browser.
 //!
-//! Opens where the user last navigated, in this session or a previous one.
-//! The location is kept in a small text file in the user's config folder.
+//! Opens where the user last navigated, in this session or a previous one. The
+//! location is kept in a small text file in the user's config folder.
 //!
 //! **Collapse sequences** (on by default) lists files numbered alike as one
 //! entry (`shot.####.exr  1-120`); picking it gives its first file. With
 //! **UDIM** on too, a sequence numbered 1001 to 1999 is one `<UDIM>` path
-//! (`body.<UDIM>.exr  1001-1012`), which picking gives as it is: what a
-//! texture input takes for UDIM tiles (`core::sequences`).
+//! (`body.<UDIM>.exr  1001-1012`), which picking gives as it is: what a texture
+//! input takes for UDIM tiles (`core::sequences`).
 
 use std::path::{Path, PathBuf};
-
 
 use crate::types::NodeId;
 
@@ -31,8 +30,8 @@ pub enum BrowseTarget {
     Node(NodeId),
     /// The texture file feeding one input of a Material node.
     Texture(NodeId, &'static str),
-    /// A file a Light operator's value names (a dome's environment image,
-    /// a rect's texture), by the attribute's name.
+    /// A file a Light operator's value names (a dome's environment image, a
+    /// rect's texture), by the attribute's name.
     LightFile(NodeId, &'static str),
     /// A file name input of a node in a MaterialX operator's graph: the
     /// operator, the node, the input's place in its definition.
@@ -56,12 +55,12 @@ pub enum BrowseTarget {
 }
 
 struct Request {
-    target:    BrowseTarget,
-    mode:      BrowseMode,
-    title:     String,
+    target: BrowseTarget,
+    mode: BrowseMode,
+    title: String,
     /// Lower-case extensions shown in File and Save mode. Empty shows all.
-    exts:      Vec<String>,
-    selected:  Option<PathBuf>,
+    exts: Vec<String>,
+    selected: Option<PathBuf>,
     file_name: String,
     path_edit: String,
     all_files: bool,
@@ -71,24 +70,30 @@ struct Request {
 }
 
 pub struct FileBrowser {
-    dir:     PathBuf,
+    dir: PathBuf,
     request: Option<Request>,
-    result:  Option<(BrowseTarget, PathBuf)>,
-    /// Files numbered alike listed as one entry. Kept from one browse to
-    /// the next, for the session.
+    result: Option<(BrowseTarget, PathBuf)>,
+    /// Files numbered alike listed as one entry. Kept from one browse to the
+    /// next, for the session.
     collapse: bool,
     /// With `collapse`: a sequence of UDIM tiles listed as its `<UDIM>` path.
-    udim:     bool,
+    udim: bool,
 }
 
 impl Default for FileBrowser {
     fn default() -> Self {
-        Self { dir: load_last_dir(), request: None, result: None, collapse: true, udim: true }
+        Self {
+            dir: load_last_dir(),
+            request: None,
+            result: None,
+            collapse: true,
+            udim: true,
+        }
     }
 }
 
-/// Whether choosing `path` has to be confirmed first: saving over a file
-/// that exists asks before replacing it, as in any other program.
+/// Whether choosing `path` has to be confirmed first: saving over a file that
+/// exists asks before replacing it, as in any other program.
 pub fn asks_to_replace(mode: BrowseMode, path: &Path) -> bool {
     mode == BrowseMode::Save && path.is_file()
 }
@@ -98,13 +103,16 @@ pub fn config_path(file: &str) -> Option<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)
     } else {
-        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from)
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
     }?;
     Some(base.join("xms").join(file))
 }
 
-fn config_file() -> Option<PathBuf> { config_path("last_dir.txt") }
+fn config_file() -> Option<PathBuf> {
+    config_path("last_dir.txt")
+}
 
 fn home_dir() -> PathBuf {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
@@ -123,16 +131,22 @@ fn load_last_dir() -> PathBuf {
 
 fn save_last_dir(dir: &Path) {
     let Some(file) = config_file() else { return };
-    if let Some(parent) = file.parent() { let _ = std::fs::create_dir_all(parent); }
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let _ = std::fs::write(file, dir.to_string_lossy().as_bytes());
 }
 
 impl FileBrowser {
-    pub fn is_open(&self) -> bool { self.request.is_some() }
+    pub fn is_open(&self) -> bool {
+        self.request.is_some()
+    }
 
     /// Open the browser in the last visited folder.
     pub fn open(&mut self, target: BrowseTarget, mode: BrowseMode, title: &str, exts: &[&str], file_name: &str) {
-        if !self.dir.is_dir() { self.dir = home_dir(); }
+        if !self.dir.is_dir() {
+            self.dir = home_dir();
+        }
         self.request = Some(Request {
             target,
             mode,
@@ -147,20 +161,30 @@ impl FileBrowser {
     }
 
     /// The chosen path, once. Returned the frame after the user confirms.
-    pub fn take_result(&mut self) -> Option<(BrowseTarget, PathBuf)> { self.result.take() }
+    pub fn take_result(&mut self) -> Option<(BrowseTarget, PathBuf)> {
+        self.result.take()
+    }
 
     /// A path has been chosen and not yet taken.
-    pub fn has_result(&self) -> bool { self.result.is_some() }
+    pub fn has_result(&self) -> bool {
+        self.result.is_some()
+    }
 
     /// Start the next browse in this folder.
-    pub fn set_dir(&mut self, dir: &Path) { if dir.is_dir() { self.dir = dir.to_path_buf(); } }
+    pub fn set_dir(&mut self, dir: &Path) {
+        if dir.is_dir() {
+            self.dir = dir.to_path_buf();
+        }
+    }
 
     fn go(&mut self, dir: PathBuf) {
-        if !dir.is_dir() { return; }
+        if !dir.is_dir() {
+            return;
+        }
         self.dir = dir;
         save_last_dir(&self.dir);
         if let Some(r) = &mut self.request {
-            r.selected  = None;
+            r.selected = None;
             r.replacing = None;
             r.path_edit = self.dir.to_string_lossy().to_string();
         }
@@ -170,24 +194,40 @@ impl FileBrowser {
         let Some(req) = self.request.as_mut() else { return };
 
         // Folder contents: folders first, then files that match the filter.
-        let mut dirs:  Vec<PathBuf> = vec![];
+        let mut dirs: Vec<PathBuf> = vec![];
         let mut files: Vec<PathBuf> = vec![];
         let mut read_error = None;
         match std::fs::read_dir(&self.dir) {
-            Ok(rd) => for e in rd.filter_map(|e| e.ok()) {
-                let p = e.path();
-                let hidden = p.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(false);
-                if hidden { continue; }
-                if p.is_dir() {
-                    dirs.push(p);
-                } else if req.mode != BrowseMode::Folder {
-                    let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
-                    if req.all_files || req.exts.is_empty() || req.exts.contains(&ext) { files.push(p); }
+            Ok(rd) => {
+                for e in rd.filter_map(|e| e.ok()) {
+                    let p = e.path();
+                    let hidden = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().starts_with('.'))
+                        .unwrap_or(false);
+                    if hidden {
+                        continue;
+                    }
+                    if p.is_dir() {
+                        dirs.push(p);
+                    } else if req.mode != BrowseMode::Folder {
+                        let ext = p
+                            .extension()
+                            .map(|x| x.to_string_lossy().to_lowercase())
+                            .unwrap_or_default();
+                        if req.all_files || req.exts.is_empty() || req.exts.contains(&ext) {
+                            files.push(p);
+                        }
+                    }
                 }
-            },
+            }
             Err(e) => read_error = Some(e.to_string()),
         }
-        let key = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let key = |p: &PathBuf| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default()
+        };
         dirs.sort_by_key(key);
         files.sort_by_key(key);
         // Sequences as one entry each, UDIM tiles as their <UDIM> path.
@@ -198,7 +238,7 @@ impl FileBrowser {
         };
         let (mut collapse, mut udim) = (self.collapse, self.udim);
 
-        let mut go_to:   Option<PathBuf> = None;
+        let mut go_to: Option<PathBuf> = None;
         let mut confirm: Option<PathBuf> = None;
         let mut cancel = false;
         let mut open = true;
@@ -211,7 +251,7 @@ impl FileBrowser {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                // ── Location bar ─────────────────────────────────────────────
+                // Location bar
                 ui.horizontal(|ui| {
                     if ui.button("⬆ Up").clicked() {
                         if let Some(p) = self.dir.parent() { go_to = Some(p.to_path_buf()); }
@@ -234,7 +274,7 @@ impl FileBrowser {
                 }
                 ui.separator();
 
-                // ── Entries ──────────────────────────────────────────────────
+                // Entries
                 let footer = if req.mode == BrowseMode::Save { 64.0 } else { 36.0 };
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -266,7 +306,7 @@ impl FileBrowser {
                     });
                 ui.separator();
 
-                // ── Confirm ──────────────────────────────────────────────────
+                // Confirm
                 if req.mode == BrowseMode::Save {
                     ui.horizontal(|ui| {
                         ui.label("File name:");
@@ -323,7 +363,9 @@ impl FileBrowser {
 
         self.collapse = collapse;
         self.udim = udim;
-        if let Some(dir) = go_to { self.go(dir); }
+        if let Some(dir) = go_to {
+            self.go(dir);
+        }
         // A file that exists is replaced only once Replace is clicked.
         if let (Some(path), Some(req)) = (confirm.as_ref(), self.request.as_mut()) {
             if asks_to_replace(req.mode, path) && req.replacing.as_ref() != Some(path) {
@@ -333,7 +375,9 @@ impl FileBrowser {
         }
         if let Some(path) = confirm {
             let target = self.request.as_ref().map(|r| r.target);
-            if let Some(target) = target { self.result = Some((target, path)); }
+            if let Some(target) = target {
+                self.result = Some((target, path));
+            }
             save_last_dir(&self.dir);
             self.request = None;
         } else if cancel || !open {
@@ -353,7 +397,10 @@ mod tests {
         let visited = base.join("takes").join("day01");
         std::fs::create_dir_all(&visited).unwrap();
         // Keep the config file inside the test folder.
-        std::env::set_var(if cfg!(windows) { "APPDATA" } else { "XDG_CONFIG_HOME" }, base.join("cfg"));
+        std::env::set_var(
+            if cfg!(windows) { "APPDATA" } else { "XDG_CONFIG_HOME" },
+            base.join("cfg"),
+        );
 
         let mut b = FileBrowser::default();
         b.open(BrowseTarget::OpenGraph, BrowseMode::File, "Open", &["fbx"], "");

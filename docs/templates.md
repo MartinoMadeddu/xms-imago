@@ -1,8 +1,13 @@
 # Templates and example files
 
-Templates are at the bottom of the File menu: ready-made graphs, by author, then by area. Picking one asks whether to add it to the current graph, beside the nodes already there, or open it as a new graph; opening as new asks to save unsaved changes first (see [Interface](interface.md#files)). On an empty graph it opens straight away. A line under the header then says what to look at.
+Templates are at the bottom of the File menu: ready-made graphs, by author, then
+by area. Picking one asks whether to add it to the current graph, beside the
+nodes already there, or open it as a new graph; opening as new asks to save
+unsaved changes first (see [Interface](interface.md#files)). On an empty graph
+it opens straight away. A line under the header then says what to look at.
 
-The menu is in two parts, by whose work the templates show: **Martino** (composed USD stages, ICE) and **Simon** (everything else).
+The menu is in two parts, by whose work the templates show: **Martino**
+(composed USD stages, ICE) and **Simon** (everything else).
 
 ![File > Templates > Simon > USD](xms_file_templates.png)
 
@@ -12,7 +17,9 @@ The menu is in two parts, by whose work the templates show: **Martino** (compose
 
 ![The six templates of Martino's part of the menu](xms_martino_templates.png)
 
-Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer lists the stage; a closed prim is drawn as the box around what is below it until it is opened, or until Show all geometry is ticked.
+Each loads one stage from `examples/stage/` with Load USD. The Scene Explorer
+lists the stage; a closed prim is drawn as the box around what is below it until
+it is opened, or until Show all geometry is ticked.
 
 | Template | Shows |
 |---|---|
@@ -129,11 +136,19 @@ In the `examples` folder:
 
 The FBX file holds skeletons and animation only, no meshes.
 
-Every example file in the repository is under a licence that allows it to be passed on; `examples/CREDITS.md` names each one's author and licence.
+Every example file in the repository is under a licence that allows it to be
+passed on; `examples/CREDITS.md` names each one's author and licence.
 
 ### Example files fetched on demand
 
-Some files a template or a saved graph names are not in the repository: too big, or under a licence that asks for a credit beside the file. When such a graph opens, a dialog says which files are missing, who made them, under which licence, how big they are and where they come from, and offers to download them into the examples folder, to open the page for a download by hand, or Not now (Esc). The download runs in the background with a progress bar; the loaders see the new file by its date, so the graph cooks with it at once. A file declined is not asked about again until another graph is opened.
+Some files a template or a saved graph names are not in the repository: too big,
+or under a licence that asks for a credit beside the file. When such a graph
+opens, a dialog says which files are missing, who made them, under which
+licence, how big they are and where they come from, and offers to download them
+into the examples folder, to open the page for a download by hand, or Not now
+(Esc). The download runs in the background with a progress bar; the loaders see
+the new file by its date, so the graph cooks with it at once. A file declined is
+not asked about again until another graph is opened.
 
 ![The download dialog](xms_download.png)
 
@@ -143,13 +158,27 @@ Some files a template or a saved graph names are not in the repository: too big,
 | `usd/carbon_frame_bike/CarbonFrameBike.usdz` | [USD Working Group assets](https://github.com/usd-wg/assets) | CC BY-SA 4.0 | 27 MB |
 | `usd/elephant/SoC-ElephantWithMonochord.usdc` and two textures | [USD Working Group assets](https://github.com/usd-wg/assets) | CC BY-SA 4.0 | 2 MB |
 
-The table is `SOURCES` in `src/examples.rs`: a file's path under the examples folder, its URL and its size in bytes, so the dialog can say how much it will fetch.
+The table is `SOURCES` in `src/examples.rs`: a file's path under the examples
+folder, its URL and its size in bytes, so the dialog can say how much it will
+fetch.
 
 ### The templates as a regression suite
 
-Every template is also a test. `cargo test --release regression` builds each one, cooks it at its view flag and compares what comes out (primitives, copies, points, triangles, materials, cameras; for a clip its frames, joints, rate, skin and where the hips end; which files were missing) with the baseline in `tests/regression/templates.json`. A number that moves fails the test and names the template, the field and both values. When the change is intended, `XMS_REGRESS_UPDATE=1 cargo test --release regression` writes the baseline again; commit it. The GitHub workflow `.github/workflows/tests.yml` runs the suite after every build and writes the report (failed tests, the differences, the slowest cooks, build warnings) in the job summary.
+Every template is also a test. `cargo test --release regression` builds each
+one, cooks it at its view flag and compares what comes out (primitives, copies,
+points, triangles, materials, cameras; for a clip its frames, joints, rate, skin
+and where the hips end; which files were missing) with the baseline in
+`tests/regression/templates.json`. A number that moves fails the test and names
+the template, the field and both values. When the change is intended,
+`XMS_REGRESS_UPDATE=1 cargo test --release regression` writes the baseline
+again; commit it. The GitHub workflow `.github/workflows/tests.yml` runs the
+suite after every build and writes the report (failed tests, the differences,
+the slowest cooks, build warnings) in the job summary.
 
-The program looks for the folder in this order: the folder named by the `XMS_EXAMPLES` environment variable, next to the program, the root of the source tree when run with `cargo run`, the working folder. If it is not found, the template still loads and its message says so.
+The program looks for the folder in this order: the folder named by the
+`XMS_EXAMPLES` environment variable, next to the program, the root of the source
+tree when run with `cargo run`, the working folder. If it is not found, the
+template still loads and its message says so.
 
 The USD files are generated by the program. To make them again:
 

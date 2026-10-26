@@ -9,18 +9,17 @@ pub fn is_usd_file(path: &Path) -> bool {
     )
 }
 
-// ---------------------------------------------------------------------------
 // Public result types
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
 pub struct UsdCamera {
     pub name: String,
-    /// The same camera at shutter close, when it moves during the shutter (motion
-    /// blur); this one is then at shutter open
+    /// The same camera at shutter close, when it moves during the shutter
+    /// (motion blur); this one is then at shutter open
     pub at_close: Option<Box<UsdCamera>>,
     pub eye: P3,
-    /// Camera basis in world space (−Z view direction, +Y up, +X right; roll preserved)
+    /// Camera basis in world space (−Z view direction, +Y up, +X right; roll
+    /// preserved)
     pub forward: V3,
     pub right: V3,
     pub up: V3,
@@ -43,8 +42,8 @@ pub struct UsdRenderSettings {
     pub resolution: Option<[u32; 2]>,
     /// Camera prim path from the `camera` relationship
     pub camera: Option<String>,
-    /// rray's own settings authored on the prim (`rray:samplesPerPixel`, …): see
-    /// [`crate::apply_render_settings`]
+    /// rray's own settings authored on the prim (`rray:samplesPerPixel`, …):
+    /// see [`crate::apply_render_settings`]
     pub rray: Vec<(String, xms_scene::ShaderValue)>,
 }
 
@@ -57,11 +56,13 @@ pub struct DomeInfo {
     pub color: [f32; 3],
     /// intensity * 2^exposure
     pub intensity: f32,
-    /// Environment → world rotation, row-major 3×3 (dome transform, poleAxis applied)
+    /// Environment → world rotation, row-major 3×3 (dome transform, poleAxis
+    /// applied)
     pub orientation: [f32; 9],
 }
 
-/// One prim in the composed stage hierarchy (arena node; parents always precede children).
+/// One prim in the composed stage hierarchy (arena node; parents always precede
+/// children).
 #[derive(Clone, Debug)]
 pub struct UsdNode {
     pub name: String,
@@ -98,8 +99,8 @@ pub struct UsdBinding {
     pub nodes: Vec<usize>,
 }
 
-/// Geometry of one (non-instanced) prim with one material, built as its own BLAS
-/// in the prim's local space and placed by `xform`.
+/// Geometry of one (non-instanced) prim with one material, built as its own
+/// BLAS in the prim's local space and placed by `xform`.
 pub struct UsdChunk {
     pub node: usize,
     pub material: usize,
@@ -112,10 +113,12 @@ pub struct UsdChunk {
 
 #[derive(Default, Clone, Debug)]
 pub struct UsdStats {
-    /// Curve prims imported and their stored segments (each prototype counted once)
+    /// Curve prims imported and their stored segments (each prototype counted
+    /// once)
     pub curve_prims: usize,
     pub curve_segments: usize,
-    /// Meshes refined as subdivision surfaces, how many at each level, and faces produced
+    /// Meshes refined as subdivision surfaces, how many at each level, and
+    /// faces produced
     pub subdivided: usize,
     pub subdiv_levels: [usize; 7],
     pub subdiv_faces: usize,
@@ -124,8 +127,9 @@ pub struct UsdStats {
     pub gprims: usize,
     pub instances: usize,
     pub point_instancers: usize,
-    /// Render geometry produced (triangles + analytic spheres), after instancing expansion.
-    /// Not to be confused with USD *prims* (scene-graph nodes), counted in `prims`.
+    /// Render geometry produced (triangles + analytic spheres), after
+    /// instancing expansion. Not to be confused with USD *prims* (scene-graph
+    /// nodes), counted in `prims`.
     pub triangles: usize,
     pub materials: usize,
     pub textures: usize,
@@ -144,9 +148,11 @@ pub struct MaterialSource {
     pub material: String,
     /// Its surface shader prim
     pub shader: String,
-    /// The shader's `info:id` (`ND_open_pbr_surface_surfaceshader`, `UsdPreviewSurface`, …)
+    /// The shader's `info:id` (`ND_open_pbr_surface_surfaceshader`,
+    /// `UsdPreviewSurface`, …)
     pub shader_id: String,
-    /// Inputs driven by a connection (texture or other node), by name without `inputs:`
+    /// Inputs driven by a connection (texture or other node), by name without
+    /// `inputs:`
     pub connected: Vec<String>,
 }
 
@@ -160,16 +166,19 @@ pub struct UsdImport {
     pub materials: Vec<(String, Material)>,
     /// Per material (aligned with `materials`): its USD source, when it has one
     pub material_sources: Vec<Option<MaterialSource>>,
-    /// The shutter the scene was translated with (offsets from `time`; equal = an instant)
+    /// The shutter the scene was translated with (offsets from `time`; equal =
+    /// an instant)
     pub shutter: (f64, f64),
-    /// Moving instances: (index in `instances`, world transforms across the shutter)
+    /// Moving instances: (index in `instances`, world transforms across the
+    /// shutter)
     pub instance_motion: Vec<(u32, Arc<rray_render::geom::MotionKeys>)>,
     /// Texture/node network per material (same indexing as `materials`)
     pub networks: Vec<Option<Arc<ShadingNetwork>>>,
     /// Unique prototypes, each built once as a BLAS in its local space
     pub prototypes: Vec<Arc<Blas>>,
     pub prototype_names: Vec<String>,
-    /// Placed prototypes (native instances, PointInstancer points, nested instances flattened)
+    /// Placed prototypes (native instances, PointInstancer points, nested
+    /// instances flattened)
     pub instances: Vec<InstanceDesc>,
     /// `InstanceDesc::map` indexes this
     pub bindings: Vec<UsdBinding>,
@@ -188,11 +197,12 @@ pub struct UsdImport {
 /// Which dome-space axis the latlong map's pole is mapped to.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DomePole {
-    /// USD spec: +Y for DomeLight; DomeLight_1 uses poleAxis ("scene" = stage up axis)
+    /// USD spec: +Y for DomeLight; DomeLight_1 uses poleAxis ("scene" = stage
+    /// up axis)
     #[default]
     Auto,
-    /// Always the dome's +Y (no up-axis correction; what a pipeline that ignores
-    /// poleAxis produces on a Z-up stage)
+    /// Always the dome's +Y (no up-axis correction; what a pipeline that
+    /// ignores poleAxis produces on a Z-up stage)
     Y,
     /// Always the dome's +Z
     Z,
@@ -202,9 +212,9 @@ pub enum DomePole {
 /// import is done. Freeing the Moana island's stage took 50 s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum StageRelease {
-    /// Free it after the result is handed over: the stage is parked on the loading
-    /// thread and freed when that thread exits (the GUI loads on a short-lived
-    /// thread). Import leftovers are freed on a background thread.
+    /// Free it after the result is handed over: the stage is parked on the
+    /// loading thread and freed when that thread exits (the GUI loads on a
+    /// short-lived thread). Import leftovers are freed on a background thread.
     #[default]
     Background,
     /// Never free it: the process exits soon after (headless `rray`), and the
@@ -220,10 +230,12 @@ pub struct UsdOptions {
     /// Load texture pixels during import. When false (the fast default), image
     /// nodes only record which file they need; the app loads them on demand.
     pub load_textures: bool,
-    /// Stop importing geometry after this many triangles (memory guard). 0 = unlimited.
+    /// Stop importing geometry after this many triangles (memory guard). 0 =
+    /// unlimited.
     pub max_triangles: usize,
-    /// Cap on the per-mesh Catmull-Clark level (0 = never subdivide). Each tagged mesh
-    /// gets its own level (authored, else adaptive); this only limits it.
+    /// Cap on the per-mesh Catmull-Clark level (0 = never subdivide). Each
+    /// tagged mesh gets its own level (authored, else adaptive); this only
+    /// limits it.
     pub subdiv_max_level: u32,
     /// DomeLight pole handling (default: follow the USD spec)
     pub dome_pole: DomePole,
@@ -231,16 +243,17 @@ pub struct UsdOptions {
     pub import_curves: bool,
     /// Releasing the stage after import
     pub release: StageRelease,
-    /// Motion-blur shutter as offsets from the frame (USD `shutter:open` / `close`).
-    /// `None`: read from the render camera (`camera`, else the RenderSettings camera)
+    /// Motion-blur shutter as offsets from the frame (USD `shutter:open` /
+    /// `close`). `None`: read from the render camera (`camera`, else the
+    /// RenderSettings camera)
     pub shutter: Option<(f64, f64)>,
     /// The camera that will render (a prim path), for reading its shutter
     pub camera: Option<String>,
     /// The renderer's working colour space: colour inputs (materials, textures,
     /// primvars, lights) are converted into it at import
     pub working_space: rray_color::ColorSpace,
-    /// Curve / points primvars to capture: `None` = all, `Some(prefix)` = the standard
-    /// ones plus those named `prefix…` (default `user:`)
+    /// Curve / points primvars to capture: `None` = all, `Some(prefix)` = the
+    /// standard ones plus those named `prefix…` (default `user:`)
     pub curve_primvars: Option<String>,
 }
 

@@ -1,45 +1,90 @@
-use crate::core::geo_mesh::GeoMesh;
-use glam::{EulerRot, Quat, Vec3};
-use crate::types::{EvalResult, MeshData, MergeMode, Prim, NodeType, Placement, RetimeMode, IceGraphId};
 use crate::core::anim::{self, AnimData, FrameRate};
+use crate::core::geo_mesh::GeoMesh;
+use crate::types::{EvalResult, IceGraphId, MergeMode, MeshData, NodeType, Placement, Prim, RetimeMode};
+use glam::{EulerRot, Quat, Vec3};
 use std::sync::Arc;
 
-/// Evaluate one node given its already-resolved upstream inputs.
-/// Returns an `EvalResult` — either a single merged mesh or a list of named prims.
-/// `output` is the index of the output socket being asked for. Only nodes
-/// with several outputs look at it.
+/// Evaluate one node given its already-resolved upstream inputs. Returns an
+/// `EvalResult` — either a single merged mesh or a list of named prims.
+/// `output` is the index of the output socket being asked for. Only nodes with
+/// several outputs look at it.
 pub fn evaluate_node_type(
-    node_type:   &NodeType,
-    inputs:      &[EvalResult],
+    node_type: &NodeType,
+    inputs: &[EvalResult],
     eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
-    output:      usize,
+    output: usize,
 ) -> Option<EvalResult> {
     match node_type {
         // A shape is a primitive at its Primitive Location.
-        NodeType::CreateCube   { size, location }             => Some(shape(location, "/cube", create_cube(*size))),
-        NodeType::CreateSphere { radius, segments, location } => Some(shape(location, "/sphere", create_sphere(*radius, *segments))),
-        NodeType::CreateGrid   { rows, cols, size, location } => Some(shape(location, "/grid", create_grid(*rows, *cols, *size))),
+        NodeType::CreateCube { size, location } => Some(shape(location, "/cube", create_cube(*size))),
+        NodeType::CreateSphere {
+            radius,
+            segments,
+            location,
+        } => Some(shape(location, "/sphere", create_sphere(*radius, *segments))),
+        NodeType::CreateGrid {
+            rows,
+            cols,
+            size,
+            location,
+        } => Some(shape(location, "/grid", create_grid(*rows, *cols, *size))),
         // A camera: a primitive with no geometry, placed.
-        NodeType::Camera { location, translate, rotate, camera } => Some(EvalResult::Named(vec![Prim {
-            place: Placement::One(transform_matrix(Vec3::from(*translate), Vec3::from(rotate.map(f32::to_radians)), Vec3::ONE)),
+        NodeType::Camera {
+            location,
+            translate,
+            rotate,
+            camera,
+        } => Some(EvalResult::Named(vec![Prim {
+            place: Placement::One(transform_matrix(
+                Vec3::from(*translate),
+                Vec3::from(rotate.map(f32::to_radians)),
+                Vec3::ONE,
+            )),
             camera: Some(Arc::new(camera.clone())),
-            ..Prim::new(crate::types::prim_location(location, &crate::types::camera_location()), MeshData::default())
+            ..Prim::new(
+                crate::types::prim_location(location, &crate::types::camera_location()),
+                MeshData::default(),
+            )
         }])),
 
         // A light: a primitive with no geometry, placed.
-        NodeType::Light { location, translate, rotate, light } => Some(EvalResult::Named(vec![crate::core::light::light_prim(
+        NodeType::Light {
+            location,
+            translate,
+            rotate,
+            light,
+        } => Some(EvalResult::Named(vec![crate::core::light::light_prim(
             &crate::types::prim_location(location, &crate::core::light::default_location(light)),
             light.clone(),
-            Placement::One(transform_matrix(Vec3::from(*translate), Vec3::from(rotate.map(f32::to_radians)), Vec3::ONE)),
+            Placement::One(transform_matrix(
+                Vec3::from(*translate),
+                Vec3::from(rotate.map(f32::to_radians)),
+                Vec3::ONE,
+            )),
         )])),
 
-        NodeType::LoadUsd { path, mode, location, prim, convert } => {
-            if path.is_empty() { return None; }
+        NodeType::LoadUsd {
+            path,
+            mode,
+            location,
+            prim,
+            convert,
+        } => {
+            if path.is_empty() {
+                return None;
+            }
             // Packed primitives: one per mesh prim, shared with the cached stage.
             // `$GDIR/usd/street.usda`: its variables put in.
             match crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert) {
                 // Nothing to show: no geometry, instancer, camera or light.
-                Ok(scene) if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() => None,
+                Ok(scene)
+                    if scene.meshes.is_empty()
+                        && scene.instancers.is_empty()
+                        && scene.cameras.is_empty()
+                        && scene.lights.is_empty() =>
+                {
+                    None
+                }
                 Ok(scene) => stage_prims(&scene, *mode, location, prim).map(EvalResult::Named),
                 Err(_) => None,
             }
@@ -48,30 +93,50 @@ pub fn evaluate_node_type(
         NodeType::PickPrims { pattern } => inputs.first().map(|r| match r {
             EvalResult::Named(prims) => {
                 let p = crate::core::pattern::NamePattern::new(pattern);
-                EvalResult::Named(prims.iter().map(|m| Prim { picked: p.matches(&m.path), ..m.clone() }).collect())
+                EvalResult::Named(
+                    prims
+                        .iter()
+                        .map(|m| Prim {
+                            picked: p.matches(&m.path),
+                            ..m.clone()
+                        })
+                        .collect(),
+                )
             }
             other => other.clone(),
         }),
         NodeType::PrunePrims { pattern, keep } => inputs.first().map(|r| match r {
             EvalResult::Named(prims) => {
                 let p = crate::core::pattern::NamePattern::new(pattern);
-                if p.is_empty() { return r.clone(); }
+                if p.is_empty() {
+                    return r.clone();
+                }
                 EvalResult::Named(prims.iter().filter(|m| p.matches(&m.path) == *keep).cloned().collect())
             }
             other => other.clone(),
         }),
         NodeType::UnpackPrims => inputs.first().map(|r| EvalResult::Single(r.as_mesh())),
         // Named by its operator when cooked in a graph (`NodeGraphState::cook`).
-        NodeType::Material { surface } => Some(EvalResult::Material(Arc::new(crate::core::material::Material::new("Material", surface)))),
-        NodeType::MaterialX { graph } => Some(EvalResult::Material(Arc::new(crate::core::material::Material::from_graph("MaterialX", graph)))),
+        NodeType::Material { surface } => Some(EvalResult::Material(Arc::new(crate::core::material::Material::new(
+            "Material", surface,
+        )))),
+        NodeType::MaterialX { graph } => Some(EvalResult::Material(Arc::new(
+            crate::core::material::Material::from_graph("MaterialX", graph),
+        ))),
         // In a graph, cooked by input number (`NodeGraphState::cook`). Here,
         // without the numbers: the scene first, then the materials in order.
         NodeType::MaterialBinding { library, bindings, .. } => {
             let scene = inputs.iter().find(|r| !matches!(r, EvalResult::Material(_)));
-            let materials: Vec<_> = inputs.iter().filter_map(|r| match r { EvalResult::Material(m) => Some(Some(m.clone())), _ => None }).collect();
+            let materials: Vec<_> = inputs
+                .iter()
+                .filter_map(|r| match r {
+                    EvalResult::Material(m) => Some(Some(m.clone())),
+                    _ => None,
+                })
+                .collect();
             Some(crate::core::material::bind(scene, &materials, library, &[], bindings))
         }
-        // ── Render ───────────────────────────────────────────────────────────
+        // Render
         // The scene coming in, with its render prims added or changed.
         NodeType::RenderCommons { scene } => Some(crate::core::render::scene_settings(inputs.first(), scene)),
         NodeType::RenderSettings { renderer } => Some(crate::core::render::renderer_settings(inputs.first(), renderer)),
@@ -82,9 +147,15 @@ pub fn evaluate_node_type(
         // cook, what comes in goes on.
         NodeType::SetVariable { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.
-        NodeType::SetAttribute { rows } => inputs.first().map(|r| crate::core::set_attribute::set_attributes(r, rows, &[])),
+        NodeType::SetAttribute { rows } => inputs
+            .first()
+            .map(|r| crate::core::set_attribute::set_attributes(r, rows, &[])),
 
-        NodeType::Transform { translation, rotation, scale } => inputs.first().and_then(|r| match r {
+        NodeType::Transform {
+            translation,
+            rotation,
+            scale,
+        } => inputs.first().and_then(|r| match r {
             // A clip moves by its top joints; its skin follows when posed.
             EvalResult::Anim(clip) => {
                 let x = transform_matrix(*translation, *rotation, Vec3::splat(clip_scale(*scale)));
@@ -93,17 +164,41 @@ pub fn evaluate_node_type(
             // Packed primitives with none picked: each one moves and stays
             // a primitive of its own. Instanced ones move their placements:
             // the shared mesh is not copied.
-            EvalResult::Named(prims) if !prims.iter().any(|p| p.picked) => Some(EvalResult::Named(prims.iter().map(|p| match &p.place {
-                Placement::InPlace => Prim { mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)), geo: None, ..p.clone() },
-                placed => Prim { place: placed.moved(transform_matrix(*translation, *rotation, *scale)), ..p.clone() },
-            }).collect())),
+            EvalResult::Named(prims) if !prims.iter().any(|p| p.picked) => Some(EvalResult::Named(
+                prims
+                    .iter()
+                    .map(|p| match &p.place {
+                        Placement::InPlace => Prim {
+                            mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)),
+                            geo: None,
+                            ..p.clone()
+                        },
+                        placed => Prim {
+                            place: placed.moved(transform_matrix(*translation, *rotation, *scale)),
+                            ..p.clone()
+                        },
+                    })
+                    .collect(),
+            )),
             // Some picked: those move, each on its own. Placed ones move
             // their placement; the others their points.
-            EvalResult::Named(prims) => Some(EvalResult::Named(prims.iter().map(|p| match (&p.place, p.picked) {
-                (_, false) => p.clone(),
-                (Placement::InPlace, true) => Prim { mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)), geo: None, ..p.clone() },
-                (placed, true) => Prim { place: placed.moved(transform_matrix(*translation, *rotation, *scale)), ..p.clone() },
-            }).collect())),
+            EvalResult::Named(prims) => Some(EvalResult::Named(
+                prims
+                    .iter()
+                    .map(|p| match (&p.place, p.picked) {
+                        (_, false) => p.clone(),
+                        (Placement::InPlace, true) => Prim {
+                            mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)),
+                            geo: None,
+                            ..p.clone()
+                        },
+                        (placed, true) => Prim {
+                            place: placed.moved(transform_matrix(*translation, *rotation, *scale)),
+                            ..p.clone()
+                        },
+                    })
+                    .collect(),
+            )),
             other => Some(other.map_mesh(|m| transform(&m, *translation, *rotation, *scale))),
         }),
 
@@ -116,9 +211,14 @@ pub fn evaluate_node_type(
             if merges_primitives(*mode, first) {
                 // Primitives side by side; on the same path the later input
                 // is the stronger one. A plain mesh among them is a primitive.
-                let mut prims = match prims_of(first) { EvalResult::Named(p) => p, _ => vec![] };
+                let mut prims = match prims_of(first) {
+                    EvalResult::Named(p) => p,
+                    _ => vec![],
+                };
                 for r in &inputs[1..] {
-                    if let EvalResult::Named(more) = prims_of(r) { prims = merge_prims(&prims, &more); }
+                    if let EvalResult::Named(more) = prims_of(r) {
+                        prims = merge_prims(&prims, &more);
+                    }
                 }
                 Some(EvalResult::Named(prims))
             } else {
@@ -134,10 +234,17 @@ pub fn evaluate_node_type(
             // The first input is the scene; the others, numbered from 1, are
             // references: every prim of the scene wired there (groups too),
             // for Get Reference.
-            let references: Vec<crate::ice::Reference> = inputs.iter().skip(1).map(|r| match r {
-                EvalResult::Named(prims) => crate::ice::Reference { paths: crate::node_graph::scene_paths(prims), meshes: reference_meshes(prims) },
-                _ => Default::default(),
-            }).collect();
+            let references: Vec<crate::ice::Reference> = inputs
+                .iter()
+                .skip(1)
+                .map(|r| match r {
+                    EvalResult::Named(prims) => crate::ice::Reference {
+                        paths: crate::node_graph::scene_paths(prims),
+                        meshes: reference_meshes(prims),
+                    },
+                    _ => Default::default(),
+                })
+                .collect();
             match inputs.first()? {
                 // Packed primitives: the tree runs on each one (the picked
                 // ones, when some are), in its own space, as ICE does on an
@@ -149,16 +256,28 @@ pub fn evaluate_node_type(
                     // Paths there are: an instancer made on one of them is numbered.
                     let mut taken: std::collections::HashSet<String> = prims.iter().map(|p| p.path.clone()).collect();
                     for p in prims {
-                        if any_picked && !p.picked { out.push(p.clone()); continue; }
-                        let geo = p.geo.clone().unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
+                        if any_picked && !p.picked {
+                            out.push(p.clone());
+                            continue;
+                        }
+                        let geo = p
+                            .geo
+                            .clone()
+                            .unwrap_or_else(|| Arc::new(crate::core::geo::Geo::from_mesh(&p.mesh)));
                         crate::ice::take_instances();
                         // Reference meshes are taken into its space.
                         crate::ice::set_space(p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY));
                         let g = eval_subnet(*id, &geo, &references);
                         // What its Instancers made: point instancers, after the others.
-                        for (i, draw) in crate::ice::take_instances() { made.extend(instanced(p, &i, draw, &inputs[1..], &mut taken)); }
+                        for (i, draw) in crate::ice::take_instances() {
+                            made.extend(instanced(p, &i, draw, &inputs[1..], &mut taken));
+                        }
                         // The attributes stay in the geometry (see `to_mesh_lean`).
-                        out.push(Prim { mesh: Arc::new(g.to_mesh_lean()), geo: Some(Arc::new(g)), ..p.clone() });
+                        out.push(Prim {
+                            mesh: Arc::new(g.to_mesh_lean()),
+                            geo: Some(Arc::new(g)),
+                            ..p.clone()
+                        });
                     }
                     out.extend(made);
                     Some(EvalResult::Named(out))
@@ -174,90 +293,116 @@ pub fn evaluate_node_type(
         NodeType::Placeholder { .. } => inputs.get(output).cloned(),
         NodeType::PassThrough => inputs.first().cloned(),
 
-        // ── Animation ────────────────────────────────────────────────────────
+        // Animation
         // Clip, Geometry, Rest.
         NodeType::LoadFbx { path, take } => match output {
-            1 => crate::fbx_loader::load_scene_cached(path).ok()
+            1 => crate::fbx_loader::load_scene_cached(path)
+                .ok()
                 .filter(|s| !s.prims.is_empty())
                 .map(|s| EvalResult::Named((*s.prims).clone())),
             2 => {
                 let _ = take;
-                let clip = crate::fbx_loader::load_fbx_cached(path, crate::fbx_loader::NO_TAKE).ok()?.anim;
+                let clip = crate::fbx_loader::load_fbx_cached(path, crate::fbx_loader::NO_TAKE)
+                    .ok()?
+                    .anim;
                 anim::memo(&format!("{node_type:?}:rest"), Some(&clip), || Some(clip.bind_clip())).map(EvalResult::Anim)
             }
-            _ => crate::fbx_loader::load_fbx_cached(path, *take).ok().map(|l| EvalResult::Anim(l.anim)),
+            _ => crate::fbx_loader::load_fbx_cached(path, *take)
+                .ok()
+                .map(|l| EvalResult::Anim(l.anim)),
         },
 
-        NodeType::TestClip { seconds, fps_num, fps_den } =>
-            anim::memo(&format!("{node_type:?}"), None, || {
-                Some(anim::create_test_clip(*seconds, FrameRate::new(*fps_num, *fps_den)))
-            }).map(EvalResult::Anim),
+        NodeType::TestClip {
+            seconds,
+            fps_num,
+            fps_den,
+        } => anim::memo(&format!("{node_type:?}"), None, || {
+            Some(anim::create_test_clip(*seconds, FrameRate::new(*fps_num, *fps_den)))
+        })
+        .map(EvalResult::Anim),
 
-        NodeType::RenameJoints { find, replace, strip_namespace, prefix } =>
-            anim_op(node_type, inputs, |a| a.renamed(find, replace, *strip_namespace, prefix)),
+        NodeType::RenameJoints {
+            find,
+            replace,
+            strip_namespace,
+            prefix,
+        } => anim_op(node_type, inputs, |a| {
+            a.renamed(find, replace, *strip_namespace, prefix)
+        }),
 
-        NodeType::TrimClip { head, tail } =>
-            anim_op(node_type, inputs, |a| a.trimmed(*head as usize, *tail as usize)),
+        NodeType::TrimClip { head, tail } => anim_op(node_type, inputs, |a| a.trimmed(*head as usize, *tail as usize)),
 
-        NodeType::Retime { fps_num, fps_den, mode } =>
-            anim_op(node_type, inputs, |a| {
-                let rate = FrameRate::new(*fps_num, *fps_den);
-                match mode {
-                    RetimeMode::Resample    => a.resampled(rate),
-                    RetimeMode::Reinterpret => a.reinterpreted(rate),
-                }
-            }),
+        NodeType::Retime { fps_num, fps_den, mode } => anim_op(node_type, inputs, |a| {
+            let rate = FrameRate::new(*fps_num, *fps_den);
+            match mode {
+                RetimeMode::Resample => a.resampled(rate),
+                RetimeMode::Reinterpret => a.reinterpreted(rate),
+            }
+        }),
 
-        NodeType::SetTimecode { hours, minutes, seconds, frames, drop_frame } =>
-            anim_op(node_type, inputs, |a| {
-                a.with_start_timecode(*hours, *minutes, *seconds, *frames, *drop_frame)
-            }),
+        NodeType::SetTimecode {
+            hours,
+            minutes,
+            seconds,
+            frames,
+            drop_frame,
+        } => anim_op(node_type, inputs, |a| {
+            a.with_start_timecode(*hours, *minutes, *seconds, *frames, *drop_frame)
+        }),
 
-        // ── Batch / export ───────────────────────────────────────────────────
+        // Batch / export
         NodeType::LoadFbxDir { dir, index, take } => {
             let files = crate::fbx_loader::list_fbx(dir);
-            let path  = files.get((*index as usize).min(files.len().checked_sub(1)?))?;
-            crate::fbx_loader::load_fbx_cached(&path.to_string_lossy(), *take).ok()
+            let path = files.get((*index as usize).min(files.len().checked_sub(1)?))?;
+            crate::fbx_loader::load_fbx_cached(&path.to_string_lossy(), *take)
+                .ok()
                 .map(|l| EvalResult::Anim(l.anim))
         }
 
         NodeType::SplitSkeleton { picks } => {
             let input = inputs.first()?.as_anim()?;
-            let root  = split_root(input, picks.get(output)?)?;
-            anim::memo(&format!("split:{root}"), Some(input), || Some(input.split(root)))
-                .map(EvalResult::Anim)
+            let root = split_root(input, picks.get(output)?)?;
+            anim::memo(&format!("split:{root}"), Some(input), || Some(input.split(root))).map(EvalResult::Anim)
         }
 
-        NodeType::AutoTPose { set_hip_height, hip_height } =>
-            anim_op(node_type, inputs, |a| {
-                a.auto_tpose(set_hip_height.then_some(*hip_height * 0.01))
-            }),
+        NodeType::AutoTPose {
+            set_hip_height,
+            hip_height,
+        } => anim_op(node_type, inputs, |a| {
+            a.auto_tpose(set_hip_height.then_some(*hip_height * 0.01))
+        }),
 
-        NodeType::FixPose { edits } =>
-            anim_op(node_type, inputs, |a| a.pose_fixed(edits)),
+        NodeType::FixPose { edits } => anim_op(node_type, inputs, |a| a.pose_fixed(edits)),
 
-        NodeType::ProxySkin { thickness } =>
-            anim_op(node_type, inputs, |a| a.with_proxy_skin(*thickness)),
+        NodeType::ProxySkin { thickness } => anim_op(node_type, inputs, |a| a.with_proxy_skin(*thickness)),
 
         NodeType::WriteFbx { .. } => inputs.first().cloned(),
         // Writes when asked, from the properties panel: passes its input on.
         NodeType::WriteUsd { .. } => inputs.first().cloned(),
 
-        // ── Mocap tools ──────────────────────────────────────────────────────
+        // Mocap tools
         NodeType::MirrorClip => anim_op(node_type, inputs, |a| a.mirrored()),
-        NodeType::SmoothClip { radius, amount, translations } =>
-            anim_op(node_type, inputs, |a| a.smoothed(*radius, *amount, *translations)),
-        NodeType::InPlace { keep_height, to_root } =>
-            anim_op(node_type, inputs, |a| a.in_place(*keep_height, *to_root)),
+        NodeType::SmoothClip {
+            radius,
+            amount,
+            translations,
+        } => anim_op(node_type, inputs, |a| a.smoothed(*radius, *amount, *translations)),
+        NodeType::InPlace { keep_height, to_root } => {
+            anim_op(node_type, inputs, |a| a.in_place(*keep_height, *to_root))
+        }
         // Read from older graphs only: `graph_io` turns it into Transform.
-        NodeType::TransformClip { translate, rotate, scale } =>
-            anim_op(node_type, inputs, |a| a.transformed(Vec3::from_array(*translate), Vec3::from_array(*rotate), *scale)),
+        NodeType::TransformClip {
+            translate,
+            rotate,
+            scale,
+        } => anim_op(node_type, inputs, |a| {
+            a.transformed(Vec3::from_array(*translate), Vec3::from_array(*rotate), *scale)
+        }),
         NodeType::LoopClip { blend } => anim_op(node_type, inputs, |a| a.looped(*blend)),
         NodeType::TimeWarp { speed, reverse } => anim_op(node_type, inputs, |a| a.time_warped(*speed, *reverse)),
         NodeType::PruneJoints { words } => anim_op(node_type, inputs, |a| a.pruned(words)),
         NodeType::FloorClip { height } => anim_op(node_type, inputs, |a| a.floored(*height)),
-        NodeType::BlendClips { blend, align } =>
-            anim_op2(node_type, inputs, |a, b| a.blended(b, *blend, *align)),
+        NodeType::BlendClips { blend, align } => anim_op2(node_type, inputs, |a, b| a.blended(b, *blend, *align)),
         NodeType::Retarget => anim_op2(node_type, inputs, |a, b| a.retargeted(b).0),
         NodeType::Characterize { picks } => anim_op(node_type, inputs, |a| crate::core::human::with_picks(a, picks)),
         // With one input wired, the clip goes through as it is.
@@ -265,8 +410,14 @@ pub fn evaluate_node_type(
             1 => inputs.first().cloned(),
             _ => {
                 let mut report = None;
-                let out = anim_op2(node_type, inputs, |a, b| { let (c, r) = crate::core::reach::reach(a, b, settings); report = Some(r); c });
-                if let (Some(EvalResult::Anim(o)), Some(r)) = (&out, report) { crate::core::reach::remember_report(o, r); }
+                let out = anim_op2(node_type, inputs, |a, b| {
+                    let (c, r) = crate::core::reach::reach(a, b, settings);
+                    report = Some(r);
+                    c
+                });
+                if let (Some(EvalResult::Anim(o)), Some(r)) = (&out, report) {
+                    crate::core::reach::remember_report(o, r);
+                }
                 out
             }
         },
@@ -276,67 +427,130 @@ pub fn evaluate_node_type(
                 let mut report = None;
                 let out = anim_op2(node_type, inputs, |moved, reference| {
                     let (c, r) = crate::core::reach::human_limits(reference, moved, limits);
-                    report = Some(crate::core::reach::ReachReport { human: r, ..Default::default() });
+                    report = Some(crate::core::reach::ReachReport {
+                        human: r,
+                        ..Default::default()
+                    });
                     c
                 });
-                if let (Some(EvalResult::Anim(o)), Some(r)) = (&out, report) { crate::core::reach::remember_report(o, r); }
+                if let (Some(EvalResult::Anim(o)), Some(r)) = (&out, report) {
+                    crate::core::reach::remember_report(o, r);
+                }
                 out
             }
         },
         NodeType::Capture { falloff } => {
-            let EvalResult::Named(prims) = prims_of(inputs.first()?) else { return None };
+            let EvalResult::Named(prims) = prims_of(inputs.first()?) else {
+                return None;
+            };
             let skeleton = inputs.get(1)?.as_anim()?;
-            Some(EvalResult::Named(crate::core::skin::capture(&prims, skeleton, *falloff)))
+            Some(EvalResult::Named(crate::core::skin::capture(
+                &prims, skeleton, *falloff,
+            )))
         }
         NodeType::Skin => {
-            let EvalResult::Named(prims) = prims_of(inputs.first()?) else { return None };
+            let EvalResult::Named(prims) = prims_of(inputs.first()?) else {
+                return None;
+            };
             let (rest, clip) = (inputs.get(1)?.as_anim()?, inputs.get(2)?.as_anim()?);
             // Keyed by the clip, the rest skeleton and the geometry.
-            let key = format!("{node_type:?}:{:p}:{:p}", Arc::as_ptr(rest), prims.first().map(|p| Arc::as_ptr(&p.mesh)).unwrap_or(std::ptr::null()));
+            let key = format!(
+                "{node_type:?}:{:p}:{:p}",
+                Arc::as_ptr(rest),
+                prims.first().map(|p| Arc::as_ptr(&p.mesh)).unwrap_or(std::ptr::null())
+            );
             let mut report = None;
-            let out = anim::memo(&key, Some(clip), || { let (c, r) = crate::core::skin::skin(&prims, rest, clip); report = Some(r); Some(c) });
-            if let (Some(o), Some(r)) = (&out, report) { crate::core::skin::remember_report(o, r); }
+            let out = anim::memo(&key, Some(clip), || {
+                let (c, r) = crate::core::skin::skin(&prims, rest, clip);
+                report = Some(r);
+                Some(c)
+            });
+            if let (Some(o), Some(r)) = (&out, report) {
+                crate::core::skin::remember_report(o, r);
+            }
             out.map(EvalResult::Anim)
         }
 
-        // ── Ragdoll ──────────────────────────────────────────────────────────
+        // Ragdoll
         NodeType::LoadFbxMesh { path } => {
             let meshes = crate::fbx_loader::load_meshes_cached(path).ok()?;
-            Some(EvalResult::Named(meshes.iter().map(|(name, mesh)| Prim {
-                path: format!("/{name}"), mesh: mesh.clone(), picked: false, material: None, look: None, stage: None, geo: None, source: None, place: Placement::InPlace, purpose: Default::default(), props: Default::default(), above: Default::default(), instancing: None, instanced_by: None, shading: None, camera: None, render: None, light: None,
-            }).collect()))
+            Some(EvalResult::Named(
+                meshes
+                    .iter()
+                    .map(|(name, mesh)| Prim {
+                        path: format!("/{name}"),
+                        mesh: mesh.clone(),
+                        picked: false,
+                        material: None,
+                        look: None,
+                        stage: None,
+                        geo: None,
+                        source: None,
+                        place: Placement::InPlace,
+                        purpose: Default::default(),
+                        props: Default::default(),
+                        above: Default::default(),
+                        instancing: None,
+                        instanced_by: None,
+                        shading: None,
+                        camera: None,
+                        render: None,
+                        light: None,
+                    })
+                    .collect(),
+            ))
         }
-        NodeType::Calamari { hulls, detail } =>
-            anim_op(node_type, inputs, |a| crate::ragdoll::calamari(a, *hulls, *detail)),
+        NodeType::Calamari { hulls, detail } => {
+            anim_op(node_type, inputs, |a| crate::ragdoll::calamari(a, *hulls, *detail))
+        }
         NodeType::Ragdoll { settings, limits, .. } => {
             // The clip, and the collider when one is wired. Nothing is solved
             // here: the node puts out the result of a solve when there is
             // one for exactly these inputs and settings.
             let clip = inputs.iter().find_map(|r| r.as_anim())?;
             let collider = inputs.iter().find(|r| r.as_anim().is_none()).map(|r| r.shared_mesh());
-            Some(EvalResult::Anim(crate::ragdoll::output(clip, collider.as_ref(), settings, limits)))
+            Some(EvalResult::Anim(crate::ragdoll::output(
+                clip,
+                collider.as_ref(),
+                settings,
+                limits,
+            )))
         }
 
-        // ── UV ───────────────────────────────────────────────────────────────
-        NodeType::UvUnwrap { method, angle, margin, axis, tiles } => inputs.first().map(|r| r.map_mesh(|mut mesh| {
-            mesh.uvs = (*crate::core::uv::unwrap_cached(&mesh, *method, *angle, *margin, *axis, *tiles)).clone();
-            mesh
-        })),
-        NodeType::UvTransform { offset, rotate, scale } => inputs.first().map(|r| r.map_mesh(|mut mesh| {
-            mesh.uvs = crate::core::uv::transform_all(&mesh, *offset, *rotate, *scale);
-            mesh
-        })),
-        NodeType::UvEdit { edits } => inputs.first().map(|r| r.map_mesh(|mut mesh| {
-            mesh.uvs = crate::core::uv::edit_islands(&mesh, edits);
-            mesh
-        })),
+        // UV
+        NodeType::UvUnwrap {
+            method,
+            angle,
+            margin,
+            axis,
+            tiles,
+        } => inputs.first().map(|r| {
+            r.map_mesh(|mut mesh| {
+                mesh.uvs = (*crate::core::uv::unwrap_cached(&mesh, *method, *angle, *margin, *axis, *tiles)).clone();
+                mesh
+            })
+        }),
+        NodeType::UvTransform { offset, rotate, scale } => inputs.first().map(|r| {
+            r.map_mesh(|mut mesh| {
+                mesh.uvs = crate::core::uv::transform_all(&mesh, *offset, *rotate, *scale);
+                mesh
+            })
+        }),
+        NodeType::UvEdit { edits } => inputs.first().map(|r| {
+            r.map_mesh(|mut mesh| {
+                mesh.uvs = crate::core::uv::edit_islands(&mesh, edits);
+                mesh
+            })
+        }),
 
-        // ── Modelling ────────────────────────────────────────────────────────
+        // Modelling
         // On packed primitives with some picked, only those are edited.
-        NodeType::EditPoly { ops, .. } => inputs.first().map(|r| r.map_mesh(|m| {
-            let mesh = crate::core::poly::PolyMesh::from_mesh(&m);
-            crate::core::poly::eval_cached(&mesh, ops, ops.len()).to_mesh()
-        })),
+        NodeType::EditPoly { ops, .. } => inputs.first().map(|r| {
+            r.map_mesh(|m| {
+                let mesh = crate::core::poly::PolyMesh::from_mesh(&m);
+                crate::core::poly::eval_cached(&mesh, ops, ops.len()).to_mesh()
+            })
+        }),
     }
 }
 
@@ -344,20 +558,15 @@ pub fn evaluate_node_type(
 pub fn split_root(clip: &AnimData, pick: &crate::types::SplitPick) -> Option<usize> {
     match pick {
         crate::types::SplitPick::Character(i) => clip.character_roots().get(*i as usize).copied(),
-        crate::types::SplitPick::Joint(name)  => clip.joints.iter().position(|j| j.name == *name),
+        crate::types::SplitPick::Joint(name) => clip.joints.iter().position(|j| j.name == *name),
     }
 }
 
 /// Run a clip operator on the first input. Returns nothing when the input is
 /// not animation. The result is memoised on the node parameters and the input.
-fn anim_op(
-    node_type: &NodeType,
-    inputs:    &[EvalResult],
-    op:        impl FnOnce(&AnimData) -> AnimData,
-) -> Option<EvalResult> {
+fn anim_op(node_type: &NodeType, inputs: &[EvalResult], op: impl FnOnce(&AnimData) -> AnimData) -> Option<EvalResult> {
     let input: &Arc<AnimData> = inputs.first()?.as_anim()?;
-    anim::memo(&format!("{node_type:?}"), Some(input), || Some(op(input)))
-        .map(EvalResult::Anim)
+    anim::memo(&format!("{node_type:?}"), Some(input), || Some(op(input))).map(EvalResult::Anim)
 }
 
 /// A shape as a primitive at `location` (see `prim_location`).
@@ -365,28 +574,31 @@ fn shape(location: &str, fallback: &str, mesh: MeshData) -> EvalResult {
     EvalResult::Named(vec![Prim::new(crate::types::prim_location(location, fallback), mesh)])
 }
 
-/// Whether a Merge in `mode` merges primitives, given its first input.
-/// Auto goes by that input: primitives merge as primitives, a plain mesh or
-/// a clip is flattened.
+/// Whether a Merge in `mode` merges primitives, given its first input. Auto
+/// goes by that input: primitives merge as primitives, a plain mesh or a clip
+/// is flattened.
 pub fn merges_primitives(mode: MergeMode, first: &EvalResult) -> bool {
     match mode {
-        MergeMode::Auto       => matches!(first, EvalResult::Named(_)),
+        MergeMode::Auto => matches!(first, EvalResult::Named(_)),
         MergeMode::Primitives => true,
-        MergeMode::Flatten    => false,
+        MergeMode::Flatten => false,
     }
 }
 
 /// Two lists of primitives as one. A primitive of `second` on a path that
 /// `first` has already is the stronger opinion: it takes that primitive's
-/// place, as an `over` on the same path does in USD. What it leaves
-/// unsaid (no material, no stage, no purpose) is read from the weaker one,
-/// so a shape put on the path of a prim loaded from a file becomes an edit
-/// of that prim, and is written as one.
+/// place, as an `over` on the same path does in USD. What it leaves unsaid (no
+/// material, no stage, no purpose) is read from the weaker one, so a shape put
+/// on the path of a prim loaded from a file becomes an edit of that prim, and
+/// is written as one.
 pub fn merge_prims(first: &[Prim], second: &[Prim]) -> Vec<Prim> {
     let mut out: Vec<Prim> = first.to_vec();
     for p in second {
         match out.iter().position(|q| q.path == p.path) {
-            Some(i) => { let stronger = over(&out[i], p); out[i] = stronger; }
+            Some(i) => {
+                let stronger = over(&out[i], p);
+                out[i] = stronger;
+            }
             None => out.push(p.clone()),
         }
     }
@@ -398,21 +610,51 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
     let from_stage = strong.stage.is_some();
     let has_material = strong.material.is_some();
     Prim {
-        material: if has_material { strong.material.clone() } else { weak.material.clone() },
-        look:     if has_material { strong.look.clone() } else { weak.look.clone() },
-        stage:    if from_stage { strong.stage.clone() } else { weak.stage.clone() },
-        source:   if from_stage { strong.source.clone() } else { weak.source.clone() },
-        purpose:  if strong.purpose == crate::types::Purpose::Default { weak.purpose } else { strong.purpose },
+        material: if has_material {
+            strong.material.clone()
+        } else {
+            weak.material.clone()
+        },
+        look: if has_material {
+            strong.look.clone()
+        } else {
+            weak.look.clone()
+        },
+        stage: if from_stage {
+            strong.stage.clone()
+        } else {
+            weak.stage.clone()
+        },
+        source: if from_stage {
+            strong.source.clone()
+        } else {
+            weak.source.clone()
+        },
+        purpose: if strong.purpose == crate::types::Purpose::Default {
+            weak.purpose
+        } else {
+            strong.purpose
+        },
         // Properties set on both: the stronger value of each.
-        props:    if weak.props.is_empty() { strong.props.clone() } else if strong.props.is_empty() { weak.props.clone() } else {
+        props: if weak.props.is_empty() {
+            strong.props.clone()
+        } else if strong.props.is_empty() {
+            weak.props.clone()
+        } else {
             let mut both = (*weak.props).clone();
             both.extend(strong.props.iter().map(|(k, v)| (k.clone(), v.clone())));
             Arc::new(both)
         },
         // Values on the Xforms above: the stronger where both set one.
-        above:    if weak.above.is_empty() { strong.above.clone() } else if strong.above.is_empty() { weak.above.clone() } else {
+        above: if weak.above.is_empty() {
+            strong.above.clone()
+        } else if strong.above.is_empty() {
+            weak.above.clone()
+        } else {
             let mut both = (*weak.above).clone();
-            for (path, o) in strong.above.iter() { both.entry(path.clone()).or_default().merge(o); }
+            for (path, o) in strong.above.iter() {
+                both.entry(path.clone()).or_default().merge(o);
+            }
             Arc::new(both)
         },
         ..strong.clone()
@@ -420,11 +662,16 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
 }
 
 /// A loaded stage as primitives, as Load USD gives them: sublayered at the
-/// file's own paths, or, referenced or payloaded, the referenced prim and
-/// what is below it at `location`, every path rebased there (bindings and
-/// prototypes too) and the stage's tree with them. `None` when a reference
-/// finds no prim to bring in.
-pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::LoadMode, location: &str, prim: &str) -> Option<Vec<Prim>> {
+/// file's own paths, or, referenced or payloaded, the referenced prim and what
+/// is below it at `location`, every path rebased there (bindings and prototypes
+/// too) and the stage's tree with them. `None` when a reference finds no prim
+/// to bring in.
+pub fn stage_prims(
+    scene: &crate::usd_scene::UsdScene,
+    mode: crate::usd_scene::LoadMode,
+    location: &str,
+    prim: &str,
+) -> Option<Vec<Prim>> {
     use crate::usd_scene::{LoadMode, StageArc};
     let arc = match mode {
         LoadMode::Sublayer => None,
@@ -435,83 +682,165 @@ pub fn stage_prims(scene: &crate::usd_scene::UsdScene, mode: crate::usd_scene::L
         }),
     };
     // Where a path of the file is in the scene; what an arc leaves out is not.
-    let place = |p: &str| match &arc { None => Some(p.to_string()), Some(a) => a.place(p) };
+    let place = |p: &str| match &arc {
+        None => Some(p.to_string()),
+        Some(a) => a.place(p),
+    };
     // A path pointing elsewhere in the file (a binding outside the referenced
     // prim) stays as it is.
     let point = |p: &String| place(p).unwrap_or_else(|| p.clone());
-    let tree = match &arc { None => scene.tree.clone(), Some(a) => Arc::new(crate::usd_scene::rebased(&scene.tree, a)) };
+    let tree = match &arc {
+        None => scene.tree.clone(),
+        Some(a) => Arc::new(crate::usd_scene::rebased(&scene.tree, a)),
+    };
     let looks = scene.looks();
     // The meshes point instancers draw at their points.
-    let members: std::collections::HashMap<&str, (&crate::usd_scene::UsdInstancer, u32, glam::Mat4)> = scene.instancers.iter()
-        .flat_map(|i| i.members.iter().map(move |(path, k, inside)| (path.as_str(), (i, *k, *inside))))
-        .collect();
-    let mut prims: Vec<Prim> = scene.meshes.iter().filter_map(|m| {
-        let path = place(&m.path)?;
-        let material = m.material.as_ref().map(point);
-        Some(Prim {
-            path, mesh: m.mesh.clone(), picked: false,
-            look: m.material.as_ref().and_then(|p| looks.get(p).cloned()),
-            stage: Some(tree.clone()),
-            geo: m.geo.clone(),
-            // As loaded: what its edits are measured against.
-            source: m.geo.clone().map(|geo| Arc::new(crate::types::Source {
-                geo, place: m.place.clone(), material: material.clone(), purpose: m.purpose,
-            })),
-            material,
-            place: m.place.clone(),
-            purpose: m.purpose,
-            props: Default::default(),
-            above: Default::default(),
-            instancing: None,
-            instanced_by: members.get(m.path.as_str()).map(|(i, index, inside)| Arc::new(crate::types::InstancedBy {
-                instancer: point(&i.path), index: *index, inside: *inside, hidden: i.hidden.clone(),
-                geo: i.geo.clone(), place: i.place.clone(),
-            })),
-            shading: None,
-            camera: None,
-            render: None, light: None,
+    let members: std::collections::HashMap<&str, (&crate::usd_scene::UsdInstancer, u32, glam::Mat4)> = scene
+        .instancers
+        .iter()
+        .flat_map(|i| {
+            i.members
+                .iter()
+                .map(move |(path, k, inside)| (path.as_str(), (i, *k, *inside)))
         })
-    }).collect();
+        .collect();
+    let mut prims: Vec<Prim> = scene
+        .meshes
+        .iter()
+        .filter_map(|m| {
+            let path = place(&m.path)?;
+            let material = m.material.as_ref().map(point);
+            Some(Prim {
+                path,
+                mesh: m.mesh.clone(),
+                picked: false,
+                look: m.material.as_ref().and_then(|p| looks.get(p).cloned()),
+                stage: Some(tree.clone()),
+                geo: m.geo.clone(),
+                // As loaded: what its edits are measured against.
+                source: m.geo.clone().map(|geo| {
+                    Arc::new(crate::types::Source {
+                        geo,
+                        place: m.place.clone(),
+                        material: material.clone(),
+                        purpose: m.purpose,
+                    })
+                }),
+                material,
+                place: m.place.clone(),
+                purpose: m.purpose,
+                props: Default::default(),
+                above: Default::default(),
+                instancing: None,
+                instanced_by: members.get(m.path.as_str()).map(|(i, index, inside)| {
+                    Arc::new(crate::types::InstancedBy {
+                        instancer: point(&i.path),
+                        index: *index,
+                        inside: *inside,
+                        hidden: i.hidden.clone(),
+                        geo: i.geo.clone(),
+                        place: i.place.clone(),
+                    })
+                }),
+                shading: None,
+                camera: None,
+                render: None,
+                light: None,
+            })
+        })
+        .collect();
     // Each point instancer, a points primitive of its own. One nested in
     // another's prototype is placed by that one's points, as a mesh is.
-    let by_path: std::collections::HashMap<&str, &crate::usd_scene::UsdInstancer> = scene.instancers.iter().map(|i| (i.path.as_str(), i)).collect();
-    prims.extend(scene.instancers.iter().filter_map(|i| Some(Prim {
-        path: place(&i.path)?, mesh: i.mesh.clone(), picked: false, material: None, look: None,
-        stage: Some(tree.clone()), geo: Some(i.geo.clone()),
-        source: Some(Arc::new(crate::types::Source { geo: i.geo.clone(), place: i.place.clone(), material: None, purpose: i.purpose })),
-        place: i.place.clone(), purpose: i.purpose,
-        props: Default::default(), above: Default::default(),
-        instancing: Some(match &arc { None => i.prototypes.clone(), Some(_) => Arc::new(i.prototypes.iter().map(point).collect()) }),
-        instanced_by: i.by.as_ref().and_then(|(outer, index, inside)| by_path.get(outer.as_str()).map(|o| Arc::new(crate::types::InstancedBy {
-            instancer: point(&o.path), index: *index, inside: *inside, hidden: o.hidden.clone(), geo: o.geo.clone(), place: o.place.clone(),
-        }))),
-        shading: None, camera: None, render: None, light: None,
-    })));
+    let by_path: std::collections::HashMap<&str, &crate::usd_scene::UsdInstancer> =
+        scene.instancers.iter().map(|i| (i.path.as_str(), i)).collect();
+    prims.extend(scene.instancers.iter().filter_map(|i| {
+        Some(Prim {
+            path: place(&i.path)?,
+            mesh: i.mesh.clone(),
+            picked: false,
+            material: None,
+            look: None,
+            stage: Some(tree.clone()),
+            geo: Some(i.geo.clone()),
+            source: Some(Arc::new(crate::types::Source {
+                geo: i.geo.clone(),
+                place: i.place.clone(),
+                material: None,
+                purpose: i.purpose,
+            })),
+            place: i.place.clone(),
+            purpose: i.purpose,
+            props: Default::default(),
+            above: Default::default(),
+            instancing: Some(match &arc {
+                None => i.prototypes.clone(),
+                Some(_) => Arc::new(i.prototypes.iter().map(point).collect()),
+            }),
+            instanced_by: i.by.as_ref().and_then(|(outer, index, inside)| {
+                by_path.get(outer.as_str()).map(|o| {
+                    Arc::new(crate::types::InstancedBy {
+                        instancer: point(&o.path),
+                        index: *index,
+                        inside: *inside,
+                        hidden: o.hidden.clone(),
+                        geo: o.geo.clone(),
+                        place: o.place.clone(),
+                    })
+                })
+            }),
+            shading: None,
+            camera: None,
+            render: None,
+            light: None,
+        })
+    }));
     // Each camera, a primitive with no geometry. Its geometry is the same
     // empty one as when loaded, so only its placement can be an edit.
     let empty = no_geometry();
-    prims.extend(scene.cameras.iter().filter_map(|c| Some(Prim {
-        path: place(&c.path)?, stage: Some(tree.clone()), geo: Some(empty.clone()),
-        source: Some(Arc::new(crate::types::Source { geo: empty.clone(), place: c.place.clone(), material: None, purpose: c.purpose })),
-        place: c.place.clone(), purpose: c.purpose,
-        camera: Some(Arc::new(c.camera.clone())),
-        ..Prim::new(String::new(), MeshData::default())
-    })));
+    prims.extend(scene.cameras.iter().filter_map(|c| {
+        Some(Prim {
+            path: place(&c.path)?,
+            stage: Some(tree.clone()),
+            geo: Some(empty.clone()),
+            source: Some(Arc::new(crate::types::Source {
+                geo: empty.clone(),
+                place: c.place.clone(),
+                material: None,
+                purpose: c.purpose,
+            })),
+            place: c.place.clone(),
+            purpose: c.purpose,
+            camera: Some(Arc::new(c.camera.clone())),
+            ..Prim::new(String::new(), MeshData::default())
+        })
+    }));
     // Each light, as each camera: a primitive with no geometry, placed.
-    prims.extend(scene.lights.iter().filter_map(|l| Some(Prim {
-        path: place(&l.path)?, stage: Some(tree.clone()), geo: Some(empty.clone()),
-        source: Some(Arc::new(crate::types::Source { geo: empty.clone(), place: l.place.clone(), material: None, purpose: l.purpose })),
-        place: l.place.clone(), purpose: l.purpose,
-        light: Some(Arc::new(l.light.clone())),
-        ..Prim::new(String::new(), MeshData::default())
-    })));
+    prims.extend(scene.lights.iter().filter_map(|l| {
+        Some(Prim {
+            path: place(&l.path)?,
+            stage: Some(tree.clone()),
+            geo: Some(empty.clone()),
+            source: Some(Arc::new(crate::types::Source {
+                geo: empty.clone(),
+                place: l.place.clone(),
+                material: None,
+                purpose: l.purpose,
+            })),
+            place: l.place.clone(),
+            purpose: l.purpose,
+            light: Some(Arc::new(l.light.clone())),
+            ..Prim::new(String::new(), MeshData::default())
+        })
+    }));
     Some(prims)
 }
 
 /// The geometry of a primitive that has none (a camera): one, shared.
 pub fn no_geometry() -> Arc<crate::core::geo::Geo> {
     static EMPTY: std::sync::OnceLock<Arc<crate::core::geo::Geo>> = std::sync::OnceLock::new();
-    EMPTY.get_or_init(|| Arc::new(crate::core::geo::Geo::from_points(vec![]))).clone()
+    EMPTY
+        .get_or_init(|| Arc::new(crate::core::geo::Geo::from_points(vec![])))
+        .clone()
 }
 
 /// Packed primitives from whatever comes in: a mesh is one primitive.
@@ -526,53 +855,64 @@ fn prims_of(r: &EvalResult) -> EvalResult {
 /// A clip operator with two clip inputs. Needs both wired.
 fn anim_op2(
     node_type: &NodeType,
-    inputs:    &[EvalResult],
-    op:        impl FnOnce(&AnimData, &AnimData) -> AnimData,
+    inputs: &[EvalResult],
+    op: impl FnOnce(&AnimData, &AnimData) -> AnimData,
 ) -> Option<EvalResult> {
     let a: &Arc<AnimData> = inputs.first()?.as_anim()?;
     let b: &Arc<AnimData> = inputs.get(1)?.as_anim()?;
     // The second input is part of the key by its address.
-    anim::memo(&format!("{node_type:?}:{:p}", Arc::as_ptr(b)), Some(a), || Some(op(a, b)))
-        .map(EvalResult::Anim)
+    anim::memo(&format!("{node_type:?}:{:p}", Arc::as_ptr(b)), Some(a), || {
+        Some(op(a, b))
+    })
+    .map(EvalResult::Anim)
 }
 
-// ── Generators ────────────────────────────────────────────────────────────────
+// Generators
 
 pub fn create_cube(size: f32) -> MeshData {
     let s = size / 2.0;
     // Six quads, counter-clockwise seen from outside.
     MeshData::from_polys(
         vec![
-            [-s,-s,-s],[s,-s,-s],[s,s,-s],[-s,s,-s],
-            [-s,-s, s],[s,-s, s],[s,s, s],[-s,s, s],
+            [-s, -s, -s],
+            [s, -s, -s],
+            [s, s, -s],
+            [-s, s, -s],
+            [-s, -s, s],
+            [s, -s, s],
+            [s, s, s],
+            [-s, s, s],
         ],
         vec![
-            vec![0,3,2,1], vec![4,5,6,7],   // -Z, +Z
-            vec![0,1,5,4], vec![3,7,6,2],   // -Y, +Y
-            vec![0,4,7,3], vec![1,2,6,5],   // -X, +X
+            vec![0, 3, 2, 1],
+            vec![4, 5, 6, 7], // -Z, +Z
+            vec![0, 1, 5, 4],
+            vec![3, 7, 6, 2], // -Y, +Y
+            vec![0, 4, 7, 3],
+            vec![1, 2, 6, 5], // -X, +X
         ],
     )
 }
 
 pub fn create_sphere(radius: f32, segments: u32) -> MeshData {
     let mut verts = Vec::new();
-    let mut idx   = Vec::new();
+    let mut idx = Vec::new();
     let mut quads = Vec::new();
     for lat in 0..=segments {
-        let theta    = lat as f32 * std::f32::consts::PI / segments as f32;
+        let theta = lat as f32 * std::f32::consts::PI / segments as f32;
         let (st, ct) = (theta.sin(), theta.cos());
         for lon in 0..=segments {
             let phi = lon as f32 * 2.0 * std::f32::consts::PI / segments as f32;
-            verts.push([phi.cos()*st*radius, ct*radius, phi.sin()*st*radius]);
+            verts.push([phi.cos() * st * radius, ct * radius, phi.sin() * st * radius]);
         }
     }
     for lat in 0..segments {
         for lon in 0..segments {
-            let f = lat*(segments+1)+lon;
-            let s = f+segments+1;
+            let f = lat * (segments + 1) + lon;
+            let s = f + segments + 1;
             // Counter-clockwise seen from outside, like the cube and the grid.
-            idx.extend_from_slice(&[f,f+1,s,s,f+1,s+1]);
-            quads.push(vec![f, f+1, s+1, s]);
+            idx.extend_from_slice(&[f, f + 1, s, s, f + 1, s + 1]);
+            quads.push(vec![f, f + 1, s + 1, s]);
         }
     }
     let mut m = MeshData::from_triangles(verts, idx);
@@ -580,7 +920,11 @@ pub fn create_sphere(radius: f32, segments: u32) -> MeshData {
     m.polys = quads;
     // On a sphere the normal is the direction from the centre. This also
     // covers the poles, where the triangles have no area.
-    m.normals = m.vertices.iter().map(|v| Vec3::from_array(*v).normalize_or(Vec3::Y).to_array()).collect();
+    m.normals = m
+        .vertices
+        .iter()
+        .map(|v| Vec3::from_array(*v).normalize_or(Vec3::Y).to_array())
+        .collect();
     m
 }
 
@@ -610,37 +954,49 @@ pub fn create_grid(rows: u32, cols: u32, size: f32) -> MeshData {
     MeshData::from_polys(verts, quads)
 }
 
-// ── Operators ─────────────────────────────────────────────────────────────────
+// Operators
 
-/// The matrix of a Transform node: scale, then rotation X, Y, Z (radians),
-/// then translation.
+/// The matrix of a Transform node: scale, then rotation X, Y, Z (radians), then
+/// translation.
 pub fn transform_matrix(t: Vec3, r: Vec3, s: Vec3) -> glam::Mat4 {
     glam::Mat4::from_scale_rotation_translation(s, Quat::from_euler(EulerRot::XYZ, r.x, r.y, r.z), t)
 }
 
 /// A skeleton scales the same on every axis: a clip takes the X scale.
-pub fn clip_scale(s: Vec3) -> f32 { if s.x.abs() > 1e-6 { s.x } else { 1e-6 } }
+pub fn clip_scale(s: Vec3) -> f32 {
+    if s.x.abs() > 1e-6 {
+        s.x
+    } else {
+        1e-6
+    }
+}
 
 pub fn transform(mesh: &MeshData, t: Vec3, r: Vec3, s: Vec3) -> MeshData {
     let rot = Quat::from_euler(EulerRot::XYZ, r.x, r.y, r.z);
     let mut m = MeshData {
-        vertices: mesh.vertices.iter()
+        vertices: mesh
+            .vertices
+            .iter()
             .map(|v| (rot * (Vec3::from_array(*v) * s) + t).to_array())
             .collect(),
-        indices:  mesh.indices.clone(),
-        points:   mesh.points.iter()
+        indices: mesh.indices.clone(),
+        points: mesh
+            .points
+            .iter()
             .map(|p| (rot * (Vec3::from_array(*p) * s) + t).to_array())
             .collect(),
-        polys:      mesh.polys.clone(),
+        polys: mesh.polys.clone(),
         face_count: mesh.face_count,
-        uvs:        mesh.uvs.clone(),
-        curve_points: mesh.curve_points.iter()
+        uvs: mesh.uvs.clone(),
+        curve_points: mesh
+            .curve_points
+            .iter()
             .map(|p| (rot * (Vec3::from_array(*p) * s) + t).to_array())
             .collect(),
         curve_counts: mesh.curve_counts.clone(),
-        curve_basis:  mesh.curve_basis,
-        curve_wrap:   mesh.curve_wrap,
-        widths:       mesh.widths.clone(),
+        curve_basis: mesh.curve_basis,
+        curve_wrap: mesh.curve_wrap,
+        widths: mesh.widths.clone(),
         ..Default::default()
     };
     // Recompute normals after transform so they stay correct
@@ -650,39 +1006,68 @@ pub fn transform(mesh: &MeshData, t: Vec3, r: Vec3, s: Vec3) -> MeshData {
     m
 }
 
-/// A mesh moved by a matrix: an instanced copy made into a mesh of its own.
-/// A mirroring matrix turns the faces round, so they keep facing out.
+/// A mesh moved by a matrix: an instanced copy made into a mesh of its own. A
+/// mirroring matrix turns the faces round, so they keep facing out.
 pub fn place_mesh(mesh: &MeshData, m: &glam::Mat4) -> MeshData {
     let mut out = MeshData {
-        vertices:   mesh.vertices.iter().map(|v| m.transform_point3(Vec3::from_array(*v)).to_array()).collect(),
-        indices:    mesh.indices.clone(),
-        points:     mesh.points.iter().map(|p| m.transform_point3(Vec3::from_array(*p)).to_array()).collect(),
-        polys:      mesh.polys.clone(),
+        vertices: mesh
+            .vertices
+            .iter()
+            .map(|v| m.transform_point3(Vec3::from_array(*v)).to_array())
+            .collect(),
+        indices: mesh.indices.clone(),
+        points: mesh
+            .points
+            .iter()
+            .map(|p| m.transform_point3(Vec3::from_array(*p)).to_array())
+            .collect(),
+        polys: mesh.polys.clone(),
         face_count: mesh.face_count,
-        uvs:        mesh.uvs.clone(),
-        curve_points: mesh.curve_points.iter().map(|p| m.transform_point3(Vec3::from_array(*p)).to_array()).collect(),
+        uvs: mesh.uvs.clone(),
+        curve_points: mesh
+            .curve_points
+            .iter()
+            .map(|p| m.transform_point3(Vec3::from_array(*p)).to_array())
+            .collect(),
         curve_counts: mesh.curve_counts.clone(),
-        curve_basis:  mesh.curve_basis,
-        curve_wrap:   mesh.curve_wrap,
-        widths:       mesh.widths.clone(),
+        curve_basis: mesh.curve_basis,
+        curve_wrap: mesh.curve_wrap,
+        widths: mesh.widths.clone(),
         // What each element carries does not move with it: the same values,
         // so the Primitive Inspector lists them where the prim is drawn.
-        primvars:     mesh.primvars.clone(),
+        primvars: mesh.primvars.clone(),
         ..Default::default()
     };
     if m.determinant() < 0.0 {
-        for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); }
-        if out.uvs.len() == out.indices.len() { for tri in out.uvs.chunks_exact_mut(3) { tri.swap(1, 2); } }
-        for poly in out.polys.iter_mut() { poly.reverse(); }
+        for tri in out.indices.chunks_exact_mut(3) {
+            tri.swap(1, 2);
+        }
+        if out.uvs.len() == out.indices.len() {
+            for tri in out.uvs.chunks_exact_mut(3) {
+                tri.swap(1, 2);
+            }
+        }
+        for poly in out.polys.iter_mut() {
+            poly.reverse();
+        }
         // Corner values follow their polygon's corners round.
         let sizes: Vec<usize> = out.polys.iter().map(|p| p.len()).collect();
         let corners: usize = sizes.iter().sum();
-        for pv in out.primvars.iter_mut().filter(|p| p.interp == crate::types::PrimVarInterp::FaceVarying && p.values.len() == corners) {
+        for pv in out
+            .primvars
+            .iter_mut()
+            .filter(|p| p.interp == crate::types::PrimVarInterp::FaceVarying && p.values.len() == corners)
+        {
             let mut at = 0;
-            for n in &sizes { pv.values[at..at + n].reverse(); at += n; }
+            for n in &sizes {
+                pv.values[at..at + n].reverse();
+                at += n;
+            }
         }
     }
-    if !mesh.normals.is_empty() { out.compute_normals(); }
+    if !mesh.normals.is_empty() {
+        out.compute_normals();
+    }
     out
 }
 
@@ -700,10 +1085,16 @@ pub fn merge_all(parts: &[&MeshData]) -> MeshData {
     let any_uvs = parts.iter().any(|p| !p.uvs.is_empty());
     let all_normals = parts.iter().all(|p| p.normals.len() == p.vertices.len());
     // Curves of one kind stay as they are; of several, they become polylines.
-    let mut kinds = parts.iter().filter(|p| !p.curve_counts.is_empty()).map(|p| (p.curve_basis, p.curve_wrap));
+    let mut kinds = parts
+        .iter()
+        .filter(|p| !p.curve_counts.is_empty())
+        .map(|p| (p.curve_basis, p.curve_wrap));
     let first_kind = kinds.next();
     let one_kind = kinds.all(|k| Some(k) == first_kind);
-    if let (Some((basis, wrap)), true) = (first_kind, one_kind) { m.curve_basis = basis; m.curve_wrap = wrap; }
+    if let (Some((basis, wrap)), true) = (first_kind, one_kind) {
+        m.curve_basis = basis;
+        m.curve_wrap = wrap;
+    }
     let any_widths = parts.iter().any(|p| !p.widths.is_empty());
     for p in parts {
         if !p.curve_counts.is_empty() {
@@ -726,23 +1117,45 @@ pub fn merge_all(parts: &[&MeshData]) -> MeshData {
         m.indices.extend(p.indices.iter().map(|i| i + off));
         m.points.extend_from_slice(&p.points);
         if any_polys {
-            if p.polys.is_empty() { m.polys.extend(p.indices.chunks_exact(3).map(|t| t.iter().map(|i| i + off).collect::<Vec<u32>>())); }
-            else { m.polys.extend(p.polys.iter().map(|poly| poly.iter().map(|i| i + off).collect::<Vec<u32>>())); }
+            if p.polys.is_empty() {
+                m.polys.extend(
+                    p.indices
+                        .chunks_exact(3)
+                        .map(|t| t.iter().map(|i| i + off).collect::<Vec<u32>>()),
+                );
+            } else {
+                m.polys.extend(
+                    p.polys
+                        .iter()
+                        .map(|poly| poly.iter().map(|i| i + off).collect::<Vec<u32>>()),
+                );
+            }
         }
         if any_uvs {
-            if p.uvs.len() == p.indices.len() { m.uvs.extend_from_slice(&p.uvs); }
-            else { m.uvs.extend(std::iter::repeat([0.0; 2]).take(p.indices.len())); }
+            if p.uvs.len() == p.indices.len() {
+                m.uvs.extend_from_slice(&p.uvs);
+            } else {
+                m.uvs.extend(std::iter::repeat([0.0; 2]).take(p.indices.len()));
+            }
         }
-        if all_normals { m.normals.extend_from_slice(&p.normals); }
+        if all_normals {
+            m.normals.extend_from_slice(&p.normals);
+        }
     }
-    m.face_count = if m.polys.is_empty() { m.indices.len() / 3 } else { m.polys.len() };
-    if !all_normals { m.compute_normals(); }
+    m.face_count = if m.polys.is_empty() {
+        m.indices.len() / 3
+    } else {
+        m.polys.len()
+    };
+    if !all_normals {
+        m.compute_normals();
+    }
     m
 }
 
 pub fn merge(a: &MeshData, b: &MeshData) -> MeshData {
     let mut verts = a.vertices.clone();
-    let mut idx   = a.indices.clone();
+    let mut idx = a.indices.clone();
     let off = verts.len() as u32;
     verts.extend(&b.vertices);
     idx.extend(b.indices.iter().map(|i| i + off));
@@ -752,19 +1165,33 @@ pub fn merge(a: &MeshData, b: &MeshData) -> MeshData {
     let mut polys = vec![];
     if !a.polys.is_empty() || !b.polys.is_empty() {
         polys = a.polygons();
-        polys.extend(b.polygons().into_iter().map(|p| p.into_iter().map(|i| i + off).collect::<Vec<u32>>()));
+        polys.extend(
+            b.polygons()
+                .into_iter()
+                .map(|p| p.into_iter().map(|i| i + off).collect::<Vec<u32>>()),
+        );
     }
     let mut m = MeshData {
-        vertices:   verts,
-        indices:    idx,
-        points:     pts,
+        vertices: verts,
+        indices: idx,
+        points: pts,
         ..Default::default()
     };
-    m.face_count = if polys.is_empty() { m.indices.len() / 3 } else { polys.len() };
+    m.face_count = if polys.is_empty() {
+        m.indices.len() / 3
+    } else {
+        polys.len()
+    };
     m.polys = polys;
     // UVs survive when either side has them; the other side gets zeros.
     if !a.uvs.is_empty() || !b.uvs.is_empty() {
-        let side = |x: &MeshData| if x.uvs.len() == x.indices.len() { x.uvs.clone() } else { vec![[0.0; 2]; x.indices.len()] };
+        let side = |x: &MeshData| {
+            if x.uvs.len() == x.indices.len() {
+                x.uvs.clone()
+            } else {
+                vec![[0.0; 2]; x.indices.len()]
+            }
+        };
         m.uvs = side(a);
         m.uvs.extend(side(b));
     }
@@ -775,21 +1202,39 @@ pub fn merge(a: &MeshData, b: &MeshData) -> MeshData {
 #[cfg(test)]
 mod packed_tests {
     use super::*;
-    use crate::types::{NodeType, IceGraphId};
+    use crate::types::{IceGraphId, NodeType};
 
-    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo { m.clone() }
+    fn pass(_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]) -> crate::core::geo::Geo {
+        m.clone()
+    }
     fn run(node: NodeType, input: &EvalResult) -> EvalResult {
         evaluate_node_type(&node, std::slice::from_ref(input), &pass, 0).unwrap()
     }
     /// Three unit cubes side by side, as packed primitives.
     fn packed() -> EvalResult {
-        EvalResult::Named((0..3).map(|i| {
-            let mesh = transform(&create_cube(1.0), glam::Vec3::new(i as f32 * 5.0, 0.0, 0.0), glam::Vec3::ZERO, glam::Vec3::ONE);
-            Prim::new(format!("/car/{}", ["body", "wheel_L", "wheel_R"][i]), mesh)
-        }).collect())
+        EvalResult::Named(
+            (0..3)
+                .map(|i| {
+                    let mesh = transform(
+                        &create_cube(1.0),
+                        glam::Vec3::new(i as f32 * 5.0, 0.0, 0.0),
+                        glam::Vec3::ZERO,
+                        glam::Vec3::ONE,
+                    );
+                    Prim::new(format!("/car/{}", ["body", "wheel_L", "wheel_R"][i]), mesh)
+                })
+                .collect(),
+        )
     }
-    fn prims(r: &EvalResult) -> &[Prim] { match r { EvalResult::Named(p) => p, _ => panic!("not packed") } }
-    fn max_y(m: &MeshData) -> f32 { m.vertices.iter().map(|v| v[1]).fold(f32::MIN, f32::max) }
+    fn prims(r: &EvalResult) -> &[Prim] {
+        match r {
+            EvalResult::Named(p) => p,
+            _ => panic!("not packed"),
+        }
+    }
+    fn max_y(m: &MeshData) -> f32 {
+        m.vertices.iter().map(|v| v[1]).fold(f32::MIN, f32::max)
+    }
 
     #[test]
     fn transform_moves_instances_without_copying_their_mesh() {
@@ -801,14 +1246,25 @@ mod packed_tests {
             ..Prim::new(format!("/inst_{x}"), MeshData::default())
         };
         let input = EvalResult::Named(vec![copy(0.0), copy(10.0)]);
-        let out = run(NodeType::Transform { translation: Vec3::Y * 2.0, rotation: Vec3::ZERO, scale: Vec3::ONE }, &input);
+        let out = run(
+            NodeType::Transform {
+                translation: Vec3::Y * 2.0,
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+            },
+            &input,
+        );
         // The placements moved, the mesh is still the shared one.
         assert!(prims(&out).iter().all(|p| Arc::ptr_eq(&p.mesh, &shared)));
         // And the result is what moving the merged copies gives.
         let expected = transform(&input.as_mesh(), Vec3::Y * 2.0, Vec3::ZERO, Vec3::ONE);
         let got = out.as_mesh();
         assert_eq!(got.vertices.len(), expected.vertices.len());
-        assert!(got.vertices.iter().zip(&expected.vertices).all(|(a, b)| (Vec3::from_array(*a) - Vec3::from_array(*b)).length() < 1e-5));
+        assert!(got
+            .vertices
+            .iter()
+            .zip(&expected.vertices)
+            .all(|(a, b)| (Vec3::from_array(*a) - Vec3::from_array(*b)).length() < 1e-5));
     }
 
     #[test]
@@ -829,26 +1285,55 @@ mod packed_tests {
     #[test]
     fn pick_marks_by_path_pattern_and_shares_the_meshes() {
         let input = packed();
-        let out = run(NodeType::PickPrims { pattern: "wheel_L$".into() }, &input);
+        let out = run(
+            NodeType::PickPrims {
+                pattern: "wheel_L$".into(),
+            },
+            &input,
+        );
         let picked: Vec<bool> = prims(&out).iter().map(|p| p.picked).collect();
         assert_eq!(picked, vec![false, true, false]);
         assert!(out.has_picked() && !input.has_picked());
         // Nothing is copied on the way through.
-        assert!(prims(&out).iter().zip(prims(&input)).all(|(a, b)| std::sync::Arc::ptr_eq(&a.mesh, &b.mesh)));
+        assert!(prims(&out)
+            .iter()
+            .zip(prims(&input))
+            .all(|(a, b)| std::sync::Arc::ptr_eq(&a.mesh, &b.mesh)));
         assert_eq!(out.work_mesh().vertices.len(), create_cube(1.0).vertices.len());
     }
 
     #[test]
     fn a_mesh_node_after_a_pick_changes_only_the_picked() {
         let input = packed();
-        let picked = run(NodeType::PickPrims { pattern: "wheel".into() }, &input);
-        let lift = NodeType::Transform { translation: glam::Vec3::new(0.0, 10.0, 0.0), rotation: glam::Vec3::ZERO, scale: glam::Vec3::ONE };
+        let picked = run(
+            NodeType::PickPrims {
+                pattern: "wheel".into(),
+            },
+            &input,
+        );
+        let lift = NodeType::Transform {
+            translation: glam::Vec3::new(0.0, 10.0, 0.0),
+            rotation: glam::Vec3::ZERO,
+            scale: glam::Vec3::ONE,
+        };
         let out = run(lift.clone(), &picked);
         // The two wheels move, each staying a primitive of its own.
         let p = prims(&out);
-        assert_eq!(p.iter().map(|x| x.path.as_str()).collect::<Vec<_>>(), vec!["/car/body", "/car/wheel_L", "/car/wheel_R"]);
-        assert!(std::sync::Arc::ptr_eq(&p[0].mesh, &prims(&input)[0].mesh), "the body is passed through as it is");
-        assert!(max_y(&p[0].mesh) < 1.0 && max_y(&p[1].mesh) > 10.0 && max_y(&p[2].mesh) > 10.0 && p[1].picked && p[2].picked);
+        assert_eq!(
+            p.iter().map(|x| x.path.as_str()).collect::<Vec<_>>(),
+            vec!["/car/body", "/car/wheel_L", "/car/wheel_R"]
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&p[0].mesh, &prims(&input)[0].mesh),
+            "the body is passed through as it is"
+        );
+        assert!(
+            max_y(&p[0].mesh) < 1.0
+                && max_y(&p[1].mesh) > 10.0
+                && max_y(&p[2].mesh) > 10.0
+                && p[1].picked
+                && p[2].picked
+        );
         // Without a pick Transform moves every primitive and keeps them apart.
         let all = run(lift, &input);
         assert_eq!(prims(&all).len(), prims(&input).len());
@@ -860,37 +1345,83 @@ mod packed_tests {
         use crate::core::geo::{Context, Geo, POINTS, ST};
         use glam::Mat4;
         // A quad with UVs, placed ten units up, as a prim of a composed stage is.
-        let mut geo = Geo::from_polygons(vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]], vec![4], vec![0, 1, 2, 3]);
-        geo.set(Context::Corner, ST, crate::core::geo::Attr::new(
-            crate::core::geo::Column::Vec2(Arc::new(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])), crate::core::geo::Role::TexCoord));
+        let mut geo = Geo::from_polygons(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+            vec![4],
+            vec![0, 1, 2, 3],
+        );
+        geo.set(
+            Context::Corner,
+            ST,
+            crate::core::geo::Attr::new(
+                crate::core::geo::Column::Vec2(Arc::new(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])),
+                crate::core::geo::Role::TexCoord,
+            ),
+        );
         let geo = Arc::new(geo);
         let at = Mat4::from_translation(Vec3::new(0.0, 10.0, 0.0));
         let prim = Prim {
-            mesh: Arc::new(geo.to_mesh()), geo: Some(geo.clone()), place: Placement::One(at), picked: true,
+            mesh: Arc::new(geo.to_mesh()),
+            geo: Some(geo.clone()),
+            place: Placement::One(at),
+            picked: true,
             ..Prim::new("/set/card".into(), MeshData::default())
         };
         let input = EvalResult::Named(vec![prim]);
 
         // UVs only: still placed, points still the very same column.
-        let out = run(NodeType::UvTransform { offset: [0.5, 0.0], rotate: 0.0, scale: [1.0, 1.0] }, &input);
+        let out = run(
+            NodeType::UvTransform {
+                offset: [0.5, 0.0],
+                rotate: 0.0,
+                scale: [1.0, 1.0],
+            },
+            &input,
+        );
         let p = &prims(&out)[0];
         assert!(matches!(p.place, Placement::One(m) if m == at));
         let g = p.geo.as_ref().expect("geometry kept");
-        assert!(g.attr(Context::Point, POINTS).unwrap().same(geo.attr(Context::Point, POINTS).unwrap()));
-        assert!(!g.attr(Context::Corner, ST).unwrap().same(geo.attr(Context::Corner, ST).unwrap()));
-        assert!(p.mesh.vertices.iter().all(|v| v[1] <= 1.0), "the view stays in its own space");
+        assert!(g
+            .attr(Context::Point, POINTS)
+            .unwrap()
+            .same(geo.attr(Context::Point, POINTS).unwrap()));
+        assert!(!g
+            .attr(Context::Corner, ST)
+            .unwrap()
+            .same(geo.attr(Context::Corner, ST).unwrap()));
+        assert!(
+            p.mesh.vertices.iter().all(|v| v[1] <= 1.0),
+            "the view stays in its own space"
+        );
 
         // A picked Transform moves the placement: the geometry stays shared.
-        let moved = run(NodeType::Transform { translation: Vec3::X, rotation: Vec3::ZERO, scale: Vec3::ONE }, &input);
+        let moved = run(
+            NodeType::Transform {
+                translation: Vec3::X,
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+            },
+            &input,
+        );
         let p = &prims(&moved)[0];
         assert!(Arc::ptr_eq(p.geo.as_ref().unwrap(), &geo));
-        assert!(matches!(p.place, Placement::One(m) if (m.w_axis.x - 1.0).abs() < 1e-6 && (m.w_axis.y - 10.0).abs() < 1e-6));
+        assert!(
+            matches!(p.place, Placement::One(m) if (m.w_axis.x - 1.0).abs() < 1e-6 && (m.w_axis.y - 10.0).abs() < 1e-6)
+        );
     }
 
     #[test]
     fn edit_poly_after_a_pick_edits_the_picked_primitive() {
         let picked = run(NodeType::PickPrims { pattern: "body".into() }, &packed());
-        let out = run(NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, &picked);
+        let out = run(
+            NodeType::EditPoly {
+                ops: vec![],
+                pending: Default::default(),
+                edit: None,
+                auto_collapse: false,
+            },
+            &picked,
+        );
         assert_eq!(prims(&out).len(), 3);
         assert!(prims(&out)[0].picked && prims(&out)[0].mesh.vertices.len() >= 8);
     }
@@ -898,12 +1429,34 @@ mod packed_tests {
     #[test]
     fn prune_removes_or_keeps_and_unpack_merges() {
         let input = packed();
-        let without = run(NodeType::PrunePrims { pattern: "wheel".into(), keep: false }, &input);
+        let without = run(
+            NodeType::PrunePrims {
+                pattern: "wheel".into(),
+                keep: false,
+            },
+            &input,
+        );
         assert_eq!(prims(&without).len(), 1);
-        let only = run(NodeType::PrunePrims { pattern: "wheel".into(), keep: true }, &input);
+        let only = run(
+            NodeType::PrunePrims {
+                pattern: "wheel".into(),
+                keep: true,
+            },
+            &input,
+        );
         assert_eq!(prims(&only).len(), 2);
         // An empty pattern leaves everything.
-        assert_eq!(prims(&run(NodeType::PrunePrims { pattern: " ".into(), keep: true }, &input)).len(), 3);
+        assert_eq!(
+            prims(&run(
+                NodeType::PrunePrims {
+                    pattern: " ".into(),
+                    keep: true
+                },
+                &input
+            ))
+            .len(),
+            3
+        );
         let one = run(NodeType::UnpackPrims, &input);
         assert!(matches!(&one, EvalResult::Single(m) if m.vertices.len() == 3 * create_cube(1.0).vertices.len()));
     }
@@ -914,7 +1467,10 @@ mod packed_tests {
         let refs: Vec<&MeshData> = parts.iter().collect();
         let all = merge_all(&refs);
         let pairs = merge(&merge(&parts[0], &parts[1]), &parts[2]);
-        assert_eq!((all.vertices.len(), all.indices.len(), all.polygons().len()), (pairs.vertices.len(), pairs.indices.len(), pairs.polygons().len()));
+        assert_eq!(
+            (all.vertices.len(), all.indices.len(), all.polygons().len()),
+            (pairs.vertices.len(), pairs.indices.len(), pairs.polygons().len())
+        );
         assert_eq!(all.indices, pairs.indices);
         assert_eq!(all.normals.len(), all.vertices.len());
     }
@@ -927,18 +1483,48 @@ mod packed_tests {
     fn a_shape_is_a_primitive_at_its_location() {
         let cube = eval(NodeType::cube(1.0), &[]);
         assert_eq!(cube.prim_paths(), vec!["/cube"]);
-        let typed = eval(NodeType::CreateSphere { radius: 1.0, segments: 8, location: " root//asset/1 ball ".into() }, &[]);
+        let typed = eval(
+            NodeType::CreateSphere {
+                radius: 1.0,
+                segments: 8,
+                location: " root//asset/1 ball ".into(),
+            },
+            &[],
+        );
         assert_eq!(typed.prim_paths(), vec!["/root/asset/_1_ball"]);
-        let empty = eval(NodeType::CreateGrid { rows: 2, cols: 2, size: 1.0, location: " / ".into() }, &[]);
+        let empty = eval(
+            NodeType::CreateGrid {
+                rows: 2,
+                cols: 2,
+                size: 1.0,
+                location: " / ".into(),
+            },
+            &[],
+        );
         assert_eq!(empty.prim_paths(), vec!["/grid"], "nothing usable: the default");
     }
 
     #[test]
     fn a_lone_primitive_stays_itself_through_a_mesh_operator() {
         let cube = eval(NodeType::cube(1.0), &[]);
-        let out = run(NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, &cube);
+        let out = run(
+            NodeType::EditPoly {
+                ops: vec![],
+                pending: Default::default(),
+                edit: None,
+                auto_collapse: false,
+            },
+            &cube,
+        );
         assert_eq!(out.prim_paths(), vec!["/cube"]);
-        let lifted = run(NodeType::UvTransform { offset: [0.5, 0.0], rotate: 0.0, scale: [1.0, 1.0] }, &out);
+        let lifted = run(
+            NodeType::UvTransform {
+                offset: [0.5, 0.0],
+                rotate: 0.0,
+                scale: [1.0, 1.0],
+            },
+            &out,
+        );
         assert_eq!(lifted.prim_paths(), vec!["/cube"]);
         assert!(prims(&lifted)[0].mesh.vertices.len() >= 8);
     }
@@ -953,10 +1539,27 @@ mod packed_tests {
         assert_eq!(both.prim_paths(), vec!["/cube", "/sphere"]);
         // A plain mesh first: one mesh, as before.
         let flat = eval(auto(), &[EvalResult::Single(create_cube(1.0)), sphere.clone()]);
-        assert!(matches!(&flat, EvalResult::Single(m) if m.vertices.len() == create_cube(1.0).vertices.len() + create_sphere(0.5, 8).vertices.len()));
+        assert!(
+            matches!(&flat, EvalResult::Single(m) if m.vertices.len() == create_cube(1.0).vertices.len() + create_sphere(0.5, 8).vertices.len())
+        );
         // The mode overrides the input.
-        assert!(matches!(eval(NodeType::Merge { mode: MergeMode::Flatten, inputs: 2 }, &[cube.clone(), sphere.clone()]), EvalResult::Single(_)));
-        let forced = eval(NodeType::Merge { mode: MergeMode::Primitives, inputs: 2 }, &[EvalResult::Single(create_cube(1.0)), sphere]);
+        assert!(matches!(
+            eval(
+                NodeType::Merge {
+                    mode: MergeMode::Flatten,
+                    inputs: 2
+                },
+                &[cube.clone(), sphere.clone()]
+            ),
+            EvalResult::Single(_)
+        ));
+        let forced = eval(
+            NodeType::Merge {
+                mode: MergeMode::Primitives,
+                inputs: 2,
+            },
+            &[EvalResult::Single(create_cube(1.0)), sphere],
+        );
         assert_eq!(forced.prim_paths(), vec!["/mesh", "/sphere"]);
     }
 
@@ -974,9 +1577,19 @@ mod packed_tests {
         loaded.material = Some("/looks/red".into());
         loaded.stage = Some(Arc::new(Default::default()));
         let body = EvalResult::Named(vec![loaded.clone(), prims(&packed())[1].clone()]);
-        let shape = eval(NodeType::CreateCube { size: 3.0, location: "/car/body".into() }, &[]);
+        let shape = eval(
+            NodeType::CreateCube {
+                size: 3.0,
+                location: "/car/body".into(),
+            },
+            &[],
+        );
         let out = eval(NodeType::merge(), &[body, shape]);
-        assert_eq!(out.prim_paths(), vec!["/car/body", "/car/wheel_L"], "the first input's order is kept");
+        assert_eq!(
+            out.prim_paths(),
+            vec!["/car/body", "/car/wheel_L"],
+            "the first input's order is kept"
+        );
         let p = &prims(&out)[0];
         assert!(max_y(&p.mesh) > 1.4 && p.material.as_deref() == Some("/looks/red"));
         assert!(Arc::ptr_eq(p.stage.as_ref().unwrap(), loaded.stage.as_ref().unwrap()));
@@ -988,8 +1601,8 @@ mod place_tests {
     use super::place_mesh;
     use crate::types::{MeshData, PrimVar, PrimVarInterp};
 
-    /// A placed primitive keeps what its elements carry: an attribute ICE
-    /// wrote shows in the Primitive Inspector wherever the prim is placed.
+    /// A placed primitive keeps what its elements carry: an attribute ICE wrote
+    /// shows in the Primitive Inspector wherever the prim is placed.
     #[test]
     fn placing_keeps_the_primvars() {
         let mut m = MeshData::default();
@@ -997,10 +1610,23 @@ mod place_tests {
         m.polys = vec![vec![0, 1, 2]];
         m.indices = vec![0, 1, 2];
         m.face_count = 1;
-        m.primvars.push(PrimVar { name: "foo".into(), interp: PrimVarInterp::Vertex, values: vec![vec![1.0], vec![2.0], vec![3.0]] });
-        m.primvars.push(PrimVar { name: "c".into(), interp: PrimVarInterp::FaceVarying, values: vec![vec![1.0], vec![2.0], vec![3.0]] });
+        m.primvars.push(PrimVar {
+            name: "foo".into(),
+            interp: PrimVarInterp::Vertex,
+            values: vec![vec![1.0], vec![2.0], vec![3.0]],
+        });
+        m.primvars.push(PrimVar {
+            name: "c".into(),
+            interp: PrimVarInterp::FaceVarying,
+            values: vec![vec![1.0], vec![2.0], vec![3.0]],
+        });
         let moved = place_mesh(&m, &glam::Mat4::from_translation(glam::Vec3::X));
-        let rows = |m: &MeshData| m.primvars.iter().map(|p| (p.name.clone(), p.interp.clone(), p.values.clone())).collect::<Vec<_>>();
+        let rows = |m: &MeshData| {
+            m.primvars
+                .iter()
+                .map(|p| (p.name.clone(), p.interp.clone(), p.values.clone()))
+                .collect::<Vec<_>>()
+        };
         assert_eq!(rows(&moved), rows(&m));
         // Mirrored: the polygon turns round, and its corner values with it.
         let mirrored = place_mesh(&m, &glam::Mat4::from_scale(glam::Vec3::new(-1.0, 1.0, 1.0)));
@@ -1010,30 +1636,50 @@ mod place_tests {
 }
 
 /// The point instancer an Instancer made on `on`, as Imago keeps one (see
-/// `core::instancing`): a points prim at its path, one point per instance
-/// with `protoIndex`, `orient`, `scale` and `id`, placed as `on` is (the
-/// positions are in its space); then its prototypes, every prim of each
-/// (the prim at the prototype's path and the geometry below it, from the
-/// reference inputs) under `<instancer>/Prototypes/<name>`, each keeping
-/// its place within the prototype and drawn at its prototype's instances,
-/// sharing its geometry and material (nothing is copied). Write USD writes
-/// it as a `PointInstancer`. A relative path is beside `on` (not below it:
-/// USD has no prims under a mesh); a path that is `taken` is numbered.
-/// The meshes among a reference input's prims, for ICE to search: each
-/// where it is in the world, once per copy of an instanced one. A mesh with
-/// no `Geo` is converted only if a graph asks for it.
+/// `core::instancing`): a points prim at its path, one point per instance with
+/// `protoIndex`, `orient`, `scale` and `id`, placed as `on` is (the positions
+/// are in its space); then its prototypes, every prim of each (the prim at the
+/// prototype's path and the geometry below it, from the reference inputs) under
+/// `<instancer>/Prototypes/<name>`, each keeping its place within the prototype
+/// and drawn at its prototype's instances, sharing its geometry and material
+/// (nothing is copied). Write USD writes it as a `PointInstancer`. A relative
+/// path is beside `on` (not below it: USD has no prims under a mesh); a path
+/// that is `taken` is numbered. The meshes among a reference input's prims, for
+/// ICE to search: each where it is in the world, once per copy of an instanced
+/// one. A mesh with no `Geo` is converted only if a graph asks for it.
 fn reference_meshes(prims: &[Prim]) -> Vec<xms_ice::RefMesh> {
-    prims.iter().filter(|p| p.is_geometry() && (p.geo.is_some() || !p.mesh.indices.is_empty())).flat_map(|p| {
-        let geo = match &p.geo {
-            Some(g) => xms_ice::RefGeo::ready(g.clone()),
-            None => { let m = p.mesh.clone(); xms_ice::RefGeo::later(move || crate::core::geo::Geo::from_mesh(&m)) }
-        };
-        let worlds: Vec<glam::Mat4> = if p.place.is_placed() { p.place.matrices().to_vec() } else { vec![glam::Mat4::IDENTITY] };
-        worlds.into_iter().map(move |world| xms_ice::RefMesh { path: p.path.clone(), world, geo: geo.clone() })
-    }).collect()
+    prims
+        .iter()
+        .filter(|p| p.is_geometry() && (p.geo.is_some() || !p.mesh.indices.is_empty()))
+        .flat_map(|p| {
+            let geo = match &p.geo {
+                Some(g) => xms_ice::RefGeo::ready(g.clone()),
+                None => {
+                    let m = p.mesh.clone();
+                    xms_ice::RefGeo::later(move || crate::core::geo::Geo::from_mesh(&m))
+                }
+            };
+            let worlds: Vec<glam::Mat4> = if p.place.is_placed() {
+                p.place.matrices().to_vec()
+            } else {
+                vec![glam::Mat4::IDENTITY]
+            };
+            worlds.into_iter().map(move |world| xms_ice::RefMesh {
+                path: p.path.clone(),
+                world,
+                geo: geo.clone(),
+            })
+        })
+        .collect()
 }
 
-fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode, references: &[EvalResult], taken: &mut std::collections::HashSet<String>) -> Vec<Prim> {
+fn instanced(
+    on: &Prim,
+    made: &xms_ice::Instances,
+    draw: crate::types::DrawMode,
+    references: &[EvalResult],
+    taken: &mut std::collections::HashSet<String>,
+) -> Vec<Prim> {
     use crate::core::geo::{Attr, Column, Context, Geo, Role};
     use crate::types::InstancedBy;
     use glam::Mat4;
@@ -1045,7 +1691,10 @@ fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode,
     };
     let mut path = wanted.clone();
     let mut k = 1;
-    while !taken.insert(path.clone()) { path = format!("{wanted}_{k}"); k += 1; }
+    while !taken.insert(path.clone()) {
+        path = format!("{wanted}_{k}");
+        k += 1;
+    }
 
     let n = made.positions.len();
     let mut geo = Geo::from_points(made.positions.clone());
@@ -1062,28 +1711,40 @@ fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode,
     // where two share one.
     let mut roots: Vec<String> = vec![];
     for proto in &made.prototypes {
-        let leaf = proto.rsplit('/').next().filter(|l| !l.is_empty()).unwrap_or("prototype");
+        let leaf = proto
+            .rsplit('/')
+            .next()
+            .filter(|l| !l.is_empty())
+            .unwrap_or("prototype");
         let mut root = format!("{path}/Prototypes/{leaf}");
         let mut k = 1;
-        while roots.contains(&root) { root = format!("{path}/Prototypes/{leaf}_{k}"); k += 1; }
+        while roots.contains(&root) {
+            root = format!("{path}/Prototypes/{leaf}_{k}");
+            k += 1;
+        }
         roots.push(root);
     }
     let place = on.place.clone();
     let mut out = vec![Prim {
-        geo: Some(geo.clone()), place: place.clone(), instancing: Some(Arc::new(roots.clone())),
+        geo: Some(geo.clone()),
+        place: place.clone(),
+        instancing: Some(Arc::new(roots.clone())),
         ..Prim::new(path.clone(), geo.to_mesh())
     }];
     let below = |proto: &str, p: &str| p == proto || p.strip_prefix(proto).is_some_and(|rest| rest.starts_with('/'));
     // A draw mode chosen: on each prototype's root, as USD has it (a model,
     // its mode applied), which Write USD writes there.
     let drawn = |above: &Arc<std::collections::BTreeMap<String, crate::core::properties::Opinions>>, root: &str| {
-        if draw == crate::types::DrawMode::Default { return above.clone(); }
+        if draw == crate::types::DrawMode::Default {
+            return above.clone();
+        }
         use crate::core::properties::Value;
         let mut map = (**above).clone();
         let o = map.entry(root.to_string()).or_default();
         o.props.insert("kind".into(), Value::Token("component".into()));
         o.props.insert("model:applyDrawMode".into(), Value::Bool(true));
-        o.props.insert("model:drawMode".into(), Value::Token(draw.token().into()));
+        o.props
+            .insert("model:drawMode".into(), Value::Token(draw.token().into()));
         Arc::new(map)
     };
     for (k, proto) in made.prototypes.iter().enumerate() {
@@ -1096,8 +1757,17 @@ fn instanced(on: &Prim, made: &xms_ice::Instances, draw: crate::types::DrawMode,
                     // A prototype that is itself instanced: not yet.
                     Placement::Many(_) => continue,
                 };
-                if q.instancing.is_some() { continue; }
-                let by = InstancedBy { instancer: path.clone(), index: k as u32, inside, hidden: Arc::new(vec![]), geo: geo.clone(), place: place.clone() };
+                if q.instancing.is_some() {
+                    continue;
+                }
+                let by = InstancedBy {
+                    instancer: path.clone(),
+                    index: k as u32,
+                    inside,
+                    hidden: Arc::new(vec![]),
+                    geo: geo.clone(),
+                    place: place.clone(),
+                };
                 let copies = crate::core::instancing::copies(&geo, &place, &by);
                 out.push(Prim {
                     path: format!("{}{}", roots[k], &q.path[proto.len()..]),
