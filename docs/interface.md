@@ -518,7 +518,7 @@ on.
 | Bypass | Left, a ring | Switches the node off. Its first input passes through unchanged. The ring turns orange with a bar through it and the node is greyed. A bypassed node with nothing wired to it gives nothing |
 | Freeze | Right, a snowflake | Keeps the node's result as it is now. What is above it can change without it, or anything below it, cooking again: freeze a slow solve or a heavy load and work downstream. The snowflake turns blue and a blue bar runs along the bottom of the node. Click again to let it cook again. Saved with the graph; the result is not, so a graph opened with a frozen node cooks it once, then holds |
 | Ghost | Right, a square | Draws the node's output in the Viewer as a grey wireframe, beside the scene, to line things up against: meshes by their edges at every copy, a clip by its bones at the playhead. The square turns pink. Saved with the graph |
-| View | Right | Makes that operator's output the scene: what the Viewer draws, the Scene Explorer lists and the Primitive Inspector shows. Clicked again on an operator with several outputs (Load FBX: Clip, Geometry, Rest), it moves on to the next; its tooltip says which is viewed |
+| View | Right, a small circle; an eye on the viewed operator, large and in the accent colour, dark on Light's titles | Makes that operator's output the scene: what the Viewer draws, the Scene Explorer lists and the Primitive Inspector shows. Clicked again on an operator with several outputs (Load FBX: Clip, Geometry, Rest), it moves on to the next; its tooltip says which is viewed |
 
 Holding the middle button down on a node shows what it is and what it puts out,
 until the button is let go: its type, its flags, what is wired into each input,

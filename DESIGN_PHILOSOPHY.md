@@ -1014,3 +1014,6 @@ which shows everything Y up in metres, writes the transform that does it.
 - 26/10/2026: lights are made at `/lights/$OPNAME` by default, named after their
   operator whatever their type; the Graph Editor is the Curve Editor, as "graph"
   is the scene graph or an ICE graph (Martino).
+- 26/10/2026: the view flag's eye drawn larger, filling its square, and in Light
+  in a dark accent so it stands out on the title; the empty circle unchanged
+  (Martino).

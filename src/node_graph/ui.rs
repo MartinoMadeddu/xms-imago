@@ -99,9 +99,15 @@ mod xsi {
     pub fn SEL_RECT_BORDER() -> Color32 {
         crate::theme::c(120, 160, 220)
     }
+    /// The view flag's eye: the accent, bright on a dark title, dark on a light
+    /// one, so it stands out from the title it sits on.
     pub fn VIEW_FLAG() -> Color32 {
-        crate::theme::c(100, 180, 255)
-    } // 👁️ NEW - Blue for active view flag
+        if crate::theme::is_dark() {
+            crate::theme::c(100, 180, 255)
+        } else {
+            crate::theme::accent_level(110)
+        }
+    }
     pub fn BYPASS() -> Color32 {
         crate::theme::c(235, 170, 60)
     }
@@ -114,10 +120,15 @@ mod xsi {
     pub fn BYPASS_VEIL() -> Color32 {
         Color32::from_rgba_unmultiplied(128, 128, 128, 120)
     }
+    /// The view flag's eye under the mouse: a step towards the title's ink.
     pub fn VIEW_FLAG_HOV() -> Color32 {
-        crate::theme::c(150, 210, 255)
-    } // 👁️ NEW - Lighter blue on hover
-      // Sockets carrying a material: the materials' purple (`type_colours`).
+        if crate::theme::is_dark() {
+            crate::theme::c(150, 210, 255)
+        } else {
+            crate::theme::accent_level(70)
+        }
+    }
+    // Sockets carrying a material: the materials' purple (`type_colours`).
     pub fn SOCK_MAT() -> Color32 {
         crate::type_colours::DataType::Material.colour()
     }
@@ -788,8 +799,7 @@ fn draw_node(
 
     let dr = ui.allocate_rect(title_rect, egui::Sense::click_and_drag());
 
-    // 👁️ NEW - VIEW FLAG BUTTON
-    // Draw view flag button in top-right corner of title bar
+    // The view flag button, at the top right of the title bar.
     let has_view_flag = graph.has_view_flag(id);
     let eye_icon = if has_view_flag { "👁" } else { "○" };
     let eye_size = 16.0 * zoom;
@@ -798,7 +808,6 @@ fn draw_node(
 
     let eye_response = ui.allocate_rect(eye_rect, egui::Sense::click());
 
-    // Draw the eye button
     let eye_color = if has_view_flag {
         if eye_response.hovered() {
             xsi::VIEW_FLAG_HOV()
@@ -813,11 +822,13 @@ fn draw_node(
         }
     };
 
+    // The eye fills its square; the empty circle stays small.
+    let glyph_size = zoom * if has_view_flag { 16.0 } else { 12.0 };
     painter.text(
         egui::pos2(eye_pos.x + eye_size / 2.0, eye_pos.y + eye_size / 2.0),
         egui::Align2::CENTER_CENTER,
         eye_icon,
-        egui::FontId::proportional(12.0 * zoom),
+        egui::FontId::proportional(glyph_size),
         eye_color,
     );
 
@@ -839,7 +850,6 @@ fn draw_node(
         };
         eye_response.on_hover_text(tooltip_text);
     }
-    // END VIEW_FLAG_BUTTON
 
     // Freeze and ghost buttons, left of the eye
     // Drawn by hand, as the bypass ring is: a snowflake (frozen: keeps its
