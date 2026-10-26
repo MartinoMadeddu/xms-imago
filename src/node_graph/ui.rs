@@ -99,14 +99,10 @@ mod xsi {
     pub fn SEL_RECT_BORDER() -> Color32 {
         crate::theme::c(120, 160, 220)
     }
-    /// The view flag's eye: the accent, bright on a dark title, dark on a light
-    /// one, so it stands out from the title it sits on.
+    /// The view flag's eye: one saturated blue in every theme, dark enough for
+    /// Light's titles and bright enough for Dark's.
     pub fn VIEW_FLAG() -> Color32 {
-        if crate::theme::is_dark() {
-            crate::theme::c(100, 180, 255)
-        } else {
-            crate::theme::accent_level(110)
-        }
+        Color32::from_rgb(0, 100, 255)
     }
     pub fn BYPASS() -> Color32 {
         crate::theme::c(235, 170, 60)
@@ -120,13 +116,9 @@ mod xsi {
     pub fn BYPASS_VEIL() -> Color32 {
         Color32::from_rgba_unmultiplied(128, 128, 128, 120)
     }
-    /// The view flag's eye under the mouse: a step towards the title's ink.
+    /// The view flag's eye under the mouse: the same blue, lighter.
     pub fn VIEW_FLAG_HOV() -> Color32 {
-        if crate::theme::is_dark() {
-            crate::theme::c(150, 210, 255)
-        } else {
-            crate::theme::accent_level(70)
-        }
+        Color32::from_rgb(70, 150, 255)
     }
     // Sockets carrying a material: the materials' purple (`type_colours`).
     pub fn SOCK_MAT() -> Color32 {

@@ -394,12 +394,6 @@ pub fn accent() -> Color32 {
     rgb(accent_at(&s, 255))
 }
 
-/// The accent with its brightest channel at `level`: a darker accent for a mark
-/// that has to stand out on a light surface.
-pub fn accent_level(level: u8) -> Color32 {
-    rgb(accent_at(&scheme(), level))
-}
-
 /// What is selected: the blue of a selected row in the Scene Explorer and the
 /// Operator Stack, also around selected nodes.
 pub fn selection() -> Color32 {
