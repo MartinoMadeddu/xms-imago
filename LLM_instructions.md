@@ -82,6 +82,47 @@ A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that do
 - **Files under 100 MB.** GitHub refuses larger ones. A patch sent in the chat must be under 30 MB: a bigger one is split in two, applied one after the other in the same block. Example data goes in as FBX, cut to fewer frames or written without normals to fit (see `examples/ragdoll/README.md`); the program has no compact formats of its own.
 - **Credit.** XMS was created by Martino Madeddu. Additional development by Simon Legrand.
 
+### Code and comments
+
+- **Code requires documentation.** Every public item has a doc comment, and
+  code whose purpose is not obvious from its names has a comment saying why.
+- **Order a file top-down by importance**, so the first thing a reader sees is
+  the main type, not a helper: the primary type (and the structs it depends
+  on), then its `impl` blocks, then free-standing helper functions, then
+  `#[cfg(test)] mod tests`. Don't open a file with a small private helper.
+- **No decorative section dividers.** Don't use box-drawing divider comments
+  (`// ── Section ──────`); group code with a plain `//` comment or rely on the
+  item's own doc comment. When you touch a file that has them, turn them into
+  plain `//` comments.
+- **Keep comments that still apply.** Never remove a comment during a refactor
+  while it still describes the code.
+- **Comments describe the code as it stands**, not its edit history or the
+  alternatives it didn't take. Don't justify the absence or removal of code,
+  and don't contrast the chosen approach with a rejected one ("no separate X
+  pre-check is needed here", "X was removed because…", "assign directly
+  rather than through Y", "instead of calling Z", "we use A so we don't B").
+  This includes contrasts with a prior implementation's performance or shape
+  ("a subtree walk rather than a full scan", "O(1) instead of the previous
+  O(n)", "now keyed by path"), which only make sense to someone who saw the
+  old code. State the present behaviour positively ("walks the `prefix`
+  subtree") and give a rationale that stands on its own.
+- **No planning phases or steps in code.** Don't reference phases or steps
+  ("Phase 1", "Step 2", "stage 2") in code, comments, names or fixtures;
+  describe what the code does, or, for deferred work, name the missing feature
+  in a `TODO`. Commit messages may name the stage of a larger piece of work.
+- **Mark performance left for later.** Where a performance improvement or
+  parallelism is possible but not done yet, in new code and when refactoring,
+  leave a `TODO(perf)` comment (`TODO(rayon)` when it is parallelism with
+  rayon) instead of optimizing prematurely. Say what is independent or could
+  run in parallel, so the change can be picked up later by anyone.
+- **Line width.** Rust code is formatted by rustfmt with `rustfmt.toml`
+  (120 columns). Prose wraps at 80 columns: Markdown, plans, design write-ups
+  and the text of doc comments. Format and wrap only what you write or change;
+  reformatting or rewrapping whole files is a commit of its own, not part of a
+  feature.
+- **Proofread.** Read comments, docs and commit messages again before handing
+  them over, and reword what is unclear.
+
 ## Flag what does not fit
 
 If any of this cannot be done in your setup (no workspace, no GitHub access, a different workflow the person asks for), tell the person which point does not hold and what changes because of it, before starting work.
