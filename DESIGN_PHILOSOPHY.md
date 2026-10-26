@@ -1017,3 +1017,4 @@ which shows everything Y up in metres, writes the transform that does it.
 - 26/10/2026: the view flag's eye drawn larger, filling its square, in one
   saturated blue in every theme so it stands out on the title; the empty circle
   unchanged (Martino).
+- 26/10/2026: the Linux release is linked against glibc 2.28 with cargo-zigbuild, so it runs on Rocky Linux 8 and RHEL 8 (Simon); the build fails if it needs a newer glibc. One patch per reply, everything not yet on main folded into it (Simon).

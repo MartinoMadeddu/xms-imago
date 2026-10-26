@@ -130,8 +130,8 @@ person running only one block of commands:
    commit.
 7. **The next change starts from the last patch.** Until the person says a patch
    is pushed, the assistant keeps its work committed locally (never pushed) and
-   makes the next patch on top of it, saying in which order to apply them; or
-   folds them into one.
+   folds everything not yet on `main` into one patch: one patch and one block
+   of commands per reply, never several to apply in turn (Simon, 18/10/2026).
 
 What this needs:
 

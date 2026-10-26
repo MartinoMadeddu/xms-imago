@@ -76,7 +76,26 @@ jobs:
         run: cargo test --release --target ${{ matrix.target }}
 
       - name: Build
+        if: runner.os != 'Linux'
         run: cargo build --release --target ${{ matrix.target }}
+
+      # Linux: linked against glibc 2.28 (Rocky Linux 8, RHEL 8 and newer)
+      # by cargo-zigbuild, rather than the runner's own glibc, so the
+      # binary runs on older distributions too. The windowing and graphics
+      # libraries are loaded at run time and need no matching version.
+      - name: Zig
+        if: runner.os == 'Linux'
+        run: |
+          pip install ziglang==0.17.0
+          cargo install cargo-zigbuild --version 0.24.0 --locked
+
+      - name: Build (Linux, glibc 2.28)
+        if: runner.os == 'Linux'
+        run: |
+          cargo zigbuild --release --target ${{ matrix.target }}.2.28
+          newest=$(objdump -T target/${{ matrix.target }}/release/xms-imago | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          echo "Newest glibc symbol: $newest"
+          test "$(printf '%s\nGLIBC_2.28\n' "$newest" | sort -V | tail -1)" = "GLIBC_2.28"
 
       - name: Package (Linux, macOS)
         if: runner.os != 'Windows'

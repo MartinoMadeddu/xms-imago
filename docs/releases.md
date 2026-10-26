@@ -16,13 +16,26 @@ Each archive holds the program (`xms`, or `xms.exe`; Cargo builds it as
 `xms-imago`), the README, this documentation and the `examples` folder. Keep
 `examples` next to the program: the templates that load files look for it there.
 
-- Linux: needs the ALSA, udev and X11 libraries, which desktop installs have.
+- Linux: built against glibc 2.28, so it runs on Rocky Linux 8, RHEL 8, Ubuntu
+  20.04 and anything newer. It needs the X11 or Wayland libraries (libX11,
+  libXcursor, libXi, libxkbcommon) and a Vulkan or OpenGL driver, which desktop
+  installs have; they are loaded when the program starts.
 - macOS: the program is not signed. On first run, right-click it and choose
   Open, or run `xattr -d com.apple.quarantine xms`.
 - Windows: SmartScreen may warn about an unsigned program.
 
 The workflow is `.github/workflows/release.yml`. It can also be started by hand
-from the Actions tab. The unit tests run on the Linux build.
+from the Actions tab. The unit tests run on the Linux build. The Linux binary is
+linked by `cargo zigbuild` against glibc 2.28, not the runner's own, and the
+build fails if it asks for anything newer.
+
+To build the same binary on your own machine:
+
+    pip install --user ziglang
+    cargo install cargo-zigbuild
+    cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.28
+
+The program is then in `target/x86_64-unknown-linux-gnu/release/xms-imago`.
 
 ## Building from source
 
