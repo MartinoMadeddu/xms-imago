@@ -889,7 +889,7 @@ pub enum IceGraphNodeType {
     },
     /// An attribute of the geometry (`P` is the points), read in the graph's
     /// own context, or from `context` across (see `xms_ice::Op::GetData`), the
-    /// values an element touches made one by `reduce`. With its Samples input
+    /// values an element touches made one by `resample`. With its Samples input
     /// wired, read at those surface samples instead (`xms_ice::Op::GetDataAt`),
     /// from `context` when one is set. Graphs saved with a Get Data at Samples
     /// node read it as this.
@@ -898,18 +898,18 @@ pub enum IceGraphNodeType {
         name: String,
         #[serde(default)]
         context: Option<crate::core::geo::Context>,
-        #[serde(default)]
-        reduce: xms_ice::Reduce,
+        #[serde(default, alias = "reduce")]
+        resample: xms_ice::Resample,
     },
     /// Set an attribute; its Execute goes into the root. Written in the graph's
     /// own context, or into `context` (see `xms_ice::Op::SetData`), the values
-    /// each element there touches made one by `reduce`.
+    /// each element there touches made one by `resample`.
     SetData {
         name: String,
         #[serde(default)]
         context: Option<crate::core::geo::Context>,
-        #[serde(default)]
-        reduce: xms_ice::Reduce,
+        #[serde(default, alias = "reduce")]
+        resample: xms_ice::Resample,
     },
     Constant {
         value: xms_ice::Value,
@@ -993,7 +993,7 @@ impl IceGraphNodeType {
         IceGraphNodeType::GetData {
             name: name.into(),
             context: None,
-            reduce: Default::default(),
+            resample: Default::default(),
         }
     }
 
@@ -1002,7 +1002,7 @@ impl IceGraphNodeType {
         IceGraphNodeType::SetData {
             name: name.into(),
             context: None,
-            reduce: Default::default(),
+            resample: Default::default(),
         }
     }
 }

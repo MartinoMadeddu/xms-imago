@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use xms_geo::{Attr, Column, Context, Geo, Role, Topology};
 
 use super::compile::{Ins, InstancerPlan, Key, Plan, Program, Read, Write, NO_COUNT};
-use super::graph::{ArrayOp, Compose, Decompose, Math, Reduce};
+use super::graph::{ArrayOp, Compose, Decompose, Math, Resample};
 use super::surface::{Mesh, Reference, Surface};
 use super::types::{Loc, Ty, Value};
 
@@ -150,7 +150,7 @@ struct Source<'a> {
     column: Option<&'a Column>,
     indices: Option<&'a [u32]>,
     map: Arc<Map>,
-    reduce: Reduce,
+    resample: Resample,
     /// The context the column is in.
     context: Context,
 }
@@ -306,12 +306,12 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
                 offsets,
                 items,
                 indices: ix,
-                reduce: s.reduce,
+                resample: s.resample,
             };
             match (s.column, ty) {
                 (Some(Column::Bool(v)), _) => {
                     // Any of them, or (Min) all of them.
-                    let all = s.reduce == Reduce::Min;
+                    let all = s.resample == Resample::Min;
                     bools(reg).extend((start..start + len).map(|e| {
                         let mut vals = lists.values(v, e);
                         if all {
@@ -322,9 +322,9 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
                     }));
                 }
                 (Some(Column::Int(v)), _) => ints(reg)
-                    .extend((start..start + len).map(|e| lists.reduce(v, e, 0, |x| x as f64, |x| x.round() as i32))),
+                    .extend((start..start + len).map(|e| lists.resample(v, e, 0, |x| x as f64, |x| x.round() as i32))),
                 (Some(Column::Float(v)), _) => floats(reg)
-                    .extend((start..start + len).map(|e| lists.reduce(v, e, 0.0, |x| x as f64, |x| x as f32))),
+                    .extend((start..start + len).map(|e| lists.resample(v, e, 0.0, |x| x as f64, |x| x as f32))),
                 (Some(Column::Vec2(v)), _) => {
                     vec2s(reg).extend((start..start + len).map(|e| Vec2::from_array(lists.reduce_n(v, e))))
                 }
@@ -347,14 +347,14 @@ fn load(s: &Source, start: usize, len: usize, reg: &mut Reg, ty: Ty) {
                     let mut acc = as32[0];
                     for m in &as32[1..] {
                         for k in 0..16 {
-                            acc[k] = match lists.reduce {
-                                Reduce::Average | Reduce::Sum => acc[k] + m[k],
-                                Reduce::Min => acc[k].min(m[k]),
-                                Reduce::Max => acc[k].max(m[k]),
+                            acc[k] = match lists.resample {
+                                Resample::Average | Resample::Sum => acc[k] + m[k],
+                                Resample::Min => acc[k].min(m[k]),
+                                Resample::Max => acc[k].max(m[k]),
                             };
                         }
                     }
-                    if lists.reduce == Reduce::Average {
+                    if lists.resample == Resample::Average {
                         for x in acc.iter_mut() {
                             *x /= as32.len() as f32;
                         }
@@ -400,7 +400,7 @@ struct Lists<'a> {
     offsets: &'a [u32],
     items: &'a [u32],
     indices: Option<&'a [u32]>,
-    reduce: Reduce,
+    resample: Resample,
 }
 
 impl Lists<'_> {
@@ -418,22 +418,22 @@ impl Lists<'_> {
     }
 
     /// One number from element `e`'s: their average, sum, least or most.
-    fn reduce<T: Copy, U>(&self, src: &[T], e: usize, empty: U, to: impl Fn(T) -> f64, back: impl Fn(f64) -> U) -> U {
+    fn resample<T: Copy, U>(&self, src: &[T], e: usize, empty: U, to: impl Fn(T) -> f64, back: impl Fn(f64) -> U) -> U {
         let mut n = 0usize;
         let mut acc: Option<f64> = None;
         for v in self.values(src, e) {
             let x = to(v);
             n += 1;
-            acc = Some(match (acc, self.reduce) {
+            acc = Some(match (acc, self.resample) {
                 (None, _) => x,
-                (Some(a), Reduce::Average | Reduce::Sum) => a + x,
-                (Some(a), Reduce::Min) => a.min(x),
-                (Some(a), Reduce::Max) => a.max(x),
+                (Some(a), Resample::Average | Resample::Sum) => a + x,
+                (Some(a), Resample::Min) => a.min(x),
+                (Some(a), Resample::Max) => a.max(x),
             });
         }
         match acc {
             None => empty,
-            Some(a) if self.reduce == Reduce::Average => back(a / n as f64),
+            Some(a) if self.resample == Resample::Average => back(a / n as f64),
             Some(a) => back(a),
         }
     }
@@ -448,10 +448,10 @@ impl Lists<'_> {
                 None => v,
                 Some(mut a) => {
                     for k in 0..N {
-                        a[k] = match self.reduce {
-                            Reduce::Average | Reduce::Sum => a[k] + v[k],
-                            Reduce::Min => a[k].min(v[k]),
-                            Reduce::Max => a[k].max(v[k]),
+                        a[k] = match self.resample {
+                            Resample::Average | Resample::Sum => a[k] + v[k],
+                            Resample::Min => a[k].min(v[k]),
+                            Resample::Max => a[k].max(v[k]),
                         };
                     }
                     a
@@ -461,7 +461,7 @@ impl Lists<'_> {
         match acc {
             None => [0.0; N],
             Some(mut a) => {
-                if self.reduce == Reduce::Average {
+                if self.resample == Resample::Average {
                     for x in a.iter_mut() {
                         *x /= n as f32;
                     }
@@ -823,7 +823,7 @@ fn load_from(
         column: Some(&col.column),
         indices: col.indices.as_deref().map(|v| v.as_slice()),
         map: own.map.clone(),
-        reduce: own.reduce,
+        resample: own.resample,
         context: own.context,
     };
     let (offsets, mut out) = if list {
@@ -1870,7 +1870,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
                 column: made.as_ref().or(attr.map(|a| &a.column)),
                 indices: attr.and_then(|a| a.indices.as_deref().map(|v| v.as_slice())),
                 map,
-                reduce: r.reduce,
+                resample: r.resample,
                 context: r.context,
             }
         })
@@ -2011,7 +2011,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
 
 /// A column of the plan's elements carried into the context `w` writes: each
 /// element there reads the plan's elements it touches, as Get Data reads
-/// across, made one by `w.reduce`.
+/// across, made one by `w.resample`.
 fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
     let n = geo.count(w.context);
     // The one Object value, for every element.
@@ -2024,7 +2024,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
         column: Some(column),
         indices: None,
         map: Arc::new(map),
-        reduce: w.reduce,
+        resample: w.resample,
         context: from,
     };
     let mut reg = Reg::Bool(vec![]);

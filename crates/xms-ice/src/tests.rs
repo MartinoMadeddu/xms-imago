@@ -343,13 +343,13 @@ fn two_quads() -> Geo {
 }
 
 /// root(`context`) <- Set Data `name` <- Get Data `what` read from `from`.
-fn reading(context: Context, name: &str, what: &str, from: Context, reduce: super::graph::Reduce) -> Graph {
+fn reading(context: Context, name: &str, what: &str, from: Context, resample: super::graph::Resample) -> Graph {
     let mut g = Graph::default();
     let get = g.add(
         Op::GetData {
             name: what.into(),
             context: Some(from),
-            reduce,
+            resample,
         },
         vec![],
     );
@@ -362,12 +362,18 @@ fn reading(context: Context, name: &str, what: &str, from: Context, reduce: supe
 /// faces around it, the object everything.
 #[test]
 fn get_data_reads_across_contexts() {
-    use super::graph::Reduce;
+    use super::graph::Resample;
     let geo = two_quads();
     let run_on = |g: &Graph| run(&compile(g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
 
     // Each face: the average of its points, its centre.
-    let out = run_on(&reading(Context::Face, "centre", "P", Context::Point, Reduce::Average));
+    let out = run_on(&reading(
+        Context::Face,
+        "centre",
+        "P",
+        Context::Point,
+        Resample::Average,
+    ));
     let centre = out
         .attr(Context::Face, "centre")
         .unwrap()
@@ -378,7 +384,7 @@ fn get_data_reads_across_contexts() {
     assert_eq!(centre, vec![[0.5, 0.5, 0.0], [1.5, 0.5, 0.0]]);
 
     // Each corner: its point.
-    let out = run_on(&reading(Context::Corner, "at", "P", Context::Point, Reduce::Average));
+    let out = run_on(&reading(Context::Corner, "at", "P", Context::Point, Resample::Average));
     let at = out
         .attr(Context::Corner, "at")
         .unwrap()
@@ -390,7 +396,7 @@ fn get_data_reads_across_contexts() {
     assert_eq!(at[5], [2.0, 0.0, 0.0]);
 
     // Each point: the faces around it, summed, or the hottest.
-    let out = run_on(&reading(Context::Point, "warm", "heat", Context::Face, Reduce::Sum));
+    let out = run_on(&reading(Context::Point, "warm", "heat", Context::Face, Resample::Sum));
     let warm = out
         .attr(Context::Point, "warm")
         .unwrap()
@@ -399,7 +405,7 @@ fn get_data_reads_across_contexts() {
         .unwrap()
         .to_vec();
     assert_eq!(warm, vec![1.0, 4.0, 3.0, 1.0, 4.0, 3.0]);
-    let out = run_on(&reading(Context::Point, "hot", "heat", Context::Face, Reduce::Max));
+    let out = run_on(&reading(Context::Point, "hot", "heat", Context::Face, Resample::Max));
     assert_eq!(
         out.attr(Context::Point, "hot").unwrap().column.floats().unwrap()[1],
         3.0
@@ -411,7 +417,7 @@ fn get_data_reads_across_contexts() {
         "middle",
         "P",
         Context::Point,
-        Reduce::Average,
+        Resample::Average,
     ));
     assert_eq!(
         out.attr(Context::Object, "middle").unwrap().column.vec3s().unwrap()[0],
@@ -436,19 +442,22 @@ fn get_data_reads_across_contexts() {
     );
     // And the types follow the context read.
     assert_eq!(
-        super::output_types(&reading(Context::Face, "c", "P", Context::Point, Reduce::Average), &geo)[0],
+        super::output_types(
+            &reading(Context::Face, "c", "P", Context::Point, Resample::Average),
+            &geo
+        )[0],
         Some(super::types::Ty::Vec3)
     );
 }
 
 #[test]
 fn what_the_inspector_shows_reads_from_the_topology() {
-    use super::graph::Reduce;
+    use super::graph::Resample;
     let geo = two_quads();
     // Per point, the lowest first corner of its faces: points 1 and 4 are on
     // both quads, so 0; points 2 and 5 only on the second, so 4.
     let plan = compile(
-        &reading(Context::Point, "fc", "firstCorner", Context::Face, Reduce::Min),
+        &reading(Context::Point, "fc", "firstCorner", Context::Face, Resample::Min),
         &geo,
     )
     .unwrap();
@@ -485,7 +494,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
             Op::GetData {
                 name: what.into(),
                 context: Some(from),
-                reduce: Reduce::Average,
+                resample: Resample::Average,
             },
             vec![],
         );
@@ -501,7 +510,11 @@ fn what_the_inspector_shows_reads_from_the_topology() {
         assert_eq!(got, want, "{what}");
     }
     // The face normal: the quads wind counter-clockwise seen from +Z.
-    let plan = compile(&reading(Context::Face, "n", "N", Context::Face, Reduce::Average), &geo).unwrap();
+    let plan = compile(
+        &reading(Context::Face, "n", "N", Context::Face, Resample::Average),
+        &geo,
+    )
+    .unwrap();
     let out = run(&plan, &geo, &no_params(), &[]).geo;
     assert_eq!(
         out.attr(Context::Face, "n").unwrap().column.vec3s().unwrap(),
@@ -521,7 +534,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     assert!(e.message.contains("per Face"), "{}", e.message);
     // Points have no faces: nothing derived.
     assert!(compile(
-        &reading(Context::Point, "a", "area", Context::Face, Reduce::Sum),
+        &reading(Context::Point, "a", "area", Context::Face, Resample::Sum),
         &cloud(3)
     )
     .is_err());
@@ -533,14 +546,14 @@ fn writing(
     context: Context,
     name: &str,
     to: Context,
-    reduce: super::graph::Reduce,
+    resample: super::graph::Resample,
     value: usize,
 ) -> Graph {
     let set = g.add(
         Op::SetData {
             name: name.into(),
             context: Some(to),
-            reduce,
+            resample,
         },
         vec![wire(value)],
     );
@@ -550,7 +563,7 @@ fn writing(
 
 #[test]
 fn set_data_writes_across_contexts() {
-    use super::graph::Reduce;
+    use super::graph::Resample;
     let geo = two_quads();
     // Per point, into each face: the average of its points' x.
     let mut g = Graph::default();
@@ -559,7 +572,7 @@ fn set_data_writes_across_contexts() {
         Op::Math(Math::Dot),
         vec![wire(p), Input::Value(Value::Vec3([1.0, 0.0, 0.0]))],
     );
-    let g = writing(g, Context::Point, "x", Context::Face, Reduce::Average, x);
+    let g = writing(g, Context::Point, "x", Context::Face, Resample::Average, x);
     let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(
         out.attr(Context::Face, "x").unwrap().column.floats().unwrap(),
@@ -572,7 +585,7 @@ fn set_data_writes_across_contexts() {
     // Per face, into each point: the most of the faces around it.
     let mut g = Graph::default();
     let heat = g.add(Op::get("heat"), vec![]);
-    let g = writing(g, Context::Face, "hot", Context::Point, Reduce::Max, heat);
+    let g = writing(g, Context::Face, "hot", Context::Point, Resample::Max, heat);
     let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(
         out.attr(Context::Point, "hot").unwrap().column.floats().unwrap(),
@@ -581,7 +594,7 @@ fn set_data_writes_across_contexts() {
     // Per object, into every corner.
     let mut g = Graph::default();
     let seven = g.add(Op::Constant(Value::Int(7)), vec![]);
-    let g = writing(g, Context::Object, "seven", Context::Corner, Reduce::Average, seven);
+    let g = writing(g, Context::Object, "seven", Context::Corner, Resample::Average, seven);
     let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
     assert_eq!(
         out.attr(Context::Corner, "seven").unwrap().column.ints().unwrap(),
@@ -596,7 +609,7 @@ fn set_data_writes_across_contexts() {
         "x",
         Attr::new(Column::Float(Arc::new(vec![0.0; 6])), Role::None),
     );
-    let g = writing(g, Context::Point, "x", Context::Face, Reduce::Sum, one);
+    let g = writing(g, Context::Point, "x", Context::Face, Resample::Sum, one);
     let out = run(&compile(&g, &geo2).unwrap(), &geo2, &no_params(), &[]).geo;
     assert_eq!(
         out.attr(Context::Face, "x").unwrap().column.floats().unwrap(),
@@ -607,7 +620,7 @@ fn set_data_writes_across_contexts() {
     let mut g = Graph::default();
     let p = g.add(Op::get("P"), vec![]);
     assert!(compile(
-        &writing(g, Context::Point, "P", Context::Face, Reduce::Average, p),
+        &writing(g, Context::Point, "P", Context::Face, Resample::Average, p),
         &geo
     )
     .is_err());
@@ -2122,7 +2135,7 @@ fn get_data_from_another_prim() {
         Op::GetData {
             name: "P".into(),
             context: None,
-            reduce: super::Reduce::Average,
+            resample: super::Resample::Average,
         },
         vec![wire(anim)],
     );

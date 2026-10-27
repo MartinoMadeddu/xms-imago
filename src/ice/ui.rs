@@ -167,13 +167,13 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::GetData {
             name,
             context: Some(c),
-            reduce,
-        } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
+            resample,
+        } => Some(format!("{}.{name} ({})", context_word(*c), resample_word(*resample))),
         IceGraphNodeType::SetData {
             name,
             context: Some(c),
-            reduce,
-        } => Some(format!("{}.{name} ({})", context_word(*c), reduce_word(*reduce))),
+            resample,
+        } => Some(format!("{}.{name} ({})", context_word(*c), resample_word(*resample))),
         IceGraphNodeType::GetData { name, .. } | IceGraphNodeType::SetData { name, .. } => Some(format!("self.{name}")),
         IceGraphNodeType::Root { context } => Some(format!("per {context:?}")),
         IceGraphNodeType::Random { seed } => Some(format!("seed {seed}")),
@@ -219,12 +219,12 @@ fn context_word(c: crate::core::geo::Context) -> &'static str {
     }
 }
 
-fn reduce_word(r: xms_ice::Reduce) -> &'static str {
+fn resample_word(r: xms_ice::Resample) -> &'static str {
     match r {
-        xms_ice::Reduce::Average => "average",
-        xms_ice::Reduce::Sum => "sum",
-        xms_ice::Reduce::Min => "min",
-        xms_ice::Reduce::Max => "max",
+        xms_ice::Resample::Average => "average",
+        xms_ice::Resample::Sum => "sum",
+        xms_ice::Resample::Min => "min",
+        xms_ice::Resample::Max => "max",
     }
 }
 
@@ -376,7 +376,7 @@ pub fn draw_subnet_node_properties(
     // The geometry the graph last ran on, for Get Data's list: listed only
     // while the list is open.
     let last_input = graph.last_input.clone();
-    // The context the graph runs over: Set Data's Several is for writing
+    // The context the graph runs over: Set Data's Resample is for writing
     // from it into another.
     let runs_over = graph
         .nodes
@@ -426,7 +426,11 @@ pub fn draw_subnet_node_properties(
                 ],
             );
         }),
-        IceGraphNodeType::GetData { name, context, reduce } => {
+        IceGraphNodeType::GetData {
+            name,
+            context,
+            resample,
+        } => {
             group(ui, "Attribute", None, |f| {
                 f.text("Name", Some("P is the points, N the normals, uv the first texture coordinates; any other name is an attribute of the geometry"), name, "P");
                 // Every attribute of the geometry the graph last ran on, as the
@@ -462,12 +466,16 @@ pub fn draw_subnet_node_properties(
                 f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire samples into Samples to read there instead; wire a Geometry (Get Reference) to read it from that prim, element by element (it has the same topology: a rest mesh and its animated copy)"),
                          context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                 if context.is_some_and(|c| c != Context::Object) {
-                    f.choice("Several", Some("When an element touches several of the context read (a face's points, the faces around a point), how they become one value"),
-                             reduce, &[(xms_ice::Reduce::Average, "Average"), (xms_ice::Reduce::Sum, "Sum"), (xms_ice::Reduce::Min, "Min"), (xms_ice::Reduce::Max, "Max")]);
+                    f.choice("Resample", Some("Reading from another context resamples it: when an element touches several of the context read (a face's points, the faces around a point), how they become one value"),
+                             resample, &[(xms_ice::Resample::Average, "Average"), (xms_ice::Resample::Sum, "Sum"), (xms_ice::Resample::Min, "Min"), (xms_ice::Resample::Max, "Max")]);
                 }
             })
         }
-        IceGraphNodeType::SetData { name, context, reduce } => group(ui, "Attribute", None, |f| {
+        IceGraphNodeType::SetData {
+            name,
+            context,
+            resample,
+        } => group(ui, "Attribute", None, |f| {
             f.text(
                 "Name",
                 Some("P is the points, N the normals; any other name makes or sets an attribute"),
@@ -477,8 +485,8 @@ pub fn draw_subnet_node_properties(
             f.choice("Context", Some("Where the attribute is written. Auto: the graph's own context. Into another, each element there takes the values of the graph's elements it touches: a face its points, a point the faces around it, the object all of them"),
                      context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
             if context.is_some_and(|c| c != runs_over) && runs_over != Context::Object {
-                f.choice("Several", Some("When an element written touches several of the graph's (a face's points, the faces around a point), how their values become one"),
-                         reduce, &[(xms_ice::Reduce::Average, "Average"), (xms_ice::Reduce::Sum, "Sum"), (xms_ice::Reduce::Min, "Min"), (xms_ice::Reduce::Max, "Max")]);
+                f.choice("Resample", Some("Writing into another context resamples: when an element written touches several of the graph's (a face's points, the faces around a point), how their values become one"),
+                         resample, &[(xms_ice::Resample::Average, "Average"), (xms_ice::Resample::Sum, "Sum"), (xms_ice::Resample::Min, "Min"), (xms_ice::Resample::Max, "Max")]);
             }
         }),
         IceGraphNodeType::Constant { value } => group(ui, "Value", None, |f| {

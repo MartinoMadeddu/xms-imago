@@ -638,15 +638,23 @@ impl IceGraph {
                         name: name.clone(),
                         context: *context,
                     },
-                    IceGraphNodeType::GetData { name, context, reduce } => Op::GetData {
+                    IceGraphNodeType::GetData {
+                        name,
+                        context,
+                        resample,
+                    } => Op::GetData {
                         name: name.clone(),
                         context: *context,
-                        reduce: *reduce,
+                        resample: *resample,
                     },
-                    IceGraphNodeType::SetData { name, context, reduce } => Op::SetData {
+                    IceGraphNodeType::SetData {
+                        name,
+                        context,
+                        resample,
+                    } => Op::SetData {
                         name: name.clone(),
                         context: *context,
-                        reduce: *reduce,
+                        resample: *resample,
                     },
                     IceGraphNodeType::Constant { value } => Op::Constant(*value),
                     IceGraphNodeType::Math { op } => Op::Math(*op),
@@ -1148,7 +1156,7 @@ mod tests {
             IceGraphNodeType::GetData {
                 name: "area".into(),
                 context: Some(Context::Face),
-                reduce: xms_ice::Reduce::Average,
+                resample: xms_ice::Resample::Average,
             },
             egui::pos2(0.0, 0.0),
         );

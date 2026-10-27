@@ -1180,6 +1180,16 @@ mod tests {
         assert!(matches!(old, IceGraphNodeType::GetData { ref name, context: None, .. } if name == "uv"));
         let old: IceGraphNodeType = serde_json::from_str(r#"{"GetArrayDataAt":{"name":"P"}}"#).unwrap();
         assert!(matches!(old, IceGraphNodeType::GetArrayData { ref name, context: None } if name == "P"));
+        // Resample, as older graphs saved it (`reduce`), and as it is saved now.
+        let old: IceGraphNodeType = serde_json::from_str(r#"{"SetData":{"name":"c","reduce":"Max"}}"#).unwrap();
+        assert!(matches!(
+            old,
+            IceGraphNodeType::SetData {
+                resample: xms_ice::Resample::Max,
+                ..
+            }
+        ));
+        assert!(serde_json::to_string(&old).unwrap().contains(r#""resample":"Max""#));
     }
 
     /// A graph file keeps its variables and $JOB; a graph added brings the ones

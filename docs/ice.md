@@ -22,8 +22,9 @@ the tree's parameters).
 - **Get Data across contexts.** A Get Data's **Context** says where the
   attribute is read from: **Auto** (the graph's own context, or Object), or
   Point, Face, Corner or Object. Read from another context, each element reads
-  the elements it touches, and when it touches several, **Several** makes them
-  one value (Average, Sum, Min, Max):
+  the elements it touches, and when it touches several, **Resample** makes them
+  one value (Average, Sum, Min, Max): reading across contexts resamples, from
+  points to faces, faces to points:
 
   | Graph runs per | Reads per | Each element gets |
   |---|---|---|
@@ -59,7 +60,7 @@ the tree's parameters).
   | Corner | `localCornerIndex` | Integer | its place in that face (0 for the first) |
 
   Made when a graph that reads them runs, once per run. Per point, Get Data
-  `firstCorner` (Context Face, Several Min) gives the first corner of the first
+  `firstCorner` (Context Face, Resample Min) gives the first corner of the first
   face around each point. A face's `ptIndices` is a list, for Get Array Data.
   Short names work too: `P` the points, `N` the normals, `uv` the first texture
   coordinates. Quaternions read as their four numbers; matrices and tokens are
@@ -71,7 +72,7 @@ the tree's parameters).
   Face, Corner or Object. Written into another context, each element there takes
   the values of the graph's elements it touches (the same table as Get Data's,
   the other way round: a graph per point writing per face gives each face its
-  points' values), made one by **Several**. A name lives in one context: writing
+  points' values), made one by **Resample**. A name lives in one context: writing
   it in one takes it out of the others, as USD has one primvar of a name. The
   points stay per point. Booleans reach the primitive's primvars as 0 and 1.
 - **Constants** (Scalar, Integer, 2D, 3D and 4D Vector, Boolean, Rotation,
@@ -205,7 +206,7 @@ the tree's parameters).
   whatever it holds; hover over a port to see what flows there ("3D vector",
   "array of surface samples", "array of paths").
 - **Get Array Data** reads an attribute as a **list per element**, every value
-  it touches kept rather than made one as Get Data's Several does: per face,
+  it touches kept rather than made one as Get Data's Resample does: per face,
   `ptIndices` (its point numbers, in order), or `P` from Point (its points'
   positions); per point, `faceIndices` (the faces around it); a corner's is a
   list of one. Maths works on a list item by item, a per-element value meeting

@@ -1,5 +1,6 @@
 mod app;
 mod batch;
+mod compounds;
 mod core;
 mod curve_editor;
 mod downloads;
