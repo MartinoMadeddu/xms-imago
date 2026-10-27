@@ -1011,9 +1011,10 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            ctx.run_ui(input, |ui| {
                 changed |= typed(ui, v, |ui, t| ui.add(egui::TextEdit::singleline(t).id(id))).changed();
-            });
+            })
+            .drop_without_applying_deltas();
             changed
         };
         let key = |k: egui::Key| egui::Event::Key {
