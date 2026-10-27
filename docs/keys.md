@@ -34,6 +34,18 @@ A number is found by its place in the operator's parameters as they are saved
 added later. Lists of rows are not keyed: Edit Poly's operations, Set
 Attribute's rows, Material Binding's rows. Nor are switches and text.
 
+## References
+
+A number can follow another operator's: right-click it in the **Keys** group,
+**Copy as Reference**; right-click the number that should follow, **Paste as
+Reference**. It takes the source's value as the source cooks, its keys
+included, without changing its own: **Remove Reference**, or a value typed over
+it, makes it its own again. A number that follows is drawn blue with 🔗 in
+place of its diamond, and is not keyed (Key all and S leave it); a keyed number
+cannot follow another, and a reference that would make a loop is refused.
+Inside a compound the same menu promotes a number to the compound's parameters
+(see [Compounds](compounds.md)).
+
 ## The timeline
 
 When the selected operator does not give a clip, the timeline shows the scene's

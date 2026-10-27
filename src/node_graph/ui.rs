@@ -259,9 +259,17 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         ui.ctx().request_repaint();
     }
 
-    // Add-node menu: Tab, right-click, or right-click on an output
+    // Inside a locked compound everything is shown at half strength: it
+    // follows its definition and cannot be changed here.
+    if graph.inside.locked {
+        ui.multiply_opacity(0.5);
+    }
+
+    // Add-node menu: Tab, right-click, or right-click on an output, anywhere
+    // over the canvas, nodes included.
     let mut opened_now = false;
-    if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+    let over_canvas = ui.rect_contains_pointer(canvas_rect);
+    if over_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
         let cursor = ui.input(|i| i.pointer.hover_pos()).unwrap_or(canvas_rect.center());
         graph.tab_menu_screen_pos = Some(cursor);
         graph.tab_menu_canvas_pos = Some(to_canvas(cursor));
@@ -285,7 +293,22 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
                 .find(|o| to_screen(output_socket_pos(node, *o)).distance(cursor) <= SOCKET_HIT * 0.5 + 2.0)
                 .map(|o| (node.id, o))
         });
-        if socket.is_some() || response.secondary_clicked() {
+        // Over a node: the menu is for it too (Make Compound takes the
+        // selection), so it is selected if it was not.
+        let on_node = graph
+            .nodes
+            .iter()
+            .rev()
+            .find(|n| {
+                egui::Rect::from_min_size(to_screen(n.position), egui::vec2(node_width(n), node_height(n)) * zoom)
+                    .contains(cursor)
+            })
+            .map(|n| n.id);
+        if let Some(id) = on_node.filter(|id| !graph.selected_nodes.contains(id)) {
+            graph.selected_nodes = vec![id];
+            graph.selected_node = Some(id);
+        }
+        if socket.is_some() || on_node.is_some() || response.secondary_clicked() {
             graph.tab_menu_screen_pos = Some(cursor);
             graph.tab_menu_canvas_pos = Some(to_canvas(cursor));
             graph.menu_from = socket;
@@ -1551,7 +1574,14 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
                 chosen = Some(t.clone());
             }
         }
-        if found.is_empty() {
+        // Make Compound is found as the operators are.
+        let action_found = words
+            .split_whitespace()
+            .all(|w| "make compound organise pack".contains(w));
+        if action_found && make_compound_item(ui, graph, true) {
+            added = true;
+        }
+        if found.is_empty() && !action_found {
             ui.label("No node by that name");
         }
         if let Some(t) = chosen {
@@ -1564,18 +1594,6 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
     ui.separator();
     // Categories look like the items in them: menu rows, not buttons.
     ui.visuals_mut().button_frame = false;
-    // Operators selected: packed into a compound, its ports the wires that
-    // cross the selection.
-    let picked: Vec<NodeId> = graph.selected_nodes.clone();
-    if !picked.is_empty()
-        && ui
-            .button(format!("◆  Make Compound ({} selected)", picked.len()))
-            .on_hover_text("Pack the selected operators into a compound, in their place: the wires crossing the selection become its ports. It is editable; Save as Definition in its parameters writes it to the library")
-            .clicked()
-    {
-        graph.make_compound_request = Some(picked);
-        added = true;
-    }
     // The library's scene compounds, by category, where each came from.
     let library = crate::compounds::library();
     let found = library.of_context(crate::compounds::Context::Scene);
@@ -1634,9 +1652,34 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
                     ui.close();
                 }
             }
+            if category == "Organise" && make_compound_item(ui, graph, false) {
+                added = true;
+                ui.close();
+            }
         });
     }
     added
+}
+
+/// Make Compound, an action among the operators: it packs the selected ones
+/// into a compound. `found`: shown as a search result. Returns whether it was
+/// taken.
+fn make_compound_item(ui: &mut egui::Ui, graph: &mut NodeGraphState, found: bool) -> bool {
+    let picked: Vec<NodeId> = graph.selected_nodes.clone();
+    let label = match picked.len() {
+        0 => "◆  Make Compound".to_string(),
+        n => format!("◆  Make Compound ({n} selected)"),
+    };
+    let label = if found { format!("{label}   Organise") } else { label };
+    let r = ui
+        .add_enabled(!picked.is_empty(), egui::Button::new(label))
+        .on_hover_text("Pack the selected operators into a compound, in their place: the wires crossing the selection become its ports. It is editable; Save as Definition in its parameters writes it to the library")
+        .on_disabled_hover_text("Select the operators to pack first");
+    if r.clicked() {
+        graph.make_compound_request = Some(picked);
+        return true;
+    }
+    false
 }
 
 // BEZIER HELPERS

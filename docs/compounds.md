@@ -26,8 +26,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 |---|---|---|
 | 1 | Definitions, `.icd` files, the library and its search path, context checks | Built: `src/compounds.rs` |
 | 2 | Scene compound instances: the Compound, Compound Input and Compound Output operators, cooking, Make Compound, entering, Make Editable, Save as Definition, promoted parameters in the Parameters pane | Built: `src/node_graph/compound.rs`, `src/inside_compound.rs` |
-| 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | Next |
-| 4 | Every parameter row knowing its serde path: the right-click menu on rows | |
+| 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | Built: `src/node_graph/links.rs`, `src/keys_ui.rs` |
+| 4 | Every parameter row knowing its serde path: the right-click menu on rows | Next |
 | 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | |
 | 6 | Ramp: the type, its row, Ramp Lookup | |
 | 7 | Viewer tools inside compounds | |
@@ -35,8 +35,9 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 
 ## Using them
 
-- **Make one:** select operators, open the add menu (right-click or Tab) and
-  choose **Make Compound**. They are packed into a Compound operator in their
+- **Make one:** select operators, open the add menu (right-click or Tab,
+  over the canvas or an operator; an operator right-clicked is selected) and
+  choose **Organise > Make Compound** (or search for it). They are packed into a Compound operator in their
   place, the wires that crossed the selection now on its ports: a **Compound
   Input** inside for each output wired in from outside, a **Compound Output**
   for each output wired out (the viewed operator's, or the lowest's, when none
@@ -59,12 +60,30 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   are brought up to date.
 - **Placing one:** the add menu's **Compounds** lists the library's scene
   compounds by category, with where each came from. A locked instance shows its
-  definition's name, version and file; **Make Editable** gives it its own copy.
-  Inside a locked one, a change is put back at once, with Make Editable on the
+  definition's name, version and file; **Make Editable** gives it its own copy,
+  and **Revert to Latest Definition** drops that copy: it follows the library's
+  definition of its name again, locked. Inside a locked one the graph is drawn
+  at half strength, a change is put back at once, and Make Editable is on the
   bar.
-- **Promoted parameters** (written in the `.icd` file for now; Promote comes
-  next) show in its parameters by group: numbers, booleans, text and vectors.
-  A value set back to the default is the default again.
+- **Promote:** inside an editable compound, right-click a number in an
+  operator's **Keys** list (under its parameters) and choose **Promote…**:
+  give it a label, a group and a range, or make it another target of a
+  parameter already promoted. Its value now is the default. The compound's
+  parameters take it when you leave the compound; **Remove Promotion** takes
+  it back. A promoted number is marked ◆ in the list.
+- **Promoted parameters** show in the instance's parameters by group: numbers,
+  booleans, text and vectors. A value set back to the default is the default
+  again. Each instance keeps its own.
+- **References:** right-click any number in the Keys list, **Copy as
+  Reference**; on another number, **Paste as Reference**: it follows the first,
+  as it cooks (keyed, it follows its animation). It is drawn blue with a 🔗 in
+  place of its key diamond; **Remove Reference** makes it its own again, and so
+  does typing a value over it in the parameters. A keyed number cannot follow
+  another, nor one that would make a loop. References are saved with the
+  graph, and pasted operators follow each other, or the operator copied when
+  pasted alone.
+- **Not yet:** right-clicking a parameter's own row (step 4); Promote is not a
+  step of the undo history inside the compound (leaving it is).
 - **A missing definition** keeps the operator, its ports, wires and values: what
   comes into its first input goes on, and its parameters say which definition
   is missing.

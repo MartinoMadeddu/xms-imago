@@ -1019,7 +1019,9 @@ impl egui_dock::TabViewer for Panes<'_> {
                         self.graph.end_edit(id, own);
                     }
                     if let Some(id) = self.graph.selected_node {
-                        crate::keys_ui::channel_box(ui, self.graph, id);
+                        if let Some(m) = crate::keys_ui::channel_box(ui, self.graph, id) {
+                            self.graph_file.message = m;
+                        }
                     }
                     // Operators the panel asked for: a MaterialX operator from a stage's material.
                     for (name, t) in std::mem::take(&mut io.add) {

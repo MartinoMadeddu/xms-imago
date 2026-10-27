@@ -1,6 +1,7 @@
 pub mod compound;
 pub mod from_above;
 pub mod keying;
+pub mod links;
 pub mod local;
 pub mod nodes;
 pub mod ui;
@@ -195,6 +196,9 @@ pub struct GraphNode {
     /// Primitive Locations (the Prims Location tab): the primitives the
     /// operator works on. Empty: every primitive (`core::locations`).
     pub locations: Vec<String>,
+    /// Numbers of its parameters following another operator's (`links`).
+    /// Saved.
+    pub links: Vec<links::Link>,
 }
 
 #[derive(Clone)]
@@ -440,6 +444,7 @@ impl NodeGraphState {
                 let _ = serde_json::to_writer(&mut w, &n.channels);
             }
             n.locations.hash(&mut w.0);
+            n.links.hash(&mut w.0);
         }
         for c in &self.connections {
             (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut w.0);
@@ -479,6 +484,7 @@ impl NodeGraphState {
             frozen: false,
             ghost: false,
             channels: vec![],
+            links: vec![],
             locations: vec![],
         });
         // The first operator of a graph is viewed: there is always one.

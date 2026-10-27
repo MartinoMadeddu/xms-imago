@@ -178,6 +178,7 @@ pub fn enter(
         .chain(std::iter::once(node.name.clone()))
         .collect();
     g.inside.locked = locked;
+    g.inside.parameters = d.parameters.clone();
     g.frame_request = true;
     let pristine = locked.then(|| crate::graph_io::to_json(g, &inner.subnets));
     let seen = g.content_hash();
@@ -228,7 +229,9 @@ pub fn leave(
     else {
         return None;
     };
-    // The definition keeps its defaults; the instance its values.
+    // Its parameters as promoted inside; the definition keeps its defaults,
+    // the instance its values.
+    d.parameters = std::mem::take(&mut g.inside.parameters);
     compound::take_values(&mut g, d, values);
     g.scene = Default::default();
     g.variables = Default::default();

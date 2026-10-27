@@ -392,7 +392,12 @@ pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> b
             _ => return false,
         };
     }
-    *v = x;
+    // A whole number stays whole, as keys keep it.
+    *v = match (&*v, x.as_f64()) {
+        (serde_json::Value::Number(n), Some(f)) if n.is_u64() && f >= 0.0 => serde_json::json!(f.round() as u64),
+        (serde_json::Value::Number(n), Some(f)) if n.is_i64() => serde_json::json!(f.round() as i64),
+        _ => x,
+    };
     true
 }
 
@@ -654,6 +659,13 @@ mod tests {
         assert_eq!(get(&v, "translation/1"), Some(&serde_json::json!(5.0)));
         assert_eq!(get(&v, "name"), Some(&serde_json::json!("b")));
         assert_eq!(v["Transform"]["translation"][2], serde_json::json!(2.0));
+        let mut n = serde_json::json!({ "Sphere": { "segments": 32 } });
+        assert!(put(&mut n, "segments", serde_json::json!(12.4)));
+        assert_eq!(
+            n["Sphere"]["segments"],
+            serde_json::json!(12),
+            "a whole number stays whole"
+        );
     }
 
     /// The FNV-1a hash of known text: the same in every build.

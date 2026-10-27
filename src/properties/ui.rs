@@ -590,6 +590,7 @@ pub fn draw_properties(
     }
     let located = crate::core::locations::is_set(&node.locations);
     let mut enter_compound = false;
+    let mut back_to_library = false;
 
     match &mut node.node_type {
         // Create
@@ -1184,9 +1185,9 @@ pub fn draw_properties(
         }),
         NodeType::SetVariable { vars } => set_variable_rows(ui, vars),
         NodeType::Compound { .. } => {
-            if compound_rows(ui, &mut node.node_type, sel_id, io) {
-                enter_compound = true;
-            }
+            let (enter, back) = compound_rows(ui, &mut node.node_type, sel_id, io);
+            enter_compound = enter;
+            back_to_library = back;
         }
         NodeType::CompoundInput { name } => group(ui, "Port", Some("Inside a compound: what comes into the instance's input port of this name. The compound's ports are named by these operators when you leave it"), |f| {
             resync |= f.text("Name", Some("The input port's name on the compound"), name, "Scene").changed();
@@ -1197,6 +1198,10 @@ pub fn draw_properties(
     }
     if enter_compound {
         graph.inside.request = Some(crate::node_graph::compound::Request::Enter(sel_id));
+    }
+    // Back to the library's definition: its ports, version and hash.
+    if back_to_library {
+        graph.refresh_compounds();
     }
     if resync {
         graph.sync_sockets(sel_id);
@@ -1293,9 +1298,11 @@ fn graph_variables_tab(ui: &mut egui::Ui, above: &[(String, String, String)], ow
 /// A compound instance's parameters: what its definition is and where it
 /// comes from, going inside, Make Editable and Save as Definition, its
 /// editable definition's name and menu entry, and its promoted parameters.
-/// Returns whether it asked to go inside.
-fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut PanelIo) -> bool {
+/// Returns whether it asked to go inside, and whether it went back to the
+/// library's definition.
+fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut PanelIo) -> (bool, bool) {
     let mut enter = false;
+    let mut back = false;
     let library = crate::compounds::library();
     let NodeType::Compound {
         definition,
@@ -1304,7 +1311,7 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
         ..
     } = &mut *t
     else {
-        return false;
+        return (false, false);
     };
     let found = library.get(definition).cloned();
     let editable_now = editable.is_some();
@@ -1357,6 +1364,18 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
                 }
                 io.browser.open(BrowseTarget::SaveDefinition(id), BrowseMode::Save, "Save as Definition", &["icd"], &name);
             }
+            // Editable, with a definition of its name in the library: back to
+            // it, locked, its own copy dropped.
+            if editable_now
+                && found.is_some()
+                && ui
+                    .button("Revert to Latest Definition")
+                    .on_hover_text("Drop this instance's own copy: it follows the library's definition of its name again, locked")
+                    .clicked()
+            {
+                *editable = None;
+                back = true;
+            }
         });
         },
     );
@@ -1387,7 +1406,7 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
     // Its promoted parameters, by group.
     let params = crate::node_graph::compound::with_definition(&*t, |d| d.parameters.clone()).unwrap_or_default();
     let NodeType::Compound { values, .. } = t else {
-        return enter;
+        return (enter, back);
     };
     let mut groups: Vec<String> = vec![];
     for p in &params {
@@ -1407,7 +1426,7 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
             }
         });
     }
-    enter
+    (enter, back)
 }
 
 /// One promoted parameter's row: its value, the instance's, else the default.

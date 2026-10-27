@@ -62,6 +62,9 @@ pub struct Inside {
     pub path: Vec<String>,
     pub locked: bool,
     pub request: Option<Request>,
+    /// The instance's promoted parameters, changed by Promote inside; the
+    /// definition takes them when an editable instance is left.
+    pub parameters: Vec<compounds::Parameter>,
 }
 
 /// What the panes ask of the compounds entered.
@@ -552,6 +555,11 @@ impl NodeGraphState {
         let mut inner_subnets = IceGraphStore::default();
         let placed = crate::graph_io::paste(&mut g, &mut inner_subnets, fragment, Some(corner));
         let new = |id: NodeId| placed.get(&id.0).copied();
+        // References to operators left outside cannot reach in.
+        let kept: Vec<NodeId> = placed.values().copied().collect();
+        for n in &mut g.nodes {
+            n.links.retain(|l| kept.contains(&l.node));
+        }
 
         // Wires coming in, by what they come from: one port each.
         let mut ins: Vec<((NodeId, usize), Vec<(NodeId, usize)>, String)> = vec![];
