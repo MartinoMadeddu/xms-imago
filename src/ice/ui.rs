@@ -791,7 +791,7 @@ fn input_menu(ctx: &egui::Context, graph: &mut IceGraph) {
         close(ctx);
         return;
     };
-    let editable = graph.outer.last().is_some_and(|o| !o.locked);
+    let editable = !locked(ctx, graph);
     let mut chosen = false;
     let area = egui::Area::new(input_menu_id())
         .order(egui::Order::Foreground)
@@ -799,7 +799,7 @@ fn input_menu(ctx: &egui::Context, graph: &mut IceGraph) {
         .show(ctx, |ui| {
             egui::Frame::menu(ui.style()).show(ui, |ui| {
                 ui.label(egui::RichText::new(name).small().weak());
-                chosen = promote_button(ui, "Promote Input", editable);
+                chosen = promote_button(ui, "Promote Input", editable, !graph.outer.is_empty());
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
@@ -813,13 +813,17 @@ fn input_menu(ctx: &egui::Context, graph: &mut IceGraph) {
     }
 }
 
-/// Promote Input's button: only inside an editable compound, else saying so.
-fn promote_button(ui: &mut egui::Ui, label: &str, editable: bool) -> bool {
+/// Promote Input's button: inside a compound, the input a port of it; else a
+/// parameter of the ICE operator. Not where the graph cannot be changed.
+fn promote_button(ui: &mut egui::Ui, label: &str, editable: bool, in_compound: bool) -> bool {
+    let what = if in_compound {
+        "A port of the compound, its value this input's: a Compound Input wired in"
+    } else {
+        "A parameter of the ICE operator, in its parameters, its value this input's: a Parameter node wired in"
+    };
     ui.add_enabled(editable, egui::Button::new(label))
-        .on_hover_text("A port of the compound, its value this input's: a Compound Input wired in")
-        .on_disabled_hover_text(
-            "Inside an editable compound: go inside one (double-click it, or ↓), Make Editable if it is locked",
-        )
+        .on_hover_text(what)
+        .on_disabled_hover_text("Locked: it follows its definition. Make Editable to change it")
         .clicked()
 }
 
@@ -872,6 +876,22 @@ fn broken(graph: &IceGraph) -> Option<(Option<NodeId>, String)> {
         .then(|| way.get(entered.len()).copied())
         .flatten();
     Some((here, message))
+}
+
+fn scene_locked_id() -> egui::Id {
+    egui::Id::new("ice_scene_locked")
+}
+
+/// Whether the scene graph is inside a locked compound, so its ICE graphs
+/// cannot be changed: set once a frame.
+pub fn set_scene_locked(ctx: &egui::Context, locked: bool) {
+    ctx.data_mut(|d| d.insert_temp(scene_locked_id(), locked));
+}
+
+/// Whether the graph cannot be changed: inside a locked ICE compound, or in
+/// a locked scene compound.
+fn locked(ctx: &egui::Context, graph: &IceGraph) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(scene_locked_id())).unwrap_or(false) || graph.entered().1
 }
 
 /// What a node's menu has to tell, until the graph is drawn.
@@ -1162,13 +1182,12 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
     }
     ui.data_mut(|d| d.insert_temp(collapsed_id(), collapsed));
     // Locked: a dark layer, and a change put back.
-    let (_, locked) = graph.entered();
-    if locked {
+    if locked(ui.ctx(), graph) {
         painter.rect_filled(canvas_rect, 0.0, egui::Color32::from_black_alpha(90));
         painter.text(
             canvas_rect.left_bottom() + egui::vec2(8.0, -8.0),
             egui::Align2::LEFT_BOTTOM,
-            "Locked: it follows its definition. Make Editable (in the bar above) to change it",
+            "Locked: it follows its definition. Make Editable to change it",
             egui::FontId::proportional(12.0),
             egui::Color32::WHITE,
         );
@@ -1852,9 +1871,10 @@ fn draw_subnet_node(
     }
     let terminal = matches!(node.node_type, IceGraphNodeType::Root { .. });
     if !terminal {
-        // An input that holds a value can be a port of the compound it is in
-        // (inside an editable one).
-        let editable = graph.outer.last().is_some_and(|o| !o.locked);
+        // An input that holds a value can be promoted: a port of the compound
+        // it is in, else a parameter of the ICE operator.
+        let editable = !locked(ui.ctx(), graph);
+        let in_compound = !graph.outer.is_empty();
         let promotable: Vec<(usize, String)> = node
             .inputs
             .iter()
@@ -1867,7 +1887,7 @@ fn draw_subnet_node(
                 if editable {
                     crate::menus::menu(ui, "Promote Input", |ui| {
                         for (k, name) in &promotable {
-                            if promote_button(ui, name, true) {
+                            if promote_button(ui, name, true, in_compound) {
                                 if let Some(told) = super::compound::promote_input(graph, id, *k) {
                                     ui.data_mut(|d| d.insert_temp(told_id(), told));
                                 }
@@ -1876,7 +1896,7 @@ fn draw_subnet_node(
                         }
                     });
                 } else {
-                    promote_button(ui, "Promote Input", false);
+                    promote_button(ui, "Promote Input", false, in_compound);
                 }
                 ui.separator();
             }

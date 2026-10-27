@@ -373,8 +373,10 @@ pub fn rescan() -> std::sync::Arc<Library> {
 }
 
 /// Put `x` at `path` in a node's parameters as JSON (`translation/0`), the
-/// variant's name above them skipped, as keys' paths are. False when the path
-/// is not there.
+/// variant's name above them skipped, as keys' paths are. A key a map does
+/// not have yet is made (an instance's promoted values at their defaults are
+/// not saved), unless an array's index would follow it. False when the path
+/// cannot be there.
 pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> bool {
     let mut v = match value {
         serde_json::Value::Object(o) if o.len() == 1 => match o.values_mut().next() {
@@ -383,12 +385,16 @@ pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> b
         },
         v => v,
     };
-    for part in path.split('/').filter(|p| !p.is_empty()) {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    for (k, part) in parts.iter().enumerate() {
+        let indexed = parts.get(k + 1).is_some_and(|n| n.parse::<usize>().is_ok());
+        // A map made where a key was missing.
+        if v.is_null() {
+            *v = serde_json::Value::Object(Default::default());
+        }
         v = match v {
-            serde_json::Value::Object(o) => match o.get_mut(part) {
-                Some(v) => v,
-                None => return false,
-            },
+            serde_json::Value::Object(o) if indexed && !o.contains_key(*part) => return false,
+            serde_json::Value::Object(o) => o.entry(part.to_string()).or_insert(serde_json::Value::Null),
             serde_json::Value::Array(a) => match part.parse::<usize>().ok().and_then(|i| a.get_mut(i)) {
                 Some(v) => v,
                 None => return false,
@@ -666,6 +672,10 @@ mod tests {
         assert_eq!(get(&v, "translation/1"), Some(&serde_json::json!(5.0)));
         assert_eq!(get(&v, "name"), Some(&serde_json::json!("b")));
         assert_eq!(v["Transform"]["translation"][2], serde_json::json!(2.0));
+        // An instance's promoted values, none saved yet.
+        let mut c = serde_json::json!({ "Compound": { "definition": "Lift" } });
+        assert!(put(&mut c, "values/height", serde_json::json!(2.5)));
+        assert_eq!(get(&c, "values/height"), Some(&serde_json::json!(2.5)));
         let mut n = serde_json::json!({ "Sphere": { "segments": 32 } });
         assert!(put(&mut n, "segments", serde_json::json!(12.4)));
         assert_eq!(

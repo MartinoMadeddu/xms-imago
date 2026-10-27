@@ -303,11 +303,14 @@ compound's does.
 - **Ports** are the Compound Input and Compound Output nodes inside, top to
   bottom, by name: add or rename one there, and the compound's port follows
   when you come back out. A Compound Input's value is the port's, for while
-  nothing is wired to it. Inside an editable compound, right-click a node (Promote Input, then
-  the input) or an input's rows in its parameters (Promote Input) to make an
-  input holding a value a port: a Compound Input named after the node and the
-  input, holding its value, wired in. Outside a compound, or in a locked one,
-  the entry is there, greyed out, saying how.
+  nothing is wired to it. Right-click a node (Promote Input, then the input) or an input's rows
+  in its parameters (Promote Input) to promote an input holding a value:
+  inside a compound, it becomes a port of the compound (a Compound Input);
+  at the top of the ICE operator's graph, a parameter of the operator (a
+  Parameter node, set in the operator's parameters, and from there promoted
+  or referenced in the scene graph). Both are named after the node and the
+  input, hold its value and are wired in. Inside a locked compound (an ICE one,
+  or the scene compound the operator is in) the entry is greyed out.
 - **Save as Definition…** in its parameters writes it as an `.icd` file; saved
   in a library folder, it is listed under **Compounds** in every ICE graph's add
   menu and the instance follows the file, locked. A locked compound's inside is

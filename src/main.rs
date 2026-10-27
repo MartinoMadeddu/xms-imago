@@ -123,6 +123,8 @@ pub(crate) fn draw_ui(
         inside,
         ..
     } = app;
+    // Inside a locked compound its ICE graphs cannot be changed either.
+    crate::ice::ui::set_scene_locked(ctx, graph.inside.locked);
     // Keyed parameters cook at the playhead.
     graph.time = playback.time;
     // Local Animations show the parameters of the operator before them.
@@ -1027,12 +1029,19 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let selected = editing
                         .as_ref()
                         .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id));
+                    // Its numbers that follow another, and those promoted (inside
+                    // a compound): each follows a number elsewhere.
                     let (whose, linked): (u64, Vec<String>) = selected
                         .map(|n| {
                             use std::hash::{Hash, Hasher};
+                            let promoted =
+                                self.graph.inside.parameters.iter().flat_map(|q| {
+                                    q.targets.iter().filter(|t| t.node == n.name).map(|t| t.path.clone())
+                                });
+                            let linked: Vec<String> = n.links.iter().map(|l| l.path.clone()).chain(promoted).collect();
                             let mut h = std::collections::hash_map::DefaultHasher::new();
-                            (n.id, &n.links).hash(&mut h);
-                            (h.finish(), n.links.iter().map(|l| l.path.clone()).collect())
+                            (n.id, &linked).hash(&mut h);
+                            (h.finish(), linked)
                         })
                         .unwrap_or_default();
                     // The parameters as they were, for a probed row to be found

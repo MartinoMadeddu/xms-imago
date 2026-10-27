@@ -167,7 +167,8 @@ pub fn keep_params(graph: &mut crate::node_graph::NodeGraphState, subnets: &crat
         }
     }
     let now = h.finish();
-    if SEEN.with(|s| s.replace(now)) == now {
+    // Inside a locked compound nothing changes.
+    if SEEN.with(|s| s.replace(now)) == now || graph.inside.locked {
         return;
     }
     for n in graph.nodes.iter_mut() {
@@ -618,33 +619,46 @@ fn unique(name: &str, taken: &[String]) -> String {
         .unwrap_or_default()
 }
 
-/// Inside a compound: input `k` of node `id`, holding a value, made a port of
-/// the compound: a Compound Input beside it, named after the node and the
-/// input, holding its value, wired in. Returns what to tell.
+/// Input `k` of node `id`, holding a value, promoted: inside a compound, a
+/// port of it (a Compound Input); at the top of an ICE operator's graph, a
+/// parameter of the operator (a Parameter node). Named after the node and the
+/// input, holding its value, beside it and wired in. Returns what to tell.
 pub fn promote_input(g: &mut IceGraph, id: NodeId, k: usize) -> Option<String> {
+    let in_compound = !g.outer.is_empty();
     let n = g.nodes.iter().find(|n| n.id == id)?;
     let input = n.inputs.get(k).filter(|i| i.connected_output.is_none())?;
     let taken: Vec<String> = g
         .nodes
         .iter()
         .filter_map(|n| match &n.node_type {
-            IceGraphNodeType::CompoundInput { name, .. } => Some(name.clone()),
+            IceGraphNodeType::CompoundInput { name, .. } if in_compound => Some(name.clone()),
+            IceGraphNodeType::Parameter { name, .. } if !in_compound => Some(name.clone()),
             _ => None,
         })
         .collect();
-    let port = unique(&format!("{} {}", n.name, input.name), &taken);
+    let name = unique(&format!("{} {}", n.name, input.name), &taken);
     let value = input.value.unwrap_or(Value::Float(0.0));
     let at = n.position + egui::vec2(-220.0, 40.0 * k as f32);
-    let cin = g.add_node(
-        port.clone(),
-        IceGraphNodeType::CompoundInput {
-            name: port.clone(),
-            value,
-        },
-        at,
-    );
-    g.add_connection(cin, 0, id, k);
-    Some(format!("{port} is a port of the compound, once you go back out"))
+    let (t, told) = if in_compound {
+        (
+            IceGraphNodeType::CompoundInput {
+                name: name.clone(),
+                value,
+            },
+            format!("{name} is a port of the compound, once you go back out"),
+        )
+    } else {
+        (
+            IceGraphNodeType::Parameter {
+                name: name.clone(),
+                default: value,
+            },
+            format!("{name} is a parameter of the ICE operator: set it in its parameters"),
+        )
+    };
+    let made = g.add_node(name, t, at);
+    g.add_connection(made, 0, id, k);
+    Some(told)
 }
 
 /// Pack nodes `ids` of `g` into an ICE compound named `name`: an editable
@@ -962,6 +976,29 @@ mod tests {
         assert_eq!(
             ys(&g.evaluate(&triangle(), &[])),
             base.iter().map(|y| y + 4.0).collect::<Vec<_>>()
+        );
+    }
+
+    /// At the top of an ICE operator's graph, an input promoted is a parameter
+    /// of the operator: what the operator sets is what runs.
+    #[test]
+    fn an_input_promoted_at_the_top_is_a_parameter() {
+        let (mut g, add, _) = lifting();
+        let told = promote_input(&mut g, add, 1).unwrap();
+        assert!(told.contains("parameter"), "{told}");
+        assert_eq!(
+            parameters_of(&g),
+            vec![("Add B".to_string(), Value::Vec3([0.0, 1.0, 0.0]))]
+        );
+        crate::ice::set_params(
+            [("Add B".to_string(), Value::Vec3([0.0, 6.0, 0.0]))]
+                .into_iter()
+                .collect(),
+        );
+        let base = ys(&triangle());
+        assert_eq!(
+            ys(&g.evaluate(&triangle(), &[])),
+            base.iter().map(|y| y + 6.0).collect::<Vec<_>>()
         );
     }
 

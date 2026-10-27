@@ -74,6 +74,13 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   parameter already promoted. Its value now is the default. The compound's
   parameters take it when you leave the compound; **Remove Promotion** takes
   it back. A promoted number is marked ◆ in the list.
+- **Promoted numbers follow:** inside the compound, a promoted number is drawn
+  orange, as a reference is: it follows the compound's parameter. Changing it
+  there changes the parameter (when you leave), and changing the parameter
+  changes it. A compound inside a compound: promote the inner instance's
+  parameter row, and the outer one drives it, however deep (a value an inner
+  instance has not saved yet is made). Promotion works in every editable
+  compound, saved or not, and in ICE graphs (see [ICE](ice.md#compounds)).
 - **Promoted parameters** show in the instance's parameters by group: numbers,
   booleans, text and vectors. A value set back to the default is the default
   again. Each instance keeps its own.
@@ -109,7 +116,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   (leaving it is).
 - **In an ICE graph** it is the same: select nodes, **Compounds > Make
   Compound** in the add menu, double-click or ↓ to go inside, ↑ to come out,
-  Save as Definition, Make Editable. Its ports are its Compound Input and
+  Save as Definition, Make Editable. Inside a locked scene compound, the ICE
+  graphs of its operators are locked too. Its ports are its Compound Input and
   Compound Output nodes, and its input ports hold values as any ICE node's
   inputs do: those are what an ICE compound offers to set, rather than
   promoted parameters. See [ICE](ice.md#compounds).

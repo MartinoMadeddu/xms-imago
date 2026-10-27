@@ -759,6 +759,47 @@ mod tests {
         g.eval_node_out(id, 0, &mut EvalCache::new(), &pass)
     }
 
+    /// A promoted parameter whose target is an inner compound's promoted
+    /// parameter, its value not saved there yet: the value reaches it, and so
+    /// goes on down.
+    #[test]
+    fn promoted_values_reach_nested_compounds() {
+        let mut g = NodeGraphState::default();
+        g.add_node(
+            "Inner".into(),
+            NodeType::Compound {
+                definition: "Inner".into(),
+                version: 1,
+                hash: 0,
+                inputs: vec![],
+                outputs: vec![],
+                values: Default::default(),
+                editable: None,
+            },
+            p(0.0, 0.0),
+        );
+        let mut d = Definition::new(Context::Scene, "Outer");
+        d.parameters = vec![Parameter {
+            name: "size".into(),
+            label: String::new(),
+            kind: ParameterType::Float,
+            default: serde_json::json!(1.0),
+            range: None,
+            group: String::new(),
+            help: String::new(),
+            targets: vec![Target {
+                node: "Inner".into(),
+                path: "values/size".into(),
+            }],
+        }];
+        let values: BTreeMap<String, serde_json::Value> = [("size".to_string(), serde_json::json!(3.0))].into();
+        apply_values(&mut g, &d, &values);
+        let NodeType::Compound { values, .. } = &g.nodes[0].node_type else {
+            panic!("not a compound");
+        };
+        assert_eq!(values.get("size"), Some(&serde_json::json!(3.0)));
+    }
+
     /// A cube moved by a Transform, made a compound: the instance cooks to
     /// what the operators did, and keeps their wires.
     #[test]
