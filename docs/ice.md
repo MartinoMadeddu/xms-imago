@@ -293,7 +293,9 @@ that crossed the selection become its ports: a **Compound Input** inside for
 each output wired in, holding the value of the input it fed, and a **Compound
 Output** for each output wired out (from a Set Data: an Execute, for the
 Execution Ports). The compound is drawn lavender; its inputs hold values, as any
-node's, used while nothing is wired in.
+node's, used while nothing is wired in. Its definition's **Name** takes
+variables when entered (`$OPNAME` is the compound's own name), as a scene
+compound's does.
 
 - **Go inside:** double-click it, or select it and press ↓. The bar over the
   graph shows the way back (the ICE operator, the compounds entered, **↑ Up**,
@@ -301,10 +303,11 @@ node's, used while nothing is wired in.
 - **Ports** are the Compound Input and Compound Output nodes inside, top to
   bottom, by name: add or rename one there, and the compound's port follows
   when you come back out. A Compound Input's value is the port's, for while
-  nothing is wired to it. Inside an editable compound, right-click a node and
-  **Promote Input** to make one of its inputs holding a value a port: a
-  Compound Input named after the node and the input, holding its value, wired
-  in.
+  nothing is wired to it. Inside an editable compound, right-click a node (Promote Input, then
+  the input) or an input's rows in its parameters (Promote Input) to make an
+  input holding a value a port: a Compound Input named after the node and the
+  input, holding its value, wired in. Outside a compound, or in a locked one,
+  the entry is there, greyed out, saying how.
 - **Save as Definition…** in its parameters writes it as an `.icd` file; saved
   in a library folder, it is listed under **Compounds** in every ICE graph's add
   menu and the instance follows the file, locked. A locked compound's inside is

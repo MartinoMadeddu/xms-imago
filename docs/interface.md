@@ -365,7 +365,7 @@ and press ↓, to go in. Selected, the selection's blue goes around the band.
 |---|---|
 | Create | Cube, Sphere, Grid, Camera, Test Clip |
 | Placeholder | Placeholder |
-| Organise | Set Variable, Pass Through, Compound Input, Compound Output (inside a [compound](compounds.md)) |
+| Organise | Set Variable, Pass Through, Compound Input, Compound Output (inside a [compound](compounds.md)). Compounds and their Compound Input and Compound Output are the Dark theme's node grey in every theme |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |
@@ -454,8 +454,10 @@ to open it; ↑ or the path at the top goes back up to the scene graph. Inside,
 the graph is drawn after Softimage ICE: nodes coloured by kind (reading and
 writing data blue, values, maths, random and arrays the cyan-green of
 MaterialX's geometric nodes, what makes geometry, Scatter on Surface and the
-Instancer, orange, the Execution Ports dark grey), each with its name over its
-type, a row per port, ports and wires coloured by the type of data they carry.
+Instancer, orange, the Execution Ports dark grey, compounds lavender), each
+with its name over its type, a row per port, ports and wires coloured by the
+type of data they carry. The canvas, as MaterialX's, is light grey with a fine
+grid in the Light theme and dark in the dark ones, as the scene graph's.
 
 | | |
 |---|---|

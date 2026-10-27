@@ -32,11 +32,13 @@ mod pal {
     #![allow(non_snake_case)]
     use egui::Color32;
     // ICE's own look, the same in both themes.
+    // The canvas: light grey in the Light theme, dark in the dark ones, as
+    // the scene graph's.
     pub fn BG() -> Color32 {
-        Color32::from_rgb(170, 170, 170)
+        crate::theme::canvas(170, 100)
     }
     pub fn GRID() -> Color32 {
-        Color32::from_rgb(161, 161, 161)
+        crate::theme::canvas(161, 92)
     }
     pub fn BREADCRUMB_BG() -> Color32 {
         crate::theme::c(78, 78, 82)
@@ -466,6 +468,7 @@ pub fn draw_subnet_node_properties(
             _ => None,
         })
         .unwrap_or(Context::Point);
+    input_menu(ui.ctx(), graph);
     let mut resync = false;
     // A compound's: go inside, or its ports again from the library.
     let (mut enter, mut back) = (false, false);
@@ -662,6 +665,8 @@ pub fn draw_subnet_node_properties(
             editable,
             ..
         } => {
+            // `$OPNAME` in its definition's name: this compound's.
+            let _operator = crate::core::vars::operator(&node.name);
             (enter, back) = crate::properties::ui::definition_rows(
                 ui,
                 definition,
@@ -733,10 +738,89 @@ pub fn draw_subnet_node_properties(
             for k in free {
                 let input = &mut node.inputs[k];
                 let Some(value) = input.value.as_mut() else { continue };
+                let top = f.ui.cursor().top();
                 value_with_type(f, &input.name, value, None);
+                // Right-clicked: its menu (Promote Input).
+                let rows = egui::Rect::from_x_y_ranges(f.ui.max_rect().x_range(), top..=f.ui.cursor().top());
+                let at = f.ui.input(|i| {
+                    i.pointer
+                        .secondary_clicked()
+                        .then(|| i.pointer.interact_pos())
+                        .flatten()
+                });
+                if let Some(at) = at.filter(|p| rows.contains(*p)) {
+                    let m = InputMenu {
+                        node: node.id,
+                        input: k,
+                        at,
+                    };
+                    f.ui.data_mut(|d| d.insert_temp(input_menu_id(), m));
+                }
             }
         });
     }
+}
+
+/// An input's menu, opened by a right-click on its rows in the parameters: the
+/// node, the input, where the pointer was.
+#[derive(Clone)]
+struct InputMenu {
+    node: NodeId,
+    input: usize,
+    at: egui::Pos2,
+}
+
+fn input_menu_id() -> egui::Id {
+    egui::Id::new("ice_input_menu")
+}
+
+/// The menu of an input right-clicked in the parameters, while it is open.
+/// What it did is told by the graph (`told_id`).
+fn input_menu(ctx: &egui::Context, graph: &mut IceGraph) {
+    let Some(m) = ctx.data(|d| d.get_temp::<InputMenu>(input_menu_id())) else {
+        return;
+    };
+    let close = |ctx: &egui::Context| ctx.data_mut(|d| d.remove::<InputMenu>(input_menu_id()));
+    let Some(name) = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == m.node)
+        .and_then(|n| n.inputs.get(m.input))
+        .map(|i| i.name.clone())
+    else {
+        close(ctx);
+        return;
+    };
+    let editable = graph.outer.last().is_some_and(|o| !o.locked);
+    let mut chosen = false;
+    let area = egui::Area::new(input_menu_id())
+        .order(egui::Order::Foreground)
+        .fixed_pos(m.at)
+        .show(ctx, |ui| {
+            egui::Frame::menu(ui.style()).show(ui, |ui| {
+                ui.label(egui::RichText::new(name).small().weak());
+                chosen = promote_button(ui, "Promote Input", editable);
+            });
+        });
+    let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+    if chosen {
+        if let Some(told) = super::compound::promote_input(graph, m.node, m.input) {
+            ctx.data_mut(|d| d.insert_temp(told_id(), told));
+        }
+    }
+    if chosen || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        close(ctx);
+    }
+}
+
+/// Promote Input's button: only inside an editable compound, else saying so.
+fn promote_button(ui: &mut egui::Ui, label: &str, editable: bool) -> bool {
+    ui.add_enabled(editable, egui::Button::new(label))
+        .on_hover_text("A port of the compound, its value this input's: a Compound Input wired in")
+        .on_disabled_hover_text(
+            "Inside an editable compound: go inside one (double-click it, or ↓), Make Editable if it is locked",
+        )
+        .clicked()
 }
 
 /// A value's type (a choice; changed, the value made of the new type) and the
@@ -1768,34 +1852,32 @@ fn draw_subnet_node(
     }
     let terminal = matches!(node.node_type, IceGraphNodeType::Root { .. });
     if !terminal {
-        // Inside an editable compound: an input that holds a value can be a
-        // port of the compound.
-        let promotable: Vec<(usize, String)> = if graph.outer.last().is_some_and(|o| !o.locked) {
-            node.inputs
-                .iter()
-                .enumerate()
-                .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
-                .map(|(k, i)| (k, i.name.clone()))
-                .collect()
-        } else {
-            vec![]
-        };
+        // An input that holds a value can be a port of the compound it is in
+        // (inside an editable one).
+        let editable = graph.outer.last().is_some_and(|o| !o.locked);
+        let promotable: Vec<(usize, String)> = node
+            .inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
+            .map(|(k, i)| (k, i.name.clone()))
+            .collect();
         dr.context_menu(|ui| {
             if !promotable.is_empty() {
-                crate::menus::menu(ui, "Promote Input", |ui| {
-                    for (k, name) in &promotable {
-                        if ui
-                            .button(name.as_str())
-                            .on_hover_text("A port of the compound, its value this input's: a Compound Input wired in")
-                            .clicked()
-                        {
-                            if let Some(told) = super::compound::promote_input(graph, id, *k) {
-                                ui.data_mut(|d| d.insert_temp(told_id(), told));
+                if editable {
+                    crate::menus::menu(ui, "Promote Input", |ui| {
+                        for (k, name) in &promotable {
+                            if promote_button(ui, name, true) {
+                                if let Some(told) = super::compound::promote_input(graph, id, *k) {
+                                    ui.data_mut(|d| d.insert_temp(told_id(), told));
+                                }
+                                ui.close();
                             }
-                            ui.close();
                         }
-                    }
-                });
+                    });
+                } else {
+                    promote_button(ui, "Promote Input", false);
+                }
                 ui.separator();
             }
             if ui.button("Delete").clicked() {

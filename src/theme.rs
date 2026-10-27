@@ -376,6 +376,23 @@ pub fn c(r: u8, g: u8, b: u8) -> Color32 {
     rgb(map(&scheme(), r, g, b))
 }
 
+/// A graph canvas's grey: `light` in the Light theme; in a dark one, the
+/// theme's surface at `dark` (on the Light theme's scale, as `c` takes it), so
+/// the ICE and MaterialX canvases go dark with the theme as the scene graph's
+/// does.
+pub fn canvas(light: u8, dark: u8) -> Color32 {
+    if !is_dark() {
+        return Color32::from_gray(light);
+    }
+    rgb(surface(&scheme(), dark as f32))
+}
+
+/// `raised` as it is in a preset, whatever the theme: a colour kept the same
+/// across themes.
+pub fn raised_in(preset: Preset, r: u8, g: u8, b: u8) -> Color32 {
+    rgb(lift(map(&Scheme::preset(preset), r, g, b), 24))
+}
+
 /// A surface that sits on top of a canvas (a node body or title): lifted above
 /// the plain mapping so nodes stand out from the canvas behind them.
 pub fn raised(r: u8, g: u8, b: u8) -> Color32 {

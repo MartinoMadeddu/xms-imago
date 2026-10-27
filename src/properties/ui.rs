@@ -1424,9 +1424,17 @@ pub fn definition_rows(
             "Definition",
             Some("What the library and the add menu call it"),
             |f| {
-                if f.text("Name", Some("Instances find it by this name"), &mut d.name, "Compound")
+                if f
+                    .text_vars(
+                        "Name",
+                        Some("Instances find it by this name. Variables are put in when it is entered: $OPNAME is this compound's name"),
+                        &mut d.name,
+                        "Compound",
+                        false,
+                    )
                     .changed()
                 {
+                    d.name = crate::core::vars::expand(d.name.trim(), &[]);
                     *definition = d.name.clone();
                 }
                 f.text(

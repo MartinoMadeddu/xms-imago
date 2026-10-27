@@ -40,11 +40,13 @@ const FEW: usize = 8;
 mod pal {
     #![allow(non_snake_case)]
     use egui::Color32;
+    // The canvas: light grey in the Light theme, dark in the dark ones, as
+    // the scene graph's.
     pub fn BG() -> Color32 {
-        Color32::from_rgb(170, 170, 170)
+        crate::theme::canvas(170, 100)
     }
     pub fn GRID() -> Color32 {
-        Color32::from_rgb(161, 161, 161)
+        crate::theme::canvas(161, 92)
     }
     pub fn INK() -> Color32 {
         Color32::from_rgb(12, 12, 12)
@@ -64,8 +66,13 @@ mod pal {
     pub fn WRONG() -> Color32 {
         Color32::from_rgb(255, 30, 30)
     }
+    // Dark red on the light canvas, light red on a dark one.
     pub fn MESSAGE() -> Color32 {
-        Color32::from_rgb(120, 10, 10)
+        if crate::theme::is_dark() {
+            Color32::from_rgb(255, 150, 140)
+        } else {
+            Color32::from_rgb(120, 10, 10)
+        }
     }
 }
 

@@ -1366,6 +1366,14 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
             egui::Color32::from_rgb(38, 38, 38),
         );
     }
+    // Compounds: the node grey of the Dark theme, in every theme.
+    if matches!(
+        t,
+        NodeType::Compound { .. } | NodeType::CompoundInput { .. } | NodeType::CompoundOutput { .. }
+    ) {
+        let c = crate::theme::raised_in(crate::theme::Preset::Dark, 130, 130, 130);
+        return colours_on(c.r(), c.g(), c.b());
+    }
     if is_system_command(t) {
         let rgb = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
         return (rgb(SYSTEM_NODE.0), rgb(SYSTEM_NODE.1), rgb(SYSTEM_NODE.2));
