@@ -210,7 +210,9 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             slider_look(ui);
-            ui.add(egui::Slider::new(v, range).suffix(unit).max_decimals(3))
+            let mut r = ui.add(egui::Slider::new(&mut *v, range).suffix(unit).max_decimals(3));
+            probe(&mut r, v);
+            r
         })
     }
 
@@ -225,7 +227,9 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             slider_look(ui);
-            ui.add(egui::Slider::new(v, range).suffix(unit))
+            let mut r = ui.add(egui::Slider::new(&mut *v, range).suffix(unit));
+            probe(&mut r, v);
+            r
         })
     }
 
@@ -233,10 +237,12 @@ impl<'a> Rows<'a> {
     pub fn drag(&mut self, label: &str, hint: Option<&str>, v: &mut f32, speed: f64, unit: &str) -> egui::Response {
         self.row(label, hint, |ui| {
             let h = ui.spacing().interact_size.y;
-            ui.field_sized(
+            let mut r = ui.field_sized(
                 [ui.available_width(), h],
-                egui::DragValue::new(v).speed(speed).max_decimals(3).suffix(unit),
-            )
+                egui::DragValue::new(&mut *v).speed(speed).max_decimals(3).suffix(unit),
+            );
+            probe(&mut r, v);
+            r
         })
     }
 
@@ -250,10 +256,12 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             let h = ui.spacing().interact_size.y;
-            ui.field_sized(
+            let mut r = ui.field_sized(
                 [ui.available_width(), h],
-                egui::DragValue::new(v).range(range).speed(0.1),
-            )
+                egui::DragValue::new(&mut *v).range(range).speed(0.1),
+            );
+            probe(&mut r, v);
+            r
         })
     }
 
@@ -271,9 +279,12 @@ impl<'a> Rows<'a> {
                 let h = ui.spacing().interact_size.y;
                 let mut changed = false;
                 for (a, p) in v.iter_mut().zip(["U ", "V "]) {
-                    changed |= ui
-                        .field_sized([w, h], egui::DragValue::new(a).speed(speed).max_decimals(4).prefix(p))
-                        .changed();
+                    let mut r = ui.field_sized(
+                        [w, h],
+                        egui::DragValue::new(&mut *a).speed(speed).max_decimals(4).prefix(p),
+                    );
+                    probe(&mut r, a);
+                    changed |= r.changed();
                 }
                 changed
             })
@@ -673,16 +684,16 @@ pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -
         let h = ui.spacing().interact_size.y;
         let mut changed = false;
         for (a, p) in v.iter_mut().zip(["X ", "Y ", "Z "]) {
-            changed |= ui
-                .field_sized(
-                    [w, h],
-                    egui::DragValue::new(a)
-                        .speed(speed)
-                        .max_decimals(3)
-                        .prefix(p)
-                        .suffix(unit),
-                )
-                .changed();
+            let mut r = ui.field_sized(
+                [w, h],
+                egui::DragValue::new(&mut *a)
+                    .speed(speed)
+                    .max_decimals(3)
+                    .prefix(p)
+                    .suffix(unit),
+            );
+            probe(&mut r, a);
+            changed |= r.changed();
         }
         changed
     })
@@ -718,8 +729,93 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
     options.iter().position(|o| o.0 == *v) != before
 }
 
+// Finding a row's number in the operator's parameters
+
+/// What the parameters a right-click on a number's row stands for (see
+/// `probing`): no operator's number is likely to be it.
+pub const PROBE: f64 = 7_777_777.0;
+
+thread_local! {
+    /// Probing on, and the number right-clicked: its value before, and where
+    /// the pointer was.
+    static PROBING: std::cell::RefCell<(bool, Option<(f64, egui::Pos2)>)> =
+        const { std::cell::RefCell::new((false, None)) };
+}
+
+/// While on, a right-click on a number's row (a slider, a drag field, X Y Z,
+/// U V) puts `PROBE` in its place for the caller to find the number's path in
+/// the operator's parameters, then put the value back (`probed`). On only
+/// while an operator's own parameters are drawn: never for an ICE node's.
+pub fn probing(on: bool) {
+    PROBING.with(|p| *p.borrow_mut() = (on, None));
+}
+
+/// The number right-clicked while probing: its value before, where the pointer
+/// was. Probing stops.
+pub fn probed() -> Option<(f64, egui::Pos2)> {
+    PROBING.with(|p| std::mem::replace(&mut *p.borrow_mut(), (false, None)).1)
+}
+
+/// A number a row edits: written as `PROBE` and read back.
+pub trait Probed {
+    fn get(&self) -> f64;
+    fn put(&mut self, x: f64);
+}
+
+impl Probed for f32 {
+    fn get(&self) -> f64 {
+        *self as f64
+    }
+    fn put(&mut self, x: f64) {
+        *self = x as f32;
+    }
+}
+
+impl Probed for u32 {
+    fn get(&self) -> f64 {
+        *self as f64
+    }
+    fn put(&mut self, x: f64) {
+        *self = x as u32;
+    }
+}
+
+/// A row's number right-clicked, while probing: `PROBE` in its place, marked
+/// changed so a caller that copies the number writes it back.
+fn probe(r: &mut egui::Response, v: &mut impl Probed) {
+    if !r.secondary_clicked() {
+        return;
+    }
+    let at = r.interact_pointer_pos().unwrap_or(r.rect.left_bottom());
+    PROBING.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.0 && p.1.is_none() {
+            p.1 = Some((v.get(), at));
+            v.put(PROBE);
+            r.mark_changed();
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// While probing, the first number right-clicked is taken and probing
+    /// stops; not probing, nothing is.
+    #[test]
+    fn probing_takes_one_number() {
+        probing(true);
+        PROBING.with(|p| p.borrow_mut().1 = Some((2.0, egui::pos2(1.0, 1.0))));
+        assert_eq!(probed(), Some((2.0, egui::pos2(1.0, 1.0))));
+        assert_eq!(probed(), None);
+        let mut x = 3.0f32;
+        x.put(PROBE);
+        assert_eq!(x.get(), PROBE, "the probe is a number a float holds exactly");
+        let mut n = 4u32;
+        n.put(PROBE);
+        assert_eq!(n.get(), PROBE);
+    }
     use super::ink::luminance;
     use egui::Color32;
 

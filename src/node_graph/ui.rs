@@ -259,17 +259,18 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         ui.ctx().request_repaint();
     }
 
-    // Inside a locked compound everything is shown at half strength: it
-    // follows its definition and cannot be changed here.
-    if graph.inside.locked {
-        ui.multiply_opacity(0.5);
-    }
-
     // Add-node menu: Tab, right-click, or right-click on an output, anywhere
     // over the canvas, nodes included.
     let mut opened_now = false;
     let over_canvas = ui.rect_contains_pointer(canvas_rect);
-    if over_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+    // Not while typing. Tab also moves egui's focus to the next widget (the
+    // menu bar's first): that focus is let go, the menu takes it.
+    if over_canvas && !ui.ctx().text_edit_focused() && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+        ui.ctx().memory_mut(|m| {
+            if let Some(f) = m.focused() {
+                m.surrender_focus(f);
+            }
+        });
         let cursor = ui.input(|i| i.pointer.hover_pos()).unwrap_or(canvas_rect.center());
         graph.tab_menu_screen_pos = Some(cursor);
         graph.tab_menu_canvas_pos = Some(to_canvas(cursor));
@@ -674,6 +675,19 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         }
     }
 
+    // Inside a locked compound a dark layer lies over the whole graph: it
+    // follows its definition and cannot be changed here.
+    if graph.inside.locked {
+        let p = ui.painter_at(canvas_rect);
+        p.rect_filled(canvas_rect, 0.0, egui::Color32::from_black_alpha(110));
+        p.text(
+            canvas_rect.left_top() + egui::vec2(12.0, 10.0),
+            egui::Align2::LEFT_TOP,
+            "Locked: it follows its definition. Make Editable to change it",
+            egui::FontId::proportional(13.0),
+            egui::Color32::from_gray(235),
+        );
+    }
     dive_into
 }
 

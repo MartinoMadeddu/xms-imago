@@ -27,8 +27,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 | 1 | Definitions, `.icd` files, the library and its search path, context checks | Built: `src/compounds.rs` |
 | 2 | Scene compound instances: the Compound, Compound Input and Compound Output operators, cooking, Make Compound, entering, Make Editable, Save as Definition, promoted parameters in the Parameters pane | Built: `src/node_graph/compound.rs`, `src/inside_compound.rs` |
 | 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | Built: `src/node_graph/links.rs`, `src/keys_ui.rs` |
-| 4 | Every parameter row knowing its serde path: the right-click menu on rows | Next |
-| 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | |
+| 4 | The right-click menu on every number's row in the parameters | Built: `properties::form` finds a row's number by its path (a probe), `keys_ui::row_menu` |
+| 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | Next |
 | 6 | Ramp: the type, its row, Ramp Lookup | |
 | 7 | Viewer tools inside compounds | |
 | 8 | The first shipped compounds: the groom set, Scatter and Instance | |
@@ -65,8 +65,9 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   definition of its name again, locked. Inside a locked one the graph is drawn
   at half strength, a change is put back at once, and Make Editable is on the
   bar.
-- **Promote:** inside an editable compound, right-click a number in an
-  operator's **Keys** list (under its parameters) and choose **Promote…**:
+- **Promote:** inside an editable compound, right-click a number's row in an
+  operator's parameters (sliders, number fields, X Y Z, U V), or the number in
+  its **Keys** list, and choose **Promote…**:
   give it a label, a group and a range, or make it another target of a
   parameter already promoted. Its value now is the default. The compound's
   parameters take it when you leave the compound; **Remove Promotion** takes
@@ -74,16 +75,22 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
   booleans, text and vectors. A value set back to the default is the default
   again. Each instance keeps its own.
-- **References:** right-click any number in the Keys list, **Copy as
-  Reference**; on another number, **Paste as Reference**: it follows the first,
+- **References:** right-click any number's row (or the number in the Keys
+  list), **Copy as Reference**; on another number, **Paste as Reference**: it follows the first,
   as it cooks (keyed, it follows its animation). It is drawn blue with a 🔗 in
   place of its key diamond; **Remove Reference** makes it its own again, and so
   does typing a value over it in the parameters. A keyed number cannot follow
   another, nor one that would make a loop. References are saved with the
   graph, and pasted operators follow each other, or the operator copied when
   pasted alone.
-- **Not yet:** right-clicking a parameter's own row (step 4); Promote is not a
-  step of the undo history inside the compound (leaving it is).
+- **How a row is found:** a right-click on a number's row puts a probe value
+  in its place for the moment the parameters are drawn; the operator's
+  parameters are searched for it, which gives the number's path, and the value
+  is put back before anything cooks. Rows drawn by the form's number widgets
+  have the menu; text, switches and lists do not.
+- **Not yet:** a number that follows another is marked in the Keys list, not on
+  its row; Promote is not a step of the undo history inside the compound
+  (leaving it is).
 - **A missing definition** keeps the operator, its ports, wires and values: what
   comes into its first input goes on, and its parameters say which definition
   is missing.

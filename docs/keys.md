@@ -36,9 +36,9 @@ Attribute's rows, Material Binding's rows. Nor are switches and text.
 
 ## References
 
-A number can follow another operator's: right-click it in the **Keys** group,
-**Copy as Reference**; right-click the number that should follow, **Paste as
-Reference**. It takes the source's value as the source cooks, its keys
+A number can follow another operator's: right-click its row in the parameters
+(or the number in the **Keys** group), **Copy as Reference**; right-click the
+number that should follow, **Paste as Reference**. It takes the source's value as the source cooks, its keys
 included, without changing its own: **Remove Reference**, or a value typed over
 it, makes it its own again. A number that follows is drawn blue with 🔗 in
 place of its diamond, and is not keyed (Key all and S leave it); a keyed number

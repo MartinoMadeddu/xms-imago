@@ -176,45 +176,13 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                             .add(egui::Label::new(label).sense(egui::Sense::click()))
                             .on_hover_text(hint);
                         r.context_menu(|ui| {
-                            if ui.button("Copy as Reference").clicked() {
-                                ask = Some(RowAsk::CopyReference(p.clone()));
-                                ui.close();
-                            }
-                            let paste = copied.as_ref().filter(|c| !(c.node == id && c.path == *p));
-                            let paste_label = match paste {
-                                Some(c) => format!("Paste as Reference: {} {}", c.name, keys::label(&c.path)),
-                                None => "Paste as Reference".to_string(),
+                            let state = NumberState {
+                                keyed: *keyed,
+                                follows: follows.is_some(),
+                                promoted: promoted.is_some(),
                             };
-                            if ui
-                                .add_enabled(paste.is_some() && !*keyed, egui::Button::new(paste_label))
-                                .on_disabled_hover_text(if *keyed {
-                                    "Keyed: take its keys away to make it follow another"
-                                } else {
-                                    "Copy as Reference on another number first"
-                                })
-                                .clicked()
-                            {
-                                ask = Some(RowAsk::PasteReference(p.clone()));
-                                ui.close();
-                            }
-                            if follows.is_some() && ui.button("Remove Reference").clicked() {
-                                ask = Some(RowAsk::RemoveReference(p.clone()));
-                                ui.close();
-                            }
-                            if promoting {
-                                ui.separator();
-                                if ui
-                                    .button("Promote…")
-                                    .on_hover_text("Put this number on the compound's parameters: its instances set it")
-                                    .clicked()
-                                {
-                                    ask = Some(RowAsk::Promote(p.clone(), *v));
-                                    ui.close();
-                                }
-                                if promoted.is_some() && ui.button("Remove Promotion").clicked() {
-                                    ask = Some(RowAsk::RemovePromotion(p.clone()));
-                                    ui.close();
-                                }
+                            if let Some(a) = number_menu(ui, id, p, *v, &state, copied.as_ref(), promoting) {
+                                ask = Some(a);
                             }
                         });
                         let shown = v * keys::display_scale(&kind, p);
@@ -236,23 +204,93 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
     if delete_here {
         graph.delete_keys_at(id, frame);
     }
-    let told = match ask {
-        Some(RowAsk::CopyReference(p)) => {
+    ask.and_then(|a| carry_out(ui.ctx(), graph, id, a))
+}
+
+/// What a number's menu needs to know of it.
+struct NumberState {
+    keyed: bool,
+    follows: bool,
+    promoted: bool,
+}
+
+/// The items of a number's right-click menu (in the Keys group, or on its row
+/// in the parameters): references, and, inside an editable compound,
+/// promotion. Returns what was chosen.
+fn number_menu(
+    ui: &mut egui::Ui,
+    id: NodeId,
+    path: &str,
+    value: f64,
+    state: &NumberState,
+    copied: Option<&Copied>,
+    promoting: bool,
+) -> Option<RowAsk> {
+    let mut ask = None;
+    if ui.button("Copy as Reference").clicked() {
+        ask = Some(RowAsk::CopyReference(path.to_string()));
+        ui.close();
+    }
+    let paste = copied.filter(|c| !(c.node == id && c.path == path));
+    let paste_label = match paste {
+        Some(c) => format!("Paste as Reference: {} {}", c.name, keys::label(&c.path)),
+        None => "Paste as Reference".to_string(),
+    };
+    if ui
+        .add_enabled(paste.is_some() && !state.keyed, egui::Button::new(paste_label))
+        .on_disabled_hover_text(if state.keyed {
+            "Keyed: take its keys away to make it follow another"
+        } else {
+            "Copy as Reference on another number first"
+        })
+        .clicked()
+    {
+        ask = Some(RowAsk::PasteReference(path.to_string()));
+        ui.close();
+    }
+    if state.follows && ui.button("Remove Reference").clicked() {
+        ask = Some(RowAsk::RemoveReference(path.to_string()));
+        ui.close();
+    }
+    if promoting {
+        ui.separator();
+        if ui
+            .button("Promote…")
+            .on_hover_text("Put this number on the compound's parameters: its instances set it")
+            .clicked()
+        {
+            ask = Some(RowAsk::Promote(path.to_string(), value));
+            ui.close();
+        }
+        if state.promoted && ui.button("Remove Promotion").clicked() {
+            ask = Some(RowAsk::RemovePromotion(path.to_string()));
+            ui.close();
+        }
+    }
+    ask
+}
+
+/// Carry out what a number's menu asked for, on operator `id`. Returns what to
+/// tell.
+fn carry_out(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ask: RowAsk) -> Option<String> {
+    let node_name = graph.nodes.iter().find(|n| n.id == id)?.name.clone();
+    let copied: Option<Copied> = ctx.data(|d| d.get_temp(copied_id()));
+    match ask {
+        RowAsk::CopyReference(p) => {
             let c = Copied {
                 node: id,
                 name: node_name.clone(),
                 path: p.clone(),
             };
-            ui.data_mut(|d| d.insert_temp(copied_id(), c));
+            ctx.data_mut(|d| d.insert_temp(copied_id(), c));
             Some(format!("Copied {node_name} {} as a reference", keys::label(&p)))
         }
-        Some(RowAsk::PasteReference(p)) => copied.and_then(|c| {
+        RowAsk::PasteReference(p) => copied.map(|c| {
             // The operator copied from, as long as it is still there.
-            let there = graph.nodes.iter().any(|n| n.id == c.node && n.name == c.name);
-            if !there {
-                return Some(format!("{} is not in this graph: copy the reference again", c.name));
+            if !graph.nodes.iter().any(|n| n.id == c.node && n.name == c.name) {
+                return format!("{} is not in this graph: copy the reference again", c.name);
             }
-            Some(match graph.link(id, &p, c.node, &c.path) {
+            match graph.link(id, &p, c.node, &c.path) {
                 Ok(()) => format!(
                     "{node_name} {} follows {} {}",
                     keys::label(&p),
@@ -260,23 +298,107 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                     keys::label(&c.path)
                 ),
                 Err(e) => e,
-            })
+            }
         }),
-        Some(RowAsk::RemoveReference(p)) => {
+        RowAsk::RemoveReference(p) => {
             graph.unlink(id, &p);
             Some(format!("{node_name} {} is its own again", keys::label(&p)))
         }
-        Some(RowAsk::Promote(p, v)) => {
-            promote_open(ui.ctx(), &node_name, &p, v, graph);
+        RowAsk::Promote(p, v) => {
+            promote_open(ctx, &node_name, &p, v, graph);
             None
         }
-        Some(RowAsk::RemovePromotion(p)) => {
+        RowAsk::RemovePromotion(p) => {
             remove_promotion(graph, &node_name, &p);
             Some(format!("{node_name} {} is no longer promoted", keys::label(&p)))
         }
-        None => None,
+    }
+}
+
+/// A number's menu opened from its row in the parameters: the operator, the
+/// number's path and value, where the pointer was.
+#[derive(Clone)]
+struct RowMenu {
+    node: NodeId,
+    path: String,
+    value: f64,
+    at: egui::Pos2,
+}
+
+fn row_menu_id() -> egui::Id {
+    egui::Id::new("parameter_row_menu")
+}
+
+/// Open the menu of number `path` of operator `node`, right-clicked on its row
+/// in the parameters (found by `properties::form`'s probe).
+pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: f64, at: egui::Pos2) {
+    ctx.data_mut(|d| d.insert_temp(row_menu_id(), RowMenu { node, path, value, at }));
+}
+
+/// After the parameters were drawn: the number a right-click on its row put
+/// `form::PROBE` in place of, found in operator `id`'s parameters by its path,
+/// its value put back, and its menu opened there.
+pub fn found_row(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, old: f64, at: egui::Pos2) {
+    let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) else {
+        return;
     };
-    promote_window(ui.ctx(), graph).or(told)
+    let Ok(mut v) = serde_json::to_value(&node.node_type) else {
+        return;
+    };
+    let probe = crate::properties::form::PROBE;
+    let Some(path) = keys::keyable(&v)
+        .into_iter()
+        .find(|(_, x)| (*x - probe).abs() < 0.5)
+        .map(|(p, _)| p)
+    else {
+        return;
+    };
+    keys::set(&mut v, &path, old);
+    if let Ok(t) = serde_json::from_value(v) {
+        node.node_type = t;
+    }
+    open_row_menu(ctx, id, path, old, at);
+}
+
+/// The menu of a number right-clicked on its row, while it is open, and the
+/// Promote window. Returns what to tell.
+pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<String> {
+    let Some(m) = ctx.data(|d| d.get_temp::<RowMenu>(row_menu_id())) else {
+        return promote_window(ctx, graph);
+    };
+    let node = graph.nodes.iter().find(|n| n.id == m.node)?;
+    let state = NumberState {
+        keyed: node.channels.iter().any(|c| c.path == m.path),
+        follows: node.links.iter().any(|l| l.path == m.path),
+        promoted: graph
+            .inside
+            .parameters
+            .iter()
+            .any(|q| q.targets.iter().any(|t| t.node == node.name && t.path == m.path)),
+    };
+    let promoting = !graph.inside.path.is_empty() && !graph.inside.locked;
+    let copied: Option<Copied> = ctx.data(|d| d.get_temp(copied_id()));
+    let mut ask = None;
+    let area = egui::Area::new(row_menu_id())
+        .order(egui::Order::Foreground)
+        .fixed_pos(m.at)
+        .show(ctx, |ui| {
+            egui::Frame::menu(ui.style()).show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} {}", node.name, keys::label(&m.path)))
+                        .small()
+                        .weak(),
+                );
+                ask = number_menu(ui, m.node, &m.path, m.value, &state, copied.as_ref(), promoting);
+            });
+        });
+    let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+    let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    if ask.is_some() || away || escape {
+        ctx.data_mut(|d| d.remove::<RowMenu>(row_menu_id()));
+    }
+    let told = ask.and_then(|a| carry_out(ctx, graph, m.node, a));
+    promote_window(ctx, graph).or(told)
 }
 
 /// Blue of numbers that follow another.
@@ -500,6 +622,29 @@ mod tests {
             min: 0.0,
             max: 10.0,
         }
+    }
+
+    /// A row right-clicked put the probe in its number's place: found by its
+    /// path, the value is put back and the number's menu opened for it.
+    #[test]
+    fn a_right_clicked_row_is_found_by_its_path() {
+        let mut g = NodeGraphState::default();
+        let id = g.add_node(
+            "Move".into(),
+            crate::types::NodeType::Transform {
+                translation: glam::Vec3::new(0.0, crate::properties::form::PROBE as f32, 0.0),
+                rotation: glam::Vec3::ZERO,
+                scale: glam::Vec3::ONE,
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let ctx = egui::Context::default();
+        found_row(&ctx, &mut g, id, 1.5, egui::pos2(10.0, 10.0));
+        assert!(
+            matches!(&g.nodes[0].node_type, crate::types::NodeType::Transform { translation, .. } if translation.y == 1.5)
+        );
+        let m: RowMenu = ctx.data(|d| d.get_temp(row_menu_id())).unwrap();
+        assert_eq!((m.path.as_str(), m.value), ("translation/1", 1.5));
     }
 
     /// Promote makes a parameter, its default the number's value; again on

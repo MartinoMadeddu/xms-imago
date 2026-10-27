@@ -1006,6 +1006,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                         .graph
                         .selected_node
                         .and_then(|id| self.graph.begin_edit(id).map(|own| (id, own)));
+                    // A number's row right-clicked shows its menu: only on an
+                    // operator's own parameters, not an ICE or MaterialX node's.
+                    let own_parameters = self.nav.current_subnet.is_none() && self.nav.materialx.is_none();
+                    crate::properties::form::probing(own_parameters && editing.is_some());
                     draw_properties_panel(
                         ui,
                         self.graph,
@@ -1015,6 +1019,9 @@ impl egui_dock::TabViewer for Panes<'_> {
                         self.anim_ctx,
                         &mut io,
                     );
+                    if let (Some((old, at)), Some((id, _))) = (crate::properties::form::probed(), &editing) {
+                        crate::keys_ui::found_row(ui.ctx(), self.graph, *id, old, at);
+                    }
                     if let Some((id, own)) = editing {
                         self.graph.end_edit(id, own);
                     }
@@ -1022,6 +1029,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                         if let Some(m) = crate::keys_ui::channel_box(ui, self.graph, id) {
                             self.graph_file.message = m;
                         }
+                    }
+                    // A number's menu from its row, and the Promote window.
+                    if let Some(m) = crate::keys_ui::row_menu(ui.ctx(), self.graph) {
+                        self.graph_file.message = m;
                     }
                     // Operators the panel asked for: a MaterialX operator from a stage's material.
                     for (name, t) in std::mem::take(&mut io.add) {
