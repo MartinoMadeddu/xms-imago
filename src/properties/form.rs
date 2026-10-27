@@ -771,6 +771,15 @@ pub fn probed() -> Option<Probe> {
     })
 }
 
+/// Whether a row's number is `PROBE` this frame, put back after the panel:
+/// what a change to it would set off (a Merge making its inputs) waits.
+pub fn probe_put() -> bool {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        p.clicked.is_some() || p.finding.is_some()
+    })
+}
+
 /// The number the row being found shows: its path, or None.
 pub fn found(row: egui::Id, path: Option<String>) {
     PROBING.with(|p| {
@@ -928,7 +937,9 @@ mod tests {
     fn probing_takes_one_number() {
         probing(true, 1, vec!["scale/2".into()]);
         PROBING.with(|p| p.borrow_mut().clicked = Some((2.0, egui::pos2(1.0, 1.0))));
+        assert!(probe_put(), "a change set off by the probe waits");
         assert_eq!(probed(), Some(Probe::Clicked(2.0, egui::pos2(1.0, 1.0))));
+        assert!(!probe_put());
         assert_eq!(probed(), None);
         let row = egui::Id::new("row");
         found(row, Some("scale/2".into()));

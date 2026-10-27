@@ -97,7 +97,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   parameters are searched for it (or, for a row showing its number another
   way, such as angles in degrees, for what changed), which gives the number's
   path, and the parameters are put back before anything cooks, whether the
-  number was found or not. Every number field and slider of an operator's
+  number was found or not. What a change to it would set off waits (a
+  Merge's Inputs would make that many inputs). Every number field and slider of an operator's
   parameters has the menu (`form::number`, `form::slider`); a right-click
   never moves a slider. While an operator has references, its rows are found
   the same way, one a frame while the pointer and keys are still, until each

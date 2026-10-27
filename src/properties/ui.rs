@@ -1203,7 +1203,9 @@ pub fn draw_properties(
     if back_to_library {
         graph.refresh_compounds();
     }
-    if resync {
+    // Not for a row probed: its number is a stand-in for the moment (Merge's
+    // 7,777,777 inputs would be made), put back after the panel.
+    if resync && !form::probe_put() {
         graph.sync_sockets(sel_id);
     }
 }
