@@ -54,6 +54,8 @@ pub enum BrowseTarget {
     ImportUsd,
     /// A compound instance's definition, written as an `.icd` file.
     SaveDefinition(NodeId),
+    /// An ICE compound instance's definition (in the ICE graph), likewise.
+    SaveIceDefinition(crate::types::IceGraphId, NodeId),
 }
 
 struct Request {

@@ -28,8 +28,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 | 2 | Scene compound instances: the Compound, Compound Input and Compound Output operators, cooking, Make Compound, entering, Make Editable, Save as Definition, promoted parameters in the Parameters pane | Built: `src/node_graph/compound.rs`, `src/inside_compound.rs` |
 | 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | Built: `src/node_graph/links.rs`, `src/keys_ui.rs` |
 | 4 | The right-click menu on every number's row in the parameters | Built: `properties::form` finds a row's number by its path (a probe), `keys_ui::row_menu` |
-| 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | Next |
-| 6 | Ramp: the type, its row, Ramp Lookup | |
+| 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | Built: `src/ice/compound.rs` ([ICE](ice.md#compounds)) |
+| 6 | Ramp: the type, its row, Ramp Lookup | Later: not needed yet (Martino) |
 | 7 | Viewer tools inside compounds | |
 | 8 | The first shipped compounds: the groom set, Scatter and Instance | |
 
@@ -74,6 +74,15 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   parameter already promoted. Its value now is the default. The compound's
   parameters take it when you leave the compound; **Remove Promotion** takes
   it back. A promoted number is marked ◆ in the list.
+- **Promoted numbers follow:** inside the compound, a promoted number is drawn
+  orange, as a reference is: it follows the compound's parameter. Changing it
+  there changes the parameter (when you leave), and changing the parameter
+  changes it. A compound inside a compound: promote the inner instance's
+  parameter row, and the outer one drives it, however deep (a value an inner
+  instance has not saved yet is made). Promotion works in every editable
+  compound, saved or not, and in ICE graphs (see [ICE](ice.md#compounds)).
+  Text promotes as numbers do (a path, a name), its row's right-click menu
+  the same; switches and lists do not yet.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
   booleans, text and vectors. A value set back to the default is the default
   again. Each instance keeps its own.
@@ -107,6 +116,13 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   not have the menu yet.
 - **Not yet:** Promote is not a step of the undo history inside the compound
   (leaving it is).
+- **In an ICE graph** it is the same: select nodes, **Compounds > Make
+  Compound** in the add menu, double-click or ↓ to go inside, ↑ to come out,
+  Save as Definition, Make Editable. Inside a locked scene compound, the ICE
+  graphs of its operators are locked too. Its ports are its Compound Input and
+  Compound Output nodes, and its input ports hold values as any ICE node's
+  inputs do: those are what an ICE compound offers to set, rather than
+  promoted parameters. See [ICE](ice.md#compounds).
 - **A missing definition** keeps the operator, its ports, wires and values: what
   comes into its first input goes on, and its parameters say which definition
   is missing.
@@ -286,9 +302,17 @@ the Keys list, which already names every number by its path.
   cache, keyed by operator id, is one per instance, since inner ids repeat
   those outside.
 - **ICE compounds are flattened** into their parent ICE graph when it becomes
-  the engine's graph: the engine never sees a compound. Promoted values reach
-  the engine as parameters, through ICE Parameter nodes (`Op::Parameter`; the
-  parameter values `xms_ice::run_in` takes).
+  the engine's graph (`ice::compound::flatten`): the engine never sees a
+  compound. What reads a Compound Input reads what is wired to the instance's
+  port (or the port's value); what reads the instance's output reads what feeds
+  the Compound Output. Values reach the engine as parameters through ICE
+  Parameter nodes (`Op::Parameter`; the values `xms_ice::run_in` takes), set on
+  the ICE operator (`NodeType::Ice::params`), which a scene compound can
+  promote.
+- **Inside an ICE compound** the editor holds the definition's graph, the graph
+  the instance is in kept with it (`IceGraph::outer`); what is run, saved and
+  hashed is that graph with the inside folded back into its instance
+  (`IceGraph::composed`), so the result follows edits made inside.
 - **Nesting** is allowed, 32 deep, with a check on definition names against
   cycles.
 - **The ICE graphs of a definition** are kept with the definition, not in the

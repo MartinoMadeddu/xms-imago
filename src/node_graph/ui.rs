@@ -1366,6 +1366,14 @@ fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
             egui::Color32::from_rgb(38, 38, 38),
         );
     }
+    // Compounds: the node grey of the Dark theme, in every theme.
+    if matches!(
+        t,
+        NodeType::Compound { .. } | NodeType::CompoundInput { .. } | NodeType::CompoundOutput { .. }
+    ) {
+        let c = crate::theme::raised_in(crate::theme::Preset::Dark, 130, 130, 130);
+        return colours_on(c.r(), c.g(), c.b());
+    }
     if is_system_command(t) {
         let rgb = |[r, g, b]: [u8; 3]| egui::Color32::from_rgb(r, g, b);
         return (rgb(SYSTEM_NODE.0), rgb(SYSTEM_NODE.1), rgb(SYSTEM_NODE.2));
@@ -1457,7 +1465,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
             (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
-            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1 }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
+            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default() }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
         ]),
         ("📦", "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),

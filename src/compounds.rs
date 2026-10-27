@@ -95,6 +95,10 @@ pub struct Port {
     /// compound's ports carry a scene, or what their operators give.
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// An ICE compound's input: what it holds while nothing is wired to the
+    /// instance's port (its Compound Input node's value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<xms_ice::Value>,
 }
 
 /// A promoted parameter: an inner parameter (or several) on the compound's
@@ -134,6 +138,24 @@ pub enum ParameterType {
     Colour,
     String,
     Ramp,
+}
+
+impl ParameterType {
+    /// The kind of a parameter's value, as JSON holds it: text, a switch, a
+    /// whole number, numbers side by side, else a number.
+    pub fn of(v: &serde_json::Value) -> ParameterType {
+        match v {
+            serde_json::Value::String(_) => ParameterType::String,
+            serde_json::Value::Bool(_) => ParameterType::Boolean,
+            serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => ParameterType::Integer,
+            serde_json::Value::Array(a) => match a.len() {
+                2 => ParameterType::Vector2,
+                4 => ParameterType::Vector4,
+                _ => ParameterType::Vector3,
+            },
+            _ => ParameterType::Float,
+        }
+    }
 }
 
 /// An inner parameter a promoted one drives: the inner node by its name in the
@@ -369,8 +391,10 @@ pub fn rescan() -> std::sync::Arc<Library> {
 }
 
 /// Put `x` at `path` in a node's parameters as JSON (`translation/0`), the
-/// variant's name above them skipped, as keys' paths are. False when the path
-/// is not there.
+/// variant's name above them skipped, as keys' paths are. A key a map does
+/// not have yet is made (an instance's promoted values at their defaults are
+/// not saved), unless an array's index would follow it. False when the path
+/// cannot be there.
 pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> bool {
     let mut v = match value {
         serde_json::Value::Object(o) if o.len() == 1 => match o.values_mut().next() {
@@ -379,12 +403,16 @@ pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> b
         },
         v => v,
     };
-    for part in path.split('/').filter(|p| !p.is_empty()) {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    for (k, part) in parts.iter().enumerate() {
+        let indexed = parts.get(k + 1).is_some_and(|n| n.parse::<usize>().is_ok());
+        // A map made where a key was missing.
+        if v.is_null() {
+            *v = serde_json::Value::Object(Default::default());
+        }
         v = match v {
-            serde_json::Value::Object(o) => match o.get_mut(part) {
-                Some(v) => v,
-                None => return false,
-            },
+            serde_json::Value::Object(o) if indexed && !o.contains_key(*part) => return false,
+            serde_json::Value::Object(o) => o.entry(part.to_string()).or_insert(serde_json::Value::Null),
             serde_json::Value::Array(a) => match part.parse::<usize>().ok().and_then(|i| a.get_mut(i)) {
                 Some(v) => v,
                 None => return false,
@@ -493,15 +521,18 @@ mod tests {
             Port {
                 name: "Scene".into(),
                 kind: None,
+                value: None,
             },
             Port {
                 name: "Clump Guides".into(),
                 kind: None,
+                value: None,
             },
         ];
         d.outputs = vec![Port {
             name: "Scene".into(),
             kind: None,
+            value: None,
         }];
         d.parameters = vec![Parameter {
             name: "strength".into(),
@@ -659,6 +690,10 @@ mod tests {
         assert_eq!(get(&v, "translation/1"), Some(&serde_json::json!(5.0)));
         assert_eq!(get(&v, "name"), Some(&serde_json::json!("b")));
         assert_eq!(v["Transform"]["translation"][2], serde_json::json!(2.0));
+        // An instance's promoted values, none saved yet.
+        let mut c = serde_json::json!({ "Compound": { "definition": "Lift" } });
+        assert!(put(&mut c, "values/height", serde_json::json!(2.5)));
+        assert_eq!(get(&c, "values/height"), Some(&serde_json::json!(2.5)));
         let mut n = serde_json::json!({ "Sphere": { "segments": 32 } });
         assert!(put(&mut n, "segments", serde_json::json!(12.4)));
         assert_eq!(

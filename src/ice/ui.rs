@@ -32,11 +32,13 @@ mod pal {
     #![allow(non_snake_case)]
     use egui::Color32;
     // ICE's own look, the same in both themes.
+    // The canvas: light grey in the Light theme, dark in the dark ones, as
+    // the scene graph's.
     pub fn BG() -> Color32 {
-        Color32::from_rgb(170, 170, 170)
+        crate::theme::canvas(170, 100)
     }
     pub fn GRID() -> Color32 {
-        Color32::from_rgb(161, 161, 161)
+        crate::theme::canvas(161, 92)
     }
     pub fn BREADCRUMB_BG() -> Color32 {
         crate::theme::c(78, 78, 82)
@@ -83,6 +85,9 @@ mod pal {
     pub fn PORTS() -> Color32 {
         Color32::from_rgb(52, 52, 52)
     } // Execution Ports: dark grey, as MaterialX's material
+    pub fn COMPOUND() -> Color32 {
+        Color32::from_rgb(162, 146, 204)
+    } // a compound: lavender
 
     // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32 {
@@ -204,6 +209,15 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             xms_ice::Decompose::AxisAngle => "axis and angle".to_string(),
             op => op.input().name().to_string(),
         }),
+        IceGraphNodeType::Compound {
+            definition,
+            editable: Some(_),
+            ..
+        } => Some(format!("{definition}, editable")),
+        IceGraphNodeType::Compound { definition, .. } => Some(definition.clone()),
+        IceGraphNodeType::CompoundInput { name, .. } => Some(format!("in: {name}")),
+        IceGraphNodeType::CompoundOutput { name } => Some(format!("out: {name}")),
+        IceGraphNodeType::Parameter { name, .. } => Some(format!("${{{name}}}")),
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => None,
     }
 }
@@ -326,6 +340,9 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } | IceGraphNodeType::ClosestPoint => {
             pal::ORANGE()
         }
+        IceGraphNodeType::Compound { .. } => pal::COMPOUND(),
+        IceGraphNodeType::CompoundInput { .. } | IceGraphNodeType::CompoundOutput { .. } => pal::PORTS(),
+        IceGraphNodeType::Parameter { .. } => pal::GREEN(),
     }
 }
 
@@ -357,6 +374,70 @@ pub fn draw_breadcrumb(ui: &mut egui::Ui, subnet_name: &str) -> bool {
     exit
 }
 
+/// The bar over an ICE graph: Root, the ICE operator, the compounds entered
+/// (a click goes back out to one), ↑ Up while inside one, and Make Editable
+/// while the one looked at is locked. Returns whether Root was clicked, and
+/// what to tell.
+pub fn draw_ice_bar(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Option<String>) {
+    let (path, locked) = graph.entered();
+    let (mut root, mut out_to, mut editable) = (false, None, false);
+    ui.horizontal(|ui| {
+        egui::Frame::NONE
+            .fill(pal::BREADCRUMB_BG())
+            .inner_margin(egui::vec2(8.0, 4.0))
+            .show(ui, |ui| {
+                if ui.link(egui::RichText::new("Root").color(pal::TEXT())).clicked() {
+                    root = true;
+                }
+                let strong = |t: &str| egui::RichText::new(t).color(egui::Color32::from_rgb(180, 200, 230)).strong();
+                ui.label(egui::RichText::new(" › ").color(pal::TEXT_DIM()));
+                if path.is_empty() {
+                    ui.label(strong(graph.name.as_str()));
+                    return;
+                }
+                if ui.link(strong(graph.name.as_str())).clicked() {
+                    out_to = Some(0);
+                }
+                for (k, name) in path.iter().enumerate() {
+                    ui.label(egui::RichText::new(" › ").color(pal::TEXT_DIM()));
+                    if k + 1 == path.len() {
+                        ui.label(strong(name.as_str()));
+                    } else if ui.link(strong(name.as_str())).clicked() {
+                        out_to = Some(k + 1);
+                    }
+                }
+            });
+        if !path.is_empty() {
+            if ui.button("↑ Up").on_hover_text("Back out of this compound (↑)").clicked() {
+                out_to = Some(path.len() - 1);
+            }
+            if locked {
+                ui.label(egui::RichText::new("🔒 Locked").color(pal::TEXT_DIM()));
+                if ui
+                    .button("Make Editable")
+                    .on_hover_text("A copy of the definition for this instance alone, to change here; it no longer follows the library")
+                    .clicked()
+                {
+                    editable = true;
+                }
+            }
+        }
+    });
+    let mut told = None;
+    if editable {
+        told = super::compound::make_editable(graph);
+    }
+    // Back out to the graph `depth` compounds in (0: the operator's own); all
+    // the way out when going to the scene network.
+    let depth = if root { Some(0) } else { out_to };
+    if let Some(depth) = depth {
+        while graph.outer.len() > depth {
+            told = super::compound::leave(graph).or(told);
+        }
+    }
+    (root, told)
+}
+
 // Subnet node properties
 
 /// The parameters of a node inside an ICE subnet, laid out like every other
@@ -364,15 +445,16 @@ pub fn draw_breadcrumb(ui: &mut egui::Ui, subnet_name: &str) -> bool {
 /// ICE graph. `references`: every prim on each of its operator's reference
 /// inputs, by path, from input 1 (Get Reference picks from them); `selected`:
 /// the prims selected in the Scene Explorer (a Get Reference row adds them).
+/// `browser`: where an ICE compound's Save as Definition asks for a file.
 pub fn draw_subnet_node_properties(
     ui: &mut egui::Ui,
     graph: &mut IceGraph,
     references: &[Vec<String>],
     selected: &[String],
+    browser: &mut crate::file_browser::FileBrowser,
 ) {
     use crate::core::geo::Context;
     use crate::properties::form::group;
-    use xms_ice::Value;
     // The geometry the graph last ran on, for Get Data's list: listed only
     // while the list is open.
     let last_input = graph.last_input.clone();
@@ -386,7 +468,29 @@ pub fn draw_subnet_node_properties(
             _ => None,
         })
         .unwrap_or(Context::Point);
+    row_menu(ui.ctx(), graph);
     let mut resync = false;
+    // A compound's: go inside, or its ports again from the library.
+    let (mut enter, mut back) = (false, false);
+    let graph_id = graph.id;
+    // Its settings promoted: drawn following their parameter.
+    let promoted: Vec<String> = graph
+        .selected_node
+        .and_then(|s| graph.nodes.iter().find(|n| n.id == s))
+        .map(|n| {
+            graph
+                .parameters
+                .iter()
+                .flat_map(|p| p.targets.iter().filter(|t| t.node == n.name).map(|t| t.path.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let whose = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (graph_id.0, graph.selected_node.map(|n| n.0), &promoted).hash(&mut h);
+        h.finish()
+    };
     let Some(node) = graph
         .selected_node
         .and_then(|s| graph.nodes.iter_mut().find(|n| n.id == s))
@@ -394,6 +498,7 @@ pub fn draw_subnet_node_properties(
         ui.label("Select a node to see its parameters.");
         return;
     };
+    let named = node.name.clone();
     let title = format!(
         "{}  {}",
         crate::types::subnet_node_icon(&node.node_type),
@@ -410,8 +515,24 @@ pub fn draw_subnet_node_properties(
     if node.name.chars().any(char::is_whitespace) {
         node.name = crate::node_graph::node_name(&node.name);
     }
+    // Its settings promoted follow it by name.
+    if node.name != named {
+        for t in graph.parameters.iter_mut().flat_map(|p| p.targets.iter_mut()) {
+            if t.node == named {
+                t.node = node.name.clone();
+            }
+        }
+    }
     // Get Data and Get Array Data with samples wired read there.
     let at_samples = sampled(node);
+    // A compound's promoted parameters.
+    let compound_params = super::compound::definition(&node.node_type)
+        .map(|d| d.parameters.clone())
+        .unwrap_or_default();
+    // Its settings' rows, right-clicked, have their menu (see
+    // `properties::form::probing`); the node is put back after.
+    let before = node.clone();
+    crate::properties::form::probing(true, whose, promoted);
     match &mut node.node_type {
         IceGraphNodeType::Root { context } => group(ui, "Runs over", None, |f| {
             f.choice(
@@ -573,10 +694,86 @@ pub fn draw_subnet_node_properties(
                 resync = true;
             }
         }),
+        IceGraphNodeType::Compound {
+            definition,
+            version,
+            editable,
+            values,
+            ..
+        } => {
+            // `$OPNAME` in its definition's name: this compound's.
+            let _operator = crate::core::vars::operator(&node.name);
+            (enter, back) = crate::properties::ui::definition_rows(
+                ui,
+                definition,
+                *version,
+                editable,
+                "its outputs give nothing",
+                browser,
+                crate::file_browser::BrowseTarget::SaveIceDefinition(graph_id, node.id),
+            );
+            crate::properties::ui::promoted_groups(ui, &compound_params, values);
+        }
+        IceGraphNodeType::CompoundInput { name, value } => group(
+            ui,
+            "Port",
+            Some("Inside a compound: what comes into the instance's input port of this name. The compound's ports are named by these nodes, top to bottom"),
+            |f| {
+                f.text("Name", Some("The input port's name on the compound"), name, "Value");
+                value_with_type(f, "Value", value, Some("What the port holds while nothing is wired to the instance's"));
+            },
+        ),
+        IceGraphNodeType::CompoundOutput { name } => group(
+            ui,
+            "Port",
+            Some("Inside a compound: what goes out of the instance's output port of this name. Wired from an Execute (Set Data), the port is an Execute"),
+            |f| {
+                f.text("Name", Some("The output port's name on the compound"), name, "Value");
+            },
+        ),
+        IceGraphNodeType::Parameter { name, default } => group(
+            ui,
+            "Parameter",
+            Some("A value its ICE operator gives, by name, in the operator's parameters: what a scene compound can promote"),
+            |f| {
+                f.text("Name", Some("What the ICE operator's parameters call it"), name, "parameter");
+                value_with_type(f, "Default", default, Some("Its value while the operator gives none"));
+            },
+        ),
         IceGraphNodeType::Math { .. }
         | IceGraphNodeType::Array { .. }
         | IceGraphNodeType::Concat
         | IceGraphNodeType::ClosestPoint => {}
+    }
+    if let Some(probe) = crate::properties::form::probed() {
+        let now = serde_json::to_value(&node.node_type).unwrap_or_default();
+        let was = serde_json::to_value(&before.node_type).ok();
+        // Not its definition's own rows (an editable compound's name).
+        let path = crate::keys_ui::probed_path(&now, was.as_ref()).filter(|p| !p.starts_with("editable/"));
+        *node = before;
+        match probe {
+            crate::properties::form::Probe::Clicked(_, at) => {
+                if let Some(path) = path {
+                    let m = RowMenu {
+                        node: node.id,
+                        what: Row::Setting(path),
+                        at,
+                    };
+                    ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
+                }
+            }
+            crate::properties::form::Probe::Finding(row) => crate::properties::form::found(row, path),
+        }
+    }
+    if enter || back {
+        let id = node.id;
+        if back {
+            super::compound::refresh_ports(graph, id);
+        }
+        if enter {
+            ui.data_mut(|d| d.insert_temp(enter_id(), id));
+        }
+        return;
     }
     // Compose's and Decompose's ports follow what they make or take apart:
     // made again, wires kept by place.
@@ -598,42 +795,213 @@ pub fn draw_subnet_node_properties(
             for k in free {
                 let input = &mut node.inputs[k];
                 let Some(value) = input.value.as_mut() else { continue };
-                let mut kind = value.ty();
-                if f.choice(
-                    &format!("{} type", input.name),
-                    None,
-                    &mut kind,
-                    &[
-                        (xms_ice::Ty::Float, "Scalar"),
-                        (xms_ice::Ty::Int, "Integer"),
-                        (xms_ice::Ty::Vec2, "2D Vector"),
-                        (xms_ice::Ty::Vec3, "3D Vector"),
-                        (xms_ice::Ty::Vec4, "4D Vector"),
-                        (xms_ice::Ty::Quat, "Rotation"),
-                        (xms_ice::Ty::Mat4, "Matrix"),
-                        (xms_ice::Ty::Bool, "Boolean"),
-                    ],
-                ) {
-                    *value = match kind {
-                        xms_ice::Ty::Int => Value::Int(0),
-                        xms_ice::Ty::Vec2 => value.convert(xms_ice::Ty::Vec2).unwrap_or(Value::Vec2([0.0; 2])),
-                        xms_ice::Ty::Vec3 => value.convert(xms_ice::Ty::Vec3).unwrap_or(Value::Vec3([0.0; 3])),
-                        xms_ice::Ty::Vec4 => value.convert(xms_ice::Ty::Vec4).unwrap_or(Value::Vec4([0.0; 4])),
-                        // No rotation: (0, 0, 0, 1).
-                        xms_ice::Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
-                        xms_ice::Ty::Mat4 => super::identity(),
-                        xms_ice::Ty::Bool => Value::Bool(false),
-                        _ => value.convert(xms_ice::Ty::Float).unwrap_or(Value::Float(0.0)),
+                let top = f.ui.cursor().top();
+                value_with_type(f, &input.name, value, None);
+                // Right-clicked: its menu (Promote Input).
+                let rows = egui::Rect::from_x_y_ranges(f.ui.max_rect().x_range(), top..=f.ui.cursor().top());
+                let at = f.ui.input(|i| {
+                    i.pointer
+                        .secondary_clicked()
+                        .then(|| i.pointer.interact_pos())
+                        .flatten()
+                });
+                if let Some(at) = at.filter(|p| rows.contains(*p)) {
+                    let m = RowMenu {
+                        node: node.id,
+                        what: Row::Input(k),
+                        at,
                     };
+                    f.ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
                 }
-                value_row(f, &input.name, value);
             }
         });
     }
 }
 
+/// A row's menu, opened by a right-click on it in the parameters: the node,
+/// the input or the setting (by its path), where the pointer was.
+#[derive(Clone)]
+struct RowMenu {
+    node: NodeId,
+    what: Row,
+    at: egui::Pos2,
+}
+
+#[derive(Clone)]
+enum Row {
+    Input(usize),
+    Setting(String),
+}
+
+fn row_menu_id() -> egui::Id {
+    egui::Id::new("ice_row_menu")
+}
+
+/// The menu of a row right-clicked in the parameters, while it is open: an
+/// input's Promote Input, a setting's Promote or Remove Promotion. What it did
+/// is told by the graph (`told_id`).
+fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
+    let Some(m) = ctx.data(|d| d.get_temp::<RowMenu>(row_menu_id())) else {
+        return;
+    };
+    let close = |ctx: &egui::Context| ctx.data_mut(|d| d.remove::<RowMenu>(row_menu_id()));
+    let Some(node) = graph.nodes.iter().find(|n| n.id == m.node) else {
+        close(ctx);
+        return;
+    };
+    let title = match &m.what {
+        Row::Input(k) => node.inputs.get(*k).map(|i| i.name.clone()),
+        Row::Setting(path) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
+    };
+    let Some(title) = title else {
+        close(ctx);
+        return;
+    };
+    let promoted = match &m.what {
+        Row::Setting(path) => graph
+            .parameters
+            .iter()
+            .any(|p| p.targets.iter().any(|t| t.node == node.name && t.path == *path)),
+        Row::Input(_) => false,
+    };
+    let node_name = node.name.clone();
+    let editable = !locked(ctx, graph);
+    let in_compound = !graph.outer.is_empty();
+    let (mut promote, mut remove) = (false, false);
+    let area = egui::Area::new(row_menu_id())
+        .order(egui::Order::Foreground)
+        .fixed_pos(m.at)
+        .show(ctx, |ui| {
+            egui::Frame::menu(ui.style()).show(ui, |ui| {
+                ui.label(egui::RichText::new(title).small().weak());
+                match &m.what {
+                    Row::Input(_) => promote = promote_button(ui, "Promote Input", editable, in_compound),
+                    Row::Setting(_) if promoted => {
+                        remove = ui
+                            .add_enabled(editable, egui::Button::new("Remove Promotion"))
+                            .on_hover_text("Its own value again, no longer the parameter's")
+                            .clicked();
+                    }
+                    Row::Setting(_) => promote = promote_button(ui, "Promote", editable, in_compound),
+                }
+            });
+        });
+    let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+    let told = match (&m.what, promote, remove) {
+        (Row::Input(k), true, _) => super::compound::promote_input(graph, m.node, *k),
+        (Row::Setting(path), true, _) => {
+            Some(super::compound::promote_setting(graph, m.node, path).unwrap_or_else(|e| e))
+        }
+        (Row::Setting(path), _, true) => {
+            super::compound::remove_promotion(graph, &node_name, path);
+            Some(format!(
+                "{node_name} {} is its own again",
+                crate::core::keys::label(path)
+            ))
+        }
+        _ => None,
+    };
+    if let Some(told) = told {
+        ctx.data_mut(|d| d.insert_temp(told_id(), told));
+    }
+    if promote || remove || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        close(ctx);
+    }
+}
+
+/// Promote Input's button: inside a compound, the input a port of it; else a
+/// parameter of the ICE operator. Not where the graph cannot be changed.
+fn promote_button(ui: &mut egui::Ui, label: &str, editable: bool, in_compound: bool) -> bool {
+    let what = if in_compound {
+        "A port of the compound, its value this input's: a Compound Input wired in"
+    } else {
+        "A parameter of the ICE operator, in its parameters, its value this input's: a Parameter node wired in"
+    };
+    ui.add_enabled(editable, egui::Button::new(label))
+        .on_hover_text(what)
+        .on_disabled_hover_text("Locked: it follows its definition. Make Editable to change it")
+        .clicked()
+}
+
+/// A value's type (a choice; changed, the value made of the new type) and the
+/// value.
+fn value_with_type(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms_ice::Value, hint: Option<&str>) {
+    use xms_ice::Value;
+    let mut kind = value.ty();
+    if f.choice(
+        &format!("{label} type"),
+        hint,
+        &mut kind,
+        &[
+            (xms_ice::Ty::Float, "Scalar"),
+            (xms_ice::Ty::Int, "Integer"),
+            (xms_ice::Ty::Vec2, "2D Vector"),
+            (xms_ice::Ty::Vec3, "3D Vector"),
+            (xms_ice::Ty::Vec4, "4D Vector"),
+            (xms_ice::Ty::Quat, "Rotation"),
+            (xms_ice::Ty::Mat4, "Matrix"),
+            (xms_ice::Ty::Bool, "Boolean"),
+        ],
+    ) {
+        *value = match kind {
+            xms_ice::Ty::Int => Value::Int(0),
+            xms_ice::Ty::Vec2 => value.convert(xms_ice::Ty::Vec2).unwrap_or(Value::Vec2([0.0; 2])),
+            xms_ice::Ty::Vec3 => value.convert(xms_ice::Ty::Vec3).unwrap_or(Value::Vec3([0.0; 3])),
+            xms_ice::Ty::Vec4 => value.convert(xms_ice::Ty::Vec4).unwrap_or(Value::Vec4([0.0; 4])),
+            // No rotation: (0, 0, 0, 1).
+            xms_ice::Ty::Quat => Value::Quat([0.0, 0.0, 0.0, 1.0]),
+            xms_ice::Ty::Mat4 => super::identity(),
+            xms_ice::Ty::Bool => Value::Bool(false),
+            _ => value.convert(xms_ice::Ty::Float).unwrap_or(Value::Float(0.0)),
+        };
+    }
+    value_row(f, label, value);
+}
+
+/// Where the graph broke the last time it ran, and why: the node in this
+/// graph, when there is one (inside a compound looked at, the node inside it
+/// that broke; outside it, the compound holding that node). The graph that
+/// ran is the outermost, while a compound's inside is looked at.
+fn broken(graph: &IceGraph) -> Option<(Option<NodeId>, String)> {
+    let top = graph.outer.first().map_or(graph, |o| &*o.graph);
+    let (_, message) = top.error.lock().ok()?.clone()?;
+    let way = top.broke.lock().ok()?.clone();
+    let entered: Vec<NodeId> = graph.outer.iter().map(|o| o.instance).collect();
+    let here = way
+        .starts_with(&entered)
+        .then(|| way.get(entered.len()).copied())
+        .flatten();
+    Some((here, message))
+}
+
+fn scene_locked_id() -> egui::Id {
+    egui::Id::new("ice_scene_locked")
+}
+
+/// Whether the scene graph is inside a locked compound, so its ICE graphs
+/// cannot be changed: set once a frame.
+pub fn set_scene_locked(ctx: &egui::Context, locked: bool) {
+    ctx.data_mut(|d| d.insert_temp(scene_locked_id(), locked));
+}
+
+/// Whether the graph cannot be changed: inside a locked ICE compound, or in
+/// a locked scene compound.
+fn locked(ctx: &egui::Context, graph: &IceGraph) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(scene_locked_id())).unwrap_or(false) || graph.entered().1
+}
+
+/// What a node's menu has to tell, until the graph is drawn.
+fn told_id() -> egui::Id {
+    egui::Id::new("ice_told")
+}
+
+/// Where a compound to go inside of waits, until the graph is drawn.
+fn enter_id() -> egui::Id {
+    egui::Id::new("ice_compound_enter")
+}
+
 /// A row editing one value, by its type.
-fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms_ice::Value) {
+pub fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms_ice::Value) {
     use xms_ice::Value;
     match value {
         Value::Bool(b) => {
@@ -677,9 +1045,11 @@ fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut xms
 
 /// Draw an ICE tree and handle its editing and navigation, as the main network
 /// does: Shift+drag or middle-drag pans, the wheel zooms toward the pointer, F
-/// or A frames every node. Returns true when the Up arrow asks to go back up to
-/// the scene network.
-pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
+/// or A frames every node. A compound: double-click it, or select it and press
+/// ↓, to go inside; ↑ comes back out. Returns whether the Up arrow asks to go
+/// back up to the scene network, and what to tell.
+pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Option<String>) {
+    let mut told = None;
     let (response, painter) = ui.allocate_painter(
         egui::Vec2::new(ui.available_width(), ui.available_height()),
         egui::Sense::click_and_drag(),
@@ -690,9 +1060,22 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     let mut collapsed: HashSet<NodeId> = ui.data(|d| d.get_temp(collapsed_id())).unwrap_or_default();
     let keys_free = response.hovered() && !ui.ctx().egui_wants_keyboard_input();
 
-    // Up arrow: back up to the scene network
+    // Up arrow: out of the compound looked at, else back up to the scene
+    // network. Down arrow: inside the compound selected.
     if keys_free && ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-        return true;
+        if graph.outer.is_empty() {
+            return (true, None);
+        }
+        return (false, super::compound::leave(graph));
+    }
+    let compound_selected = graph.selected_node.filter(|s| {
+        graph
+            .nodes
+            .iter()
+            .any(|n| n.id == *s && matches!(n.node_type, IceGraphNodeType::Compound { .. }))
+    });
+    if let Some(id) = compound_selected.filter(|_| keys_free && ui.input(|i| i.key_pressed(egui::Key::ArrowDown))) {
+        ui.data_mut(|d| d.insert_temp(enter_id(), id));
     }
 
     // Delete or Backspace: the selected wire, else the selected nodes
@@ -874,9 +1257,8 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
     }
     // Where the graph broke, the last time it ran: a red ring on the node,
     // and why, along the top of the canvas.
-    let broken = graph.error.lock().ok().and_then(|e| e.clone());
-    if let Some((id, message)) = broken {
-        if let Some(node) = graph.nodes.iter().find(|n| n.id == id) {
+    if let Some((here, message)) = broken(graph) {
+        if let Some((id, node)) = here.and_then(|id| graph.nodes.iter().find(|n| n.id == id).map(|n| (id, n))) {
             let size = layout(node, collapsed.contains(&id)).size * z;
             let r = egui::Rect::from_min_size(to_screen(node.position), size).expand(3.0 * z);
             painter.rect_stroke(
@@ -895,6 +1277,17 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         );
     }
     ui.data_mut(|d| d.insert_temp(collapsed_id(), collapsed));
+    // Locked: a dark layer, and a change put back.
+    if locked(ui.ctx(), graph) {
+        painter.rect_filled(canvas_rect, 0.0, egui::Color32::from_black_alpha(90));
+        painter.text(
+            canvas_rect.left_bottom() + egui::vec2(8.0, -8.0),
+            egui::Align2::LEFT_BOTTOM,
+            "Locked: it follows its definition. Make Editable to change it",
+            egui::FontId::proportional(12.0),
+            egui::Color32::WHITE,
+        );
+    }
 
     // Cancel wire only if mouse released and no socket consumed it
     // (drag_stopped on the background canvas means we missed all sockets)
@@ -985,11 +1378,26 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_min_width(190.0);
-                    if let Some(t) = add_menu(ui, opened_now) {
-                        let name = crate::types::subnet_node_label(&t).to_string();
-                        let id = graph.add_node(name, t, to_canvas(at));
-                        graph.selected_node = Some(id);
-                        close = true;
+                    match add_menu(ui, opened_now) {
+                        Some(Added::Node(t)) => {
+                            let name = match &t {
+                                IceGraphNodeType::Compound { definition, .. } => definition.clone(),
+                                t => crate::types::subnet_node_label(t).to_string(),
+                            };
+                            let id = graph.add_node(name, t, to_canvas(at));
+                            graph.selected_node = Some(id);
+                            close = true;
+                        }
+                        Some(Added::MakeCompound) => {
+                            let mut ids = graph.selected_nodes.clone();
+                            ids.extend(graph.selected_node);
+                            told = Some(match super::compound::make_compound(graph, &ids, "Compound") {
+                                Ok(_) => "Made a compound: double-click it, or ↓, to go inside".into(),
+                                Err(e) => e,
+                            });
+                            close = true;
+                        }
+                        None => {}
                     }
                 });
             });
@@ -1008,7 +1416,19 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> bool {
         }
     }
     ui.data_mut(|d| d.insert_temp(menu_id, menu_at));
-    false
+    if let Some(m) = ui.data(|d| d.get_temp::<String>(told_id())) {
+        ui.data_mut(|d| d.remove::<String>(told_id()));
+        told = Some(m);
+    }
+    // A compound double-clicked, or ↓: inside it.
+    if let Some(id) = ui.data(|d| d.get_temp::<NodeId>(enter_id())) {
+        ui.data_mut(|d| d.remove::<NodeId>(enter_id()));
+        told = Some(super::compound::enter(graph, id).unwrap_or_else(|e| e));
+    }
+    if super::compound::keep_locked(graph) {
+        told = Some("Locked: it follows its definition. Make Editable to change it here".into());
+    }
+    (false, told)
 }
 
 /// Every node the add menu offers: its category, the node as it is made, and a
@@ -1039,6 +1459,13 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     for op in xms_ice::ArrayOp::ALL {
         out.push(("Arrays", IceGraphNodeType::Array { op }, ""));
     }
+    out.push(("Compounds", IceGraphNodeType::CompoundInput { name: "Value".into(), value: Value::Float(0.0) }, "Inside a compound: what comes into its input port of this name, its value while nothing is wired to the instance's"));
+    out.push((
+        "Compounds",
+        IceGraphNodeType::CompoundOutput { name: "Value".into() },
+        "Inside a compound: what goes out of its output port of this name",
+    ));
+    out.push(("Data Access", IceGraphNodeType::Parameter { name: "parameter".into(), default: Value::Float(0.0) }, "A value the ICE operator gives in its parameters, by name; its default until set. A scene compound can promote it"));
     out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"));
     out.push(("Matrix", IceGraphNodeType::Compose { op: xms_ice::Compose::Matrix }, "A matrix from three axes and an origin: a frame (tangent, normal, bitangent and a position). Its columns are the axes and the origin"));
     out.push((
@@ -1073,7 +1500,65 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
 
 /// The add menu: a search line, then the nodes by category. The node chosen, if
 /// one was.
-fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<IceGraphNodeType> {
+/// What the add menu adds: a node, or the selected nodes made a compound.
+#[derive(Clone)]
+enum Added {
+    Node(IceGraphNodeType),
+    MakeCompound,
+}
+
+/// An entry of the add menu: its category, its label, a line on what it does.
+struct Entry {
+    category: String,
+    label: String,
+    hint: String,
+    added: Added,
+}
+
+/// Every entry of the add menu: the nodes, Make Compound, and the library's
+/// ICE compounds.
+fn entries() -> Vec<Entry> {
+    let mut out: Vec<Entry> = catalog()
+        .into_iter()
+        .map(|(category, t, hint)| Entry {
+            category: category.into(),
+            label: format!(
+                "{}  {}",
+                crate::types::subnet_node_icon(&t),
+                crate::types::subnet_node_label(&t)
+            ),
+            hint: hint.into(),
+            added: Added::Node(t),
+        })
+        .collect();
+    out.push(Entry {
+        category: "Compounds".into(),
+        label: "◆  Make Compound".into(),
+        hint: "The selected nodes as one compound, the wires crossing the selection its ports: double-click it, or ↓, to go inside".into(),
+        added: Added::MakeCompound,
+    });
+    for f in crate::compounds::library().of_context(crate::compounds::Context::Ice) {
+        let d = &f.definition;
+        let names = |ports: &[crate::compounds::Port]| ports.iter().map(|p| p.name.clone()).collect();
+        out.push(Entry {
+            category: "Compounds".into(),
+            label: format!("{}  {}", if d.icon.is_empty() { "◆" } else { d.icon.as_str() }, d.name),
+            hint: d.help.clone(),
+            added: Added::Node(IceGraphNodeType::Compound {
+                definition: d.name.clone(),
+                version: d.version,
+                hash: d.hash(),
+                inputs: names(&d.inputs),
+                outputs: names(&d.outputs),
+                values: Default::default(),
+                editable: None,
+            }),
+        });
+    }
+    out
+}
+
+fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<Added> {
     let search_id = egui::Id::new("ice_add_search");
     let mut search: String = if opened_now {
         String::new()
@@ -1090,64 +1575,55 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<IceGraphNodeType> {
     }
     ui.data_mut(|d| d.insert_temp(search_id, search.clone()));
     ui.separator();
-    let label = |t: &IceGraphNodeType| {
-        format!(
-            "{}  {}",
-            crate::types::subnet_node_icon(t),
-            crate::types::subnet_node_label(t)
-        )
-    };
+    let all = entries();
     let words = search.trim().to_lowercase();
     let mut chosen = None;
     if !words.is_empty() {
-        let found: Vec<(&'static str, IceGraphNodeType, &'static str)> = catalog()
-            .into_iter()
-            .filter(|(category, t, hint)| {
-                let text = format!("{} {category} {hint}", crate::types::subnet_node_label(t)).to_lowercase();
+        let found: Vec<&Entry> = all
+            .iter()
+            .filter(|e| {
+                let text = format!("{} {} {}", e.label, e.category, e.hint).to_lowercase();
                 words.split_whitespace().all(|w| text.contains(w))
             })
             .collect();
         let (hi, moved, enter) =
             crate::menus::search_keys(ui, egui::Id::new("ice_add_pick"), &words, found.len(), opened_now);
-        for (k, (category, t, hint)) in found.iter().enumerate() {
-            let mut r = ui.selectable_label(k == hi, format!("{}   {category}", label(t)));
-            if !hint.is_empty() {
-                r = r.on_hover_text(*hint);
+        for (k, e) in found.iter().enumerate() {
+            let mut r = ui.selectable_label(k == hi, format!("{}   {}", e.label, e.category));
+            if !e.hint.is_empty() {
+                r = r.on_hover_text(e.hint.as_str());
             }
             if moved && k == hi {
                 r.scroll_to_me(None);
             }
             if r.clicked() {
-                chosen = Some(t.clone());
+                chosen = Some(e.added.clone());
             }
         }
         if found.is_empty() {
             ui.label("No node by that name");
         }
         if enter {
-            chosen = found.get(hi).map(|(_, t, _)| t.clone());
+            chosen = found.get(hi).map(|e| e.added.clone());
         }
         return chosen;
     }
     // Categories, each a submenu, as in the scene graph's menu.
-    let mut categories: Vec<&'static str> = vec![];
-    for (c, _, _) in catalog() {
-        if !categories.contains(&c) {
-            categories.push(c);
+    let mut categories: Vec<&str> = vec![];
+    for e in &all {
+        if !categories.contains(&e.category.as_str()) {
+            categories.push(&e.category);
         }
     }
     for category in categories {
         crate::menus::menu(ui, category, |ui| {
-            for (c, t, hint) in catalog() {
-                if c != category {
-                    continue;
-                }
-                let mut r = ui.button(label(&t));
-                if !hint.is_empty() {
-                    r = r.on_hover_text(hint);
+            for e in all.iter().filter(|e| e.category == category) {
+                let mut r = ui.button(e.label.as_str());
+                if !e.hint.is_empty() {
+                    r = r.on_hover_text(e.hint.as_str());
                 }
                 if r.clicked() {
-                    chosen = Some(t);
+                    chosen = Some(e.added.clone());
                     ui.close();
                 }
             }
@@ -1486,9 +1962,41 @@ fn draw_subnet_node(
         }
         graph.selected_node = Some(id);
     }
+    // A compound: double-click to go inside (after the nodes are drawn).
+    if dr.double_clicked() && matches!(node.node_type, IceGraphNodeType::Compound { .. }) {
+        ui.data_mut(|d| d.insert_temp(enter_id(), id));
+    }
     let terminal = matches!(node.node_type, IceGraphNodeType::Root { .. });
     if !terminal {
+        // An input that holds a value can be promoted: a port of the compound
+        // it is in, else a parameter of the ICE operator.
+        let editable = !locked(ui.ctx(), graph);
+        let in_compound = !graph.outer.is_empty();
+        let promotable: Vec<(usize, String)> = node
+            .inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
+            .map(|(k, i)| (k, i.name.clone()))
+            .collect();
         dr.context_menu(|ui| {
+            if !promotable.is_empty() {
+                if editable {
+                    crate::menus::menu(ui, "Promote Input", |ui| {
+                        for (k, name) in &promotable {
+                            if promote_button(ui, name, true, in_compound) {
+                                if let Some(told) = super::compound::promote_input(graph, id, *k) {
+                                    ui.data_mut(|d| d.insert_temp(told_id(), told));
+                                }
+                                ui.close();
+                            }
+                        }
+                    });
+                } else {
+                    promote_button(ui, "Promote Input", false, in_compound);
+                }
+                ui.separator();
+            }
             if ui.button("Delete").clicked() {
                 graph.remove_node(id);
                 ui.close();

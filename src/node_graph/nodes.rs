@@ -236,7 +236,9 @@ pub fn evaluate_node_type(
             }
         }
 
-        NodeType::Ice { id, .. } => {
+        NodeType::Ice { id, params, .. } => {
+            // What it sets on its graph's Parameter nodes, for each run.
+            let params = || params.clone();
             // The first input is the scene; the others, numbered from 1, are
             // references: every prim of the scene wired there (groups too),
             // for Get Reference.
@@ -273,6 +275,7 @@ pub fn evaluate_node_type(
                         crate::ice::take_instances();
                         // Reference meshes are taken into its space.
                         crate::ice::set_space(p.place.matrices().first().copied().unwrap_or(glam::Mat4::IDENTITY));
+                        crate::ice::set_params(params());
                         let g = eval_subnet(*id, &geo, &references);
                         // What its Instancers made: point instancers, after the others.
                         for (i, draw) in crate::ice::take_instances() {
@@ -290,6 +293,7 @@ pub fn evaluate_node_type(
                 }
                 other => {
                     let geo = crate::core::geo::Geo::from_mesh(&other.as_mesh());
+                    crate::ice::set_params(params());
                     Some(EvalResult::Single(eval_subnet(*id, &geo, &references).to_mesh()))
                 }
             }

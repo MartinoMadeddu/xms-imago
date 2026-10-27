@@ -9,7 +9,7 @@
 //! editable instance takes the graph inside as its definition (its ports from
 //! its Compound Input and Compound Output operators, its promoted values from
 //! their targets), a locked one is as it was. Inside a locked instance a
-//! change is put back at once.
+//! change is put back at once, its ICE graphs' included.
 
 use std::sync::Arc;
 
@@ -36,8 +36,6 @@ struct Frame {
     nav: GraphNavigation,
     /// Locked: the inside as it was entered, put back when it is changed.
     pristine: Option<String>,
-    /// The inside's content hash when last compared with `pristine`.
-    seen: u64,
 }
 
 impl Inside {
@@ -74,11 +72,7 @@ pub fn frame(p: Panes) -> Option<String> {
         return told;
     };
     let Some(pristine) = &top.pristine else { return told };
-    let now = p.graph.content_hash();
-    if now == top.seen {
-        return told;
-    }
-    top.seen = now;
+    // Compared every frame: the graph's hash leaves its ICE graphs out.
     if crate::graph_io::to_json(p.graph, p.subnets) == *pristine {
         return told;
     }
@@ -97,7 +91,6 @@ pub fn frame(p: Panes) -> Option<String> {
     p.graph.inside = inside;
     p.graph.scene = scene;
     p.graph.variables = variables;
-    top.seen = p.graph.content_hash();
     Some("Locked: it follows its definition. Make Editable to change it here".into())
 }
 
@@ -181,7 +174,6 @@ pub fn enter(
     g.inside.parameters = d.parameters.clone();
     g.frame_request = true;
     let pristine = locked.then(|| crate::graph_io::to_json(g, &inner.subnets));
-    let seen = g.content_hash();
     let name = node.name.clone();
 
     inside.frames.push(Frame {
@@ -191,7 +183,6 @@ pub fn enter(
         history: std::mem::take(history),
         nav: std::mem::take(nav),
         pristine,
-        seen,
     });
     Ok(if locked {
         format!("Inside {name}: locked, it follows its definition {}", d.name)
@@ -278,4 +269,55 @@ fn make_editable(graph: &mut NodeGraphState, inside: &mut Inside) -> Option<Stri
         "{} is editable: its own copy of the definition, no longer the library's",
         node.name
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Inside a locked compound, a change to an ICE graph inside it is put
+    /// back as a change to its operators is.
+    #[test]
+    fn a_locked_compounds_ice_graphs_cannot_be_changed() {
+        let (mut graph, mut subnets) = (NodeGraphState::default(), IceGraphStore::default());
+        let (mut history, mut nav, mut inside) = (History::default(), GraphNavigation::default(), Inside::default());
+        let sid = subnets.create_subnet("Lift".into());
+        let ice = graph.add_node(
+            "Lift".into(),
+            NodeType::Ice {
+                id: sid,
+                name: "Lift".into(),
+                references: 1,
+                params: Default::default(),
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let op = graph.make_compound(&mut subnets, &[ice], "Locked").unwrap();
+        enter(&mut graph, &mut subnets, &mut history, &mut nav, &mut inside, op).unwrap();
+        // Locked, as one from the library is.
+        let pristine = crate::graph_io::to_json(&graph, &subnets);
+        inside.frames.last_mut().unwrap().pristine = Some(pristine.clone());
+        let inner = graph
+            .nodes
+            .iter()
+            .find_map(|n| match n.node_type {
+                NodeType::Ice { id, .. } => Some(id),
+                _ => None,
+            })
+            .unwrap();
+        subnets.get_mut(inner).unwrap().add_node(
+            "P".into(),
+            crate::types::IceGraphNodeType::get("P"),
+            egui::pos2(10.0, 10.0),
+        );
+        let told = frame(Panes {
+            graph: &mut graph,
+            subnets: &mut subnets,
+            history: &mut history,
+            nav: &mut nav,
+            inside: &mut inside,
+        });
+        assert!(told.is_some_and(|t| t.starts_with("Locked")));
+        assert_eq!(crate::graph_io::to_json(&graph, &subnets), pristine);
+    }
 }

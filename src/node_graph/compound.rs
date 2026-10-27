@@ -229,7 +229,11 @@ pub fn ports_of(g: &NodeGraphState, before: (&[Port], &[Port])) -> (Vec<Port>, V
             .collect();
         for (name, _) in now {
             if !out.iter().any(|p| p.name == name) {
-                out.push(Port { name, kind: None });
+                out.push(Port {
+                    name,
+                    kind: None,
+                    value: None,
+                });
             }
         }
         out
@@ -674,6 +678,7 @@ impl NodeGraphState {
             .map(|n| Port {
                 name: n.clone(),
                 kind: None,
+                value: None,
             })
             .collect();
         d.outputs = out_names
@@ -681,6 +686,7 @@ impl NodeGraphState {
             .map(|n| Port {
                 name: n.clone(),
                 kind: None,
+                value: None,
             })
             .collect();
         d.graph = serde_json::from_str(&crate::graph_io::to_json(&g, &inner_subnets)).map_err(|e| e.to_string())?;
@@ -751,6 +757,47 @@ mod tests {
 
     fn cook(g: &NodeGraphState, id: NodeId) -> Option<EvalResult> {
         g.eval_node_out(id, 0, &mut EvalCache::new(), &pass)
+    }
+
+    /// A promoted parameter whose target is an inner compound's promoted
+    /// parameter, its value not saved there yet: the value reaches it, and so
+    /// goes on down.
+    #[test]
+    fn promoted_values_reach_nested_compounds() {
+        let mut g = NodeGraphState::default();
+        g.add_node(
+            "Inner".into(),
+            NodeType::Compound {
+                definition: "Inner".into(),
+                version: 1,
+                hash: 0,
+                inputs: vec![],
+                outputs: vec![],
+                values: Default::default(),
+                editable: None,
+            },
+            p(0.0, 0.0),
+        );
+        let mut d = Definition::new(Context::Scene, "Outer");
+        d.parameters = vec![Parameter {
+            name: "size".into(),
+            label: String::new(),
+            kind: ParameterType::Float,
+            default: serde_json::json!(1.0),
+            range: None,
+            group: String::new(),
+            help: String::new(),
+            targets: vec![Target {
+                node: "Inner".into(),
+                path: "values/size".into(),
+            }],
+        }];
+        let values: BTreeMap<String, serde_json::Value> = [("size".to_string(), serde_json::json!(3.0))].into();
+        apply_values(&mut g, &d, &values);
+        let NodeType::Compound { values, .. } = &g.nodes[0].node_type else {
+            panic!("not a compound");
+        };
+        assert_eq!(values.get("size"), Some(&serde_json::json!(3.0)));
     }
 
     /// A cube moved by a Transform, made a compound: the instance cooks to

@@ -337,12 +337,62 @@ pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: f64
     ctx.data_mut(|d| d.insert_temp(row_menu_id(), RowMenu { node, path, value, at }));
 }
 
-/// After the parameters were drawn: the number a probed row (see
-/// `form::probing`) put `form::PROBE` in place of, found in operator `id`'s
-/// parameters by its path, and the parameters put back as they were
-/// (`before`, taken that frame), found or not. A row showing its number
-/// another way (angles in degrees) is found by what changed. Returns the path
-/// and the number's value as the operator holds it (`old` without `before`).
+/// The path of what a probed row (see `form::probing`) put the probe in place
+/// of, in parameters `now` (as JSON): the number that is `form::PROBE`, the
+/// text that is `form::PROBE_TEXT`, else (a row showing its number another
+/// way, angles in degrees) the number that changed from `before`.
+pub fn probed_path(now: &serde_json::Value, before: Option<&serde_json::Value>) -> Option<String> {
+    let probe = crate::properties::form::PROBE;
+    let numbers = keys::keyable(now);
+    if let Some((p, _)) = numbers.iter().find(|(_, x)| (*x - probe).abs() < 0.5) {
+        return Some(p.clone());
+    }
+    if let Some(p) = text_at(now, crate::properties::form::PROBE_TEXT) {
+        return Some(p);
+    }
+    let was: Vec<(String, f64)> = before.map(keys::keyable).unwrap_or_default();
+    numbers
+        .iter()
+        .find(|(p, x)| {
+            was.iter()
+                .any(|(q, y)| q == p && (x - y).abs() > 1e-9 * (1.0 + y.abs()))
+        })
+        .map(|(p, _)| p.clone())
+}
+
+/// The path of text `text` in parameters `v` (as JSON, the variant's name
+/// above them skipped, as keys' paths are).
+fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
+    fn walk(v: &serde_json::Value, path: String, text: &str) -> Option<String> {
+        let join = |k: &str| {
+            if path.is_empty() {
+                k.to_string()
+            } else {
+                format!("{path}/{k}")
+            }
+        };
+        match v {
+            serde_json::Value::String(s) if s == text => Some(path),
+            serde_json::Value::Object(o) => o.iter().find_map(|(k, x)| walk(x, join(k), text)),
+            serde_json::Value::Array(a) => a
+                .iter()
+                .enumerate()
+                .find_map(|(k, x)| walk(x, join(&k.to_string()), text)),
+            _ => None,
+        }
+    }
+    let inner = match v {
+        serde_json::Value::Object(o) if o.len() == 1 => o.values().next()?,
+        v => v,
+    };
+    walk(inner, String::new(), text)
+}
+
+/// After the parameters were drawn: what a probed row put the probe in place
+/// of, found in operator `id`'s parameters by its path (`probed_path`), and
+/// the parameters put back as they were (`before`, taken that frame), found
+/// or not. Returns the path and the number's value as the operator holds it
+/// (`old` for text, or without `before`).
 pub fn found_row(
     graph: &mut NodeGraphState,
     id: NodeId,
@@ -351,22 +401,8 @@ pub fn found_row(
 ) -> Option<(String, f64)> {
     let node = graph.nodes.iter_mut().find(|n| n.id == id)?;
     let mut v = serde_json::to_value(&node.node_type).ok()?;
-    let probe = crate::properties::form::PROBE;
-    let now = keys::keyable(&v);
-    let exact = now
-        .iter()
-        .find(|(_, x)| (*x - probe).abs() < 0.5)
-        .map(|(p, _)| p.clone());
+    let path = probed_path(&v, before.as_ref());
     let was: Vec<(String, f64)> = before.as_ref().map(keys::keyable).unwrap_or_default();
-    let changed = || {
-        now.iter()
-            .find(|(p, x)| {
-                was.iter()
-                    .any(|(q, y)| q == p && (x - y).abs() > 1e-9 * (1.0 + y.abs()))
-            })
-            .map(|(p, _)| p.clone())
-    };
-    let path = exact.or_else(changed);
     let value = path
         .as_ref()
         .and_then(|path| was.iter().find(|(p, _)| p == path))
@@ -432,7 +468,8 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
 struct Promoting {
     node: String,
     path: String,
-    value: f64,
+    /// Its value now: the parameter's default.
+    default: serde_json::Value,
     /// A new parameter (None) or another target for this one.
     into: Option<String>,
     label: String,
@@ -446,13 +483,21 @@ fn promoting_id() -> egui::Id {
     egui::Id::new("promote_window")
 }
 
-/// Open the Promote window for number `path` of inner operator `node`.
+/// Open the Promote window for parameter `path` (a number, text) of inner
+/// operator `node`; `value`, a number's, when it cannot be read there.
 fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: f64, graph: &NodeGraphState) {
     let label = keys::label(path);
+    let default = graph
+        .nodes
+        .iter()
+        .find(|n| n.name == node)
+        .and_then(|n| serde_json::to_value(&n.node_type).ok())
+        .and_then(|v| crate::compounds::get(&v, path).cloned())
+        .unwrap_or_else(|| serde_json::json!(value));
     let p = Promoting {
         node: node.to_string(),
         path: path.to_string(),
-        value,
+        default,
         into: None,
         label: format!("{node} {label}"),
         group: graph.inside.path.last().cloned().unwrap_or_default(),
@@ -500,16 +545,18 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
                     ui.text_edit_singleline(&mut p.group);
                     ui.end_row();
                     ui.label("Range");
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut p.range, "");
-                        ui.add_enabled(
-                            p.range,
-                            egui::DragValue::new(&mut p.min).update_while_editing(false).speed(0.01),
-                        );
-                        ui.add_enabled(
-                            p.range,
-                            egui::DragValue::new(&mut p.max).update_while_editing(false).speed(0.01),
-                        );
+                    ui.add_enabled_ui(p.default.is_number(), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut p.range, "");
+                            ui.add_enabled(
+                                p.range,
+                                egui::DragValue::new(&mut p.min).update_while_editing(false).speed(0.01),
+                            );
+                            ui.add_enabled(
+                                p.range,
+                                egui::DragValue::new(&mut p.max).update_while_editing(false).speed(0.01),
+                            );
+                        })
                     });
                     ui.end_row();
                 }
@@ -531,11 +578,12 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
     None
 }
 
-/// Put a number on the compound's parameters, as `p` says: a new parameter, its
-/// default the number's value now, or another target of one. Returns what to
-/// tell.
+/// Put a parameter (a number, text) on the compound's parameters, as `p` says:
+/// a new parameter, of its kind, its default its value now, or another target
+/// of one. Returns what to tell.
 fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
     use crate::compounds::{Parameter, ParameterType, Target};
+    let kind = ParameterType::of(&p.default);
     let target = Target {
         node: p.node.clone(),
         path: p.path.clone(),
@@ -564,9 +612,9 @@ fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
     params.push(Parameter {
         name: name.clone(),
         label: p.label.trim().to_string(),
-        kind: ParameterType::Float,
-        default: serde_json::json!(p.value),
-        range: p.range.then_some([p.min, p.max]),
+        kind,
+        default: p.default.clone(),
+        range: (p.range && p.default.is_number()).then_some([p.min, p.max]),
         group: p.group.trim().to_string(),
         help: String::new(),
         targets: vec![target],
@@ -641,7 +689,7 @@ mod tests {
         Promoting {
             node: node.into(),
             path: path.into(),
-            value: 2.5,
+            default: serde_json::json!(2.5),
             into: into.map(str::to_string),
             label: label.into(),
             group: "Shape".into(),

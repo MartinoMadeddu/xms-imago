@@ -123,6 +123,8 @@ pub(crate) fn draw_ui(
         inside,
         ..
     } = app;
+    // Inside a locked compound its ICE graphs cannot be changed either.
+    crate::ice::ui::set_scene_locked(ctx, graph.inside.locked);
     // Keyed parameters cook at the playhead.
     graph.time = playback.time;
     // Local Animations show the parameters of the operator before them.
@@ -240,6 +242,18 @@ pub(crate) fn draw_ui(
                 graph_file.message = graph
                     .save_definition(op, &path)
                     .unwrap_or_else(|e| format!("Could not save the definition: {e}"));
+            }
+            BrowseTarget::SaveIceDefinition(sid, id) => {
+                let path = if path.extension().is_some_and(|e| e == compounds::EXTENSION) {
+                    path.clone()
+                } else {
+                    path.with_extension(compounds::EXTENSION)
+                };
+                graph_file.message = match subnets.get_mut(sid) {
+                    Some(sg) => crate::ice::compound::save_definition(sg, id, &path)
+                        .unwrap_or_else(|e| format!("Could not save the definition: {e}")),
+                    None => "That ICE graph is gone".into(),
+                };
             }
             // A MaterialX operator's graph written as a .mtlx file.
             BrowseTarget::MatxSave(op) => {
@@ -999,6 +1013,8 @@ impl egui_dock::TabViewer for Panes<'_> {
                         tool: &mut tool,
                         scene_paths,
                         add: vec![],
+                        ice_params: vec![],
+                        ice_settings: vec![],
                     };
                     // A keyed node shows its parameters at the playhead; a
                     // keyed number changed here is keyed there.
@@ -1014,12 +1030,19 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let selected = editing
                         .as_ref()
                         .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id));
+                    // Its numbers that follow another, and those promoted (inside
+                    // a compound): each follows a number elsewhere.
                     let (whose, linked): (u64, Vec<String>) = selected
                         .map(|n| {
                             use std::hash::{Hash, Hasher};
+                            let promoted =
+                                self.graph.inside.parameters.iter().flat_map(|q| {
+                                    q.targets.iter().filter(|t| t.node == n.name).map(|t| t.path.clone())
+                                });
+                            let linked: Vec<String> = n.links.iter().map(|l| l.path.clone()).chain(promoted).collect();
                             let mut h = std::collections::hash_map::DefaultHasher::new();
-                            (n.id, &n.links).hash(&mut h);
-                            (h.finish(), n.links.iter().map(|l| l.path.clone()).collect())
+                            (n.id, &linked).hash(&mut h);
+                            (h.finish(), linked)
                         })
                         .unwrap_or_default();
                     // The parameters as they were, for a probed row to be found
@@ -1027,7 +1050,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let before = selected
                         .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
                         .and_then(|n| serde_json::to_value(&n.node_type).ok());
-                    crate::properties::form::probing(own_parameters && editing.is_some(), whose, linked);
+                    // An ICE graph's nodes are probed by the ICE panel, rows of its own.
+                    if own_parameters {
+                        crate::properties::form::probing(editing.is_some(), whose, linked);
+                    } else {
+                        crate::properties::form::probed();
+                    }
                     // Each operator's fields are its own: a value being typed
                     // when another operator is selected is not put in its field.
                     ui.push_id(("parameters_of", self.graph.selected_node.map(|n| n.0)), |ui| {
@@ -1240,17 +1268,23 @@ impl egui_dock::TabViewer for Panes<'_> {
             Pane::NodeGraph => match self.nav.current_subnet {
                 Some(sid) => {
                     if let Some(sg) = self.subnets.get_mut(sid) {
-                        let subnet_name = sg.name.clone();
-                        if draw_breadcrumb(ui, &subnet_name) {
+                        let (root, told) = crate::ice::ui::draw_ice_bar(ui, sg);
+                        if let Some(m) = told {
+                            self.graph_file.message = m;
+                        }
+                        if root {
                             self.nav.current_subnet = None;
                         } else {
-                            ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↑: back to the scene graph  |  Esc: cancel wire");
+                            ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↓: inside a compound  |  ↑: back out  |  Esc: cancel wire");
                             ui.separator();
                             // Canvas in its own child Ui: see the note below.
                             let rect = ui.available_rect_before_wrap();
                             let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                             canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
-                            let up = draw_subnet_graph(&mut canvas, sg);
+                            let (up, told) = draw_subnet_graph(&mut canvas, sg);
+                            if let Some(m) = told {
+                                self.graph_file.message = m;
+                            }
                             ui.allocate_rect(rect, egui::Sense::hover());
                             if up {
                                 self.nav.current_subnet = None;
@@ -1431,6 +1465,7 @@ pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
         subnets,
         ..
     } = app;
+    crate::ice::compound::keep_params(graph, subnets);
     history.set_ice(subnets.content_hash());
     let typing = ctx.egui_wants_keyboard_input();
     if !typing && !browser.is_open() {

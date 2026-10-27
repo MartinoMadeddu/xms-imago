@@ -284,6 +284,65 @@ to a boolean, an attribute that is not there, a per-face attribute read in a
 per-point tree) leaves the primitive unchanged; the node where it broke gets a
 red ring, and why is written along the top of the canvas.
 
+## Compounds
+
+Nodes of an ICE graph can be packed into one **compound** node (see
+[Compounds](compounds.md)): select them, open the add menu (right-click or Tab)
+and choose **Compounds > Make Compound**, or type to search for it. The wires
+that crossed the selection become its ports: a **Compound Input** inside for
+each output wired in, holding the value of the input it fed, and a **Compound
+Output** for each output wired out (from a Set Data: an Execute, for the
+Execution Ports). The compound is drawn lavender; its inputs hold values, as any
+node's, used while nothing is wired in. Its definition's **Name** takes
+variables when entered (`$OPNAME` is the compound's own name), as a scene
+compound's does.
+
+- **Go inside:** double-click it, or select it and press ↓. The bar over the
+  graph shows the way back (the ICE operator, the compounds entered, **↑ Up**,
+  or ↑). The graph keeps running with the inside as it is edited.
+- **Ports** are the Compound Input and Compound Output nodes inside, top to
+  bottom, by name: add or rename one there, and the compound's port follows
+  when you come back out. A Compound Input's value is the port's, for while
+  nothing is wired to it. Right-click a node (Promote Input, then the input) or an input's rows
+  in its parameters (Promote Input) to promote an input holding a value:
+  inside a compound, it becomes a port of the compound (a Compound Input);
+  at the top of the ICE operator's graph, a parameter of the operator (a
+  Parameter node, set in the operator's parameters, and from there promoted
+  or referenced in the scene graph). Both are named after the node and the
+  input, hold its value and are wired in. Inside a locked compound (an ICE one,
+  or the scene compound the operator is in) the entry is greyed out.
+- **Save as Definition…** in its parameters writes it as an `.icd` file; saved
+  in a library folder, it is listed under **Compounds** in every ICE graph's add
+  menu and the instance follows the file, locked. A locked compound's inside is
+  read-only (a change is put back) until **Make Editable**, in its parameters or
+  the bar over its inside. **Revert to Latest Definition** drops an instance's
+  own copy.
+- **Run as its nodes:** before a graph runs, every compound is replaced by its
+  nodes (compounds inside compounds too), so a compound costs nothing over the
+  nodes it holds. A compound whose definition cannot be found, or one inside
+  itself, stops the graph with a red ring on it, saying why. A node inside a
+  compound that breaks the graph rings the compound; go inside, and the ring is
+  on that node.
+
+**Settings are promoted too:** right-click a node's setting in its parameters
+(a seed, an Instancer's Primitive Location, an attribute's name, a count) and
+**Promote**. At the top of the ICE operator's graph it becomes a parameter of
+the operator, set in its parameters (and from there promoted or referenced in
+the scene graph); inside a compound, a parameter of the compound, set on each
+instance (a compound inside it can promote that row again, however deep). The
+setting follows its parameter, as a reference follows its source, drawn
+orange; **Remove Promotion** makes it its own again. A promoted seed replaces
+the node's seed: two nodes following one Seed draw the same numbers, so
+promote one seed for each when they should differ. Settings are promoted by
+the node's name: renaming the node keeps them, two nodes of one name cannot
+be promoted until one is renamed. Switches and lists are not promoted yet.
+
+**Parameter** (Data Access) is a value the ICE operator gives, by name: the
+operator's parameters list every Parameter node of its graph (and of its
+compounds), each at its default until set there. The operator keeps a value
+for each, so a scene compound holding it can promote it, and another operator
+reference it, as any number of an operator's parameters.
+
 ## Fast
 
 Moving, panning, zooming or selecting in an ICE graph cooks nothing, and neither

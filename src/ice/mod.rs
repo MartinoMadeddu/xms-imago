@@ -7,6 +7,7 @@
 //! over every element of its context (points by default). Set Data nodes
 //! wired into it write attributes; everything else is reached from them.
 
+pub mod compound;
 pub mod ui;
 
 use std::collections::{HashMap, HashSet};
@@ -33,6 +34,16 @@ thread_local! {
     /// a graph and then turns its instances into prims, takes them from here
     /// (`take_instances`).
     static INSTANCES: std::cell::RefCell<Vec<(xms_ice::Instances, crate::types::DrawMode)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The values the ICE operator sets on its graph's Parameter nodes, by
+    /// name (`set_params`), taken by `evaluate` as `SPACE` is.
+    static PARAMS: std::cell::RefCell<std::collections::BTreeMap<String, serde_json::Value>> = std::cell::RefCell::new(std::collections::BTreeMap::new());
+}
+
+/// The next graph run on this thread takes these values for its parameters
+/// (`NodeType::Ice::params`): its Parameter nodes', and its node settings
+/// promoted (`IceGraph::parameters`).
+pub fn set_params(params: std::collections::BTreeMap<String, serde_json::Value>) {
+    PARAMS.with(|p| *p.borrow_mut() = params);
 }
 
 /// The instances the last graph run on this thread made, taken: empty until
@@ -127,6 +138,10 @@ pub struct IceGraph {
     /// Why the graph did not compile the last time it ran, and at which node:
     /// shown on that node and above the canvas.
     pub error: Arc<Mutex<Option<(NodeId, String)>>>,
+    /// The way to that node when it is inside a compound: the compound, then
+    /// the node inside it, and so on (see `compound::Flat::trail`); empty
+    /// when the graph ran.
+    pub broke: Arc<Mutex<Vec<NodeId>>>,
     /// The type of each node's output on the geometry the graph last ran on
     /// (`refresh_types`), for the colours of its ports and wires.
     pub types: Arc<Mutex<HashMap<NodeId, xms_ice::Ty>>>,
@@ -137,6 +152,15 @@ pub struct IceGraph {
     /// next to nothing): the editor works out the types and Get Data's list
     /// from it when it draws, not every run.
     pub last_input: Arc<Mutex<Option<Geo>>>,
+    /// The type of each output of its ICE compounds, and whether it is an
+    /// array (`refresh_types`).
+    pub ports: Arc<Mutex<HashMap<(NodeId, usize), (Option<xms_ice::Ty>, bool)>>>,
+    /// While an ICE compound's inside is looked at (this graph): the graphs
+    /// its instance is in, outermost first (see `compound`).
+    pub outer: Vec<compound::Outer>,
+    /// Its nodes' settings promoted (a seed, a path): the ICE operator's
+    /// parameters, or, inside an ICE compound, the compound's.
+    pub parameters: Vec<crate::compounds::Parameter>,
 }
 
 /// No transform: the identity matrix, as a value.
@@ -182,9 +206,13 @@ impl IceGraph {
             pan_offset: egui::Vec2::ZERO,
             zoom: 1.0,
             error: Arc::default(),
+            broke: Arc::default(),
             types: Arc::default(),
             arrays: Arc::default(),
             last_input: Arc::default(),
+            ports: Arc::default(),
+            outer: vec![],
+            parameters: vec![],
         };
         g.add_node(
             ROOT_NAME.into(),
@@ -466,6 +494,18 @@ impl IceGraph {
                 ],
                 vec![output("Execute", "Execute")],
             ),
+            IceGraphNodeType::Compound { .. } => compound::sockets(t),
+            IceGraphNodeType::CompoundInput { .. } | IceGraphNodeType::Parameter { .. } => {
+                (vec![], vec![output("Value", "Any")])
+            }
+            // Execute or a value: whatever feeds it.
+            IceGraphNodeType::CompoundOutput { .. } => (
+                vec![IceGraphInputSocket {
+                    value: None,
+                    ..input("Value", 0.0)
+                }],
+                vec![],
+            ),
             IceGraphNodeType::Array { op } => {
                 let mut inputs = vec![IceGraphInputSocket {
                     value: None,
@@ -610,9 +650,10 @@ impl IceGraph {
         }
     }
 
-    /// The graph as the engine takes it, and the editor's node at each of its
-    /// positions (so an error can be shown on the right node).
-    fn to_engine(&self) -> (xms_ice::Graph, Vec<NodeId>) {
+    /// The graph, its compounds flattened (`compound::flatten`), as the engine
+    /// takes it, and the node at each of its positions (so an error can be
+    /// shown on the right node).
+    fn engine(&self) -> (xms_ice::Graph, Vec<NodeId>) {
         let ids: Vec<NodeId> = self.nodes.iter().map(|n| n.id).collect();
         let nodes = self
             .nodes
@@ -683,6 +724,15 @@ impl IceGraph {
                         path: path.clone(),
                         seed: *seed,
                     },
+                    IceGraphNodeType::Parameter { name, default } => Op::Parameter {
+                        name: name.clone(),
+                        default: *default,
+                    },
+                    // Gone once flattened.
+                    IceGraphNodeType::CompoundInput { value, .. } => Op::Constant(*value),
+                    IceGraphNodeType::Compound { .. } | IceGraphNodeType::CompoundOutput { .. } => {
+                        Op::Constant(Value::Float(0.0))
+                    }
                 };
                 let inputs = n
                     .inputs
@@ -729,8 +779,13 @@ impl IceGraph {
     /// takes and the wires between them. Not where nodes are drawn, their names
     /// or what is selected, nor a node wired to nothing yet: moving a node or
     /// putting a new one down does not run the graph again.
+    /// While an ICE compound's inside is looked at, the graph composed with it
+    /// (`composed`).
     pub fn content_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
+        if !self.outer.is_empty() {
+            return self.composed().content_hash();
+        }
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let live = self.reaching_root();
         for n in self.nodes.iter().filter(|n| live.contains(&n.id)) {
@@ -744,6 +799,7 @@ impl IceGraph {
         for c in self.connections.iter().filter(|c| live.contains(&c.to_node)) {
             (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut h);
         }
+        serde_json::to_string(&self.parameters).unwrap_or_default().hash(&mut h);
         h.finish()
     }
 
@@ -754,20 +810,37 @@ impl IceGraph {
         let Some(input) = self.last_input.lock().ok().and_then(|g| g.clone()) else {
             return;
         };
-        let (graph, ids) = self.to_engine();
+        let Ok(flat) = compound::flatten(self) else {
+            return;
+        };
+        let (graph, ids) = flat.graph.engine();
         let types: HashMap<NodeId, xms_ice::Ty> = xms_ice::output_types(&graph, &input)
             .into_iter()
             .enumerate()
             .filter_map(|(k, t)| Some((*ids.get(k)?, t?)))
             .collect();
-        if let Ok(mut kept) = self.types.lock() {
-            *kept = types;
-        }
-        let arrays = xms_ice::output_arrays(&graph)
+        let arrays: HashSet<NodeId> = xms_ice::output_arrays(&graph)
             .into_iter()
             .enumerate()
             .filter_map(|(k, a)| a.then(|| ids.get(k).copied()).flatten())
             .collect();
+        // Each compound's outputs: what gives them, inside.
+        let ports = flat
+            .ports
+            .iter()
+            .map(|(&port, &(node, out))| {
+                (
+                    port,
+                    (flat.graph.output_type_in(node, out, &types), arrays.contains(&node)),
+                )
+            })
+            .collect();
+        if let Ok(mut kept) = self.ports.lock() {
+            *kept = ports;
+        }
+        if let Ok(mut kept) = self.types.lock() {
+            *kept = types;
+        }
         if let Ok(mut kept) = self.arrays.lock() {
             *kept = arrays;
         }
@@ -778,6 +851,12 @@ impl IceGraph {
         let Some(n) = self.nodes.iter().find(|n| n.id == node) else {
             return false;
         };
+        if matches!(n.node_type, IceGraphNodeType::Compound { .. }) {
+            return self
+                .ports
+                .lock()
+                .is_ok_and(|p| p.get(&(node, output)).is_some_and(|t| t.1));
+        }
         n.outputs.get(output).is_some_and(|o| o.value_hint != "Execute")
             && self.arrays.lock().is_ok_and(|a| a.contains(&node))
     }
@@ -819,6 +898,16 @@ impl IceGraph {
     /// `refresh_types` found.
     pub fn output_type(&self, node: NodeId, output: usize) -> Option<xms_ice::Ty> {
         let n = self.nodes.iter().find(|n| n.id == node)?;
+        if matches!(n.node_type, IceGraphNodeType::Compound { .. }) {
+            return self.ports.lock().ok()?.get(&(node, output))?.0;
+        }
+        let types = self.types.lock().ok()?;
+        self.output_type_in(node, output, &types)
+    }
+
+    /// The type an output gives, a constant's own, else what `types` says.
+    fn output_type_in(&self, node: NodeId, output: usize, types: &HashMap<NodeId, xms_ice::Ty>) -> Option<xms_ice::Ty> {
+        let n = self.nodes.iter().find(|n| n.id == node)?;
         match n.outputs.get(output)?.value_hint {
             "Execute" => None,
             _ => match &n.node_type {
@@ -837,7 +926,8 @@ impl IceGraph {
                 }),
                 // Each part its own type, whatever comes in.
                 IceGraphNodeType::Decompose { op } => op.outputs().get(output).map(|o| o.1),
-                _ => self.types.lock().ok()?.get(&node).copied(),
+                IceGraphNodeType::Parameter { default, .. } => Some(default.ty()),
+                _ => types.get(&node).copied(),
             },
         }
     }
@@ -846,7 +936,35 @@ impl IceGraph {
     /// stays shared with `input`. A graph that does not compile gives `input`
     /// back, and says why on the node that broke it.
     pub fn evaluate(&self, input: &Geo, references: &[Reference]) -> Geo {
-        let (mut graph, ids) = self.to_engine();
+        // While an ICE compound's inside is looked at: the graph it is in,
+        // with it.
+        let composed = self.composed();
+        let params = PARAMS.with(|p| std::mem::take(&mut *p.borrow_mut()));
+        // Its node settings promoted, as the operator sets them.
+        let set = compound::with_values(&composed, &composed.parameters, &params);
+        let me: &IceGraph = &set;
+        // Its Parameter nodes' values.
+        let params: HashMap<String, Value> = params
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), serde_json::from_value(v.clone()).ok()?)))
+            .collect();
+        let space = SPACE.with(|s| s.replace(glam::Mat4::IDENTITY));
+        // Kept for the editor: its columns are shared, not copied.
+        if let Ok(mut last) = me.last_input.lock() {
+            *last = Some(input.clone());
+        }
+        let broke = |way: Vec<NodeId>, message: String| {
+            *me.error.lock().unwrap_or_else(|e| e.into_inner()) = way.first().map(|id| (*id, message));
+            *me.broke.lock().unwrap_or_else(|e| e.into_inner()) = way;
+        };
+        let flat = match compound::flatten(me) {
+            Ok(f) => f,
+            Err((way, message)) => {
+                broke(way, message);
+                return input.clone();
+            }
+        };
+        let (mut graph, ids) = flat.graph.engine();
         // Get Reference's rows, as Primitive Locations name prims: the paths
         // on its input each row names, row by row, each once.
         for node in &mut graph.nodes {
@@ -870,20 +988,15 @@ impl IceGraph {
                 *rows = named;
             }
         }
-        // Kept for the editor: its columns are shared, not copied.
-        if let Ok(mut last) = self.last_input.lock() {
-            *last = Some(input.clone());
-        }
-        // Where the primitive is, once: the next graph starts in place.
-        let space = SPACE.with(|s| s.replace(glam::Mat4::IDENTITY));
         let result = xms_ice::compile_with(&graph, input, references).map(|plan| {
-            let ran = xms_ice::run_in(&plan, input, space, &HashMap::new(), references);
+            let ran = xms_ice::run_in(&plan, input, space, &params, references);
             // Each with its Instancer's draw mode, found by its path.
             let made = ran
                 .instances
                 .into_iter()
                 .map(|i| {
-                    let mode = self
+                    let mode = flat
+                        .graph
                         .nodes
                         .iter()
                         .find_map(|n| match &n.node_type {
@@ -899,14 +1012,13 @@ impl IceGraph {
             INSTANCES.with(|i| *i.borrow_mut() = made);
             ran.geo
         });
-        let mut error = self.error.lock().unwrap_or_else(|e| e.into_inner());
         match result {
             Ok(out) => {
-                *error = None;
+                broke(vec![], String::new());
                 out
             }
             Err(e) => {
-                *error = ids.get(e.node).map(|id| (*id, e.message));
+                broke(ids.get(e.node).map(|id| flat.trail(*id)).unwrap_or_default(), e.message);
                 input.clone()
             }
         }
@@ -1358,6 +1470,7 @@ mod tests {
                 id: sid,
                 name: "Wrap".into(),
                 references: 1,
+                params: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -1447,6 +1560,7 @@ mod tests {
                 id: sid,
                 name: "Scatter".into(),
                 references: 1,
+                params: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
