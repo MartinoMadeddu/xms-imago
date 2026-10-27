@@ -943,7 +943,9 @@ mod tests {
         assert_eq!(probed(), None);
         let row = egui::Id::new("row");
         found(row, Some("scale/2".into()));
-        assert!(follows(row));
+        assert!(!follows(row), "not probing: no row is drawn orange");
+        probing(true, 1, vec!["scale/2".into()]);
+        assert!(follows(row), "the row found is kept for the same operator");
         probing(true, 1, vec![]);
         assert!(!follows(row), "it follows no more");
         probing(true, 2, vec!["scale/2".into()]);
