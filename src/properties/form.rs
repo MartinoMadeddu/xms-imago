@@ -402,12 +402,30 @@ pub fn typed(
     v: &mut String,
     add: impl FnOnce(&mut egui::Ui, &mut String) -> egui::Response,
 ) -> egui::Response {
-    let key = ui.next_auto_id().with("typed");
+    let row = ui.next_auto_id();
+    let key = row.with("typed");
     let draft: Option<String> = ui.data(|d| d.get_temp(key));
     let mut text = draft.clone().unwrap_or_else(|| v.clone());
     let start = text.clone();
     let mut r = add(ui, &mut text);
     r.flags.remove(egui::response::Flags::CHANGED);
+    // Text that follows another: an orange edge.
+    if follows(row) {
+        ui.painter().rect_stroke(
+            r.rect.expand(1.0),
+            3.0,
+            egui::Stroke::new(2.0, follows_orange()),
+            egui::StrokeKind::Outside,
+        );
+    }
+    // Probed (see `probing`): the probe text in its place.
+    if probe_row(ui, &r, 0.0, row) {
+        ui.memory_mut(|m| m.surrender_focus(r.id));
+        ui.data_mut(|d| d.remove::<String>(key));
+        *v = PROBE_TEXT.to_string();
+        r.mark_changed();
+        return r;
+    }
     if r.has_focus() {
         ui.data_mut(|d| d.insert_temp(key, text));
         return r;
@@ -751,6 +769,9 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
 /// `probing`): no operator's number is likely to be it.
 pub const PROBE: f64 = 7_777_777.0;
 
+/// What a text row's text stands for while probed, as `PROBE` for a number's.
+pub const PROBE_TEXT: &str = "\u{2063}probe\u{2063}";
+
 /// Finding which of an operator's numbers a row shows.
 #[derive(Default)]
 struct Probing {
@@ -935,6 +956,16 @@ pub fn slider<T: egui::emath::Numeric + Probed>(
 /// in its place, marked changed so a caller that copies the number writes it
 /// back. Until every row is known, another frame is asked for.
 fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::Id) {
+    let was = v.get();
+    if probe_row(ui, r, was, row) {
+        v.put(PROBE);
+        r.mark_changed();
+    }
+}
+
+/// Whether row `row` (its response `r`, its number `was`) is probed this
+/// frame (see `probe`): right-clicked, or found while nothing is done.
+fn probe_row(ui: &egui::Ui, r: &egui::Response, was: f64, row: egui::Id) -> bool {
     let clicked = r.secondary_clicked();
     let still = || {
         let quiet = ui.input(|i| {
@@ -949,22 +980,21 @@ fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::
     PROBING.with(|p| {
         let mut p = p.borrow_mut();
         if !p.on || p.clicked.is_some() {
-            return;
+            return false;
         }
         if clicked {
-            p.clicked = Some((v.get(), r.interact_pointer_pos().unwrap_or(r.rect.left_bottom())));
+            p.clicked = Some((was, r.interact_pointer_pos().unwrap_or(r.rect.left_bottom())));
         } else if !p.linked.is_empty() && !p.rows.contains_key(&row) {
             ui.ctx().request_repaint();
             if p.finding.is_some() || !still() {
-                return;
+                return false;
             }
             p.finding = Some(row);
         } else {
-            return;
+            return false;
         }
-        v.put(PROBE);
-        r.mark_changed();
-    });
+        true
+    })
 }
 
 #[cfg(test)]

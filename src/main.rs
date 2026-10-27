@@ -1014,6 +1014,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         scene_paths,
                         add: vec![],
                         ice_params: vec![],
+                        ice_settings: vec![],
                     };
                     // A keyed node shows its parameters at the playhead; a
                     // keyed number changed here is keyed there.
@@ -1049,7 +1050,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                     let before = selected
                         .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
                         .and_then(|n| serde_json::to_value(&n.node_type).ok());
-                    crate::properties::form::probing(own_parameters && editing.is_some(), whose, linked);
+                    // An ICE graph's nodes are probed by the ICE panel, rows of its own.
+                    if own_parameters {
+                        crate::properties::form::probing(editing.is_some(), whose, linked);
+                    } else {
+                        crate::properties::form::probed();
+                    }
                     // Each operator's fields are its own: a value being typed
                     // when another operator is selected is not put in its field.
                     ui.push_id(("parameters_of", self.graph.selected_node.map(|n| n.0)), |ui| {

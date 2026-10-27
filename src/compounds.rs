@@ -140,6 +140,24 @@ pub enum ParameterType {
     Ramp,
 }
 
+impl ParameterType {
+    /// The kind of a parameter's value, as JSON holds it: text, a switch, a
+    /// whole number, numbers side by side, else a number.
+    pub fn of(v: &serde_json::Value) -> ParameterType {
+        match v {
+            serde_json::Value::String(_) => ParameterType::String,
+            serde_json::Value::Bool(_) => ParameterType::Boolean,
+            serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => ParameterType::Integer,
+            serde_json::Value::Array(a) => match a.len() {
+                2 => ParameterType::Vector2,
+                4 => ParameterType::Vector4,
+                _ => ParameterType::Vector3,
+            },
+            _ => ParameterType::Float,
+        }
+    }
+}
+
 /// An inner parameter a promoted one drives: the inner node by its name in the
 /// definition, and the parameter's serde path in it, as keys name theirs
 /// (`translation/0`).

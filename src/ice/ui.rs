@@ -468,11 +468,29 @@ pub fn draw_subnet_node_properties(
             _ => None,
         })
         .unwrap_or(Context::Point);
-    input_menu(ui.ctx(), graph);
+    row_menu(ui.ctx(), graph);
     let mut resync = false;
     // A compound's: go inside, or its ports again from the library.
     let (mut enter, mut back) = (false, false);
     let graph_id = graph.id;
+    // Its settings promoted: drawn following their parameter.
+    let promoted: Vec<String> = graph
+        .selected_node
+        .and_then(|s| graph.nodes.iter().find(|n| n.id == s))
+        .map(|n| {
+            graph
+                .parameters
+                .iter()
+                .flat_map(|p| p.targets.iter().filter(|t| t.node == n.name).map(|t| t.path.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let whose = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (graph_id.0, graph.selected_node.map(|n| n.0), &promoted).hash(&mut h);
+        h.finish()
+    };
     let Some(node) = graph
         .selected_node
         .and_then(|s| graph.nodes.iter_mut().find(|n| n.id == s))
@@ -480,6 +498,7 @@ pub fn draw_subnet_node_properties(
         ui.label("Select a node to see its parameters.");
         return;
     };
+    let named = node.name.clone();
     let title = format!(
         "{}  {}",
         crate::types::subnet_node_icon(&node.node_type),
@@ -496,8 +515,24 @@ pub fn draw_subnet_node_properties(
     if node.name.chars().any(char::is_whitespace) {
         node.name = crate::node_graph::node_name(&node.name);
     }
+    // Its settings promoted follow it by name.
+    if node.name != named {
+        for t in graph.parameters.iter_mut().flat_map(|p| p.targets.iter_mut()) {
+            if t.node == named {
+                t.node = node.name.clone();
+            }
+        }
+    }
     // Get Data and Get Array Data with samples wired read there.
     let at_samples = sampled(node);
+    // A compound's promoted parameters.
+    let compound_params = super::compound::definition(&node.node_type)
+        .map(|d| d.parameters.clone())
+        .unwrap_or_default();
+    // Its settings' rows, right-clicked, have their menu (see
+    // `properties::form::probing`); the node is put back after.
+    let before = node.clone();
+    crate::properties::form::probing(true, whose, promoted);
     match &mut node.node_type {
         IceGraphNodeType::Root { context } => group(ui, "Runs over", None, |f| {
             f.choice(
@@ -663,6 +698,7 @@ pub fn draw_subnet_node_properties(
             definition,
             version,
             editable,
+            values,
             ..
         } => {
             // `$OPNAME` in its definition's name: this compound's.
@@ -676,6 +712,7 @@ pub fn draw_subnet_node_properties(
                 browser,
                 crate::file_browser::BrowseTarget::SaveIceDefinition(graph_id, node.id),
             );
+            crate::properties::ui::promoted_groups(ui, &compound_params, values);
         }
         IceGraphNodeType::CompoundInput { name, value } => group(
             ui,
@@ -707,6 +744,26 @@ pub fn draw_subnet_node_properties(
         | IceGraphNodeType::Array { .. }
         | IceGraphNodeType::Concat
         | IceGraphNodeType::ClosestPoint => {}
+    }
+    if let Some(probe) = crate::properties::form::probed() {
+        let now = serde_json::to_value(&node.node_type).unwrap_or_default();
+        let was = serde_json::to_value(&before.node_type).ok();
+        // Not its definition's own rows (an editable compound's name).
+        let path = crate::keys_ui::probed_path(&now, was.as_ref()).filter(|p| !p.starts_with("editable/"));
+        *node = before;
+        match probe {
+            crate::properties::form::Probe::Clicked(_, at) => {
+                if let Some(path) = path {
+                    let m = RowMenu {
+                        node: node.id,
+                        what: Row::Setting(path),
+                        at,
+                    };
+                    ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
+                }
+            }
+            crate::properties::form::Probe::Finding(row) => crate::properties::form::found(row, path),
+        }
     }
     if enter || back {
         let id = node.id;
@@ -749,66 +806,105 @@ pub fn draw_subnet_node_properties(
                         .flatten()
                 });
                 if let Some(at) = at.filter(|p| rows.contains(*p)) {
-                    let m = InputMenu {
+                    let m = RowMenu {
                         node: node.id,
-                        input: k,
+                        what: Row::Input(k),
                         at,
                     };
-                    f.ui.data_mut(|d| d.insert_temp(input_menu_id(), m));
+                    f.ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
                 }
             }
         });
     }
 }
 
-/// An input's menu, opened by a right-click on its rows in the parameters: the
-/// node, the input, where the pointer was.
+/// A row's menu, opened by a right-click on it in the parameters: the node,
+/// the input or the setting (by its path), where the pointer was.
 #[derive(Clone)]
-struct InputMenu {
+struct RowMenu {
     node: NodeId,
-    input: usize,
+    what: Row,
     at: egui::Pos2,
 }
 
-fn input_menu_id() -> egui::Id {
-    egui::Id::new("ice_input_menu")
+#[derive(Clone)]
+enum Row {
+    Input(usize),
+    Setting(String),
 }
 
-/// The menu of an input right-clicked in the parameters, while it is open.
-/// What it did is told by the graph (`told_id`).
-fn input_menu(ctx: &egui::Context, graph: &mut IceGraph) {
-    let Some(m) = ctx.data(|d| d.get_temp::<InputMenu>(input_menu_id())) else {
+fn row_menu_id() -> egui::Id {
+    egui::Id::new("ice_row_menu")
+}
+
+/// The menu of a row right-clicked in the parameters, while it is open: an
+/// input's Promote Input, a setting's Promote or Remove Promotion. What it did
+/// is told by the graph (`told_id`).
+fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
+    let Some(m) = ctx.data(|d| d.get_temp::<RowMenu>(row_menu_id())) else {
         return;
     };
-    let close = |ctx: &egui::Context| ctx.data_mut(|d| d.remove::<InputMenu>(input_menu_id()));
-    let Some(name) = graph
-        .nodes
-        .iter()
-        .find(|n| n.id == m.node)
-        .and_then(|n| n.inputs.get(m.input))
-        .map(|i| i.name.clone())
-    else {
+    let close = |ctx: &egui::Context| ctx.data_mut(|d| d.remove::<RowMenu>(row_menu_id()));
+    let Some(node) = graph.nodes.iter().find(|n| n.id == m.node) else {
         close(ctx);
         return;
     };
+    let title = match &m.what {
+        Row::Input(k) => node.inputs.get(*k).map(|i| i.name.clone()),
+        Row::Setting(path) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
+    };
+    let Some(title) = title else {
+        close(ctx);
+        return;
+    };
+    let promoted = match &m.what {
+        Row::Setting(path) => graph
+            .parameters
+            .iter()
+            .any(|p| p.targets.iter().any(|t| t.node == node.name && t.path == *path)),
+        Row::Input(_) => false,
+    };
+    let node_name = node.name.clone();
     let editable = !locked(ctx, graph);
-    let mut chosen = false;
-    let area = egui::Area::new(input_menu_id())
+    let in_compound = !graph.outer.is_empty();
+    let (mut promote, mut remove) = (false, false);
+    let area = egui::Area::new(row_menu_id())
         .order(egui::Order::Foreground)
         .fixed_pos(m.at)
         .show(ctx, |ui| {
             egui::Frame::menu(ui.style()).show(ui, |ui| {
-                ui.label(egui::RichText::new(name).small().weak());
-                chosen = promote_button(ui, "Promote Input", editable, !graph.outer.is_empty());
+                ui.label(egui::RichText::new(title).small().weak());
+                match &m.what {
+                    Row::Input(_) => promote = promote_button(ui, "Promote Input", editable, in_compound),
+                    Row::Setting(_) if promoted => {
+                        remove = ui
+                            .add_enabled(editable, egui::Button::new("Remove Promotion"))
+                            .on_hover_text("Its own value again, no longer the parameter's")
+                            .clicked();
+                    }
+                    Row::Setting(_) => promote = promote_button(ui, "Promote", editable, in_compound),
+                }
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
-    if chosen {
-        if let Some(told) = super::compound::promote_input(graph, m.node, m.input) {
-            ctx.data_mut(|d| d.insert_temp(told_id(), told));
+    let told = match (&m.what, promote, remove) {
+        (Row::Input(k), true, _) => super::compound::promote_input(graph, m.node, *k),
+        (Row::Setting(path), true, _) => {
+            Some(super::compound::promote_setting(graph, m.node, path).unwrap_or_else(|e| e))
         }
+        (Row::Setting(path), _, true) => {
+            super::compound::remove_promotion(graph, &node_name, path);
+            Some(format!(
+                "{node_name} {} is its own again",
+                crate::core::keys::label(path)
+            ))
+        }
+        _ => None,
+    };
+    if let Some(told) = told {
+        ctx.data_mut(|d| d.insert_temp(told_id(), told));
     }
-    if chosen || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if promote || remove || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close(ctx);
     }
 }
@@ -1454,6 +1550,7 @@ fn entries() -> Vec<Entry> {
                 hash: d.hash(),
                 inputs: names(&d.inputs),
                 outputs: names(&d.outputs),
+                values: Default::default(),
                 editable: None,
             }),
         });

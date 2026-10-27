@@ -100,6 +100,7 @@ fn tree_of(sg: &crate::ice::IceGraph, node: usize) -> SavedTree {
             .iter()
             .map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input])
             .collect(),
+        parameters: sg.parameters.clone(),
     }
 }
 
@@ -425,6 +426,10 @@ struct SavedTree {
     name: String,
     nodes: Vec<SavedTreeNode>,
     connections: Vec<[usize; 4]>,
+    /// Its nodes' settings promoted (`IceGraph::parameters`). Left out when
+    /// there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    parameters: Vec<crate::compounds::Parameter>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -593,6 +598,7 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
 /// Execution Ports (from before the new engine) gets an empty one.
 fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph {
     let mut sg = crate::ice::IceGraph::new(sid, t.name.clone());
+    sg.parameters = t.parameters.clone();
     sg.nodes.clear();
     sg.connections.clear();
     sg.next_node_id = 0;
@@ -1953,6 +1959,7 @@ mod tests {
                 name: "Spherify".into(),
                 nodes: vec![node(0, old, &root), node(1, "ICEExectPorts", &get)],
                 connections: vec![],
+                parameters: vec![],
             };
             let mut subnets = IceGraphStore::default();
             let sid = restore_tree(&t, "Spherify", &mut subnets);

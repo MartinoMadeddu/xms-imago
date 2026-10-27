@@ -20,12 +20,18 @@
 //!   edits. A locked inside is put back when changed (`keep_locked`).
 //! - **Make Compound** packs the selected nodes into an editable instance, the
 //!   wires crossing the selection its ports.
+//! - **Settings promoted** (a seed, a path: `promote_setting`) are a graph's
+//!   `parameters`: at the top of an ICE operator's graph the operator's, set
+//!   in its parameters; inside a compound the compound's, set on each
+//!   instance. Their values are put in the settings before the graph runs
+//!   (`set_values`), a promoted setting following its parameter as a
+//!   reference follows its source.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::{IceGraph, IceGraphConnection, IceGraphInputSocket, IceGraphNode, IceGraphOutputSocket};
-use crate::compounds::{self, Context, Definition, Port};
+use crate::compounds::{self, Context, Definition, Parameter, ParameterType, Port, Target};
 use crate::types::{ConnectionId, IceGraphId, IceGraphNodeType, NodeId};
 use xms_ice::Value;
 
@@ -134,6 +140,41 @@ pub fn ports_of(inside: &IceGraph) -> (Vec<Port>, Vec<Port>) {
     (ins, outs)
 }
 
+/// Set each of `parameters` at its targets (a node by name, the setting's
+/// path) in `g`: its value in `values` (by name), else its default.
+pub fn set_values(g: &mut IceGraph, parameters: &[Parameter], values: &BTreeMap<String, serde_json::Value>) {
+    for p in parameters {
+        let v = values.get(&p.name).unwrap_or(&p.default);
+        for t in &p.targets {
+            let Some(n) = g.nodes.iter_mut().find(|n| n.name == t.node) else {
+                continue;
+            };
+            let Ok(mut j) = serde_json::to_value(&n.node_type) else {
+                continue;
+            };
+            if compounds::put(&mut j, &t.path, v.clone()) {
+                if let Ok(set) = serde_json::from_value(j) {
+                    n.node_type = set;
+                }
+            }
+        }
+    }
+}
+
+/// `g` with `parameters` set (`set_values`); `g` itself when there are none.
+pub fn with_values<'a>(
+    g: &'a IceGraph,
+    parameters: &[Parameter],
+    values: &BTreeMap<String, serde_json::Value>,
+) -> Cow<'a, IceGraph> {
+    if parameters.is_empty() {
+        return Cow::Borrowed(g);
+    }
+    let mut out = g.clone();
+    set_values(&mut out, parameters, values);
+    Cow::Owned(out)
+}
+
 /// The Parameter nodes of a graph, its compounds' included: each name once,
 /// with its default.
 pub fn parameters_of(g: &IceGraph) -> Vec<(String, Value)> {
@@ -153,7 +194,8 @@ pub fn parameters_of(g: &IceGraph) -> Vec<(String, Value)> {
 /// Each ICE operator of `graph` keeps a value for every Parameter node of its
 /// graph (in `subnets`), its default until set, so each can be referenced and
 /// promoted: values for nodes gone are dropped, those of another type set
-/// back to the default. Done when the graphs change.
+/// back to the default; and the values set of its settings promoted, those of
+/// settings no longer promoted dropped. Done when the graphs change.
 pub fn keep_params(graph: &mut crate::node_graph::NodeGraphState, subnets: &crate::ice::IceGraphStore) {
     use std::hash::{Hash, Hasher};
     thread_local! {
@@ -176,17 +218,25 @@ pub fn keep_params(graph: &mut crate::node_graph::NodeGraphState, subnets: &crat
             continue;
         };
         let Some(sg) = subnets.get(*id) else { continue };
-        let kept: std::collections::BTreeMap<String, Value> = parameters_of(&sg.composed())
-            .into_iter()
-            .map(|(name, default)| {
-                let v = params
-                    .get(&name)
-                    .copied()
-                    .filter(|v| v.ty() == default.ty())
-                    .unwrap_or(default);
-                (name, v)
-            })
-            .collect();
+        let g = sg.composed();
+        let mut kept: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        for (name, default) in parameters_of(&g) {
+            let same = |v: &&serde_json::Value| {
+                serde_json::from_value::<Value>((*v).clone()).is_ok_and(|x| x.ty() == default.ty())
+            };
+            let v = params
+                .get(&name)
+                .filter(same)
+                .cloned()
+                .unwrap_or_else(|| serde_json::to_value(default).unwrap_or_default());
+            kept.insert(name, v);
+        }
+        // Its settings promoted: those set.
+        for p in &g.parameters {
+            if let Some(v) = params.get(&p.name) {
+                kept.insert(p.name.clone(), v.clone());
+            }
+        }
         if kept != *params {
             *params = kept;
         }
@@ -284,6 +334,9 @@ fn expand(
         }
         let mut inner =
             crate::graph_io::ice_from_value(&d.graph).map_err(|e| (vec![id], format!("{}: {e}", d.name)))?;
+        if let IceGraphNodeType::Compound { values, .. } = &node.node_type {
+            set_values(&mut inner, &d.parameters, values);
+        }
         within.push(d.name.to_string());
         let mut inner_trails = HashMap::new();
         let nested = expand(&mut inner, &mut inner_trails, &mut HashMap::new(), within);
@@ -466,18 +519,45 @@ pub fn refresh_ports(g: &mut IceGraph, id: NodeId) {
 }
 
 /// Put `inside` in instance `id` of `g` as its own definition's graph, its
-/// ports made from it.
+/// ports and promoted parameters made from it. The instance keeps the
+/// promoted settings' values (read at their first targets), the definition
+/// their defaults.
 fn put_inside(g: &mut IceGraph, id: NodeId, inside: &IceGraph) {
     let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) else {
         return;
     };
-    let IceGraphNodeType::Compound { editable: Some(d), .. } = &mut n.node_type else {
+    let IceGraphNodeType::Compound {
+        editable: Some(d),
+        values,
+        ..
+    } = &mut n.node_type
+    else {
         return;
     };
     let (ins, outs) = ports_of(inside);
     d.inputs = ins;
     d.outputs = outs;
-    d.graph = crate::graph_io::ice_to_value(inside);
+    for p in &inside.parameters {
+        let now = p.targets.first().and_then(|t| {
+            let n = inside.nodes.iter().find(|n| n.name == t.node)?;
+            compounds::get(&serde_json::to_value(&n.node_type).ok()?, &t.path).cloned()
+        });
+        match now {
+            Some(v) if v != p.default => {
+                values.insert(p.name.clone(), v);
+            }
+            Some(_) => {
+                values.remove(&p.name);
+            }
+            None => {}
+        }
+    }
+    values.retain(|k, _| inside.parameters.iter().any(|p| p.name == *k));
+    d.parameters = inside.parameters.clone();
+    let mut kept = inside.clone();
+    kept.outer.clear();
+    set_values(&mut kept, &inside.parameters, &BTreeMap::new());
+    d.graph = crate::graph_io::ice_to_value(&kept);
     refresh_ports(g, id);
 }
 
@@ -526,6 +606,11 @@ pub fn enter(g: &mut IceGraph, id: NodeId) -> Result<String, String> {
     let d = definition(&node.node_type)?;
     let locked = !matches!(node.node_type, IceGraphNodeType::Compound { editable: Some(_), .. });
     let mut inside = crate::graph_io::ice_from_value(&d.graph)?;
+    // Its promoted settings, at the instance's values.
+    inside.parameters = d.parameters.clone();
+    if let IceGraphNodeType::Compound { values, .. } = &node.node_type {
+        set_values(&mut inside, &d.parameters, values);
+    }
     inside.id = g.id;
     inside.name = g.name.clone();
     // Get Data's list: the geometry the graph runs on.
@@ -661,6 +746,66 @@ pub fn promote_input(g: &mut IceGraph, id: NodeId, k: usize) -> Option<String> {
     Some(told)
 }
 
+/// Setting `path` of node `id` (a seed, a path, a count) promoted: a parameter
+/// of `g` (`IceGraph::parameters`), its default the setting's value now. At
+/// the top of an ICE operator's graph a parameter of the operator; inside a
+/// compound, of the compound. The setting then follows it. Returns what to
+/// tell, or why not.
+pub fn promote_setting(g: &mut IceGraph, id: NodeId, path: &str) -> Result<String, String> {
+    let n = g.nodes.iter().find(|n| n.id == id).ok_or("That node is gone")?;
+    if g.nodes.iter().filter(|m| m.name == n.name).count() > 1 {
+        return Err(format!(
+            "Two nodes are called {}: rename one to promote its settings",
+            n.name
+        ));
+    }
+    let target = Target {
+        node: n.name.clone(),
+        path: path.to_string(),
+    };
+    if g.parameters.iter().any(|p| p.targets.contains(&target)) {
+        return Err("Promoted already".into());
+    }
+    let default = serde_json::to_value(&n.node_type)
+        .ok()
+        .and_then(|v| compounds::get(&v, path).cloned())
+        .ok_or("Not a setting of the node")?;
+    let label = format!("{} {}", n.name, crate::core::keys::label(path));
+    // A name no parameter of its graph has, a Parameter node's included.
+    let mut taken: Vec<String> = g.parameters.iter().map(|p| p.name.clone()).collect();
+    taken.extend(parameters_of(g).into_iter().map(|(name, _)| name));
+    let base: String = label
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    let name = unique(&base, &taken);
+    g.parameters.push(Parameter {
+        name,
+        label: label.clone(),
+        kind: ParameterType::of(&default),
+        default,
+        range: None,
+        group: String::new(),
+        help: String::new(),
+        targets: vec![target],
+    });
+    Ok(if g.outer.is_empty() {
+        format!("{label} is a parameter of the ICE operator: set it in its parameters")
+    } else {
+        format!("{label} is a parameter of the compound, once you go back out")
+    })
+}
+
+/// Setting `path` of node `node` its own again: off the graph's parameters, a
+/// parameter left with none going.
+pub fn remove_promotion(g: &mut IceGraph, node: &str, path: &str) {
+    for p in &mut g.parameters {
+        p.targets.retain(|t| !(t.node == node && t.path == path));
+    }
+    g.parameters.retain(|p| !p.targets.is_empty());
+}
+
 /// Pack nodes `ids` of `g` into an ICE compound named `name`: an editable
 /// instance in their place, its graph the nodes with their wires, a Compound
 /// Input for each output wired into them from outside (holding the value of
@@ -783,6 +928,7 @@ pub fn make_compound(g: &mut IceGraph, ids: &[NodeId], name: &str) -> Result<Nod
             hash: 0,
             inputs: in_names.clone(),
             outputs: out_names.clone(),
+            values: Default::default(),
             editable: Some(Box::new(d)),
         },
         egui::pos2(left, top),
@@ -991,15 +1137,78 @@ mod tests {
             vec![("Add B".to_string(), Value::Vec3([0.0, 1.0, 0.0]))]
         );
         crate::ice::set_params(
-            [("Add B".to_string(), Value::Vec3([0.0, 6.0, 0.0]))]
-                .into_iter()
-                .collect(),
+            [(
+                "Add B".to_string(),
+                serde_json::to_value(Value::Vec3([0.0, 6.0, 0.0])).unwrap(),
+            )]
+            .into_iter()
+            .collect(),
         );
         let base = ys(&triangle());
         assert_eq!(
             ys(&g.evaluate(&triangle(), &[])),
             base.iter().map(|y| y + 6.0).collect::<Vec<_>>()
         );
+    }
+
+    /// A setting promoted at the top of a graph is a parameter of the ICE
+    /// operator: its value is the setting's; the setting follows it.
+    #[test]
+    fn a_setting_promoted_follows_its_parameter() {
+        let mut g = IceGraph::new(IceGraphId(0), "g".into());
+        let r = g.add_node(
+            "Random".into(),
+            IceGraphNodeType::Random { seed: 3 },
+            egui::pos2(0.0, 0.0),
+        );
+        let told = promote_setting(&mut g, r, "seed").unwrap();
+        assert!(told.contains("ICE operator"), "{told}");
+        let p = &g.parameters[0];
+        assert_eq!(
+            (p.label.as_str(), p.kind, p.default.clone()),
+            ("Random Seed", ParameterType::Integer, serde_json::json!(3))
+        );
+        assert!(promote_setting(&mut g, r, "seed").is_err(), "once");
+        let values: BTreeMap<String, serde_json::Value> = [(p.name.clone(), serde_json::json!(7))].into();
+        let set = with_values(&g, &g.parameters, &values);
+        assert!(set
+            .nodes
+            .iter()
+            .any(|n| matches!(n.node_type, IceGraphNodeType::Random { seed: 7 })));
+        remove_promotion(&mut g, "Random", "seed");
+        assert!(g.parameters.is_empty());
+    }
+
+    /// Inside a compound, a setting promoted is a parameter of the compound:
+    /// each instance's value is what runs, the definition keeping the default.
+    #[test]
+    fn a_setting_promoted_inside_is_the_compounds() {
+        let (mut g, add, set) = lifting();
+        let r = g.add_node(
+            "Random".into(),
+            IceGraphNodeType::Random { seed: 3 },
+            egui::pos2(0.0, 300.0),
+        );
+        let id = make_compound(&mut g, &[add, set, r], "Lift").unwrap();
+        enter(&mut g, id).unwrap();
+        promote_setting(&mut g, r, "seed").unwrap();
+        leave(&mut g).unwrap();
+        let d = definition(&g.nodes.iter().find(|n| n.id == id).unwrap().node_type)
+            .unwrap()
+            .into_owned();
+        assert_eq!(d.parameters.len(), 1);
+        let name = d.parameters[0].name.clone();
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) {
+            if let IceGraphNodeType::Compound { values, .. } = &mut n.node_type {
+                values.insert(name, serde_json::json!(9));
+            }
+        }
+        let flat = flatten(&g).unwrap();
+        assert!(flat
+            .graph
+            .nodes
+            .iter()
+            .any(|n| matches!(n.node_type, IceGraphNodeType::Random { seed: 9 })));
     }
 
     /// An error inside a compound is kept with the way to the node that
@@ -1058,9 +1267,12 @@ mod tests {
             base.iter().map(|y| y + 2.0).collect::<Vec<_>>()
         );
         crate::ice::set_params(
-            [("lift".to_string(), Value::Vec3([0.0, 5.0, 0.0]))]
-                .into_iter()
-                .collect(),
+            [(
+                "lift".to_string(),
+                serde_json::to_value(Value::Vec3([0.0, 5.0, 0.0])).unwrap(),
+            )]
+            .into_iter()
+            .collect(),
         );
         assert_eq!(
             ys(&g.evaluate(&triangle(), &[])),

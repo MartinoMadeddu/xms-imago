@@ -243,17 +243,18 @@ pub enum NodeType {
     /// An ICE graph run on the geometry coming in. `references`: how many
     /// reference inputs follow the geometry (one kept free), whose primitives
     /// the graph reads by number (Get Reference).
-    /// `params`: the value it gives each Parameter node of its graph, by name
-    /// (kept for every one, its default until set:
-    /// `ice::compound::keep_params`); what a scene compound's promoted
-    /// parameter can drive.
+    /// `params`: its parameters' values, by name, as JSON: the value it gives
+    /// each Parameter node of its graph (kept for every one, its default
+    /// until set: `ice::compound::keep_params`), and those of its graph's
+    /// node settings promoted to it (`IceGraph::parameters`; a default is not
+    /// kept). What a scene compound's promoted parameter can drive.
     Ice {
         id: IceGraphId,
         name: String,
         #[serde(default = "one_reference")]
         references: u32,
         #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-        params: std::collections::BTreeMap<String, xms_ice::Value>,
+        params: std::collections::BTreeMap<String, serde_json::Value>,
     },
     // The Output node is gone: the view flag says what the scene is. Graphs
     // saved with one have it taken out when read (`graph_io`).
@@ -1033,6 +1034,9 @@ pub enum IceGraphNodeType {
         inputs: Vec<String>,
         #[serde(default)]
         outputs: Vec<String>,
+        /// Its promoted parameters' values (node settings inside), by name.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        values: std::collections::BTreeMap<String, serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         editable: Option<Box<crate::compounds::Definition>>,
     },

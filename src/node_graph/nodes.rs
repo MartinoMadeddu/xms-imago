@@ -238,7 +238,7 @@ pub fn evaluate_node_type(
 
         NodeType::Ice { id, params, .. } => {
             // What it sets on its graph's Parameter nodes, for each run.
-            let params = || params.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            let params = || params.clone();
             // The first input is the scene; the others, numbered from 1, are
             // references: every prim of the scene wired there (groups too),
             // for Get Reference.

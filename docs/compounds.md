@@ -81,6 +81,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   parameter row, and the outer one drives it, however deep (a value an inner
   instance has not saved yet is made). Promotion works in every editable
   compound, saved or not, and in ICE graphs (see [ICE](ice.md#compounds)).
+  Text promotes as numbers do (a path, a name), its row's right-click menu
+  the same; switches and lists do not yet.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
   booleans, text and vectors. A value set back to the default is the default
   again. Each instance keeps its own.

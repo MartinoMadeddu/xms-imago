@@ -324,6 +324,19 @@ compound's does.
   compound that breaks the graph rings the compound; go inside, and the ring is
   on that node.
 
+**Settings are promoted too:** right-click a node's setting in its parameters
+(a seed, an Instancer's Primitive Location, an attribute's name, a count) and
+**Promote**. At the top of the ICE operator's graph it becomes a parameter of
+the operator, set in its parameters (and from there promoted or referenced in
+the scene graph); inside a compound, a parameter of the compound, set on each
+instance (a compound inside it can promote that row again, however deep). The
+setting follows its parameter, as a reference follows its source, drawn
+orange; **Remove Promotion** makes it its own again. A promoted seed replaces
+the node's seed: two nodes following one Seed draw the same numbers, so
+promote one seed for each when they should differ. Settings are promoted by
+the node's name: renaming the node keeps them, two nodes of one name cannot
+be promoted until one is renamed. Switches and lists are not promoted yet.
+
 **Parameter** (Data Access) is a value the ICE operator gives, by name: the
 operator's parameters list every Parameter node of its graph (and of its
 compounds), each at its default until set there. The operator keeps a value

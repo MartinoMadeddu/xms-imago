@@ -36,12 +36,13 @@ thread_local! {
     static INSTANCES: std::cell::RefCell<Vec<(xms_ice::Instances, crate::types::DrawMode)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// The values the ICE operator sets on its graph's Parameter nodes, by
     /// name (`set_params`), taken by `evaluate` as `SPACE` is.
-    static PARAMS: std::cell::RefCell<HashMap<String, Value>> = std::cell::RefCell::new(HashMap::new());
+    static PARAMS: std::cell::RefCell<std::collections::BTreeMap<String, serde_json::Value>> = std::cell::RefCell::new(std::collections::BTreeMap::new());
 }
 
-/// The next graph run on this thread takes these values for its Parameter
-/// nodes (`NodeType::Ice::params`).
-pub fn set_params(params: HashMap<String, Value>) {
+/// The next graph run on this thread takes these values for its parameters
+/// (`NodeType::Ice::params`): its Parameter nodes', and its node settings
+/// promoted (`IceGraph::parameters`).
+pub fn set_params(params: std::collections::BTreeMap<String, serde_json::Value>) {
     PARAMS.with(|p| *p.borrow_mut() = params);
 }
 
@@ -157,6 +158,9 @@ pub struct IceGraph {
     /// While an ICE compound's inside is looked at (this graph): the graphs
     /// its instance is in, outermost first (see `compound`).
     pub outer: Vec<compound::Outer>,
+    /// Its nodes' settings promoted (a seed, a path): the ICE operator's
+    /// parameters, or, inside an ICE compound, the compound's.
+    pub parameters: Vec<crate::compounds::Parameter>,
 }
 
 /// No transform: the identity matrix, as a value.
@@ -208,6 +212,7 @@ impl IceGraph {
             last_input: Arc::default(),
             ports: Arc::default(),
             outer: vec![],
+            parameters: vec![],
         };
         g.add_node(
             ROOT_NAME.into(),
@@ -794,6 +799,7 @@ impl IceGraph {
         for c in self.connections.iter().filter(|c| live.contains(&c.to_node)) {
             (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut h);
         }
+        serde_json::to_string(&self.parameters).unwrap_or_default().hash(&mut h);
         h.finish()
     }
 
@@ -933,8 +939,15 @@ impl IceGraph {
         // While an ICE compound's inside is looked at: the graph it is in,
         // with it.
         let composed = self.composed();
-        let me: &IceGraph = &composed;
         let params = PARAMS.with(|p| std::mem::take(&mut *p.borrow_mut()));
+        // Its node settings promoted, as the operator sets them.
+        let set = compound::with_values(&composed, &composed.parameters, &params);
+        let me: &IceGraph = &set;
+        // Its Parameter nodes' values.
+        let params: HashMap<String, Value> = params
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), serde_json::from_value(v.clone()).ok()?)))
+            .collect();
         let space = SPACE.with(|s| s.replace(glam::Mat4::IDENTITY));
         // Kept for the editor: its columns are shared, not copied.
         if let Ok(mut last) = me.last_input.lock() {

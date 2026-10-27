@@ -62,6 +62,8 @@ pub struct PanelIo<'a> {
     /// The selected ICE operator's Parameter nodes: name and default, a name
     /// once.
     pub ice_params: Vec<(String, xms_ice::Value)>,
+    /// The selected ICE operator's graph's node settings promoted to it.
+    pub ice_settings: Vec<crate::compounds::Parameter>,
 }
 
 pub fn draw_properties_panel(
@@ -127,6 +129,15 @@ pub fn draw_properties_panel(
                     _ => None,
                 })
                 .map(|sg| crate::ice::compound::parameters_of(&sg.composed()))
+                .unwrap_or_default();
+            io.ice_settings = graph
+                .selected_node
+                .and_then(|id| graph.nodes.iter().find(|n| n.id == id))
+                .and_then(|n| match n.node_type {
+                    NodeType::Ice { id, .. } => subnets.get(id),
+                    _ => None,
+                })
+                .map(|sg| sg.composed().parameters.clone())
                 .unwrap_or_default();
             draw_properties(ui, graph, scene, anim, io);
         });
@@ -807,12 +818,18 @@ pub fn draw_properties(
                 group(ui, "Parameters", Some("Its graph's Parameter nodes, by name: the value it gives each, the node's default until set"), |f| {
                     // Each kept on the operator (`ice::compound::keep_params`).
                     for (name, _) in &io.ice_params {
-                        if let Some(v) = params.get_mut(name) {
-                            crate::ice::ui::value_row(f, name, v);
+                        let Some(j) = params.get_mut(name) else { continue };
+                        let Ok(mut v) = serde_json::from_value::<xms_ice::Value>(j.clone()) else { continue };
+                        let was = v;
+                        crate::ice::ui::value_row(f, name, &mut v);
+                        if v != was {
+                            *j = serde_json::to_value(v).unwrap_or_default();
                         }
                     }
                 });
             }
+            // Its graph's node settings promoted to it (a seed, a path).
+            crate::properties::ui::promoted_groups(ui, &io.ice_settings, params);
         }
 
         // Primitives
@@ -1477,11 +1494,21 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
     );
     // Its promoted parameters, by group.
     let params = crate::node_graph::compound::with_definition(&*t, |d| d.parameters.clone()).unwrap_or_default();
-    let NodeType::Compound { values, .. } = t else {
-        return (enter, back);
-    };
+    if let NodeType::Compound { values, .. } = t {
+        promoted_groups(ui, &params, values);
+    }
+    (enter, back)
+}
+
+/// A compound's promoted parameters, by group, their values in `values` (by
+/// name): a scene compound's, an ICE compound's, an ICE operator's.
+pub fn promoted_groups(
+    ui: &mut egui::Ui,
+    params: &[crate::compounds::Parameter],
+    values: &mut std::collections::BTreeMap<String, serde_json::Value>,
+) {
     let mut groups: Vec<String> = vec![];
-    for p in &params {
+    for p in params {
         if !groups.contains(&p.group) {
             groups.push(p.group.clone());
         }
@@ -1498,7 +1525,6 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
             }
         });
     }
-    (enter, back)
 }
 
 /// One promoted parameter's row: its value, the instance's, else the default.
