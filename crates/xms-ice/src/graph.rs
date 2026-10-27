@@ -36,7 +36,7 @@ pub enum Op {
     /// where the attribute is read from; None, the graph's own context (or
     /// Object). From another context, each element reads the elements it
     /// touches: a corner its point or its face, a face its corners or points, a
-    /// point the faces or corners around it; where it touches several, `reduce`
+    /// point the faces or corners around it; where it touches several, `resample`
     /// makes them one value. With an input (Geometry: paths on a reference
     /// input, Get Reference's), the attribute is read from that prim instead,
     /// element by element: it has the same topology (a rest and an animated
@@ -45,17 +45,17 @@ pub enum Op {
     GetData {
         name: String,
         context: Option<Context>,
-        reduce: Reduce,
+        resample: Resample,
     },
     /// Set an attribute: input 0 is the value. Its output is an Execute, to
     /// wire into the root. `context`: where the attribute is written; None, the
     /// graph's own. Into another context, each element there takes the values
     /// of the graph's elements it touches (a face its points, a point the faces
-    /// around it), made one by `reduce`.
+    /// around it), made one by `resample`.
     SetData {
         name: String,
         context: Option<Context>,
-        reduce: Reduce,
+        resample: Resample,
     },
     /// A value given when the graph runs (time, a promoted parameter);
     /// `default` when none is given. Changing it does not recompile.
@@ -358,10 +358,11 @@ impl ArrayOp {
     }
 }
 
-/// How the values an element touches in another context become one: a face
+/// Resampling: how the values an element touches in another context become
+/// one (a face reading its points, a point the faces around it). A face
 /// reading its points' positions gets their average, by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum Reduce {
+pub enum Resample {
     #[default]
     Average,
     Sum,
@@ -369,8 +370,8 @@ pub enum Reduce {
     Max,
 }
 
-impl Reduce {
-    pub const ALL: [Reduce; 4] = [Reduce::Average, Reduce::Sum, Reduce::Min, Reduce::Max];
+impl Resample {
+    pub const ALL: [Resample; 4] = [Resample::Average, Resample::Sum, Resample::Min, Resample::Max];
 }
 
 /// Maths, on any type it makes sense for: `Add` adds floats or vectors,
@@ -500,7 +501,7 @@ impl Op {
         Op::GetData {
             name: name.into(),
             context: None,
-            reduce: Reduce::Average,
+            resample: Resample::Average,
         }
     }
 
@@ -509,7 +510,7 @@ impl Op {
         Op::SetData {
             name: name.into(),
             context: None,
-            reduce: Reduce::Average,
+            resample: Resample::Average,
         }
     }
 }

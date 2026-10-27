@@ -210,7 +210,7 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             slider_look(ui);
-            ui.add(egui::Slider::new(v, range).suffix(unit).max_decimals(3))
+            slider(ui, v, |v| egui::Slider::new(v, range).suffix(unit).max_decimals(3))
         })
     }
 
@@ -225,18 +225,15 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             slider_look(ui);
-            ui.add(egui::Slider::new(v, range).suffix(unit))
+            slider(ui, v, |v| egui::Slider::new(v, range).suffix(unit))
         })
     }
 
     /// A number with no fixed range, dragged or typed.
     pub fn drag(&mut self, label: &str, hint: Option<&str>, v: &mut f32, speed: f64, unit: &str) -> egui::Response {
         self.row(label, hint, |ui| {
-            let h = ui.spacing().interact_size.y;
-            ui.field_sized(
-                [ui.available_width(), h],
-                egui::DragValue::new(v).speed(speed).max_decimals(3).suffix(unit),
-            )
+            let size = [ui.available_width(), ui.spacing().interact_size.y];
+            number(ui, Some(size), v, |d| d.speed(speed).max_decimals(3).suffix(unit))
         })
     }
 
@@ -249,11 +246,8 @@ impl<'a> Rows<'a> {
         range: std::ops::RangeInclusive<u32>,
     ) -> egui::Response {
         self.row(label, hint, |ui| {
-            let h = ui.spacing().interact_size.y;
-            ui.field_sized(
-                [ui.available_width(), h],
-                egui::DragValue::new(v).range(range).speed(0.1),
-            )
+            let size = [ui.available_width(), ui.spacing().interact_size.y];
+            number(ui, Some(size), v, |d| d.range(range).speed(0.1))
         })
     }
 
@@ -271,9 +265,7 @@ impl<'a> Rows<'a> {
                 let h = ui.spacing().interact_size.y;
                 let mut changed = false;
                 for (a, p) in v.iter_mut().zip(["U ", "V "]) {
-                    changed |= ui
-                        .field_sized([w, h], egui::DragValue::new(a).speed(speed).max_decimals(4).prefix(p))
-                        .changed();
+                    changed |= number(ui, Some([w, h]), a, |d| d.speed(speed).max_decimals(4).prefix(p)).changed();
                 }
                 changed
             })
@@ -297,13 +289,16 @@ impl<'a> Rows<'a> {
         self.row(label, hint, |ui| choice_widget(ui, id, v, options))
     }
 
+    /// Text, changed on Enter or leaving the field (`typed`).
     pub fn text(&mut self, label: &str, hint: Option<&str>, v: &mut String, placeholder: &str) -> egui::Response {
         self.row(label, hint, |ui| {
-            ui.field(
-                egui::TextEdit::singleline(v)
-                    .hint_text(placeholder)
-                    .desired_width(ui.available_width()),
-            )
+            typed(ui, v, |ui, t| {
+                ui.field(
+                    egui::TextEdit::singleline(t)
+                        .hint_text(placeholder)
+                        .desired_width(ui.available_width()),
+                )
+            })
         })
     }
 
@@ -320,13 +315,15 @@ impl<'a> Rows<'a> {
         keep_frames: bool,
     ) -> egui::Response {
         let r = self.row(label, hint, |ui| {
-            let r = ui.field(
-                egui::TextEdit::singleline(&mut *v)
-                    .hint_text(placeholder)
-                    .desired_width(ui.available_width()),
-            );
-            crate::variables::complete(ui, &r, v, &[]);
-            r
+            typed(ui, v, |ui, t| {
+                let r = ui.field(
+                    egui::TextEdit::singleline(&mut *t)
+                        .hint_text(placeholder)
+                        .desired_width(ui.available_width()),
+                );
+                crate::variables::complete(ui, &r, t, &[]);
+                r
+            })
         });
         if v.contains('$') || v.contains('{') {
             let shown = if keep_frames {
@@ -392,6 +389,42 @@ impl FieldExt for egui::Ui {
         })
         .inner
     }
+}
+
+/// A text field over `v` (drawn by `add` over the text being typed) that
+/// changes `v` on Enter or on leaving the field, not as each letter is typed,
+/// so what it sets off (a cook) happens once; Escape leaves `v` as it was.
+/// Its response is changed only then. A change made to the text while the
+/// field is not being typed in (a variable's name picked from the list under
+/// it) is kept at once.
+pub fn typed(
+    ui: &mut egui::Ui,
+    v: &mut String,
+    add: impl FnOnce(&mut egui::Ui, &mut String) -> egui::Response,
+) -> egui::Response {
+    let key = ui.next_auto_id().with("typed");
+    let draft: Option<String> = ui.data(|d| d.get_temp(key));
+    let mut text = draft.clone().unwrap_or_else(|| v.clone());
+    let start = text.clone();
+    let mut r = add(ui, &mut text);
+    r.flags.remove(egui::response::Flags::CHANGED);
+    if r.has_focus() {
+        ui.data_mut(|d| d.insert_temp(key, text));
+        return r;
+    }
+    if draft.is_some() {
+        ui.data_mut(|d| d.remove::<String>(key));
+    }
+    let keep = if r.lost_focus() {
+        !ui.input(|i| i.key_pressed(egui::Key::Escape))
+    } else {
+        text != start
+    };
+    if keep && text != *v {
+        *v = text;
+        r.mark_changed();
+    }
+    r
 }
 
 /// The look of a field you type in: dark grey with light text, a light text
@@ -673,16 +706,10 @@ pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -
         let h = ui.spacing().interact_size.y;
         let mut changed = false;
         for (a, p) in v.iter_mut().zip(["X ", "Y ", "Z "]) {
-            changed |= ui
-                .field_sized(
-                    [w, h],
-                    egui::DragValue::new(a)
-                        .speed(speed)
-                        .max_decimals(3)
-                        .prefix(p)
-                        .suffix(unit),
-                )
-                .changed();
+            let r = number(ui, Some([w, h]), a, |d| {
+                d.speed(speed).max_decimals(3).prefix(p).suffix(unit)
+            });
+            changed |= r.changed();
         }
         changed
     })
@@ -718,8 +745,303 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
     options.iter().position(|o| o.0 == *v) != before
 }
 
+// Finding a row's number in the operator's parameters
+
+/// What the parameters a right-click on a number's row stands for (see
+/// `probing`): no operator's number is likely to be it.
+pub const PROBE: f64 = 7_777_777.0;
+
+/// Finding which of an operator's numbers a row shows.
+#[derive(Default)]
+struct Probing {
+    on: bool,
+    /// The number right-clicked: its value before, where the pointer was.
+    clicked: Option<(f64, egui::Pos2)>,
+    /// The row being found this frame, while nothing is clicked.
+    finding: Option<egui::Id>,
+    /// What the rows are known for: the operator and its references.
+    whose: u64,
+    /// Each row's number, by the row's key: its path, None for a row with
+    /// none found.
+    rows: std::collections::HashMap<egui::Id, Option<String>>,
+    /// The numbers that follow another (references), drawn orange.
+    linked: Vec<String>,
+}
+
+thread_local! {
+    static PROBING: std::cell::RefCell<Probing> = std::cell::RefCell::new(Probing::default());
+}
+
+/// A row probed this frame: right-clicked (its value before, where the
+/// pointer was), or being found.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Probe {
+    Clicked(f64, egui::Pos2),
+    Finding(egui::Id),
+}
+
+/// While on, a right-click on a number's row (a slider, a drag field, X Y Z,
+/// U V) puts `PROBE` in its place for the caller to find the number's path in
+/// the operator's parameters, then put the value back (`probed`). And while
+/// numbers of the operator follow others (`linked`), one row a frame not yet
+/// known is probed the same way, untouched, so the rows of those numbers are
+/// found and drawn orange. On only while an operator's own parameters are
+/// drawn: never for an ICE node's. The rows found are kept while `whose` (the
+/// operator and its references) is the same.
+pub fn probing(on: bool, whose: u64, linked: Vec<String>) {
+    PROBING.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.whose != whose {
+            p.rows.clear();
+            p.whose = whose;
+        }
+        p.on = on;
+        p.clicked = None;
+        p.finding = None;
+        p.linked = linked;
+    });
+}
+
+/// The row probed this frame. Probing stops.
+pub fn probed() -> Option<Probe> {
+    PROBING.with(|p| {
+        let mut p = p.borrow_mut();
+        p.on = false;
+        let clicked = p.clicked.take().map(|(v, at)| Probe::Clicked(v, at));
+        clicked.or(p.finding.take().map(Probe::Finding))
+    })
+}
+
+/// Whether a row's number is `PROBE` this frame, put back after the panel:
+/// what a change to it would set off (a Merge making its inputs) waits.
+pub fn probe_put() -> bool {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        p.clicked.is_some() || p.finding.is_some()
+    })
+}
+
+/// The number the row being found shows: its path, or None.
+pub fn found(row: egui::Id, path: Option<String>) {
+    PROBING.with(|p| {
+        p.borrow_mut().rows.insert(row, path);
+    });
+}
+
+/// Whether the row with key `row`, while probing, shows a number that follows
+/// another.
+fn follows(row: egui::Id) -> bool {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        p.on && matches!(p.rows.get(&row), Some(Some(path)) if p.linked.contains(path))
+    })
+}
+
+/// A number a row edits: written as `PROBE` and read back.
+pub trait Probed {
+    fn get(&self) -> f64;
+    fn put(&mut self, x: f64);
+}
+
+macro_rules! probed {
+    ($($t:ty),*) => {$(
+        impl Probed for $t {
+            fn get(&self) -> f64 {
+                *self as f64
+            }
+            fn put(&mut self, x: f64) {
+                *self = x as $t;
+            }
+        }
+    )*};
+}
+probed!(f32, f64, i32, i64, u32, u64, usize);
+
+/// A number that follows another: desaturated orange.
+pub fn follows_orange() -> egui::Color32 {
+    egui::Color32::from_rgb(160, 118, 78)
+}
+
+/// A number field (a `DragValue` on `v`, made by `make`), at `size` or its
+/// own, dark when fields are, orange when it follows another: a right-click
+/// on it, while probing, is taken (see `probing`). Every number field of the
+/// Parameters pane is one, so each has the references and Promote menu.
+pub fn number<T: egui::emath::Numeric + Probed>(
+    ui: &mut egui::Ui,
+    size: Option<[f32; 2]>,
+    v: &mut T,
+    make: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    let row = ui.next_auto_id();
+    let orange = follows(row);
+    let d = make(egui::DragValue::new(&mut *v)).update_while_editing(false);
+    let mut r = if orange {
+        ui.scope(|ui| {
+            let vis = ui.visuals_mut();
+            let hover = egui::Color32::from_rgb(182, 136, 92);
+            for (w, fill) in [
+                (&mut vis.widgets.inactive, follows_orange()),
+                (&mut vis.widgets.open, follows_orange()),
+                (&mut vis.widgets.hovered, hover),
+                (&mut vis.widgets.active, hover),
+            ] {
+                w.bg_fill = fill;
+                w.weak_bg_fill = fill;
+                w.fg_stroke.color = egui::Color32::WHITE;
+            }
+            match size {
+                Some(s) => ui.add_sized(s, d),
+                None => ui.add(d),
+            }
+        })
+        .inner
+    } else {
+        match size {
+            Some(s) => ui.field_sized(s, d),
+            None => ui.field(d),
+        }
+    };
+    probe(ui, &mut r, v, row);
+    r
+}
+
+/// A slider (made by `make` on `v`), on orange when it follows another: a
+/// right-click does not move it, and, while probing, is taken (see
+/// `probing`).
+pub fn slider<T: egui::emath::Numeric + Probed>(
+    ui: &mut egui::Ui,
+    v: &mut T,
+    make: impl FnOnce(&mut T) -> egui::Slider<'_>,
+) -> egui::Response {
+    let row = ui.next_auto_id();
+    let behind = follows(row).then(|| ui.painter().add(egui::Shape::Noop));
+    let before = v.get();
+    let mut r = ui.add(make(&mut *v).update_while_editing(false));
+    if let Some(at) = behind {
+        let rect = r.rect.expand(2.0);
+        ui.painter()
+            .set(at, egui::Shape::rect_filled(rect, 3.0, follows_orange()));
+    }
+    // egui moves a slider under any button: not under the right one.
+    if r.secondary_clicked() || (r.is_pointer_button_down_on() && ui.input(|i| i.pointer.secondary_down())) {
+        v.put(before);
+    }
+    probe(ui, &mut r, v, row);
+    r
+}
+
+/// While probing: a row's number right-clicked, or a row not yet known, one
+/// a frame, on a frame where nothing but the pointer moving happens: `PROBE`
+/// in its place, marked changed so a caller that copies the number writes it
+/// back. Until every row is known, another frame is asked for.
+fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::Id) {
+    let clicked = r.secondary_clicked();
+    let still = || {
+        let quiet = ui.input(|i| {
+            !i.pointer.any_down()
+                && !i.pointer.any_released()
+                && i.events
+                    .iter()
+                    .all(|e| matches!(e, egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_)))
+        });
+        quiet && ui.memory(|m| m.focused().is_none())
+    };
+    PROBING.with(|p| {
+        let mut p = p.borrow_mut();
+        if !p.on || p.clicked.is_some() {
+            return;
+        }
+        if clicked {
+            p.clicked = Some((v.get(), r.interact_pointer_pos().unwrap_or(r.rect.left_bottom())));
+        } else if !p.linked.is_empty() && !p.rows.contains_key(&row) {
+            ui.ctx().request_repaint();
+            if p.finding.is_some() || !still() {
+                return;
+            }
+            p.finding = Some(row);
+        } else {
+            return;
+        }
+        v.put(PROBE);
+        r.mark_changed();
+    });
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// While probing, the number right-clicked is taken and probing stops;
+    /// not probing, nothing is. A row found is kept for the same operator and
+    /// references, and shows orange when its number follows another.
+    #[test]
+    fn probing_takes_one_number() {
+        probing(true, 1, vec!["scale/2".into()]);
+        PROBING.with(|p| p.borrow_mut().clicked = Some((2.0, egui::pos2(1.0, 1.0))));
+        assert!(probe_put(), "a change set off by the probe waits");
+        assert_eq!(probed(), Some(Probe::Clicked(2.0, egui::pos2(1.0, 1.0))));
+        assert!(!probe_put());
+        assert_eq!(probed(), None);
+        let row = egui::Id::new("row");
+        found(row, Some("scale/2".into()));
+        assert!(!follows(row), "not probing: no row is drawn orange");
+        probing(true, 1, vec!["scale/2".into()]);
+        assert!(follows(row), "the row found is kept for the same operator");
+        probing(true, 1, vec![]);
+        assert!(!follows(row), "it follows no more");
+        probing(true, 2, vec!["scale/2".into()]);
+        assert!(!follows(row), "another operator: its rows are found again");
+        let mut x = 3.0f32;
+        x.put(PROBE);
+        assert_eq!(x.get(), PROBE, "the probe is a number a float holds exactly");
+        let mut n = 4u32;
+        n.put(PROBE);
+        assert_eq!(n.get(), PROBE);
+    }
+    /// A text field changes its text on Enter, not as each letter is typed;
+    /// Escape leaves it as it was.
+    #[test]
+    fn text_is_changed_on_enter() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("field");
+        let frame = |v: &mut String, events: Vec<egui::Event>| {
+            let mut changed = false;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                changed |= typed(ui, v, |ui, t| ui.add(egui::TextEdit::singleline(t).id(id))).changed();
+            })
+            .drop_without_applying_deltas();
+            changed
+        };
+        let key = |k: egui::Key| egui::Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut v = "1".to_string();
+        frame(&mut v, vec![]);
+        ctx.memory_mut(|m| m.request_focus(id));
+        assert!(!frame(&mut v, vec![egui::Event::Text("2".into())]));
+        assert!(!frame(&mut v, vec![egui::Event::Text("5".into())]));
+        assert_eq!(v, "1", "not while typing");
+        let mut changed = frame(&mut v, vec![key(egui::Key::Enter)]);
+        changed |= frame(&mut v, vec![]);
+        assert!(changed);
+        assert_eq!(v, "125", "on Enter");
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&mut v, vec![egui::Event::Text("9".into())]);
+        let mut changed = frame(&mut v, vec![key(egui::Key::Escape)]);
+        changed |= frame(&mut v, vec![]);
+        assert!(!changed);
+        assert_eq!(v, "125", "Escape leaves it");
+    }
+
     use super::ink::luminance;
     use egui::Color32;
 

@@ -16,7 +16,7 @@ use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
 use super::graph::{
-    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Reduce, CLOSEST_DISTANCE, SCATTER_NORMALS, SCATTER_SAMPLES,
+    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, SCATTER_NORMALS, SCATTER_SAMPLES,
 };
 use super::surface::Reference;
 use super::types::{Ty, Value};
@@ -77,7 +77,7 @@ pub(crate) struct Read {
     /// read across (see `Op::GetData`).
     pub context: Context,
     /// How the values an element touches across contexts become one.
-    pub reduce: Reduce,
+    pub resample: Resample,
     /// Made from the topology when run (`derived`), not a stored column.
     pub derived: bool,
     /// Read at surface samples (Get Data at Samples, Scatter's weight and
@@ -103,7 +103,7 @@ pub(crate) struct Write {
     /// Where it is written: the plan's context, or another one, each of whose
     /// elements takes the plan's elements it touches, made one.
     pub context: Context,
-    pub reduce: Reduce,
+    pub resample: Resample,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -620,10 +620,16 @@ impl Lower<'_> {
                 self.emit(true, default.ty(), |dst| Ins::Param { dst, index })
             }
             // With a Geometry: read from it.
-            Op::GetData { name, context, reduce } if !n.inputs.is_empty() => {
-                self.get_data_from(node, name, *context, *reduce)?
-            }
-            Op::GetData { name, context, reduce } => self.get_data(node, name, *context, *reduce)?,
+            Op::GetData {
+                name,
+                context,
+                resample,
+            } if !n.inputs.is_empty() => self.get_data_from(node, name, *context, *resample)?,
+            Op::GetData {
+                name,
+                context,
+                resample,
+            } => self.get_data(node, name, *context, *resample)?,
             Op::Math(op) => self.math(node, *op)?,
             Op::Random { seed } => self.random(node, *seed)?,
             Op::Array(op) => self.array(node, *op)?,
@@ -660,7 +666,7 @@ impl Lower<'_> {
         node: usize,
         name: &str,
         from: Option<Context>,
-        reduce: Reduce,
+        resample: Resample,
     ) -> Result<Val, CompileError> {
         let (geo, context) = (self.geo, self.plan.context);
         let own = from.is_none() || from == Some(context);
@@ -705,19 +711,19 @@ impl Lower<'_> {
         // Object is one value for every element.
         let uniform = attr_context == Context::Object;
         // Read across contexts, each reduction is a read of its own.
-        let reduce = if attr_context == context || uniform {
-            Reduce::Average
+        let resample = if attr_context == context || uniform {
+            Resample::Average
         } else {
-            reduce
+            resample
         };
-        let key = format!("{attr_context:?}/{column}/{reduce:?}");
+        let key = format!("{attr_context:?}/{column}/{resample:?}");
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
                 self.plan.reads.push(Read {
                     name: column.to_string(),
                     context: attr_context,
-                    reduce,
+                    resample,
                     derived: found.derived,
                     at_location: false,
                     sampled: None,
@@ -1009,7 +1015,7 @@ impl Lower<'_> {
                 self.plan.reads.push(Read {
                     name: column,
                     context: from,
-                    reduce: Reduce::Average,
+                    resample: Resample::Average,
                     derived: found.derived,
                     at_location: false,
                     sampled: None,
@@ -1042,7 +1048,7 @@ impl Lower<'_> {
         self.plan.reads.push(Read {
             name: column,
             context: ctx,
-            reduce: Reduce::Average,
+            resample: Resample::Average,
             derived,
             at_location: true,
             sampled: None,
@@ -1206,7 +1212,7 @@ impl Lower<'_> {
         node: usize,
         name: &str,
         from: Option<Context>,
-        reduce: Reduce,
+        resample: Resample,
     ) -> Result<Val, CompileError> {
         let Some(s) = self.geometry_input(node, 0)? else {
             return error(node, "Get Data reads from a Geometry wired in");
@@ -1229,19 +1235,19 @@ impl Lower<'_> {
             return error(node, format!("The Geometry has {count} elements per {c:?}, this geometry {}: reading element by element takes the same topology", self.geo.count(c)));
         }
         let uniform = c == Context::Object;
-        let reduce = if c == context || uniform {
-            Reduce::Average
+        let resample = if c == context || uniform {
+            Resample::Average
         } else {
-            reduce
+            resample
         };
-        let key = format!("from{s}:{c:?}/{name}/{reduce:?}");
+        let key = format!("from{s}:{c:?}/{name}/{resample:?}");
         let read = match self.reads.get(&key) {
             Some(&r) => r,
             None => {
                 self.plan.reads.push(Read {
                     name: name.to_string(),
                     context: c,
-                    reduce,
+                    resample,
                     derived: found.derived,
                     at_location: false,
                     sampled: None,
@@ -1289,7 +1295,7 @@ impl Lower<'_> {
                 self.plan.reads.push(Read {
                     name: name.to_string(),
                     context: c,
-                    reduce: Reduce::Average,
+                    resample: Resample::Average,
                     derived: found.derived,
                     at_location: false,
                     sampled: None,
@@ -1345,7 +1351,7 @@ impl Lower<'_> {
                 self.plan.reads.push(Read {
                     name: name.to_string(),
                     context: ctx,
-                    reduce: Reduce::Average,
+                    resample: Resample::Average,
                     derived: found.derived,
                     at_location: true,
                     sampled: Some(surface),
@@ -1760,17 +1766,17 @@ impl Lower<'_> {
         let Op::SetData {
             name,
             context: to,
-            reduce,
+            resample,
         } = &n.op
         else {
             return error(node, "Only Execute outputs go into the root");
         };
         let context = to.unwrap_or(self.plan.context);
         // Into its own context, one value each: nothing to make one.
-        let reduce = if context == self.plan.context {
-            Reduce::Average
+        let resample = if context == self.plan.context {
+            Resample::Average
         } else {
-            *reduce
+            *resample
         };
         let own = context == self.plan.context;
         if name.trim().is_empty() {
@@ -1831,14 +1837,14 @@ impl Lower<'_> {
                     ty: v.ty,
                     role,
                     context,
-                    reduce,
+                    resample,
                 });
                 self.plan.writes.len() - 1
             }
         };
         // The same attribute set twice: the later value is the one kept.
         self.plan.writes[write].ty = v.ty;
-        self.plan.writes[write].reduce = reduce;
+        self.plan.writes[write].resample = resample;
         let src = self.varying(v);
         self.plan.batch.code.push(Ins::Store { write, src });
         // Read back by a later port in the graph's own context; written

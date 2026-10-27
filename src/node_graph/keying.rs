@@ -45,9 +45,10 @@ impl NodeGraphState {
     }
 
     /// A node's parameters at the playhead (at its own local frame, for a Local
-    /// Animation).
+    /// Animation): keyed numbers from their curves, referenced ones from their
+    /// sources (`links`).
     pub fn animated_type<'a>(&self, node: &'a GraphNode) -> Cow<'a, NodeType> {
-        animated_at(node, self.node_frame(node))
+        self.shown_at(node, self.node_frame(node))
     }
 
     fn node_mut(&mut self, id: NodeId) -> Option<&mut GraphNode> {
@@ -71,8 +72,12 @@ impl NodeGraphState {
     }
 
     /// Set a key on `path` at `frame` with `value`.
+    /// A number following another (a reference) is not keyed.
     pub fn set_key_value(&mut self, id: NodeId, path: &str, frame: f64, value: f64) {
         let Some(node) = self.node_mut(id) else { return };
+        if node.links.iter().any(|l| l.path == path) {
+            return;
+        }
         let i = match node.channels.iter().position(|c| c.path == path) {
             Some(i) => i,
             None => {
@@ -105,7 +110,12 @@ impl NodeGraphState {
             .map(|n| self.node_frame(n))
             .unwrap_or(0.0)
             .round();
-        let values = self.keyable_values(id);
+        // Not the numbers that follow others.
+        let values: Vec<(String, f64)> = self
+            .keyable_values(id)
+            .into_iter()
+            .filter(|(p, _)| self.link_of(id, p).is_none())
+            .collect();
         for (p, v) in &values {
             self.set_key_value(id, p, frame, *v);
         }
@@ -188,66 +198,124 @@ impl NodeGraphState {
     /// at the playhead, so what is shown is what is cooked. Returns its own,
     /// for `end_edit`.
     pub fn begin_edit(&mut self, id: NodeId) -> Option<NodeType> {
-        let frame = self.nodes.iter().find(|n| n.id == id).map(|n| self.node_frame(n))?;
-        let node = self.node_mut(id)?;
+        let node = self.nodes.iter().find(|n| n.id == id)?;
         let own = node.node_type.clone();
-        if !node.channels.is_empty() {
-            let shown = animated_at(node, frame).into_owned();
-            node.node_type = shown;
+        if node.channels.is_empty() && node.links.is_empty() {
+            return Some(own);
         }
+        let shown = self.animated_type(node).into_owned();
+        self.node_mut(id)?.node_type = shown;
         Some(own)
     }
 
     /// After the edit: a keyed number that was changed is keyed at the playhead
-    /// with its new value; everything else changed is kept as the node's own.
-    /// Nothing changed: the node is as it was.
+    /// with its new value; a number that follows another, changed, changes the
+    /// number at the end of its chain, and keeps following it; everything else
+    /// changed is kept as the node's own. Nothing changed: the node is as it
+    /// was.
     pub fn end_edit(&mut self, id: NodeId, own: NodeType) {
-        let Some(frame) = self.nodes.iter().find(|n| n.id == id).map(|n| self.node_frame(n)) else {
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
             return;
         };
-        let Some(node) = self.node_mut(id) else { return };
-        if node.channels.is_empty() {
+        if node.channels.is_empty() && node.links.is_empty() {
             return;
         }
-        let shown = animated_at(
-            &GraphNode {
-                node_type: own.clone(),
-                ..node.clone()
-            },
-            frame,
-        )
-        .into_owned();
-        let (Ok(edited), Ok(shown_v), Ok(own_v)) = (
+        let frame = self.node_frame(node);
+        // What was shown: its own parameters as they cook, worked out with its
+        // own in the graph, as they were shown, since a number of it may
+        // follow another of it.
+        let Some(edited_t) = self
+            .node_mut(id)
+            .map(|n| std::mem::replace(&mut n.node_type, own.clone()))
+        else {
+            return;
+        };
+        let shown = self
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .map(|n| self.shown_at(n, frame).into_owned());
+        if let Some(n) = self.node_mut(id) {
+            n.node_type = edited_t;
+        }
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
+            return;
+        };
+        let (Some(Ok(shown_v)), Ok(edited), Ok(own_v)) = (
+            shown.map(|t| serde_json::to_value(&t)),
             serde_json::to_value(&node.node_type),
-            serde_json::to_value(&shown),
             serde_json::to_value(&own),
         ) else {
             return;
         };
         if edited == shown_v {
-            node.node_type = own;
+            if let Some(node) = self.node_mut(id) {
+                node.node_type = own;
+            }
             return;
         }
+        let changed = |p: &str| match (keys::get(&edited, p), keys::get(&shown_v, p)) {
+            // Parameters are f32: a row converting (degrees) moves the others
+            // by no more than rounding.
+            (Some(now), Some(was)) => (now - was).abs() > 1e-6 * (1.0 + was.abs()),
+            _ => false,
+        };
         let mut kept = edited.clone();
         let key = frame.round();
         let mut keyed = vec![];
         for c in &node.channels {
-            let (now, was) = (keys::get(&edited, &c.path), keys::get(&shown_v, &c.path));
-            if let (Some(now), Some(was)) = (now, was) {
-                if (now - was).abs() > 1e-9 * (1.0 + was.abs()) {
-                    keyed.push((c.path.clone(), now));
-                }
+            if changed(&c.path) {
+                keyed.push((c.path.clone(), keys::get(&edited, &c.path).unwrap_or_default()));
             }
             // The node's own number stays as it was: the curve gives it.
             if let Some(o) = keys::get(&own_v, &c.path) {
                 keys::set(&mut kept, &c.path, o);
             }
         }
+        // A number that follows another keeps its own; changed, the number it
+        // follows takes the change.
+        let mut through = vec![];
+        for l in &node.links {
+            if changed(&l.path) {
+                if let (Some(root), Some(x)) = (self.root_of(id, &l.path), keys::get(&edited, &l.path)) {
+                    through.push((root, x));
+                }
+            }
+            if let Some(o) = keys::get(&own_v, &l.path) {
+                keys::set(&mut kept, &l.path, o);
+            }
+        }
+        let Some(node) = self.node_mut(id) else { return };
         if let Ok(t) = serde_json::from_value(kept) {
             node.node_type = t;
         }
         for (p, v) in keyed {
             self.set_key_value(id, &p, key, v);
+        }
+        for ((root, p), v) in through {
+            self.set_number(root, &p, v);
+        }
+    }
+
+    /// Set number `path` of a node to `value`: keyed at its playhead when it
+    /// is keyed, its own otherwise.
+    fn set_number(&mut self, id: NodeId, path: &str, value: f64) {
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
+            return;
+        };
+        if node.channels.iter().any(|c| c.path == path) {
+            let frame = self.node_frame(node).round();
+            self.set_key_value(id, path, frame, value);
+            return;
+        }
+        let Some(node) = self.node_mut(id) else { return };
+        let Ok(mut v) = serde_json::to_value(&node.node_type) else {
+            return;
+        };
+        if keys::set(&mut v, path, value) {
+            if let Ok(t) = serde_json::from_value(v) {
+                node.node_type = t;
+            }
         }
     }
 

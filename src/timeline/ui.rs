@@ -327,7 +327,12 @@ fn draw_scene(
         ui.colored_label(xsi::TEXT_DIM(), "Frame");
         let mut f = frame;
         if ui
-            .add(egui::DragValue::new(&mut f).range(start..=end).speed(0.25))
+            .add(
+                egui::DragValue::new(&mut f)
+                    .update_while_editing(false)
+                    .range(start..=end)
+                    .speed(0.25),
+            )
             .changed()
         {
             pb.playing = false;
@@ -335,10 +340,18 @@ fn draw_scene(
         }
         ui.separator();
         ui.colored_label(xsi::TEXT_DIM(), "Range");
-        ui.add(egui::DragValue::new(&mut scene.start).speed(0.25))
-            .on_hover_text("The scene's first frame");
-        ui.add(egui::DragValue::new(&mut scene.end).speed(0.25))
-            .on_hover_text("The scene's last frame");
+        ui.add(
+            egui::DragValue::new(&mut scene.start)
+                .update_while_editing(false)
+                .speed(0.25),
+        )
+        .on_hover_text("The scene's first frame");
+        ui.add(
+            egui::DragValue::new(&mut scene.end)
+                .update_while_editing(false)
+                .speed(0.25),
+        )
+        .on_hover_text("The scene's last frame");
         let rates: [(u32, u32, &str); 8] = [
             (24, 1, "24"),
             (25, 1, "25"),
@@ -639,7 +652,12 @@ fn draw_source(
         ui.colored_label(xsi::TEXT_DIM(), "Frame");
         let mut f = frame;
         if ui
-            .add(egui::DragValue::new(&mut f).range(ext_start..=ext_end).speed(0.25))
+            .add(
+                egui::DragValue::new(&mut f)
+                    .update_while_editing(false)
+                    .range(ext_start..=ext_end)
+                    .speed(0.25),
+            )
             .changed()
         {
             pb.playing = false;

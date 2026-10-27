@@ -166,12 +166,13 @@ pub fn side_output(node: &GraphNode) -> bool {
     matches!(node.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. })
 }
 
-/// A graph inside an operator, to open in the pane: an ICE node's ICE graph, or
-/// a MaterialX operator's graph.
+/// A graph inside an operator, to open in the pane: an ICE node's ICE graph, a
+/// MaterialX operator's graph, or a compound instance's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Dive {
     Ice(IceGraphId),
     MaterialX(NodeId),
+    Compound(NodeId),
 }
 
 /// The graph an operator holds, if it holds one.
@@ -179,6 +180,7 @@ pub fn dive_of(node: &GraphNode) -> Option<Dive> {
     match &node.node_type {
         NodeType::Ice { id, .. } => Some(Dive::Ice(*id)),
         NodeType::MaterialX { .. } => Some(Dive::MaterialX(node.id)),
+        NodeType::Compound { .. } => Some(Dive::Compound(node.id)),
         _ => None,
     }
 }
@@ -257,9 +259,18 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         ui.ctx().request_repaint();
     }
 
-    // Add-node menu: Tab, right-click, or right-click on an output
+    // Add-node menu: Tab, right-click, or right-click on an output, anywhere
+    // over the canvas, nodes included.
     let mut opened_now = false;
-    if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+    let over_canvas = ui.rect_contains_pointer(canvas_rect);
+    // Not while typing. Tab also moves egui's focus to the next widget (the
+    // menu bar's first): that focus is let go, the menu takes it.
+    if over_canvas && !ui.ctx().text_edit_focused() && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+        ui.ctx().memory_mut(|m| {
+            if let Some(f) = m.focused() {
+                m.surrender_focus(f);
+            }
+        });
         let cursor = ui.input(|i| i.pointer.hover_pos()).unwrap_or(canvas_rect.center());
         graph.tab_menu_screen_pos = Some(cursor);
         graph.tab_menu_canvas_pos = Some(to_canvas(cursor));
@@ -283,7 +294,22 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
                 .find(|o| to_screen(output_socket_pos(node, *o)).distance(cursor) <= SOCKET_HIT * 0.5 + 2.0)
                 .map(|o| (node.id, o))
         });
-        if socket.is_some() || response.secondary_clicked() {
+        // Over a node: the menu is for it too (Make Compound takes the
+        // selection), so it is selected if it was not.
+        let on_node = graph
+            .nodes
+            .iter()
+            .rev()
+            .find(|n| {
+                egui::Rect::from_min_size(to_screen(n.position), egui::vec2(node_width(n), node_height(n)) * zoom)
+                    .contains(cursor)
+            })
+            .map(|n| n.id);
+        if let Some(id) = on_node.filter(|id| !graph.selected_nodes.contains(id)) {
+            graph.selected_nodes = vec![id];
+            graph.selected_node = Some(id);
+        }
+        if socket.is_some() || on_node.is_some() || response.secondary_clicked() {
             graph.tab_menu_screen_pos = Some(cursor);
             graph.tab_menu_canvas_pos = Some(to_canvas(cursor));
             graph.menu_from = socket;
@@ -502,7 +528,17 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.delete_selected();
     }
 
-    // Down arrow: into the selected ICE or MaterialX node, as a double-click does
+    // Up arrow, inside a compound: back out to the graph it is in.
+    if ptr_in_canvas
+        && !graph.inside.path.is_empty()
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::ArrowUp))
+    {
+        graph.inside.request = Some(super::compound::Request::Leave);
+    }
+
+    // Down arrow: into the selected ICE, MaterialX or compound node, as a
+    // double-click does
     if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
         let selected = graph
             .selected_node
@@ -639,6 +675,19 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         }
     }
 
+    // Inside a locked compound a dark layer lies over the whole graph: it
+    // follows its definition and cannot be changed here.
+    if graph.inside.locked {
+        let p = ui.painter_at(canvas_rect);
+        p.rect_filled(canvas_rect, 0.0, egui::Color32::from_black_alpha(110));
+        p.text(
+            canvas_rect.left_top() + egui::vec2(12.0, 10.0),
+            egui::Align2::LEFT_TOP,
+            "Locked: it follows its definition. Make Editable to change it",
+            egui::FontId::proportional(13.0),
+            egui::Color32::from_gray(235),
+        );
+    }
     dive_into
 }
 
@@ -1394,6 +1443,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("↓", "Organise", vec![
             (NodeType::SetVariable { vars: vec![crate::core::vars::Variable::new("shot", "")] }, "Variables of its own, written {name}, for every operator below it: a shot, a variant, a folder. What comes in goes on"),
             (NodeType::PassThrough, "Hands the scene on unchanged: for laying out big graphs, a place to gather wires or branch from"),
+            (NodeType::CompoundInput { name: "Scene".into() }, "Inside a compound: what comes into its input port of this name"),
+            (NodeType::CompoundOutput { name: "Scene".into() }, "Inside a compound: what goes out of its output port of this name"),
         ]),
         ("📂", "File", vec![
             (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
@@ -1511,45 +1562,124 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
     let words = search.trim().to_lowercase();
     if !words.is_empty() {
         ui.separator();
-        let found: Vec<(NodeType, &'static str, &'static str)> = catalog()
+        // What is found: the operators, Make Compound (an action among
+        // Organise's), the library's compounds; each a row, ↓ and ↑ moving
+        // through them, Enter taking one.
+        let matches = |text: &str| {
+            let text = text.to_lowercase();
+            words.split_whitespace().all(|w| text.contains(w))
+        };
+        let mut found: Vec<(String, String, Option<NodeType>)> = catalog()
             .into_iter()
             .flat_map(|(_, category, nodes)| nodes.into_iter().map(move |(t, hint)| (t, hint, category)))
-            .filter(|(t, hint, category)| {
-                let text = format!("{} {} {}", node_type_label(t), category, hint).to_lowercase();
-                words.split_whitespace().all(|w| text.contains(w))
+            .filter(|(t, hint, category)| matches(&format!("{} {} {}", node_type_label(t), category, hint)))
+            .map(|(t, hint, category)| {
+                (
+                    format!("{}  {}   {category}", node_type_icon(&t), node_type_label(&t)),
+                    hint.to_string(),
+                    Some(t),
+                )
             })
             .collect();
-        // ↓ and ↑ move through what is found, Enter takes it.
+        let selected = graph.selected_nodes.len();
+        if matches("make compound organise pack the selected operators") {
+            let label = match selected {
+                0 => "◆  Make Compound   Organise".to_string(),
+                n => format!("◆  Make Compound ({n} selected)   Organise"),
+            };
+            found.push((label, MAKE_COMPOUND_HINT.to_string(), None));
+        }
+        for f in crate::compounds::library().of_context(crate::compounds::Context::Scene) {
+            let d = &f.definition;
+            if matches(&format!("{} {} {} compound", d.name, d.category, d.help)) {
+                let icon = if d.icon.is_empty() { "◆" } else { d.icon.as_str() };
+                found.push((
+                    format!("{icon}  {}   Compounds", d.name),
+                    d.help.clone(),
+                    Some(instance_of(d)),
+                ));
+            }
+        }
         let (hi, moved, enter) =
             crate::menus::search_keys(ui, egui::Id::new("scene_add_pick"), &words, found.len(), opened_now);
-        let mut chosen = if enter {
-            found.get(hi).map(|(t, _, _)| t.clone())
+        let mut chosen = if enter && found.get(hi).is_some() {
+            Some(hi)
         } else {
             None
         };
-        for (k, (t, hint, category)) in found.iter().enumerate() {
-            let label = format!("{}  {}   {category}", node_type_icon(t), node_type_label(t));
-            let r = ui.selectable_label(k == hi, label).on_hover_text(*hint);
+        for (k, (label, hint, t)) in found.iter().enumerate() {
+            // Make Compound needs operators selected.
+            let enabled = t.is_some() || selected > 0;
+            let r = ui
+                .add_enabled_ui(enabled, |ui| ui.selectable_label(k == hi, label.as_str()))
+                .inner
+                .on_hover_text(hint.as_str())
+                .on_disabled_hover_text("Select the operators to pack first");
             if moved && k == hi {
                 r.scroll_to_me(None);
             }
             if r.clicked() {
-                chosen = Some(t.clone());
+                chosen = Some(k);
             }
         }
         if found.is_empty() {
             ui.label("No node by that name");
         }
-        if let Some(t) = chosen {
-            let name = default_name(&t);
-            graph.add_node(name, t, cp);
-            added = true;
+        match chosen.and_then(|k| found.get(k)) {
+            Some((_, _, Some(t))) => {
+                let name = match t {
+                    NodeType::Compound { definition, .. } => super::node_name(definition),
+                    t => default_name(t),
+                };
+                graph.add_node(name, t.clone(), cp);
+                added = true;
+            }
+            Some((_, _, None)) if selected > 0 => {
+                graph.make_compound_request = Some(graph.selected_nodes.clone());
+                added = true;
+            }
+            _ => {}
         }
         return added;
     }
     ui.separator();
     // Categories look like the items in them: menu rows, not buttons.
     ui.visuals_mut().button_frame = false;
+    // The library's scene compounds, by category, where each came from.
+    let library = crate::compounds::library();
+    let found = library.of_context(crate::compounds::Context::Scene);
+    if !found.is_empty() {
+        crate::menus::menu(ui, "◆  Compounds", |ui| {
+            ui.set_min_width(200.0);
+            let mut category: Option<&str> = None;
+            for f in found {
+                let d = &f.definition;
+                if category != Some(d.category.as_str()) {
+                    category = Some(d.category.as_str());
+                    if !d.category.is_empty() {
+                        ui.label(egui::RichText::new(&d.category).small().strong());
+                    }
+                }
+                let icon = if d.icon.is_empty() { "◆" } else { d.icon.as_str() };
+                let hint = format!(
+                    "{}\n{} (v{}), {}",
+                    d.help,
+                    f.path.display(),
+                    d.version,
+                    f.source.label()
+                );
+                if ui
+                    .button(format!("{icon}  {}", d.name))
+                    .on_hover_text(hint.trim())
+                    .clicked()
+                {
+                    graph.add_node(super::node_name(&d.name), instance_of(d), cp);
+                    added = true;
+                    ui.close();
+                }
+            }
+        });
+    }
     for (icon, category, nodes) in catalog() {
         crate::menus::menu(ui, format!("{icon}  {category}"), |ui| {
             ui.set_min_width(170.0);
@@ -1564,9 +1694,48 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
                     ui.close();
                 }
             }
+            if category == "Organise" && make_compound_item(ui, graph) {
+                added = true;
+                ui.close();
+            }
         });
     }
     added
+}
+
+/// What Make Compound does, for its tooltip.
+const MAKE_COMPOUND_HINT: &str = "Pack the selected operators into a compound, in their place: the wires crossing the selection become its ports. It is editable; Save as Definition in its parameters writes it to the library";
+
+/// A locked instance of a library definition, as the add menu places it.
+fn instance_of(d: &crate::compounds::Definition) -> NodeType {
+    NodeType::Compound {
+        definition: d.name.clone(),
+        version: d.version,
+        hash: d.hash(),
+        inputs: d.inputs.iter().map(|p| p.name.clone()).collect(),
+        outputs: d.outputs.iter().map(|p| p.name.clone()).collect(),
+        values: Default::default(),
+        editable: None,
+    }
+}
+
+/// Make Compound, an action among Organise's operators: it packs the
+/// selected ones into a compound. Returns whether it was taken.
+fn make_compound_item(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> bool {
+    let picked: Vec<NodeId> = graph.selected_nodes.clone();
+    let label = match picked.len() {
+        0 => "◆  Make Compound".to_string(),
+        n => format!("◆  Make Compound ({n} selected)"),
+    };
+    let r = ui
+        .add_enabled(!picked.is_empty(), egui::Button::new(label))
+        .on_hover_text(MAKE_COMPOUND_HINT)
+        .on_disabled_hover_text("Select the operators to pack first");
+    if r.clicked() {
+        graph.make_compound_request = Some(picked);
+        return true;
+    }
+    false
 }
 
 // BEZIER HELPERS

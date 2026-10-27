@@ -13,8 +13,11 @@ Changes to documentation alone do not trigger a build.
 | `xms-macos-x86_64.tar.gz` | macOS, Intel |
 
 Each archive holds the program (`xms`, or `xms.exe`; Cargo builds it as
-`xms-imago`), the README, this documentation and the `examples` folder. Keep
-`examples` next to the program: the templates that load files look for it there.
+`xms-imago`), the README, this documentation, the `examples` folder and the
+`compounds` folder (the compound definitions Imago ships, from
+`assets/compounds`). Keep both next to the program: the templates that load
+files look for `examples` there, and the library finds the shipped compounds
+there (see [compounds](compounds.md)).
 
 - Linux: built against glibc 2.28, so it runs on Rocky Linux 8, RHEL 8, Ubuntu
   20.04 and anything newer. It needs the X11 or Wayland libraries (libX11,

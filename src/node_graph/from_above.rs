@@ -28,6 +28,10 @@ pub struct FromAbove {
     pub from: NodeId,
 }
 
+/// Where a variable the compound instance gives its inside is from: no
+/// operator of that graph.
+pub const INSTANCE: NodeId = NodeId(usize::MAX);
+
 /// How far up the wires is walked.
 const DEPTH: usize = 256;
 
@@ -64,7 +68,17 @@ impl NodeGraphState {
 
     /// `text` with its variables put in as operator `id`'s.
     pub fn expand_at(&self, id: NodeId, text: &str) -> String {
-        let _o = self.operator(id);
+        let name = self
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .map_or(String::new(), |n| n.name.clone());
+        let above = if has_braces(text) {
+            self.from_above(id).into_iter().map(|a| (a.name, a.value)).collect()
+        } else {
+            vec![]
+        };
+        let _o = crate::core::vars::operator_with(&name, above);
         crate::core::vars::expand(text, &[])
     }
 
@@ -103,6 +117,20 @@ impl NodeGraphState {
             for a in self.going_down(src, memo, depth + 1) {
                 if !out.iter().any(|o| o.name == a.name) {
                     out.push(a);
+                }
+            }
+        }
+        // Inside a compound, what the instance gives every operator in it
+        // (`{instance}`, and what comes down to the instance), after what
+        // comes down the wires inside.
+        if let Some(fed) = &self.fed {
+            for (name, value) in &fed.above {
+                if !out.iter().any(|o| o.name == *name) {
+                    out.push(FromAbove {
+                        name: name.clone(),
+                        value: value.clone(),
+                        from: INSTANCE,
+                    });
                 }
             }
         }

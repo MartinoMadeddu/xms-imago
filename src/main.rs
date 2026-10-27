@@ -1,5 +1,6 @@
 mod app;
 mod batch;
+mod compounds;
 mod core;
 mod curve_editor;
 mod downloads;
@@ -16,6 +17,7 @@ mod history;
 mod ice;
 /// The Image Viewer pane: renders and images.
 mod image_viewer;
+mod inside_compound;
 mod keys_ui;
 mod layout;
 mod materialx;
@@ -118,6 +120,7 @@ pub(crate) fn draw_ui(
         batch,
         curve_editor,
         image_viewer,
+        inside,
         ..
     } = app;
     // Keyed parameters cook at the playhead.
@@ -226,6 +229,17 @@ pub(crate) fn draw_ui(
                         _ => format!("No material read from {}. {}", path.display(), got.notes.join(". ")),
                     },
                 };
+            }
+            // A compound's definition written as an .icd file.
+            BrowseTarget::SaveDefinition(op) => {
+                let path = if path.extension().is_some_and(|e| e == compounds::EXTENSION) {
+                    path.clone()
+                } else {
+                    path.with_extension(compounds::EXTENSION)
+                };
+                graph_file.message = graph
+                    .save_definition(op, &path)
+                    .unwrap_or_else(|e| format!("Could not save the definition: {e}"));
             }
             // A MaterialX operator's graph written as a .mtlx file.
             BrowseTarget::MatxSave(op) => {
@@ -413,6 +427,18 @@ pub(crate) fn draw_ui(
         });
     theme::editor(ctx);
     variables::window(ctx, &mut graph.variables);
+    // What saves, replaces or closes the graph is done on the root scene
+    // graph: out of any compound first.
+    if command
+        .as_ref()
+        .is_some_and(|c| !matches!(c, FileCommand::ClearRecent | FileCommand::Variables))
+        && inside.is_inside()
+    {
+        if let Some(m) = inside_compound::leave_all(&mut *graph, &mut *subnets, &mut *history, &mut *nav, &mut *inside)
+        {
+            graph_file.message = m;
+        }
+    }
     if let Some(c) = command {
         match c {
             FileCommand::New => save_first.load_new(),
@@ -980,20 +1006,65 @@ impl egui_dock::TabViewer for Panes<'_> {
                         .graph
                         .selected_node
                         .and_then(|id| self.graph.begin_edit(id).map(|own| (id, own)));
-                    draw_properties_panel(
-                        ui,
-                        self.graph,
-                        &*self.stack,
-                        self.subnets,
-                        self.nav,
-                        self.anim_ctx,
-                        &mut io,
-                    );
+                    // A number's row right-clicked shows its menu, and the rows
+                    // of numbers that follow others are found to draw them
+                    // orange: only on an operator's own parameters, not an ICE
+                    // or MaterialX node's.
+                    let own_parameters = self.nav.current_subnet.is_none() && self.nav.materialx.is_none();
+                    let selected = editing
+                        .as_ref()
+                        .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id));
+                    let (whose, linked): (u64, Vec<String>) = selected
+                        .map(|n| {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            (n.id, &n.links).hash(&mut h);
+                            (h.finish(), n.links.iter().map(|l| l.path.clone()).collect())
+                        })
+                        .unwrap_or_default();
+                    // The parameters as they were, for a probed row to be found
+                    // by what it changed, and put back.
+                    let before = selected
+                        .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
+                        .and_then(|n| serde_json::to_value(&n.node_type).ok());
+                    crate::properties::form::probing(own_parameters && editing.is_some(), whose, linked);
+                    // Each operator's fields are its own: a value being typed
+                    // when another operator is selected is not put in its field.
+                    ui.push_id(("parameters_of", self.graph.selected_node.map(|n| n.0)), |ui| {
+                        draw_properties_panel(
+                            ui,
+                            self.graph,
+                            &*self.stack,
+                            self.subnets,
+                            self.nav,
+                            self.anim_ctx,
+                            &mut io,
+                        )
+                    });
+                    use crate::properties::form::Probe;
+                    match (crate::properties::form::probed(), &editing) {
+                        (Some(Probe::Clicked(old, at)), Some((id, _))) => {
+                            if let Some((path, value)) = crate::keys_ui::found_row(self.graph, *id, old, before) {
+                                crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, at);
+                            }
+                        }
+                        (Some(Probe::Finding(row)), Some((id, _))) => {
+                            let path = crate::keys_ui::found_row(self.graph, *id, 0.0, before).map(|f| f.0);
+                            crate::properties::form::found(row, path);
+                        }
+                        _ => {}
+                    }
                     if let Some((id, own)) = editing {
                         self.graph.end_edit(id, own);
                     }
                     if let Some(id) = self.graph.selected_node {
-                        crate::keys_ui::channel_box(ui, self.graph, id);
+                        if let Some(m) = crate::keys_ui::channel_box(ui, self.graph, id) {
+                            self.graph_file.message = m;
+                        }
+                    }
+                    // A number's menu from its row, and the Promote window.
+                    if let Some(m) = crate::keys_ui::row_menu(ui.ctx(), self.graph) {
+                        self.graph_file.message = m;
                     }
                     // Operators the panel asked for: a MaterialX operator from a stage's material.
                     for (name, t) in std::mem::take(&mut io.add) {
@@ -1190,6 +1261,11 @@ impl egui_dock::TabViewer for Panes<'_> {
                     }
                 }
                 None => {
+                    // Inside a compound: the way back, and whether it is
+                    // locked.
+                    if !self.graph.inside.path.is_empty() {
+                        compound_bar(ui, self.graph);
+                    }
                     // Wraps when the pane is narrow.
                     ui.horizontal_wrapped(|ui| {
                         if ui.button("Tidy").on_hover_text("Lay the nodes out in rows, top to bottom, and bring them into view").clicked() {
@@ -1278,12 +1354,70 @@ impl egui_dock::TabViewer for Panes<'_> {
                             self.nav.current_subnet = Some(sid)
                         }
                         Some(node_graph::ui::Dive::MaterialX(op)) => self.nav.materialx = Some(op),
+                        Some(node_graph::ui::Dive::Compound(op)) => {
+                            self.graph.inside.request = Some(node_graph::compound::Request::Enter(op))
+                        }
                         _ => {}
+                    }
+                    // Make Compound, from the add menu: the operators and their
+                    // ICE graphs packed into an editable instance.
+                    if let Some(ids) = self.graph.make_compound_request.take() {
+                        self.graph_file.message = match self.graph.make_compound(self.subnets, &ids, "Compound") {
+                            Ok(_) => format!(
+                                "{} operator{} made a compound: double-click it to go inside",
+                                ids.len(),
+                                if ids.len() == 1 { "" } else { "s" }
+                            ),
+                            Err(e) => e,
+                        };
                     }
                 }
             },
         }
     }
+}
+
+/// The bar over the Node Graph pane inside a compound: the instances entered
+/// (Root goes back out of all of them, ↑ Up out of one), and, when locked,
+/// Make Editable.
+fn compound_bar(ui: &mut egui::Ui, graph: &mut NodeGraphState) {
+    use node_graph::compound::Request;
+    let (text, dim) = (theme::c(235, 235, 235), theme::c(200, 200, 200));
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .link(egui::RichText::new("Root").color(text))
+            .on_hover_text("Back to the root scene graph")
+            .clicked()
+        {
+            graph.inside.request = Some(Request::LeaveAll);
+        }
+        for name in &graph.inside.path {
+            ui.label(egui::RichText::new(" › ").color(dim));
+            ui.label(egui::RichText::new(name).strong().color(text));
+        }
+        if graph.inside.locked {
+            ui.label(
+                egui::RichText::new("  locked: it follows its definition")
+                    .small()
+                    .color(dim),
+            );
+            if ui
+                .button("Make Editable")
+                .on_hover_text("A copy of the definition for this instance alone, to change here")
+                .clicked()
+            {
+                graph.inside.request = Some(Request::MakeEditable);
+            }
+        }
+        if ui
+            .button("↑ Up")
+            .on_hover_text("Back out to the graph the compound is in (↑)")
+            .clicked()
+        {
+            graph.inside.request = Some(Request::Leave);
+        }
+    });
+    ui.separator();
 }
 
 /// Undo and redo for one frame: the shortcuts, and a step recorded when the

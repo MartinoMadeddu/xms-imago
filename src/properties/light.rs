@@ -189,12 +189,15 @@ fn param_row(
             f.row(&label, Some(hint.as_str()), |ui| {
                 ui.horizontal(|ui| {
                     let w = (ui.available_width() - if s.is_empty() { 34.0 } else { 62.0 }).max(40.0);
-                    let r = ui.field(
-                        egui::TextEdit::singleline(s)
-                            .hint_text("/path/to/image.exr")
-                            .desired_width(w),
-                    );
-                    crate::variables::complete(ui, &r, s, &[]);
+                    crate::properties::form::typed(ui, &mut *s, |ui, t| {
+                        let r = ui.field(
+                            egui::TextEdit::singleline(&mut *t)
+                                .hint_text("/path/to/image.exr")
+                                .desired_width(w),
+                        );
+                        crate::variables::complete(ui, &r, t, &[]);
+                        r
+                    });
                     if ui.button("📂").on_hover_text("Browse").clicked() {
                         io.browser.open(
                             crate::file_browser::BrowseTarget::LightFile(node, p.name.as_str()),

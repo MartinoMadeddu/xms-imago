@@ -621,7 +621,11 @@ pub fn editor(ctx: &egui::Context) {
                     row(ui, "Accent", "selection, active flags", &mut s.accent);
                     row(ui, "Outline", "node borders, window edges", &mut s.outline);
                     ui.label("Text weight");
-                    ui.add(egui::Slider::new(&mut s.text_weight, 0..=100).show_value(true));
+                    ui.add(
+                        egui::Slider::new(&mut s.text_weight, 0..=100)
+                            .update_while_editing(false)
+                            .show_value(true),
+                    );
                     ui.label(egui::RichText::new("thinner or heavier text").small());
                     ui.end_row();
                     ui.label("Dark fields");

@@ -36,6 +36,10 @@ struct SavedNode {
     /// Its Prims Location tab. Left out of the file when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     locations: Vec<String>,
+    /// Numbers following another operator's (references). Left out when
+    /// there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    links: Vec<crate::node_graph::links::Link>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,6 +117,7 @@ pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
                 ghost: n.ghost,
                 channels: n.channels.clone(),
                 locations: n.locations.clone(),
+                links: n.links.clone(),
             })
             .collect(),
         connections: graph
@@ -156,6 +161,7 @@ pub fn from_json(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, json: 
             node.ghost = n.ghost;
             node.channels = n.channels;
             node.locations = n.locations;
+            node.links = n.links;
         }
         graph.next_node_id = graph.next_node_id.max(n.id + 1);
     }
@@ -458,6 +464,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
                 ghost: n.ghost,
                 channels: n.channels.clone(),
                 locations: n.locations.clone(),
+                links: n.links.clone(),
             })
             .collect(),
         connections: graph
@@ -521,8 +528,20 @@ pub fn paste(
             node.ghost = n.ghost;
             node.channels = n.channels.clone();
             node.locations = n.locations.clone();
+            node.links = n.links.clone();
         }
         placed.insert(n.id, new);
+    }
+    // References between pasted operators follow them; one to an operator
+    // not pasted keeps it.
+    for id in placed.values().copied().collect::<Vec<_>>() {
+        if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) {
+            for l in &mut node.links {
+                if let Some(&to) = placed.get(&l.node.0) {
+                    l.node = to;
+                }
+            }
+        }
     }
     for [from, out, to, input] in saved.connections {
         let (Some(&a), Some(&b)) = (placed.get(&from), placed.get(&to)) else {
@@ -1180,6 +1199,16 @@ mod tests {
         assert!(matches!(old, IceGraphNodeType::GetData { ref name, context: None, .. } if name == "uv"));
         let old: IceGraphNodeType = serde_json::from_str(r#"{"GetArrayDataAt":{"name":"P"}}"#).unwrap();
         assert!(matches!(old, IceGraphNodeType::GetArrayData { ref name, context: None } if name == "P"));
+        // Resample, as older graphs saved it (`reduce`), and as it is saved now.
+        let old: IceGraphNodeType = serde_json::from_str(r#"{"SetData":{"name":"c","reduce":"Max"}}"#).unwrap();
+        assert!(matches!(
+            old,
+            IceGraphNodeType::SetData {
+                resample: xms_ice::Resample::Max,
+                ..
+            }
+        ));
+        assert!(serde_json::to_string(&old).unwrap().contains(r#""resample":"Max""#));
     }
 
     /// A graph file keeps its variables and $JOB; a graph added brings the ones

@@ -203,6 +203,10 @@ such a file:
 
 - **Code requires documentation.** Every public item has a doc comment, and code
   whose purpose is not obvious from its names has a comment saying why.
+- **Less is better.** Clean, idiomatic Rust; the standard library before a new
+  dependency.
+- **No thin delegating wrappers.** A function whose body is only a call to
+  another free function is not written: call that function where it is needed.
 - **Order a file top-down by importance**, so the first thing a reader sees is
   the main type, not a helper: the primary type (and the structs it depends on),
   then its `impl` blocks, then free-standing helper functions, then

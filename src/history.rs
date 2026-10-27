@@ -78,6 +78,7 @@ fn node_hash(n: &GraphNode, core: bool) -> (u64, usize) {
         let mut w = HashWriter(&mut h, 0);
         let _ = serde_json::to_writer(&mut w, &n.channels);
     }
+    n.links.hash(&mut h);
     n.position.x.to_bits().hash(&mut h);
     n.position.y.to_bits().hash(&mut h);
     for i in &n.inputs {

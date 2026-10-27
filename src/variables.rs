@@ -53,7 +53,7 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("$").monospace());
-                            ui.field_sized([NAME_W - 16.0, h], egui::TextEdit::singleline(&mut var.name).hint_text("NAME").font(egui::TextStyle::Monospace));
+                            crate::properties::form::typed(ui, &mut var.name, |ui, t| ui.field_sized([NAME_W - 16.0, h], egui::TextEdit::singleline(t).hint_text("NAME").font(egui::TextStyle::Monospace)));
                         });
                         let taken = names.iter().take(k).any(|n| *n == var.name);
                         match vars::check_name(&var.name) {
@@ -63,15 +63,18 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
                         }
                     });
                     ui.vertical(|ui| {
-                        let r = ui.field_sized([RESULT_W, h], egui::TextEdit::singleline(&mut var.value).hint_text("value"));
-                        complete(ui, &r, &mut var.value, &[]);
+                        crate::properties::form::typed(ui, &mut var.value, |ui, t| {
+    let r = ui.field_sized([RESULT_W, h], egui::TextEdit::singleline(&mut *t).hint_text("value"));
+    crate::variables::complete(ui, &r, t, &[]);
+    r
+});
                         // With variables in it: what it comes to.
                         if var.value.contains('$') && vars::check_name(&var.name).is_ok() {
                             ui.label(egui::RichText::new(format!("→ {}", vars::expand(&format!("${{{}}}", var.name), &[]))).small().color(dim));
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.field_sized([ABOUT_W - 30.0, h], egui::TextEdit::singleline(&mut var.description).hint_text("what it is for"));
+                        crate::properties::form::typed(ui, &mut var.description, |ui, t| ui.field_sized([ABOUT_W - 30.0, h], egui::TextEdit::singleline(t).hint_text("what it is for")));
                         if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
                     });
                     ui.end_row();
@@ -80,8 +83,11 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
                 ui.label(egui::RichText::new("$JOB").monospace());
                 ui.vertical(|ui| {
                     let hint = std::env::var("JOB").map(|j| format!("{j} (from the environment)")).unwrap_or_else(|_| "the graph's folder".into());
-                    let r = ui.field_sized([RESULT_W, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut v.job).hint_text(hint));
-                    complete(ui, &r, &mut v.job, &[]);
+                    crate::properties::form::typed(ui, &mut v.job, |ui, t| {
+    let r = ui.field_sized([RESULT_W, ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut *t).hint_text(hint));
+    crate::variables::complete(ui, &r, t, &[]);
+    r
+});
                     if v.job.contains('$') { ui.label(egui::RichText::new(format!("→ {}", vars::expand("$JOB", &[]))).small().color(dim)); }
                 });
                 ui.label(egui::RichText::new("the project folder: typed here, else JOB from the environment, else $GDIR").small().color(dim));
