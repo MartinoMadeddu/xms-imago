@@ -25,13 +25,51 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 | Step | What | State |
 |---|---|---|
 | 1 | Definitions, `.icd` files, the library and its search path, context checks | Built: `src/compounds.rs` |
-| 2 | Scene compound instances: the Compound, Compound Input and Compound Output operators, cooking, Make Compound, entering, Make Editable, Save as Definition | Next |
-| 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | |
+| 2 | Scene compound instances: the Compound, Compound Input and Compound Output operators, cooking, Make Compound, entering, Make Editable, Save as Definition, promoted parameters in the Parameters pane | Built: `src/node_graph/compound.rs`, `src/inside_compound.rs` |
+| 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | Next |
 | 4 | Every parameter row knowing its serde path: the right-click menu on rows | |
 | 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | |
 | 6 | Ramp: the type, its row, Ramp Lookup | |
 | 7 | Viewer tools inside compounds | |
 | 8 | The first shipped compounds: the groom set, Scatter and Instance | |
+
+## Using them
+
+- **Make one:** select operators, open the add menu (right-click or Tab) and
+  choose **Make Compound**. They are packed into a Compound operator in their
+  place, the wires that crossed the selection now on its ports: a **Compound
+  Input** inside for each output wired in from outside, a **Compound Output**
+  for each output wired out (the viewed operator's, or the lowest's, when none
+  is). It is **editable**: its definition is its own, kept in the graph.
+- **Go inside:** double-click it, select it and press ↓, or **Go Inside** in its
+  parameters. Every pane shows the graph inside: the Node Graph, the Viewer
+  (its Compound Output viewed), the Scene Explorer, the Parameters. Its
+  Compound Inputs give what came into the instance when you went in. The bar
+  over the Node Graph shows the way back: **Root**, the instances entered, **↑
+  Up** (or ↑). Undo inside undoes what was done inside; leaving an editable
+  compound is one step of the graph it is in.
+- **Leaving an editable one** keeps the graph inside as its definition: its
+  ports are its Compound Input and Compound Output operators' names (renaming
+  one renames the port; its wires follow by name), its promoted values the
+  values at their targets.
+- **Save as Definition…** (in its parameters, with its Name, Category, Icon,
+  Help and Author) writes it as an `.icd` file, in the user's compounds folder
+  to start with. Saved in a library folder, the instance then follows the file,
+  **locked**, a version after the library's of that name; others of that name
+  are brought up to date.
+- **Placing one:** the add menu's **Compounds** lists the library's scene
+  compounds by category, with where each came from. A locked instance shows its
+  definition's name, version and file; **Make Editable** gives it its own copy.
+  Inside a locked one, a change is put back at once, with Make Editable on the
+  bar.
+- **Promoted parameters** (written in the `.icd` file for now; Promote comes
+  next) show in its parameters by group: numbers, booleans, text and vectors.
+  A value set back to the default is the default again.
+- **A missing definition** keeps the operator, its ports, wires and values: what
+  comes into its first input goes on, and its parameters say which definition
+  is missing.
+- **Saving the graph, opening another or closing** while inside first goes back
+  out to the root scene graph.
 
 ## Decisions
 

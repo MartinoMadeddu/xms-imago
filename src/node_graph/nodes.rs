@@ -146,6 +146,12 @@ pub fn evaluate_node_type(
         // Its variables go down the wires, read from its parameters: on
         // cook, what comes in goes on.
         NodeType::SetVariable { .. } => inputs.first().cloned(),
+        // Cooked by the graph they are in (`node_graph::compound`): a
+        // Compound's inside, what came into a Compound Input. Here, what comes
+        // in goes on.
+        NodeType::Compound { .. } | NodeType::CompoundInput { .. } | NodeType::CompoundOutput { .. } => {
+            inputs.first().cloned()
+        }
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs
             .first()

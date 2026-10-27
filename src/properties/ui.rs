@@ -589,6 +589,7 @@ pub fn draw_properties(
         }
     }
     let located = crate::core::locations::is_set(&node.locations);
+    let mut enter_compound = false;
 
     match &mut node.node_type {
         // Create
@@ -1182,6 +1183,20 @@ pub fn draw_properties(
             f.status(Status::Info, "Nothing to set: what comes in goes out");
         }),
         NodeType::SetVariable { vars } => set_variable_rows(ui, vars),
+        NodeType::Compound { .. } => {
+            if compound_rows(ui, &mut node.node_type, sel_id, io) {
+                enter_compound = true;
+            }
+        }
+        NodeType::CompoundInput { name } => group(ui, "Port", Some("Inside a compound: what comes into the instance's input port of this name. The compound's ports are named by these operators when you leave it"), |f| {
+            resync |= f.text("Name", Some("The input port's name on the compound"), name, "Scene").changed();
+        }),
+        NodeType::CompoundOutput { name } => group(ui, "Port", Some("Inside a compound: what goes out of the instance's output port of this name"), |f| {
+            resync |= f.text("Name", Some("The output port's name on the compound"), name, "Scene").changed();
+        }),
+    }
+    if enter_compound {
+        graph.inside.request = Some(crate::node_graph::compound::Request::Enter(sel_id));
     }
     if resync {
         graph.sync_sockets(sel_id);
@@ -1270,6 +1285,203 @@ fn graph_variables_tab(ui: &mut egui::Ui, above: &[(String, String, String)], ow
             Some("What this operator publishes for every operator below it, over any of the same name from above"),
             |f| rows(f, own),
         );
+    }
+}
+
+// Compounds
+
+/// A compound instance's parameters: what its definition is and where it
+/// comes from, going inside, Make Editable and Save as Definition, its
+/// editable definition's name and menu entry, and its promoted parameters.
+/// Returns whether it asked to go inside.
+fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut PanelIo) -> bool {
+    let mut enter = false;
+    let library = crate::compounds::library();
+    let NodeType::Compound {
+        definition,
+        version,
+        editable,
+        ..
+    } = &mut *t
+    else {
+        return false;
+    };
+    let found = library.get(definition).cloned();
+    let editable_now = editable.is_some();
+    group(
+        ui,
+        "Compound",
+        Some("A piece of graph as one operator: double-click it, or Go Inside, to see the graph inside"),
+        |f| {
+            match (&*editable, &found) {
+            (Some(_), _) => f.status(Status::Info, "Editable: its own copy of the definition, kept in this graph"),
+            (None, Some(fd)) => f.status(
+                Status::Ok,
+                format!("{} v{}, {} ({})", fd.definition.name, fd.definition.version, fd.path.display(), fd.source.label()),
+            ),
+            (None, None) => f.status(
+                Status::Bad,
+                format!("{definition} was not found in the library: what comes into its first input goes on. Its wires and values are kept"),
+            ),
+        }
+            if !editable_now && found.as_ref().is_some_and(|fd| fd.definition.version != *version) {
+                f.status(Status::Info, format!("Saved with v{version}"));
+            }
+            f.buttons("", None, |ui| {
+            if ui.button("Go Inside").on_hover_text("The graph inside it (double-click the operator, or ↓)").clicked() {
+                enter = true;
+            }
+            if !editable_now
+                && found.is_some()
+                && ui
+                    .button("Make Editable")
+                    .on_hover_text("A copy of the definition for this instance alone, to change inside it; it no longer follows the library")
+                    .clicked()
+            {
+                *editable = found.as_ref().map(|fd| Box::new(fd.definition.clone()));
+            }
+            if editable_now
+                && ui
+                    .button("Save as Definition…")
+                    .on_hover_text("Write its definition as an .icd file in a library folder: this instance and others then follow it")
+                    .clicked()
+            {
+                let name = editable.as_ref().map_or(String::from("Compound.icd"), |d| d.file_name());
+                let user = crate::compounds::folders()
+                    .into_iter()
+                    .find(|(_, s)| *s == crate::compounds::Source::User)
+                    .map(|(d, _)| d);
+                if let Some(dir) = user {
+                    let _ = std::fs::create_dir_all(&dir);
+                    io.browser.set_dir(&dir);
+                }
+                io.browser.open(BrowseTarget::SaveDefinition(id), BrowseMode::Save, "Save as Definition", &["icd"], &name);
+            }
+        });
+        },
+    );
+    if let Some(d) = editable.as_deref_mut() {
+        group(
+            ui,
+            "Definition",
+            Some("What the library and the add menu call it"),
+            |f| {
+                if f.text("Name", Some("Instances find it by this name"), &mut d.name, "Compound")
+                    .changed()
+                {
+                    *definition = d.name.clone();
+                }
+                f.text(
+                    "Category",
+                    Some("Its group in the add menu's Compounds"),
+                    &mut d.category,
+                    "",
+                );
+                f.text("Icon", Some("Shown before its name in the add menu"), &mut d.icon, "◆");
+                f.text("Help", Some("What it does: the add menu's tooltip"), &mut d.help, "");
+                f.text("Author", None, &mut d.author, "");
+                f.value("Version", d.version.to_string());
+            },
+        );
+    }
+    // Its promoted parameters, by group.
+    let params = crate::node_graph::compound::with_definition(&*t, |d| d.parameters.clone()).unwrap_or_default();
+    let NodeType::Compound { values, .. } = t else {
+        return enter;
+    };
+    let mut groups: Vec<String> = vec![];
+    for p in &params {
+        if !groups.contains(&p.group) {
+            groups.push(p.group.clone());
+        }
+    }
+    for g in groups {
+        let title = if g.is_empty() {
+            "Parameters".to_string()
+        } else {
+            g.clone()
+        };
+        group(ui, &title, None, |f| {
+            for p in params.iter().filter(|p| p.group == g) {
+                promoted_row(f, p, values);
+            }
+        });
+    }
+    enter
+}
+
+/// One promoted parameter's row: its value, the instance's, else the default.
+/// A value set back to the default is the default again, not a value of its
+/// own.
+fn promoted_row(
+    f: &mut Rows,
+    p: &crate::compounds::Parameter,
+    values: &mut std::collections::BTreeMap<String, serde_json::Value>,
+) {
+    use crate::compounds::ParameterType as T;
+    let label = if p.label.is_empty() {
+        p.name.as_str()
+    } else {
+        p.label.as_str()
+    };
+    let hint = (!p.help.is_empty()).then_some(p.help.as_str());
+    let now = values.get(&p.name).cloned().unwrap_or_else(|| p.default.clone());
+    let changed: Option<serde_json::Value> = match p.kind {
+        T::Float => {
+            let mut x = now.as_f64().unwrap_or(0.0) as f32;
+            let r = match p.range {
+                Some([lo, hi]) => f.slider(label, hint, &mut x, lo as f32..=hi as f32, ""),
+                None => f.drag(label, hint, &mut x, 0.01, ""),
+            };
+            r.changed().then(|| serde_json::json!(x))
+        }
+        T::Integer => {
+            let mut x = now.as_i64().unwrap_or(0) as f32;
+            let r = f.drag(label, hint, &mut x, 1.0, "");
+            r.changed().then(|| serde_json::json!(x.round() as i64))
+        }
+        T::Boolean => {
+            let mut b = now.as_bool().unwrap_or(false);
+            f.toggle(label, hint, &mut b).changed().then(|| serde_json::json!(b))
+        }
+        T::String => {
+            let mut s = now.as_str().unwrap_or_default().to_string();
+            f.text_vars(label, hint, &mut s, "", false)
+                .changed()
+                .then(|| serde_json::json!(s))
+        }
+        T::Vector2 | T::Vector3 | T::Vector4 | T::Colour => {
+            let n = match p.kind {
+                T::Vector2 => 2,
+                T::Vector4 => 4,
+                _ => 3,
+            };
+            let mut v: Vec<f64> = match &now {
+                serde_json::Value::Array(a) => a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect(),
+                x => vec![x.as_f64().unwrap_or(0.0)],
+            };
+            v.resize(n, 0.0);
+            let mut changed = false;
+            f.row(label, hint, |ui| {
+                ui.horizontal(|ui| {
+                    for x in v.iter_mut() {
+                        changed |= ui.add(egui::DragValue::new(x).speed(0.01)).changed();
+                    }
+                });
+            });
+            changed.then(|| serde_json::json!(v))
+        }
+        T::Ramp => {
+            f.value(label, "a ramp: its row comes with Ramp parameters");
+            None
+        }
+    };
+    if let Some(v) = changed {
+        if v == p.default {
+            values.remove(&p.name);
+        } else {
+            values.insert(p.name.clone(), v);
+        }
     }
 }
 

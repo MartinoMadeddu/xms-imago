@@ -17,6 +17,7 @@ mod history;
 mod ice;
 /// The Image Viewer pane: renders and images.
 mod image_viewer;
+mod inside_compound;
 mod keys_ui;
 mod layout;
 mod materialx;
@@ -119,6 +120,7 @@ pub(crate) fn draw_ui(
         batch,
         curve_editor,
         image_viewer,
+        inside,
         ..
     } = app;
     // Keyed parameters cook at the playhead.
@@ -227,6 +229,17 @@ pub(crate) fn draw_ui(
                         _ => format!("No material read from {}. {}", path.display(), got.notes.join(". ")),
                     },
                 };
+            }
+            // A compound's definition written as an .icd file.
+            BrowseTarget::SaveDefinition(op) => {
+                let path = if path.extension().is_some_and(|e| e == compounds::EXTENSION) {
+                    path.clone()
+                } else {
+                    path.with_extension(compounds::EXTENSION)
+                };
+                graph_file.message = graph
+                    .save_definition(op, &path)
+                    .unwrap_or_else(|e| format!("Could not save the definition: {e}"));
             }
             // A MaterialX operator's graph written as a .mtlx file.
             BrowseTarget::MatxSave(op) => {
@@ -414,6 +427,18 @@ pub(crate) fn draw_ui(
         });
     theme::editor(ctx);
     variables::window(ctx, &mut graph.variables);
+    // What saves, replaces or closes the graph is done on the root scene
+    // graph: out of any compound first.
+    if command
+        .as_ref()
+        .is_some_and(|c| !matches!(c, FileCommand::ClearRecent | FileCommand::Variables))
+        && inside.is_inside()
+    {
+        if let Some(m) = inside_compound::leave_all(&mut *graph, &mut *subnets, &mut *history, &mut *nav, &mut *inside)
+        {
+            graph_file.message = m;
+        }
+    }
     if let Some(c) = command {
         match c {
             FileCommand::New => save_first.load_new(),
@@ -1191,6 +1216,11 @@ impl egui_dock::TabViewer for Panes<'_> {
                     }
                 }
                 None => {
+                    // Inside a compound: the way back, and whether it is
+                    // locked.
+                    if !self.graph.inside.path.is_empty() {
+                        compound_bar(ui, self.graph);
+                    }
                     // Wraps when the pane is narrow.
                     ui.horizontal_wrapped(|ui| {
                         if ui.button("Tidy").on_hover_text("Lay the nodes out in rows, top to bottom, and bring them into view").clicked() {
@@ -1279,12 +1309,70 @@ impl egui_dock::TabViewer for Panes<'_> {
                             self.nav.current_subnet = Some(sid)
                         }
                         Some(node_graph::ui::Dive::MaterialX(op)) => self.nav.materialx = Some(op),
+                        Some(node_graph::ui::Dive::Compound(op)) => {
+                            self.graph.inside.request = Some(node_graph::compound::Request::Enter(op))
+                        }
                         _ => {}
+                    }
+                    // Make Compound, from the add menu: the operators and their
+                    // ICE graphs packed into an editable instance.
+                    if let Some(ids) = self.graph.make_compound_request.take() {
+                        self.graph_file.message = match self.graph.make_compound(self.subnets, &ids, "Compound") {
+                            Ok(_) => format!(
+                                "{} operator{} made a compound: double-click it to go inside",
+                                ids.len(),
+                                if ids.len() == 1 { "" } else { "s" }
+                            ),
+                            Err(e) => e,
+                        };
                     }
                 }
             },
         }
     }
+}
+
+/// The bar over the Node Graph pane inside a compound: the instances entered
+/// (Root goes back out of all of them, ↑ Up out of one), and, when locked,
+/// Make Editable.
+fn compound_bar(ui: &mut egui::Ui, graph: &mut NodeGraphState) {
+    use node_graph::compound::Request;
+    let (text, dim) = (theme::c(235, 235, 235), theme::c(200, 200, 200));
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .link(egui::RichText::new("Root").color(text))
+            .on_hover_text("Back to the root scene graph")
+            .clicked()
+        {
+            graph.inside.request = Some(Request::LeaveAll);
+        }
+        for name in &graph.inside.path {
+            ui.label(egui::RichText::new(" › ").color(dim));
+            ui.label(egui::RichText::new(name).strong().color(text));
+        }
+        if graph.inside.locked {
+            ui.label(
+                egui::RichText::new("  locked: it follows its definition")
+                    .small()
+                    .color(dim),
+            );
+            if ui
+                .button("Make Editable")
+                .on_hover_text("A copy of the definition for this instance alone, to change here")
+                .clicked()
+            {
+                graph.inside.request = Some(Request::MakeEditable);
+            }
+        }
+        if ui
+            .button("↑ Up")
+            .on_hover_text("Back out to the graph the compound is in (↑)")
+            .clicked()
+        {
+            graph.inside.request = Some(Request::Leave);
+        }
+    });
+    ui.separator();
 }
 
 /// Undo and redo for one frame: the shortcuts, and a step recorded when the

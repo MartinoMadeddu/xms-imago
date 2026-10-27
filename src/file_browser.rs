@@ -52,6 +52,8 @@ pub enum BrowseTarget {
     ImportFbx,
     /// File > Import: add a Load USD node reading this file.
     ImportUsd,
+    /// A compound instance's definition, written as an `.icd` file.
+    SaveDefinition(NodeId),
 }
 
 struct Request {

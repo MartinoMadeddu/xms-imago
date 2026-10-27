@@ -13,8 +13,8 @@
 //!   beside the program, `assets/compounds` in the repository). The first
 //!   definition of a name wins.
 //!
-//! Instances, which name a definition from a graph, come with the Compound
-//! operator.
+//! Instances (the Compound operator) and their cooking are
+//! `node_graph::compound`; going inside one, `inside_compound`.
 #![cfg_attr(not(test), allow(dead_code))]
 
 use std::path::{Path, PathBuf};
@@ -347,6 +347,71 @@ impl Library {
     }
 }
 
+static LIBRARY: std::sync::RwLock<Option<std::sync::Arc<Library>>> = std::sync::RwLock::new(None);
+
+/// The library, scanned from `folders()` the first time it is asked for and
+/// kept until `rescan`.
+pub fn library() -> std::sync::Arc<Library> {
+    if let Some(l) = LIBRARY.read().ok().and_then(|l| l.clone()) {
+        return l;
+    }
+    rescan()
+}
+
+/// Scan the library's folders again: after a definition is saved, a graph is
+/// opened or `$JOB` changed.
+pub fn rescan() -> std::sync::Arc<Library> {
+    let l = std::sync::Arc::new(Library::scan(&folders()));
+    if let Ok(mut kept) = LIBRARY.write() {
+        *kept = Some(l.clone());
+    }
+    l
+}
+
+/// Put `x` at `path` in a node's parameters as JSON (`translation/0`), the
+/// variant's name above them skipped, as keys' paths are. False when the path
+/// is not there.
+pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> bool {
+    let mut v = match value {
+        serde_json::Value::Object(o) if o.len() == 1 => match o.values_mut().next() {
+            Some(v) => v,
+            None => return false,
+        },
+        v => v,
+    };
+    for part in path.split('/').filter(|p| !p.is_empty()) {
+        v = match v {
+            serde_json::Value::Object(o) => match o.get_mut(part) {
+                Some(v) => v,
+                None => return false,
+            },
+            serde_json::Value::Array(a) => match part.parse::<usize>().ok().and_then(|i| a.get_mut(i)) {
+                Some(v) => v,
+                None => return false,
+            },
+            _ => return false,
+        };
+    }
+    *v = x;
+    true
+}
+
+/// The value at `path` in a node's parameters as JSON, as `put` finds it.
+pub fn get<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut v = match value {
+        serde_json::Value::Object(o) if o.len() == 1 => o.values().next()?,
+        v => v,
+    };
+    for part in path.split('/').filter(|p| !p.is_empty()) {
+        v = match v {
+            serde_json::Value::Object(o) => o.get(part)?,
+            serde_json::Value::Array(a) => a.get(part.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    Some(v)
+}
+
 /// The library's folders, in the order they are searched: the project's (when
 /// `$JOB` is known), the user's, those in `XMS_COMPOUNDS`, the shipped ones.
 pub fn folders() -> Vec<(PathBuf, Source)> {
@@ -575,6 +640,20 @@ mod tests {
     fn file_names_come_from_names() {
         assert_eq!(clump().file_name(), "Groom Clump.icd");
         assert_eq!(Definition::new(Context::Scene, "a/b:c?").file_name(), "a_b_c_.icd");
+    }
+
+    /// A value put at a path in parameters is read back there; a path that is
+    /// not there changes nothing.
+    #[test]
+    fn values_go_to_paths() {
+        let mut v = serde_json::json!({ "Transform": { "translation": [0.0, 1.0, 2.0], "name": "a" } });
+        assert!(put(&mut v, "translation/1", serde_json::json!(5.0)));
+        assert!(put(&mut v, "name", serde_json::json!("b")));
+        assert!(!put(&mut v, "scale/0", serde_json::json!(1.0)));
+        assert!(!put(&mut v, "translation/9", serde_json::json!(1.0)));
+        assert_eq!(get(&v, "translation/1"), Some(&serde_json::json!(5.0)));
+        assert_eq!(get(&v, "name"), Some(&serde_json::json!("b")));
+        assert_eq!(v["Transform"]["translation"][2], serde_json::json!(2.0));
     }
 
     /// The FNV-1a hash of known text: the same in every build.

@@ -365,7 +365,7 @@ and press ↓, to go in. Selected, the selection's blue goes around the band.
 |---|---|
 | Create | Cube, Sphere, Grid, Camera, Test Clip |
 | Placeholder | Placeholder |
-| Organise | Set Variable, Pass Through |
+| Organise | Set Variable, Pass Through, Compound Input, Compound Output (inside a [compound](compounds.md)) |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Unpack |

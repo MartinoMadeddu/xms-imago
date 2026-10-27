@@ -14,9 +14,9 @@
   over every point, face or corner, compiled and run in parallel
 - [MaterialX](materialx.md): the MaterialX node library and the MaterialX
   operator
-- [Compounds](compounds.md): a piece of graph as one reusable operator or ICE
-  node, its definition in an `.icd` file, the library, promotion and references
-  (being built)
+- [Compounds](compounds.md): a piece of graph as one reusable operator, made
+  from a selection with Make Compound, gone inside, saved as an `.icd` file
+  definition in a library; promotion, references and ICE compounds being built
 - [Rendering](render.md): Render Commons, Render Settings (Karma, Arnold,
   Custom, renderer definition files, AOVs), Render Variables, as UsdRender prims
   Write USD writes

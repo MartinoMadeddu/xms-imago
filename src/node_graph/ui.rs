@@ -166,12 +166,13 @@ pub fn side_output(node: &GraphNode) -> bool {
     matches!(node.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. })
 }
 
-/// A graph inside an operator, to open in the pane: an ICE node's ICE graph, or
-/// a MaterialX operator's graph.
+/// A graph inside an operator, to open in the pane: an ICE node's ICE graph, a
+/// MaterialX operator's graph, or a compound instance's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Dive {
     Ice(IceGraphId),
     MaterialX(NodeId),
+    Compound(NodeId),
 }
 
 /// The graph an operator holds, if it holds one.
@@ -179,6 +180,7 @@ pub fn dive_of(node: &GraphNode) -> Option<Dive> {
     match &node.node_type {
         NodeType::Ice { id, .. } => Some(Dive::Ice(*id)),
         NodeType::MaterialX { .. } => Some(Dive::MaterialX(node.id)),
+        NodeType::Compound { .. } => Some(Dive::Compound(node.id)),
         _ => None,
     }
 }
@@ -502,7 +504,17 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.delete_selected();
     }
 
-    // Down arrow: into the selected ICE or MaterialX node, as a double-click does
+    // Up arrow, inside a compound: back out to the graph it is in.
+    if ptr_in_canvas
+        && !graph.inside.path.is_empty()
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::ArrowUp))
+    {
+        graph.inside.request = Some(super::compound::Request::Leave);
+    }
+
+    // Down arrow: into the selected ICE, MaterialX or compound node, as a
+    // double-click does
     if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
         let selected = graph
             .selected_node
@@ -1394,6 +1406,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("↓", "Organise", vec![
             (NodeType::SetVariable { vars: vec![crate::core::vars::Variable::new("shot", "")] }, "Variables of its own, written {name}, for every operator below it: a shot, a variant, a folder. What comes in goes on"),
             (NodeType::PassThrough, "Hands the scene on unchanged: for laying out big graphs, a place to gather wires or branch from"),
+            (NodeType::CompoundInput { name: "Scene".into() }, "Inside a compound: what comes into its input port of this name"),
+            (NodeType::CompoundOutput { name: "Scene".into() }, "Inside a compound: what goes out of its output port of this name"),
         ]),
         ("📂", "File", vec![
             (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
@@ -1550,6 +1564,62 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
     ui.separator();
     // Categories look like the items in them: menu rows, not buttons.
     ui.visuals_mut().button_frame = false;
+    // Operators selected: packed into a compound, its ports the wires that
+    // cross the selection.
+    let picked: Vec<NodeId> = graph.selected_nodes.clone();
+    if !picked.is_empty()
+        && ui
+            .button(format!("◆  Make Compound ({} selected)", picked.len()))
+            .on_hover_text("Pack the selected operators into a compound, in their place: the wires crossing the selection become its ports. It is editable; Save as Definition in its parameters writes it to the library")
+            .clicked()
+    {
+        graph.make_compound_request = Some(picked);
+        added = true;
+    }
+    // The library's scene compounds, by category, where each came from.
+    let library = crate::compounds::library();
+    let found = library.of_context(crate::compounds::Context::Scene);
+    if !found.is_empty() {
+        crate::menus::menu(ui, "◆  Compounds", |ui| {
+            ui.set_min_width(200.0);
+            let mut category: Option<&str> = None;
+            for f in found {
+                let d = &f.definition;
+                if category != Some(d.category.as_str()) {
+                    category = Some(d.category.as_str());
+                    if !d.category.is_empty() {
+                        ui.label(egui::RichText::new(&d.category).small().strong());
+                    }
+                }
+                let icon = if d.icon.is_empty() { "◆" } else { d.icon.as_str() };
+                let hint = format!(
+                    "{}\n{} (v{}), {}",
+                    d.help,
+                    f.path.display(),
+                    d.version,
+                    f.source.label()
+                );
+                if ui
+                    .button(format!("{icon}  {}", d.name))
+                    .on_hover_text(hint.trim())
+                    .clicked()
+                {
+                    let t = NodeType::Compound {
+                        definition: d.name.clone(),
+                        version: d.version,
+                        hash: d.hash(),
+                        inputs: d.inputs.iter().map(|p| p.name.clone()).collect(),
+                        outputs: d.outputs.iter().map(|p| p.name.clone()).collect(),
+                        values: Default::default(),
+                        editable: None,
+                    };
+                    graph.add_node(super::node_name(&d.name), t, cp);
+                    added = true;
+                    ui.close();
+                }
+            }
+        });
+    }
     for (icon, category, nodes) in catalog() {
         crate::menus::menu(ui, format!("{icon}  {category}"), |ui| {
             ui.set_min_width(170.0);

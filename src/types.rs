@@ -385,6 +385,37 @@ pub enum NodeType {
     /// material. For laying out big graphs: a place to gather wires, a named
     /// point to branch from. Drawn narrower and square-cornered.
     PassThrough,
+    /// A compound placed in the graph (see `docs/compounds.md`): it cooks the
+    /// graph of its definition, found in the library by name, or of its own
+    /// copy once made editable. Its ports, and its definition's version and
+    /// hash, are kept as last seen: its wires stay while the definition cannot
+    /// be found, and a changed definition is told.
+    Compound {
+        definition: String,
+        #[serde(default)]
+        version: u32,
+        #[serde(default)]
+        hash: u64,
+        #[serde(default)]
+        inputs: Vec<String>,
+        #[serde(default)]
+        outputs: Vec<String>,
+        /// Its promoted parameters' values, by name.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        values: std::collections::BTreeMap<String, serde_json::Value>,
+        /// Made editable: its own definition, no longer the library's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        editable: Option<Box<crate::compounds::Definition>>,
+    },
+    /// Inside a compound: what comes into its input port `name`.
+    CompoundInput {
+        name: String,
+    },
+    /// Inside a compound: what goes out of its output port `name`. What comes
+    /// in goes on.
+    CompoundOutput {
+        name: String,
+    },
     /// Skin weights by proximity: each point of the geometry weighted to the
     /// nearest bones of the skeleton, in the skeleton's first frame.
     Capture {
@@ -766,6 +797,9 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::RenderVariables { .. } => "📑",
         NodeType::RenderCommand { .. } => "🖥",
         NodeType::SetVariable { .. } => "{}",
+        NodeType::Compound { .. } => "◆",
+        NodeType::CompoundInput { .. } => "▶",
+        NodeType::CompoundOutput { .. } => "◀",
         NodeType::UnpackPrims => "📦",
         NodeType::Transform { .. } => "⟲",
         NodeType::Merge { .. } => "➕",
@@ -831,6 +865,9 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::RenderVariables { .. } => "Render Variables",
         NodeType::RenderCommand { .. } => "Render Command",
         NodeType::SetVariable { .. } => "Set Variable",
+        NodeType::Compound { .. } => "Compound",
+        NodeType::CompoundInput { .. } => "Compound Input",
+        NodeType::CompoundOutput { .. } => "Compound Output",
         NodeType::UnpackPrims => "Unpack",
         NodeType::Transform { .. } => "Transform",
         NodeType::Merge { .. } => "Merge",

@@ -55,4 +55,7 @@ pub struct AppState {
     pub curve_editor: crate::curve_editor::CurveEditor,
     /// The Image Viewer: the image shown, and the render going.
     pub image_viewer: crate::image_viewer::ImageViewerState,
+    /// The graphs waiting while a compound's inside is looked at: `graph`,
+    /// `subnets`, `history` and `nav` are then the compound's.
+    pub inside: crate::inside_compound::Inside,
 }

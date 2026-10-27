@@ -70,6 +70,21 @@ impl eframe::App for ImagoApp {
             dt,
             Some(&mut self.viewer),
         );
+        // Going in and out of compounds, as the panes asked: before undo, so
+        // leaving an editable one is a step of the graph it is in.
+        {
+            let a = &mut self.app;
+            let told = crate::inside_compound::frame(crate::inside_compound::Panes {
+                graph: &mut a.graph,
+                subnets: &mut a.subnets,
+                history: &mut a.history,
+                nav: &mut a.nav,
+                inside: &mut a.inside,
+            });
+            if let Some(m) = told {
+                a.graph_file.message = m;
+            }
+        }
         crate::history_frame(&ctx, &mut self.app);
         // The graph's variables ($GNAME, $GDIR, $F…), for paths and command
         // lines. A change other than the frame cooks again what reads paths.
@@ -92,6 +107,13 @@ impl eframe::App for ImagoApp {
         };
         if crate::core::vars::set_globals(globals) {
             self.app.revision.0 = self.app.revision.0.wrapping_add(1);
+            // Another graph, folder or `$JOB`: the library's folders may be
+            // others, and its compounds' definitions too.
+            crate::compounds::rescan();
+            let told = self.app.graph.refresh_compounds();
+            if !told.is_empty() {
+                self.app.graph_file.message = told.join(". ");
+            }
         }
         crate::track_revision_frame(&ctx, &mut self.app, &mut self.last_hash);
 
@@ -99,6 +121,9 @@ impl eframe::App for ImagoApp {
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && !self.closing {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            // The question and the save are the root scene graph's.
+            let a = &mut self.app;
+            crate::inside_compound::leave_all(&mut a.graph, &mut a.subnets, &mut a.history, &mut a.nav, &mut a.inside);
         }
         if crate::save_first_frame(&ctx, &mut self.app, close_requested && !self.closing) {
             self.closing = true;

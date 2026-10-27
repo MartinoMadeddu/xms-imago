@@ -1,3 +1,4 @@
+pub mod compound;
 pub mod from_above;
 pub mod keying;
 pub mod local;
@@ -278,6 +279,15 @@ pub struct NodeGraphState {
     pub scene: SceneRange,
     /// The graph's own variables and `$JOB` (File > Variables), saved with it.
     pub variables: crate::core::vars::Variables,
+    /// For the graph inside a compound: what comes into the instance's ports,
+    /// read by its Compound Input operators (`compound::Fed`).
+    pub fed: Option<std::sync::Arc<compound::Fed>>,
+    /// When it is the graph inside a compound being looked at: the way back,
+    /// whether it is locked, and what its pane asked for (`compound::Inside`).
+    pub inside: compound::Inside,
+    /// Operators the add menu's Make Compound asked to pack, carried out by
+    /// the pane (it holds the ICE graphs they take with them).
+    pub make_compound_request: Option<Vec<NodeId>>,
 }
 
 /// The scene's frames: first, last and rate. Frame `f` is at `f / fps` seconds.
@@ -349,6 +359,9 @@ impl Default for NodeGraphState {
             eval_time: Default::default(),
             scene: SceneRange::default(),
             variables: Default::default(),
+            fed: None,
+            inside: Default::default(),
+            make_compound_request: None,
         };
         s
     }
@@ -504,6 +517,13 @@ impl NodeGraphState {
             | NodeType::RenderVariables { .. }
             | NodeType::RenderCommand { .. }
             | NodeType::SetVariable { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            // A compound's ports are its definition's, as last seen.
+            NodeType::Compound { inputs, outputs, .. } => (
+                inputs.iter().map(|n| i(n)).collect(),
+                outputs.iter().map(|n| o(n)).collect(),
+            ),
+            NodeType::CompoundInput { name } => (vec![], vec![o(name)]),
+            NodeType::CompoundOutput { name } => (vec![i(name)], vec![o(name)]),
             NodeType::MaterialBinding { inputs, .. } => (
                 std::iter::once(i("Scene"))
                     .chain((1..=(*inputs).max(1)).map(|k| InputSocket {
@@ -1131,7 +1151,22 @@ impl NodeGraphState {
             NodeType::Ragdoll { .. } => crate::ragdoll::generation().hash(&mut h),
             // A material is named by its operator.
             NodeType::Material { .. } | NodeType::MaterialX { .. } => node.name.hash(&mut h),
+            // A compound by the definition it cooks (a locked one follows the
+            // library's), and the name `{instance}` reads inside.
+            NodeType::Compound { .. } => {
+                compound::with_definition(&node.node_type, |d| d.hash()).hash(&mut h);
+                node.name.hash(&mut h);
+            }
+            // What came into the instance's port: its key, or nothing to key.
+            NodeType::CompoundInput { name } => match self.fed.as_ref().and_then(|f| f.port(name)) {
+                Some(p) if p.result.is_some() => p.key?.hash(&mut h),
+                _ => 0u8.hash(&mut h),
+            },
             _ => {}
+        }
+        // Inside a compound, every operator reads what the instance gives.
+        if let Some(fed) = &self.fed {
+            fed.above.hash(&mut h);
         }
         for input in &node.inputs {
             match input.connected_output {
@@ -1226,12 +1261,36 @@ impl NodeGraphState {
 
         // A placeholder hands each input to the output of the same number;
         // a Pass Through its one input to its one output.
-        if matches!(*node_type, NodeType::Placeholder { .. } | NodeType::PassThrough) {
+        if matches!(
+            *node_type,
+            NodeType::Placeholder { .. } | NodeType::PassThrough | NodeType::CompoundOutput { .. }
+        ) {
             let result = node
                 .inputs
                 .get(output)
                 .and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet));
+            if own {
+                cache.insert((id, output), result.clone());
+            }
+            return result;
+        }
+
+        // Inside a compound, a Compound Input gives what came into the
+        // instance's port of its name.
+        if let NodeType::CompoundInput { name } = node_type {
+            let result = self.fed_port(name);
+            if own {
+                cache.insert((id, output), result.clone());
+            }
+            return result;
+        }
+        // A compound instance cooks the graph inside it, fed its inputs.
+        if matches!(node_type, NodeType::Compound { .. }) && !node.bypassed {
+            let started = std::time::Instant::now();
+            let _operator = self.reading(node);
+            let result = self.cook_compound(node, node_type, output, cache, eval_subnet);
+            self.cook_times.put(id, started.elapsed().as_secs_f64() * 1000.0);
             if own {
                 cache.insert((id, output), result.clone());
             }
