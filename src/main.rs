@@ -241,6 +241,18 @@ pub(crate) fn draw_ui(
                     .save_definition(op, &path)
                     .unwrap_or_else(|e| format!("Could not save the definition: {e}"));
             }
+            BrowseTarget::SaveIceDefinition(sid, id) => {
+                let path = if path.extension().is_some_and(|e| e == compounds::EXTENSION) {
+                    path.clone()
+                } else {
+                    path.with_extension(compounds::EXTENSION)
+                };
+                graph_file.message = match subnets.get_mut(sid) {
+                    Some(sg) => crate::ice::compound::save_definition(sg, id, &path)
+                        .unwrap_or_else(|e| format!("Could not save the definition: {e}")),
+                    None => "That ICE graph is gone".into(),
+                };
+            }
             // A MaterialX operator's graph written as a .mtlx file.
             BrowseTarget::MatxSave(op) => {
                 let path = if path.extension().is_some_and(|e| e == "mtlx") {
@@ -999,6 +1011,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         tool: &mut tool,
                         scene_paths,
                         add: vec![],
+                        ice_params: vec![],
                     };
                     // A keyed node shows its parameters at the playhead; a
                     // keyed number changed here is keyed there.
@@ -1240,17 +1253,23 @@ impl egui_dock::TabViewer for Panes<'_> {
             Pane::NodeGraph => match self.nav.current_subnet {
                 Some(sid) => {
                     if let Some(sg) = self.subnets.get_mut(sid) {
-                        let subnet_name = sg.name.clone();
-                        if draw_breadcrumb(ui, &subnet_name) {
+                        let (root, told) = crate::ice::ui::draw_ice_bar(ui, sg);
+                        if let Some(m) = told {
+                            self.graph_file.message = m;
+                        }
+                        if root {
                             self.nav.current_subnet = None;
                         } else {
-                            ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↑: back to the scene graph  |  Esc: cancel wire");
+                            ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↓: inside a compound  |  ↑: back out  |  Esc: cancel wire");
                             ui.separator();
                             // Canvas in its own child Ui: see the note below.
                             let rect = ui.available_rect_before_wrap();
                             let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                             canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
-                            let up = draw_subnet_graph(&mut canvas, sg);
+                            let (up, told) = draw_subnet_graph(&mut canvas, sg);
+                            if let Some(m) = told {
+                                self.graph_file.message = m;
+                            }
                             ui.allocate_rect(rect, egui::Sense::hover());
                             if up {
                                 self.nav.current_subnet = None;

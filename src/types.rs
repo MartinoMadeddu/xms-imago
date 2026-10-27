@@ -243,11 +243,16 @@ pub enum NodeType {
     /// An ICE graph run on the geometry coming in. `references`: how many
     /// reference inputs follow the geometry (one kept free), whose primitives
     /// the graph reads by number (Get Reference).
+    /// `params`: the values of its graph's Parameter nodes it sets, by name
+    /// (a Parameter node it sets none of takes its default); what a scene
+    /// compound's promoted parameter can drive.
     Ice {
         id: IceGraphId,
         name: String,
         #[serde(default = "one_reference")]
         references: u32,
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        params: std::collections::BTreeMap<String, xms_ice::Value>,
     },
     // The Output node is gone: the view flag says what the scene is. Graphs
     // saved with one have it taken out when read (`graph_io`).
@@ -1010,6 +1015,42 @@ pub enum IceGraphNodeType {
         #[serde(default)]
         paths: Vec<String>,
     },
+    /// An instance of an ICE compound (see `ice::compound`): the nodes of its
+    /// definition, run in its place. Its inputs are the definition's input
+    /// ports (their values used while nothing is wired in), its outputs the
+    /// output ports. `inputs` and `outputs`: the port names when last seen,
+    /// kept while the definition cannot be found. As the scene graph's
+    /// Compound: locked, it follows the library's definition of its name;
+    /// `editable`, its own.
+    Compound {
+        definition: String,
+        #[serde(default)]
+        version: u32,
+        #[serde(default)]
+        hash: u64,
+        #[serde(default)]
+        inputs: Vec<String>,
+        #[serde(default)]
+        outputs: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        editable: Option<Box<crate::compounds::Definition>>,
+    },
+    /// Inside an ICE compound: what comes into its input port `name`, `value`
+    /// while nothing is wired to the instance's port.
+    CompoundInput {
+        name: String,
+        value: xms_ice::Value,
+    },
+    /// Inside an ICE compound: what goes out of its output port `name`.
+    CompoundOutput {
+        name: String,
+    },
+    /// A value its ICE operator sets, by name (`NodeType::Ice::params`), else
+    /// `default` (see `xms_ice::Op::Parameter`).
+    Parameter {
+        name: String,
+        default: xms_ice::Value,
+    },
     /// Make a point instancer, an Execute: prototypes at positions (see
     /// `xms_ice::Op::Instancer`). `path`: the instancer's; relative, beside the
     /// primitive the graph runs on. `draw_mode`: how viewports draw its
@@ -1107,6 +1148,10 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             op: xms_ice::Decompose::Matrix,
         } => "Decompose Matrix",
         IceGraphNodeType::Decompose { .. } => "Decompose",
+        IceGraphNodeType::Compound { .. } => "Compound",
+        IceGraphNodeType::CompoundInput { .. } => "Compound Input",
+        IceGraphNodeType::CompoundOutput { .. } => "Compound Output",
+        IceGraphNodeType::Parameter { .. } => "Parameter",
         IceGraphNodeType::Array { op } => match op {
             xms_ice::ArrayOp::Size => "Array Size",
             xms_ice::ArrayOp::Element => "Select in Array",
@@ -1134,6 +1179,10 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Array { .. } => "▤",
         IceGraphNodeType::Compose { .. } => "⊞",
         IceGraphNodeType::Decompose { .. } => "⊟",
+        IceGraphNodeType::Compound { .. } => "◆",
+        IceGraphNodeType::CompoundInput { .. } => "▶",
+        IceGraphNodeType::CompoundOutput { .. } => "◀",
+        IceGraphNodeType::Parameter { .. } => "⚙",
     }
 }
 

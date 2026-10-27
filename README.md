@@ -381,7 +381,10 @@ Joints](docs/xms_bypass_pick.png)
   their triangles), to read anything there: shrink-wraps and other deformers.
   Matrices (compose from axes and an origin, multiply, invert, transpose,
   transform points and vectors) and each sample's triangle (`triP`, `bary`)
-  build frames on a surface by hand. Compiled and run in parallel batches by the
+  build frames on a surface by hand. Selected nodes make a compound (one node,
+  its ports the wires that crossed the selection), saved as a definition and
+  found in the add menu; Parameter nodes are set in the ICE operator's
+  parameters. Compiled and run in parallel batches by the
   ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
 - Primitive Inspector: the attributes of the selected node or primitive. Object,
   Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's

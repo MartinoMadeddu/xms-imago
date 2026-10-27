@@ -1457,7 +1457,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
             (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
-            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1 }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
+            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default() }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
         ]),
         ("📦", "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),

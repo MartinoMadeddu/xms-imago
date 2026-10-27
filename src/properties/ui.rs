@@ -59,6 +59,9 @@ pub struct PanelIo<'a> {
     /// Operators to add to the graph after the panel: a name and a type (a
     /// MaterialX operator made from a stage's material).
     pub add: Vec<(String, NodeType)>,
+    /// The selected ICE operator's Parameter nodes: name and default, a name
+    /// once.
+    pub ice_params: Vec<(String, xms_ice::Value)>,
 }
 
 pub fn draw_properties_panel(
@@ -96,7 +99,7 @@ pub fn draw_properties_panel(
                     })
                     .unwrap_or_default();
                 if let Some(sg) = subnets.get_mut(sid) {
-                    draw_subnet_node_properties(ui, sg, &references, &io.scene_paths);
+                    draw_subnet_node_properties(ui, sg, &references, &io.scene_paths, io.browser);
                     return;
                 }
             }
@@ -115,6 +118,16 @@ pub fn draw_properties_panel(
                     return;
                 }
             }
+            // An ICE operator: its graph's Parameter nodes.
+            io.ice_params = graph
+                .selected_node
+                .and_then(|id| graph.nodes.iter().find(|n| n.id == id))
+                .and_then(|n| match n.node_type {
+                    NodeType::Ice { id, .. } => subnets.get(id),
+                    _ => None,
+                })
+                .map(|sg| crate::ice::ui::parameters_of(&sg.composed()))
+                .unwrap_or_default();
             draw_properties(ui, graph, scene, anim, io);
         });
 }
@@ -788,7 +801,21 @@ pub fn draw_properties(
                 MergeMode::Flatten => f.status(Status::Info, "All the inputs as one mesh"),
             }
         }),
-        NodeType::Ice { .. } => group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); }),
+        NodeType::Ice { params, .. } => {
+            group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); });
+            if !io.ice_params.is_empty() {
+                group(ui, "Parameters", Some("Its graph's Parameter nodes, by name: the value it gives each, the node's default until set"), |f| {
+                    for (name, default) in &io.ice_params {
+                        let mut v = params.get(name).copied().filter(|v| v.ty() == default.ty()).unwrap_or(*default);
+                        let was = v;
+                        crate::ice::ui::value_row(f, name, &mut v);
+                        if v != was {
+                            if v == *default { params.remove(name); } else { params.insert(name.clone(), v); }
+                        }
+                    }
+                });
+            }
+        }
 
         // Primitives
         NodeType::PickPrims { pattern } => group(ui, "Pick", Some("The nodes after this one work on the picked primitives only and pass the others through: Edit Poly, Transform and the UV nodes all do"), |f| {
@@ -1300,24 +1327,24 @@ fn graph_variables_tab(ui: &mut egui::Ui, above: &[(String, String, String)], ow
 
 // Compounds
 
-/// A compound instance's parameters: what its definition is and where it
-/// comes from, going inside, Make Editable and Save as Definition, its
-/// editable definition's name and menu entry, and its promoted parameters.
-/// Returns whether it asked to go inside, and whether it went back to the
-/// library's definition.
-fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut PanelIo) -> (bool, bool) {
+/// A compound instance's rows, in the scene graph or an ICE graph: where its
+/// definition is found (or its own, editable), Go Inside, Make Editable, Save
+/// as Definition… (to `save`), Revert to Latest Definition, and an editable
+/// one's name, category, icon, help and author. `missing`: what the instance
+/// does while its definition cannot be found. Returns whether it asked to go
+/// inside, and whether it went back to the library's definition.
+pub fn definition_rows(
+    ui: &mut egui::Ui,
+    definition: &mut String,
+    version: u32,
+    editable: &mut Option<Box<crate::compounds::Definition>>,
+    missing: &str,
+    browser: &mut FileBrowser,
+    save: BrowseTarget,
+) -> (bool, bool) {
     let mut enter = false;
     let mut back = false;
     let library = crate::compounds::library();
-    let NodeType::Compound {
-        definition,
-        version,
-        editable,
-        ..
-    } = &mut *t
-    else {
-        return (false, false);
-    };
     let found = library.get(definition).cloned();
     let editable_now = editable.is_some();
     group(
@@ -1326,17 +1353,26 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
         Some("A piece of graph as one operator: double-click it, or Go Inside, to see the graph inside"),
         |f| {
             match (&*editable, &found) {
-            (Some(_), _) => f.status(Status::Info, "Editable: its own copy of the definition, kept in this graph"),
-            (None, Some(fd)) => f.status(
-                Status::Ok,
-                format!("{} v{}, {} ({})", fd.definition.name, fd.definition.version, fd.path.display(), fd.source.label()),
-            ),
-            (None, None) => f.status(
-                Status::Bad,
-                format!("{definition} was not found in the library: what comes into its first input goes on. Its wires and values are kept"),
-            ),
-        }
-            if !editable_now && found.as_ref().is_some_and(|fd| fd.definition.version != *version) {
+                (Some(_), _) => f.status(
+                    Status::Info,
+                    "Editable: its own copy of the definition, kept in this graph",
+                ),
+                (None, Some(fd)) => f.status(
+                    Status::Ok,
+                    format!(
+                        "{} v{}, {} ({})",
+                        fd.definition.name,
+                        fd.definition.version,
+                        fd.path.display(),
+                        fd.source.label()
+                    ),
+                ),
+                (None, None) => f.status(
+                    Status::Bad,
+                    format!("{definition} was not found in the library: {missing}. Its wires and values are kept"),
+                ),
+            }
+            if !editable_now && found.as_ref().is_some_and(|fd| fd.definition.version != version) {
                 f.status(Status::Info, format!("Saved with v{version}"));
             }
             f.buttons("", None, |ui| {
@@ -1365,9 +1401,9 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
                     .map(|(d, _)| d);
                 if let Some(dir) = user {
                     let _ = std::fs::create_dir_all(&dir);
-                    io.browser.set_dir(&dir);
+                    browser.set_dir(&dir);
                 }
-                io.browser.open(BrowseTarget::SaveDefinition(id), BrowseMode::Save, "Save as Definition", &["icd"], &name);
+                browser.open(save, BrowseMode::Save, "Save as Definition", &["icd"], &name);
             }
             // Editable, with a definition of its name in the library: back to
             // it, locked, its own copy dropped.
@@ -1408,6 +1444,31 @@ fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut Panel
             },
         );
     }
+    (enter, back)
+}
+
+/// A compound instance's parameters: its definition's rows
+/// (`definition_rows`), and its promoted parameters. Returns whether it asked
+/// to go inside, and whether it went back to the library's definition.
+fn compound_rows(ui: &mut egui::Ui, t: &mut NodeType, id: NodeId, io: &mut PanelIo) -> (bool, bool) {
+    let NodeType::Compound {
+        definition,
+        version,
+        editable,
+        ..
+    } = &mut *t
+    else {
+        return (false, false);
+    };
+    let (enter, back) = definition_rows(
+        ui,
+        definition,
+        *version,
+        editable,
+        "what comes into its first input goes on",
+        io.browser,
+        BrowseTarget::SaveDefinition(id),
+    );
     // Its promoted parameters, by group.
     let params = crate::node_graph::compound::with_definition(&*t, |d| d.parameters.clone()).unwrap_or_default();
     let NodeType::Compound { values, .. } = t else {

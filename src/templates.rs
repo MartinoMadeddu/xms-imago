@@ -2474,6 +2474,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             id,
             name: "Spherify".into(),
             references: 1,
+            params: Default::default(),
         },
         p(180.0, 240.0),
     );
@@ -2563,6 +2564,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
             id,
             name: "ShrinkWrap".into(),
             references: 1,
+            params: Default::default(),
         },
         p(160.0, 250.0),
     );
@@ -2818,6 +2820,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             id: wave,
             name: "Wave".into(),
             references: 1,
+            params: Default::default(),
         },
         p(240.0, 120.0),
     );
@@ -2843,6 +2846,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             id: bind,
             name: "Bind".into(),
             references: 1,
+            params: Default::default(),
         },
         p(300.0, 330.0),
     );
@@ -3001,6 +3005,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             id,
             name: "Instancing".into(),
             references: 2,
+            params: Default::default(),
         },
         p(240.0, 340.0),
     );

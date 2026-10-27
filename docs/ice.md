@@ -284,6 +284,40 @@ to a boolean, an attribute that is not there, a per-face attribute read in a
 per-point tree) leaves the primitive unchanged; the node where it broke gets a
 red ring, and why is written along the top of the canvas.
 
+## Compounds
+
+Nodes of an ICE graph can be packed into one **compound** node (see
+[Compounds](compounds.md)): select them, open the add menu (right-click or Tab)
+and choose **Compounds > Make Compound**, or type to search for it. The wires
+that crossed the selection become its ports: a **Compound Input** inside for
+each output wired in, holding the value of the input it fed, and a **Compound
+Output** for each output wired out (from a Set Data: an Execute, for the
+Execution Ports). The compound is drawn lavender; its inputs hold values, as any
+node's, used while nothing is wired in.
+
+- **Go inside:** double-click it, or select it and press ↓. The bar over the
+  graph shows the way back (the ICE operator, the compounds entered, **↑ Up**,
+  or ↑). The graph keeps running with the inside as it is edited.
+- **Ports** are the Compound Input and Compound Output nodes inside, top to
+  bottom, by name: add or rename one there, and the compound's port follows
+  when you come back out. A Compound Input's value is the port's, for while
+  nothing is wired to it.
+- **Save as Definition…** in its parameters writes it as an `.icd` file; saved
+  in a library folder, it is listed under **Compounds** in every ICE graph's add
+  menu and the instance follows the file, locked. A locked compound's inside is
+  read-only (a change is put back) until **Make Editable**, in its parameters or
+  the bar over its inside. **Revert to Latest Definition** drops an instance's
+  own copy.
+- **Run as its nodes:** before a graph runs, every compound is replaced by its
+  nodes (compounds inside compounds too), so a compound costs nothing over the
+  nodes it holds. A compound whose definition cannot be found, or one inside
+  itself, stops the graph with a red ring on it, saying why.
+
+**Parameter** (Data Access) is a value the ICE operator gives, by name: the
+operator's parameters list every Parameter node of its graph (and of its
+compounds), each at its default until set there. A scene compound holding the
+ICE operator can promote it, as any number of an operator's parameters.
+
 ## Fast
 
 Moving, panning, zooming or selecting in an ICE graph cooks nothing, and neither
@@ -328,6 +362,10 @@ parameters.
 - Reading at a reference mesh's samples in the editor's types: the port shows
   its type once the graph has run on that mesh
 - Snippets: code in a node, compiled to the same instructions
+- Promote inside an ICE compound: an inner node's input becomes a port by
+  wiring a Compound Input into it, not yet from its right-click menu
+- Errors inside a compound show on the compound, not on the node inside that
+  broke
 
 ## Tests
 

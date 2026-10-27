@@ -95,6 +95,10 @@ pub struct Port {
     /// compound's ports carry a scene, or what their operators give.
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// An ICE compound's input: what it holds while nothing is wired to the
+    /// instance's port (its Compound Input node's value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<xms_ice::Value>,
 }
 
 /// A promoted parameter: an inner parameter (or several) on the compound's
@@ -493,15 +497,18 @@ mod tests {
             Port {
                 name: "Scene".into(),
                 kind: None,
+                value: None,
             },
             Port {
                 name: "Clump Guides".into(),
                 kind: None,
+                value: None,
             },
         ];
         d.outputs = vec![Port {
             name: "Scene".into(),
             kind: None,
+            value: None,
         }];
         d.parameters = vec![Parameter {
             name: "strength".into(),

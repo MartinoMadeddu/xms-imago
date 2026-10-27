@@ -67,34 +67,53 @@ struct SavedGraph {
     variables: crate::core::vars::Variables,
 }
 
-/// The graphs inside these nodes' ICE nodes, as saved.
+/// The graphs inside these nodes' ICE nodes, as saved: as they are at the top,
+/// with an ICE compound being looked at inside folded back in.
 fn saved_trees(nodes: &[&crate::node_graph::GraphNode], subnets: &IceGraphStore) -> Vec<SavedTree> {
     nodes
         .iter()
         .filter_map(|n| match &n.node_type {
-            NodeType::Ice { id, .. } => subnets.get(*id).map(|sg| SavedTree {
-                node: n.id.0,
-                name: sg.name.clone(),
-                nodes: sg
-                    .nodes
-                    .iter()
-                    .map(|t| SavedTreeNode {
-                        id: t.id.0,
-                        name: t.name.clone(),
-                        position: [t.position.x, t.position.y],
-                        node_type: serde_json::to_value(&t.node_type).unwrap_or_default(),
-                        values: t.inputs.iter().map(|i| i.value).collect(),
-                    })
-                    .collect(),
-                connections: sg
-                    .connections
-                    .iter()
-                    .map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input])
-                    .collect(),
-            }),
+            NodeType::Ice { id, .. } => subnets.get(*id).map(|sg| tree_of(&sg.composed(), n.id.0)),
             _ => None,
         })
         .collect()
+}
+
+/// ICE graph `sg` as saved, for ICE node `node`.
+fn tree_of(sg: &crate::ice::IceGraph, node: usize) -> SavedTree {
+    SavedTree {
+        node,
+        name: sg.name.clone(),
+        nodes: sg
+            .nodes
+            .iter()
+            .map(|t| SavedTreeNode {
+                id: t.id.0,
+                name: t.name.clone(),
+                position: [t.position.x, t.position.y],
+                node_type: serde_json::to_value(&t.node_type).unwrap_or_default(),
+                values: t.inputs.iter().map(|i| i.value).collect(),
+            })
+            .collect(),
+        connections: sg
+            .connections
+            .iter()
+            .map(|c| [c.from_node.0, c.from_output, c.to_node.0, c.to_input])
+            .collect(),
+    }
+}
+
+/// An ICE graph as JSON, as a file saves it: what an ICE compound's
+/// definition holds as its graph.
+pub fn ice_to_value(sg: &crate::ice::IceGraph) -> serde_json::Value {
+    serde_json::to_value(tree_of(sg, 0)).unwrap_or_default()
+}
+
+/// An ICE graph from its JSON (`ice_to_value`), with no Execution Ports put
+/// in when it has none: an ICE compound's graph has none.
+pub fn ice_from_value(v: &serde_json::Value) -> Result<crate::ice::IceGraph, String> {
+    let t: SavedTree = serde_json::from_value(v.clone()).map_err(|e| format!("not an ICE graph: {e}"))?;
+    Ok(graph_of(&t, IceGraphId(0), false))
 }
 
 /// The graph as a file's text: its nodes, wires and the graph of each ICE node,
@@ -566,8 +585,14 @@ pub fn paste(
 
 fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGraphId {
     let sid = subnets.create_subnet(name.to_string());
-    let Some(sg) = subnets.get_mut(sid) else { return sid };
-    sg.name = t.name.clone();
+    subnets.subnets.insert(sid, graph_of(t, sid, true));
+    sid
+}
+
+/// The ICE graph a saved tree holds, as graph `sid`. `root`: one with no
+/// Execution Ports (from before the new engine) gets an empty one.
+fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph {
+    let mut sg = crate::ice::IceGraph::new(sid, t.name.clone());
     sg.nodes.clear();
     sg.connections.clear();
     sg.next_node_id = 0;
@@ -595,7 +620,7 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
         sg.next_node_id = sg.next_node_id.max(n.id + 1);
     }
     // A tree from before the new engine has no root: it gets an empty one.
-    if sg.root().is_none() {
+    if root && sg.root().is_none() {
         sg.add_node(
             crate::ice::ROOT_NAME.into(),
             crate::types::IceGraphNodeType::Root {
@@ -631,7 +656,7 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
             sg.add_connection(NodeId(from), out, NodeId(to), input);
         }
     }
-    sid
+    sg
 }
 
 /// Add every node of `other` to `graph`, to the right of what is there, the
@@ -1329,6 +1354,7 @@ mod tests {
                 id: sid,
                 name: "Spherify".into(),
                 references: 1,
+                params: Default::default(),
             },
             egui::pos2(100.0, 100.0),
         );

@@ -229,7 +229,11 @@ pub fn ports_of(g: &NodeGraphState, before: (&[Port], &[Port])) -> (Vec<Port>, V
             .collect();
         for (name, _) in now {
             if !out.iter().any(|p| p.name == name) {
-                out.push(Port { name, kind: None });
+                out.push(Port {
+                    name,
+                    kind: None,
+                    value: None,
+                });
             }
         }
         out
@@ -674,6 +678,7 @@ impl NodeGraphState {
             .map(|n| Port {
                 name: n.clone(),
                 kind: None,
+                value: None,
             })
             .collect();
         d.outputs = out_names
@@ -681,6 +686,7 @@ impl NodeGraphState {
             .map(|n| Port {
                 name: n.clone(),
                 kind: None,
+                value: None,
             })
             .collect();
         d.graph = serde_json::from_str(&crate::graph_io::to_json(&g, &inner_subnets)).map_err(|e| e.to_string())?;

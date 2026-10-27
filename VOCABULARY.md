@@ -55,6 +55,7 @@ have **parameters**.
 | Giving an inner parameter or port to a compound's interface | expose, publish | **Promote** (Promote…, a **promoted** parameter or port) | The word artists know from Houdini and Katana (Martino). Not reading across contexts: that is **Resample**. |
 | A parameter following another | channel reference, expression link | **reference** (Copy as Reference, Paste as Reference, Remove Reference) | The same link as promotion: a target follows a source. |
 | A compound instance that follows its definition, or has its own copy | locked / unlocked, synced | **locked** (the default), **editable** (after **Make Editable**) | |
+| A value an ICE operator gives its graph by name | exposed parameter, attribute (Houdini) | **Parameter** (an ICE node); its values the ICE operator's **Parameters** | Set in the ICE operator's parameters, so a scene compound can promote it. |
 
 ### Contexts and USD
 
