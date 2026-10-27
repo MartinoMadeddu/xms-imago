@@ -376,7 +376,7 @@ pub(crate) fn draw_ui(
                     menu_title_style(ui);
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
-                    crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked));
+                    crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked, &mut graph_file.message));
                 });
                 let menus_end = ui.cursor().min.x;
                 let mut lock_start = bar.right();
@@ -541,6 +541,10 @@ pub(crate) fn draw_ui(
             image_viewer: &mut *image_viewer,
         };
         let style = theme::dock_style(root.style());
+        // File > New: the default layout, its tabs in front as saved.
+        if layout::take_default_request() {
+            layout.reset();
+        }
         layout.size_new_windows();
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             // What is left under the top bar.
@@ -1641,8 +1645,47 @@ fn templates_menu(ui: &mut egui::Ui) -> Option<usize> {
     picked
 }
 
+/// Window > Layout: the layouts Imago comes with, and the default.
+fn layout_menu(ui: &mut egui::Ui, layout: &mut Layout, locked: bool, message: &mut String) {
+    ui.set_min_width(220.0);
+    for (name, _) in layout::PRESETS {
+        if ui.add_enabled(!locked, egui::Button::new(name)).clicked() {
+            *message = match layout.use_preset(name) {
+                Ok(()) => format!("Layout: {name}"),
+                Err(e) => format!("Could not use layout {name}: {e}"),
+            };
+            ui.close();
+        }
+    }
+    ui.separator();
+    if ui.button("Save current as default")
+        .on_hover_text("Imago opens with this layout, its tabs in front as they are now; File > New and Reset layout go back to it")
+        .clicked()
+    {
+        *message = match layout.save_as_default() {
+            Ok(()) => "This layout is the default now".into(),
+            Err(e) => format!("Could not save the default layout: {e}"),
+        };
+        ui.close();
+    }
+    if ui
+        .add_enabled(layout::has_saved_default(), egui::Button::new("Forget saved default"))
+        .on_hover_text("xms_main_layout is the default again")
+        .clicked()
+    {
+        *message = match Layout::forget_default() {
+            Ok(()) => "xms_main_layout is the default again".into(),
+            Err(e) => format!("Could not forget the default layout: {e}"),
+        };
+        ui.close();
+    }
+    if locked {
+        ui.label(egui::RichText::new("Unlock the layout to change it.").small());
+    }
+}
+
 /// Panes, layout and theme.
-fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser, locked: bool) {
+fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser, locked: bool, message: &mut String) {
     ui.set_min_width(200.0);
     for pane in Pane::ALL {
         let mut open = layout.is_open(pane);
@@ -1670,10 +1713,15 @@ fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser
         layout.dock_all();
         ui.close();
     }
-    if ui.add_enabled(!locked, egui::Button::new("Reset layout")).clicked() {
+    if ui
+        .add_enabled(!locked, egui::Button::new("Reset layout"))
+        .on_hover_text("Back to the default layout: the one saved as default, else xms_main_layout")
+        .clicked()
+    {
         layout.reset();
         ui.close();
     }
+    crate::menus::menu(ui, "Layout", |ui| layout_menu(ui, layout, locked, message));
     ui.separator();
     if ui
         .button("Save layout...")
@@ -2080,6 +2128,7 @@ fn carry_out(
             history.mark_clean();
             file.path = None;
             file.message = "New graph".into();
+            layout::ask_for_default();
         }
         After::Open(path) => open_graph(graph, subnets, &path, file, history, recent),
         After::Template(i) => {

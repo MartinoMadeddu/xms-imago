@@ -22,7 +22,7 @@ The menus, from the left, as in other programs:
 |---|---|
 | File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q), and at the bottom Templates: the ready-made graphs, by author, then by area. See [Files](#files) and [Templates](templates.md) |
 | Edit | Undo, Redo, Copy, Paste, Delete, Select All, for the operators of the root scene graph |
-| Window | The panes (tick to show), Dock floating panes, Reset layout, Save layout..., Load layout..., Theme |
+| Window | The panes (tick to show), Dock floating panes, Reset layout, Layout (xms_main_layout, xms_2split_layout, xms_4split_layout, Save current as default, Forget saved default), Save layout..., Load layout..., Theme |
 
 On macOS the shortcuts take Cmd in place of Ctrl.
 
@@ -30,15 +30,34 @@ On macOS the shortcuts take Cmd in place of Ctrl.
 
 Eleven panes: Viewer, Image Viewer, Node Graph, Curve Editor, UV Editor, Scene
 Explorer, Operator Stack, History, Parameters, Primitive Inspector, Timeline.
-Each one is a tab. The default layout has the Scene Explorer in a narrow column
-at the left, the Viewer beside it with the UV Editor and the Image Viewer as
-tabs behind it (see [UV](uv.md), [Rendering](render.md#image-viewer)), and the
-Primitive Inspector under both; then the Node Graph with the Curve Editor as a
-tab behind it (see [Keys](keys.md)), then Parameters over the Operator Stack.
-The Timeline runs along the bottom of those, and History (see [Undo](undo.md))
-down the whole right side. A layout saved before the History pane, the Graph
-Editor or the Image Viewer existed does not have them: tick them in the Window
-menu, or "Reset layout" for this default.
+Each one is a tab. The default layout, **xms_main_layout**, has the Viewer at
+the left with the Image Viewer as a tab behind it (see
+[Rendering](render.md#image-viewer)), and under it the Scene Explorer with the
+Primitive Inspector behind; then the Node Graph, with the UV Editor and the
+Curve Editor as tabs behind it (see [UV](uv.md), [Keys](keys.md)); then
+Parameters over History, with the Operator Stack behind it (see
+[Undo](undo.md)). The Timeline runs along the bottom. A layout saved before the
+History pane, the Curve Editor or the Image Viewer existed does not have them:
+tick them in the Window menu, or "Reset layout" for the default.
+
+### Layouts
+
+**Window > Layout** holds the layouts Imago comes with:
+
+| Layout | What it is |
+|---|---|
+| xms_main_layout | The default, above |
+| xms_2split_layout | Two columns: the Viewer (Image Viewer behind) over the Scene Explorer, beside Parameters (Primitive Inspector behind) over the Node Graph; the Timeline along the bottom. Seven panes: tick the others in the Window menu |
+| xms_4split_layout | The Scene Explorer in a column at the left, the Viewer (UV Editor and Image Viewer behind) over the Primitive Inspector, the Node Graph (Curve Editor behind), then Parameters over the Operator Stack (History behind); the Timeline along the bottom |
+
+**Save current as default** makes the layout as it is now the default, with
+the tabs in front as they are. **Forget saved default** makes xms_main_layout
+the default again. Choosing a layout keeps the lock as it is; while locked,
+the layouts cannot be chosen.
+
+Imago always opens in the default layout, with its tabs in front as saved: the
+layout it had when it closed is not kept. **File > New** goes back to it too,
+and so does **Reset layout**. Opening a graph leaves the layout as it is.
 
 | To | Do this |
 |---|---|
@@ -50,7 +69,9 @@ menu, or "Reset layout" for this default.
 | Close a pane | The cross on its tab, docked or floating |
 | Show a closed pane | Tick it in the Window menu. It comes back as a tab of the main area |
 | Resize | Drag the line between two panes, or the corner of a floating window |
-| Start over | "Reset layout" in the Window menu |
+| Start over | "Reset layout" in the Window menu: the default layout |
+| Use another | Window > Layout: xms_main_layout, xms_2split_layout, xms_4split_layout |
+| Make it the default | Window > Layout > Save current as default |
 | Keep a layout | "Save layout..." in the Window menu writes it to a file. A file that exists is replaced only after Replace |
 | Bring one back | "Load layout..." in the Window menu. A file that is not a layout is refused and the current layout stays |
 
@@ -68,10 +89,11 @@ unlock.
 
 ### Saved layout
 
-The layout, the lock and the place of every floating window are saved when they
-change and restored at the next start. They are kept in `layout.json` in the
-config folder (`~/.config/xms` on Linux, `%APPDATA%\xms` on Windows). A file
-that cannot be read is ignored and the default layout is used.
+The lock is kept from one run to the next, in `layout.json` in the config
+folder (`~/.config/xms` on Linux, `%APPDATA%\xms` on Windows); the layout
+itself is not: Imago opens in the default layout. The layout saved as default,
+with the place of its floating windows, is `default_layout.json` in the same
+folder. A file that cannot be read is ignored and xms_main_layout is used.
 
 When the Viewer pane is closed or hidden behind another tab, the 3D view is not
 drawn.

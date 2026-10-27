@@ -296,8 +296,8 @@ steps kept as a branch](docs/xms_history.png)
   edges and polygons. A or H frames everything
 - **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer
   controls, from a menu
-- **Remembered:** layout, floating windows, theme and navigation style come back
-  at the next start
+- **Remembered:** the layout lock, theme and navigation style come back at the
+  next start; the layout itself opens as the default
 - **Copy and paste nodes:** Ctrl+C and Ctrl+V (Cmd on macOS), with their wires
   and ICE graphs, between windows and from one session to the next; inside an
   ICE graph too
@@ -319,6 +319,7 @@ steps kept as a branch](docs/xms_history.png)
   text; off by default, `DARK_FIELD_BG=1` turns it on for a run) and a **1995
   tabs** switch (the Parameters pane's tabs bevelled, the open one raised over
   the others; off by default, when they look like the panes' tabs)
+- **Layouts:** three that come with Imago in Window > Layout (xms_main_layout, the default; xms_2split_layout; xms_4split_layout), Save current as default, and every graph opens in the default layout with its tabs in front as saved
 - **Layouts as files:** save a layout, load it back, pass it to someone else
 - **Wires and selection the same in every graph** (scene, ICE, MaterialX): click
   a wire to select it and Delete takes it off; drag from an input to pick its

@@ -1,8 +1,14 @@
 //! Dockable panes: which panes exist, where they sit, and the layout file.
 //!
 //! Every pane is a tab of one dock area. Tabs can be dragged to another place,
-//! stacked, or pulled out as floating windows. The layout is kept in the config
-//! folder and restored at the next start.
+//! stacked, or pulled out as floating windows.
+//!
+//! - **The default layout:** the one saved with Window > Layout > Save current
+//!   as default, else `xms_main_layout`. Imago opens with it, its tabs in
+//!   front as saved, and File > New goes back to it.
+//! - **The layouts it comes with** (`PRESETS`, Window > Layout), and any saved
+//!   to a file (Save layout..., Load layout...).
+//! - **The lock** is kept from one run to the next (`layout.json`).
 
 use egui_dock::{DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
@@ -121,12 +127,79 @@ pub struct Layout {
     pub tab_drag: Option<(Pane, bool)>,
 }
 
+/// The layouts Imago comes with, in Window > Layout: name (its file's),
+/// the file. The first is the default until another is saved as default.
+pub const PRESETS: [(&str, &str); 3] = [
+    (
+        "xms_main_layout",
+        include_str!("../assets/layouts/xms_main_layout.json"),
+    ),
+    (
+        "xms_2split_layout",
+        include_str!("../assets/layouts/xms_2split_layout.json"),
+    ),
+    (
+        "xms_4split_layout",
+        include_str!("../assets/layouts/xms_4split_layout.json"),
+    ),
+];
+
+/// A layout Imago comes with, by name. Its lock is not taken: choosing a
+/// layout does not lock or unlock.
+pub fn preset(name: &str) -> Option<DockState<Pane>> {
+    PRESETS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .and_then(|(_, text)| from_json(text))
+        .map(|(dock, _)| dock)
+}
+
+/// `xms_main_layout`: the default when none is saved.
+pub fn main_dock() -> DockState<Pane> {
+    preset(PRESETS[0].0).unwrap_or_else(built_dock)
+}
+
+/// The file the layout saved as default is kept in.
+fn default_file() -> Option<std::path::PathBuf> {
+    crate::file_browser::config_path("default_layout.json")
+}
+
+/// The layout saved as default, if one is and it reads.
+fn saved_default() -> Option<DockState<Pane>> {
+    let text = std::fs::read_to_string(default_file()?).ok()?;
+    from_json(&text).map(|(dock, _)| dock)
+}
+
+/// Whether a layout has been saved as default.
+pub fn has_saved_default() -> bool {
+    saved_default().is_some()
+}
+
+/// The layout Imago opens with, and File > New and Reset go back to: the
+/// one saved as default, else `xms_main_layout`.
+pub fn default_dock() -> DockState<Pane> {
+    saved_default().unwrap_or_else(main_dock)
+}
+
+static TO_DEFAULT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ask for the default layout on the next frame (File > New).
+pub fn ask_for_default() {
+    TO_DEFAULT.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the default layout was asked for since the last call.
+pub fn take_default_request() -> bool {
+    TO_DEFAULT.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Scene Explorer in a narrow column at the far left, the viewport beside it
 /// with the UV editor and the Image Viewer as tabs behind, the primitive
 /// inspector under both. Then the node graph, then the properties over the
 /// operator stack. Timeline along the bottom of those, History down the whole
-/// right side. The Curve Editor is a tab behind the node graph.
-pub fn default_dock() -> DockState<Pane> {
+/// right side. The Curve Editor is a tab behind the node graph. Built in
+/// code: what is used if `xms_main_layout` could not be read.
+pub fn built_dock() -> DockState<Pane> {
     let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
     let s = dock.main_surface_mut();
     let [work, _history] = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
@@ -194,34 +267,60 @@ fn file() -> Option<std::path::PathBuf> {
 }
 
 impl Default for Layout {
+    /// The default layout, with its tabs in front as saved; locked if Imago
+    /// was locked when it closed.
     fn default() -> Self {
-        let text = file().and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
-        match from_json(&text) {
-            Some((dock, locked)) => {
-                let mut layout = Self {
-                    dock,
-                    locked,
-                    saved: text,
-                    sized: vec![],
-                    tab_drag: None,
-                };
-                layout.restore_windows();
-                layout
-            }
-            None => Self {
-                dock: default_dock(),
-                locked: false,
-                saved: String::new(),
-                sized: vec![],
-                tab_drag: None,
-            },
-        }
+        let last = file().and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
+        let locked = from_json(&last).map(|(_, locked)| locked).unwrap_or(false);
+        let mut layout = Self {
+            dock: default_dock(),
+            locked,
+            saved: String::new(),
+            sized: vec![],
+            tab_drag: None,
+        };
+        layout.restore_windows();
+        layout
     }
 }
 
 impl Layout {
+    /// Back to the default layout (Reset layout, File > New).
     pub fn reset(&mut self) {
-        self.dock = default_dock();
+        self.set_dock(default_dock());
+    }
+
+    /// One of the layouts Imago comes with, by name.
+    pub fn use_preset(&mut self, name: &str) -> Result<(), String> {
+        let dock = preset(name).ok_or_else(|| format!("no layout {name}"))?;
+        self.set_dock(dock);
+        Ok(())
+    }
+
+    /// This layout as the default: Imago opens with it, File > New and Reset
+    /// go back to it.
+    pub fn save_as_default(&self) -> Result<(), String> {
+        let f = default_file().ok_or("no config folder")?;
+        if let Some(dir) = f.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        self.save_as(&f)
+    }
+
+    /// Forget the layout saved as default: `xms_main_layout` is again.
+    pub fn forget_default() -> Result<(), String> {
+        match default_file() {
+            Some(f) if f.exists() => std::fs::remove_file(f).map_err(|e| e.to_string()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Another layout in place of this one, its floating windows where it
+    /// has them.
+    fn set_dock(&mut self, dock: DockState<Pane>) {
+        self.dock = dock;
+        self.sized.clear();
+        self.restore_windows();
     }
 
     /// Content rectangle of a floating window, once it has been drawn.
@@ -367,10 +466,8 @@ impl Layout {
     pub fn load_from(&mut self, path: &std::path::Path) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let (dock, locked) = from_json(&text).ok_or("not a layout file")?;
-        self.dock = dock;
         self.locked = locked;
-        self.sized.clear();
-        self.restore_windows();
+        self.set_dock(dock);
         Ok(())
     }
 
@@ -398,7 +495,7 @@ mod tests {
 
     fn layout() -> Layout {
         Layout {
-            dock: default_dock(),
+            dock: main_dock(),
             locked: false,
             saved: String::new(),
             sized: vec![],
@@ -503,7 +600,8 @@ mod tests {
         assert_eq!(open(&l), 0);
         l.show(Pane::NodeGraph);
         assert!(l.is_open(Pane::NodeGraph) && !l.is_floating(Pane::NodeGraph));
-        l.reset();
+        // Back to the main layout (`reset` takes the one saved as default).
+        l.set_dock(main_dock());
         assert_eq!(open(&l), ALL);
     }
 
@@ -546,13 +644,13 @@ mod tests {
         assert!(from_json("").is_none());
         assert!(from_json("{ nonsense").is_none());
         // The same pane twice.
-        let mut dock = default_dock();
+        let mut dock = main_dock();
         dock.add_window(vec![Pane::Timeline]);
         assert!(!is_valid(&dock));
         assert!(from_json(&to_json(&dock, false).unwrap()).is_none());
         // A file from before the lock: the layout alone.
         let old = serde_json::to_string(
-            &serde_json::from_str::<serde_json::Value>(&to_json(&default_dock(), false).unwrap()).unwrap()["dock"],
+            &serde_json::from_str::<serde_json::Value>(&to_json(&main_dock(), false).unwrap()).unwrap()["dock"],
         )
         .unwrap();
         let (dock, locked) = from_json(&old).unwrap();
@@ -594,7 +692,7 @@ mod tests {
             return;
         };
         let (theirs, _) = from_json(&text).unwrap();
-        assert_eq!(shape(&default_dock()), shape(&theirs));
+        assert_eq!(shape(&main_dock()), shape(&theirs));
     }
 
     /// Panes saved under the names they had: the Curve Editor as "GraphEditor".
@@ -656,9 +754,44 @@ mod tests {
         assert!(from_json(&to_json(&l.dock, true).unwrap()).is_some());
     }
 
+    /// The layouts Imago comes with read, each pane once at most; the main
+    /// one has every pane.
+    #[test]
+    fn the_layouts_it_comes_with_read() {
+        for (name, _) in PRESETS {
+            let dock = preset(name).unwrap_or_else(|| panic!("{name} does not read"));
+            assert!(is_valid(&dock), "{name}");
+        }
+        assert_eq!(main_dock().iter_all_tabs().count(), Pane::ALL.len());
+        assert_eq!(preset("xms_2split_layout").unwrap().iter_all_tabs().count(), 7);
+        assert!(preset("nope").is_none());
+        // Choosing one keeps the lock as it is.
+        let mut l = layout();
+        l.locked = true;
+        l.use_preset("xms_2split_layout").unwrap();
+        assert!(l.locked && !l.is_open(Pane::History) && l.is_open(Pane::Viewer));
+    }
+
+    /// The tabs in front are the layout's own: Prim Inspector's leaf shows
+    /// the Scene Explorer, the Operator Stack's the History, in the main one.
+    #[test]
+    fn the_main_layout_opens_with_its_tabs_in_front() {
+        let dock = main_dock();
+        let tree = &dock[egui_dock::SurfaceIndex::main()];
+        let front = |p: Pane| {
+            let (node, tab) = tree.find_tab(&p).unwrap();
+            match &tree[node] {
+                egui_dock::Node::Leaf(leaf) => leaf.active.0 == tab.0,
+                _ => false,
+            }
+        };
+        assert!(front(Pane::SceneExplorer) && !front(Pane::PrimInspector));
+        assert!(front(Pane::History) && front(Pane::Viewer) && front(Pane::NodeGraph));
+    }
+
     #[test]
     fn the_default_layout_has_every_pane_once() {
-        let d = default_dock();
+        let d = main_dock();
         assert!(is_valid(&d));
         assert_eq!(d.iter_all_tabs().count(), Pane::ALL.len());
     }

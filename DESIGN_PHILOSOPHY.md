@@ -1018,3 +1018,4 @@ which shows everything Y up in metres, writes the transform that does it.
   saturated blue in every theme so it stands out on the title; the empty circle
   unchanged (Martino).
 - 26/10/2026: the Linux release is linked against glibc 2.28 with cargo-zigbuild, so it runs on Rocky Linux 8 and RHEL 8 (Simon); the build fails if it needs a newer glibc. One patch per reply, everything not yet on main folded into it (Simon).
+- 27/10/2026: layouts (Martino): Window > Layout holds the three Imago comes with, named by their files (xms_main_layout, xms_2split_layout, xms_4split_layout, in `assets/layouts`), and Save current as default. Imago always opens in the default layout (the one saved as default, else xms_main_layout), its tabs in front as saved, and File > New goes back to it: the layout and the tabs in front when Imago closed are not kept, only the lock. Opening a graph leaves the layout as it is; choosing a layout keeps the lock.
