@@ -79,22 +79,32 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   again. Each instance keeps its own.
 - **References:** right-click any number's row (or the number in the Keys
   list), **Copy as Reference**; on another number, **Paste as Reference**: it follows the first,
-  as it cooks (keyed, it follows its animation). It is drawn blue with a 🔗 in
-  place of its key diamond; **Remove Reference** makes it its own again, and so
-  does typing a value over it in the parameters. A keyed number cannot follow
-  another, nor one that would make a loop. References are saved with the
-  graph, and pasted operators follow each other, or the operator copied when
-  pasted alone.
+  as it cooks (keyed, it follows its animation). Both stay joined: changing
+  either changes both, since a value typed (or dragged, or moved with a
+  handle) over the number that follows goes to the number it follows, at the
+  end of its chain, keyed there when that one is keyed. Two numbers of the
+  same operator can follow each other this way (translate X and scale Z of
+  one Transform). A number that follows is drawn on desaturated orange, in its
+  row and in the Keys list, with a 🔗 in place of its key diamond;
+  **Remove Reference** makes it its own again. A keyed number cannot follow
+  another, nor one that would make a loop (a number following one that
+  follows it). Each reference reads the number at the end of its chain once,
+  so many references on one operator stay quick. References are saved with
+  the graph, and pasted operators follow each other, or the operator copied
+  when pasted alone.
 - **How a row is found:** a right-click on a number's row puts a probe value
   in its place for the moment the parameters are drawn; the operator's
   parameters are searched for it (or, for a row showing its number another
   way, such as angles in degrees, for what changed), which gives the number's
-  path, and the parameters are put back before anything cooks. Every number
-  field and slider of an operator's parameters has the menu (`form::number`,
-  `form::slider`); a right-click never moves a slider. Text, switches and
-  lists do not have it yet.
-- **Not yet:** a number that follows another is marked in the Keys list, not on
-  its row; Promote is not a step of the undo history inside the compound
+  path, and the parameters are put back before anything cooks, whether the
+  number was found or not. Every number field and slider of an operator's
+  parameters has the menu (`form::number`, `form::slider`); a right-click
+  never moves a slider. While an operator has references, its rows are found
+  the same way, one a frame while the pointer and keys are still, until each
+  is known (kept until the operator or its references change), so the rows
+  of the numbers that follow are drawn orange. Text, switches and lists do
+  not have the menu yet.
+- **Not yet:** Promote is not a step of the undo history inside the compound
   (leaving it is).
 - **A missing definition** keeps the operator, its ports, wires and values: what
   comes into its first input goes on, and its parameters say which definition

@@ -232,13 +232,8 @@ impl<'a> Rows<'a> {
     /// A number with no fixed range, dragged or typed.
     pub fn drag(&mut self, label: &str, hint: Option<&str>, v: &mut f32, speed: f64, unit: &str) -> egui::Response {
         self.row(label, hint, |ui| {
-            let h = ui.spacing().interact_size.y;
-            let mut r = ui.field_sized(
-                [ui.available_width(), h],
-                egui::DragValue::new(&mut *v).speed(speed).max_decimals(3).suffix(unit),
-            );
-            probe(&mut r, v);
-            r
+            let size = [ui.available_width(), ui.spacing().interact_size.y];
+            number(ui, Some(size), v, |d| d.speed(speed).max_decimals(3).suffix(unit))
         })
     }
 
@@ -251,13 +246,8 @@ impl<'a> Rows<'a> {
         range: std::ops::RangeInclusive<u32>,
     ) -> egui::Response {
         self.row(label, hint, |ui| {
-            let h = ui.spacing().interact_size.y;
-            let mut r = ui.field_sized(
-                [ui.available_width(), h],
-                egui::DragValue::new(&mut *v).range(range).speed(0.1),
-            );
-            probe(&mut r, v);
-            r
+            let size = [ui.available_width(), ui.spacing().interact_size.y];
+            number(ui, Some(size), v, |d| d.range(range).speed(0.1))
         })
     }
 
@@ -275,12 +265,7 @@ impl<'a> Rows<'a> {
                 let h = ui.spacing().interact_size.y;
                 let mut changed = false;
                 for (a, p) in v.iter_mut().zip(["U ", "V "]) {
-                    let mut r = ui.field_sized(
-                        [w, h],
-                        egui::DragValue::new(&mut *a).speed(speed).max_decimals(4).prefix(p),
-                    );
-                    probe(&mut r, a);
-                    changed |= r.changed();
+                    changed |= number(ui, Some([w, h]), a, |d| d.speed(speed).max_decimals(4).prefix(p)).changed();
                 }
                 changed
             })
@@ -680,15 +665,9 @@ pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -
         let h = ui.spacing().interact_size.y;
         let mut changed = false;
         for (a, p) in v.iter_mut().zip(["X ", "Y ", "Z "]) {
-            let mut r = ui.field_sized(
-                [w, h],
-                egui::DragValue::new(&mut *a)
-                    .speed(speed)
-                    .max_decimals(3)
-                    .prefix(p)
-                    .suffix(unit),
-            );
-            probe(&mut r, a);
+            let r = number(ui, Some([w, h]), a, |d| {
+                d.speed(speed).max_decimals(3).prefix(p).suffix(unit)
+            });
             changed |= r.changed();
         }
         changed
@@ -731,25 +710,81 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
 /// `probing`): no operator's number is likely to be it.
 pub const PROBE: f64 = 7_777_777.0;
 
+/// Finding which of an operator's numbers a row shows.
+#[derive(Default)]
+struct Probing {
+    on: bool,
+    /// The number right-clicked: its value before, where the pointer was.
+    clicked: Option<(f64, egui::Pos2)>,
+    /// The row being found this frame, while nothing is clicked.
+    finding: Option<egui::Id>,
+    /// What the rows are known for: the operator and its references.
+    whose: u64,
+    /// Each row's number, by the row's key: its path, None for a row with
+    /// none found.
+    rows: std::collections::HashMap<egui::Id, Option<String>>,
+    /// The numbers that follow another (references), drawn orange.
+    linked: Vec<String>,
+}
+
 thread_local! {
-    /// Probing on, and the number right-clicked: its value before, and where
-    /// the pointer was.
-    static PROBING: std::cell::RefCell<(bool, Option<(f64, egui::Pos2)>)> =
-        const { std::cell::RefCell::new((false, None)) };
+    static PROBING: std::cell::RefCell<Probing> = std::cell::RefCell::new(Probing::default());
+}
+
+/// A row probed this frame: right-clicked (its value before, where the
+/// pointer was), or being found.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Probe {
+    Clicked(f64, egui::Pos2),
+    Finding(egui::Id),
 }
 
 /// While on, a right-click on a number's row (a slider, a drag field, X Y Z,
 /// U V) puts `PROBE` in its place for the caller to find the number's path in
-/// the operator's parameters, then put the value back (`probed`). On only
-/// while an operator's own parameters are drawn: never for an ICE node's.
-pub fn probing(on: bool) {
-    PROBING.with(|p| *p.borrow_mut() = (on, None));
+/// the operator's parameters, then put the value back (`probed`). And while
+/// numbers of the operator follow others (`linked`), one row a frame not yet
+/// known is probed the same way, untouched, so the rows of those numbers are
+/// found and drawn orange. On only while an operator's own parameters are
+/// drawn: never for an ICE node's. The rows found are kept while `whose` (the
+/// operator and its references) is the same.
+pub fn probing(on: bool, whose: u64, linked: Vec<String>) {
+    PROBING.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.whose != whose {
+            p.rows.clear();
+            p.whose = whose;
+        }
+        p.on = on;
+        p.clicked = None;
+        p.finding = None;
+        p.linked = linked;
+    });
 }
 
-/// The number right-clicked while probing: its value before, where the pointer
-/// was. Probing stops.
-pub fn probed() -> Option<(f64, egui::Pos2)> {
-    PROBING.with(|p| std::mem::replace(&mut *p.borrow_mut(), (false, None)).1)
+/// The row probed this frame. Probing stops.
+pub fn probed() -> Option<Probe> {
+    PROBING.with(|p| {
+        let mut p = p.borrow_mut();
+        p.on = false;
+        let clicked = p.clicked.take().map(|(v, at)| Probe::Clicked(v, at));
+        clicked.or(p.finding.take().map(Probe::Finding))
+    })
+}
+
+/// The number the row being found shows: its path, or None.
+pub fn found(row: egui::Id, path: Option<String>) {
+    PROBING.with(|p| {
+        p.borrow_mut().rows.insert(row, path);
+    });
+}
+
+/// Whether the row with key `row`, while probing, shows a number that follows
+/// another.
+fn follows(row: egui::Id) -> bool {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        p.on && matches!(p.rows.get(&row), Some(Some(path)) if p.linked.contains(path))
+    })
 }
 
 /// A number a row edits: written as `PROBE` and read back.
@@ -772,56 +807,113 @@ macro_rules! probed {
 }
 probed!(f32, f64, i32, i64, u32, u64, usize);
 
+/// A number that follows another: desaturated orange.
+pub fn follows_orange() -> egui::Color32 {
+    egui::Color32::from_rgb(160, 118, 78)
+}
+
 /// A number field (a `DragValue` on `v`, made by `make`), at `size` or its
-/// own, dark when fields are: a right-click on it, while probing, is taken
-/// (see `probing`). Every number field of the Parameters pane is one, so each
-/// has the references and Promote menu.
+/// own, dark when fields are, orange when it follows another: a right-click
+/// on it, while probing, is taken (see `probing`). Every number field of the
+/// Parameters pane is one, so each has the references and Promote menu.
 pub fn number<T: egui::emath::Numeric + Probed>(
     ui: &mut egui::Ui,
     size: Option<[f32; 2]>,
     v: &mut T,
     make: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
+    let row = ui.next_auto_id();
+    let orange = follows(row);
     let d = make(egui::DragValue::new(&mut *v));
-    let mut r = match size {
-        Some(s) => ui.field_sized(s, d),
-        None => ui.field(d),
+    let mut r = if orange {
+        ui.scope(|ui| {
+            let vis = ui.visuals_mut();
+            let hover = egui::Color32::from_rgb(182, 136, 92);
+            for (w, fill) in [
+                (&mut vis.widgets.inactive, follows_orange()),
+                (&mut vis.widgets.open, follows_orange()),
+                (&mut vis.widgets.hovered, hover),
+                (&mut vis.widgets.active, hover),
+            ] {
+                w.bg_fill = fill;
+                w.weak_bg_fill = fill;
+                w.fg_stroke.color = egui::Color32::WHITE;
+            }
+            match size {
+                Some(s) => ui.add_sized(s, d),
+                None => ui.add(d),
+            }
+        })
+        .inner
+    } else {
+        match size {
+            Some(s) => ui.field_sized(s, d),
+            None => ui.field(d),
+        }
     };
-    probe(&mut r, v);
+    probe(ui, &mut r, v, row);
     r
 }
 
-/// A slider (made by `make` on `v`): a right-click does not move it, and,
-/// while probing, is taken (see `probing`).
+/// A slider (made by `make` on `v`), on orange when it follows another: a
+/// right-click does not move it, and, while probing, is taken (see
+/// `probing`).
 pub fn slider<T: egui::emath::Numeric + Probed>(
     ui: &mut egui::Ui,
     v: &mut T,
     make: impl FnOnce(&mut T) -> egui::Slider<'_>,
 ) -> egui::Response {
+    let row = ui.next_auto_id();
+    let behind = follows(row).then(|| ui.painter().add(egui::Shape::Noop));
     let before = v.get();
     let mut r = ui.add(make(&mut *v));
+    if let Some(at) = behind {
+        let rect = r.rect.expand(2.0);
+        ui.painter()
+            .set(at, egui::Shape::rect_filled(rect, 3.0, follows_orange()));
+    }
     // egui moves a slider under any button: not under the right one.
     if r.secondary_clicked() || (r.is_pointer_button_down_on() && ui.input(|i| i.pointer.secondary_down())) {
         v.put(before);
     }
-    probe(&mut r, v);
+    probe(ui, &mut r, v, row);
     r
 }
 
-/// A row's number right-clicked, while probing: `PROBE` in its place, marked
-/// changed so a caller that copies the number writes it back.
-pub fn probe(r: &mut egui::Response, v: &mut impl Probed) {
-    if !r.secondary_clicked() {
-        return;
-    }
-    let at = r.interact_pointer_pos().unwrap_or(r.rect.left_bottom());
+/// While probing: a row's number right-clicked, or a row not yet known, one
+/// a frame, on a frame where nothing but the pointer moving happens: `PROBE`
+/// in its place, marked changed so a caller that copies the number writes it
+/// back. Until every row is known, another frame is asked for.
+fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::Id) {
+    let clicked = r.secondary_clicked();
+    let still = || {
+        let quiet = ui.input(|i| {
+            !i.pointer.any_down()
+                && !i.pointer.any_released()
+                && i.events
+                    .iter()
+                    .all(|e| matches!(e, egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_)))
+        });
+        quiet && ui.memory(|m| m.focused().is_none())
+    };
     PROBING.with(|p| {
         let mut p = p.borrow_mut();
-        if p.0 && p.1.is_none() {
-            p.1 = Some((v.get(), at));
-            v.put(PROBE);
-            r.mark_changed();
+        if !p.on || p.clicked.is_some() {
+            return;
         }
+        if clicked {
+            p.clicked = Some((v.get(), r.interact_pointer_pos().unwrap_or(r.rect.left_bottom())));
+        } else if !p.linked.is_empty() && !p.rows.contains_key(&row) {
+            ui.ctx().request_repaint();
+            if p.finding.is_some() || !still() {
+                return;
+            }
+            p.finding = Some(row);
+        } else {
+            return;
+        }
+        v.put(PROBE);
+        r.mark_changed();
     });
 }
 
@@ -829,14 +921,22 @@ pub fn probe(r: &mut egui::Response, v: &mut impl Probed) {
 mod tests {
     use super::*;
 
-    /// While probing, the first number right-clicked is taken and probing
-    /// stops; not probing, nothing is.
+    /// While probing, the number right-clicked is taken and probing stops;
+    /// not probing, nothing is. A row found is kept for the same operator and
+    /// references, and shows orange when its number follows another.
     #[test]
     fn probing_takes_one_number() {
-        probing(true);
-        PROBING.with(|p| p.borrow_mut().1 = Some((2.0, egui::pos2(1.0, 1.0))));
-        assert_eq!(probed(), Some((2.0, egui::pos2(1.0, 1.0))));
+        probing(true, 1, vec!["scale/2".into()]);
+        PROBING.with(|p| p.borrow_mut().clicked = Some((2.0, egui::pos2(1.0, 1.0))));
+        assert_eq!(probed(), Some(Probe::Clicked(2.0, egui::pos2(1.0, 1.0))));
         assert_eq!(probed(), None);
+        let row = egui::Id::new("row");
+        found(row, Some("scale/2".into()));
+        assert!(follows(row));
+        probing(true, 1, vec![]);
+        assert!(!follows(row), "it follows no more");
+        probing(true, 2, vec!["scale/2".into()]);
+        assert!(!follows(row), "another operator: its rows are found again");
         let mut x = 3.0f32;
         x.put(PROBE);
         assert_eq!(x.get(), PROBE, "the probe is a number a float holds exactly");

@@ -162,7 +162,9 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                         let label = egui::RichText::new(text);
                         let label = match (keyed, follows.is_some()) {
                             (true, _) => label.color(key_red()),
-                            (_, true) => label.color(link_blue()),
+                            (_, true) => label
+                                .color(egui::Color32::WHITE)
+                                .background_color(crate::properties::form::follows_orange()),
                             _ => label,
                         };
                         let mut hint = "Right-click: Copy as Reference, Paste as Reference".to_string();
@@ -335,25 +337,20 @@ pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: f64
     ctx.data_mut(|d| d.insert_temp(row_menu_id(), RowMenu { node, path, value, at }));
 }
 
-/// After the parameters were drawn: the number a right-click on its row put
-/// `form::PROBE` in place of, found in operator `id`'s parameters by its path,
-/// the parameters put back as they were (`before`, taken that frame), and the
-/// number's menu opened there. A row showing its number another way (angles
-/// in degrees) is found by what changed.
+/// After the parameters were drawn: the number a probed row (see
+/// `form::probing`) put `form::PROBE` in place of, found in operator `id`'s
+/// parameters by its path, and the parameters put back as they were
+/// (`before`, taken that frame), found or not. A row showing its number
+/// another way (angles in degrees) is found by what changed. Returns the path
+/// and the number's value as the operator holds it (`old` without `before`).
 pub fn found_row(
-    ctx: &egui::Context,
     graph: &mut NodeGraphState,
     id: NodeId,
     old: f64,
-    at: egui::Pos2,
     before: Option<serde_json::Value>,
-) {
-    let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) else {
-        return;
-    };
-    let Ok(mut v) = serde_json::to_value(&node.node_type) else {
-        return;
-    };
+) -> Option<(String, f64)> {
+    let node = graph.nodes.iter_mut().find(|n| n.id == id)?;
+    let mut v = serde_json::to_value(&node.node_type).ok()?;
     let probe = crate::properties::form::PROBE;
     let now = keys::keyable(&v);
     let exact = now
@@ -369,21 +366,24 @@ pub fn found_row(
             })
             .map(|(p, _)| p.clone())
     };
-    let Some(path) = exact.or_else(changed) else {
-        return;
-    };
-    // Its value as the operator holds it; the parameters as they were.
-    let value = was.iter().find(|(p, _)| *p == path).map_or(old, |(_, x)| *x);
+    let path = exact.or_else(changed);
+    let value = path
+        .as_ref()
+        .and_then(|path| was.iter().find(|(p, _)| p == path))
+        .map_or(old, |(_, x)| *x);
+    // The parameters as they were.
     match before.and_then(|b| serde_json::from_value(b).ok()) {
         Some(t) => node.node_type = t,
         None => {
-            keys::set(&mut v, &path, value);
-            if let Ok(t) = serde_json::from_value(v) {
-                node.node_type = t;
+            if let Some(path) = &path {
+                keys::set(&mut v, path, value);
+                if let Ok(t) = serde_json::from_value(v) {
+                    node.node_type = t;
+                }
             }
         }
     }
-    open_row_menu(ctx, id, path, value, at);
+    path.map(|p| (p, value))
 }
 
 /// The menu of a number right-clicked on its row, while it is open, and the
@@ -425,11 +425,6 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
     }
     let told = ask.and_then(|a| carry_out(ctx, graph, m.node, a));
     promote_window(ctx, graph).or(told)
-}
-
-/// Blue of numbers that follow another.
-fn link_blue() -> egui::Color32 {
-    crate::theme::c(90, 150, 230)
 }
 
 /// What the Promote window is filling in.
@@ -650,40 +645,43 @@ mod tests {
         }
     }
 
-    /// A row right-clicked put the probe in its number's place: found by its
-    /// path, the value is put back and the number's menu opened for it.
+    /// A row probed put the probe in its number's place: found by its path,
+    /// the value is put back. Not found, the parameters are put back all the
+    /// same.
     #[test]
-    fn a_right_clicked_row_is_found_by_its_path() {
+    fn a_probed_row_is_found_by_its_path() {
+        use crate::types::NodeType;
         let mut g = NodeGraphState::default();
         let id = g.add_node(
             "Move".into(),
-            crate::types::NodeType::Transform {
+            NodeType::Transform {
                 translation: glam::Vec3::new(0.0, crate::properties::form::PROBE as f32, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
             },
             egui::pos2(0.0, 0.0),
         );
-        let ctx = egui::Context::default();
-        found_row(&ctx, &mut g, id, 1.5, egui::pos2(10.0, 10.0), None);
-        assert!(
-            matches!(&g.nodes[0].node_type, crate::types::NodeType::Transform { translation, .. } if translation.y == 1.5)
-        );
-        let m: RowMenu = ctx.data(|d| d.get_temp(row_menu_id())).unwrap();
-        assert_eq!((m.path.as_str(), m.value), ("translation/1", 1.5));
+        let found = found_row(&mut g, id, 1.5, None);
+        assert_eq!(found, Some(("translation/1".to_string(), 1.5)));
+        assert!(matches!(&g.nodes[0].node_type, NodeType::Transform { translation, .. } if translation.y == 1.5));
 
         // A row in degrees: the probe reaches the operator as radians, found
         // by what changed; the parameters are put back as they were.
         let before = serde_json::to_value(&g.nodes[0].node_type).unwrap();
-        if let crate::types::NodeType::Transform { rotation, .. } = &mut g.nodes[0].node_type {
+        if let NodeType::Transform { rotation, .. } = &mut g.nodes[0].node_type {
             rotation.z = (crate::properties::form::PROBE as f32).to_radians();
         }
-        found_row(&ctx, &mut g, id, 0.0, egui::pos2(10.0, 10.0), Some(before));
-        assert!(
-            matches!(&g.nodes[0].node_type, crate::types::NodeType::Transform { rotation, .. } if rotation.z == 0.0)
-        );
-        let m: RowMenu = ctx.data(|d| d.get_temp(row_menu_id())).unwrap();
-        assert_eq!(m.path, "rotation/2");
+        let found = found_row(&mut g, id, 0.0, Some(before.clone()));
+        assert_eq!(found.map(|f| f.0).as_deref(), Some("rotation/2"));
+        assert!(matches!(&g.nodes[0].node_type, NodeType::Transform { rotation, .. } if rotation.z == 0.0));
+
+        // A row whose number is not one of the operator's: nothing found, and
+        // nothing kept of what it wrote.
+        if let NodeType::Transform { scale, .. } = &mut g.nodes[0].node_type {
+            scale.x = 1.0 + 1e-12_f32;
+        }
+        assert_eq!(found_row(&mut g, id, 0.0, Some(before.clone())), None);
+        assert_eq!(serde_json::to_value(&g.nodes[0].node_type).unwrap(), before);
     }
 
     /// Promote makes a parameter, its default the number's value; again on

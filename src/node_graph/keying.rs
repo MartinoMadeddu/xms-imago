@@ -209,8 +209,10 @@ impl NodeGraphState {
     }
 
     /// After the edit: a keyed number that was changed is keyed at the playhead
-    /// with its new value; everything else changed is kept as the node's own.
-    /// Nothing changed: the node is as it was.
+    /// with its new value; a number that follows another, changed, changes the
+    /// number at the end of its chain, and keeps following it; everything else
+    /// changed is kept as the node's own. Nothing changed: the node is as it
+    /// was.
     pub fn end_edit(&mut self, id: NodeId, own: NodeType) {
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
             return;
@@ -232,8 +234,16 @@ impl NodeGraphState {
         ) else {
             return;
         };
+        if edited == shown_v {
+            if let Some(node) = self.node_mut(id) {
+                node.node_type = own;
+            }
+            return;
+        }
         let changed = |p: &str| match (keys::get(&edited, p), keys::get(&shown_v, p)) {
-            (Some(now), Some(was)) => (now - was).abs() > 1e-9 * (1.0 + was.abs()),
+            // Parameters are f32: a row converting (degrees) moves the others
+            // by no more than rounding.
+            (Some(now), Some(was)) => (now - was).abs() > 1e-6 * (1.0 + was.abs()),
             _ => false,
         };
         let mut kept = edited.clone();
@@ -248,27 +258,50 @@ impl NodeGraphState {
                 keys::set(&mut kept, &c.path, o);
             }
         }
-        // A number that follows another, typed over: it is its own now, the
-        // reference gone. Left alone: its own stays, the source gives it.
-        let mut unlinked = vec![];
+        // A number that follows another keeps its own; changed, the number it
+        // follows takes the change.
+        let mut through = vec![];
         for l in &node.links {
             if changed(&l.path) {
-                unlinked.push(l.path.clone());
-            } else if let Some(o) = keys::get(&own_v, &l.path) {
+                if let (Some(root), Some(x)) = (self.root_of(id, &l.path), keys::get(&edited, &l.path)) {
+                    through.push((root, x));
+                }
+            }
+            if let Some(o) = keys::get(&own_v, &l.path) {
                 keys::set(&mut kept, &l.path, o);
             }
         }
         let Some(node) = self.node_mut(id) else { return };
-        if edited == shown_v {
-            node.node_type = own;
-            return;
-        }
         if let Ok(t) = serde_json::from_value(kept) {
             node.node_type = t;
         }
-        node.links.retain(|l| !unlinked.contains(&l.path));
         for (p, v) in keyed {
             self.set_key_value(id, &p, key, v);
+        }
+        for ((root, p), v) in through {
+            self.set_number(root, &p, v);
+        }
+    }
+
+    /// Set number `path` of a node to `value`: keyed at its playhead when it
+    /// is keyed, its own otherwise.
+    fn set_number(&mut self, id: NodeId, path: &str, value: f64) {
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
+            return;
+        };
+        if node.channels.iter().any(|c| c.path == path) {
+            let frame = self.node_frame(node).round();
+            self.set_key_value(id, path, frame, value);
+            return;
+        }
+        let Some(node) = self.node_mut(id) else { return };
+        let Ok(mut v) = serde_json::to_value(&node.node_type) else {
+            return;
+        };
+        if keys::set(&mut v, path, value) {
+            if let Ok(t) = serde_json::from_value(v) {
+                node.node_type = t;
+            }
         }
     }
 

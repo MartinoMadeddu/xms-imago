@@ -1006,17 +1006,28 @@ impl egui_dock::TabViewer for Panes<'_> {
                         .graph
                         .selected_node
                         .and_then(|id| self.graph.begin_edit(id).map(|own| (id, own)));
-                    // A number's row right-clicked shows its menu: only on an
-                    // operator's own parameters, not an ICE or MaterialX node's.
+                    // A number's row right-clicked shows its menu, and the rows
+                    // of numbers that follow others are found to draw them
+                    // orange: only on an operator's own parameters, not an ICE
+                    // or MaterialX node's.
                     let own_parameters = self.nav.current_subnet.is_none() && self.nav.materialx.is_none();
-                    crate::properties::form::probing(own_parameters && editing.is_some());
-                    // The parameters as they were, for a right-click to be found
-                    // by what it changed.
-                    let before = editing
+                    let selected = editing
                         .as_ref()
-                        .filter(|_| ui.input(|i| i.pointer.secondary_clicked()))
-                        .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id))
+                        .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id));
+                    let (whose, linked): (u64, Vec<String>) = selected
+                        .map(|n| {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            (n.id, &n.links).hash(&mut h);
+                            (h.finish(), n.links.iter().map(|l| l.path.clone()).collect())
+                        })
+                        .unwrap_or_default();
+                    // The parameters as they were, for a probed row to be found
+                    // by what it changed, and put back.
+                    let before = selected
+                        .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
                         .and_then(|n| serde_json::to_value(&n.node_type).ok());
+                    crate::properties::form::probing(own_parameters && editing.is_some(), whose, linked);
                     draw_properties_panel(
                         ui,
                         self.graph,
@@ -1026,8 +1037,18 @@ impl egui_dock::TabViewer for Panes<'_> {
                         self.anim_ctx,
                         &mut io,
                     );
-                    if let (Some((old, at)), Some((id, _))) = (crate::properties::form::probed(), &editing) {
-                        crate::keys_ui::found_row(ui.ctx(), self.graph, *id, old, at, before);
+                    use crate::properties::form::Probe;
+                    match (crate::properties::form::probed(), &editing) {
+                        (Some(Probe::Clicked(old, at)), Some((id, _))) => {
+                            if let Some((path, value)) = crate::keys_ui::found_row(self.graph, *id, old, before) {
+                                crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, at);
+                            }
+                        }
+                        (Some(Probe::Finding(row)), Some((id, _))) => {
+                            let path = crate::keys_ui::found_row(self.graph, *id, 0.0, before).map(|f| f.0);
+                            crate::properties::form::found(row, path);
+                        }
+                        _ => {}
                     }
                     if let Some((id, own)) = editing {
                         self.graph.end_edit(id, own);
