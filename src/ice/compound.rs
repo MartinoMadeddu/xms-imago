@@ -1163,12 +1163,12 @@ mod tests {
         );
         let told = promote_setting(&mut g, r, "seed").unwrap();
         assert!(told.contains("ICE operator"), "{told}");
+        assert!(promote_setting(&mut g, r, "seed").is_err(), "once");
         let p = &g.parameters[0];
         assert_eq!(
             (p.label.as_str(), p.kind, p.default.clone()),
             ("Random Seed", ParameterType::Integer, serde_json::json!(3))
         );
-        assert!(promote_setting(&mut g, r, "seed").is_err(), "once");
         let values: BTreeMap<String, serde_json::Value> = [(p.name.clone(), serde_json::json!(7))].into();
         let set = with_values(&g, &g.parameters, &values);
         assert!(set
