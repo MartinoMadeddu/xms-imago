@@ -453,7 +453,6 @@ pub fn draw_subnet_node_properties(
 ) {
     use crate::core::geo::Context;
     use crate::properties::form::group;
-    use xms_ice::Value;
     // The geometry the graph last ran on, for Get Data's list: listed only
     // while the list is open.
     let last_input = graph.last_input.clone();
@@ -775,20 +774,25 @@ fn value_with_type(f: &mut crate::properties::form::Rows, label: &str, value: &m
     value_row(f, label, value);
 }
 
-/// The Parameter nodes of a graph, its compounds' included: each name once,
-/// with its default.
-pub fn parameters_of(g: &IceGraph) -> Vec<(String, xms_ice::Value)> {
-    let flat = super::compound::flatten(g).ok();
-    let nodes = flat.as_ref().map_or(&g.nodes, |f| &f.graph.nodes);
-    let mut out: Vec<(String, xms_ice::Value)> = vec![];
-    for n in nodes {
-        if let IceGraphNodeType::Parameter { name, default } = &n.node_type {
-            if !out.iter().any(|(m, _)| m == name) {
-                out.push((name.clone(), *default));
-            }
-        }
-    }
-    out
+/// Where the graph broke the last time it ran, and why: the node in this
+/// graph, when there is one (inside a compound looked at, the node inside it
+/// that broke; outside it, the compound holding that node). The graph that
+/// ran is the outermost, while a compound's inside is looked at.
+fn broken(graph: &IceGraph) -> Option<(Option<NodeId>, String)> {
+    let top = graph.outer.first().map_or(graph, |o| &*o.graph);
+    let (_, message) = top.error.lock().ok()?.clone()?;
+    let way = top.broke.lock().ok()?.clone();
+    let entered: Vec<NodeId> = graph.outer.iter().map(|o| o.instance).collect();
+    let here = way
+        .starts_with(&entered)
+        .then(|| way.get(entered.len()).copied())
+        .flatten();
+    Some((here, message))
+}
+
+/// What a node's menu has to tell, until the graph is drawn.
+fn told_id() -> egui::Id {
+    egui::Id::new("ice_told")
 }
 
 /// Where a compound to go inside of waits, until the graph is drawn.
@@ -1053,9 +1057,8 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
     }
     // Where the graph broke, the last time it ran: a red ring on the node,
     // and why, along the top of the canvas.
-    let broken = graph.error.lock().ok().and_then(|e| e.clone());
-    if let Some((id, message)) = broken {
-        if let Some(node) = graph.nodes.iter().find(|n| n.id == id) {
+    if let Some((here, message)) = broken(graph) {
+        if let Some((id, node)) = here.and_then(|id| graph.nodes.iter().find(|n| n.id == id).map(|n| (id, n))) {
             let size = layout(node, collapsed.contains(&id)).size * z;
             let r = egui::Rect::from_min_size(to_screen(node.position), size).expand(3.0 * z);
             painter.rect_stroke(
@@ -1214,6 +1217,10 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
         }
     }
     ui.data_mut(|d| d.insert_temp(menu_id, menu_at));
+    if let Some(m) = ui.data(|d| d.get_temp::<String>(told_id())) {
+        ui.data_mut(|d| d.remove::<String>(told_id()));
+        told = Some(m);
+    }
     // A compound double-clicked, or ↓: inside it.
     if let Some(id) = ui.data(|d| d.get_temp::<NodeId>(enter_id())) {
         ui.data_mut(|d| d.remove::<NodeId>(enter_id()));
@@ -1761,7 +1768,36 @@ fn draw_subnet_node(
     }
     let terminal = matches!(node.node_type, IceGraphNodeType::Root { .. });
     if !terminal {
+        // Inside an editable compound: an input that holds a value can be a
+        // port of the compound.
+        let promotable: Vec<(usize, String)> = if graph.outer.last().is_some_and(|o| !o.locked) {
+            node.inputs
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
+                .map(|(k, i)| (k, i.name.clone()))
+                .collect()
+        } else {
+            vec![]
+        };
         dr.context_menu(|ui| {
+            if !promotable.is_empty() {
+                crate::menus::menu(ui, "Promote Input", |ui| {
+                    for (k, name) in &promotable {
+                        if ui
+                            .button(name.as_str())
+                            .on_hover_text("A port of the compound, its value this input's: a Compound Input wired in")
+                            .clicked()
+                        {
+                            if let Some(told) = super::compound::promote_input(graph, id, *k) {
+                                ui.data_mut(|d| d.insert_temp(told_id(), told));
+                            }
+                            ui.close();
+                        }
+                    }
+                });
+                ui.separator();
+            }
             if ui.button("Delete").clicked() {
                 graph.remove_node(id);
                 ui.close();

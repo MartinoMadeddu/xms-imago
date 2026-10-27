@@ -126,7 +126,7 @@ pub fn draw_properties_panel(
                     NodeType::Ice { id, .. } => subnets.get(id),
                     _ => None,
                 })
-                .map(|sg| crate::ice::ui::parameters_of(&sg.composed()))
+                .map(|sg| crate::ice::compound::parameters_of(&sg.composed()))
                 .unwrap_or_default();
             draw_properties(ui, graph, scene, anim, io);
         });
@@ -805,12 +805,10 @@ pub fn draw_properties(
             group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); });
             if !io.ice_params.is_empty() {
                 group(ui, "Parameters", Some("Its graph's Parameter nodes, by name: the value it gives each, the node's default until set"), |f| {
-                    for (name, default) in &io.ice_params {
-                        let mut v = params.get(name).copied().filter(|v| v.ty() == default.ty()).unwrap_or(*default);
-                        let was = v;
-                        crate::ice::ui::value_row(f, name, &mut v);
-                        if v != was {
-                            if v == *default { params.remove(name); } else { params.insert(name.clone(), v); }
+                    // Each kept on the operator (`ice::compound::keep_params`).
+                    for (name, _) in &io.ice_params {
+                        if let Some(v) = params.get_mut(name) {
+                            crate::ice::ui::value_row(f, name, v);
                         }
                     }
                 });

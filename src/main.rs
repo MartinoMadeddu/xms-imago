@@ -1450,6 +1450,7 @@ pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
         subnets,
         ..
     } = app;
+    crate::ice::compound::keep_params(graph, subnets);
     history.set_ice(subnets.content_hash());
     let typing = ctx.egui_wants_keyboard_input();
     if !typing && !browser.is_open() {

@@ -243,9 +243,10 @@ pub enum NodeType {
     /// An ICE graph run on the geometry coming in. `references`: how many
     /// reference inputs follow the geometry (one kept free), whose primitives
     /// the graph reads by number (Get Reference).
-    /// `params`: the values of its graph's Parameter nodes it sets, by name
-    /// (a Parameter node it sets none of takes its default); what a scene
-    /// compound's promoted parameter can drive.
+    /// `params`: the value it gives each Parameter node of its graph, by name
+    /// (kept for every one, its default until set:
+    /// `ice::compound::keep_params`); what a scene compound's promoted
+    /// parameter can drive.
     Ice {
         id: IceGraphId,
         name: String,

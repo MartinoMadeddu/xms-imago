@@ -29,7 +29,7 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 | 3 | Promotion and references: links on operators, applied with keys; Promote and Copy / Paste as Reference from the Keys list | Built: `src/node_graph/links.rs`, `src/keys_ui.rs` |
 | 4 | The right-click menu on every number's row in the parameters | Built: `properties::form` finds a row's number by its path (a probe), `keys_ui::row_menu` |
 | 5 | ICE compounds, flattened into the engine graph; the ICE Parameter node | Built: `src/ice/compound.rs` ([ICE](ice.md#compounds)) |
-| 6 | Ramp: the type, its row, Ramp Lookup | |
+| 6 | Ramp: the type, its row, Ramp Lookup | Later: not needed yet (Martino) |
 | 7 | Viewer tools inside compounds | |
 | 8 | The first shipped compounds: the groom set, Scatter and Instance | |
 

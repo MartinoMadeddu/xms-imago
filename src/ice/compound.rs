@@ -134,20 +134,79 @@ pub fn ports_of(inside: &IceGraph) -> (Vec<Port>, Vec<Port>) {
     (ins, outs)
 }
 
+/// The Parameter nodes of a graph, its compounds' included: each name once,
+/// with its default.
+pub fn parameters_of(g: &IceGraph) -> Vec<(String, Value)> {
+    let flat = flatten(g).ok();
+    let nodes = flat.as_ref().map_or(&g.nodes, |f| &f.graph.nodes);
+    let mut out: Vec<(String, Value)> = vec![];
+    for n in nodes {
+        if let IceGraphNodeType::Parameter { name, default } = &n.node_type {
+            if !out.iter().any(|(m, _)| m == name) {
+                out.push((name.clone(), *default));
+            }
+        }
+    }
+    out
+}
+
+/// Each ICE operator of `graph` keeps a value for every Parameter node of its
+/// graph (in `subnets`), its default until set, so each can be referenced and
+/// promoted: values for nodes gone are dropped, those of another type set
+/// back to the default. Done when the graphs change.
+pub fn keep_params(graph: &mut crate::node_graph::NodeGraphState, subnets: &crate::ice::IceGraphStore) {
+    use std::hash::{Hash, Hasher};
+    thread_local! {
+        static SEEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (subnets.content_hash(), graph.nodes.len()).hash(&mut h);
+    for n in &graph.nodes {
+        if let crate::types::NodeType::Ice { id, .. } = n.node_type {
+            (n.id.0, id.0).hash(&mut h);
+        }
+    }
+    let now = h.finish();
+    if SEEN.with(|s| s.replace(now)) == now {
+        return;
+    }
+    for n in graph.nodes.iter_mut() {
+        let crate::types::NodeType::Ice { id, params, .. } = &mut n.node_type else {
+            continue;
+        };
+        let Some(sg) = subnets.get(*id) else { continue };
+        let kept: std::collections::BTreeMap<String, Value> = parameters_of(&sg.composed())
+            .into_iter()
+            .map(|(name, default)| {
+                let v = params
+                    .get(&name)
+                    .copied()
+                    .filter(|v| v.ty() == default.ty())
+                    .unwrap_or(default);
+                (name, v)
+            })
+            .collect();
+        if kept != *params {
+            *params = kept;
+        }
+    }
+}
+
 /// A graph with its compounds flattened, as the engine takes it.
 pub struct Flat<'a> {
     pub graph: Cow<'a, IceGraph>,
-    /// The instance each node put in its place came from.
-    origin: HashMap<NodeId, NodeId>,
+    /// The way to each node put in an instance's place: the instance, then
+    /// the node inside it (and inside the compounds within, one id each).
+    trails: HashMap<NodeId, Vec<NodeId>>,
     /// What gives each output of an instance, in `graph`.
     pub ports: HashMap<(NodeId, usize), (NodeId, usize)>,
 }
 
 impl Flat<'_> {
-    /// The node of the graph flattened that node `id` of `graph` stands for:
-    /// itself, or the instance it came from.
-    pub fn origin(&self, id: NodeId) -> NodeId {
-        self.origin.get(&id).copied().unwrap_or(id)
+    /// The way to the node that node `id` of `graph` stands for: itself, or
+    /// the instance it came from, then the node inside it, and so on.
+    pub fn trail(&self, id: NodeId) -> Vec<NodeId> {
+        self.trails.get(&id).cloned().unwrap_or_else(|| vec![id])
     }
 }
 
@@ -155,8 +214,8 @@ impl Flat<'_> {
 /// module's notes). A Compound Input left (a compound's inside, run on its own
 /// while it is looked at) gives its value, a Compound Output nothing. Refused:
 /// an instance whose definition cannot be found, one inside itself, or too
-/// deep; the instance and why.
-pub fn flatten(g: &IceGraph) -> Result<Flat<'_>, (NodeId, String)> {
+/// deep; the way to the instance (the outer instance first) and why.
+pub fn flatten(g: &IceGraph) -> Result<Flat<'_>, (Vec<NodeId>, String)> {
     let plain = !g.nodes.iter().any(|n| {
         matches!(
             n.node_type,
@@ -167,7 +226,7 @@ pub fn flatten(g: &IceGraph) -> Result<Flat<'_>, (NodeId, String)> {
     });
     let mut flat = Flat {
         graph: Cow::Borrowed(g),
-        origin: HashMap::new(),
+        trails: HashMap::new(),
         ports: HashMap::new(),
     };
     if plain {
@@ -175,7 +234,7 @@ pub fn flatten(g: &IceGraph) -> Result<Flat<'_>, (NodeId, String)> {
     }
     let mut out = g.clone();
     out.outer.clear();
-    expand(&mut out, &mut flat.origin, &mut flat.ports, &mut vec![])?;
+    expand(&mut out, &mut flat.trails, &mut flat.ports, &mut vec![])?;
     for n in out.nodes.iter_mut() {
         if let IceGraphNodeType::CompoundInput { value, .. } = n.node_type {
             n.node_type = IceGraphNodeType::Constant { value };
@@ -192,10 +251,10 @@ pub fn flatten(g: &IceGraph) -> Result<Flat<'_>, (NodeId, String)> {
 /// definitions `within` (the ones being flattened, outermost first) refused.
 fn expand(
     g: &mut IceGraph,
-    origin: &mut HashMap<NodeId, NodeId>,
+    trails: &mut HashMap<NodeId, Vec<NodeId>>,
     ports: &mut HashMap<(NodeId, usize), (NodeId, usize)>,
     within: &mut Vec<String>,
-) -> Result<(), (NodeId, String)> {
+) -> Result<(), (Vec<NodeId>, String)> {
     let instances: Vec<NodeId> = g
         .nodes
         .iter()
@@ -206,28 +265,34 @@ fn expand(
         let Some(node) = g.nodes.iter().find(|n| n.id == id).cloned() else {
             continue;
         };
-        let d = definition(&node.node_type).map_err(|e| (id, e))?;
+        let d = definition(&node.node_type).map_err(|e| (vec![id], e))?;
         if within.contains(&d.name) {
             return Err((
-                id,
+                vec![id],
                 format!("{} is inside itself: a compound cannot hold itself", d.name),
             ));
         }
         if within.len() >= compounds::MAX_DEPTH {
             return Err((
-                id,
+                vec![id],
                 format!(
                     "Compounds are more than {} deep inside one another",
                     compounds::MAX_DEPTH
                 ),
             ));
         }
-        let mut inner = crate::graph_io::ice_from_value(&d.graph).map_err(|e| (id, format!("{}: {e}", d.name)))?;
+        let mut inner =
+            crate::graph_io::ice_from_value(&d.graph).map_err(|e| (vec![id], format!("{}: {e}", d.name)))?;
         within.push(d.name.to_string());
-        let nested = expand(&mut inner, &mut HashMap::new(), &mut HashMap::new(), within);
+        let mut inner_trails = HashMap::new();
+        let nested = expand(&mut inner, &mut inner_trails, &mut HashMap::new(), within);
         within.pop();
-        nested.map_err(|(_, e)| (id, format!("{}: {e}", d.name)))?;
-        splice(g, &node, &inner, origin, ports);
+        nested.map_err(|(way, e)| {
+            let mut to = vec![id];
+            to.extend(way);
+            (to, format!("{}: {e}", d.name))
+        })?;
+        splice(g, &node, &inner, &inner_trails, trails, ports);
     }
     rewire(g);
     Ok(())
@@ -253,19 +318,21 @@ fn take(input: &mut IceGraphInputSocket, s: Source) {
     }
 }
 
-/// Put the nodes of `inner` (flattened) in the place of instance `inst` of
-/// `g`, with new ids, and wire them as the module's notes say.
+/// Put the nodes of `inner` (flattened, `inner_trails` the ways to its nodes)
+/// in the place of instance `inst` of `g`, with new ids, and wire them as the
+/// module's notes say.
 fn splice(
     g: &mut IceGraph,
     inst: &IceGraphNode,
     inner: &IceGraph,
-    origin: &mut HashMap<NodeId, NodeId>,
+    inner_trails: &HashMap<NodeId, Vec<NodeId>>,
+    trails: &mut HashMap<NodeId, Vec<NodeId>>,
     ports: &mut HashMap<(NodeId, usize), (NodeId, usize)>,
 ) {
     let offset = g.next_node_id;
     g.next_node_id += inner.next_node_id;
     let shift = |id: NodeId| NodeId(id.0 + offset);
-    let from = origin.get(&inst.id).copied().unwrap_or(inst.id);
+    let way_in = trails.get(&inst.id).cloned().unwrap_or_else(|| vec![inst.id]);
     let resolve = |(s, o): (NodeId, usize)| -> Source {
         match inner.nodes.iter().find(|n| n.id == s).map(|n| &n.node_type) {
             Some(IceGraphNodeType::CompoundInput { name, value }) => {
@@ -297,7 +364,9 @@ fn splice(
                 take(input, resolve(w));
             }
         }
-        origin.insert(m.id, from);
+        let mut way = way_in.clone();
+        way.extend(inner_trails.get(&n.id).cloned().unwrap_or_else(|| vec![n.id]));
+        trails.insert(m.id, way);
         g.nodes.push(m);
     }
     let outs: Vec<Source> = inst
@@ -547,6 +616,35 @@ fn unique(name: &str, taken: &[String]) -> String {
         .map(|k| if k == 1 { name.to_string() } else { format!("{name}{k}") })
         .find(|n| !taken.contains(n))
         .unwrap_or_default()
+}
+
+/// Inside a compound: input `k` of node `id`, holding a value, made a port of
+/// the compound: a Compound Input beside it, named after the node and the
+/// input, holding its value, wired in. Returns what to tell.
+pub fn promote_input(g: &mut IceGraph, id: NodeId, k: usize) -> Option<String> {
+    let n = g.nodes.iter().find(|n| n.id == id)?;
+    let input = n.inputs.get(k).filter(|i| i.connected_output.is_none())?;
+    let taken: Vec<String> = g
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.node_type {
+            IceGraphNodeType::CompoundInput { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let port = unique(&format!("{} {}", n.name, input.name), &taken);
+    let value = input.value.unwrap_or(Value::Float(0.0));
+    let at = n.position + egui::vec2(-220.0, 40.0 * k as f32);
+    let cin = g.add_node(
+        port.clone(),
+        IceGraphNodeType::CompoundInput {
+            name: port.clone(),
+            value,
+        },
+        at,
+    );
+    g.add_connection(cin, 0, id, k);
+    Some(format!("{port} is a port of the compound, once you go back out"))
 }
 
 /// Pack nodes `ids` of `g` into an ICE compound named `name`: an editable
@@ -846,6 +944,46 @@ mod tests {
         assert_eq!(ys(&back.evaluate(&triangle(), &[])), ys(&g.evaluate(&triangle(), &[])));
     }
 
+    /// Inside, an input promoted is a port of the compound, its value the
+    /// input's; set on the instance, it is what runs.
+    #[test]
+    fn an_input_promoted_is_a_port() {
+        let (mut g, add, set) = lifting();
+        let id = make_compound(&mut g, &[add, set], "Lift").unwrap();
+        enter(&mut g, id).unwrap();
+        let told = promote_input(&mut g, add, 1).unwrap();
+        assert!(told.contains("Add B"), "{told}");
+        leave(&mut g).unwrap();
+        let node = g.nodes.iter_mut().find(|n| n.id == id).unwrap();
+        let k = node.inputs.iter().position(|i| i.name == "Add B").unwrap();
+        assert_eq!(node.inputs[k].value, Some(Value::Vec3([0.0, 1.0, 0.0])));
+        node.inputs[k].value = Some(Value::Vec3([0.0, 4.0, 0.0]));
+        let base = ys(&triangle());
+        assert_eq!(
+            ys(&g.evaluate(&triangle(), &[])),
+            base.iter().map(|y| y + 4.0).collect::<Vec<_>>()
+        );
+    }
+
+    /// An error inside a compound is kept with the way to the node that
+    /// broke: the compound, then the node inside it.
+    #[test]
+    fn an_error_inside_is_found_inside() {
+        let (mut g, add, set) = lifting();
+        let id = make_compound(&mut g, &[add, set], "Lift").unwrap();
+        enter(&mut g, id).unwrap();
+        // Set Data of a name no context has, from a boolean: it cannot run.
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == add) {
+            n.inputs[1].value = Some(Value::Bool(true));
+        }
+        g.evaluate(&triangle(), &[]);
+        let top = &g.outer[0].graph;
+        let way = top.broke.lock().unwrap().clone();
+        assert!(top.error.lock().unwrap().is_some());
+        assert_eq!(way.first(), Some(&id));
+        assert_eq!(way.len(), 2);
+    }
+
     /// A compound inside itself is refused, the error on the instance.
     #[test]
     fn a_compound_cannot_hold_itself() {
@@ -860,7 +998,7 @@ mod tests {
             }
         }
         let err = flatten(&g).err().unwrap();
-        assert_eq!(err.0, id);
+        assert_eq!(err.0[0], id);
         assert!(err.1.contains("inside itself"), "{}", err.1);
     }
 

@@ -137,6 +137,10 @@ pub struct IceGraph {
     /// Why the graph did not compile the last time it ran, and at which node:
     /// shown on that node and above the canvas.
     pub error: Arc<Mutex<Option<(NodeId, String)>>>,
+    /// The way to that node when it is inside a compound: the compound, then
+    /// the node inside it, and so on (see `compound::Flat::trail`); empty
+    /// when the graph ran.
+    pub broke: Arc<Mutex<Vec<NodeId>>>,
     /// The type of each node's output on the geometry the graph last ran on
     /// (`refresh_types`), for the colours of its ports and wires.
     pub types: Arc<Mutex<HashMap<NodeId, xms_ice::Ty>>>,
@@ -198,6 +202,7 @@ impl IceGraph {
             pan_offset: egui::Vec2::ZERO,
             zoom: 1.0,
             error: Arc::default(),
+            broke: Arc::default(),
             types: Arc::default(),
             arrays: Arc::default(),
             last_input: Arc::default(),
@@ -890,7 +895,8 @@ impl IceGraph {
         if matches!(n.node_type, IceGraphNodeType::Compound { .. }) {
             return self.ports.lock().ok()?.get(&(node, output))?.0;
         }
-        self.output_type_in(node, output, &self.types.lock().ok()?)
+        let types = self.types.lock().ok()?;
+        self.output_type_in(node, output, &types)
     }
 
     /// The type an output gives, a constant's own, else what `types` says.
@@ -934,10 +940,14 @@ impl IceGraph {
         if let Ok(mut last) = me.last_input.lock() {
             *last = Some(input.clone());
         }
+        let broke = |way: Vec<NodeId>, message: String| {
+            *me.error.lock().unwrap_or_else(|e| e.into_inner()) = way.first().map(|id| (*id, message));
+            *me.broke.lock().unwrap_or_else(|e| e.into_inner()) = way;
+        };
         let flat = match compound::flatten(me) {
             Ok(f) => f,
-            Err((id, message)) => {
-                *me.error.lock().unwrap_or_else(|e| e.into_inner()) = Some((id, message));
+            Err((way, message)) => {
+                broke(way, message);
                 return input.clone();
             }
         };
@@ -989,14 +999,13 @@ impl IceGraph {
             INSTANCES.with(|i| *i.borrow_mut() = made);
             ran.geo
         });
-        let mut error = me.error.lock().unwrap_or_else(|e| e.into_inner());
         match result {
             Ok(out) => {
-                *error = None;
+                broke(vec![], String::new());
                 out
             }
             Err(e) => {
-                *error = ids.get(e.node).map(|id| (flat.origin(*id), e.message));
+                broke(ids.get(e.node).map(|id| flat.trail(*id)).unwrap_or_default(), e.message);
                 input.clone()
             }
         }

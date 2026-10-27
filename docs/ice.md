@@ -301,7 +301,10 @@ node's, used while nothing is wired in.
 - **Ports** are the Compound Input and Compound Output nodes inside, top to
   bottom, by name: add or rename one there, and the compound's port follows
   when you come back out. A Compound Input's value is the port's, for while
-  nothing is wired to it.
+  nothing is wired to it. Inside an editable compound, right-click a node and
+  **Promote Input** to make one of its inputs holding a value a port: a
+  Compound Input named after the node and the input, holding its value, wired
+  in.
 - **Save as Definition…** in its parameters writes it as an `.icd` file; saved
   in a library folder, it is listed under **Compounds** in every ICE graph's add
   menu and the instance follows the file, locked. A locked compound's inside is
@@ -311,12 +314,15 @@ node's, used while nothing is wired in.
 - **Run as its nodes:** before a graph runs, every compound is replaced by its
   nodes (compounds inside compounds too), so a compound costs nothing over the
   nodes it holds. A compound whose definition cannot be found, or one inside
-  itself, stops the graph with a red ring on it, saying why.
+  itself, stops the graph with a red ring on it, saying why. A node inside a
+  compound that breaks the graph rings the compound; go inside, and the ring is
+  on that node.
 
 **Parameter** (Data Access) is a value the ICE operator gives, by name: the
 operator's parameters list every Parameter node of its graph (and of its
-compounds), each at its default until set there. A scene compound holding the
-ICE operator can promote it, as any number of an operator's parameters.
+compounds), each at its default until set there. The operator keeps a value
+for each, so a scene compound holding it can promote it, and another operator
+reference it, as any number of an operator's parameters.
 
 ## Fast
 
@@ -362,10 +368,6 @@ parameters.
 - Reading at a reference mesh's samples in the editor's types: the port shows
   its type once the graph has run on that mesh
 - Snippets: code in a node, compiled to the same instructions
-- Promote inside an ICE compound: an inner node's input becomes a port by
-  wiring a Compound Input into it, not yet from its right-click menu
-- Errors inside a compound show on the compound, not on the node inside that
-  broke
 
 ## Tests
 
