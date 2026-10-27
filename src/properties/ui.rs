@@ -763,8 +763,8 @@ pub fn draw_properties(
             Some("Keys on the parameters of the operator wired into it, on frames of its own: local frame 0 falls on Start. Key them in the Keys group below, or with S"),
             |f| {
                 let (mut a, mut b) = (*start as i32, *end as i32);
-                if f.row("Start", Some("The scene frame its local frame 0 falls on"), |ui| ui.add(egui::DragValue::new(&mut a).speed(0.25))).changed() { *start = a as i64; }
-                if f.row("End", Some("The scene frame it ends on: held before Start and after End"), |ui| ui.add(egui::DragValue::new(&mut b).speed(0.25))).changed() { *end = (b as i64).max(*start); }
+                if f.row("Start", Some("The scene frame its local frame 0 falls on"), |ui| form::number(ui, None, &mut a, |d| d.speed(0.25))).changed() { *start = a as i64; }
+                if f.row("End", Some("The scene frame it ends on: held before Start and after End"), |ui| form::number(ui, None, &mut b, |d| d.speed(0.25))).changed() { *end = (b as i64).max(*start); }
                 for (k, v) in &time_info { f.value(k, v.clone()); }
                 if let Some(r) = range_now { f.value("Range", format!("{:.0} to {:.0}, {:.0} frames", r.0, r.1, r.1 - r.0 + 1.0)); }
             }),
@@ -918,13 +918,13 @@ pub fn draw_properties(
                 let tb = anim.input.as_ref().map(|i| i.rate.timebase() as u32).unwrap_or(120);
                 f.row("Start", Some("Hours : minutes : seconds : frames"), |ui| {
                     ui.horizontal(|ui| {
-                        ui.field(egui::DragValue::new(hours).range(0..=23));
+                        form::number(ui, None, hours, |d| d.range(0..=23));
                         ui.label(":");
-                        ui.field(egui::DragValue::new(minutes).range(0..=59));
+                        form::number(ui, None, minutes, |d| d.range(0..=59));
                         ui.label(":");
-                        ui.field(egui::DragValue::new(seconds).range(0..=59));
+                        form::number(ui, None, seconds, |d| d.range(0..=59));
                         ui.label(":");
-                        ui.field(egui::DragValue::new(frames).range(0..=tb.saturating_sub(1)));
+                        form::number(ui, None, frames, |d| d.range(0..=tb.saturating_sub(1)));
                     });
                 });
                 let can_drop = anim.input.as_ref().map(|i| i.rate.supports_drop_frame()).unwrap_or(true);
@@ -1141,7 +1141,7 @@ pub fn draw_properties(
                 f.row("Hip height", None, |ui| {
                     ui.add_enabled_ui(*set_hip_height, |ui| {
                         ui.horizontal(|ui| {
-                            ui.field(egui::DragValue::new(hip_height).speed(0.1).range(0.0..=300.0).suffix(" cm"));
+                            form::number(ui, None, hip_height, |d| d.speed(0.1).range(0.0..=300.0).suffix(" cm"));
                             if let Some((_, h)) = &rest { if ui.small_button("From file").clicked() { *hip_height = *h; } }
                         });
                     });
@@ -1484,7 +1484,7 @@ fn promoted_row(
             f.row(label, hint, |ui| {
                 ui.horizontal(|ui| {
                     for x in v.iter_mut() {
-                        changed |= ui.add(egui::DragValue::new(x).speed(0.01)).changed();
+                        changed |= form::number(ui, None, x, |d| d.speed(0.01)).changed();
                     }
                 });
             });
@@ -1699,7 +1699,9 @@ fn body_collide(
         f.row("Self overlap", Some("How far its parts may overlap"), |ui| {
             ui.add_enabled_ui(settings.self_collision, |ui| {
                 form::slider_look(ui);
-                ui.add(egui::Slider::new(&mut settings.self_slack, 0.0..=10.0).suffix(" cm"));
+                form::slider(ui, &mut settings.self_slack, |v| {
+                    egui::Slider::new(v, 0.0..=10.0).suffix(" cm")
+                });
             });
         });
         f.choice(
@@ -2605,13 +2607,9 @@ fn colour_fields(ui: &mut egui::Ui, c: &mut [f32; 3]) {
         let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(30.0);
         let h = ui.spacing().interact_size.y;
         for x in c.iter_mut() {
-            ui.field_sized(
-                [w, h],
-                egui::DragValue::new(x)
-                    .speed(0.01)
-                    .range(0.0..=f32::MAX)
-                    .max_decimals(3),
-            );
+            form::number(ui, Some([w, h]), x, |d| {
+                d.speed(0.01).range(0.0..=f32::MAX).max_decimals(3)
+            });
         }
     });
 }
@@ -2959,24 +2957,24 @@ fn camera_rows(
             ui.horizontal(|ui| {
                 let h = ui.spacing().interact_size.y;
                 let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                ui.field_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture).speed(0.05).range(0.01..=1000.0).prefix("H "));
-                ui.field_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture).speed(0.05).range(0.01..=1000.0).prefix("V "));
+                form::number(ui, Some([w, h]), &mut c.horizontal_aperture, |d| d.speed(0.05).range(0.01..=1000.0).prefix("H "));
+                form::number(ui, Some([w, h]), &mut c.vertical_aperture, |d| d.speed(0.05).range(0.01..=1000.0).prefix("V "));
             });
         });
         f.row("Filmback offset", Some("Shift of the gate, horizontal and vertical. Written, not shown in the Viewer yet"), |ui| {
             ui.horizontal(|ui| {
                 let h = ui.spacing().interact_size.y;
                 let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                ui.field_sized([w, h], egui::DragValue::new(&mut c.horizontal_aperture_offset).speed(0.05).prefix("H "));
-                ui.field_sized([w, h], egui::DragValue::new(&mut c.vertical_aperture_offset).speed(0.05).prefix("V "));
+                form::number(ui, Some([w, h]), &mut c.horizontal_aperture_offset, |d| d.speed(0.05).prefix("H "));
+                form::number(ui, Some([w, h]), &mut c.vertical_aperture_offset, |d| d.speed(0.05).prefix("V "));
             });
         });
         f.row("Clipping", Some("Near and far, in scene units"), |ui| {
             ui.horizontal(|ui| {
                 let h = ui.spacing().interact_size.y;
                 let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                ui.field_sized([w, h], egui::DragValue::new(&mut c.clipping_range[0]).speed(0.01).range(0.0001..=f32::MAX).prefix("near "));
-                ui.field_sized([w, h], egui::DragValue::new(&mut c.clipping_range[1]).speed(10.0).range(0.001..=f32::MAX).prefix("far "));
+                form::number(ui, Some([w, h]), &mut c.clipping_range[0], |d| d.speed(0.01).range(0.0001..=f32::MAX).prefix("near "));
+                form::number(ui, Some([w, h]), &mut c.clipping_range[1], |d| d.speed(10.0).range(0.001..=f32::MAX).prefix("far "));
             });
         });
         f.drag("f-stop", Some("0: no depth of field. Written for renderers, not shown in the Viewer"), &mut c.f_stop, 0.05, "");
@@ -3510,7 +3508,7 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
             let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
             let h = ui.spacing().interact_size.y;
             for x in v.iter_mut() {
-                ui.field_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4));
+                form::number(ui, Some([w, h]), x, |d| d.speed(0.01).max_decimals(4));
             }
         });
     };
@@ -3521,7 +3519,7 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
         Value::Int(i) => {
             f.row("Value", None, |ui| {
                 let h = ui.spacing().interact_size.y;
-                ui.field_sized([ui.available_width(), h], egui::DragValue::new(i).speed(0.1));
+                form::number(ui, Some([ui.available_width(), h]), i, |d| d.speed(0.1));
             });
         }
         Value::Float(x) => {
@@ -3530,7 +3528,7 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
         Value::Double(x) => {
             f.row("Value", None, |ui| {
                 let h = ui.spacing().interact_size.y;
-                ui.field_sized([ui.available_width(), h], egui::DragValue::new(x).speed(0.01));
+                form::number(ui, Some([ui.available_width(), h]), x, |d| d.speed(0.01));
             });
         }
         Value::Token(s) if !tokens.is_empty() => {

@@ -25,9 +25,7 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
             let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
             let mut changed = false;
             for x in v.iter_mut() {
-                changed |= ui
-                    .field_sized([w, h], egui::DragValue::new(x).speed(0.01).max_decimals(4))
-                    .changed();
+                changed |= form::number(ui, Some([w, h]), x, |d| d.speed(0.01).max_decimals(4)).changed();
             }
             changed
         })
@@ -35,27 +33,21 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
     };
     match v {
         Value::Bool(b) => form::check(ui, b).changed(),
-        Value::Int(i) => {
-            let mut d = egui::DragValue::new(i).speed(0.1);
-            if let Some((a, b)) = range {
-                d = d.range(a.round() as i32..=b.round() as i32);
-            }
-            ui.field_sized([w, h], d).changed()
-        }
-        Value::Float(x) => {
-            let mut d = egui::DragValue::new(x).speed(speed(range)).max_decimals(4);
-            if let Some((a, b)) = range {
-                d = d.range(a as f32..=b as f32);
-            }
-            ui.field_sized([w, h], d).changed()
-        }
-        Value::Double(x) => {
-            let mut d = egui::DragValue::new(x).speed(speed(range)).max_decimals(6);
-            if let Some((a, b)) = range {
-                d = d.range(a..=b);
-            }
-            ui.field_sized([w, h], d).changed()
-        }
+        Value::Int(i) => form::number(ui, Some([w, h]), i, |d| match range {
+            Some((a, b)) => d.speed(0.1).range(a.round() as i32..=b.round() as i32),
+            None => d.speed(0.1),
+        })
+        .changed(),
+        Value::Float(x) => form::number(ui, Some([w, h]), x, |d| match range {
+            Some((a, b)) => d.speed(speed(range)).max_decimals(4).range(a as f32..=b as f32),
+            None => d.speed(speed(range)).max_decimals(4),
+        })
+        .changed(),
+        Value::Double(x) => form::number(ui, Some([w, h]), x, |d| match range {
+            Some((a, b)) => d.speed(speed(range)).max_decimals(6).range(a..=b),
+            None => d.speed(speed(range)).max_decimals(6),
+        })
+        .changed(),
         Value::String(s) | Value::Token(s) | Value::Asset(s) => {
             let r = ui.field(egui::TextEdit::singleline(&mut *s).desired_width(w));
             r.changed() | crate::variables::complete(ui, &r, s, &[])
@@ -246,20 +238,12 @@ pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Conte
                 ui.horizontal(|ui| {
                     let h = ui.spacing().interact_size.y;
                     let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                    ui.field_sized(
-                        [w, h],
-                        egui::DragValue::new(&mut s.resolution[0])
-                            .speed(1.0)
-                            .range(1..=65536)
-                            .prefix("W "),
-                    );
-                    ui.field_sized(
-                        [w, h],
-                        egui::DragValue::new(&mut s.resolution[1])
-                            .speed(1.0)
-                            .range(1..=65536)
-                            .prefix("H "),
-                    );
+                    form::number(ui, Some([w, h]), &mut s.resolution[0], |d| {
+                        d.speed(1.0).range(1..=65536).prefix("W ")
+                    });
+                    form::number(ui, Some([w, h]), &mut s.resolution[1], |d| {
+                        d.speed(1.0).range(1..=65536).prefix("H ")
+                    });
                 });
             });
             f.drag(
@@ -959,8 +943,8 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
                     ui.horizontal(|ui| {
                         let h = ui.spacing().interact_size.y;
                         let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
-                        ui.field_sized([w, h], egui::DragValue::new(&mut c.start).speed(0.2).prefix("first "));
-                        ui.field_sized([w, h], egui::DragValue::new(&mut c.end).speed(0.2).prefix("last "));
+                        form::number(ui, Some([w, h]), &mut c.start, |d| d.speed(0.2).prefix("first "));
+                        form::number(ui, Some([w, h]), &mut c.end, |d| d.speed(0.2).prefix("last "));
                     });
                 });
             } else {

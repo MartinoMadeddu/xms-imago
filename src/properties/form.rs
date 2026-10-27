@@ -210,9 +210,7 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             slider_look(ui);
-            let mut r = ui.add(egui::Slider::new(&mut *v, range).suffix(unit).max_decimals(3));
-            probe(&mut r, v);
-            r
+            slider(ui, v, |v| egui::Slider::new(v, range).suffix(unit).max_decimals(3))
         })
     }
 
@@ -227,9 +225,7 @@ impl<'a> Rows<'a> {
     ) -> egui::Response {
         self.row(label, hint, |ui| {
             slider_look(ui);
-            let mut r = ui.add(egui::Slider::new(&mut *v, range).suffix(unit));
-            probe(&mut r, v);
-            r
+            slider(ui, v, |v| egui::Slider::new(v, range).suffix(unit))
         })
     }
 
@@ -762,27 +758,59 @@ pub trait Probed {
     fn put(&mut self, x: f64);
 }
 
-impl Probed for f32 {
-    fn get(&self) -> f64 {
-        *self as f64
-    }
-    fn put(&mut self, x: f64) {
-        *self = x as f32;
-    }
+macro_rules! probed {
+    ($($t:ty),*) => {$(
+        impl Probed for $t {
+            fn get(&self) -> f64 {
+                *self as f64
+            }
+            fn put(&mut self, x: f64) {
+                *self = x as $t;
+            }
+        }
+    )*};
+}
+probed!(f32, f64, i32, i64, u32, u64, usize);
+
+/// A number field (a `DragValue` on `v`, made by `make`), at `size` or its
+/// own, dark when fields are: a right-click on it, while probing, is taken
+/// (see `probing`). Every number field of the Parameters pane is one, so each
+/// has the references and Promote menu.
+pub fn number<T: egui::emath::Numeric + Probed>(
+    ui: &mut egui::Ui,
+    size: Option<[f32; 2]>,
+    v: &mut T,
+    make: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    let d = make(egui::DragValue::new(&mut *v));
+    let mut r = match size {
+        Some(s) => ui.field_sized(s, d),
+        None => ui.field(d),
+    };
+    probe(&mut r, v);
+    r
 }
 
-impl Probed for u32 {
-    fn get(&self) -> f64 {
-        *self as f64
+/// A slider (made by `make` on `v`): a right-click does not move it, and,
+/// while probing, is taken (see `probing`).
+pub fn slider<T: egui::emath::Numeric + Probed>(
+    ui: &mut egui::Ui,
+    v: &mut T,
+    make: impl FnOnce(&mut T) -> egui::Slider<'_>,
+) -> egui::Response {
+    let before = v.get();
+    let mut r = ui.add(make(&mut *v));
+    // egui moves a slider under any button: not under the right one.
+    if r.secondary_clicked() || (r.is_pointer_button_down_on() && ui.input(|i| i.pointer.secondary_down())) {
+        v.put(before);
     }
-    fn put(&mut self, x: f64) {
-        *self = x as u32;
-    }
+    probe(&mut r, v);
+    r
 }
 
 /// A row's number right-clicked, while probing: `PROBE` in its place, marked
 /// changed so a caller that copies the number writes it back.
-fn probe(r: &mut egui::Response, v: &mut impl Probed) {
+pub fn probe(r: &mut egui::Response, v: &mut impl Probed) {
     if !r.secondary_clicked() {
         return;
     }

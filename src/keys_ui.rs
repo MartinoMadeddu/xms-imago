@@ -337,8 +337,17 @@ pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: f64
 
 /// After the parameters were drawn: the number a right-click on its row put
 /// `form::PROBE` in place of, found in operator `id`'s parameters by its path,
-/// its value put back, and its menu opened there.
-pub fn found_row(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, old: f64, at: egui::Pos2) {
+/// the parameters put back as they were (`before`, taken that frame), and the
+/// number's menu opened there. A row showing its number another way (angles
+/// in degrees) is found by what changed.
+pub fn found_row(
+    ctx: &egui::Context,
+    graph: &mut NodeGraphState,
+    id: NodeId,
+    old: f64,
+    at: egui::Pos2,
+    before: Option<serde_json::Value>,
+) {
     let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) else {
         return;
     };
@@ -346,18 +355,35 @@ pub fn found_row(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ol
         return;
     };
     let probe = crate::properties::form::PROBE;
-    let Some(path) = keys::keyable(&v)
-        .into_iter()
+    let now = keys::keyable(&v);
+    let exact = now
+        .iter()
         .find(|(_, x)| (*x - probe).abs() < 0.5)
-        .map(|(p, _)| p)
-    else {
+        .map(|(p, _)| p.clone());
+    let was: Vec<(String, f64)> = before.as_ref().map(keys::keyable).unwrap_or_default();
+    let changed = || {
+        now.iter()
+            .find(|(p, x)| {
+                was.iter()
+                    .any(|(q, y)| q == p && (x - y).abs() > 1e-9 * (1.0 + y.abs()))
+            })
+            .map(|(p, _)| p.clone())
+    };
+    let Some(path) = exact.or_else(changed) else {
         return;
     };
-    keys::set(&mut v, &path, old);
-    if let Ok(t) = serde_json::from_value(v) {
-        node.node_type = t;
+    // Its value as the operator holds it; the parameters as they were.
+    let value = was.iter().find(|(p, _)| *p == path).map_or(old, |(_, x)| *x);
+    match before.and_then(|b| serde_json::from_value(b).ok()) {
+        Some(t) => node.node_type = t,
+        None => {
+            keys::set(&mut v, &path, value);
+            if let Ok(t) = serde_json::from_value(v) {
+                node.node_type = t;
+            }
+        }
     }
-    open_row_menu(ctx, id, path, old, at);
+    open_row_menu(ctx, id, path, value, at);
 }
 
 /// The menu of a number right-clicked on its row, while it is open, and the
@@ -639,12 +665,25 @@ mod tests {
             egui::pos2(0.0, 0.0),
         );
         let ctx = egui::Context::default();
-        found_row(&ctx, &mut g, id, 1.5, egui::pos2(10.0, 10.0));
+        found_row(&ctx, &mut g, id, 1.5, egui::pos2(10.0, 10.0), None);
         assert!(
             matches!(&g.nodes[0].node_type, crate::types::NodeType::Transform { translation, .. } if translation.y == 1.5)
         );
         let m: RowMenu = ctx.data(|d| d.get_temp(row_menu_id())).unwrap();
         assert_eq!((m.path.as_str(), m.value), ("translation/1", 1.5));
+
+        // A row in degrees: the probe reaches the operator as radians, found
+        // by what changed; the parameters are put back as they were.
+        let before = serde_json::to_value(&g.nodes[0].node_type).unwrap();
+        if let crate::types::NodeType::Transform { rotation, .. } = &mut g.nodes[0].node_type {
+            rotation.z = (crate::properties::form::PROBE as f32).to_radians();
+        }
+        found_row(&ctx, &mut g, id, 0.0, egui::pos2(10.0, 10.0), Some(before));
+        assert!(
+            matches!(&g.nodes[0].node_type, crate::types::NodeType::Transform { rotation, .. } if rotation.z == 0.0)
+        );
+        let m: RowMenu = ctx.data(|d| d.get_temp(row_menu_id())).unwrap();
+        assert_eq!(m.path, "rotation/2");
     }
 
     /// Promote makes a parameter, its default the number's value; again on

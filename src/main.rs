@@ -1010,6 +1010,13 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // operator's own parameters, not an ICE or MaterialX node's.
                     let own_parameters = self.nav.current_subnet.is_none() && self.nav.materialx.is_none();
                     crate::properties::form::probing(own_parameters && editing.is_some());
+                    // The parameters as they were, for a right-click to be found
+                    // by what it changed.
+                    let before = editing
+                        .as_ref()
+                        .filter(|_| ui.input(|i| i.pointer.secondary_clicked()))
+                        .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id))
+                        .and_then(|n| serde_json::to_value(&n.node_type).ok());
                     draw_properties_panel(
                         ui,
                         self.graph,
@@ -1020,7 +1027,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         &mut io,
                     );
                     if let (Some((old, at)), Some((id, _))) = (crate::properties::form::probed(), &editing) {
-                        crate::keys_ui::found_row(ui.ctx(), self.graph, *id, old, at);
+                        crate::keys_ui::found_row(ui.ctx(), self.graph, *id, old, at, before);
                     }
                     if let Some((id, own)) = editing {
                         self.graph.end_edit(id, own);

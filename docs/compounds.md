@@ -37,7 +37,9 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 
 - **Make one:** select operators, open the add menu (right-click or Tab,
   over the canvas or an operator; an operator right-clicked is selected) and
-  choose **Organise > Make Compound** (or search for it). They are packed into a Compound operator in their
+  choose **Organise > Make Compound**, or type to search for it: it is found
+  like the operators (and the library's compounds are too), ↓ ↑ and Enter
+  included. They are packed into a Compound operator in their
   place, the wires that crossed the selection now on its ports: a **Compound
   Input** inside for each output wired in from outside, a **Compound Output**
   for each output wired out (the viewed operator's, or the lowest's, when none
@@ -85,9 +87,12 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   pasted alone.
 - **How a row is found:** a right-click on a number's row puts a probe value
   in its place for the moment the parameters are drawn; the operator's
-  parameters are searched for it, which gives the number's path, and the value
-  is put back before anything cooks. Rows drawn by the form's number widgets
-  have the menu; text, switches and lists do not.
+  parameters are searched for it (or, for a row showing its number another
+  way, such as angles in degrees, for what changed), which gives the number's
+  path, and the parameters are put back before anything cooks. Every number
+  field and slider of an operator's parameters has the menu (`form::number`,
+  `form::slider`); a right-click never moves a slider. Text, switches and
+  lists do not have it yet.
 - **Not yet:** a number that follows another is marked in the Keys list, not on
   its row; Promote is not a step of the undo history inside the compound
   (leaving it is).

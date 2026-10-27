@@ -1562,46 +1562,83 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
     let words = search.trim().to_lowercase();
     if !words.is_empty() {
         ui.separator();
-        let found: Vec<(NodeType, &'static str, &'static str)> = catalog()
+        // What is found: the operators, Make Compound (an action among
+        // Organise's), the library's compounds; each a row, ↓ and ↑ moving
+        // through them, Enter taking one.
+        let matches = |text: &str| {
+            let text = text.to_lowercase();
+            words.split_whitespace().all(|w| text.contains(w))
+        };
+        let mut found: Vec<(String, String, Option<NodeType>)> = catalog()
             .into_iter()
             .flat_map(|(_, category, nodes)| nodes.into_iter().map(move |(t, hint)| (t, hint, category)))
-            .filter(|(t, hint, category)| {
-                let text = format!("{} {} {}", node_type_label(t), category, hint).to_lowercase();
-                words.split_whitespace().all(|w| text.contains(w))
+            .filter(|(t, hint, category)| matches(&format!("{} {} {}", node_type_label(t), category, hint)))
+            .map(|(t, hint, category)| {
+                (
+                    format!("{}  {}   {category}", node_type_icon(&t), node_type_label(&t)),
+                    hint.to_string(),
+                    Some(t),
+                )
             })
             .collect();
-        // ↓ and ↑ move through what is found, Enter takes it.
+        let selected = graph.selected_nodes.len();
+        if matches("make compound organise pack the selected operators") {
+            let label = match selected {
+                0 => "◆  Make Compound   Organise".to_string(),
+                n => format!("◆  Make Compound ({n} selected)   Organise"),
+            };
+            found.push((label, MAKE_COMPOUND_HINT.to_string(), None));
+        }
+        for f in crate::compounds::library().of_context(crate::compounds::Context::Scene) {
+            let d = &f.definition;
+            if matches(&format!("{} {} {} compound", d.name, d.category, d.help)) {
+                let icon = if d.icon.is_empty() { "◆" } else { d.icon.as_str() };
+                found.push((
+                    format!("{icon}  {}   Compounds", d.name),
+                    d.help.clone(),
+                    Some(instance_of(d)),
+                ));
+            }
+        }
         let (hi, moved, enter) =
             crate::menus::search_keys(ui, egui::Id::new("scene_add_pick"), &words, found.len(), opened_now);
-        let mut chosen = if enter {
-            found.get(hi).map(|(t, _, _)| t.clone())
+        let mut chosen = if enter && found.get(hi).is_some() {
+            Some(hi)
         } else {
             None
         };
-        for (k, (t, hint, category)) in found.iter().enumerate() {
-            let label = format!("{}  {}   {category}", node_type_icon(t), node_type_label(t));
-            let r = ui.selectable_label(k == hi, label).on_hover_text(*hint);
+        for (k, (label, hint, t)) in found.iter().enumerate() {
+            // Make Compound needs operators selected.
+            let enabled = t.is_some() || selected > 0;
+            let r = ui
+                .add_enabled_ui(enabled, |ui| ui.selectable_label(k == hi, label.as_str()))
+                .inner
+                .on_hover_text(hint.as_str())
+                .on_disabled_hover_text("Select the operators to pack first");
             if moved && k == hi {
                 r.scroll_to_me(None);
             }
             if r.clicked() {
-                chosen = Some(t.clone());
+                chosen = Some(k);
             }
         }
-        // Make Compound is found as the operators are.
-        let action_found = words
-            .split_whitespace()
-            .all(|w| "make compound organise pack".contains(w));
-        if action_found && make_compound_item(ui, graph, true) {
-            added = true;
-        }
-        if found.is_empty() && !action_found {
+        if found.is_empty() {
             ui.label("No node by that name");
         }
-        if let Some(t) = chosen {
-            let name = default_name(&t);
-            graph.add_node(name, t, cp);
-            added = true;
+        match chosen.and_then(|k| found.get(k)) {
+            Some((_, _, Some(t))) => {
+                let name = match t {
+                    NodeType::Compound { definition, .. } => super::node_name(definition),
+                    t => default_name(t),
+                };
+                graph.add_node(name, t.clone(), cp);
+                added = true;
+            }
+            Some((_, _, None)) if selected > 0 => {
+                graph.make_compound_request = Some(graph.selected_nodes.clone());
+                added = true;
+            }
+            _ => {}
         }
         return added;
     }
@@ -1636,16 +1673,7 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
                     .on_hover_text(hint.trim())
                     .clicked()
                 {
-                    let t = NodeType::Compound {
-                        definition: d.name.clone(),
-                        version: d.version,
-                        hash: d.hash(),
-                        inputs: d.inputs.iter().map(|p| p.name.clone()).collect(),
-                        outputs: d.outputs.iter().map(|p| p.name.clone()).collect(),
-                        values: Default::default(),
-                        editable: None,
-                    };
-                    graph.add_node(super::node_name(&d.name), t, cp);
+                    graph.add_node(super::node_name(&d.name), instance_of(d), cp);
                     added = true;
                     ui.close();
                 }
@@ -1666,7 +1694,7 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
                     ui.close();
                 }
             }
-            if category == "Organise" && make_compound_item(ui, graph, false) {
+            if category == "Organise" && make_compound_item(ui, graph) {
                 added = true;
                 ui.close();
             }
@@ -1675,19 +1703,33 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
     added
 }
 
-/// Make Compound, an action among the operators: it packs the selected ones
-/// into a compound. `found`: shown as a search result. Returns whether it was
-/// taken.
-fn make_compound_item(ui: &mut egui::Ui, graph: &mut NodeGraphState, found: bool) -> bool {
+/// What Make Compound does, for its tooltip.
+const MAKE_COMPOUND_HINT: &str = "Pack the selected operators into a compound, in their place: the wires crossing the selection become its ports. It is editable; Save as Definition in its parameters writes it to the library";
+
+/// A locked instance of a library definition, as the add menu places it.
+fn instance_of(d: &crate::compounds::Definition) -> NodeType {
+    NodeType::Compound {
+        definition: d.name.clone(),
+        version: d.version,
+        hash: d.hash(),
+        inputs: d.inputs.iter().map(|p| p.name.clone()).collect(),
+        outputs: d.outputs.iter().map(|p| p.name.clone()).collect(),
+        values: Default::default(),
+        editable: None,
+    }
+}
+
+/// Make Compound, an action among Organise's operators: it packs the
+/// selected ones into a compound. Returns whether it was taken.
+fn make_compound_item(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> bool {
     let picked: Vec<NodeId> = graph.selected_nodes.clone();
     let label = match picked.len() {
         0 => "◆  Make Compound".to_string(),
         n => format!("◆  Make Compound ({n} selected)"),
     };
-    let label = if found { format!("{label}   Organise") } else { label };
     let r = ui
         .add_enabled(!picked.is_empty(), egui::Button::new(label))
-        .on_hover_text("Pack the selected operators into a compound, in their place: the wires crossing the selection become its ports. It is editable; Save as Definition in its parameters writes it to the library")
+        .on_hover_text(MAKE_COMPOUND_HINT)
         .on_disabled_hover_text("Select the operators to pack first");
     if r.clicked() {
         graph.make_compound_request = Some(picked);
