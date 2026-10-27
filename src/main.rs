@@ -1028,15 +1028,19 @@ impl egui_dock::TabViewer for Panes<'_> {
                         .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
                         .and_then(|n| serde_json::to_value(&n.node_type).ok());
                     crate::properties::form::probing(own_parameters && editing.is_some(), whose, linked);
-                    draw_properties_panel(
-                        ui,
-                        self.graph,
-                        &*self.stack,
-                        self.subnets,
-                        self.nav,
-                        self.anim_ctx,
-                        &mut io,
-                    );
+                    // Each operator's fields are its own: a value being typed
+                    // when another operator is selected is not put in its field.
+                    ui.push_id(("parameters_of", self.graph.selected_node.map(|n| n.0)), |ui| {
+                        draw_properties_panel(
+                            ui,
+                            self.graph,
+                            &*self.stack,
+                            self.subnets,
+                            self.nav,
+                            self.anim_ctx,
+                            &mut io,
+                        )
+                    });
                     use crate::properties::form::Probe;
                     match (crate::properties::form::probed(), &editing) {
                         (Some(Probe::Clicked(old, at)), Some((id, _))) => {

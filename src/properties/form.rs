@@ -289,13 +289,16 @@ impl<'a> Rows<'a> {
         self.row(label, hint, |ui| choice_widget(ui, id, v, options))
     }
 
+    /// Text, changed on Enter or leaving the field (`typed`).
     pub fn text(&mut self, label: &str, hint: Option<&str>, v: &mut String, placeholder: &str) -> egui::Response {
         self.row(label, hint, |ui| {
-            ui.field(
-                egui::TextEdit::singleline(v)
-                    .hint_text(placeholder)
-                    .desired_width(ui.available_width()),
-            )
+            typed(ui, v, |ui, t| {
+                ui.field(
+                    egui::TextEdit::singleline(t)
+                        .hint_text(placeholder)
+                        .desired_width(ui.available_width()),
+                )
+            })
         })
     }
 
@@ -312,13 +315,15 @@ impl<'a> Rows<'a> {
         keep_frames: bool,
     ) -> egui::Response {
         let r = self.row(label, hint, |ui| {
-            let r = ui.field(
-                egui::TextEdit::singleline(&mut *v)
-                    .hint_text(placeholder)
-                    .desired_width(ui.available_width()),
-            );
-            crate::variables::complete(ui, &r, v, &[]);
-            r
+            typed(ui, v, |ui, t| {
+                let r = ui.field(
+                    egui::TextEdit::singleline(&mut *t)
+                        .hint_text(placeholder)
+                        .desired_width(ui.available_width()),
+                );
+                crate::variables::complete(ui, &r, t, &[]);
+                r
+            })
         });
         if v.contains('$') || v.contains('{') {
             let shown = if keep_frames {
@@ -384,6 +389,42 @@ impl FieldExt for egui::Ui {
         })
         .inner
     }
+}
+
+/// A text field over `v` (drawn by `add` over the text being typed) that
+/// changes `v` on Enter or on leaving the field, not as each letter is typed,
+/// so what it sets off (a cook) happens once; Escape leaves `v` as it was.
+/// Its response is changed only then. A change made to the text while the
+/// field is not being typed in (a variable's name picked from the list under
+/// it) is kept at once.
+pub fn typed(
+    ui: &mut egui::Ui,
+    v: &mut String,
+    add: impl FnOnce(&mut egui::Ui, &mut String) -> egui::Response,
+) -> egui::Response {
+    let key = ui.next_auto_id().with("typed");
+    let draft: Option<String> = ui.data(|d| d.get_temp(key));
+    let mut text = draft.clone().unwrap_or_else(|| v.clone());
+    let start = text.clone();
+    let mut r = add(ui, &mut text);
+    r.flags.remove(egui::response::Flags::CHANGED);
+    if r.has_focus() {
+        ui.data_mut(|d| d.insert_temp(key, text));
+        return r;
+    }
+    if draft.is_some() {
+        ui.data_mut(|d| d.remove::<String>(key));
+    }
+    let keep = if r.lost_focus() {
+        !ui.input(|i| i.key_pressed(egui::Key::Escape))
+    } else {
+        text != start
+    };
+    if keep && text != *v {
+        *v = text;
+        r.mark_changed();
+    }
+    r
 }
 
 /// The look of a field you type in: dark grey with light text, a light text
@@ -833,7 +874,7 @@ pub fn number<T: egui::emath::Numeric + Probed>(
 ) -> egui::Response {
     let row = ui.next_auto_id();
     let orange = follows(row);
-    let d = make(egui::DragValue::new(&mut *v));
+    let d = make(egui::DragValue::new(&mut *v)).update_while_editing(false);
     let mut r = if orange {
         ui.scope(|ui| {
             let vis = ui.visuals_mut();
@@ -875,7 +916,7 @@ pub fn slider<T: egui::emath::Numeric + Probed>(
     let row = ui.next_auto_id();
     let behind = follows(row).then(|| ui.painter().add(egui::Shape::Noop));
     let before = v.get();
-    let mut r = ui.add(make(&mut *v));
+    let mut r = ui.add(make(&mut *v).update_while_editing(false));
     if let Some(at) = behind {
         let rect = r.rect.expand(2.0);
         ui.painter()
@@ -957,6 +998,49 @@ mod tests {
         n.put(PROBE);
         assert_eq!(n.get(), PROBE);
     }
+    /// A text field changes its text on Enter, not as each letter is typed;
+    /// Escape leaves it as it was.
+    #[test]
+    fn text_is_changed_on_enter() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("field");
+        let frame = |v: &mut String, events: Vec<egui::Event>| {
+            let mut changed = false;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                changed |= typed(ui, v, |ui, t| ui.add(egui::TextEdit::singleline(t).id(id))).changed();
+            });
+            changed
+        };
+        let key = |k: egui::Key| egui::Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut v = "1".to_string();
+        frame(&mut v, vec![]);
+        ctx.memory_mut(|m| m.request_focus(id));
+        assert!(!frame(&mut v, vec![egui::Event::Text("2".into())]));
+        assert!(!frame(&mut v, vec![egui::Event::Text("5".into())]));
+        assert_eq!(v, "1", "not while typing");
+        let mut changed = frame(&mut v, vec![key(egui::Key::Enter)]);
+        changed |= frame(&mut v, vec![]);
+        assert!(changed);
+        assert_eq!(v, "125", "on Enter");
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&mut v, vec![egui::Event::Text("9".into())]);
+        let mut changed = frame(&mut v, vec![key(egui::Key::Escape)]);
+        changed |= frame(&mut v, vec![]);
+        assert!(!changed);
+        assert_eq!(v, "125", "Escape leaves it");
+    }
+
     use super::ink::luminance;
     use egui::Color32;
 

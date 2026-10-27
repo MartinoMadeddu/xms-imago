@@ -313,7 +313,7 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
             changed
         }
         (Type::Integer, Value::Integer(i)) => {
-            let mut d = egui::DragValue::new(i).speed(0.1);
+            let mut d = egui::DragValue::new(i).update_while_editing(false).speed(0.1);
             if let (Some(lo), Some(hi)) = (limit(&input.ui.min), limit(&input.ui.max)) {
                 d = d.range(lo as i32..=hi as i32);
             }
@@ -333,6 +333,7 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
                     );
                     let r = ui.add(
                         egui::Slider::new(&mut f[0], lo..=hi)
+                            .update_while_editing(false)
                             .max_decimals(3)
                             .clamping(egui::SliderClamping::Never),
                     );
@@ -343,7 +344,10 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
                     let h = ui.spacing().interact_size.y;
                     ui.field_sized(
                         [ui.available_width(), h],
-                        egui::DragValue::new(&mut f[0]).speed(0.01).max_decimals(4),
+                        egui::DragValue::new(&mut f[0])
+                            .update_while_editing(false)
+                            .speed(0.01)
+                            .max_decimals(4),
                     )
                     .changed()
                 }
@@ -390,12 +394,16 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
             let mut changed = false;
             ui.horizontal(|ui| {
                 let w = ui.available_width() - 34.0;
-                let r = ui.field(
-                    egui::TextEdit::singleline(s)
-                        .hint_text("/path/to/texture.png")
-                        .desired_width(w.max(40.0)),
-                );
-                changed = r.changed() | crate::variables::complete(ui, &r, s, &[]);
+                changed = crate::properties::form::typed(ui, s, |ui, t| {
+                    let r = ui.field(
+                        egui::TextEdit::singleline(&mut *t)
+                            .hint_text("/path/to/texture.png")
+                            .desired_width(w.max(40.0)),
+                    );
+                    crate::variables::complete(ui, &r, t, &[]);
+                    r
+                })
+                .changed();
                 if ui.button("📂").on_hover_text("Browse").clicked() {
                     *browse = true;
                 }
@@ -409,25 +417,22 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
             }
             changed
         }
-        (_, Value::String(s)) => ui
-            .field(egui::TextEdit::singleline(s).desired_width(ui.available_width()))
-            .changed(),
+        (_, Value::String(s)) => crate::properties::form::typed(ui, s, |ui, t| {
+            ui.field(egui::TextEdit::singleline(t).desired_width(ui.available_width()))
+        })
+        .changed(),
         // Matrices and arrays: as text, read back when it reads as the type.
         (t, v) => {
-            let id = ui.id().with(("matx_text", input.name.as_str()));
-            let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| v.to_text());
-            let r = ui.field(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()));
+            let mut text = v.to_text();
+            let r = crate::properties::form::typed(ui, &mut text, |ui, t| {
+                ui.field(egui::TextEdit::singleline(t).desired_width(ui.available_width()))
+            });
             let mut changed = false;
             if r.changed() {
                 if let Some(parsed) = Value::parse(t, &text) {
                     *v = parsed;
                     changed = true;
                 }
-            }
-            if r.has_focus() {
-                ui.data_mut(|d| d.insert_temp(id, text));
-            } else {
-                ui.data_mut(|d| d.remove::<String>(id));
             }
             changed
         }
@@ -444,7 +449,13 @@ fn floats(ui: &mut egui::Ui, f: &mut [f32], speed: f64) -> bool {
     ui.horizontal(|ui| {
         for x in f.iter_mut() {
             changed |= ui
-                .field_sized([w, h], egui::DragValue::new(x).speed(speed).max_decimals(3))
+                .field_sized(
+                    [w, h],
+                    egui::DragValue::new(x)
+                        .update_while_editing(false)
+                        .speed(speed)
+                        .max_decimals(3),
+                )
                 .changed();
         }
     });

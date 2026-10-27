@@ -48,10 +48,12 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
             None => d.speed(speed(range)).max_decimals(6),
         })
         .changed(),
-        Value::String(s) | Value::Token(s) | Value::Asset(s) => {
-            let r = ui.field(egui::TextEdit::singleline(&mut *s).desired_width(w));
-            r.changed() | crate::variables::complete(ui, &r, s, &[])
-        }
+        Value::String(s) | Value::Token(s) | Value::Asset(s) => crate::properties::form::typed(ui, s, |ui, t| {
+            let r = ui.field(egui::TextEdit::singleline(&mut *t).desired_width(w));
+            crate::variables::complete(ui, &r, t, &[]);
+            r
+        })
+        .changed(),
         Value::Float2(a) => fields(ui, a),
         Value::Float3(a) => fields(ui, a),
         Value::Float4(a) => fields(ui, a),
@@ -97,12 +99,14 @@ fn extra_rows(
                         Some(ns) if !ns.is_empty() => format!("{ns}:…"),
                         _ => "name".into(),
                     };
-                    ui.field(
-                        egui::TextEdit::singleline(&mut e.name)
-                            .desired_width(w)
-                            .hint_text(hint)
-                            .font(egui::TextStyle::Monospace),
-                    );
+                    crate::properties::form::typed(ui, &mut e.name, |ui, t| {
+                        ui.field(
+                            egui::TextEdit::singleline(t)
+                                .desired_width(w)
+                                .hint_text(hint)
+                                .font(egui::TextStyle::Monospace),
+                        )
+                    });
                     if !presets.is_empty() {
                         crate::menus::menu(ui, "Pick", |ui| {
                             for (name, value, about) in presets {
@@ -153,11 +157,9 @@ fn path_pick(f: &mut Rows, label: &str, hint: &str, value: &mut String, placehol
     f.row(label, Some(hint), |ui| {
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 48.0).max(60.0);
-            ui.field(
-                egui::TextEdit::singleline(value)
-                    .desired_width(w)
-                    .hint_text(placeholder),
-            );
+            crate::properties::form::typed(ui, &mut *value, |ui, t| {
+                ui.field(egui::TextEdit::singleline(t).desired_width(w).hint_text(placeholder))
+            });
             ui.add_enabled_ui(!choices.is_empty(), |ui| {
                 crate::menus::menu(ui, "Pick", |ui| {
                     for c in choices {
@@ -975,14 +977,19 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
                     ui.horizontal(|ui| {
                         let h = ui.spacing().interact_size.y;
                         let w = ((ui.available_width() - 30.0 - ui.spacing().item_spacing.x) / 2.0).max(40.0);
-                        ui.field_sized(
-                            [w, h],
-                            egui::TextEdit::singleline(&mut e.name)
-                                .hint_text("NAME")
-                                .font(egui::TextStyle::Monospace),
-                        );
-                        let r = ui.field_sized([w, h], egui::TextEdit::singleline(&mut e.value).hint_text("value"));
-                        crate::variables::complete(ui, &r, &mut e.value, &[]);
+                        crate::properties::form::typed(ui, &mut e.name, |ui, t| {
+                            ui.field_sized(
+                                [w, h],
+                                egui::TextEdit::singleline(t)
+                                    .hint_text("NAME")
+                                    .font(egui::TextStyle::Monospace),
+                            )
+                        });
+                        crate::properties::form::typed(ui, &mut e.value, |ui, t| {
+                            let r = ui.field_sized([w, h], egui::TextEdit::singleline(&mut *t).hint_text("value"));
+                            crate::variables::complete(ui, &r, t, &[]);
+                            r
+                        });
                         if ui.small_button("🗑").clicked() {
                             remove = Some(k);
                         }

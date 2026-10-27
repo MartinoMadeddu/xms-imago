@@ -1070,7 +1070,7 @@ pub fn draw_properties(
                     for (k, name) in list.iter_mut().enumerate() {
                         f.row(&format!("{}", k + 1), None, |ui| {
                             ui.horizontal(|ui| {
-                                if ui.field(egui::TextEdit::singleline(name).desired_width(ui.available_width() - 30.0)).changed() { resync = true; }
+                                if crate::properties::form::typed(ui, &mut *name, |ui, t| ui.field(egui::TextEdit::singleline(t).desired_width(ui.available_width() - 30.0))).changed() { resync = true; }
                                 if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
                             });
                         });
@@ -1087,8 +1087,8 @@ pub fn draw_properties(
             group(ui, "Description of node functionality for LLM", Some("What the node should do, for whoever builds it: what comes in on each input, what goes out on each output, the parameters it needs"), |f| {
                 f.wide(|ui| {
                     let w = ui.available_width();
-                    ui.field(egui::TextEdit::multiline(description).desired_rows(10).desired_width(w)
-                        .hint_text("What this node should do with its inputs, what each output gives, the parameters it needs"));
+                    crate::properties::form::typed(ui, &mut *description, |ui, t| ui.field(egui::TextEdit::multiline(t).desired_rows(10).desired_width(w)
+                        .hint_text("What this node should do with its inputs, what each output gives, the parameters it needs")));
                 });
             });
         }
@@ -1225,9 +1225,12 @@ fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variab
                 ui.horizontal(|ui| {
                     let h = ui.spacing().interact_size.y;
                     let w = ((ui.available_width() - 30.0 - ui.spacing().item_spacing.x) / 2.0).max(40.0);
-                    ui.field_sized([w, h], egui::TextEdit::singleline(&mut v.name).hint_text("name").font(egui::TextStyle::Monospace));
-                    let r = ui.field_sized([w, h], egui::TextEdit::singleline(&mut v.value).hint_text("value"));
-                    crate::variables::complete(ui, &r, &mut v.value, &[]);
+                    crate::properties::form::typed(ui, &mut v.name, |ui, t| ui.field_sized([w, h], egui::TextEdit::singleline(t).hint_text("name").font(egui::TextStyle::Monospace)));
+                    crate::properties::form::typed(ui, &mut v.value, |ui, t| {
+    let r = ui.field_sized([w, h], egui::TextEdit::singleline(&mut *t).hint_text("value"));
+    crate::variables::complete(ui, &r, t, &[]);
+    r
+});
                     if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
                 });
             });
@@ -2585,8 +2588,11 @@ fn material_rows(
             f.row(label, None, |ui| {
                 ui.horizontal(|ui| {
                     let w = ui.available_width() - if file.is_empty() { 34.0 } else { 62.0 };
-                    let r = ui.field(egui::TextEdit::singleline(&mut file).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
-                    crate::variables::complete(ui, &r, &mut file, &[]);
+                    crate::properties::form::typed(ui, &mut file, |ui, t| {
+    let r = ui.field(egui::TextEdit::singleline(&mut *t).hint_text("/path/to/texture.png").desired_width(w.max(40.0)));
+    crate::variables::complete(ui, &r, t, &[]);
+    r
+});
                     if ui.button("📂").on_hover_text("Browse").clicked() {
                         io.browser.open(BrowseTarget::Texture(node, input), BrowseMode::File, &format!("Texture for {label}"), &["png", "jpg", "jpeg", "exr", "tif", "tiff", "tga", "hdr"], "");
                     }
@@ -2667,13 +2673,15 @@ fn material_location_row(f: &mut Rows, row: usize, col: &mut BindColumn) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("↳ 🎨").color(ink::DIM()));
             let w = (ui.available_width() - 52.0).max(60.0);
-            let field = ui.field(
-                egui::TextEdit::singleline(path)
-                    .desired_width(w)
-                    .hint_text("/materials/name")
-                    .font(egui::TextStyle::Monospace)
-                    .background_color(location_bg()),
-            );
+            let field = crate::properties::form::typed(ui, &mut *path, |ui, t| {
+                ui.field(
+                    egui::TextEdit::singleline(t)
+                        .desired_width(w)
+                        .hint_text("/materials/name")
+                        .font(egui::TextStyle::Monospace)
+                        .background_color(location_bg()),
+                )
+            });
             if let Some(p) = field.dnd_release_payload::<crate::types::DraggedPrims>() {
                 if let Some(first) = p.0.first() {
                     *path = first.clone();
@@ -2722,14 +2730,17 @@ fn binding_rows(
                 "Location",
                 Some("A USD path. Its parents are Scopes. Variables are put in"),
                 |ui| {
-                    let r = ui.field(
-                        egui::TextEdit::singleline(&mut *library)
-                            .hint_text("/materials")
-                            .desired_width(ui.available_width())
-                            .font(egui::TextStyle::Monospace)
-                            .background_color(location_bg()),
-                    );
-                    crate::variables::complete(ui, &r, library, &[]);
+                    crate::properties::form::typed(ui, &mut *library, |ui, t| {
+                        let r = ui.field(
+                            egui::TextEdit::singleline(&mut *t)
+                                .hint_text("/materials")
+                                .desired_width(ui.available_width())
+                                .font(egui::TextStyle::Monospace)
+                                .background_color(location_bg()),
+                        );
+                        crate::variables::complete(ui, &r, t, &[]);
+                        r
+                    });
                 },
             );
             let path = library_path(library);
@@ -2812,14 +2823,17 @@ fn load_mode_rows(
             "Primitive Location",
             Some("Where the file's prim goes in the scene. Its parents are Xforms. Variables are put in: /set/$OPNAME"),
             |ui| {
-                let r = ui.field(
-                    egui::TextEdit::singleline(&mut *location)
-                        .hint_text("/root")
-                        .desired_width(ui.available_width())
-                        .font(egui::TextStyle::Monospace)
-                        .background_color(location_bg()),
-                );
-                crate::variables::complete(ui, &r, location, &[]);
+                crate::properties::form::typed(ui, &mut *location, |ui, t| {
+                    let r = ui.field(
+                        egui::TextEdit::singleline(&mut *t)
+                            .hint_text("/root")
+                            .desired_width(ui.available_width())
+                            .font(egui::TextStyle::Monospace)
+                            .background_color(location_bg()),
+                    );
+                    crate::variables::complete(ui, &r, t, &[]);
+                    r
+                });
             },
         );
         let at = crate::types::prim_location(location, &crate::types::reference_location());
@@ -2848,13 +2862,15 @@ fn load_mode_rows(
             |ui| {
                 ui.horizontal(|ui| {
                     let w = (ui.available_width() - 48.0).max(60.0);
-                    ui.field(
-                        egui::TextEdit::singleline(prim)
-                            .hint_text("default prim")
-                            .desired_width(w)
-                            .font(egui::TextStyle::Monospace)
-                            .background_color(location_bg()),
-                    );
+                    crate::properties::form::typed(ui, &mut *prim, |ui, t| {
+                        ui.field(
+                            egui::TextEdit::singleline(t)
+                                .hint_text("default prim")
+                                .desired_width(w)
+                                .font(egui::TextStyle::Monospace)
+                                .background_color(location_bg()),
+                        )
+                    });
                     ui.add_enabled_ui(!roots.is_empty(), |ui| {
                         crate::menus::menu(ui, "Pick", |ui| {
                             if ui.selectable_label(prim.trim().is_empty(), "Default prim").clicked() {
@@ -3027,12 +3043,15 @@ fn path_row(
         |ui| {
             ui.horizontal(|ui| {
                 let w = ui.available_width() - 34.0;
-                let r = ui.field(
-                    egui::TextEdit::singleline(value)
-                        .hint_text(hint)
-                        .desired_width(w.max(40.0)),
-                );
-                crate::variables::complete(ui, &r, value, &[]);
+                crate::properties::form::typed(ui, &mut *value, |ui, t| {
+                    let r = ui.field(
+                        egui::TextEdit::singleline(&mut *t)
+                            .hint_text(hint)
+                            .desired_width(w.max(40.0)),
+                    );
+                    crate::variables::complete(ui, &r, t, &[]);
+                    r
+                });
                 if ui.button("📂").on_hover_text("Browse").clicked() {
                     io.browser.open(BrowseTarget::Node(node), mode, title, exts, "");
                 }
@@ -3437,12 +3456,14 @@ fn set_attribute_rows(
                 f.row("Name", Some(name_hint), |ui| {
                     ui.horizontal(|ui| {
                         let w = (ui.available_width() - 48.0).max(60.0);
-                        ui.field(
-                            egui::TextEdit::singleline(&mut row.name)
-                                .desired_width(w)
-                                .hint_text("name")
-                                .font(egui::TextStyle::Monospace),
-                        );
+                        crate::properties::form::typed(ui, &mut row.name, |ui, t| {
+                            ui.field(
+                                egui::TextEdit::singleline(t)
+                                    .desired_width(w)
+                                    .hint_text("name")
+                                    .font(egui::TextStyle::Monospace),
+                            )
+                        });
                         crate::menus::menu(ui, "Pick", |ui| {
                             for p in offered {
                                 if ui
@@ -3630,13 +3651,15 @@ pub(crate) fn locations_tab(
                         let w = (ui.available_width() - if binds.is_some() { 180.0 } else { 74.0 }).max(60.0);
                         // A path, not text: grey, in the code font, so a location
                         // is told apart from the other text fields at a glance.
-                        ui.field(
-                            egui::TextEdit::singleline(row)
-                                .desired_width(w)
-                                .hint_text("/path/to/prim")
-                                .font(egui::TextStyle::Monospace)
-                                .background_color(location_bg()),
-                        );
+                        crate::properties::form::typed(ui, &mut *row, |ui, t| {
+                            ui.field(
+                                egui::TextEdit::singleline(t)
+                                    .desired_width(w)
+                                    .hint_text("/path/to/prim")
+                                    .font(egui::TextStyle::Monospace)
+                                    .background_color(location_bg()),
+                            )
+                        });
                         // How many of the primitives coming in this row matches.
                         if !row.trim().is_empty() && !paths.is_empty() {
                             let n = paths.iter().filter(|p| hits(row, p)).count();
@@ -3738,11 +3761,9 @@ fn pattern_rows(f: &mut Rows, id: &str, label: &str, text: &mut String, names: &
     f.row(label, Some(hint), |ui| {
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 48.0).max(60.0);
-            ui.field(
-                egui::TextEdit::singleline(text)
-                    .desired_width(w)
-                    .hint_text("regex, regex"),
-            );
+            crate::properties::form::typed(ui, &mut *text, |ui, t| {
+                ui.field(egui::TextEdit::singleline(t).desired_width(w).hint_text("regex, regex"))
+            });
             ui.add_enabled_ui(!names.is_empty(), |ui| {
                 crate::menus::menu(ui, "Pick", |ui| {
                     let filter_id = ui.id().with(id).with("filter");

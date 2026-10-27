@@ -329,6 +329,7 @@ steps kept as a branch](docs/xms_history.png)
 - **Data type colours, one set for every graph:** float teal-green and string
   red-beige (as Houdini's VOPs), integer and boolean blue, vector yellow,
   quaternion dark yellow, colour orange, matrix light purple, material purple
+- **Typed values take effect on Enter** (or leaving the field), not as each digit is typed: one cook, one undo step; dragging and sliders stay live
 - **Node names are one word:** a space typed becomes an underscore
 - **A file browser that knows sequences:** numbered files listed as one entry,
   and UDIM tiles as their `<UDIM>` path, ready for a texture input

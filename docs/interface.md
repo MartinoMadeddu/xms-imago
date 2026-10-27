@@ -493,6 +493,17 @@ theme's look. Clip nodes end with a Clip group: what comes In and what goes Out.
 Explanations are in tooltips, on a group's title or a row's label, so the pane
 holds the parameters and the state of the node and little else.
 
+**A typed value takes effect on Enter**, or on leaving the field (Tab, or a
+click elsewhere), not as each letter or digit is typed: typing 0.25 cooks once,
+not for 0, 0.2 and 0.25, and is one step of the undo history. Escape leaves the
+value as it was. Dragging a number field or a slider changes it as it moves.
+This holds for every number and text field of the program: parameters, ICE and
+MaterialX nodes, File > Variables, the timeline's frame and range, the Curve
+Editor's key, the Promote window (`form::number`, `form::slider`,
+`form::typed`). Search lines (the add menu's, a list's filter) still follow
+each letter. Each operator's fields are its own: a value being typed when
+another operator is selected is dropped, not put in the other's field.
+
 Operators that work on primitives (Transform, Edit Poly, Prune Primitives, Set
 Attribute, ICE) have two tabs under their name: **Parameters**, and **Prims
 Location**, the primitives the operator works on. Its **Primitive Locations**

@@ -502,8 +502,14 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
                     ui.label("Range");
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut p.range, "");
-                        ui.add_enabled(p.range, egui::DragValue::new(&mut p.min).speed(0.01));
-                        ui.add_enabled(p.range, egui::DragValue::new(&mut p.max).speed(0.01));
+                        ui.add_enabled(
+                            p.range,
+                            egui::DragValue::new(&mut p.min).update_while_editing(false).speed(0.01),
+                        );
+                        ui.add_enabled(
+                            p.range,
+                            egui::DragValue::new(&mut p.max).update_while_editing(false).speed(0.01),
+                        );
                     });
                     ui.end_row();
                 }

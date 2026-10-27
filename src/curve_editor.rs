@@ -1047,9 +1047,19 @@ fn toolbar(ui: &mut egui::Ui, ed: &mut CurveEditor, graph: &mut NodeGraphState, 
                 .unwrap_or(0.0);
             let (mut f, mut v) = (f0, v0 * s);
             ui.label(egui::RichText::new("Frame").weak());
-            let fr = ui.add(egui::DragValue::new(&mut f).speed(0.25).max_decimals(2));
+            let fr = ui.add(
+                egui::DragValue::new(&mut f)
+                    .update_while_editing(false)
+                    .speed(0.25)
+                    .max_decimals(2),
+            );
             ui.label(egui::RichText::new("Value").weak());
-            let vr = ui.add(egui::DragValue::new(&mut v).speed(0.01).max_decimals(4));
+            let vr = ui.add(
+                egui::DragValue::new(&mut v)
+                    .update_while_editing(false)
+                    .speed(0.01)
+                    .max_decimals(4),
+            );
             if fr.changed() || vr.changed() {
                 let (df, dv) = (f - f0, v / s - v0);
                 let only_one = sel.len() == 1;
