@@ -221,15 +221,29 @@ impl NodeGraphState {
             return;
         }
         let frame = self.node_frame(node);
-        // What was shown: its own parameters as they cook.
-        let as_it_was = GraphNode {
-            node_type: own.clone(),
-            ..node.clone()
+        // What was shown: its own parameters as they cook, worked out with its
+        // own in the graph, as they were shown, since a number of it may
+        // follow another of it.
+        let Some(edited_t) = self
+            .node_mut(id)
+            .map(|n| std::mem::replace(&mut n.node_type, own.clone()))
+        else {
+            return;
         };
-        let shown = self.shown_at(&as_it_was, frame).into_owned();
-        let (Ok(edited), Ok(shown_v), Ok(own_v)) = (
+        let shown = self
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .map(|n| self.shown_at(n, frame).into_owned());
+        if let Some(n) = self.node_mut(id) {
+            n.node_type = edited_t;
+        }
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
+            return;
+        };
+        let (Some(Ok(shown_v)), Ok(edited), Ok(own_v)) = (
+            shown.map(|t| serde_json::to_value(&t)),
             serde_json::to_value(&node.node_type),
-            serde_json::to_value(&shown),
             serde_json::to_value(&own),
         ) else {
             return;

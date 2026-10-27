@@ -312,7 +312,7 @@ mod tests {
                 translation.x = -1.0;
             }
         });
-        assert_eq!(get(&g), (-1.0, -1.0));
+        assert_eq!(get(&g), (-1.0, -1.0), "the number followed, changed, keeps its change");
         assert!(g.link(a, "translation/0", a, "scale/2").unwrap_err().contains("loop"));
         // Every other number following translate X, each through the one
         // before: looked up once each.
