@@ -126,10 +126,10 @@ selection](docs/xms_edit_poly.png)
 - **Time samples:** an animated stage plays on the timeline (a time code is a
   frame) through the whole graph, and Write USD writes the scene's range, what
   changes from frame to frame as `timeSamples`
-- **Alembic, on the way:** `crates/xms-alembic` reads `.abc` files (meshes,
-  subdivision surfaces, curves, points, cameras, transforms, instances, every
-  geometry parameter, over time); next they open as USD layers (see
-  [USD](docs/usd.md#alembic))
+- **Alembic:** Load USD opens `.abc` files as USD layers, as `usdAbc` makes
+  them, and a `.usda` can sublayer or reference one: meshes, subdivision
+  surfaces, curves, points, cameras, transforms, face sets, instances and
+  geometry parameters, over time (see [USD](docs/usd.md#alembic))
 - **Materials and textures in the Viewer**, straight from the `.usdz`: PNG,
   JPEG, TIFF, TGA, HDR and OpenEXR, and UDIM tiles from a `<UDIM>` path
   (`body.<UDIM>.exr`), each part of the mesh showing the tile its UVs fall in

@@ -487,7 +487,7 @@ pub(crate) fn draw_ui(
                 BrowseTarget::ImportUsd,
                 BrowseMode::File,
                 "Import USD",
-                &["usd", "usda", "usdc", "usdz"],
+                &["usd", "usda", "usdc", "usdz", "abc"],
                 "",
             ),
             FileCommand::ImportMtlx => browser.open(

@@ -84,6 +84,7 @@ pub struct Translated {
 /// Open `path` and translate the whole stage.
 pub fn translate(path: &FsPath, opts: SceneOptions) -> Result<Translated, String> {
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
+    crate::register_formats();
     let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
     translate_stage(&stage, path, opts)
 }
@@ -97,6 +98,7 @@ pub fn translate_phased(
     boxes: impl FnOnce(Translated),
 ) -> Result<Translated, String> {
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
+    crate::register_formats();
     let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
     if let Ok(first) = translate_stage(
         &stage,
@@ -183,7 +185,11 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
     // Root prims come back as names
     for name in roots {
         if let Ok(prim) = stage.prim(format!("/{}", name.as_str()).as_str()) {
-            tr.walk(&prim);
+            // An `over` no layer defines is not drawn (an Alembic file's
+            // instance prototypes are such).
+            if prim.is_defined().unwrap_or(true) {
+                tr.walk(&prim);
+            }
         }
     }
     {

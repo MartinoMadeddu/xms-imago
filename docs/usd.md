@@ -7,7 +7,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 
 | Node | What it does |
 |---|---|
-| Load USD | Reads a `.usda`, `.usdc` or `.usdz` file, composed. Gives one primitive per mesh, curves or points prim. Its Mode: sublayered at the file's paths, or the file's default prim referenced or payloaded at a Primitive Location |
+| Load USD | Reads a `.usda`, `.usdc`, `.usdz` or Alembic `.abc` file, composed. Gives one primitive per mesh, curves or points prim. Its Mode: sublayered at the file's paths, or the file's default prim referenced or payloaded at a Primitive Location |
 | Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
 | Merge | Any number of inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
@@ -28,7 +28,7 @@ baked into the points, so what is written back matches the file.
 
 | | |
 |---|---|
-| Formats | Text (`.usda`), binary (`.usdc`) and `.usdz` |
+| Formats | Text (`.usda`), binary (`.usdc`), `.usdz`, and Alembic (`.abc`) read as a layer ([Alembic](#alembic)) |
 | Composition | Sublayers, references, payloads, inherits, specializes, variants |
 | Transforms | The whole `xformOpOrder`, `!resetXformStack!` included |
 | Units and axes | Kept as authored, as USD composes them and renderers read them: a Z-up stage in centimetres stays Z-up in centimetres. With the Load USD operator's **Y-up metres** on, `upAxis` and `metersPerUnit` become a correction on the placement (the points stay as authored); turning it on or off reads the stage again |
@@ -593,15 +593,36 @@ makes it the scene's frames and rate.
 
 ## Alembic
 
-Alembic files (`.abc`) are to open as USD layers, as `usdAbc` makes them in
-USD: opened, sublayered or referenced, with their time samples. The first part
-is built: `crates/xms-alembic` reads them (the Ogawa kind every program has
-written since about 2013; not the older HDF5 kind), with their transforms,
-polygon meshes, subdivision surfaces, curves, points, cameras, face sets,
-instances and every geometry parameter, each property with its own samples and
-times. Next: `xms-usd` turns them into USD layer data for `openusd`, which
-Imago's fork of it lets register as a layer format, so Load USD opens an `.abc`
-and a `.usda` that sublayers or references one composes as USD has it.
+Alembic files (`.abc`) open as USD layers, as `usdAbc` makes them in USD:
+Load USD opens one, and a `.usda` can sublayer or reference one
+(`@shot.abc@</char>`), with its time samples. `crates/xms-alembic` reads them
+(the Ogawa kind every program has written since about 2013; not the older HDF5
+kind); `xms-usd`'s `alembic` module turns what it reads into a layer, a format
+registered with `openusd` (Imago's fork of it lets programs register formats).
+
+- **Objects** are prims, their names made valid (`ns:pCube1` → `ns_pCube1`). A
+  transform with one shape below it is one prim, the shape's, with the
+  transform: Maya's `pCube1`/`pCubeShape1` is the Mesh `/pCube1`.
+- **Transforms** are one `xformOp:transform`; one that does not inherit its
+  parent's starts with `!resetXformStack!`.
+- **Shapes:** PolyMesh and SubD are `Mesh` (left-handed, as Alembic winds
+  polygons; a SubD's scheme, creases, corners and holes kept), curves
+  `BasisCurves`, `NurbsCurves` or `HermiteCurves`, points `Points` (with ids
+  and widths), cameras `Camera` (apertures from centimetres to millimetres),
+  face sets `GeomSubset`s of the `materialBind` family.
+- **Parameters:** `uv` is `primvars:st`, kept indexed; normals and widths are
+  written with their indices applied; arbitrary parameters are `primvars:*`
+  (a colour set is `color3f[]`, by its interpretation), user properties
+  `userProperties:*`; visibility and bounds (`extent`) too.
+- **Instances:** an instance's source is written once at the root, as an
+  instanceable `over`, and referenced where it was and by every instance:
+  drawn as USD instances.
+- **Time:** times in seconds are time codes at the file's frames per second
+  (`_ai_DCC_FPS`, else 24); the layer's start and end are the first and last
+  sample of what changes. What does not change is a default value.
+- **Not yet:** NURBS patches and lights (their objects are `Scope`s), and
+  writing `.abc`. The whole file is read when the layer opens, so a long,
+  heavy cache takes its memory at once.
 
 ## Example file
 
