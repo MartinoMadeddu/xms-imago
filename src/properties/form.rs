@@ -419,7 +419,7 @@ pub fn typed(
         );
     }
     // Probed (see `probing`): the probe text in its place.
-    if probe_row(ui, &r, 0.0, row) {
+    if probe_row(ui, &r, 0.0, Some(v.as_str()), row) {
         ui.memory_mut(|m| m.surrender_focus(r.id));
         ui.data_mut(|d| d.remove::<String>(key));
         *v = PROBE_TEXT.to_string();
@@ -769,8 +769,10 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
 /// `probing`): no operator's number is likely to be it.
 pub const PROBE: f64 = 7_777_777.0;
 
-/// What a text row's text stands for while probed, as `PROBE` for a number's.
-pub const PROBE_TEXT: &str = "\u{2063}probe\u{2063}";
+/// What a text row's text stands for while probed, as `PROBE` for a number's:
+/// letters and digits only, so a row that makes its text a path or a name
+/// keeps them (found in what it makes, in any case).
+pub const PROBE_TEXT: &str = "xmsprobe7777777";
 
 /// Finding which of an operator's numbers a row shows.
 #[derive(Default)]
@@ -778,6 +780,8 @@ struct Probing {
     on: bool,
     /// The number right-clicked: its value before, where the pointer was.
     clicked: Option<(f64, egui::Pos2)>,
+    /// A text row right-clicked: its text before.
+    text: Option<String>,
     /// The row being found this frame, while nothing is clicked.
     finding: Option<egui::Id>,
     /// What the rows are known for: the operator and its references.
@@ -818,6 +822,7 @@ pub fn probing(on: bool, whose: u64, linked: Vec<String>) {
         }
         p.on = on;
         p.clicked = None;
+        p.text = None;
         p.finding = None;
         p.linked = linked;
     });
@@ -831,6 +836,12 @@ pub fn probed() -> Option<Probe> {
         let clicked = p.clicked.take().map(|(v, at)| Probe::Clicked(v, at));
         clicked.or(p.finding.take().map(Probe::Finding))
     })
+}
+
+/// The text of the text row right-clicked this frame (see `probed`), when it
+/// was a text row.
+pub fn probed_text() -> Option<String> {
+    PROBING.with(|p| p.borrow().text.clone())
 }
 
 /// Whether a row's number is `PROBE` this frame, put back after the panel:
@@ -957,15 +968,16 @@ pub fn slider<T: egui::emath::Numeric + Probed>(
 /// back. Until every row is known, another frame is asked for.
 fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::Id) {
     let was = v.get();
-    if probe_row(ui, r, was, row) {
+    if probe_row(ui, r, was, None, row) {
         v.put(PROBE);
         r.mark_changed();
     }
 }
 
-/// Whether row `row` (its response `r`, its number `was`) is probed this
-/// frame (see `probe`): right-clicked, or found while nothing is done.
-fn probe_row(ui: &egui::Ui, r: &egui::Response, was: f64, row: egui::Id) -> bool {
+/// Whether row `row` (its response `r`, its number `was`, or its text) is
+/// probed this frame (see `probe`): right-clicked, or found while nothing is
+/// done.
+fn probe_row(ui: &egui::Ui, r: &egui::Response, was: f64, text: Option<&str>, row: egui::Id) -> bool {
     let clicked = r.secondary_clicked();
     let still = || {
         let quiet = ui.input(|i| {
@@ -984,6 +996,7 @@ fn probe_row(ui: &egui::Ui, r: &egui::Response, was: f64, row: egui::Id) -> bool
         }
         if clicked {
             p.clicked = Some((was, r.interact_pointer_pos().unwrap_or(r.rect.left_bottom())));
+            p.text = text.map(str::to_string);
         } else if !p.linked.is_empty() && !p.rows.contains_key(&row) {
             ui.ctx().request_repaint();
             if p.finding.is_some() || !still() {

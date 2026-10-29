@@ -44,7 +44,7 @@ enum RowAsk {
     CopyReference(String),
     PasteReference(String),
     RemoveReference(String),
-    Promote(String, f64),
+    Promote(String, serde_json::Value),
     RemovePromotion(String),
 }
 
@@ -183,7 +183,8 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                                 follows: follows.is_some(),
                                 promoted: promoted.is_some(),
                             };
-                            if let Some(a) = number_menu(ui, id, p, *v, &state, copied.as_ref(), promoting) {
+                            let value = serde_json::json!(*v);
+                            if let Some(a) = number_menu(ui, id, p, &value, &state, copied.as_ref(), promoting) {
                                 ask = Some(a);
                             }
                         });
@@ -223,7 +224,7 @@ fn number_menu(
     ui: &mut egui::Ui,
     id: NodeId,
     path: &str,
-    value: f64,
+    value: &serde_json::Value,
     state: &NumberState,
     copied: Option<&Copied>,
     promoting: bool,
@@ -261,7 +262,7 @@ fn number_menu(
             .on_hover_text("Put this number on the compound's parameters: its instances set it")
             .clicked()
         {
-            ask = Some(RowAsk::Promote(path.to_string(), value));
+            ask = Some(RowAsk::Promote(path.to_string(), value.clone()));
             ui.close();
         }
         if state.promoted && ui.button("Remove Promotion").clicked() {
@@ -317,13 +318,13 @@ fn carry_out(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ask: R
     }
 }
 
-/// A number's menu opened from its row in the parameters: the operator, the
-/// number's path and value, where the pointer was.
+/// A row's menu opened from the parameters: the operator, the path and value
+/// of its number or text, where the pointer was.
 #[derive(Clone)]
 struct RowMenu {
     node: NodeId,
     path: String,
-    value: f64,
+    value: serde_json::Value,
     at: egui::Pos2,
 }
 
@@ -333,7 +334,7 @@ fn row_menu_id() -> egui::Id {
 
 /// Open the menu of number `path` of operator `node`, right-clicked on its row
 /// in the parameters (found by `properties::form`'s probe).
-pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: f64, at: egui::Pos2) {
+pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: serde_json::Value, at: egui::Pos2) {
     ctx.data_mut(|d| d.insert_temp(row_menu_id(), RowMenu { node, path, value, at }));
 }
 
@@ -360,8 +361,8 @@ pub fn probed_path(now: &serde_json::Value, before: Option<&serde_json::Value>) 
         .map(|(p, _)| p.clone())
 }
 
-/// The path of text `text` in parameters `v` (as JSON, the variant's name
-/// above them skipped, as keys' paths are).
+/// The path of the text holding `text` (lower case) in parameters `v` (as
+/// JSON, the variant's name above them skipped, as keys' paths are).
 fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
     fn walk(v: &serde_json::Value, path: String, text: &str) -> Option<String> {
         let join = |k: &str| {
@@ -372,7 +373,7 @@ fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
             }
         };
         match v {
-            serde_json::Value::String(s) if s == text => Some(path),
+            serde_json::Value::String(s) if s.to_lowercase().contains(text) => Some(path),
             serde_json::Value::Object(o) => o.iter().find_map(|(k, x)| walk(x, join(k), text)),
             serde_json::Value::Array(a) => a
                 .iter()
@@ -451,7 +452,7 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
                         .small()
                         .weak(),
                 );
-                ask = number_menu(ui, m.node, &m.path, m.value, &state, copied.as_ref(), promoting);
+                ask = number_menu(ui, m.node, &m.path, &m.value, &state, copied.as_ref(), promoting);
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
@@ -484,8 +485,9 @@ fn promoting_id() -> egui::Id {
 }
 
 /// Open the Promote window for parameter `path` (a number, text) of inner
-/// operator `node`; `value`, a number's, when it cannot be read there.
-fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: f64, graph: &NodeGraphState) {
+/// operator `node`; `value`, the row's, when it cannot be read there (a value
+/// kept only once set: a compound's promoted value, an ICE operator's).
+fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: serde_json::Value, graph: &NodeGraphState) {
     let label = keys::label(path);
     let default = graph
         .nodes
@@ -493,7 +495,7 @@ fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: f64, graph: 
         .find(|n| n.name == node)
         .and_then(|n| serde_json::to_value(&n.node_type).ok())
         .and_then(|v| crate::compounds::get(&v, path).cloned())
-        .unwrap_or_else(|| serde_json::json!(value));
+        .unwrap_or(value);
     let p = Promoting {
         node: node.to_string(),
         path: path.to_string(),
@@ -736,6 +738,41 @@ mod tests {
         }
         assert_eq!(found_row(&mut g, id, 0.0, Some(before.clone())), None);
         assert_eq!(serde_json::to_value(&g.nodes[0].node_type).unwrap(), before);
+    }
+
+    /// A text row probed is found by its path, even made a path by its row
+    /// (a slash put before it); and a value an operator keeps only once set
+    /// (a compound instance's, an ICE operator's) promotes as the row showed
+    /// it, of its kind.
+    #[test]
+    fn a_probed_text_row_is_found_and_promoted_as_text() {
+        let probe = crate::properties::form::PROBE_TEXT;
+        let now = serde_json::json!({ "CreateCube": { "size": 1.0, "location": format!("/{probe}") } });
+        assert_eq!(probed_path(&now, None).as_deref(), Some("location"));
+        let mut g = NodeGraphState::default();
+        g.add_node(
+            "Lights".into(),
+            crate::types::NodeType::Ice {
+                id: crate::types::IceGraphId(0),
+                name: "Lights".into(),
+                references: 1,
+                params: Default::default(),
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let ctx = egui::Context::default();
+        promote_open(
+            &ctx,
+            "Lights",
+            "params/instancer_path",
+            serde_json::json!("/root/instancer"),
+            &g,
+        );
+        let p: Promoting = ctx.data(|d| d.get_temp(promoting_id())).unwrap();
+        promote(&mut g, &p);
+        let q = &g.inside.parameters[0];
+        assert_eq!(q.kind, crate::compounds::ParameterType::String);
+        assert_eq!(q.default, serde_json::json!("/root/instancer"));
     }
 
     /// Promote makes a parameter, its default the number's value; again on

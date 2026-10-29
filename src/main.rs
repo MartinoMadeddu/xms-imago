@@ -1073,6 +1073,11 @@ impl egui_dock::TabViewer for Panes<'_> {
                     match (crate::properties::form::probed(), &editing) {
                         (Some(Probe::Clicked(old, at)), Some((id, _))) => {
                             if let Some((path, value)) = crate::keys_ui::found_row(self.graph, *id, old, before) {
+                                // A text row's value is its text.
+                                let value = match crate::properties::form::probed_text() {
+                                    Some(t) => serde_json::json!(t),
+                                    None => serde_json::json!(value),
+                                };
                                 crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, at);
                             }
                         }

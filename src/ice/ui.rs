@@ -617,14 +617,14 @@ pub fn draw_subnet_node_properties(
             f.row(
                 "Seed",
                 Some("Another seed, other values; the same seed gives the same values every time"),
-                |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)),
+                |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
         }),
         IceGraphNodeType::Scatter { seed, weight } => group(ui, "Scatter", None, |f| {
             f.row(
                 "Seed",
                 Some("Another seed, other places; the same seed gives the same places every time"),
-                |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)),
+                |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
             f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
         }),
@@ -642,7 +642,7 @@ pub fn draw_subnet_node_properties(
             f.row(
                 "Seed",
                 Some("Another seed, other turns; the same seed gives the same turns every time"),
-                |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)),
+                |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
         }),
         IceGraphNodeType::GetReference { input, paths } => {
@@ -651,12 +651,7 @@ pub fn draw_subnet_node_properties(
                     "Input",
                     Some("Which of the operator's reference inputs: 1 is the first after the scene"),
                     |ui| {
-                        ui.add(
-                            egui::DragValue::new(input)
-                                .update_while_editing(false)
-                                .range(1..=64)
-                                .speed(0.05),
-                        )
+                        crate::properties::form::number(ui, None, input, |d| d.range(1..=64).speed(0.05))
                     },
                 );
             });
@@ -678,7 +673,7 @@ pub fn draw_subnet_node_properties(
             f.choice("Draw Mode", Some("How viewports draw the prototypes: as geometry, as their bounding boxes, or as axes at their origins. Written as model:drawMode on each prototype, so other USD viewers draw them so too; the Scene Explorer's right-click chooses for the Viewer alone"),
                      draw_mode, &[(crate::types::DrawMode::Default, "Geometry"), (crate::types::DrawMode::Bounds, "Bounding Box"), (crate::types::DrawMode::Origin, "Origin")]);
             f.text("Primitive Location", Some("Where the point instancer is made: a path (/root/instancer), or a name alone, beside the primitive the graph runs on (scatter on /set/ground is /set/scatter). Its prototypes go under it, in Prototypes"), path, "/root/instancer");
-            f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)));
+            f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)));
         }),
         IceGraphNodeType::Compose { op } => group(ui, "Compose", None, |f| {
             let choices: Vec<(xms_ice::Compose, &str)> =
@@ -1009,7 +1004,7 @@ pub fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut
         }
         Value::Int(i) => {
             f.row(label, None, |ui| {
-                ui.add(egui::DragValue::new(i).update_while_editing(false).speed(1))
+                crate::properties::form::number(ui, None, i, |d| d.speed(1))
             });
         }
         Value::Float(x) => {
@@ -1024,7 +1019,7 @@ pub fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut
         Value::Vec4(v) | Value::Quat(v) => {
             f.row(label, None, |ui| {
                 for c in v.iter_mut() {
-                    ui.add(egui::DragValue::new(c).update_while_editing(false).speed(0.01));
+                    crate::properties::form::number(ui, None, c, |d| d.speed(0.01));
                 }
             });
         }
