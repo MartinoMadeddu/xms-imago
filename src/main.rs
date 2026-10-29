@@ -1078,7 +1078,8 @@ impl egui_dock::TabViewer for Panes<'_> {
                                     Some(t) => serde_json::json!(t),
                                     None => serde_json::json!(value),
                                 };
-                                crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, at);
+                                let choices = crate::properties::form::row_choices(None);
+                                crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, choices, at);
                             }
                         }
                         (Some(Probe::Finding(row)), Some((id, _))) => {
@@ -1086,6 +1087,13 @@ impl egui_dock::TabViewer for Panes<'_> {
                             crate::properties::form::found(row, path);
                         }
                         _ => {}
+                    }
+                    // A group's title right-clicked: Promote Group.
+                    if own_parameters {
+                        let id = editing.as_ref().map(|(id, _)| *id);
+                        if let Some(m) = crate::keys_ui::group_menu(ui.ctx(), self.graph, id) {
+                            self.graph_file.message = m;
+                        }
                     }
                     if let Some((id, own)) = editing {
                         self.graph.end_edit(id, own);

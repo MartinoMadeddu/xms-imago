@@ -337,7 +337,7 @@ steps kept as a branch](docs/xms_history.png)
   the same in the menu, on the node and in its parameters
 - **Parameters that line up:** every node laid out the same way, labels in one
   column, values filling the other, explanations in tooltips
-- **Compounds:** select operators and Make Compound: one operator in their place, its ports the wires that crossed the selection. Double-click to go inside, Save as Definition to put it in the library (`.icd` files: the project's, the user's, `XMS_COMPOUNDS`, the shipped ones), the add menu's Compounds to place one. Right-click a number's row to Copy and Paste as Reference: the two stay joined (changing either changes both), the one that follows drawn on orange
+- **Compounds:** select operators and Make Compound: one operator in their place, its ports the wires that crossed the selection. Double-click to go inside, Save as Definition to put it in the library (`.icd` files: the project's, the user's, `XMS_COMPOUNDS`, the shipped ones), the add menu's Compounds to place one. Right-click a number's row to Copy and Paste as Reference: the two stay joined (changing either changes both), the one that follows drawn on orange. Inside a compound, right-click any row (numbers, text, switches, choices, lists) to Promote it, or a group's title to Promote Group
 - **Variables down the wires:** `$NAME` is the same everywhere (the graph's
   file, `$JOB`, the frames, File > Variables, the environment); `{name}` comes
   down the wires from the operators above: Write USD's `{usd}`, Render Settings'

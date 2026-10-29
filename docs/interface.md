@@ -495,6 +495,11 @@ theme's look. Clip nodes end with a Clip group: what comes In and what goes Out.
 Explanations are in tooltips, on a group's title or a row's label, so the pane
 holds the parameters and the state of the node and little else.
 
+Right-click a row (a number, text, a switch, a choice, a list's row) for its
+menu: Promote inside a compound, Copy and Paste as Reference. Right-click a
+group's title for Promote Group and Remove Group Promotion (see
+[Compounds](compounds.md)).
+
 **A typed value takes effect on Enter**, or on leaving the field (Tab, or a
 click elsewhere), not as each letter or digit is typed: typing 0.25 cooks once,
 not for 0, 0.2 and 0.25, and is one step of the undo history. Escape leaves the

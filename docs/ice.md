@@ -335,7 +335,10 @@ orange; **Remove Promotion** makes it its own again. A promoted seed replaces
 the node's seed: two nodes following one Seed draw the same numbers, so
 promote one seed for each when they should differ. Settings are promoted by
 the node's name: renaming the node keeps them, two nodes of one name cannot
-be promoted until one is renamed. Switches and lists are not promoted yet.
+be promoted until one is renamed. Switches and choices promote (a choice
+with its options); a row of a list (Get Reference's paths) promotes the whole
+list. Right-click a group's title for **Promote Group**: each of its settings
+promoted into a group of that name; **Remove Group Promotion** takes them back.
 
 **Parameter** (Data Access) is a value the ICE operator gives, by name: the
 operator's parameters list every Parameter node of its graph (and of its

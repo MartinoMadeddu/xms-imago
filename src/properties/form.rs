@@ -143,16 +143,34 @@ pub fn group_with(
         .corner_radius(4.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
+            let top = ui.horizontal(|ui| {
                 let r = ui.label(egui::RichText::new(title).strong().size(12.5).color(ink::TITLE()));
                 if let Some(h) = hint {
                     r.on_hover_text(h);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), header);
             });
+            // Its title right-clicked, while probing: the group's menu
+            // (Promote Group), for the caller.
+            let at = ui.input(|i| {
+                i.pointer
+                    .secondary_clicked()
+                    .then(|| i.pointer.interact_pos())
+                    .flatten()
+            });
+            if let Some(at) = at.filter(|p| top.response.rect.contains(*p)) {
+                PROBING.with(|p| {
+                    let mut p = p.borrow_mut();
+                    if p.on {
+                        p.group_clicked = Some((title.to_string(), at));
+                    }
+                });
+            }
             ui.add_space(3.0);
             ui.spacing_mut().item_spacing.y = 4.0;
+            let outer = PROBING.with(|p| std::mem::replace(&mut p.borrow_mut().group, Some(title.to_string())));
             body(&mut Rows { ui, label_w });
+            PROBING.with(|p| p.borrow_mut().group = outer);
         });
     ui.add_space(GAP);
 }
@@ -278,7 +296,7 @@ impl<'a> Rows<'a> {
     }
 
     /// One of a few named choices: side by side when they fit, a list when not.
-    pub fn choice<T: PartialEq + Clone>(
+    pub fn choice<T: PartialEq + Clone + serde::Serialize>(
         &mut self,
         label: &str,
         hint: Option<&str>,
@@ -410,16 +428,9 @@ pub fn typed(
     let mut r = add(ui, &mut text);
     r.flags.remove(egui::response::Flags::CHANGED);
     // Text that follows another: an orange edge.
-    if follows(row) {
-        ui.painter().rect_stroke(
-            r.rect.expand(1.0),
-            3.0,
-            egui::Stroke::new(2.0, follows_orange()),
-            egui::StrokeKind::Outside,
-        );
-    }
+    edge_if_follows(ui, row, r.rect);
     // Probed (see `probing`): the probe text in its place.
-    if probe_row(ui, &r, 0.0, Some(v.as_str()), row) {
+    if probe_row(ui, right_click(&r), 0.0, Some(v.as_str()), row) {
         ui.memory_mut(|m| m.surrender_focus(r.id));
         ui.data_mut(|d| d.remove::<String>(key));
         *v = PROBE_TEXT.to_string();
@@ -693,12 +704,39 @@ fn tabs_1995(
 
 /// A checkbox whose box shows on the group's background in every theme.
 pub fn check(ui: &mut egui::Ui, v: &mut bool) -> egui::Response {
+    let row = ui.next_auto_id();
     let w = &mut ui.visuals_mut().widgets;
     for s in [&mut w.inactive, &mut w.hovered] {
         s.bg_stroke = egui::Stroke::new(1.0, ink::LABEL());
     }
     w.inactive.bg_fill = ink::PANEL_BG();
-    ui.add(egui::Checkbox::without_text(v))
+    let mut r = ui.add(egui::Checkbox::without_text(v));
+    edge_if_follows(ui, row, r.rect);
+    // Probed (see `probing`): the other way, found by what changed.
+    if probe_row(ui, right_click(&r), 0.0, None, row) {
+        *v = !*v;
+        r.mark_changed();
+    }
+    r
+}
+
+/// Where a row was right-clicked this frame, on its response.
+fn right_click(r: &egui::Response) -> Option<egui::Pos2> {
+    r.secondary_clicked()
+        .then(|| r.interact_pointer_pos().unwrap_or(r.rect.left_bottom()))
+}
+
+/// An orange edge around a row whose value follows another (a reference, a
+/// promotion), where its field is not drawn orange itself.
+fn edge_if_follows(ui: &egui::Ui, row: egui::Id, rect: egui::Rect) {
+    if follows(row) {
+        ui.painter().rect_stroke(
+            rect.expand(1.0),
+            3.0,
+            egui::Stroke::new(2.0, follows_orange()),
+            egui::StrokeKind::Outside,
+        );
+    }
 }
 
 /// Sliders fill the value column, with a rail that shows on the group.
@@ -735,10 +773,47 @@ pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -
 }
 
 /// Side-by-side buttons for up to four short choices, else a drop-down.
-pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &mut T, options: &[(T, &str)]) -> bool {
+pub fn choice_widget<T: PartialEq + Clone + serde::Serialize>(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    v: &mut T,
+    options: &[(T, &str)],
+) -> bool {
+    let row = ui.next_auto_id();
     let chars: usize = options.iter().map(|o| o.1.len()).sum();
     let fits = options.len() <= 4 && (chars as f32) * 7.5 + options.len() as f32 * 18.0 < ui.available_width();
     let before = options.iter().position(|o| o.0 == *v);
+    let shown = ui.scope(|ui| {
+        choice_shown(ui, id, v, options, fits);
+    });
+    let rect = shown.response.rect;
+    edge_if_follows(ui, row, rect);
+    // Probed (see `probing`): the next option, found by what changed; its
+    // options kept, for a list promoted.
+    let at = ui.input(|i| {
+        i.pointer
+            .secondary_clicked()
+            .then(|| i.pointer.interact_pos())
+            .flatten()
+    });
+    if probe_row(ui, at.filter(|p| rect.contains(*p)), 0.0, None, row) {
+        let kept: Vec<(String, serde_json::Value)> = options
+            .iter()
+            .map(|(t, l)| (l.to_string(), serde_json::to_value(t).unwrap_or_default()))
+            .collect();
+        PROBING.with(|p| p.borrow_mut().choices.insert(row, kept));
+        let k = before.map_or(0, |k| (k + 1) % options.len().max(1));
+        if let Some(o) = options.get(k) {
+            *v = o.0.clone();
+        }
+        return true;
+    }
+    options.iter().position(|o| o.0 == *v) != before
+}
+
+/// The options of `choice_widget`: side by side when they `fit`, else a
+/// drop-down.
+fn choice_shown<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &mut T, options: &[(T, &str)], fits: bool) {
     if fits {
         ui.horizontal(|ui| {
             for (t, name) in options {
@@ -760,7 +835,6 @@ pub fn choice_widget<T: PartialEq + Clone>(ui: &mut egui::Ui, id: egui::Id, v: &
                 }
             });
     }
-    options.iter().position(|o| o.0 == *v) != before
 }
 
 // Finding a row's number in the operator's parameters
@@ -782,6 +856,8 @@ struct Probing {
     clicked: Option<(f64, egui::Pos2)>,
     /// A text row right-clicked: its text before.
     text: Option<String>,
+    /// The row right-clicked: its key.
+    clicked_row: Option<egui::Id>,
     /// The row being found this frame, while nothing is clicked.
     finding: Option<egui::Id>,
     /// What the rows are known for: the operator and its references.
@@ -791,6 +867,18 @@ struct Probing {
     rows: std::collections::HashMap<egui::Id, Option<String>>,
     /// The numbers that follow another (references), drawn orange.
     linked: Vec<String>,
+    /// A list's options (each its label and its value as JSON), by the row's
+    /// key: seen while probing, for a list promoted.
+    choices: std::collections::HashMap<egui::Id, Vec<(String, serde_json::Value)>>,
+    /// The group whose rows are being drawn, its title.
+    group: Option<String>,
+    /// Each group's rows drawn this frame: the group's title, the row's key.
+    group_rows: Vec<(String, egui::Id)>,
+    /// A group's title right-clicked: the title, where the pointer was.
+    group_clicked: Option<(String, egui::Pos2)>,
+    /// A group whose rows are all to be found (Promote Group), whatever
+    /// follows what: its title. Kept until done.
+    seeking: Option<String>,
 }
 
 thread_local! {
@@ -818,13 +906,17 @@ pub fn probing(on: bool, whose: u64, linked: Vec<String>) {
         let mut p = p.borrow_mut();
         if p.whose != whose {
             p.rows.clear();
+            p.choices.clear();
             p.whose = whose;
         }
         p.on = on;
         p.clicked = None;
+        p.clicked_row = None;
         p.text = None;
         p.finding = None;
         p.linked = linked;
+        p.group_rows.clear();
+        p.group_clicked = None;
     });
 }
 
@@ -869,11 +961,55 @@ pub fn found(row: egui::Id, path: Option<String>) {
 }
 
 /// Whether the row with key `row`, while probing, shows a number that follows
-/// another.
+/// another: its own path, or a list it is a row of (`paths/0` of `paths`).
 fn follows(row: egui::Id) -> bool {
     PROBING.with(|p| {
         let p = p.borrow();
-        p.on && matches!(p.rows.get(&row), Some(Some(path)) if p.linked.contains(path))
+        let linked = |path: &str| {
+            p.linked
+                .iter()
+                .any(|l| path == l || path.strip_prefix(l.as_str()).is_some_and(|r| r.starts_with('/')))
+        };
+        p.on && matches!(p.rows.get(&row), Some(Some(path)) if linked(path))
+    })
+}
+
+/// The options of the list row right-clicked or found (`row`), when it was a
+/// list: each its label and its value as JSON.
+pub fn row_choices(row: Option<egui::Id>) -> Vec<(String, serde_json::Value)> {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        let row = row.or(p.clicked_row);
+        row.and_then(|r| p.choices.get(&r).cloned()).unwrap_or_default()
+    })
+}
+
+/// The group whose title was right-clicked this frame, and where.
+pub fn group_clicked() -> Option<(String, egui::Pos2)> {
+    PROBING.with(|p| p.borrow_mut().group_clicked.take())
+}
+
+/// Find every row of group `title` (Promote Group), one a frame while
+/// nothing is done; None stops.
+pub fn seek_group(title: Option<String>) {
+    PROBING.with(|p| p.borrow_mut().seeking = title);
+}
+
+/// The rows of group `title` drawn this frame, once each is found: its path
+/// (None for a row that is not a parameter) and its options (a list's). None
+/// while some are still to be found.
+pub fn group_found(title: &str) -> Option<Vec<(Option<String>, Vec<(String, serde_json::Value)>)>> {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        let mut out = vec![];
+        for (g, row) in &p.group_rows {
+            if g != title {
+                continue;
+            }
+            let path = p.rows.get(row)?.clone();
+            out.push((path, p.choices.get(row).cloned().unwrap_or_default()));
+        }
+        Some(out)
     })
 }
 
@@ -976,7 +1112,7 @@ pub fn slider<T: egui::emath::Numeric + Probed>(
 /// back. Until every row is known, another frame is asked for.
 fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::Id) {
     let was = v.get();
-    if probe_row(ui, r, was, None, row) {
+    if probe_row(ui, right_click(r), was, None, row) {
         v.put(PROBE);
         r.mark_changed();
     }
@@ -985,8 +1121,8 @@ fn probe(ui: &egui::Ui, r: &mut egui::Response, v: &mut impl Probed, row: egui::
 /// Whether row `row` (its response `r`, its number `was`, or its text) is
 /// probed this frame (see `probe`): right-clicked, or found while nothing is
 /// done.
-fn probe_row(ui: &egui::Ui, r: &egui::Response, was: f64, text: Option<&str>, row: egui::Id) -> bool {
-    let clicked = r.secondary_clicked();
+fn probe_row(ui: &egui::Ui, clicked_at: Option<egui::Pos2>, was: f64, text: Option<&str>, row: egui::Id) -> bool {
+    let clicked = clicked_at.is_some();
     let still = || {
         let quiet = ui.input(|i| {
             !i.pointer.any_down()
@@ -999,13 +1135,23 @@ fn probe_row(ui: &egui::Ui, r: &egui::Response, was: f64, text: Option<&str>, ro
     };
     PROBING.with(|p| {
         let mut p = p.borrow_mut();
-        if !p.on || p.clicked.is_some() {
+        if !p.on {
             return false;
         }
+        if let Some(g) = p.group.clone() {
+            if !p.group_rows.iter().any(|(_, r)| *r == row) {
+                p.group_rows.push((g, row));
+            }
+        }
+        if p.clicked.is_some() {
+            return false;
+        }
+        let sought = p.seeking.is_some() && p.seeking == p.group;
         if clicked {
-            p.clicked = Some((was, r.interact_pointer_pos().unwrap_or(r.rect.left_bottom())));
+            p.clicked = clicked_at.map(|at| (was, at));
+            p.clicked_row = Some(row);
             p.text = text.map(str::to_string);
-        } else if !p.linked.is_empty() && !p.rows.contains_key(&row) {
+        } else if (!p.linked.is_empty() || sought) && !p.rows.contains_key(&row) {
             ui.ctx().request_repaint();
             if p.finding.is_some() || !still() {
                 return false;

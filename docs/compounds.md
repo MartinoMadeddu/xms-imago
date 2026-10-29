@@ -67,9 +67,9 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   definition of its name again, locked. Inside a locked one the graph is drawn
   at half strength, a change is put back at once, and Make Editable is on the
   bar.
-- **Promote:** inside an editable compound, right-click a number's row in an
-  operator's parameters (sliders, number fields, X Y Z, U V), or the number in
-  its **Keys** list, and choose **Promote…**:
+- **Promote:** inside an editable compound, right-click a row in an
+  operator's parameters (sliders, number fields, X Y Z, U V, text, switches,
+  choices, lists), or the number in its **Keys** list, and choose **Promote…**:
   give it a label, a group and a range, or make it another target of a
   parameter already promoted. Its value now is the default. The compound's
   parameters take it when you leave the compound; **Remove Promotion** takes
@@ -82,11 +82,18 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   instance has not saved yet is made). Promotion works in every editable
   compound, saved or not, and in ICE graphs (see [ICE](ice.md#compounds)).
   Text promotes as numbers do (a path, a name), its row's right-click menu
-  the same; switches and lists do not yet. Promotions name their operator:
+  the same. A switch promotes as a switch, a choice (a drop-down, side-by-side
+  options) with its options. A row of a list (Primitive Locations, an ICE
+  Get Reference's paths) promotes the whole list, and the **Prims Location**
+  tab promotes whole too: the instance's parameter is the list of rows.
+- **Promote Group:** right-click a group's title (its name above its rows)
+  for **Promote Group**: each of its parameters is promoted, one by one, into
+  a group of that name on the compound; **Remove Group Promotion** takes them
+  back. Each is still its own promoted parameter. Promotions name their operator:
   renaming it inside the compound keeps them. An operator's name is not a
   parameter, and is never promoted.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
-  booleans, text and vectors. A value set back to the default is the default
+  switches, text, choices, lists and vectors. A value set back to the default is the default
   again. Each instance keeps its own.
 - **References:** right-click any number's row (or the number in the Keys
   list), **Copy as Reference**; on another number, **Paste as Reference**: it follows the first,

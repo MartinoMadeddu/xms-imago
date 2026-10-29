@@ -167,6 +167,13 @@ pub fn apply_values(g: &mut NodeGraphState, d: &Definition, values: &BTreeMap<St
             let Some(node) = g.nodes.iter_mut().find(|n| n.name == t.node) else {
                 continue;
             };
+            // Its Prims Location tab, promoted whole.
+            if t.path == compounds::LOCATIONS {
+                if let Some(rows) = value.as_array() {
+                    node.locations = rows.iter().filter_map(|r| r.as_str().map(str::to_string)).collect();
+                }
+                continue;
+            }
             let Ok(mut v) = serde_json::to_value(&node.node_type) else {
                 continue;
             };
@@ -186,6 +193,9 @@ pub fn take_values(g: &mut NodeGraphState, d: &Definition, values: &mut BTreeMap
     for p in &d.parameters {
         let now = p.targets.first().and_then(|t| {
             let node = g.nodes.iter().find(|n| n.name == t.node)?;
+            if t.path == compounds::LOCATIONS {
+                return Some(serde_json::json!(node.locations));
+            }
             let v = serde_json::to_value(&node.node_type).ok()?;
             compounds::get(&v, &t.path).cloned()
         });
@@ -791,6 +801,7 @@ mod tests {
                 node: "Inner".into(),
                 path: "values/size".into(),
             }],
+            choices: vec![],
         }];
         let values: BTreeMap<String, serde_json::Value> = [("size".to_string(), serde_json::json!(3.0))].into();
         apply_values(&mut g, &d, &values);
@@ -887,6 +898,7 @@ mod tests {
                 node: "Move".into(),
                 path: "translation/1".into(),
             }],
+            choices: vec![],
         });
         let t = g.nodes.iter().find(|n| n.id == a).unwrap().node_type.clone();
         let b = g.add_node("Lift2".into(), t, p(200.0, 120.0));
@@ -911,6 +923,47 @@ mod tests {
         };
         let (at_default, at_five) = (low(cook(&g, a)), low(cook(&g, b)));
         assert!((at_five - at_default - 4.0).abs() < 1e-4, "{at_default} {at_five}");
+    }
+
+    /// A Prims Location tab promoted whole: an instance's rows are the node's,
+    /// taken back the definition keeps its own.
+    #[test]
+    fn prims_locations_are_promoted_whole() {
+        let mut g = NodeGraphState::default();
+        let tr = g.add_node(
+            "Move".into(),
+            NodeType::Transform {
+                translation: glam::Vec3::ZERO,
+                rotation: glam::Vec3::ZERO,
+                scale: glam::Vec3::ONE,
+            },
+            p(0.0, 0.0),
+        );
+        g.nodes.iter_mut().find(|n| n.id == tr).unwrap().locations = vec!["/a".into()];
+        let mut d = Definition::new(Context::Scene, "Lift");
+        d.parameters = vec![Parameter {
+            name: "move_locations".into(),
+            label: "Move Prims Location".into(),
+            kind: ParameterType::List,
+            default: serde_json::json!(["/a"]),
+            range: None,
+            group: String::new(),
+            help: String::new(),
+            targets: vec![Target {
+                node: "Move".into(),
+                path: crate::compounds::LOCATIONS.into(),
+            }],
+            choices: vec![],
+        }];
+        let mut values = BTreeMap::new();
+        values.insert("move_locations".to_string(), serde_json::json!(["/b", "/c"]));
+        apply_values(&mut g, &d, &values);
+        let at = |g: &NodeGraphState| g.nodes.iter().find(|n| n.id == tr).unwrap().locations.clone();
+        assert_eq!(at(&g), vec!["/b".to_string(), "/c".to_string()]);
+        let mut taken = BTreeMap::new();
+        take_values(&mut g, &d, &mut taken);
+        assert_eq!(taken.get("move_locations"), Some(&serde_json::json!(["/b", "/c"])));
+        assert_eq!(at(&g), vec!["/a".to_string()]);
     }
 
     /// Wires follow ports by name, then by number; a port gone takes its wire.

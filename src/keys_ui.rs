@@ -44,7 +44,8 @@ enum RowAsk {
     CopyReference(String),
     PasteReference(String),
     RemoveReference(String),
-    Promote(String, serde_json::Value),
+    /// The path, its value, a list's options.
+    Promote(String, serde_json::Value, Vec<(String, serde_json::Value)>),
     RemovePromotion(String),
 }
 
@@ -184,7 +185,7 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                                 promoted: promoted.is_some(),
                             };
                             let value = serde_json::json!(*v);
-                            if let Some(a) = number_menu(ui, id, p, &value, &state, copied.as_ref(), promoting) {
+                            if let Some(a) = number_menu(ui, id, p, &value, &[], &state, copied.as_ref(), promoting) {
                                 ask = Some(a);
                             }
                         });
@@ -225,6 +226,7 @@ fn number_menu(
     id: NodeId,
     path: &str,
     value: &serde_json::Value,
+    choices: &[(String, serde_json::Value)],
     state: &NumberState,
     copied: Option<&Copied>,
     promoting: bool,
@@ -262,7 +264,7 @@ fn number_menu(
             .on_hover_text("Put this number on the compound's parameters: its instances set it")
             .clicked()
         {
-            ask = Some(RowAsk::Promote(path.to_string(), value.clone()));
+            ask = Some(RowAsk::Promote(path.to_string(), value.clone(), choices.to_vec()));
             ui.close();
         }
         if state.promoted && ui.button("Remove Promotion").clicked() {
@@ -307,8 +309,8 @@ fn carry_out(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ask: R
             graph.unlink(id, &p);
             Some(format!("{node_name} {} is its own again", keys::label(&p)))
         }
-        RowAsk::Promote(p, v) => {
-            promote_open(ctx, &node_name, &p, v, graph);
+        RowAsk::Promote(p, v, choices) => {
+            promote_open(ctx, &node_name, &p, v, choices, graph);
             None
         }
         RowAsk::RemovePromotion(p) => {
@@ -325,6 +327,8 @@ struct RowMenu {
     node: NodeId,
     path: String,
     value: serde_json::Value,
+    /// A list's options: each its label and its value.
+    choices: Vec<(String, serde_json::Value)>,
     at: egui::Pos2,
 }
 
@@ -334,8 +338,22 @@ fn row_menu_id() -> egui::Id {
 
 /// Open the menu of number `path` of operator `node`, right-clicked on its row
 /// in the parameters (found by `properties::form`'s probe).
-pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: serde_json::Value, at: egui::Pos2) {
-    ctx.data_mut(|d| d.insert_temp(row_menu_id(), RowMenu { node, path, value, at }));
+pub fn open_row_menu(
+    ctx: &egui::Context,
+    node: NodeId,
+    path: String,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+    at: egui::Pos2,
+) {
+    let m = RowMenu {
+        node,
+        path,
+        value,
+        choices,
+        at,
+    };
+    ctx.data_mut(|d| d.insert_temp(row_menu_id(), m));
 }
 
 /// The path of what a probed row (see `form::probing`) put the probe in place
@@ -359,6 +377,41 @@ pub fn probed_path(now: &serde_json::Value, before: Option<&serde_json::Value>) 
                 .any(|(q, y)| q == p && (x - y).abs() > 1e-9 * (1.0 + y.abs()))
         })
         .map(|(p, _)| p.clone())
+        // A switch turned, an option picked: what else changed.
+        .or_else(|| before.and_then(|b| changed_at(now, b)))
+}
+
+/// The path of the first value of parameters `now` that is not as in
+/// `before` (as JSON, the variant's name above them skipped).
+fn changed_at(now: &serde_json::Value, before: &serde_json::Value) -> Option<String> {
+    fn walk(a: &serde_json::Value, b: &serde_json::Value, path: String) -> Option<String> {
+        if a == b {
+            return None;
+        }
+        let join = |k: &str| {
+            if path.is_empty() {
+                k.to_string()
+            } else {
+                format!("{path}/{k}")
+            }
+        };
+        match (a, b) {
+            (serde_json::Value::Object(x), serde_json::Value::Object(y)) if x.len() == y.len() => {
+                x.iter().find_map(|(k, v)| walk(v, y.get(k)?, join(k)))
+            }
+            (serde_json::Value::Array(x), serde_json::Value::Array(y)) if x.len() == y.len() => x
+                .iter()
+                .zip(y)
+                .enumerate()
+                .find_map(|(k, (v, w))| walk(v, w, join(&k.to_string()))),
+            _ => Some(path),
+        }
+    }
+    let inner = |v: &serde_json::Value| match v {
+        serde_json::Value::Object(o) if o.len() == 1 => o.values().next().cloned(),
+        v => Some(v.clone()),
+    };
+    walk(&inner(now)?, &inner(before)?, String::new()).filter(|p| !p.is_empty())
 }
 
 /// The path of the text holding `text` (lower case) in parameters `v` (as
@@ -403,7 +456,16 @@ pub fn found_row(
     let node = graph.nodes.iter_mut().find(|n| n.id == id)?;
     let mut v = serde_json::to_value(&node.node_type).ok()?;
     let was_v = before.as_ref().and_then(|b| serde_json::to_value(&b.node_type).ok());
-    let path = probed_path(&v, was_v.as_ref());
+    let probe = crate::properties::form::PROBE_TEXT;
+    let path = probed_path(&v, was_v.as_ref())
+        // A row of a list stands for the list.
+        .map(|p| crate::compounds::whole_list(&v, &p))
+        // Its Prims Location tab: a row of it stands for the tab.
+        .or_else(|| {
+            let probed = node.locations.iter().any(|l| l.to_lowercase().contains(probe));
+            let changed = before.as_ref().is_some_and(|b| b.locations != node.locations);
+            (probed || changed).then(|| crate::compounds::LOCATIONS.to_string())
+        });
     let was: Vec<(String, f64)> = was_v.as_ref().map(keys::keyable).unwrap_or_default();
     let value = path
         .as_ref()
@@ -452,7 +514,16 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
                         .small()
                         .weak(),
                 );
-                ask = number_menu(ui, m.node, &m.path, &m.value, &state, copied.as_ref(), promoting);
+                ask = number_menu(
+                    ui,
+                    m.node,
+                    &m.path,
+                    &m.value,
+                    &m.choices,
+                    &state,
+                    copied.as_ref(),
+                    promoting,
+                );
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
@@ -464,6 +535,135 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
     promote_window(ctx, graph).or(told)
 }
 
+/// A group's menu, opened by a right-click on its title in the parameters:
+/// the operator, the group's title, where the pointer was.
+#[derive(Clone)]
+struct GroupMenu {
+    node: NodeId,
+    title: String,
+    at: egui::Pos2,
+}
+
+/// Promote Group or Remove Group Promotion asked for, waiting while the
+/// group's rows are found (`form::seek_group`).
+#[derive(Clone)]
+struct GroupAsk {
+    node: NodeId,
+    title: String,
+    remove: bool,
+}
+
+fn group_menu_id() -> egui::Id {
+    egui::Id::new("parameter_group_menu")
+}
+
+fn group_ask_id() -> egui::Id {
+    egui::Id::new("parameter_group_ask")
+}
+
+/// After the parameters of operator `id` were drawn: a group's title
+/// right-clicked opens its menu (Promote Group, Remove Group Promotion,
+/// inside an editable compound); one chosen waits while the group's rows are
+/// found, then promotes (or takes back) each parameter in it, as Promote does,
+/// in a group of the compound's of the same title. Returns what to tell.
+pub fn group_menu(ctx: &egui::Context, graph: &mut NodeGraphState, id: Option<NodeId>) -> Option<String> {
+    if let (Some((title, at)), Some(node)) = (crate::properties::form::group_clicked(), id) {
+        ctx.data_mut(|d| d.insert_temp(group_menu_id(), GroupMenu { node, title, at }));
+    }
+    let promoting = !graph.inside.path.is_empty() && !graph.inside.locked;
+    if let Some(m) = ctx.data(|d| d.get_temp::<GroupMenu>(group_menu_id())) {
+        let mut chosen = None;
+        let area = egui::Area::new(group_menu_id())
+            .order(egui::Order::Foreground)
+            .fixed_pos(m.at)
+            .show(ctx, |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&m.title).small().weak());
+                    let hint = "Inside an editable compound: go inside one, Make Editable if it is locked";
+                    if ui
+                        .add_enabled(promoting, egui::Button::new("Promote Group"))
+                        .on_hover_text("Each of its parameters on the compound's, in a group of this name")
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(false);
+                    }
+                    if ui
+                        .add_enabled(promoting, egui::Button::new("Remove Group Promotion"))
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(true);
+                    }
+                });
+            });
+        let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+        if let Some(remove) = chosen {
+            let ask = GroupAsk {
+                node: m.node,
+                title: m.title.clone(),
+                remove,
+            };
+            ctx.data_mut(|d| d.insert_temp(group_ask_id(), ask));
+            crate::properties::form::seek_group(Some(m.title.clone()));
+        }
+        if chosen.is_some() || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ctx.data_mut(|d| d.remove::<GroupMenu>(group_menu_id()));
+        }
+    }
+    let ask = ctx.data(|d| d.get_temp::<GroupAsk>(group_ask_id()))?;
+    let done = |ctx: &egui::Context| {
+        ctx.data_mut(|d| d.remove::<GroupAsk>(group_ask_id()));
+        crate::properties::form::seek_group(None);
+    };
+    // Another operator shown: nothing to do.
+    if id != Some(ask.node) {
+        done(ctx);
+        return None;
+    }
+    let rows = crate::properties::form::group_found(&ask.title)?;
+    done(ctx);
+    let node = graph.nodes.iter().find(|n| n.id == ask.node)?;
+    let name = node.name.clone();
+    // Each parameter once: a list's rows are the list.
+    let mut paths: Vec<(String, Vec<(String, serde_json::Value)>)> = vec![];
+    let v = serde_json::to_value(&node.node_type).unwrap_or_default();
+    for (path, choices) in rows {
+        let Some(path) = path else { continue };
+        let path = crate::compounds::whole_list(&v, &path);
+        if !paths.iter().any(|(p, _)| *p == path) {
+            paths.push((path, choices));
+        }
+    }
+    let mut n = 0;
+    for (path, choices) in paths {
+        let promoted = graph
+            .inside
+            .parameters
+            .iter()
+            .any(|q| q.targets.iter().any(|t| t.node == name && t.path == path));
+        if ask.remove && promoted {
+            remove_promotion(graph, &name, &path);
+            n += 1;
+        } else if !ask.remove && !promoted {
+            let p = promoting(graph, &name, &path, serde_json::Value::Null, choices, ask.title.clone());
+            if !p.default.is_null() {
+                promote(graph, &p);
+                n += 1;
+            }
+        }
+    }
+    let verb = if ask.remove { "take back" } else { "promote" };
+    Some(match (ask.remove, n) {
+        (_, 0) => format!("Nothing in {} to {verb}", ask.title),
+        (false, n) => format!(
+            "Promoted {n} of {name}'s {}: the compound's instances set them",
+            ask.title
+        ),
+        (true, n) => format!("{n} of {name}'s {} its own again", ask.title),
+    })
+}
+
 /// What the Promote window is filling in.
 #[derive(Clone)]
 struct Promoting {
@@ -471,6 +671,8 @@ struct Promoting {
     path: String,
     /// Its value now: the parameter's default.
     default: serde_json::Value,
+    /// A list's options: a Choice.
+    choices: Vec<(String, serde_json::Value)>,
     /// A new parameter (None) or another target for this one.
     into: Option<String>,
     label: String,
@@ -487,33 +689,76 @@ fn promoting_id() -> egui::Id {
 /// Open the Promote window for parameter `path` (a number, text) of inner
 /// operator `node`; `value`, the row's, when it cannot be read there (a value
 /// kept only once set: a compound's promoted value, an ICE operator's).
-fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: serde_json::Value, graph: &NodeGraphState) {
-    // A parameter of the operator's own (an ICE operator's, a compound's):
-    // named as it is, not by where it is kept.
+fn promote_open(
+    ctx: &egui::Context,
+    node: &str,
+    path: &str,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+    graph: &NodeGraphState,
+) {
+    let p = promoting(
+        graph,
+        node,
+        path,
+        value,
+        choices,
+        graph.inside.path.last().cloned().unwrap_or_default(),
+    );
+    ctx.data_mut(|d| d.insert_temp(promoting_id(), p));
+}
+
+/// What promoting parameter `path` of inner operator `node` makes: its label
+/// (an operator's own parameter, an ICE operator's or a compound's, named as
+/// it is, not by where it is kept), its default its value now (`value`, the
+/// row's, when it cannot be read there: a value kept only once set), in
+/// `group`.
+fn promoting(
+    graph: &NodeGraphState,
+    node: &str,
+    path: &str,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+    group: String,
+) -> Promoting {
     let label = keys::label(
         path.strip_prefix("params/")
             .or_else(|| path.strip_prefix("values/"))
             .unwrap_or(path),
     );
+    let label = if path == crate::compounds::LOCATIONS {
+        "Prims Location".to_string()
+    } else {
+        label
+    };
     let default = graph
         .nodes
         .iter()
         .find(|n| n.name == node)
-        .and_then(|n| serde_json::to_value(&n.node_type).ok())
-        .and_then(|v| crate::compounds::get(&v, path).cloned())
+        .and_then(|n| current(n, path))
         .unwrap_or(value);
-    let p = Promoting {
+    Promoting {
         node: node.to_string(),
         path: path.to_string(),
         default,
+        choices,
         into: None,
         label: format!("{node} {label}"),
-        group: graph.inside.path.last().cloned().unwrap_or_default(),
+        group,
         range: false,
         min: 0.0,
         max: 1.0,
-    };
-    ctx.data_mut(|d| d.insert_temp(promoting_id(), p));
+    }
+}
+
+/// The value of parameter `path` of operator `n` now, as JSON: its Prims
+/// Location rows for `compounds::LOCATIONS`.
+fn current(n: &crate::node_graph::GraphNode, path: &str) -> Option<serde_json::Value> {
+    if path == crate::compounds::LOCATIONS {
+        return Some(serde_json::json!(n.locations));
+    }
+    let v = serde_json::to_value(&n.node_type).ok()?;
+    crate::compounds::get(&v, path).cloned()
 }
 
 /// The Promote window, while it is open: a new parameter's label, group and
@@ -591,7 +836,11 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
 /// of one. Returns what to tell.
 fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
     use crate::compounds::{Parameter, ParameterType, Target};
-    let kind = ParameterType::of(&p.default);
+    let kind = if p.choices.is_empty() {
+        ParameterType::of(&p.default)
+    } else {
+        ParameterType::Choice
+    };
     let target = Target {
         node: p.node.clone(),
         path: p.path.clone(),
@@ -626,6 +875,7 @@ fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
         group: p.group.trim().to_string(),
         help: String::new(),
         targets: vec![target],
+        choices: p.choices.clone(),
     });
     format!(
         "Promoted as {}: the compound's instances set it, once you leave the compound",
@@ -698,6 +948,7 @@ mod tests {
             node: node.into(),
             path: path.into(),
             default: serde_json::json!(2.5),
+            choices: vec![],
             into: into.map(str::to_string),
             label: label.into(),
             group: "Shape".into(),
@@ -705,6 +956,17 @@ mod tests {
             min: 0.0,
             max: 10.0,
         }
+    }
+
+    /// A switch flipped or an option picked is found where it changed.
+    #[test]
+    fn a_switch_or_choice_is_found_where_it_changed() {
+        let before = serde_json::json!({ "Merge": { "mode": "Append", "keep": false, "n": 2 } });
+        let flipped = serde_json::json!({ "Merge": { "mode": "Append", "keep": true, "n": 2 } });
+        let picked = serde_json::json!({ "Merge": { "mode": "Replace", "keep": false, "n": 2 } });
+        assert_eq!(changed_at(&flipped, &before).as_deref(), Some("keep"));
+        assert_eq!(changed_at(&picked, &before).as_deref(), Some("mode"));
+        assert_eq!(changed_at(&before, &before), None);
     }
 
     /// A row probed put the probe in its number's place: found by its path,
@@ -777,6 +1039,7 @@ mod tests {
             "Lights",
             "params/instancer_path",
             serde_json::json!("/root/instancer"),
+            vec![],
             &g,
         );
         let p: Promoting = ctx.data(|d| d.get_temp(promoting_id())).unwrap();

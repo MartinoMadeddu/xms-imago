@@ -751,8 +751,18 @@ pub fn promote_input(g: &mut IceGraph, id: NodeId, k: usize) -> Option<String> {
 /// the top of an ICE operator's graph a parameter of the operator; inside a
 /// compound, of the compound. The setting then follows it. Returns what to
 /// tell, or why not.
-pub fn promote_setting(g: &mut IceGraph, id: NodeId, path: &str) -> Result<String, String> {
+pub fn promote_setting(
+    g: &mut IceGraph,
+    id: NodeId,
+    path: &str,
+    group: &str,
+    choices: Vec<(String, serde_json::Value)>,
+) -> Result<String, String> {
     let n = g.nodes.iter().find(|n| n.id == id).ok_or("That node is gone")?;
+    // A row of a list stands for the list (a Primitive Locations).
+    let json = serde_json::to_value(&n.node_type).unwrap_or_default();
+    let path = compounds::whole_list(&json, path);
+    let path = path.as_str();
     if g.nodes.iter().filter(|m| m.name == n.name).count() > 1 {
         return Err(format!(
             "Two nodes are called {}: rename one to promote its settings",
@@ -766,9 +776,8 @@ pub fn promote_setting(g: &mut IceGraph, id: NodeId, path: &str) -> Result<Strin
     if g.parameters.iter().any(|p| p.targets.contains(&target)) {
         return Err("Promoted already".into());
     }
-    let default = serde_json::to_value(&n.node_type)
-        .ok()
-        .and_then(|v| compounds::get(&v, path).cloned())
+    let default = compounds::get(&json, path)
+        .cloned()
         .ok_or("Not a setting of the node")?;
     let label = format!("{} {}", n.name, crate::core::keys::label(path));
     // A name no parameter of its graph has, a Parameter node's included.
@@ -783,12 +792,17 @@ pub fn promote_setting(g: &mut IceGraph, id: NodeId, path: &str) -> Result<Strin
     g.parameters.push(Parameter {
         name,
         label: label.clone(),
-        kind: ParameterType::of(&default),
+        kind: if choices.is_empty() {
+            ParameterType::of(&default)
+        } else {
+            ParameterType::Choice
+        },
         default,
         range: None,
-        group: String::new(),
+        group: group.to_string(),
         help: String::new(),
         targets: vec![target],
+        choices,
     });
     Ok(if g.outer.is_empty() {
         format!("{label} is a parameter of the ICE operator: set it in its parameters")
@@ -1161,9 +1175,9 @@ mod tests {
             IceGraphNodeType::Random { seed: 3 },
             egui::pos2(0.0, 0.0),
         );
-        let told = promote_setting(&mut g, r, "seed").unwrap();
+        let told = promote_setting(&mut g, r, "seed", "", vec![]).unwrap();
         assert!(told.contains("ICE operator"), "{told}");
-        assert!(promote_setting(&mut g, r, "seed").is_err(), "once");
+        assert!(promote_setting(&mut g, r, "seed", "", vec![]).is_err(), "once");
         let p = &g.parameters[0];
         assert_eq!(
             (p.label.as_str(), p.kind, p.default.clone()),
@@ -1179,6 +1193,33 @@ mod tests {
         assert!(g.parameters.is_empty());
     }
 
+    /// A row of Get Reference's paths promotes them all, a list, in the group
+    /// it was promoted with; a switch's options come with it.
+    #[test]
+    fn a_list_setting_is_promoted_whole() {
+        let mut g = IceGraph::new(IceGraphId(0), "g".into());
+        let r = g.add_node(
+            "Ref".into(),
+            IceGraphNodeType::GetReference {
+                input: 1,
+                paths: vec!["/a".into(), "/b".into()],
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        promote_setting(&mut g, r, "paths/1", "References", vec![]).unwrap();
+        let p = &g.parameters[0];
+        assert_eq!((p.kind, p.group.as_str()), (ParameterType::List, "References"));
+        assert_eq!(p.targets[0].path, "paths");
+        assert_eq!(p.default, serde_json::json!(["/a", "/b"]));
+        let choices = vec![
+            ("One".to_string(), serde_json::json!(1)),
+            ("Two".to_string(), serde_json::json!(2)),
+        ];
+        promote_setting(&mut g, r, "input", "References", choices).unwrap();
+        assert_eq!(g.parameters[1].kind, ParameterType::Choice);
+        assert_eq!(g.parameters[1].choices.len(), 2);
+    }
+
     /// Inside a compound, a setting promoted is a parameter of the compound:
     /// each instance's value is what runs, the definition keeping the default.
     #[test]
@@ -1191,7 +1232,7 @@ mod tests {
         );
         let id = make_compound(&mut g, &[add, set, r], "Lift").unwrap();
         enter(&mut g, id).unwrap();
-        promote_setting(&mut g, r, "seed").unwrap();
+        promote_setting(&mut g, r, "seed", "", vec![]).unwrap();
         leave(&mut g).unwrap();
         let d = definition(&g.nodes.iter().find(|n| n.id == id).unwrap().node_type)
             .unwrap()

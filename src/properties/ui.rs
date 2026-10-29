@@ -1539,6 +1539,48 @@ pub fn promoted_groups(
     }
 }
 
+/// Text rows, one each (a promoted Primitive Locations list): a field and 🗑
+/// per row, + to add one; prims dropped from the Scene Explorer are added.
+/// Whether they changed.
+fn list_rows(f: &mut Rows, label: &str, hint: Option<&str>, rows: &mut Vec<String>) -> bool {
+    let mut changed = false;
+    let mut remove = None;
+    for (k, row) in rows.iter_mut().enumerate() {
+        let shown = if k == 0 { label } else { "" };
+        f.row(shown, if k == 0 { hint } else { None }, |ui| {
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 30.0).max(60.0);
+                changed |= form::typed(ui, row, |ui, t| {
+                    ui.field(
+                        egui::TextEdit::singleline(t)
+                            .desired_width(w)
+                            .hint_text("/path/to/prim")
+                            .font(egui::TextStyle::Monospace),
+                    )
+                })
+                .changed();
+                if ui.small_button("🗑").on_hover_text("Remove this row").clicked() {
+                    remove = Some(k);
+                }
+            });
+        });
+    }
+    if let Some(k) = remove {
+        rows.remove(k);
+        changed = true;
+    }
+    let add = f.row(if rows.is_empty() { label } else { "" }, None, |ui| ui.button("+ Row"));
+    if add.clicked() {
+        rows.push(String::new());
+        changed = true;
+    }
+    if let Some(p) = add.dnd_release_payload::<crate::types::DraggedPrims>() {
+        rows.extend(p.0.iter().cloned());
+        changed = true;
+    }
+    changed
+}
+
 /// One promoted parameter's row: its value, the instance's, else the default.
 /// A value set back to the default is the default again, not a value of its
 /// own.
@@ -1603,6 +1645,19 @@ fn promoted_row(
         T::Ramp => {
             f.value(label, "a ramp: its row comes with Ramp parameters");
             None
+        }
+        T::List => {
+            let mut rows: Vec<String> = match &now {
+                serde_json::Value::Array(a) => a.iter().map(|x| x.as_str().unwrap_or_default().to_string()).collect(),
+                _ => vec![],
+            };
+            list_rows(f, label, hint, &mut rows).then(|| serde_json::json!(rows))
+        }
+        T::Choice => {
+            let options: Vec<(serde_json::Value, &str)> =
+                p.choices.iter().map(|(l, v)| (v.clone(), l.as_str())).collect();
+            let mut picked = now.clone();
+            f.choice(label, hint, &mut picked, &options).then_some(picked)
         }
     };
     if let Some(v) = changed {
@@ -2505,7 +2560,7 @@ fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>
             (SubLevel::Element, "Element"),
         ],
     );
-    #[derive(Clone, Copy, PartialEq)]
+    #[derive(Clone, Copy, PartialEq, serde::Serialize)]
     enum Src {
         Picked,
         All,

@@ -751,7 +751,7 @@ pub fn draw_subnet_node_properties(
                 if let Some(path) = path {
                     let m = RowMenu {
                         node: node.id,
-                        what: Row::Setting(path),
+                        what: Row::Setting(path, crate::properties::form::row_choices(None)),
                         at,
                     };
                     ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
@@ -811,6 +811,148 @@ pub fn draw_subnet_node_properties(
             }
         });
     }
+    group_menu(ui.ctx(), graph);
+}
+
+/// A group's menu, opened by a right-click on its title: the node, the
+/// group, where the pointer was.
+#[derive(Clone)]
+struct GroupMenu {
+    node: NodeId,
+    title: String,
+    at: egui::Pos2,
+}
+
+fn group_menu_id() -> egui::Id {
+    egui::Id::new("ice_group_menu")
+}
+
+/// Promote Group or Remove Group Promotion chosen: done once its rows are
+/// found (`properties::form::seek_group`).
+#[derive(Clone)]
+struct GroupAsk {
+    node: NodeId,
+    title: String,
+    remove: bool,
+}
+
+fn group_ask_id() -> egui::Id {
+    egui::Id::new("ice_group_ask")
+}
+
+/// The menu of a group whose title was right-clicked in the parameters:
+/// Promote Group promotes each of its settings into a group of its name,
+/// Remove Group Promotion takes them back. What it did is told by the graph.
+fn group_menu(ctx: &egui::Context, graph: &mut IceGraph) {
+    let id = graph.selected_node;
+    if let (Some((title, at)), Some(node)) = (crate::properties::form::group_clicked(), id) {
+        ctx.data_mut(|d| d.insert_temp(group_menu_id(), GroupMenu { node, title, at }));
+    }
+    let editable = !locked(ctx, graph);
+    if let Some(m) = ctx.data(|d| d.get_temp::<GroupMenu>(group_menu_id())) {
+        let mut chosen = None;
+        let area = egui::Area::new(group_menu_id())
+            .order(egui::Order::Foreground)
+            .fixed_pos(m.at)
+            .show(ctx, |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&m.title).small().weak());
+                    let hint = "Locked: it follows its definition. Make Editable to change it";
+                    if ui
+                        .add_enabled(editable, egui::Button::new("Promote Group"))
+                        .on_hover_text("Each of its settings a parameter, in a group of this name")
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(false);
+                    }
+                    if ui
+                        .add_enabled(editable, egui::Button::new("Remove Group Promotion"))
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(true);
+                    }
+                });
+            });
+        let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+        if let Some(remove) = chosen {
+            let ask = GroupAsk {
+                node: m.node,
+                title: m.title.clone(),
+                remove,
+            };
+            ctx.data_mut(|d| d.insert_temp(group_ask_id(), ask));
+            crate::properties::form::seek_group(Some(m.title.clone()));
+        }
+        if chosen.is_some() || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ctx.data_mut(|d| d.remove::<GroupMenu>(group_menu_id()));
+        }
+    }
+    let Some(ask) = ctx.data(|d| d.get_temp::<GroupAsk>(group_ask_id())) else {
+        return;
+    };
+    let done = |ctx: &egui::Context| {
+        ctx.data_mut(|d| d.remove::<GroupAsk>(group_ask_id()));
+        crate::properties::form::seek_group(None);
+    };
+    // Another node shown: nothing to do.
+    if id != Some(ask.node) {
+        done(ctx);
+        return;
+    }
+    let Some(rows) = crate::properties::form::group_found(&ask.title) else {
+        return;
+    };
+    done(ctx);
+    let told = group_promoted(graph, ask.node, &ask.title, rows, ask.remove);
+    ctx.data_mut(|d| d.insert_temp(told_id(), told));
+}
+
+/// Group `title`'s rows of node `id` (their paths and options) promoted, or
+/// their promotion removed: each setting once, a list's rows the list. What
+/// was done.
+fn group_promoted(
+    graph: &mut IceGraph,
+    id: NodeId,
+    title: &str,
+    rows: Vec<(Option<String>, Vec<(String, serde_json::Value)>)>,
+    remove: bool,
+) -> String {
+    let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
+        return "That node is gone".into();
+    };
+    let name = node.name.clone();
+    let v = serde_json::to_value(&node.node_type).unwrap_or_default();
+    let mut paths: Vec<(String, Vec<(String, serde_json::Value)>)> = vec![];
+    for (path, choices) in rows {
+        let Some(path) = path.filter(|p| !p.starts_with("editable/")) else {
+            continue;
+        };
+        let path = crate::compounds::whole_list(&v, &path);
+        if !paths.iter().any(|(p, _)| *p == path) {
+            paths.push((path, choices));
+        }
+    }
+    let mut n = 0;
+    for (path, choices) in paths {
+        let promoted = graph
+            .parameters
+            .iter()
+            .any(|p| p.targets.iter().any(|t| t.node == name && t.path == path));
+        if remove && promoted {
+            super::compound::remove_promotion(graph, &name, &path);
+            n += 1;
+        } else if !remove && !promoted && super::compound::promote_setting(graph, id, &path, title, choices).is_ok() {
+            n += 1;
+        }
+    }
+    match (remove, n) {
+        (false, 0) => format!("Nothing in {title} to promote"),
+        (true, 0) => format!("Nothing in {title} promoted"),
+        (false, n) => format!("Promoted {n} of {name}'s {title}"),
+        (true, n) => format!("{n} of {name}'s {title} its own again"),
+    }
 }
 
 /// A row's menu, opened by a right-click on it in the parameters: the node,
@@ -825,7 +967,8 @@ struct RowMenu {
 #[derive(Clone)]
 enum Row {
     Input(usize),
-    Setting(String),
+    /// Its path, and its options when it is a list.
+    Setting(String, Vec<(String, serde_json::Value)>),
 }
 
 fn row_menu_id() -> egui::Id {
@@ -846,14 +989,14 @@ fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
     };
     let title = match &m.what {
         Row::Input(k) => node.inputs.get(*k).map(|i| i.name.clone()),
-        Row::Setting(path) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
+        Row::Setting(path, _) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
     };
     let Some(title) = title else {
         close(ctx);
         return;
     };
     let promoted = match &m.what {
-        Row::Setting(path) => graph
+        Row::Setting(path, _) => graph
             .parameters
             .iter()
             .any(|p| p.targets.iter().any(|t| t.node == node.name && t.path == *path)),
@@ -871,23 +1014,23 @@ fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
                 ui.label(egui::RichText::new(title).small().weak());
                 match &m.what {
                     Row::Input(_) => promote = promote_button(ui, "Promote Input", editable, in_compound),
-                    Row::Setting(_) if promoted => {
+                    Row::Setting(..) if promoted => {
                         remove = ui
                             .add_enabled(editable, egui::Button::new("Remove Promotion"))
                             .on_hover_text("Its own value again, no longer the parameter's")
                             .clicked();
                     }
-                    Row::Setting(_) => promote = promote_button(ui, "Promote", editable, in_compound),
+                    Row::Setting(..) => promote = promote_button(ui, "Promote", editable, in_compound),
                 }
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
     let told = match (&m.what, promote, remove) {
         (Row::Input(k), true, _) => super::compound::promote_input(graph, m.node, *k),
-        (Row::Setting(path), true, _) => {
-            Some(super::compound::promote_setting(graph, m.node, path).unwrap_or_else(|e| e))
+        (Row::Setting(path, choices), true, _) => {
+            Some(super::compound::promote_setting(graph, m.node, path, "", choices.clone()).unwrap_or_else(|e| e))
         }
-        (Row::Setting(path), _, true) => {
+        (Row::Setting(path, _), _, true) => {
             super::compound::remove_promotion(graph, &node_name, path);
             Some(format!(
                 "{node_name} {} is its own again",
