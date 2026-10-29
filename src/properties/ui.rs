@@ -527,16 +527,28 @@ pub fn draw_properties(
         node_type_icon(&node.node_type),
         node_type_label(&node.node_type)
     );
+    let named = node.name.clone();
     group(ui, &title, None, |f| {
-        f.text(
-            "Name",
-            Some("The operator's name in the graph: one word, a space typed becomes an underscore"),
-            &mut node.name,
-            "",
-        );
+        // A name is not a parameter: not promoted, nor referenced.
+        form::unprobed(|| {
+            f.text(
+                "Name",
+                Some("The operator's name in the graph: one word, a space typed becomes an underscore"),
+                &mut node.name,
+                "",
+            )
+        });
     });
     if node.name.chars().any(char::is_whitespace) {
         node.name = crate::node_graph::node_name(&node.name);
+    }
+    // Inside a compound, its numbers promoted follow it by name.
+    if node.name != named {
+        for t in graph.inside.parameters.iter_mut().flat_map(|p| p.targets.iter_mut()) {
+            if t.node == named {
+                t.node = node.name.clone();
+            }
+        }
     }
 
     {
@@ -1238,6 +1250,7 @@ pub fn draw_properties(
             resync |= f.text("Name", Some("The output port's name on the compound"), name, "Scene").changed();
         }),
     }
+    spare_rows(ui, node);
     if enter_compound {
         graph.inside.request = Some(crate::node_graph::compound::Request::Enter(sel_id));
     }
@@ -1249,6 +1262,151 @@ pub fn draw_properties(
     // 7,777,777 inputs would be made), put back after the panel.
     if resync && !form::probe_put() {
         graph.sync_sockets(sel_id);
+    }
+}
+
+// Spare parameters
+
+/// The + window's spare parameter, while it is open: for operator `node`.
+#[derive(Clone)]
+struct SpareDraft {
+    node: NodeId,
+    kind: crate::compounds::ParameterType,
+    label: String,
+    group: String,
+    range: bool,
+    min: f64,
+    max: f64,
+    /// A choice's options, one a line.
+    options: String,
+    error: Option<String>,
+}
+
+fn spare_draft_id() -> egui::Id {
+    egui::Id::new("spare_parameter_draft")
+}
+
+/// An operator's spare parameters (`node_graph::spare`), by group, as a
+/// compound's promoted parameters are drawn; then + to add one, in a window:
+/// its type picked from those there are, a name, a group, a number's range, a
+/// choice's options.
+fn spare_rows(ui: &mut egui::Ui, node: &mut crate::node_graph::GraphNode) {
+    use crate::compounds::ParameterType as T;
+    use crate::node_graph::spare::KINDS;
+    let spare = &mut node.spare;
+    if !spare.is_empty() {
+        let params = spare.parameters.clone();
+        promoted_groups(ui, &params, &mut spare.values);
+    }
+    let add = ui
+        .button("+ Spare Parameter")
+        .on_hover_text("Add a parameter of your own to this operator: a number, text, a switch, a choice, for its parameters (or another operator's) to follow, and to promote");
+    if add.clicked() {
+        let d = SpareDraft {
+            node: node.id,
+            kind: T::Float,
+            label: String::new(),
+            group: "Spare".into(),
+            range: false,
+            min: 0.0,
+            max: 1.0,
+            options: String::new(),
+            error: None,
+        };
+        ui.data_mut(|m| m.insert_temp(spare_draft_id(), d));
+    }
+    let Some(mut d) = ui.data(|m| m.get_temp::<SpareDraft>(spare_draft_id())) else {
+        return;
+    };
+    // Another operator selected: its window closes.
+    if d.node != node.id {
+        ui.data_mut(|m| m.remove::<SpareDraft>(spare_draft_id()));
+        return;
+    }
+    let groups: Vec<String> = {
+        let mut g: Vec<String> = vec![];
+        for p in &spare.parameters {
+            if !p.group.is_empty() && !g.contains(&p.group) {
+                g.push(p.group.clone());
+            }
+        }
+        g
+    };
+    let (mut open, mut made) = (true, false);
+    crate::menus::at_pointer(ui.ctx(), egui::Window::new("Add Spare Parameter"), "add_spare")
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            egui::Grid::new("spare_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Type");
+                let shown = KINDS.iter().find(|(k, _)| *k == d.kind).map_or("", |(_, l)| *l);
+                egui::ComboBox::from_id_salt("spare_kind")
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        for (k, l) in KINDS {
+                            ui.selectable_value(&mut d.kind, *k, *l);
+                        }
+                    });
+                ui.end_row();
+                ui.label("Name");
+                ui.text_edit_singleline(&mut d.label);
+                ui.end_row();
+                ui.label("Group");
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut d.group).desired_width(140.0));
+                    ui.add_enabled_ui(!groups.is_empty(), |ui| {
+                        crate::menus::menu(ui, "▾", |ui| {
+                            for g in &groups {
+                                if ui.button(g).clicked() {
+                                    d.group = g.clone();
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("A group its spare parameters are in already");
+                    });
+                });
+                ui.end_row();
+                if matches!(d.kind, T::Float | T::Integer) {
+                    ui.label("Range");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut d.range, "")
+                            .on_hover_text("A slider between the two, else a number to drag");
+                        ui.add_enabled(d.range, egui::DragValue::new(&mut d.min).speed(0.1));
+                        ui.label("to");
+                        ui.add_enabled(d.range, egui::DragValue::new(&mut d.max).speed(0.1));
+                    });
+                    ui.end_row();
+                }
+                if matches!(d.kind, T::Choice | T::Dropdown) {
+                    ui.label("Options");
+                    ui.add(
+                        egui::TextEdit::multiline(&mut d.options)
+                            .desired_rows(3)
+                            .hint_text("one a line"),
+                    );
+                    ui.end_row();
+                }
+            });
+            if let Some(e) = &d.error {
+                ui.colored_label(ink::BAD(), e);
+            }
+            made = ui.button("Add").clicked();
+        });
+    if made {
+        let range = d.range.then_some([d.min.min(d.max), d.min.max(d.max)]);
+        let options: Vec<String> = d.options.lines().map(str::to_string).collect();
+        match spare.add(d.kind, &d.label, &d.group, range, &options) {
+            Ok(_) => open = false,
+            Err(e) => d.error = Some(e),
+        }
+    }
+    if open {
+        ui.data_mut(|m| m.insert_temp(spare_draft_id(), d));
+    } else {
+        ui.data_mut(|m| m.remove::<SpareDraft>(spare_draft_id()));
     }
 }
 
@@ -1527,6 +1685,52 @@ pub fn promoted_groups(
     }
 }
 
+/// Text rows, one each (a promoted Primitive Locations list): a field and 🗑
+/// per row, + to add one; prims dropped from the Scene Explorer are added.
+/// Whether they changed.
+fn list_rows(f: &mut Rows, label: &str, hint: Option<&str>, rows: &mut Vec<String>) -> bool {
+    let mut changed = false;
+    let mut remove = None;
+    for (k, row) in rows.iter_mut().enumerate() {
+        let shown = if k == 0 { label } else { "" };
+        f.row(shown, if k == 0 { hint } else { None }, |ui| {
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 30.0).max(60.0);
+                changed |= form::typed(ui, row, |ui, t| {
+                    ui.field(
+                        egui::TextEdit::singleline(t)
+                            .desired_width(w)
+                            .hint_text("/path/to/prim")
+                            .font(egui::TextStyle::Monospace),
+                    )
+                })
+                .changed();
+                if ui.small_button("🗑").on_hover_text("Remove this row").clicked() {
+                    remove = Some(k);
+                }
+            });
+        });
+    }
+    if let Some(k) = remove {
+        rows.remove(k);
+        changed = true;
+    }
+    let add = f.row(if rows.is_empty() { label } else { "" }, None, |ui| {
+        let add = ui.button("+ Row");
+        form::probe_list(ui, &add, rows);
+        add
+    });
+    if add.clicked() {
+        rows.push(String::new());
+        changed = true;
+    }
+    if let Some(p) = add.dnd_release_payload::<crate::types::DraggedPrims>() {
+        rows.extend(p.0.iter().cloned());
+        changed = true;
+    }
+    changed
+}
+
 /// One promoted parameter's row: its value, the instance's, else the default.
 /// A value set back to the default is the default again, not a value of its
 /// own.
@@ -1591,6 +1795,24 @@ fn promoted_row(
         T::Ramp => {
             f.value(label, "a ramp: its row comes with Ramp parameters");
             None
+        }
+        T::List => {
+            let mut rows: Vec<String> = match &now {
+                serde_json::Value::Array(a) => a.iter().map(|x| x.as_str().unwrap_or_default().to_string()).collect(),
+                _ => vec![],
+            };
+            list_rows(f, label, hint, &mut rows).then(|| serde_json::json!(rows))
+        }
+        T::Choice | T::Dropdown => {
+            let options: Vec<(serde_json::Value, &str)> =
+                p.choices.iter().map(|(l, v)| (v.clone(), l.as_str())).collect();
+            let mut picked = now.clone();
+            let changed = if p.kind == T::Dropdown {
+                f.dropdown(label, hint, &mut picked, &options)
+            } else {
+                f.choice(label, hint, &mut picked, &options)
+            };
+            changed.then_some(picked)
         }
     };
     if let Some(v) = changed {
@@ -2493,7 +2715,7 @@ fn selection_rows(f: &mut Rows, sel: &mut PolySelection, mesh: Option<&PolyMesh>
             (SubLevel::Element, "Element"),
         ],
     );
-    #[derive(Clone, Copy, PartialEq)]
+    #[derive(Clone, Copy, PartialEq, serde::Serialize)]
     enum Src {
         Picked,
         All,
@@ -3798,6 +4020,7 @@ pub(crate) fn locations_tab(
                     many => format!("Add the {} prims selected in the Scene Explorer. Prims dragged from the Scene Explorer can be dropped here", many.len()),
                 };
                 let add = ui.button("+ Add Location").on_hover_text(tip);
+                crate::properties::form::probe_list(ui, &add, list);
                 if add.clicked() {
                     if selected.is_empty() { add_location(list, ""); }
                     for p in selected { add_location(list, p); }

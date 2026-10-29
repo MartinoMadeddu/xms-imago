@@ -18,7 +18,7 @@ use glam::{EulerRot, Mat4, Quat, Vec3};
 // FRAME RATE
 
 /// Rational frame rate: `num / den` frames per second (29.97 = 30000/1001).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct FrameRate {
     pub num: u32,
     pub den: u32,

@@ -124,6 +124,9 @@ pub struct Parameter {
     /// Where its value goes: one or several inner parameters.
     #[serde(default)]
     pub targets: Vec<Target>,
+    /// A Choice's options: each its label and the value it sets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<(String, serde_json::Value)>,
 }
 
 /// The kinds of value a promoted parameter holds.
@@ -138,16 +141,23 @@ pub enum ParameterType {
     Colour,
     String,
     Ramp,
+    /// Text rows, one each: a Primitive Locations list.
+    List,
+    /// One of a few options (`Parameter::choices`): a list to pick from.
+    Choice,
+    /// One of options (`Parameter::choices`), always a drop-down.
+    Dropdown,
 }
 
 impl ParameterType {
     /// The kind of a parameter's value, as JSON holds it: text, a switch, a
-    /// whole number, numbers side by side, else a number.
+    /// whole number, text rows (a list), numbers side by side, else a number.
     pub fn of(v: &serde_json::Value) -> ParameterType {
         match v {
             serde_json::Value::String(_) => ParameterType::String,
             serde_json::Value::Bool(_) => ParameterType::Boolean,
             serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => ParameterType::Integer,
+            serde_json::Value::Array(a) if a.iter().all(|x| x.is_string()) => ParameterType::List,
             serde_json::Value::Array(a) => match a.len() {
                 2 => ParameterType::Vector2,
                 4 => ParameterType::Vector4,
@@ -429,6 +439,27 @@ pub fn put(value: &mut serde_json::Value, path: &str, x: serde_json::Value) -> b
     true
 }
 
+/// The path a scene operator's Prims Location tab is promoted by: its rows are
+/// the operator's own (`GraphNode::locations`), not among its parameters.
+pub const LOCATIONS: &str = "@locations";
+
+/// The path promoted for a row at `path` of parameters `v` (as JSON): a row of
+/// a list of text (a Primitive Locations row: `paths/0`) stands for the whole
+/// list, which is one setting.
+pub fn whole_list(v: &serde_json::Value, path: &str) -> String {
+    let Some((parent, last)) = path.rsplit_once('/') else {
+        return path.to_string();
+    };
+    let list = get(v, parent)
+        .and_then(|p| p.as_array())
+        .is_some_and(|a| a.iter().all(|x| x.is_string()));
+    if last.parse::<usize>().is_ok() && list {
+        parent.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
 /// The value at `path` in a node's parameters as JSON, as `put` finds it.
 pub fn get<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
     let mut v = match value {
@@ -504,6 +535,21 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 mod tests {
     use super::*;
 
+    /// Text rows are a list, and any row of one stands for the whole list.
+    #[test]
+    fn a_list_is_promoted_whole() {
+        let v = serde_json::json!({ "GetReference": { "input": 1, "paths": ["/a", "/b"] } });
+        assert_eq!(ParameterType::of(&v["GetReference"]["paths"]), ParameterType::List);
+        assert_eq!(whole_list(&v, "paths/1"), "paths");
+        assert_eq!(whole_list(&v, "input"), "input");
+        let n = serde_json::json!({ "Transform": { "translation": [0.0, 1.0, 2.0] } });
+        assert_eq!(
+            whole_list(&n, "translation/1"),
+            "translation/1",
+            "numbers side by side are not a list"
+        );
+    }
+
     /// A folder of its own under the system's temporary folder, for one test.
     fn folder(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("xms_compounds_{name}_{}", std::process::id()));
@@ -546,6 +592,7 @@ mod tests {
                 node: "Clump".into(),
                 path: "params/strength".into(),
             }],
+            choices: vec![],
         }];
         d.graph = serde_json::json!({ "nodes": [] });
         d

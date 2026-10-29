@@ -44,8 +44,11 @@ enum RowAsk {
     CopyReference(String),
     PasteReference(String),
     RemoveReference(String),
-    Promote(String, f64),
+    /// Its path, value, options (a list's) and group (`form::row_group`).
+    Promote(String, serde_json::Value, Vec<(String, serde_json::Value)>, String),
     RemovePromotion(String),
+    /// A spare parameter taken away, with the references to and from it.
+    RemoveSpare(String),
 }
 
 /// The number Copy as Reference copied: the operator, its name (to know it
@@ -183,7 +186,9 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                                 follows: follows.is_some(),
                                 promoted: promoted.is_some(),
                             };
-                            if let Some(a) = number_menu(ui, id, p, *v, &state, copied.as_ref(), promoting) {
+                            let value = serde_json::json!(*v);
+                            if let Some(a) = number_menu(ui, id, p, &value, &[], "", &state, copied.as_ref(), promoting)
+                            {
                                 ask = Some(a);
                             }
                         });
@@ -223,7 +228,9 @@ fn number_menu(
     ui: &mut egui::Ui,
     id: NodeId,
     path: &str,
-    value: f64,
+    value: &serde_json::Value,
+    choices: &[(String, serde_json::Value)],
+    group: &str,
     state: &NumberState,
     copied: Option<&Copied>,
     promoting: bool,
@@ -261,11 +268,27 @@ fn number_menu(
             .on_hover_text("Put this number on the compound's parameters: its instances set it")
             .clicked()
         {
-            ask = Some(RowAsk::Promote(path.to_string(), value));
+            ask = Some(RowAsk::Promote(
+                path.to_string(),
+                value.clone(),
+                choices.to_vec(),
+                group.to_string(),
+            ));
             ui.close();
         }
         if state.promoted && ui.button("Remove Promotion").clicked() {
             ask = Some(RowAsk::RemovePromotion(path.to_string()));
+            ui.close();
+        }
+    }
+    if path.starts_with(crate::node_graph::spare::PREFIX) {
+        ui.separator();
+        if ui
+            .button("Remove Spare Parameter")
+            .on_hover_text("Take this spare parameter away, and the references to and from it")
+            .clicked()
+        {
+            ask = Some(RowAsk::RemoveSpare(path.to_string()));
             ui.close();
         }
     }
@@ -306,24 +329,29 @@ fn carry_out(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ask: R
             graph.unlink(id, &p);
             Some(format!("{node_name} {} is its own again", keys::label(&p)))
         }
-        RowAsk::Promote(p, v) => {
-            promote_open(ctx, &node_name, &p, v, graph);
+        RowAsk::Promote(p, v, choices, group) => {
+            promote_open(ctx, &node_name, &p, v, choices, group, graph);
             None
         }
         RowAsk::RemovePromotion(p) => {
             remove_promotion(graph, &node_name, &p);
             Some(format!("{node_name} {} is no longer promoted", keys::label(&p)))
         }
+        RowAsk::RemoveSpare(p) => Some(remove_spare(graph, id, &p)),
     }
 }
 
-/// A number's menu opened from its row in the parameters: the operator, the
-/// number's path and value, where the pointer was.
+/// A row's menu opened from the parameters: the operator, the path and value
+/// of its number or text, where the pointer was.
 #[derive(Clone)]
 struct RowMenu {
     node: NodeId,
     path: String,
-    value: f64,
+    value: serde_json::Value,
+    /// A list's options: each its label and its value.
+    choices: Vec<(String, serde_json::Value)>,
+    /// The group it is in, which it is promoted into.
+    group: String,
     at: egui::Pos2,
 }
 
@@ -333,8 +361,23 @@ fn row_menu_id() -> egui::Id {
 
 /// Open the menu of number `path` of operator `node`, right-clicked on its row
 /// in the parameters (found by `properties::form`'s probe).
-pub fn open_row_menu(ctx: &egui::Context, node: NodeId, path: String, value: f64, at: egui::Pos2) {
-    ctx.data_mut(|d| d.insert_temp(row_menu_id(), RowMenu { node, path, value, at }));
+pub fn open_row_menu(
+    ctx: &egui::Context,
+    node: NodeId,
+    path: String,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+    at: egui::Pos2,
+) {
+    let m = RowMenu {
+        node,
+        path,
+        value,
+        choices,
+        group: crate::properties::form::row_group(),
+        at,
+    };
+    ctx.data_mut(|d| d.insert_temp(row_menu_id(), m));
 }
 
 /// The path of what a probed row (see `form::probing`) put the probe in place
@@ -358,10 +401,59 @@ pub fn probed_path(now: &serde_json::Value, before: Option<&serde_json::Value>) 
                 .any(|(q, y)| q == p && (x - y).abs() > 1e-9 * (1.0 + y.abs()))
         })
         .map(|(p, _)| p.clone())
+        // A switch turned, an option picked: what else changed.
+        .or_else(|| before.and_then(|b| changed_at(now, b)))
 }
 
-/// The path of text `text` in parameters `v` (as JSON, the variant's name
-/// above them skipped, as keys' paths are).
+/// The path of the first value of parameters `now` that is not as in
+/// `before` (as JSON, the variant's name above them skipped).
+fn changed_at(now: &serde_json::Value, before: &serde_json::Value) -> Option<String> {
+    fn walk(a: &serde_json::Value, b: &serde_json::Value, path: String) -> Option<String> {
+        if a == b {
+            return None;
+        }
+        let join = |k: &str| {
+            if path.is_empty() {
+                k.to_string()
+            } else {
+                format!("{path}/{k}")
+            }
+        };
+        // A key there on one side alone (a value kept only once set, a map
+        // left out while empty) is compared with nothing: the value in it.
+        let nothing = |v: &serde_json::Value| match v {
+            serde_json::Value::Object(_) => serde_json::json!({}),
+            _ => serde_json::Value::Null,
+        };
+        match (a, b) {
+            (serde_json::Value::Object(x), serde_json::Value::Object(y)) => x
+                .iter()
+                .find_map(|(k, v)| match y.get(k) {
+                    Some(w) => walk(v, w, join(k)),
+                    None => walk(v, &nothing(v), join(k)),
+                })
+                .or_else(|| {
+                    y.iter()
+                        .filter(|(k, _)| !x.contains_key(*k))
+                        .find_map(|(k, w)| walk(&nothing(w), w, join(k)))
+                }),
+            (serde_json::Value::Array(x), serde_json::Value::Array(y)) if x.len() == y.len() => x
+                .iter()
+                .zip(y)
+                .enumerate()
+                .find_map(|(k, (v, w))| walk(v, w, join(&k.to_string()))),
+            _ => Some(path),
+        }
+    }
+    let inner = |v: &serde_json::Value| match v {
+        serde_json::Value::Object(o) if o.len() == 1 => o.values().next().cloned(),
+        v => Some(v.clone()),
+    };
+    walk(&inner(now)?, &inner(before)?, String::new()).filter(|p| !p.is_empty())
+}
+
+/// The path of the text holding `text` (lower case) in parameters `v` (as
+/// JSON, the variant's name above them skipped, as keys' paths are).
 fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
     fn walk(v: &serde_json::Value, path: String, text: &str) -> Option<String> {
         let join = |k: &str| {
@@ -372,7 +464,7 @@ fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
             }
         };
         match v {
-            serde_json::Value::String(s) if s == text => Some(path),
+            serde_json::Value::String(s) if s.to_lowercase().contains(text) => Some(path),
             serde_json::Value::Object(o) => o.iter().find_map(|(k, x)| walk(x, join(k), text)),
             serde_json::Value::Array(a) => a
                 .iter()
@@ -389,27 +481,47 @@ fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
 }
 
 /// After the parameters were drawn: what a probed row put the probe in place
-/// of, found in operator `id`'s parameters by its path (`probed_path`), and
-/// the parameters put back as they were (`before`, taken that frame), found
-/// or not. Returns the path and the number's value as the operator holds it
-/// (`old` for text, or without `before`).
+/// of, found in operator `id`'s parameters by its path (`probed_path`), and the
+/// operator put back whole as it was (`before`, taken that frame: its name and
+/// Prims Location too), found or not. Returns the path and the number's value
+/// as the operator holds it (`old` for text, or without `before`).
 pub fn found_row(
     graph: &mut NodeGraphState,
     id: NodeId,
     old: f64,
-    before: Option<serde_json::Value>,
+    before: Option<crate::node_graph::GraphNode>,
 ) -> Option<(String, f64)> {
     let node = graph.nodes.iter_mut().find(|n| n.id == id)?;
     let mut v = serde_json::to_value(&node.node_type).ok()?;
-    let path = probed_path(&v, before.as_ref());
-    let was: Vec<(String, f64)> = before.as_ref().map(keys::keyable).unwrap_or_default();
+    let was_v = before.as_ref().and_then(|b| serde_json::to_value(&b.node_type).ok());
+    let probe = crate::properties::form::PROBE_TEXT;
+    let path = probed_path(&v, was_v.as_ref())
+        // A row of a list stands for the list.
+        .map(|p| crate::compounds::whole_list(&v, &p))
+        // Its Prims Location tab: a row of it stands for the tab.
+        .or_else(|| {
+            let probed = node.locations.iter().any(|l| l.to_lowercase().contains(probe));
+            let changed = before.as_ref().is_some_and(|b| b.locations != node.locations);
+            (probed || changed).then(|| crate::compounds::LOCATIONS.to_string())
+        })
+        // A spare parameter's row: found in its values as a parameter's is.
+        .or_else(|| {
+            let now = node.spare.json();
+            let was = before.as_ref().map(|b| b.spare.json());
+            let p = probed_path(&now, was.as_ref())?;
+            Some(format!(
+                "{}{}",
+                crate::node_graph::spare::PREFIX,
+                crate::compounds::whole_list(&now, &p)
+            ))
+        });
+    let was: Vec<(String, f64)> = was_v.as_ref().map(keys::keyable).unwrap_or_default();
     let value = path
         .as_ref()
         .and_then(|path| was.iter().find(|(p, _)| p == path))
         .map_or(old, |(_, x)| *x);
-    // The parameters as they were.
-    match before.and_then(|b| serde_json::from_value(b).ok()) {
-        Some(t) => node.node_type = t,
+    match before {
+        Some(b) => *node = b,
         None => {
             if let Some(path) = &path {
                 keys::set(&mut v, path, value);
@@ -451,7 +563,17 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
                         .small()
                         .weak(),
                 );
-                ask = number_menu(ui, m.node, &m.path, m.value, &state, copied.as_ref(), promoting);
+                ask = number_menu(
+                    ui,
+                    m.node,
+                    &m.path,
+                    &m.value,
+                    &m.choices,
+                    &m.group,
+                    &state,
+                    copied.as_ref(),
+                    promoting,
+                );
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
@@ -463,6 +585,141 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
     promote_window(ctx, graph).or(told)
 }
 
+/// A group's menu, opened by a right-click on its title in the parameters:
+/// the operator, the group's title, where the pointer was.
+#[derive(Clone)]
+struct GroupMenu {
+    node: NodeId,
+    title: String,
+    at: egui::Pos2,
+}
+
+/// Promote Group or Remove Group Promotion asked for, waiting while the
+/// group's rows are found (`form::seek_group`).
+#[derive(Clone)]
+struct GroupAsk {
+    node: NodeId,
+    title: String,
+    remove: bool,
+}
+
+fn group_menu_id() -> egui::Id {
+    egui::Id::new("parameter_group_menu")
+}
+
+fn group_ask_id() -> egui::Id {
+    egui::Id::new("parameter_group_ask")
+}
+
+/// After the parameters of operator `id` were drawn: a group's title
+/// right-clicked opens its menu (Promote Group, Remove Group Promotion,
+/// inside an editable compound); one chosen waits while the group's rows are
+/// found, then promotes (or takes back) each parameter in it, as Promote does,
+/// in a group of the compound's of the same title. Returns what to tell.
+pub fn group_menu(
+    ctx: &egui::Context,
+    graph: &mut NodeGraphState,
+    id: Option<NodeId>,
+    ice_settings: &[crate::compounds::Parameter],
+) -> Option<String> {
+    if let (Some((title, at)), Some(node)) = (crate::properties::form::group_clicked(), id) {
+        ctx.data_mut(|d| d.insert_temp(group_menu_id(), GroupMenu { node, title, at }));
+    }
+    let editable = !graph.inside.path.is_empty() && !graph.inside.locked;
+    if let Some(m) = ctx.data(|d| d.get_temp::<GroupMenu>(group_menu_id())) {
+        let mut chosen = None;
+        let area = egui::Area::new(group_menu_id())
+            .order(egui::Order::Foreground)
+            .fixed_pos(m.at)
+            .show(ctx, |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&m.title).small().weak());
+                    let hint = "Inside an editable compound: go inside one, Make Editable if it is locked";
+                    if ui
+                        .add_enabled(editable, egui::Button::new("Promote Group"))
+                        .on_hover_text("Each of its parameters on the compound's, in a group of this name")
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(false);
+                    }
+                    if ui
+                        .add_enabled(editable, egui::Button::new("Remove Group Promotion"))
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(true);
+                    }
+                });
+            });
+        let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+        if let Some(remove) = chosen {
+            let ask = GroupAsk {
+                node: m.node,
+                title: m.title.clone(),
+                remove,
+            };
+            ctx.data_mut(|d| d.insert_temp(group_ask_id(), ask));
+            crate::properties::form::seek_group(Some(m.title.clone()));
+        }
+        if chosen.is_some() || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ctx.data_mut(|d| d.remove::<GroupMenu>(group_menu_id()));
+        }
+    }
+    let ask = ctx.data(|d| d.get_temp::<GroupAsk>(group_ask_id()))?;
+    let done = |ctx: &egui::Context| {
+        ctx.data_mut(|d| d.remove::<GroupAsk>(group_ask_id()));
+        crate::properties::form::seek_group(None);
+    };
+    // Another operator shown: nothing to do.
+    if id != Some(ask.node) {
+        done(ctx);
+        return None;
+    }
+    let rows = crate::properties::form::group_found(&ask.title)?;
+    done(ctx);
+    let node = graph.nodes.iter().find(|n| n.id == ask.node)?;
+    let name = node.name.clone();
+    // Each parameter once: a list's rows are the list.
+    let mut paths: Vec<(String, Vec<(String, serde_json::Value)>)> = vec![];
+    let v = serde_json::to_value(&node.node_type).unwrap_or_default();
+    for (path, choices) in rows {
+        let Some(path) = path else { continue };
+        let path = crate::compounds::whole_list(&v, &path);
+        if !paths.iter().any(|(p, _)| *p == path) {
+            paths.push((path, choices));
+        }
+    }
+    let mut n = 0;
+    for (path, choices) in paths {
+        let promoted = graph
+            .inside
+            .parameters
+            .iter()
+            .any(|q| q.targets.iter().any(|t| t.node == name && t.path == path));
+        if ask.remove && promoted {
+            remove_promotion(graph, &name, &path);
+            n += 1;
+        } else if !ask.remove && !promoted {
+            let (value, choices) = kept_default(ice_settings, &path, serde_json::Value::Null, choices);
+            let p = promoting(graph, &name, &path, value, choices, ask.title.clone());
+            if !p.default.is_null() {
+                promote(graph, &p);
+                n += 1;
+            }
+        }
+    }
+    let verb = if ask.remove { "take back" } else { "promote" };
+    Some(match (ask.remove, n) {
+        (_, 0) => format!("Nothing in {} to {verb}", ask.title),
+        (false, n) => format!(
+            "Promoted {n} of {name}'s {}: the compound's instances set them",
+            ask.title
+        ),
+        (true, n) => format!("{n} of {name}'s {} its own again", ask.title),
+    })
+}
+
 /// What the Promote window is filling in.
 #[derive(Clone)]
 struct Promoting {
@@ -470,6 +727,8 @@ struct Promoting {
     path: String,
     /// Its value now: the parameter's default.
     default: serde_json::Value,
+    /// A list's options: a Choice.
+    choices: Vec<(String, serde_json::Value)>,
     /// A new parameter (None) or another target for this one.
     into: Option<String>,
     label: String,
@@ -484,28 +743,103 @@ fn promoting_id() -> egui::Id {
 }
 
 /// Open the Promote window for parameter `path` (a number, text) of inner
-/// operator `node`; `value`, a number's, when it cannot be read there.
-fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: f64, graph: &NodeGraphState) {
-    let label = keys::label(path);
+/// operator `node`; `value`, the row's, when it cannot be read there (a value
+/// kept only once set: a compound's promoted value, an ICE operator's).
+fn promote_open(
+    ctx: &egui::Context,
+    node: &str,
+    path: &str,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+    group: String,
+    graph: &NodeGraphState,
+) {
+    // Its row's group, else one named after the compound.
+    let group = match group.is_empty() {
+        true => graph.inside.path.last().cloned().unwrap_or_default(),
+        false => group,
+    };
+    let p = promoting(graph, node, path, value, choices, group);
+    ctx.data_mut(|d| d.insert_temp(promoting_id(), p));
+}
+
+/// The value and options to promote parameter `path` with when the operator
+/// does not hold it: an ICE operator keeps a parameter of its graph
+/// (`ice_settings`) only once set, so its default and its options are the
+/// parameter's; else `value` and `choices`, the row's.
+pub fn kept_default(
+    ice_settings: &[crate::compounds::Parameter],
+    path: &str,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+) -> (serde_json::Value, Vec<(String, serde_json::Value)>) {
+    let kept = path
+        .strip_prefix("params/")
+        .and_then(|name| ice_settings.iter().find(|q| q.name == name));
+    match kept {
+        Some(q) => (
+            q.default.clone(),
+            if choices.is_empty() { q.choices.clone() } else { choices },
+        ),
+        None => (value, choices),
+    }
+}
+
+/// What promoting parameter `path` of inner operator `node` makes: its label
+/// (an operator's own parameter, an ICE operator's or a compound's, named as
+/// it is, not by where it is kept), its default its value now (`value`, the
+/// row's, when it cannot be read there: a value kept only once set), in
+/// `group`.
+fn promoting(
+    graph: &NodeGraphState,
+    node: &str,
+    path: &str,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+    group: String,
+) -> Promoting {
+    let label = keys::label(
+        path.strip_prefix("params/")
+            .or_else(|| path.strip_prefix("values/"))
+            .or_else(|| path.strip_prefix(crate::node_graph::spare::PREFIX))
+            .unwrap_or(path),
+    );
+    let label = if path == crate::compounds::LOCATIONS {
+        "Prims Location".to_string()
+    } else {
+        label
+    };
     let default = graph
         .nodes
         .iter()
         .find(|n| n.name == node)
-        .and_then(|n| serde_json::to_value(&n.node_type).ok())
-        .and_then(|v| crate::compounds::get(&v, path).cloned())
-        .unwrap_or_else(|| serde_json::json!(value));
-    let p = Promoting {
+        .and_then(|n| current(n, path))
+        .unwrap_or(value);
+    Promoting {
         node: node.to_string(),
         path: path.to_string(),
         default,
+        choices,
         into: None,
         label: format!("{node} {label}"),
-        group: graph.inside.path.last().cloned().unwrap_or_default(),
+        group,
         range: false,
         min: 0.0,
         max: 1.0,
-    };
-    ctx.data_mut(|d| d.insert_temp(promoting_id(), p));
+    }
+}
+
+/// The value of parameter `path` of operator `n` now, as JSON: its Prims
+/// Location rows for `compounds::LOCATIONS`.
+fn current(n: &crate::node_graph::GraphNode, path: &str) -> Option<serde_json::Value> {
+    if path == crate::compounds::LOCATIONS {
+        return Some(serde_json::json!(n.locations));
+    }
+    if let Some(v) = n.spare.get(path) {
+        return Some(v);
+    }
+    let v = serde_json::to_value(&n.node_type).ok()?;
+    crate::compounds::get(&v, path).cloned()
 }
 
 /// The Promote window, while it is open: a new parameter's label, group and
@@ -516,7 +850,7 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
     let mut open = true;
     let mut done = false;
     let existing: Vec<String> = graph.inside.parameters.iter().map(|q| q.name.clone()).collect();
-    egui::Window::new("Promote")
+    crate::menus::at_pointer(ctx, egui::Window::new("Promote"), "promote")
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -583,7 +917,21 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
 /// of one. Returns what to tell.
 fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
     use crate::compounds::{Parameter, ParameterType, Target};
-    let kind = ParameterType::of(&p.default);
+    // A spare drop-down stays one; other options are a Choice.
+    let dropdown = graph
+        .nodes
+        .iter()
+        .find(|n| n.name == p.node)
+        .and_then(|n| {
+            let name = p.path.strip_prefix(crate::node_graph::spare::PREFIX)?;
+            n.spare.parameters.iter().find(|q| q.name == name)
+        })
+        .is_some_and(|q| q.kind == ParameterType::Dropdown);
+    let kind = match (p.choices.is_empty(), dropdown) {
+        (true, _) => ParameterType::of(&p.default),
+        (false, true) => ParameterType::Dropdown,
+        (false, false) => ParameterType::Choice,
+    };
     let target = Target {
         node: p.node.clone(),
         path: p.path.clone(),
@@ -618,11 +966,39 @@ fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
         group: p.group.trim().to_string(),
         help: String::new(),
         targets: vec![target],
+        choices: p.choices.clone(),
     });
     format!(
         "Promoted as {}: the compound's instances set it, once you leave the compound",
         p.label.trim()
     )
+}
+
+/// Take spare parameter `path` (or the one a part of it is of) of operator
+/// `id` away, with the references to and from it. What to tell.
+fn remove_spare(graph: &mut NodeGraphState, id: NodeId, path: &str) -> String {
+    let prefix = crate::node_graph::spare::PREFIX;
+    let Some(name) = path.strip_prefix(prefix).and_then(|r| r.split('/').next()) else {
+        return "Not a spare parameter".into();
+    };
+    let whole = format!("{prefix}{name}");
+    let of = |p: &str| p == whole || p.starts_with(&format!("{whole}/"));
+    let Some(n) = graph.nodes.iter_mut().find(|n| n.id == id) else {
+        return "That operator is gone".into();
+    };
+    let label = n
+        .spare
+        .parameters
+        .iter()
+        .find(|p| p.name == name)
+        .map_or(name.to_string(), |p| p.label.clone());
+    n.spare.remove(&whole);
+    n.links.retain(|l| !of(&l.path));
+    let node = n.name.clone();
+    for m in graph.nodes.iter_mut() {
+        m.links.retain(|l| !(l.node == id && of(&l.from)));
+    }
+    format!("{node}'s spare parameter {label} is taken away")
 }
 
 /// Take number `path` of inner operator `node` off the compound's parameters:
@@ -690,6 +1066,7 @@ mod tests {
             node: node.into(),
             path: path.into(),
             default: serde_json::json!(2.5),
+            choices: vec![],
             into: into.map(str::to_string),
             label: label.into(),
             group: "Shape".into(),
@@ -697,6 +1074,48 @@ mod tests {
             min: 0.0,
             max: 10.0,
         }
+    }
+
+    /// An ICE operator's parameter it does not hold yet is promoted with the
+    /// parameter's default and options; any other with the row's.
+    #[test]
+    fn a_kept_parameter_promotes_with_its_default() {
+        let mode = crate::compounds::Parameter {
+            name: "draw_mode".into(),
+            label: String::new(),
+            kind: crate::compounds::ParameterType::Choice,
+            default: serde_json::json!("Default"),
+            range: None,
+            group: String::new(),
+            help: String::new(),
+            targets: vec![],
+            choices: vec![("Geometry".into(), serde_json::json!("Default"))],
+        };
+        let (v, c) = kept_default(&[mode.clone()], "params/draw_mode", serde_json::json!(0.0), vec![]);
+        assert_eq!((v, c), (serde_json::json!("Default"), mode.choices.clone()));
+        let (v, c) = kept_default(&[mode], "size", serde_json::json!(2.0), vec![]);
+        assert_eq!((v, c), (serde_json::json!(2.0), vec![]));
+    }
+
+    /// A switch flipped or an option picked is found where it changed.
+    #[test]
+    fn a_switch_or_choice_is_found_where_it_changed() {
+        let before = serde_json::json!({ "Merge": { "mode": "Append", "keep": false, "n": 2 } });
+        let flipped = serde_json::json!({ "Merge": { "mode": "Append", "keep": true, "n": 2 } });
+        let picked = serde_json::json!({ "Merge": { "mode": "Replace", "keep": false, "n": 2 } });
+        assert_eq!(changed_at(&flipped, &before).as_deref(), Some("keep"));
+        assert_eq!(changed_at(&picked, &before).as_deref(), Some("mode"));
+        assert_eq!(changed_at(&before, &before), None);
+        // A value kept only once set: there now, not before.
+        let kept = serde_json::json!({ "Ice": { "params": {} } });
+        let set = serde_json::json!({ "Ice": { "params": { "draw_mode": "Bounds" } } });
+        assert_eq!(changed_at(&set, &kept).as_deref(), Some("params/draw_mode"));
+        assert_eq!(changed_at(&kept, &set).as_deref(), Some("params/draw_mode"));
+        // Its map left out while empty: the value in it, not the map.
+        let empty = serde_json::json!({ "Ice": { "id": 1 } });
+        let set = serde_json::json!({ "Ice": { "id": 1, "params": { "draw_mode": "Bounds" } } });
+        assert_eq!(changed_at(&set, &empty).as_deref(), Some("params/draw_mode"));
+        assert_eq!(changed_at(&empty, &set).as_deref(), Some("params/draw_mode"));
     }
 
     /// A row probed put the probe in its number's place: found by its path,
@@ -720,8 +1139,8 @@ mod tests {
         assert!(matches!(&g.nodes[0].node_type, NodeType::Transform { translation, .. } if translation.y == 1.5));
 
         // A row in degrees: the probe reaches the operator as radians, found
-        // by what changed; the parameters are put back as they were.
-        let before = serde_json::to_value(&g.nodes[0].node_type).unwrap();
+        // by what changed; the operator is put back as it was, its name too.
+        let before = g.nodes[0].clone();
         if let NodeType::Transform { rotation, .. } = &mut g.nodes[0].node_type {
             rotation.z = (crate::properties::form::PROBE as f32).to_radians();
         }
@@ -734,8 +1153,52 @@ mod tests {
         if let NodeType::Transform { scale, .. } = &mut g.nodes[0].node_type {
             scale.x = 1.0 + 1e-12_f32;
         }
+        g.nodes[0].name = crate::properties::form::PROBE_TEXT.into();
         assert_eq!(found_row(&mut g, id, 0.0, Some(before.clone())), None);
-        assert_eq!(serde_json::to_value(&g.nodes[0].node_type).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&g.nodes[0].node_type).unwrap(),
+            serde_json::to_value(&before.node_type).unwrap()
+        );
+        assert_eq!(g.nodes[0].name, "Move", "a name probed is put back");
+    }
+
+    /// A text row probed is found by its path, even made a path by its row
+    /// (a slash put before it); and a value an operator keeps only once set
+    /// (a compound instance's, an ICE operator's) promotes as the row showed
+    /// it, of its kind.
+    #[test]
+    fn a_probed_text_row_is_found_and_promoted_as_text() {
+        let probe = crate::properties::form::PROBE_TEXT;
+        let now = serde_json::json!({ "CreateCube": { "size": 1.0, "location": format!("/{probe}") } });
+        assert_eq!(probed_path(&now, None).as_deref(), Some("location"));
+        let mut g = NodeGraphState::default();
+        g.add_node(
+            "Lights".into(),
+            crate::types::NodeType::Ice {
+                id: crate::types::IceGraphId(0),
+                name: "Lights".into(),
+                references: 1,
+                params: Default::default(),
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let ctx = egui::Context::default();
+        promote_open(
+            &ctx,
+            "Lights",
+            "params/instancer_path",
+            serde_json::json!("/root/instancer"),
+            vec![],
+            "Instancer".into(),
+            &g,
+        );
+        let p: Promoting = ctx.data(|d| d.get_temp(promoting_id())).unwrap();
+        promote(&mut g, &p);
+        let q = &g.inside.parameters[0];
+        assert_eq!(q.label, "Lights Instancer path");
+        assert_eq!(q.kind, crate::compounds::ParameterType::String);
+        assert_eq!(q.default, serde_json::json!("/root/instancer"));
+        assert_eq!(q.group, "Instancer", "in its row's group");
     }
 
     /// Promote makes a parameter, its default the number's value; again on

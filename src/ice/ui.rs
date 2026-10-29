@@ -617,14 +617,14 @@ pub fn draw_subnet_node_properties(
             f.row(
                 "Seed",
                 Some("Another seed, other values; the same seed gives the same values every time"),
-                |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)),
+                |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
         }),
         IceGraphNodeType::Scatter { seed, weight } => group(ui, "Scatter", None, |f| {
             f.row(
                 "Seed",
                 Some("Another seed, other places; the same seed gives the same places every time"),
-                |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)),
+                |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
             f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
         }),
@@ -642,7 +642,7 @@ pub fn draw_subnet_node_properties(
             f.row(
                 "Seed",
                 Some("Another seed, other turns; the same seed gives the same turns every time"),
-                |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)),
+                |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
         }),
         IceGraphNodeType::GetReference { input, paths } => {
@@ -651,12 +651,7 @@ pub fn draw_subnet_node_properties(
                     "Input",
                     Some("Which of the operator's reference inputs: 1 is the first after the scene"),
                     |ui| {
-                        ui.add(
-                            egui::DragValue::new(input)
-                                .update_while_editing(false)
-                                .range(1..=64)
-                                .speed(0.05),
-                        )
+                        crate::properties::form::number(ui, None, input, |d| d.range(1..=64).speed(0.05))
                     },
                 );
             });
@@ -678,7 +673,7 @@ pub fn draw_subnet_node_properties(
             f.choice("Draw Mode", Some("How viewports draw the prototypes: as geometry, as their bounding boxes, or as axes at their origins. Written as model:drawMode on each prototype, so other USD viewers draw them so too; the Scene Explorer's right-click chooses for the Viewer alone"),
                      draw_mode, &[(crate::types::DrawMode::Default, "Geometry"), (crate::types::DrawMode::Bounds, "Bounding Box"), (crate::types::DrawMode::Origin, "Origin")]);
             f.text("Primitive Location", Some("Where the point instancer is made: a path (/root/instancer), or a name alone, beside the primitive the graph runs on (scatter on /set/ground is /set/scatter). Its prototypes go under it, in Prototypes"), path, "/root/instancer");
-            f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| ui.add(egui::DragValue::new(seed).update_while_editing(false).speed(1)));
+            f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)));
         }),
         IceGraphNodeType::Compose { op } => group(ui, "Compose", None, |f| {
             let choices: Vec<(xms_ice::Compose, &str)> =
@@ -719,7 +714,7 @@ pub fn draw_subnet_node_properties(
             "Port",
             Some("Inside a compound: what comes into the instance's input port of this name. The compound's ports are named by these nodes, top to bottom"),
             |f| {
-                f.text("Name", Some("The input port's name on the compound"), name, "Value");
+                crate::properties::form::unprobed(|| f.text("Name", Some("The input port's name on the compound"), name, "Value"));
                 value_with_type(f, "Value", value, Some("What the port holds while nothing is wired to the instance's"));
             },
         ),
@@ -728,7 +723,7 @@ pub fn draw_subnet_node_properties(
             "Port",
             Some("Inside a compound: what goes out of the instance's output port of this name. Wired from an Execute (Set Data), the port is an Execute"),
             |f| {
-                f.text("Name", Some("The output port's name on the compound"), name, "Value");
+                crate::properties::form::unprobed(|| f.text("Name", Some("The output port's name on the compound"), name, "Value"));
             },
         ),
         IceGraphNodeType::Parameter { name, default } => group(
@@ -736,7 +731,7 @@ pub fn draw_subnet_node_properties(
             "Parameter",
             Some("A value its ICE operator gives, by name, in the operator's parameters: what a scene compound can promote"),
             |f| {
-                f.text("Name", Some("What the ICE operator's parameters call it"), name, "parameter");
+                crate::properties::form::unprobed(|| f.text("Name", Some("What the ICE operator's parameters call it"), name, "parameter"));
                 value_with_type(f, "Default", default, Some("Its value while the operator gives none"));
             },
         ),
@@ -756,7 +751,11 @@ pub fn draw_subnet_node_properties(
                 if let Some(path) = path {
                     let m = RowMenu {
                         node: node.id,
-                        what: Row::Setting(path),
+                        what: Row::Setting(
+                            path,
+                            crate::properties::form::row_choices(None),
+                            crate::properties::form::row_group(),
+                        ),
                         at,
                     };
                     ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
@@ -816,6 +815,160 @@ pub fn draw_subnet_node_properties(
             }
         });
     }
+    group_menu(ui.ctx(), graph);
+}
+
+/// A group's menu, opened by a right-click on its title: the node, the
+/// group, where the pointer was.
+#[derive(Clone)]
+struct GroupMenu {
+    node: NodeId,
+    title: String,
+    at: egui::Pos2,
+}
+
+fn group_menu_id() -> egui::Id {
+    egui::Id::new("ice_group_menu")
+}
+
+/// Promote Group or Remove Group Promotion chosen: done once its rows are
+/// found (`properties::form::seek_group`).
+#[derive(Clone)]
+struct GroupAsk {
+    node: NodeId,
+    title: String,
+    remove: bool,
+}
+
+fn group_ask_id() -> egui::Id {
+    egui::Id::new("ice_group_ask")
+}
+
+/// The menu of a group whose title was right-clicked in the parameters:
+/// Promote Group promotes each of its settings into a group of its name,
+/// Remove Group Promotion takes them back. What it did is told by the graph.
+fn group_menu(ctx: &egui::Context, graph: &mut IceGraph) {
+    let id = graph.selected_node;
+    if let (Some((title, at)), Some(node)) = (crate::properties::form::group_clicked(), id) {
+        ctx.data_mut(|d| d.insert_temp(group_menu_id(), GroupMenu { node, title, at }));
+    }
+    let editable = !locked(ctx, graph);
+    if let Some(m) = ctx.data(|d| d.get_temp::<GroupMenu>(group_menu_id())) {
+        let mut chosen = None;
+        let area = egui::Area::new(group_menu_id())
+            .order(egui::Order::Foreground)
+            .fixed_pos(m.at)
+            .show(ctx, |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new(&m.title).small().weak());
+                    let hint = "Locked: it follows its definition. Make Editable to change it";
+                    if ui
+                        .add_enabled(editable, egui::Button::new("Promote Group"))
+                        .on_hover_text("Each of its settings a parameter, in a group of this name")
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(false);
+                    }
+                    if ui
+                        .add_enabled(editable, egui::Button::new("Remove Group Promotion"))
+                        .on_disabled_hover_text(hint)
+                        .clicked()
+                    {
+                        chosen = Some(true);
+                    }
+                });
+            });
+        let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+        if let Some(remove) = chosen {
+            let ask = GroupAsk {
+                node: m.node,
+                title: m.title.clone(),
+                remove,
+            };
+            ctx.data_mut(|d| d.insert_temp(group_ask_id(), ask));
+            crate::properties::form::seek_group(Some(m.title.clone()));
+        }
+        if chosen.is_some() || away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ctx.data_mut(|d| d.remove::<GroupMenu>(group_menu_id()));
+        }
+    }
+    let Some(ask) = ctx.data(|d| d.get_temp::<GroupAsk>(group_ask_id())) else {
+        return;
+    };
+    let done = |ctx: &egui::Context| {
+        ctx.data_mut(|d| d.remove::<GroupAsk>(group_ask_id()));
+        crate::properties::form::seek_group(None);
+    };
+    // Another node shown: nothing to do.
+    if id != Some(ask.node) {
+        done(ctx);
+        return;
+    }
+    let Some(rows) = crate::properties::form::group_found(&ask.title) else {
+        return;
+    };
+    done(ctx);
+    let told = group_promoted(graph, ask.node, &ask.title, rows, ask.remove);
+    ctx.data_mut(|d| d.insert_temp(told_id(), told));
+}
+
+/// Group `title`'s rows of node `id` (their paths and options) promoted, or
+/// their promotion removed: each setting once, a list's rows the list. What
+/// was done.
+fn group_promoted(
+    graph: &mut IceGraph,
+    id: NodeId,
+    title: &str,
+    rows: Vec<(Option<String>, Vec<(String, serde_json::Value)>)>,
+    remove: bool,
+) -> String {
+    let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
+        return "That node is gone".into();
+    };
+    let name = node.name.clone();
+    let v = serde_json::to_value(&node.node_type).unwrap_or_default();
+    let mut paths: Vec<(String, Vec<(String, serde_json::Value)>)> = vec![];
+    for (path, choices) in rows {
+        let Some(path) = path.filter(|p| !p.starts_with("editable/")) else {
+            continue;
+        };
+        let path = crate::compounds::whole_list(&v, &path);
+        if !paths.iter().any(|(p, _)| *p == path) {
+            paths.push((path, choices));
+        }
+    }
+    let mut n = 0;
+    let mut refused = None;
+    for (path, choices) in paths {
+        // Its name now: promoting can rename it (named as another).
+        let name = graph
+            .nodes
+            .iter()
+            .find(|m| m.id == id)
+            .map_or(name.clone(), |m| m.name.clone());
+        let promoted = graph
+            .parameters
+            .iter()
+            .any(|p| p.targets.iter().any(|t| t.node == name && t.path == path));
+        if remove && promoted {
+            super::compound::remove_promotion(graph, &name, &path);
+            n += 1;
+        } else if !remove && !promoted {
+            match super::compound::promote_setting(graph, id, &path, title, choices) {
+                Ok(_) => n += 1,
+                Err(e) => refused = refused.or(Some(e)),
+            }
+        }
+    }
+    let name = graph.nodes.iter().find(|m| m.id == id).map_or(name, |m| m.name.clone());
+    match (remove, n) {
+        (false, 0) if refused.is_some() => refused.unwrap_or_default(),
+        (false, 0) => format!("Nothing in {title} to promote"),
+        (true, 0) => format!("Nothing in {title} promoted"),
+        (false, n) => format!("Promoted {n} of {name}'s {title}"),
+        (true, n) => format!("{n} of {name}'s {title} its own again"),
+    }
 }
 
 /// A row's menu, opened by a right-click on it in the parameters: the node,
@@ -830,7 +983,9 @@ struct RowMenu {
 #[derive(Clone)]
 enum Row {
     Input(usize),
-    Setting(String),
+    /// Its path, its options when it is a list, and its group (it is
+    /// promoted into a group of that name).
+    Setting(String, Vec<(String, serde_json::Value)>, String),
 }
 
 fn row_menu_id() -> egui::Id {
@@ -851,14 +1006,14 @@ fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
     };
     let title = match &m.what {
         Row::Input(k) => node.inputs.get(*k).map(|i| i.name.clone()),
-        Row::Setting(path) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
+        Row::Setting(path, ..) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
     };
     let Some(title) = title else {
         close(ctx);
         return;
     };
     let promoted = match &m.what {
-        Row::Setting(path) => graph
+        Row::Setting(path, ..) => graph
             .parameters
             .iter()
             .any(|p| p.targets.iter().any(|t| t.node == node.name && t.path == *path)),
@@ -876,23 +1031,23 @@ fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
                 ui.label(egui::RichText::new(title).small().weak());
                 match &m.what {
                     Row::Input(_) => promote = promote_button(ui, "Promote Input", editable, in_compound),
-                    Row::Setting(_) if promoted => {
+                    Row::Setting(..) if promoted => {
                         remove = ui
                             .add_enabled(editable, egui::Button::new("Remove Promotion"))
                             .on_hover_text("Its own value again, no longer the parameter's")
                             .clicked();
                     }
-                    Row::Setting(_) => promote = promote_button(ui, "Promote", editable, in_compound),
+                    Row::Setting(..) => promote = promote_button(ui, "Promote", editable, in_compound),
                 }
             });
         });
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
     let told = match (&m.what, promote, remove) {
         (Row::Input(k), true, _) => super::compound::promote_input(graph, m.node, *k),
-        (Row::Setting(path), true, _) => {
-            Some(super::compound::promote_setting(graph, m.node, path).unwrap_or_else(|e| e))
+        (Row::Setting(path, choices, group), true, _) => {
+            Some(super::compound::promote_setting(graph, m.node, path, group, choices.clone()).unwrap_or_else(|e| e))
         }
-        (Row::Setting(path), _, true) => {
+        (Row::Setting(path, ..), _, true) => {
             super::compound::remove_promotion(graph, &node_name, path);
             Some(format!(
                 "{node_name} {} is its own again",
@@ -1009,7 +1164,7 @@ pub fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut
         }
         Value::Int(i) => {
             f.row(label, None, |ui| {
-                ui.add(egui::DragValue::new(i).update_while_editing(false).speed(1))
+                crate::properties::form::number(ui, None, i, |d| d.speed(1))
             });
         }
         Value::Float(x) => {
@@ -1024,7 +1179,7 @@ pub fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut
         Value::Vec4(v) | Value::Quat(v) => {
             f.row(label, None, |ui| {
                 for c in v.iter_mut() {
-                    ui.add(egui::DragValue::new(c).update_while_editing(false).speed(0.01));
+                    crate::properties::form::number(ui, None, c, |d| d.speed(0.01));
                 }
             });
         }

@@ -67,9 +67,9 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   definition of its name again, locked. Inside a locked one the graph is drawn
   at half strength, a change is put back at once, and Make Editable is on the
   bar.
-- **Promote:** inside an editable compound, right-click a number's row in an
-  operator's parameters (sliders, number fields, X Y Z, U V), or the number in
-  its **Keys** list, and choose **Promote…**:
+- **Promote:** inside an editable compound, right-click a row in an
+  operator's parameters (sliders, number fields, X Y Z, U V, text, switches,
+  choices, lists), or the number in its **Keys** list, and choose **Promote…**:
   give it a label, a group and a range, or make it another target of a
   parameter already promoted. Its value now is the default. The compound's
   parameters take it when you leave the compound; **Remove Promotion** takes
@@ -82,12 +82,25 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   instance has not saved yet is made). Promotion works in every editable
   compound, saved or not, and in ICE graphs (see [ICE](ice.md#compounds)).
   Text promotes as numbers do (a path, a name), its row's right-click menu
-  the same; switches and lists do not yet.
+  the same. A switch promotes as a switch, a choice (a drop-down, side-by-side
+  options) with its options. A row of a list (Primitive Locations, an ICE
+  Get Reference's paths) promotes the whole list, and the **Prims Location**
+  tab promotes whole too: the instance's parameter is the list of rows. An empty list
+  promotes too: right-click its + Add Location (or + Row) button.
+- **Promote Group:** right-click a group's title (its name above its rows)
+  for **Promote Group**: each of its parameters is promoted, one by one, into
+  a group of that name on the compound; **Remove Group Promotion** takes them
+  back. Each is still its own promoted parameter. A row promoted alone goes
+  in a group of its own group's name too, so the two ways end the same. Promotions name their operator:
+  renaming it inside the compound keeps them. An operator's name is not a
+  parameter, and is never promoted.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
-  booleans, text and vectors. A value set back to the default is the default
+  switches, text, choices, lists and vectors. A value set back to the default is the default
   again. Each instance keeps its own.
-- **References:** right-click any number's row (or the number in the Keys
-  list), **Copy as Reference**; on another number, **Paste as Reference**: it follows the first,
+- **References:** right-click any row (a number, a part of a vector, text, a
+  switch, a choice, a vector, a list, the Prims Location tab's rows; or the
+  number in the Keys list), **Copy as Reference**; on another row of the same
+  kind, **Paste as Reference**: it follows the first,
   as it cooks (keyed, it follows its animation). Both stay joined: changing
   either changes both, since a value typed (or dragged, or moved with a
   handle) over the number that follows goes to the number it follows, at the
@@ -282,8 +295,14 @@ operator's parameter (a reference) or the compound's promoted parameter
   which it is.
 - **Linked rows** show a link mark and a tooltip naming their source; editing
   one replaces the link with its own value.
-- **Cycles are refused** when the link is made. **Types match:** a number to a
-  number, a vector to a vector, one channel (`translation/1`) to a number.
+- **Cycles are refused** when the link is made. **Kinds match:** a number to a
+  number, one channel (`translation/1`) to a number, a vector to a vector of
+  as many numbers, text to text, a switch to a switch, a list to a list (any
+  number of rows); a value the parameter cannot hold (text that is none of a
+  choice's options) is refused too. Values kept beside the parameters (a
+  spare parameter, the Prims Location rows) are set from their source once a
+  frame (`links::follow_kept`); changed by hand, their source takes the
+  change, as any reference's does.
 
 On the right-click menu of a parameter row: **Copy as Reference**, **Paste as
 Reference**, **Remove Reference**; inside an editable compound, **Promote…**,
@@ -291,6 +310,24 @@ which asks for the label, group and range and adds the parameter to the
 interface, this row its target. Promoting a promoted row adds it as another
 target. Until every row knows its serde path (step 4), these are on the rows of
 the Keys list, which already names every number by its path.
+
+### Spare parameters
+
+Any operator's Parameters end with **+ Spare Parameter**: a window asks for its
+type (a drop-down of those there are: Float, Integer, Toggle, Text, 2D, 3D and
+4D Vector, Colour, Choice, Dropdown, Text List), a name, a group (typed, or one
+of its spare groups picked) and, for a number, a range; a Choice or a Dropdown
+takes its options, one a line. A Choice shows a few short options side by side
+(a drop-down when they do not fit); a Dropdown is always a drop-down, and stays
+one when promoted. The spare parameter is drawn in its group after the operator's own, as
+promoted parameters are, and is a row like any other: **Copy as Reference** from
+it and **Paste as Reference** on a parameter (that one follows it), or the
+other way (the spare one follows, and changed by hand changes its source);
+promoted inside a compound; **Remove Spare Parameter** on its right-click menu
+takes it away with the references to and from it. Its path is
+`spare/<name>` (`node_graph::spare`); it is saved with the operator, and its
+changes are steps of the history. Not on ICE or MaterialX nodes yet, and no
+buttons (nothing to run them yet).
 
 ## Cooking
 

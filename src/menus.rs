@@ -9,6 +9,22 @@
 
 use egui::containers::menu::{is_in_menu, MenuButton, MenuConfig, SubMenuButton};
 
+/// Window `w` (its key `key`) as a popup opens: just left of the pointer, its
+/// top right corner there, kept on the screen, on the frame it opens; moved
+/// after, it stays where it is put. Called only on the frames it is shown.
+pub fn at_pointer<'a>(ctx: &egui::Context, w: egui::Window<'a>, key: &str) -> egui::Window<'a> {
+    let frame = ctx.cumulative_frame_nr();
+    let id = egui::Id::new(("popup_shown", key));
+    let last: Option<u64> = ctx.data(|d| d.get_temp(id));
+    ctx.data_mut(|d| d.insert_temp(id, frame));
+    let opening = last.is_none_or(|f| f + 1 < frame);
+    let w = w.pivot(egui::Align2::RIGHT_TOP).constrain(true);
+    match ctx.input(|i| i.pointer.latest_pos()).filter(|_| opening) {
+        Some(p) => w.current_pos(p - egui::vec2(8.0, 0.0)),
+        None => w,
+    }
+}
+
 /// `ui.menu_button`, closing only on a click outside the menu (or on
 /// `ui.close()`). Inside a menu it is a submenu, which follows its menu.
 pub fn menu<'a, R>(

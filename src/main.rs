@@ -1048,8 +1048,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // The parameters as they were, for a probed row to be found
                     // by what it changed, and put back.
                     let before = selected
-                        .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
-                        .and_then(|n| serde_json::to_value(&n.node_type).ok());
+                        .filter(|_| {
+                            !linked.is_empty()
+                                || ui.input(|i| i.pointer.secondary_clicked())
+                                || crate::properties::form::seeking()
+                        })
+                        .cloned();
                     // An ICE graph's nodes are probed by the ICE panel, rows of its own.
                     if own_parameters {
                         crate::properties::form::probing(editing.is_some(), whose, linked);
@@ -1069,11 +1073,24 @@ impl egui_dock::TabViewer for Panes<'_> {
                             &mut io,
                         )
                     });
+                    // An ICE operator's parameters, for those it keeps only once set.
+                    let ice_settings = io.ice_settings.clone();
                     use crate::properties::form::Probe;
                     match (crate::properties::form::probed(), &editing) {
                         (Some(Probe::Clicked(old, at)), Some((id, _))) => {
                             if let Some((path, value)) = crate::keys_ui::found_row(self.graph, *id, old, before) {
-                                crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, at);
+                                // A text row's value is its text.
+                                let value = match crate::properties::form::probed_text() {
+                                    Some(t) => serde_json::json!(t),
+                                    None => serde_json::json!(value),
+                                };
+                                let (value, choices) = crate::keys_ui::kept_default(
+                                    &ice_settings,
+                                    &path,
+                                    value,
+                                    crate::properties::form::row_choices(None),
+                                );
+                                crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, choices, at);
                             }
                         }
                         (Some(Probe::Finding(row)), Some((id, _))) => {
@@ -1081,6 +1098,13 @@ impl egui_dock::TabViewer for Panes<'_> {
                             crate::properties::form::found(row, path);
                         }
                         _ => {}
+                    }
+                    // A group's title right-clicked: Promote Group.
+                    if own_parameters {
+                        let id = editing.as_ref().map(|(id, _)| *id);
+                        if let Some(m) = crate::keys_ui::group_menu(ui.ctx(), self.graph, id, &ice_settings) {
+                            self.graph_file.message = m;
+                        }
                     }
                     if let Some((id, own)) = editing {
                         self.graph.end_edit(id, own);
@@ -1466,6 +1490,11 @@ pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
         ..
     } = app;
     crate::ice::compound::keep_params(graph, subnets);
+    // What each spare parameter that follows another followed last frame.
+    thread_local! {
+        static FOLLOWED: std::cell::RefCell<crate::node_graph::links::Followed> = Default::default();
+    }
+    FOLLOWED.with(|f| graph.follow_kept(&mut f.borrow_mut()));
     history.set_ice(subnets.content_hash());
     let typing = ctx.egui_wants_keyboard_input();
     if !typing && !browser.is_open() {
