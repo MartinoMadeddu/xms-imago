@@ -88,6 +88,8 @@ pub struct StageInfo {
     pub meters_per_unit: Option<f64>,
     /// `startTimeCode` / `endTimeCode`, if authored
     pub time_range: Option<(f64, f64)>,
+    /// `timeCodesPerSecond` (else `framesPerSecond`, else 24)
+    pub time_codes_per_second: f64,
     /// Source file, for resolving relative asset paths and diagnostics
     pub source: Option<String>,
     /// `defaultPrim`: the root prim a reference to the file brings in
@@ -100,6 +102,7 @@ impl Default for StageInfo {
             z_up: false,
             meters_per_unit: None,
             time_range: None,
+            time_codes_per_second: 24.0,
             source: None,
             default_prim: None,
         }
@@ -209,6 +212,11 @@ impl Scene {
             dirty: HashMap::new(),
             time_changed: false,
         }
+    }
+
+    /// Every prim, in no particular order.
+    pub fn prims(&self) -> impl Iterator<Item = &Prim> {
+        self.prims.values()
     }
 
     pub fn len(&self) -> usize {

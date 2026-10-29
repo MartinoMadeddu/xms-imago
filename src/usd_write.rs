@@ -78,6 +78,8 @@ pub struct WriteReport {
     pub referenced: usize,
     /// Edits that could not be written, and why.
     pub skipped: Vec<String>,
+    /// The frames written as time samples (0 or 1: single values).
+    pub frames: usize,
 }
 
 /// Write the override layer for these primitives to `out`.
@@ -93,7 +95,74 @@ pub fn write_override(prims: &[Prim], out: &Path) -> Result<WriteReport, String>
 /// The override layer as text, for a layer to be written at `out` (paths to the
 /// sources are relative to it).
 pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport), String> {
-    // Each stage once.
+    let (root, header, report) = specs(prims, out, None);
+    Ok((header.text(&root, None), report))
+}
+
+/// What the layer says about itself, before its prims.
+struct Header {
+    default_prim: Option<String>,
+    render_settings: Option<String>,
+    /// `metersPerUnit`, `upAxis`.
+    units: Vec<String>,
+    sublayers: Vec<String>,
+}
+
+impl Header {
+    /// The layer: this header, the frames it spans (`time`: first, last,
+    /// frames per second) when it has time samples, then the prims.
+    fn text(&self, root: &Spec, time: Option<(f64, f64, f64)>) -> String {
+        let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
+        if let Some(name) = &self.default_prim {
+            let _ = writeln!(text, "    defaultPrim = \"{name}\"");
+        }
+        if let Some((start, end, rate)) = time {
+            let _ = writeln!(text, "    startTimeCode = {}", num64(start));
+            let _ = writeln!(text, "    endTimeCode = {}", num64(end));
+            let _ = writeln!(text, "    timeCodesPerSecond = {}", num64(rate));
+            let _ = writeln!(text, "    framesPerSecond = {}", num64(rate));
+        }
+        // The RenderSettings prim a renderer uses when told none: the one
+        // Render Commons made.
+        if let Some(path) = &self.render_settings {
+            let _ = writeln!(text, "    renderSettingsPrimPath = \"{path}\"");
+        }
+        for u in &self.units {
+            let _ = writeln!(text, "    {u}");
+        }
+        if !self.sublayers.is_empty() {
+            let _ = writeln!(
+                text,
+                "    subLayers = [\n        {}\n    ]",
+                self.sublayers.join(",\n        ")
+            );
+        }
+        text.push_str(")\n");
+        for (name, child) in &root.children {
+            text.push('\n');
+            child.write(&mut text, name, 0);
+        }
+        text
+    }
+}
+
+/// The edits of every frame put together, by stage (`tree_key`) and prim
+/// path: each edit written at every frame, as time samples, once any frame has
+/// it.
+type Wide = BTreeMap<(String, String), PrimEdit>;
+
+/// A stage the same across frames (each frame's is a tree of its own): its
+/// file and where an arc puts it.
+fn tree_key(t: &StageTree) -> String {
+    format!(
+        "{}|{}",
+        t.source.display(),
+        t.arc.as_ref().map_or("", |a| a.at.as_str())
+    )
+}
+
+/// Each stage of `prims` once.
+fn trees_of(prims: &[Prim]) -> Vec<Arc<StageTree>> {
     let mut trees: Vec<Arc<StageTree>> = vec![];
     for p in prims {
         if let Some(t) = &p.stage {
@@ -102,6 +171,43 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
             }
         }
     }
+    trees
+}
+
+/// Edit `e` of prim `p` at one frame, with what other frames edited (`u`):
+/// its transform, binding, purpose, topology and attributes written too.
+fn widened(mut e: PrimEdit, u: &PrimEdit, p: &Prim) -> PrimEdit {
+    if u.place.is_some() && p.instanced_by.is_none() {
+        e.place = Some(p.place.clone());
+    }
+    if u.material.is_some() {
+        e.material = Some(p.material.clone());
+    }
+    if u.purpose.is_some() {
+        e.purpose = Some(p.purpose);
+    }
+    e.topology |= u.topology;
+    e.replaced |= u.replaced;
+    let has = |ctx: Context, name: &str| p.geo.as_ref().is_some_and(|g| g.attr(ctx, name).is_some());
+    for (ctx, name) in u.attrs.iter().chain(&u.removed) {
+        if e.attrs.contains(&(*ctx, name.clone())) || e.removed.contains(&(*ctx, name.clone())) {
+            continue;
+        }
+        if has(*ctx, name) {
+            e.attrs.push((*ctx, name.clone()));
+        } else {
+            e.removed.push((*ctx, name.clone()));
+        }
+    }
+    e
+}
+
+/// The layer's prims, its header and what was written, for `prims` at one
+/// frame; with `wide`, each prim edited at any frame written as if edited at
+/// this one too.
+fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, WriteReport) {
+    // Each stage once.
+    let trees = trees_of(prims);
     let mut root = Spec::default();
     let mut report = WriteReport::default();
     // The stages the layer sublayers: their files at their own paths. The
@@ -127,7 +233,25 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
             .map(|p| (p.path.as_str(), p))
             .collect();
 
-        for e in &set.prims {
+        // Across frames: every prim of the stage any frame edited.
+        let edits: Vec<PrimEdit> = match wide {
+            None => set.prims.clone(),
+            Some(w) => {
+                let key = tree_key(tree);
+                w.range((key.clone(), String::new())..)
+                    .take_while(|((k, _), _)| *k == key)
+                    .filter_map(|((_, path), u)| {
+                        let p = by_path.get(path.as_str())?;
+                        let e = set.prims.iter().find(|e| e.path == *path).cloned().unwrap_or(PrimEdit {
+                            path: path.clone(),
+                            ..Default::default()
+                        });
+                        Some(widened(e, u, p))
+                    })
+                    .collect()
+            }
+        };
+        for e in &edits {
             let (Some(p), Some(node)) = (by_path.get(e.path.as_str()), nodes.get(e.path.as_str())) else {
                 continue;
             };
@@ -235,43 +359,230 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
                 .find_map(|p| p.path.split('/').find(|s| !s.is_empty()).map(str::to_string))
         });
 
-    // The layer: the stages' files as sublayers, their axis and unit (stage
-    // metadata only comes from the root layer), then the opinions.
-    let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
-    if let Some(name) = &default_prim {
-        let _ = writeln!(text, "    defaultPrim = \"{name}\"");
-    }
-    // The RenderSettings prim a renderer uses when told none: the one
-    // Render Commons made.
-    if let Some(path) = crate::core::render::layer_settings(prims) {
-        let _ = writeln!(text, "    renderSettingsPrimPath = \"{path}\"");
-    }
-    match sublayered.first() {
+    // The stages' files as sublayers, their axis and unit (stage metadata
+    // only comes from the root layer).
+    let units = match sublayered.first() {
         Some(t) => {
+            let mut u = vec![];
             if let Some(mpu) = t.meters_per_unit {
-                let _ = writeln!(text, "    metersPerUnit = {}", num64(mpu));
+                u.push(format!("metersPerUnit = {}", num64(mpu)));
             }
             if !t.up_axis.is_empty() {
-                let _ = writeln!(text, "    upAxis = \"{}\"", t.up_axis);
+                u.push(format!("upAxis = \"{}\"", t.up_axis));
             }
+            u
         }
         // Only prims made in Imago: its own axes and unit.
-        None if !root.children.is_empty() => text.push_str("    metersPerUnit = 1\n    upAxis = \"Y\"\n"),
-        None => {}
-    }
-    if !sublayered.is_empty() {
-        let layers: Vec<String> = sublayered
+        None if !root.children.is_empty() => vec!["metersPerUnit = 1".into(), "upAxis = \"Y\"".into()],
+        None => vec![],
+    };
+    let header = Header {
+        default_prim,
+        render_settings: crate::core::render::layer_settings(prims),
+        units,
+        sublayers: sublayered
             .iter()
             .map(|t| format!("@{}@", relative(&t.source, dir).display()))
+            .collect(),
+    };
+    (root, header, report)
+}
+
+/// The frames from `start` to `end` (both included when the step lands on
+/// it), `step` apart (a step of nothing is 1).
+pub fn frame_list(start: f64, end: f64, step: f64) -> Vec<f64> {
+    let step = if step > 1e-6 { step } else { 1.0 };
+    if end < start {
+        return vec![];
+    }
+    let n = (((end - start) / step) + 1e-9).floor() as usize;
+    (0..=n.min(100_000)).map(|k| start + k as f64 * step).collect()
+}
+
+/// Write the override layer for the primitives at each of `frames` (each its
+/// time code and what arrives then) to `out`: what changes from frame to frame
+/// as time samples, at `rate` frames per second. One frame: as
+/// `write_override`.
+pub fn write_frames(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Result<WriteReport, String> {
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let (text, report) = frames_layer(frames, out, rate)?;
+    std::fs::write(out, text).map_err(|e| format!("{}: {e}", out.display()))?;
+    Ok(report)
+}
+
+/// The override layer of `frames` as text (see `write_frames`).
+pub fn frames_layer(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Result<(String, WriteReport), String> {
+    match frames {
+        [] => return Err("No frames to write".into()),
+        [(_, prims)] => return override_layer(prims, out),
+        _ => {}
+    }
+    // What any frame edits, by stage and prim, is written at every frame.
+    let mut wide: Wide = BTreeMap::new();
+    for (_, prims) in frames {
+        for tree in trees_of(prims) {
+            let key = tree_key(&tree);
+            for e in edit_set(prims, &tree).prims {
+                let u = wide.entry((key.clone(), e.path.clone())).or_insert_with(|| PrimEdit {
+                    path: e.path.clone(),
+                    ..Default::default()
+                });
+                if e.place.is_some() {
+                    u.place = e.place.clone();
+                }
+                if e.material.is_some() {
+                    u.material = e.material.clone();
+                }
+                if e.purpose.is_some() {
+                    u.purpose = e.purpose;
+                }
+                u.topology |= e.topology;
+                u.replaced |= e.replaced;
+                for a in e.attrs.iter().chain(&e.removed) {
+                    if !u.attrs.contains(a) {
+                        u.attrs.push(a.clone());
+                    }
+                }
+            }
+        }
+    }
+    let made: Vec<(f64, Spec, Header, WriteReport)> = frames
+        .iter()
+        .map(|(f, prims)| {
+            let (root, header, report) = specs(prims, out, Some(&wide));
+            (*f, root, header, report)
+        })
+        .collect();
+    let mut report = made[0].3.clone();
+    for (_, _, _, r) in &made[1..] {
+        for s in &r.skipped {
+            if !report.skipped.contains(s) {
+                report.skipped.push(s.clone());
+            }
+        }
+        report.changed = report.changed.max(r.changed);
+        report.deactivated = report.deactivated.max(r.deactivated);
+        report.added = report.added.max(r.added);
+    }
+    let at: Vec<(f64, &Spec)> = made.iter().map(|(f, root, _, _)| (*f, root)).collect();
+    let mut notes = vec![];
+    let root = merged(&at, "", &mut notes);
+    for n in notes {
+        if !report.skipped.contains(&n) {
+            report.skipped.push(n);
+        }
+    }
+    report.frames = frames.len();
+    let (first, last) = (frames[0].0, frames[frames.len() - 1].0);
+    Ok((made[0].2.text(&root, Some((first, last, rate))), report))
+}
+
+/// A line of a prim spec as its declaration, its value and the metadata after
+/// it (`float3[] primvars:c`, `[(1, 0, 0)]`, ` (\n interpolation = …\n)`).
+fn split_line(line: &str) -> Option<(&str, &str, &str)> {
+    let (decl, rest) = line.split_once(" = ")?;
+    Some(match rest.rfind(" (\n") {
+        Some(i) => (decl, &rest[..i], &rest[i..]),
+        None => (decl, rest, ""),
+    })
+}
+
+/// Whether USD can give a value of this declaration time samples: not a
+/// relationship, nor a `uniform` attribute.
+fn sampleable(decl: &str) -> bool {
+    !decl.starts_with("rel ") && !decl.starts_with("uniform ") && !decl.starts_with("prepend ")
+}
+
+/// The prim specs of several frames (each its time code and its spec at
+/// `path`) as one: a value the same at every frame once, others as time
+/// samples. What USD cannot animate yet changed is said in `notes`.
+fn merged(frames: &[(f64, &Spec)], path: &str, notes: &mut Vec<String>) -> Spec {
+    let mut out = Spec {
+        def: frames.iter().find_map(|(_, s)| s.def),
+        ..Default::default()
+    };
+    for (_, s) in frames {
+        for m in &s.meta {
+            if !out.meta.contains(m) {
+                out.meta.push(m.clone());
+            }
+        }
+    }
+    // Each declaration's value at each frame, in the order first written.
+    let mut order: Vec<String> = vec![];
+    let mut values: BTreeMap<String, (String, Vec<Option<String>>)> = BTreeMap::new();
+    for (k, (_, s)) in frames.iter().enumerate() {
+        for line in &s.lines {
+            match split_line(line) {
+                Some((decl, value, meta)) => {
+                    let entry = values.entry(decl.to_string()).or_insert_with(|| {
+                        order.push(decl.to_string());
+                        (meta.to_string(), vec![None; frames.len()])
+                    });
+                    entry.1[k] = Some(value.to_string());
+                }
+                None if !out.lines.contains(line) => out.lines.push(line.clone()),
+                None => {}
+            }
+        }
+    }
+    for decl in order {
+        let (meta, at) = &values[&decl];
+        let present: Vec<&String> = at.iter().flatten().collect();
+        let same = present.len() == frames.len() && present.windows(2).all(|w| w[0] == w[1]);
+        if same || !sampleable(&decl) {
+            if !same {
+                notes.push(format!(
+                    "{path}: {decl} changes from frame to frame, which USD cannot animate: written as at the first frame"
+                ));
+            }
+            out.lines.push(format!("{decl} = {}{meta}", present[0]));
+            continue;
+        }
+        // A frame without it: a prim's transform is identity there; else the
+        // nearest frame's value.
+        let filled: Vec<String> = (0..at.len())
+            .map(|k| match &at[k] {
+                Some(v) => v.clone(),
+                None if decl.ends_with("xformOp:transform") => matrix(&DMat4::IDENTITY),
+                None => (0..at.len())
+                    .filter_map(|j| at[j].as_ref().map(|v| (j.abs_diff(k), v)))
+                    .min_by_key(|(d, _)| *d)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default(),
+            })
             .collect();
-        let _ = writeln!(text, "    subLayers = [\n        {}\n    ]", layers.join(",\n        "));
+        if !meta.is_empty() {
+            out.lines.push(format!("{decl}{meta}"));
+        }
+        let samples: Vec<String> = frames
+            .iter()
+            .zip(&filled)
+            .map(|((f, _), v)| format!("    {}: {v},", num64(*f)))
+            .collect();
+        out.lines
+            .push(format!("{decl}.timeSamples = {{\n{}\n}}", samples.join("\n")));
     }
-    text.push_str(")\n");
-    for (name, child) in &root.children {
-        text.push('\n');
-        child.write(&mut text, name, 0);
+    // Children, by name, from the frames that have them.
+    let mut names: Vec<&String> = vec![];
+    for (_, s) in frames {
+        for n in s.children.keys() {
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
     }
-    Ok((text, report))
+    for name in names {
+        let of: Vec<(f64, &Spec)> = frames
+            .iter()
+            .filter_map(|(f, s)| s.children.get(name).map(|c| (*f, c)))
+            .collect();
+        let child = merged(&of, &format!("{path}/{name}"), notes);
+        out.children.insert(name.clone(), child);
+    }
+    out
 }
 
 /// The prim a referenced or payloaded stage is at: `def` with no type (the
@@ -981,6 +1292,108 @@ def Xform "set" {{
         assert!(find("/set/c").is_none(), "c is deactivated");
         // The same axis and unit as the original.
         assert_eq!((back.up_axis.as_str(), back.meters_per_unit), ("Z", Some(0.01)));
+    }
+
+    /// Over frames, what changes is written as time samples (a prim moved by a
+    /// different amount at each frame, a cube made in Imago that moves), what
+    /// does not as single values; read back, each frame is as it was shown.
+    #[test]
+    fn frames_are_written_as_time_samples_and_read_back() {
+        let (_, prims) = load("timed.usda", &stage_text());
+        let at = |x: f32| {
+            let mut ps: Vec<Prim> = prims.clone();
+            ps[1].place = ps[1].place.moved(Mat4::from_translation(glam::Vec3::new(x, 0.0, 0.0)));
+            let mut cube = cube_at("/made/cube");
+            cube.place = Placement::One(Mat4::from_translation(glam::Vec3::new(0.0, x, 0.0)));
+            ps.push(cube);
+            ps
+        };
+        let shown: Vec<(f64, Vec<Prim>)> = vec![(1.0, at(2.0)), (2.0, at(4.0)), (3.0, at(4.0))];
+        let out = std::env::temp_dir().join("xms_usd_write_test/timed_over.usda");
+        let report = write_frames(&shown, &out, 24.0).unwrap();
+        assert_eq!(report.frames, 3, "{report:?}");
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in [
+            "startTimeCode = 1",
+            "endTimeCode = 3",
+            "timeCodesPerSecond = 24",
+            "matrix4d xformOp:transform.timeSamples = {",
+            "uniform token[] xformOpOrder = [\"xformOp:transform\"]",
+            "def Mesh \"cube\"",
+        ] {
+            assert!(text.contains(line), "{line} in {text}");
+        }
+        assert!(
+            !text.contains("faceVertexCounts.timeSamples"),
+            "what does not change: once"
+        );
+        let back = Arc::new(crate::usd_scene::load(&out).unwrap());
+        assert!(back.timed.is_some());
+        for (f, x) in [(1.0, 2.0), (2.0, 4.0), (3.0, 4.0)] {
+            let s = crate::usd_scene::at_frame(&back, f);
+            let find = |p: &str| s.meshes.iter().find(|m| m.path == p).unwrap().place.matrices()[0];
+            let was = prims[1].place.matrices()[0];
+            assert!(
+                (find("/set/b").w_axis.x - (was.w_axis.x + x)).abs() < 1e-3,
+                "b at frame {f}"
+            );
+            assert!((find("/made/cube").w_axis.y - x).abs() < 1e-3, "the cube at frame {f}");
+        }
+    }
+
+    /// Specs of several frames as one: the same value once, others as time
+    /// samples; a relationship or a uniform is never sampled; children only
+    /// some frames have are kept.
+    #[test]
+    fn frame_specs_merge_into_time_samples() {
+        let spec = |lines: &[&str], child: bool| Spec {
+            lines: lines.iter().map(|l| l.to_string()).collect(),
+            children: if child {
+                BTreeMap::from([("kid".to_string(), Spec::default())])
+            } else {
+                BTreeMap::new()
+            },
+            ..Default::default()
+        };
+        let a = spec(
+            &[
+                "float x = 1",
+                "int[] n = [4]",
+                "rel r = </a>",
+                "color3f[] primvars:c = [(1, 0, 0)] (\n    interpolation = \"constant\"\n)",
+            ],
+            false,
+        );
+        let b = spec(
+            &[
+                "float x = 2",
+                "int[] n = [4]",
+                "rel r = </b>",
+                "color3f[] primvars:c = [(0, 1, 0)] (\n    interpolation = \"constant\"\n)",
+            ],
+            true,
+        );
+        let mut notes = vec![];
+        let m = merged(&[(1.0, &a), (2.0, &b)], "/p", &mut notes);
+        assert!(
+            m.lines
+                .contains(&"float x.timeSamples = {\n    1: 1,\n    2: 2,\n}".to_string()),
+            "{:?}",
+            m.lines
+        );
+        assert!(m.lines.contains(&"int[] n = [4]".to_string()));
+        assert!(m.lines.contains(&"rel r = </a>".to_string()));
+        assert!(notes.iter().any(|n| n.contains("rel r")), "{notes:?}");
+        assert!(
+            m.lines
+                .contains(&"color3f[] primvars:c (\n    interpolation = \"constant\"\n)".to_string()),
+            "{:?}",
+            m.lines
+        );
+        assert!(m.children.contains_key("kid"));
+        assert_eq!(frame_list(1.0, 3.0, 1.0), vec![1.0, 2.0, 3.0]);
+        assert_eq!(frame_list(1.0, 2.0, 0.5), vec![1.0, 1.5, 2.0]);
+        assert!(frame_list(5.0, 1.0, 1.0).is_empty());
     }
 
     /// A cube made in Imago, as the Cube operator gives it.

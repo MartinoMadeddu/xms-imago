@@ -318,6 +318,24 @@ impl Default for SceneRange {
 }
 
 impl SceneRange {
+    /// A stage's time range and time codes per second as the scene's frames
+    /// (a time code is a frame): 23.976 is 24000/1001.
+    pub fn from_stage(start: f64, end: f64, rate: f64) -> SceneRange {
+        let (fps_num, fps_den) = if (rate - rate.round()).abs() < 1e-6 {
+            (rate.round().max(1.0) as u32, 1)
+        } else if ((rate * 1001.0) - (rate * 1001.0).round()).abs() < 1e-2 {
+            ((rate * 1001.0).round() as u32, 1001)
+        } else {
+            ((rate * 1000.0).round().max(1.0) as u32, 1000)
+        };
+        SceneRange {
+            start: start.min(end).floor() as i64,
+            end: start.max(end).ceil() as i64,
+            fps_num,
+            fps_den,
+        }
+    }
+
     pub fn fps(&self) -> f64 {
         self.fps_num as f64 / self.fps_den.max(1) as f64
     }
@@ -1150,9 +1168,13 @@ impl NodeGraphState {
             // A stage read in the background gives more when its boxes,
             // then the whole of it, are read.
             // Its path with its variables put in: the file it reads.
-            NodeType::LoadUsd { path, .. } => {
+            NodeType::LoadUsd { path, convert, .. } => {
                 let path = crate::core::vars::expand(path.trim(), &[]);
-                (file_stamp(&path), &path, crate::usd_scene::generation()).hash(&mut h)
+                (file_stamp(&path), &path, crate::usd_scene::generation()).hash(&mut h);
+                // A stage that changes over time: at each frame.
+                if crate::usd_scene::animated(&path, *convert) {
+                    self.frame().to_bits().hash(&mut h);
+                }
             }
             NodeType::LoadFbxDir { dir, index, .. } => {
                 let file = crate::fbx_loader::list_fbx(dir).get(*index as usize).cloned();
@@ -1382,7 +1404,9 @@ impl NodeGraphState {
                 }
             }
         } else {
-            evaluate_node_type(node_type, &inputs, eval_subnet, output)
+            // A stage that changes over time, at the frame cooked.
+            let frame = self.node_frame(node);
+            crate::usd_scene::cooking_at(frame, || evaluate_node_type(node_type, &inputs, eval_subnet, output))
         };
         // A material is named by its operator; its files' variables are put
         // in as it cooks (renderers read `$JOB` as it is).

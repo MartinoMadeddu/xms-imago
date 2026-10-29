@@ -44,10 +44,15 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
 pub fn read_phased(layer: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
     let start = std::time::Instant::now();
     let mut first = 0.0;
-    let translated = xms_usd::translate_phased(layer, Default::default(), |b| {
+    // Every time sample, so the stage can be shown at any frame.
+    let opts = xms_usd::SceneOptions {
+        all_samples: true,
+        ..Default::default()
+    };
+    let translated = xms_usd::translate_phased(layer, opts, |b| {
         let _t = crate::timings::span("usd: the stage as boxes, for the Viewer");
         first = b.seconds;
-        boxes(scene_of(b, layer, true, convert));
+        boxes(scene_of(&b, layer, true, convert, None, None).0);
     })?;
     if crate::timings::on() {
         // The stage is opened once (openusd reads and composes the layers),
@@ -71,15 +76,122 @@ pub fn read_phased(layer: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) ->
             eprintln!("[xms]     {w}");
         }
     }
-    Ok(scene_of(translated, layer, false, convert))
+    let (mut scene, made) = scene_of(&translated, layer, false, convert, None, None);
+    // A stage that changes over time keeps its translation, to be shown at
+    // any frame (`Timed::at`), and the geometry that does not change.
+    if animated(&translated.scene) {
+        let still = made
+            .into_iter()
+            .filter(|(p, _)| translated.scene.get(p).is_some_and(|q| !deforms(&q.kind)))
+            .collect();
+        scene.timed = Some(Arc::new(Timed {
+            translated,
+            layer: layer.to_path_buf(),
+            convert,
+            still,
+            frames: Default::default(),
+        }));
+    }
+    Ok(scene)
 }
+
+/// A stage that changes over time, read with every time sample: what it is at
+/// any frame is made from its translation (`at`), its geometry that does not
+/// change shared with the stage as first read.
+pub struct Timed {
+    translated: xms_usd::Translated,
+    layer: std::path::PathBuf,
+    convert: bool,
+    /// The geometry of the prims whose geometry does not change, by the prim
+    /// the scene layer holds it at.
+    still: HashMap<rs::Path, (Arc<Geo>, Arc<MeshData>)>,
+    /// The stage at the frames last asked for, by the frame's bits
+    /// (`usd_scene::at_frame`).
+    pub(crate) frames: std::sync::Mutex<Vec<(u64, Arc<UsdScene>)>>,
+}
+
+impl Timed {
+    /// The time code the stage was first read at.
+    pub fn start(&self) -> f64 {
+        self.translated.scene.time().time
+    }
+
+    /// The stage at time code `t`.
+    pub fn at(&self, t: f64) -> UsdScene {
+        scene_of(
+            &self.translated,
+            &self.layer,
+            false,
+            self.convert,
+            Some(t),
+            Some(&self.still),
+        )
+        .0
+    }
+}
+
+impl std::fmt::Debug for Timed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Timed({})", self.layer.display())
+    }
+}
+
+/// Whether anything of the stage changes over time: a transform, visibility,
+/// geometry, a point instancer's arrays, a camera's lens, a light's values.
+fn animated(sc: &rs::Scene) -> bool {
+    sc.prims().any(|p| {
+        p.local_xform.is_animated()
+            || p.visible.is_animated()
+            || deforms(&p.kind)
+            || match &p.kind {
+                rs::PrimKind::Instancer(i) => {
+                    i.positions.is_animated()
+                        || i.orientations.as_ref().is_some_and(|o| o.is_animated())
+                        || i.scales.as_ref().is_some_and(|s| s.is_animated())
+                }
+                rs::PrimKind::Camera(c) => {
+                    c.focal_length.is_animated() || c.f_stop.is_animated() || c.focus_distance.is_animated()
+                }
+                rs::PrimKind::Light(l) => {
+                    l.intensity.is_animated() || l.exposure.is_animated() || l.color.is_animated()
+                }
+                _ => false,
+            }
+    })
+}
+
+/// Whether a mesh's, curves' or points' geometry changes over time: its points
+/// or a primvar.
+fn deforms(kind: &rs::PrimKind) -> bool {
+    let any = |pvs: &[rs::Primvar]| pvs.iter().any(|v| v.values.is_animated());
+    let one = |pv: &Option<rs::Primvar>| pv.as_ref().is_some_and(|v| v.values.is_animated());
+    match kind {
+        rs::PrimKind::Mesh(m) => m.points.is_animated() || one(&m.normals) || any(&m.primvars),
+        rs::PrimKind::Curves(c) => c.points.is_animated() || one(&c.widths) || one(&c.normals) || any(&c.primvars),
+        rs::PrimKind::Points(p) => p.points.is_animated() || one(&p.widths) || any(&p.primvars),
+        _ => false,
+    }
+}
+
+/// The geometry made for each source prim.
+type Made = Vec<(rs::Path, (Arc<Geo>, Arc<MeshData>))>;
 
 /// A translated stage as the program holds it: the hierarchy, and every mesh,
 /// curves and points with its geometry and placements. `boxes`: the translation
 /// was the first, boxes-only pass. `convert`: the stage turned to Y-up and
 /// scaled to metres by its `upAxis` and `metersPerUnit`; else as authored, as
 /// USD composes it and renderers read it.
-fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool, convert: bool) -> UsdScene {
+/// At time code `at` (else the time it was translated at), the geometry of the
+/// prims in `still` taken from there instead of being made again. Also gives
+/// the geometry made, by source prim.
+fn scene_of(
+    translated: &xms_usd::Translated,
+    layer: &Path,
+    boxes: bool,
+    convert: bool,
+    at: Option<f64>,
+    still: Option<&HashMap<rs::Path, (Arc<Geo>, Arc<MeshData>)>>,
+) -> (UsdScene, Made) {
     let _walk = crate::timings::span(if boxes {
         "usd: boxes to geometry"
     } else {
@@ -92,8 +204,9 @@ fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool, convert:
         up_axis: if info.z_up { "Z".into() } else { "Y".into() },
         meters_per_unit: info.meters_per_unit,
         default_prim: info.default_prim.clone(),
-        // The scene layer does not carry timeCodesPerSecond yet.
-        time: info.time_range.map(|(start, end)| (start, end, 24.0)),
+        time: info
+            .time_range
+            .map(|(start, end)| (start, end, info.time_codes_per_second)),
         converted: convert,
         ..Default::default()
     };
@@ -110,7 +223,7 @@ fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool, convert:
         }
     }
 
-    let t = sc.time().time;
+    let t = at.unwrap_or(sc.time().time);
     let mut walk = Walk {
         sc,
         t,
@@ -153,9 +266,17 @@ fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool, convert:
         use rayon::prelude::*;
         let _t = crate::timings::span(format!("usd: geometry of {} prims, in parallel", jobs.len()));
         jobs.par_iter()
-            .map(|src| sc.get(src).and_then(|p| geometry(&p.kind, t)).map(shared))
+            .map(|src| match still.and_then(|s| s.get(src)) {
+                Some(made) => Some(made.clone()),
+                None => sc.get(src).and_then(|p| geometry(&p.kind, t)).map(shared),
+            })
             .collect()
     };
+    let made_by: Made = jobs
+        .iter()
+        .zip(&made)
+        .filter_map(|(src, m)| m.clone().map(|m| (src.clone(), m)))
+        .collect();
     let mut invalid: HashSet<String> = HashSet::new();
     for (mesh, job) in pending {
         match &made[job] {
@@ -207,15 +328,19 @@ fn scene_of(translated: xms_usd::Translated, layer: &Path, boxes: bool, convert:
             .notes
             .insert(0, "Shown as boxes while the geometry is read".into());
         scene.reading = true;
-        return scene;
+        return (scene, made_by);
     }
     // The translator's own notes, minus timings and empty reports.
     scene.notes.extend(
-        translated.warnings.into_iter().filter(|w| {
-            !w.starts_with("Scene-layer translation:") && !w.starts_with("Prototypes in the scene layer: 0 ")
-        }),
+        translated
+            .warnings
+            .iter()
+            .filter(|w| {
+                !w.starts_with("Scene-layer translation:") && !w.starts_with("Prototypes in the scene layer: 0 ")
+            })
+            .cloned(),
     );
-    scene
+    (scene, made_by)
 }
 
 /// What the stage holds that is not turned into packed primitives yet.
@@ -1074,8 +1199,8 @@ fn light_of(l: &rs::Light, type_name: &str, t: f64) -> crate::core::light::Light
     if let Some(v) = l.exposure.at(t) {
         out.set("inputs:exposure", Value::Float(v));
     }
-    if let Some(c) = l.color.first() {
-        out.set("inputs:color", Value::Color3f(*c));
+    if let Some(c) = l.color.at(t) {
+        out.set("inputs:color", Value::Color3f(c));
     }
     out.set("inputs:normalize", Value::Bool(l.normalize));
     out.set("inputs:enableColorTemperature", Value::Bool(l.enable_color_temperature));

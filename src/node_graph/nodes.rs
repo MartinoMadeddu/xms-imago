@@ -75,7 +75,12 @@ pub fn evaluate_node_type(
             }
             // Packed primitives: one per mesh prim, shared with the cached stage.
             // `$GDIR/usd/street.usda`: its variables put in.
-            match crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert) {
+            // At the frame being cooked, when the stage changes over time.
+            let at = |s: Arc<crate::usd_scene::UsdScene>| match crate::usd_scene::cook_frame() {
+                Some(f) => crate::usd_scene::at_frame(&s, f),
+                None => s,
+            };
+            match crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert).map(at) {
                 // Nothing to show: no geometry, instancer, camera or light.
                 Ok(scene)
                     if scene.meshes.is_empty()

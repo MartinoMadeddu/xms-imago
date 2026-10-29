@@ -43,6 +43,8 @@ pub enum PanelAction {
     /// Run this Render Command: write the layer above it first if it says so,
     /// then start its command lines.
     RunCommand(NodeId),
+    /// Make these the scene's frames (a stage's time range).
+    SceneRange(crate::node_graph::SceneRange),
 }
 
 /// Services the panel can reach beyond the graph.
@@ -669,12 +671,25 @@ pub fn draw_properties(
             });
             if !read.is_empty() { usd_summary(ui, &read, *convert, io); }
         }
-        NodeType::WriteUsd { path } => {
+        NodeType::WriteUsd { path, frames, start, end, step } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
                 path_row(f, path, "/path/to/edits.usda", io, sel_id, BrowseMode::Save, "Write USD layer", &["usda"]);
             });
+            group(ui, "Frames", Some("The frames written: what changes from one to the next is written as time samples, the rest as single values. Nothing above it changing over time, one frame is written"), |f| {
+                use crate::types::WriteFrames;
+                f.choice("Frames", None, frames, &[(WriteFrames::Scene, "Scene Range"), (WriteFrames::Current, "Current Frame"), (WriteFrames::Custom, "Custom")]);
+                match frames {
+                    WriteFrames::Scene => f.value("Range", format!("{} to {}", graph.scene.start, graph.scene.end)),
+                    WriteFrames::Current => {}
+                    WriteFrames::Custom => {
+                        f.row("Start", None, |ui| form::number(ui, None, start, |d| d.speed(1)));
+                        f.row("End", None, |ui| form::number(ui, None, end, |d| d.speed(1)));
+                        f.row("Step", Some("Frames between two written: 0.5 writes a sample between frames, for motion blur"), |ui| form::number(ui, None, step, |d| d.speed(0.05).range(0.05..=100.0)));
+                    }
+                }
+            });
             group(ui, "Write", None, |f| {
-                f.buttons("Override layer", Some("Moved prims get their own transform, changed geometry its changed attributes, pruned prims are deactivated, prims made in Imago are added. Values at the current frame"), |ui| {
+                f.buttons("Override layer", Some("Moved prims get their own transform, changed geometry its changed attributes, pruned prims are deactivated, prims made in Imago are added. Over the frames, what changes as time samples"), |ui| {
                     if ui.add_enabled(!path.trim().is_empty(), egui::Button::new("Write")).clicked() {
                         io.action = Some(PanelAction::WriteUsd(sel_id));
                     }
@@ -684,7 +699,8 @@ pub fn draw_properties(
                     Some(Err(e)) => f.status(Status::Bad, e),
                     Some(Ok(r)) => {
                         let arcs = if r.referenced > 0 { format!(", {} referenced", r.referenced) } else { String::new() };
-                        f.status(Status::Ok, format!("Written: {} changed, {} deactivated, {} added{arcs}", r.changed, r.deactivated, r.added));
+                        let over = if r.frames > 1 { format!(", over {} frames", r.frames) } else { String::new() };
+                        f.status(Status::Ok, format!("Written: {} changed, {} deactivated, {} added{arcs}{over}", r.changed, r.deactivated, r.added));
                         for s in r.skipped.iter().take(8) { f.status(Status::Info, format!("Not written: {s}")); }
                         if r.skipped.len() > 8 { f.status(Status::Info, format!("… and {} more not written", r.skipped.len() - 8)); }
                     }
@@ -3550,8 +3566,27 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
                 "Not Y-up metres: other stages may not match it. Turn on Y-up metres, or move and scale it yourself",
             );
         }
-        if let Some((start, end, rate)) = scene.time {
-            f.value("Time", format!("{start} to {end} at {rate} per second"));
+        let moving = if scene.timed.is_some() { ", animated" } else { "" };
+        match scene.time {
+            Some((start, end, rate)) => {
+                f.value("Time", format!("{start} to {end} at {rate} per second{moving}"));
+                let range = crate::node_graph::SceneRange::from_stage(start, end, rate);
+                let set = f.buttons("", None, |ui| {
+                    ui.button("Use as Scene Range")
+                        .on_hover_text(format!(
+                            "Make the scene's frames {} to {} at {} fps: a time code of the stage is a frame",
+                            range.start,
+                            range.end,
+                            range.fps()
+                        ))
+                        .clicked()
+                });
+                if set {
+                    io.action = Some(PanelAction::SceneRange(range));
+                }
+            }
+            None if scene.timed.is_some() => f.value("Time", "Animated; the stage states no time range"),
+            None => {}
         }
         let kinds: Vec<String> = scene.prim_counts.iter().map(|(k, n)| format!("{n} {k}")).collect();
         f.value("Prims", kinds.join(", "));

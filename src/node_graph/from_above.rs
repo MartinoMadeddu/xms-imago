@@ -168,7 +168,7 @@ fn publishes(node: &GraphNode, above: &[FromAbove]) -> Vec<FromAbove> {
     let put = |text: &str| crate::core::vars::expand(text.trim(), &[]);
     let mut out: Vec<(String, String)> = vec![];
     match &node.node_type {
-        NodeType::WriteUsd { path } => out.push(("usd".into(), put(path.as_str()))),
+        NodeType::WriteUsd { path, .. } => out.push(("usd".into(), put(path.as_str()))),
         NodeType::RenderCommons { scene } => {
             out.push(("settings".into(), put(scene.location.as_str())));
             // None: the scene's first camera, so one from above still counts.
@@ -251,13 +251,7 @@ mod tests {
             },
             p(),
         );
-        let write = g.add_node(
-            "Write".into(),
-            NodeType::WriteUsd {
-                path: "/out/{shot}.usda".into(),
-            },
-            p(),
-        );
+        let write = g.add_node("Write".into(), NodeType::write_usd("/out/{shot}.usda"), p());
         let over = g.add_node(
             "Over".into(),
             NodeType::SetVariable {

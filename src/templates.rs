@@ -961,9 +961,7 @@ fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     );
     let write = g.add_node(
         "WriteUSD".into(),
-        NodeType::WriteUsd {
-            path: at("delorean_karma.usda"),
-        },
+        NodeType::write_usd(at("delorean_karma.usda")),
         p(420.0, 560.0),
     );
     let render = g.add_node(
@@ -1403,12 +1401,12 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     locate(g, bind_ground, &["/root/asset/sphere_2"]);
     let write = g.add_node(
         "WriteUSD".into(),
-        NodeType::WriteUsd {
-            path: std::env::temp_dir()
+        NodeType::write_usd(
+            std::env::temp_dir()
                 .join("xms_material_bindings.usda")
                 .to_string_lossy()
                 .to_string(),
-        },
+        ),
         p(395.0, 420.0),
     );
 
@@ -1528,12 +1526,12 @@ fn materialx_shaders(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     }
     let write = g.add_node(
         "WriteUSD".into(),
-        NodeType::WriteUsd {
-            path: std::env::temp_dir()
+        NodeType::write_usd(
+            std::env::temp_dir()
                 .join("xms_materialx.usda")
                 .to_string_lossy()
                 .to_string(),
-        },
+        ),
         p(290.0, 300.0),
     );
 

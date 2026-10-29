@@ -321,6 +321,9 @@ pub struct UsdScene {
     /// box of its extent; materials and authored values come with the whole
     /// stage.
     pub reading: bool,
+    /// A stage that changes over time: what it is at other frames
+    /// (`at_frame`). `None`: the same at every frame.
+    pub timed: Option<Arc<crate::usd_stage::Timed>>,
 }
 
 impl UsdScene {
@@ -1156,6 +1159,72 @@ fn changed() {
     CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The stage at `frame`, its time code (Imago's frames are the stage's time
+/// codes): itself when nothing of it changes over time, or at the time it was
+/// read at. Each frame is made once, and the last few are kept.
+pub fn at_frame(scene: &Arc<UsdScene>, frame: f64) -> Arc<UsdScene> {
+    let Some(timed) = &scene.timed else {
+        return scene.clone();
+    };
+    if (frame - timed.start()).abs() < 1e-9 {
+        return scene.clone();
+    }
+    let key = frame.to_bits();
+    let kept = timed
+        .frames
+        .lock()
+        .ok()
+        .and_then(|f| f.iter().find(|(k, _)| *k == key).map(|(_, s)| s.clone()));
+    if let Some(s) = kept {
+        return s;
+    }
+    let mut s = timed.at(frame);
+    // As the stage first read: where its textures are, the file as given.
+    s.base_dir = scene.base_dir.clone();
+    Arc::make_mut(&mut s.tree).source = scene.tree.source.clone();
+    s.timed = scene.timed.clone();
+    let s = Arc::new(s);
+    if let Ok(mut f) = timed.frames.lock() {
+        if f.len() >= 24 {
+            f.remove(0);
+        }
+        f.push((key, s.clone()));
+    }
+    s
+}
+
+/// Whether the stage of `path`, read, changes over time (without reading it).
+pub fn animated(path: &str, convert: bool) -> bool {
+    let path = std::path::Path::new(path);
+    let Ok(cache) = CACHE.lock() else { return false };
+    cache
+        .iter()
+        .filter(|(p, _, c, _)| p == path && *c == convert)
+        .any(|(_, _, _, k)| {
+            k.lock()
+                .is_ok_and(|k| matches!(&*k, Known::Done(Ok(s)) if s.timed.is_some()))
+        })
+}
+
+thread_local! {
+    /// The frame Load USD cooks at (`cooking_at`).
+    static COOK_FRAME: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Run `f` with Load USD cooking at `frame`.
+pub fn cooking_at<R>(frame: f64, f: impl FnOnce() -> R) -> R {
+    let was = COOK_FRAME.with(|c| c.replace(Some(frame)));
+    let r = f();
+    COOK_FRAME.with(|c| c.set(was));
+    r
+}
+
+/// The frame Load USD cooks at: `None` outside a graph's cook (the stage at
+/// the time it was read at).
+pub fn cook_frame() -> Option<f64> {
+    COOK_FRAME.with(|c| c.get())
+}
+
 /// See `GENERATION`.
 pub fn generation() -> u64 {
     GENERATION.load(std::sync::atomic::Ordering::Relaxed)
@@ -1286,6 +1355,66 @@ mod tests {
             None => (*m.mesh).clone(),
         }
     }
+    /// An animated stage is shown at any frame: a moving Xform's mesh where it
+    /// is then, points that move as they are then; what does not change is the
+    /// stage as read, its geometry shared.
+    #[test]
+    fn an_animated_stage_is_shown_at_every_frame() {
+        let quad = "int[] faceVertexCounts = [4]\n int[] faceVertexIndices = [0, 1, 2, 3]";
+        let path = write(
+            "animated.usda",
+            &format!(
+                r#"#usda 1.0
+(
+    startTimeCode = 1
+    endTimeCode = 10
+    timeCodesPerSecond = 24
+)
+def Xform "mover" {{
+    double3 xformOp:translate.timeSamples = {{ 1: (0, 0, 0), 10: (0, 9, 0) }}
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+    def Mesh "quad" {{
+        {quad}
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+    }}
+}}
+def Mesh "wave" {{
+    {quad}
+    point3f[] points.timeSamples = {{
+        1: [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+        10: [(0, 0, 9), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+    }}
+}}
+def Mesh "still" {{
+    {quad}
+    point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+}}
+"#
+            ),
+        );
+        let base = Arc::new(load(&path).unwrap());
+        assert!(base.timed.is_some(), "it changes over time");
+        assert_eq!(base.time, Some((1.0, 10.0, 24.0)));
+        assert!(Arc::ptr_eq(&at_frame(&base, 1.0), &base), "the frame it was read at");
+        let later = at_frame(&base, 5.5);
+        assert!(Arc::ptr_eq(&at_frame(&base, 5.5), &later), "made once");
+        let mesh = |s: &UsdScene, p: &str| s.meshes.iter().find(|m| m.path == p).cloned().unwrap();
+        let y = |m: &UsdMesh| m.place.matrices()[0].w_axis.y;
+        assert_eq!(y(&mesh(&base, "/mover/quad")), 0.0);
+        assert!((y(&mesh(&later, "/mover/quad")) - 4.5).abs() < 1e-5);
+        let z = |m: &UsdMesh| m.geo.as_ref().unwrap().points()[0][2];
+        assert!(
+            (z(&mesh(&later, "/wave")) - 4.5).abs() < 1e-5,
+            "points as they are then"
+        );
+        let (a, b) = (mesh(&base, "/still"), mesh(&later, "/still"));
+        assert!(Arc::ptr_eq(a.geo.as_ref().unwrap(), b.geo.as_ref().unwrap()), "shared");
+        assert_eq!(later.tree.source, base.tree.source);
+        // A stage that does not change is itself at every frame.
+        let flat = Arc::new(load(&write("flat.usda", "#usda 1.0\ndef Xform \"x\" {}\n")).unwrap());
+        assert!(flat.timed.is_none() && Arc::ptr_eq(&at_frame(&flat, 7.0), &flat));
+    }
+
     fn bounds(m: &MeshData) -> (Vec3, Vec3) {
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         for v in &m.vertices {
