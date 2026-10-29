@@ -90,7 +90,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 - **Promote Group:** right-click a group's title (its name above its rows)
   for **Promote Group**: each of its parameters is promoted, one by one, into
   a group of that name on the compound; **Remove Group Promotion** takes them
-  back. Each is still its own promoted parameter. Promotions name their operator:
+  back. Each is still its own promoted parameter. A row promoted alone goes
+  in a group of its own group's name too, so the two ways end the same. Promotions name their operator:
   renaming it inside the compound keeps them. An operator's name is not a
   parameter, and is never promoted.
 - **Promoted parameters** show in the instance's parameters by group: numbers,

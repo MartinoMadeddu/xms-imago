@@ -338,7 +338,8 @@ the node's name: renaming the node keeps them, two nodes of one name cannot
 be promoted until one is renamed. Switches and choices promote (a choice
 with its options); a row of a list (Get Reference's paths) promotes the whole
 list. Right-click a group's title for **Promote Group**: each of its settings
-promoted into a group of that name; **Remove Group Promotion** takes them back.
+promoted into a group of that name; **Remove Group Promotion** takes them back. A setting promoted
+alone goes in a group of its own group's name too.
 
 **Parameter** (Data Access) is a value the ICE operator gives, by name: the
 operator's parameters list every Parameter node of its graph (and of its

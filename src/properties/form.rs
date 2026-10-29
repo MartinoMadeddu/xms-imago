@@ -974,6 +974,19 @@ fn follows(row: egui::Id) -> bool {
     })
 }
 
+/// The title of the group the row right-clicked is in: a parameter promoted
+/// from it goes in a group of that name, as Promote Group puts it. Empty
+/// outside a group.
+pub fn row_group() -> String {
+    PROBING.with(|p| {
+        let p = p.borrow();
+        p.clicked_row
+            .and_then(|r| p.group_rows.iter().find(|(_, x)| *x == r))
+            .map(|(g, _)| g.clone())
+            .unwrap_or_default()
+    })
+}
+
 /// The options of the list row right-clicked or found (`row`), when it was a
 /// list: each its label and its value as JSON.
 pub fn row_choices(row: Option<egui::Id>) -> Vec<(String, serde_json::Value)> {

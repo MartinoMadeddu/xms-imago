@@ -751,7 +751,11 @@ pub fn draw_subnet_node_properties(
                 if let Some(path) = path {
                     let m = RowMenu {
                         node: node.id,
-                        what: Row::Setting(path, crate::properties::form::row_choices(None)),
+                        what: Row::Setting(
+                            path,
+                            crate::properties::form::row_choices(None),
+                            crate::properties::form::row_group(),
+                        ),
                         at,
                     };
                     ui.data_mut(|d| d.insert_temp(row_menu_id(), m));
@@ -967,8 +971,9 @@ struct RowMenu {
 #[derive(Clone)]
 enum Row {
     Input(usize),
-    /// Its path, and its options when it is a list.
-    Setting(String, Vec<(String, serde_json::Value)>),
+    /// Its path, its options when it is a list, and its group (it is
+    /// promoted into a group of that name).
+    Setting(String, Vec<(String, serde_json::Value)>, String),
 }
 
 fn row_menu_id() -> egui::Id {
@@ -989,14 +994,14 @@ fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
     };
     let title = match &m.what {
         Row::Input(k) => node.inputs.get(*k).map(|i| i.name.clone()),
-        Row::Setting(path, _) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
+        Row::Setting(path, ..) => Some(format!("{} {}", node.name, crate::core::keys::label(path))),
     };
     let Some(title) = title else {
         close(ctx);
         return;
     };
     let promoted = match &m.what {
-        Row::Setting(path, _) => graph
+        Row::Setting(path, ..) => graph
             .parameters
             .iter()
             .any(|p| p.targets.iter().any(|t| t.node == node.name && t.path == *path)),
@@ -1027,10 +1032,10 @@ fn row_menu(ctx: &egui::Context, graph: &mut IceGraph) {
     let away = ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
     let told = match (&m.what, promote, remove) {
         (Row::Input(k), true, _) => super::compound::promote_input(graph, m.node, *k),
-        (Row::Setting(path, choices), true, _) => {
-            Some(super::compound::promote_setting(graph, m.node, path, "", choices.clone()).unwrap_or_else(|e| e))
+        (Row::Setting(path, choices, group), true, _) => {
+            Some(super::compound::promote_setting(graph, m.node, path, group, choices.clone()).unwrap_or_else(|e| e))
         }
-        (Row::Setting(path, _), _, true) => {
+        (Row::Setting(path, ..), _, true) => {
             super::compound::remove_promotion(graph, &node_name, path);
             Some(format!(
                 "{node_name} {} is its own again",

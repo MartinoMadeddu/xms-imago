@@ -45,7 +45,8 @@ enum RowAsk {
     PasteReference(String),
     RemoveReference(String),
     /// The path, its value, a list's options.
-    Promote(String, serde_json::Value, Vec<(String, serde_json::Value)>),
+    /// Its path, value, options (a list's) and group (`form::row_group`).
+    Promote(String, serde_json::Value, Vec<(String, serde_json::Value)>, String),
     RemovePromotion(String),
 }
 
@@ -185,7 +186,8 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                                 promoted: promoted.is_some(),
                             };
                             let value = serde_json::json!(*v);
-                            if let Some(a) = number_menu(ui, id, p, &value, &[], &state, copied.as_ref(), promoting) {
+                            if let Some(a) = number_menu(ui, id, p, &value, &[], "", &state, copied.as_ref(), promoting)
+                            {
                                 ask = Some(a);
                             }
                         });
@@ -227,6 +229,7 @@ fn number_menu(
     path: &str,
     value: &serde_json::Value,
     choices: &[(String, serde_json::Value)],
+    group: &str,
     state: &NumberState,
     copied: Option<&Copied>,
     promoting: bool,
@@ -264,7 +267,12 @@ fn number_menu(
             .on_hover_text("Put this number on the compound's parameters: its instances set it")
             .clicked()
         {
-            ask = Some(RowAsk::Promote(path.to_string(), value.clone(), choices.to_vec()));
+            ask = Some(RowAsk::Promote(
+                path.to_string(),
+                value.clone(),
+                choices.to_vec(),
+                group.to_string(),
+            ));
             ui.close();
         }
         if state.promoted && ui.button("Remove Promotion").clicked() {
@@ -309,8 +317,8 @@ fn carry_out(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ask: R
             graph.unlink(id, &p);
             Some(format!("{node_name} {} is its own again", keys::label(&p)))
         }
-        RowAsk::Promote(p, v, choices) => {
-            promote_open(ctx, &node_name, &p, v, choices, graph);
+        RowAsk::Promote(p, v, choices, group) => {
+            promote_open(ctx, &node_name, &p, v, choices, group, graph);
             None
         }
         RowAsk::RemovePromotion(p) => {
@@ -329,6 +337,8 @@ struct RowMenu {
     value: serde_json::Value,
     /// A list's options: each its label and its value.
     choices: Vec<(String, serde_json::Value)>,
+    /// The group it is in, which it is promoted into.
+    group: String,
     at: egui::Pos2,
 }
 
@@ -351,6 +361,7 @@ pub fn open_row_menu(
         path,
         value,
         choices,
+        group: crate::properties::form::row_group(),
         at,
     };
     ctx.data_mut(|d| d.insert_temp(row_menu_id(), m));
@@ -396,9 +407,14 @@ fn changed_at(now: &serde_json::Value, before: &serde_json::Value) -> Option<Str
             }
         };
         match (a, b) {
-            (serde_json::Value::Object(x), serde_json::Value::Object(y)) if x.len() == y.len() => {
-                x.iter().find_map(|(k, v)| walk(v, y.get(k)?, join(k)))
-            }
+            // A key there in one alone (a value kept only once set) is what changed.
+            (serde_json::Value::Object(x), serde_json::Value::Object(y)) => x
+                .iter()
+                .find_map(|(k, v)| match y.get(k) {
+                    Some(w) => walk(v, w, join(k)),
+                    None => Some(join(k)),
+                })
+                .or_else(|| y.keys().find(|k| !x.contains_key(*k)).map(|k| join(k))),
             (serde_json::Value::Array(x), serde_json::Value::Array(y)) if x.len() == y.len() => x
                 .iter()
                 .zip(y)
@@ -520,6 +536,7 @@ pub fn row_menu(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Strin
                     &m.path,
                     &m.value,
                     &m.choices,
+                    &m.group,
                     &state,
                     copied.as_ref(),
                     promoting,
@@ -701,16 +718,15 @@ fn promote_open(
     path: &str,
     value: serde_json::Value,
     choices: Vec<(String, serde_json::Value)>,
+    group: String,
     graph: &NodeGraphState,
 ) {
-    let p = promoting(
-        graph,
-        node,
-        path,
-        value,
-        choices,
-        graph.inside.path.last().cloned().unwrap_or_default(),
-    );
+    // Its row's group, else one named after the compound.
+    let group = match group.is_empty() {
+        true => graph.inside.path.last().cloned().unwrap_or_default(),
+        false => group,
+    };
+    let p = promoting(graph, node, path, value, choices, group);
     ctx.data_mut(|d| d.insert_temp(promoting_id(), p));
 }
 
@@ -1016,6 +1032,11 @@ mod tests {
         assert_eq!(changed_at(&flipped, &before).as_deref(), Some("keep"));
         assert_eq!(changed_at(&picked, &before).as_deref(), Some("mode"));
         assert_eq!(changed_at(&before, &before), None);
+        // A value kept only once set: there now, not before.
+        let kept = serde_json::json!({ "Ice": { "params": {} } });
+        let set = serde_json::json!({ "Ice": { "params": { "draw_mode": "Bounds" } } });
+        assert_eq!(changed_at(&set, &kept).as_deref(), Some("params/draw_mode"));
+        assert_eq!(changed_at(&kept, &set).as_deref(), Some("params/draw_mode"));
     }
 
     /// A row probed put the probe in its number's place: found by its path,
@@ -1089,6 +1110,7 @@ mod tests {
             "params/instancer_path",
             serde_json::json!("/root/instancer"),
             vec![],
+            "Instancer".into(),
             &g,
         );
         let p: Promoting = ctx.data(|d| d.get_temp(promoting_id())).unwrap();
@@ -1097,6 +1119,7 @@ mod tests {
         assert_eq!(q.label, "Lights Instancer path");
         assert_eq!(q.kind, crate::compounds::ParameterType::String);
         assert_eq!(q.default, serde_json::json!("/root/instancer"));
+        assert_eq!(q.group, "Instancer", "in its row's group");
     }
 
     /// Promote makes a parameter, its default the number's value; again on
