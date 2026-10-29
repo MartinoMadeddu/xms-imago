@@ -406,15 +406,24 @@ fn changed_at(now: &serde_json::Value, before: &serde_json::Value) -> Option<Str
                 format!("{path}/{k}")
             }
         };
+        // A key there on one side alone (a value kept only once set, a map
+        // left out while empty) is compared with nothing: the value in it.
+        let nothing = |v: &serde_json::Value| match v {
+            serde_json::Value::Object(_) => serde_json::json!({}),
+            _ => serde_json::Value::Null,
+        };
         match (a, b) {
-            // A key there in one alone (a value kept only once set) is what changed.
             (serde_json::Value::Object(x), serde_json::Value::Object(y)) => x
                 .iter()
                 .find_map(|(k, v)| match y.get(k) {
                     Some(w) => walk(v, w, join(k)),
-                    None => Some(join(k)),
+                    None => walk(v, &nothing(v), join(k)),
                 })
-                .or_else(|| y.keys().find(|k| !x.contains_key(*k)).map(|k| join(k))),
+                .or_else(|| {
+                    y.iter()
+                        .filter(|(k, _)| !x.contains_key(*k))
+                        .find_map(|(k, w)| walk(&nothing(w), w, join(k)))
+                }),
             (serde_json::Value::Array(x), serde_json::Value::Array(y)) if x.len() == y.len() => x
                 .iter()
                 .zip(y)
@@ -1037,6 +1046,11 @@ mod tests {
         let set = serde_json::json!({ "Ice": { "params": { "draw_mode": "Bounds" } } });
         assert_eq!(changed_at(&set, &kept).as_deref(), Some("params/draw_mode"));
         assert_eq!(changed_at(&kept, &set).as_deref(), Some("params/draw_mode"));
+        // Its map left out while empty: the value in it, not the map.
+        let empty = serde_json::json!({ "Ice": { "id": 1 } });
+        let set = serde_json::json!({ "Ice": { "id": 1, "params": { "draw_mode": "Bounds" } } });
+        assert_eq!(changed_at(&set, &empty).as_deref(), Some("params/draw_mode"));
+        assert_eq!(changed_at(&empty, &set).as_deref(), Some("params/draw_mode"));
     }
 
     /// A row probed put the probe in its number's place: found by its path,
