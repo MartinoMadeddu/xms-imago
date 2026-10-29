@@ -82,7 +82,9 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   instance has not saved yet is made). Promotion works in every editable
   compound, saved or not, and in ICE graphs (see [ICE](ice.md#compounds)).
   Text promotes as numbers do (a path, a name), its row's right-click menu
-  the same; switches and lists do not yet.
+  the same; switches and lists do not yet. Promotions name their operator:
+  renaming it inside the compound keeps them. An operator's name is not a
+  parameter, and is never promoted.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
   booleans, text and vectors. A value set back to the default is the default
   again. Each instance keeps its own.

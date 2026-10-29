@@ -838,6 +838,14 @@ pub fn probed() -> Option<Probe> {
     })
 }
 
+/// `f` with probing off: rows that are not parameters (a node's name).
+pub fn unprobed<R>(f: impl FnOnce() -> R) -> R {
+    let was = PROBING.with(|p| std::mem::replace(&mut p.borrow_mut().on, false));
+    let r = f();
+    PROBING.with(|p| p.borrow_mut().on = was);
+    r
+}
+
 /// The text of the text row right-clicked this frame (see `probed`), when it
 /// was a text row.
 pub fn probed_text() -> Option<String> {

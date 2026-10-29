@@ -527,16 +527,28 @@ pub fn draw_properties(
         node_type_icon(&node.node_type),
         node_type_label(&node.node_type)
     );
+    let named = node.name.clone();
     group(ui, &title, None, |f| {
-        f.text(
-            "Name",
-            Some("The operator's name in the graph: one word, a space typed becomes an underscore"),
-            &mut node.name,
-            "",
-        );
+        // A name is not a parameter: not promoted, nor referenced.
+        form::unprobed(|| {
+            f.text(
+                "Name",
+                Some("The operator's name in the graph: one word, a space typed becomes an underscore"),
+                &mut node.name,
+                "",
+            )
+        });
     });
     if node.name.chars().any(char::is_whitespace) {
         node.name = crate::node_graph::node_name(&node.name);
+    }
+    // Inside a compound, its numbers promoted follow it by name.
+    if node.name != named {
+        for t in graph.inside.parameters.iter_mut().flat_map(|p| p.targets.iter_mut()) {
+            if t.node == named {
+                t.node = node.name.clone();
+            }
+        }
     }
 
     {

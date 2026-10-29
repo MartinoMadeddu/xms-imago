@@ -390,27 +390,27 @@ fn text_at(v: &serde_json::Value, text: &str) -> Option<String> {
 }
 
 /// After the parameters were drawn: what a probed row put the probe in place
-/// of, found in operator `id`'s parameters by its path (`probed_path`), and
-/// the parameters put back as they were (`before`, taken that frame), found
-/// or not. Returns the path and the number's value as the operator holds it
-/// (`old` for text, or without `before`).
+/// of, found in operator `id`'s parameters by its path (`probed_path`), and the
+/// operator put back whole as it was (`before`, taken that frame: its name and
+/// Prims Location too), found or not. Returns the path and the number's value
+/// as the operator holds it (`old` for text, or without `before`).
 pub fn found_row(
     graph: &mut NodeGraphState,
     id: NodeId,
     old: f64,
-    before: Option<serde_json::Value>,
+    before: Option<crate::node_graph::GraphNode>,
 ) -> Option<(String, f64)> {
     let node = graph.nodes.iter_mut().find(|n| n.id == id)?;
     let mut v = serde_json::to_value(&node.node_type).ok()?;
-    let path = probed_path(&v, before.as_ref());
-    let was: Vec<(String, f64)> = before.as_ref().map(keys::keyable).unwrap_or_default();
+    let was_v = before.as_ref().and_then(|b| serde_json::to_value(&b.node_type).ok());
+    let path = probed_path(&v, was_v.as_ref());
+    let was: Vec<(String, f64)> = was_v.as_ref().map(keys::keyable).unwrap_or_default();
     let value = path
         .as_ref()
         .and_then(|path| was.iter().find(|(p, _)| p == path))
         .map_or(old, |(_, x)| *x);
-    // The parameters as they were.
-    match before.and_then(|b| serde_json::from_value(b).ok()) {
-        Some(t) => node.node_type = t,
+    match before {
+        Some(b) => *node = b,
         None => {
             if let Some(path) = &path {
                 keys::set(&mut v, path, value);
@@ -488,7 +488,13 @@ fn promoting_id() -> egui::Id {
 /// operator `node`; `value`, the row's, when it cannot be read there (a value
 /// kept only once set: a compound's promoted value, an ICE operator's).
 fn promote_open(ctx: &egui::Context, node: &str, path: &str, value: serde_json::Value, graph: &NodeGraphState) {
-    let label = keys::label(path);
+    // A parameter of the operator's own (an ICE operator's, a compound's):
+    // named as it is, not by where it is kept.
+    let label = keys::label(
+        path.strip_prefix("params/")
+            .or_else(|| path.strip_prefix("values/"))
+            .unwrap_or(path),
+    );
     let default = graph
         .nodes
         .iter()
@@ -722,8 +728,8 @@ mod tests {
         assert!(matches!(&g.nodes[0].node_type, NodeType::Transform { translation, .. } if translation.y == 1.5));
 
         // A row in degrees: the probe reaches the operator as radians, found
-        // by what changed; the parameters are put back as they were.
-        let before = serde_json::to_value(&g.nodes[0].node_type).unwrap();
+        // by what changed; the operator is put back as it was, its name too.
+        let before = g.nodes[0].clone();
         if let NodeType::Transform { rotation, .. } = &mut g.nodes[0].node_type {
             rotation.z = (crate::properties::form::PROBE as f32).to_radians();
         }
@@ -736,8 +742,13 @@ mod tests {
         if let NodeType::Transform { scale, .. } = &mut g.nodes[0].node_type {
             scale.x = 1.0 + 1e-12_f32;
         }
+        g.nodes[0].name = crate::properties::form::PROBE_TEXT.into();
         assert_eq!(found_row(&mut g, id, 0.0, Some(before.clone())), None);
-        assert_eq!(serde_json::to_value(&g.nodes[0].node_type).unwrap(), before);
+        assert_eq!(
+            serde_json::to_value(&g.nodes[0].node_type).unwrap(),
+            serde_json::to_value(&before.node_type).unwrap()
+        );
+        assert_eq!(g.nodes[0].name, "Move", "a name probed is put back");
     }
 
     /// A text row probed is found by its path, even made a path by its row
@@ -771,6 +782,7 @@ mod tests {
         let p: Promoting = ctx.data(|d| d.get_temp(promoting_id())).unwrap();
         promote(&mut g, &p);
         let q = &g.inside.parameters[0];
+        assert_eq!(q.label, "Lights Instancer path");
         assert_eq!(q.kind, crate::compounds::ParameterType::String);
         assert_eq!(q.default, serde_json::json!("/root/instancer"));
     }

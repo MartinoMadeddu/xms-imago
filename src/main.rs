@@ -1049,7 +1049,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // by what it changed, and put back.
                     let before = selected
                         .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
-                        .and_then(|n| serde_json::to_value(&n.node_type).ok());
+                        .cloned();
                     // An ICE graph's nodes are probed by the ICE panel, rows of its own.
                     if own_parameters {
                         crate::properties::form::probing(editing.is_some(), whose, linked);

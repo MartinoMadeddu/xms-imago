@@ -714,7 +714,7 @@ pub fn draw_subnet_node_properties(
             "Port",
             Some("Inside a compound: what comes into the instance's input port of this name. The compound's ports are named by these nodes, top to bottom"),
             |f| {
-                f.text("Name", Some("The input port's name on the compound"), name, "Value");
+                crate::properties::form::unprobed(|| f.text("Name", Some("The input port's name on the compound"), name, "Value"));
                 value_with_type(f, "Value", value, Some("What the port holds while nothing is wired to the instance's"));
             },
         ),
@@ -723,7 +723,7 @@ pub fn draw_subnet_node_properties(
             "Port",
             Some("Inside a compound: what goes out of the instance's output port of this name. Wired from an Execute (Set Data), the port is an Execute"),
             |f| {
-                f.text("Name", Some("The output port's name on the compound"), name, "Value");
+                crate::properties::form::unprobed(|| f.text("Name", Some("The output port's name on the compound"), name, "Value"));
             },
         ),
         IceGraphNodeType::Parameter { name, default } => group(
@@ -731,7 +731,7 @@ pub fn draw_subnet_node_properties(
             "Parameter",
             Some("A value its ICE operator gives, by name, in the operator's parameters: what a scene compound can promote"),
             |f| {
-                f.text("Name", Some("What the ICE operator's parameters call it"), name, "parameter");
+                crate::properties::form::unprobed(|| f.text("Name", Some("What the ICE operator's parameters call it"), name, "parameter"));
                 value_with_type(f, "Default", default, Some("Its value while the operator gives none"));
             },
         ),
