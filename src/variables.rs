@@ -34,7 +34,7 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
     }
     let dim = crate::properties::form::ink::DIM();
     let bad = crate::properties::form::ink::BAD();
-    egui::Window::new("Variables").open(&mut open).collapsible(false).resizable(true).default_width(NAME_W + RESULT_W + ABOUT_W + 60.0).show(ctx, |ui| {
+    crate::menus::at_pointer(ctx, egui::Window::new("Variables"), "variables").open(&mut open).collapsible(false).resizable(true).default_width(NAME_W + RESULT_W + ABOUT_W + 60.0).show(ctx, |ui| {
         ui.label(egui::RichText::new("Write them as $NAME in paths, locations, values and command lines. Type $ in a field for the list.").small().color(dim));
         ui.add_space(4.0);
         let mut remove = None;

@@ -307,6 +307,18 @@ impl<'a> Rows<'a> {
         self.row(label, hint, |ui| choice_widget(ui, id, v, options))
     }
 
+    /// One of named choices, always a drop-down, however few.
+    pub fn dropdown<T: PartialEq + Clone + serde::Serialize>(
+        &mut self,
+        label: &str,
+        hint: Option<&str>,
+        v: &mut T,
+        options: &[(T, &str)],
+    ) -> bool {
+        let id = self.ui.id().with(label);
+        self.row(label, hint, |ui| choices_as(ui, id, v, options, true))
+    }
+
     /// Text, changed on Enter or leaving the field (`typed`).
     pub fn text(&mut self, label: &str, hint: Option<&str>, v: &mut String, placeholder: &str) -> egui::Response {
         self.row(label, hint, |ui| {
@@ -779,9 +791,21 @@ pub fn choice_widget<T: PartialEq + Clone + serde::Serialize>(
     v: &mut T,
     options: &[(T, &str)],
 ) -> bool {
+    choices_as(ui, id, v, options, false)
+}
+
+/// `choice_widget`, a drop-down whatever the options when `dropdown`.
+fn choices_as<T: PartialEq + Clone + serde::Serialize>(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    v: &mut T,
+    options: &[(T, &str)],
+    dropdown: bool,
+) -> bool {
     let row = ui.next_auto_id();
     let chars: usize = options.iter().map(|o| o.1.len()).sum();
-    let fits = options.len() <= 4 && (chars as f32) * 7.5 + options.len() as f32 * 18.0 < ui.available_width();
+    let fits =
+        !dropdown && options.len() <= 4 && (chars as f32) * 7.5 + options.len() as f32 * 18.0 < ui.available_width();
     let before = options.iter().position(|o| o.0 == *v);
     let shown = ui.scope(|ui| {
         choice_shown(ui, id, v, options, fits);

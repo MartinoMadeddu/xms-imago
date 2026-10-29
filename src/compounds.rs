@@ -145,6 +145,8 @@ pub enum ParameterType {
     List,
     /// One of a few options (`Parameter::choices`): a list to pick from.
     Choice,
+    /// One of options (`Parameter::choices`), always a drop-down.
+    Dropdown,
 }
 
 impl ParameterType {

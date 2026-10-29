@@ -603,7 +603,7 @@ pub fn editor(ctx: &egui::Context) {
         return;
     }
     let mut s = scheme();
-    egui::Window::new("Colour scheme")
+    crate::menus::at_pointer(ctx, egui::Window::new("Colour scheme"), "colour_scheme")
         .open(&mut open)
         .resizable(false)
         .collapsible(false)

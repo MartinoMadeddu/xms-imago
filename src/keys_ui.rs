@@ -850,7 +850,7 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
     let mut open = true;
     let mut done = false;
     let existing: Vec<String> = graph.inside.parameters.iter().map(|q| q.name.clone()).collect();
-    egui::Window::new("Promote")
+    crate::menus::at_pointer(ctx, egui::Window::new("Promote"), "promote")
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -917,10 +917,20 @@ fn promote_window(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<Str
 /// of one. Returns what to tell.
 fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
     use crate::compounds::{Parameter, ParameterType, Target};
-    let kind = if p.choices.is_empty() {
-        ParameterType::of(&p.default)
-    } else {
-        ParameterType::Choice
+    // A spare drop-down stays one; other options are a Choice.
+    let dropdown = graph
+        .nodes
+        .iter()
+        .find(|n| n.name == p.node)
+        .and_then(|n| {
+            let name = p.path.strip_prefix(crate::node_graph::spare::PREFIX)?;
+            n.spare.parameters.iter().find(|q| q.name == name)
+        })
+        .is_some_and(|q| q.kind == ParameterType::Dropdown);
+    let kind = match (p.choices.is_empty(), dropdown) {
+        (true, _) => ParameterType::of(&p.default),
+        (false, true) => ParameterType::Dropdown,
+        (false, false) => ParameterType::Choice,
     };
     let target = Target {
         node: p.node.clone(),

@@ -307,9 +307,11 @@ the Keys list, which already names every number by its path.
 
 Any operator's Parameters end with **+ Spare Parameter**: a window asks for its
 type (a drop-down of those there are: Float, Integer, Toggle, Text, 2D, 3D and
-4D Vector, Colour, Choice, Text List), a name, a group (typed, or one of its
-spare groups picked) and, for a number, a range; a Choice takes its options, one
-a line. The spare parameter is drawn in its group after the operator's own, as
+4D Vector, Colour, Choice, Dropdown, Text List), a name, a group (typed, or one
+of its spare groups picked) and, for a number, a range; a Choice or a Dropdown
+takes its options, one a line. A Choice shows a few short options side by side
+(a drop-down when they do not fit); a Dropdown is always a drop-down, and stays
+one when promoted. The spare parameter is drawn in its group after the operator's own, as
 promoted parameters are, and is a row like any other: **Copy as Reference** from
 it and **Paste as Reference** on a parameter (that one follows it), or the
 other way (the spare one follows, and changed by hand changes its source);

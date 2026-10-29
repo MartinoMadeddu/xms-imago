@@ -25,6 +25,7 @@ pub const KINDS: &[(ParameterType, &str)] = &[
     (ParameterType::Vector4, "4D Vector"),
     (ParameterType::Colour, "Colour"),
     (ParameterType::Choice, "Choice"),
+    (ParameterType::Dropdown, "Dropdown"),
     (ParameterType::List, "Text List"),
 ];
 
@@ -121,7 +122,8 @@ impl Spare {
             .filter(|o| !o.is_empty())
             .map(|o| (o.to_string(), serde_json::json!(o)))
             .collect();
-        if kind == ParameterType::Choice && choices.is_empty() {
+        let picked = matches!(kind, ParameterType::Choice | ParameterType::Dropdown);
+        if picked && choices.is_empty() {
             return Err("A choice needs its options: one a row".into());
         }
         let default = match kind {
@@ -132,7 +134,7 @@ impl Spare {
             ParameterType::Vector3 => serde_json::json!([0.0, 0.0, 0.0]),
             ParameterType::Vector4 => serde_json::json!([0.0, 0.0, 0.0, 0.0]),
             ParameterType::Colour => serde_json::json!([1.0, 1.0, 1.0]),
-            ParameterType::Choice => choices[0].1.clone(),
+            ParameterType::Choice | ParameterType::Dropdown => choices[0].1.clone(),
             ParameterType::List => serde_json::json!([]),
             ParameterType::Float | ParameterType::Ramp => serde_json::json!(0.0),
         };
@@ -146,7 +148,7 @@ impl Spare {
             group: group.trim().to_string(),
             help: String::new(),
             targets: vec![],
-            choices: if kind == ParameterType::Choice { choices } else { vec![] },
+            choices: if picked { choices } else { vec![] },
         });
         Ok(name)
     }
@@ -205,5 +207,10 @@ mod tests {
         assert_eq!(s.parameters[0].choices.len(), 2);
         assert_eq!(s.get("spare/mode"), Some(serde_json::json!("Fast")));
         assert_eq!(s.parameters[0].range, None);
+        let menu = vec!["Low".to_string(), "High".to_string()];
+        assert!(s.add(ParameterType::Dropdown, "Quality", "", None, &[]).is_err());
+        s.add(ParameterType::Dropdown, "Quality", "", None, &menu).unwrap();
+        assert_eq!(s.get("spare/quality"), Some(serde_json::json!("Low")));
+        assert_eq!(s.parameters[1].choices.len(), 2);
     }
 }

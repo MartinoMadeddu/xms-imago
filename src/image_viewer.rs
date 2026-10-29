@@ -409,8 +409,13 @@ fn settings_window(
     chosen: Option<&SettingsInfo>,
 ) {
     let mut open = st.show_settings;
-    egui::Window::new("Image Viewer: render command").id(egui::Id::new("image_viewer_settings_window"))
-        .open(&mut open).collapsible(false).resizable(true).default_width(460.0)
+    let w = egui::Window::new("Image Viewer: render command").id(egui::Id::new("image_viewer_settings_window"));
+    let w = if open {
+        crate::menus::at_pointer(ctx, w, "image_viewer_settings")
+    } else {
+        w
+    };
+    w.open(&mut open).collapsible(false).resizable(true).default_width(460.0)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Command");

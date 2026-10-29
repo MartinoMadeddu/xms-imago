@@ -498,7 +498,10 @@ holds the parameters and the state of the node and little else.
 Right-click a row (a number, text, a switch, a choice, a list's row) for its
 menu: Promote inside a compound, Copy and Paste as Reference. Right-click a
 group's title for Promote Group and Remove Group Promotion (see
-[Compounds](compounds.md)). **+ Spare Parameter**, at the end of an
+[Compounds](compounds.md)). Popup windows (Promote, Add Spare Parameter, Variables, Colour scheme, the
+Image Viewer's render command) open just left of the pointer; the dialogs that
+ask before going on (Unsaved changes, Replace files?) and the file browser
+open in the middle. **+ Spare Parameter**, at the end of an
 operator's Parameters, adds a parameter of its own (see
 [Spare parameters](compounds.md#spare-parameters)).
 

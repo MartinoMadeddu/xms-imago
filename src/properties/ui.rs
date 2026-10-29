@@ -1333,7 +1333,7 @@ fn spare_rows(ui: &mut egui::Ui, node: &mut crate::node_graph::GraphNode) {
         g
     };
     let (mut open, mut made) = (true, false);
-    egui::Window::new("Add Spare Parameter")
+    crate::menus::at_pointer(ui.ctx(), egui::Window::new("Add Spare Parameter"), "add_spare")
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -1380,7 +1380,7 @@ fn spare_rows(ui: &mut egui::Ui, node: &mut crate::node_graph::GraphNode) {
                     });
                     ui.end_row();
                 }
-                if d.kind == T::Choice {
+                if matches!(d.kind, T::Choice | T::Dropdown) {
                     ui.label("Options");
                     ui.add(
                         egui::TextEdit::multiline(&mut d.options)
@@ -1803,11 +1803,16 @@ fn promoted_row(
             };
             list_rows(f, label, hint, &mut rows).then(|| serde_json::json!(rows))
         }
-        T::Choice => {
+        T::Choice | T::Dropdown => {
             let options: Vec<(serde_json::Value, &str)> =
                 p.choices.iter().map(|(l, v)| (v.clone(), l.as_str())).collect();
             let mut picked = now.clone();
-            f.choice(label, hint, &mut picked, &options).then_some(picked)
+            let changed = if p.kind == T::Dropdown {
+                f.dropdown(label, hint, &mut picked, &options)
+            } else {
+                f.choice(label, hint, &mut picked, &options)
+            };
+            changed.then_some(picked)
         }
     };
     if let Some(v) = changed {
