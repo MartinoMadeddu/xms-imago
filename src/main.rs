@@ -144,7 +144,7 @@ pub(crate) fn draw_ui(
                 if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) {
                     match &mut node.node_type {
                         NodeType::LoadUsd { path, .. }
-                        | NodeType::WriteUsd { path }
+                        | NodeType::WriteUsd { path, .. }
                         | NodeType::LoadFbx { path, .. }
                         | NodeType::LoadFbxMesh { path } => *path = text,
                         NodeType::LoadFbxDir { dir, index, .. } => {
@@ -1123,7 +1123,15 @@ impl egui_dock::TabViewer for Panes<'_> {
                         import_node(self.graph, name, t);
                     }
                     // Writing over files that exist asks first.
-                    if let Some(action) = io.action {
+                    if let Some(PanelAction::SceneRange(r)) = io.action {
+                        self.graph.scene = r;
+                        self.graph_file.message = format!(
+                            "Scene frames {} to {} at {} fps, from the stage",
+                            r.start,
+                            r.end,
+                            r.fps()
+                        );
+                    } else if let Some(action) = io.action {
                         let existing = existing_outputs(self.graph, &action);
                         if existing.is_empty() {
                             run_action(self.graph, &*self.subnets, self.batch, action);
@@ -1983,7 +1991,9 @@ fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String>
             .iter()
             .find(|n| n.id == *id)
             .and_then(|n| match &n.node_type {
-                NodeType::WriteUsd { path } if std::path::Path::new(&graph.expand_at(n.id, path.trim())).is_file() => {
+                NodeType::WriteUsd { path, .. }
+                    if std::path::Path::new(&graph.expand_at(n.id, path.trim())).is_file() =>
+                {
                     Some(graph.expand_at(n.id, path.trim()))
                 }
                 _ => None,
@@ -1991,7 +2001,7 @@ fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String>
             .into_iter()
             .collect(),
         // Rendering writes its layer again, as asked: no question.
-        PanelAction::RunCommand(_) => vec![],
+        PanelAction::RunCommand(_) | PanelAction::SceneRange(_) => vec![],
     }
 }
 
@@ -2000,6 +2010,8 @@ fn run_action(graph: &NodeGraphState, subnets: &IceGraphStore, batch: &BatchStat
         PanelAction::Write { targets, all_files } => batch::start(batch, graph, targets, all_files),
         PanelAction::WriteUsd(id) => write_usd(graph, subnets, id),
         PanelAction::RunCommand(id) => run_command(graph, subnets, id),
+        // Set on the graph where the panel asks (`Pane::Parameters`).
+        PanelAction::SceneRange(_) => {}
     }
 }
 
@@ -2626,8 +2638,21 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
         return;
     };
-    let NodeType::WriteUsd { path } = &node.node_type else {
+    let NodeType::WriteUsd {
+        path,
+        frames,
+        start,
+        end,
+        step,
+    } = &node.node_type
+    else {
         return;
+    };
+    // The frames written: the scene's, the one shown, or its own.
+    let at: Vec<f64> = match frames {
+        types::WriteFrames::Current => vec![graph.frame()],
+        types::WriteFrames::Scene => usd_write::frame_list(graph.scene.start as f64, graph.scene.end as f64, 1.0),
+        types::WriteFrames::Custom => usd_write::frame_list(*start as f64, *end as f64, *step as f64),
     };
     // `$GDIR/out/$GNAME.usda`: its variables put in.
     let path = graph.expand_at(node.id, path.trim());
@@ -2653,20 +2678,50 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
                 .map(|sg| sg.evaluate(mesh, template))
                 .unwrap_or_else(|| mesh.clone())
         };
-        match graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval) {
-            Some(types::EvalResult::Named(prims)) => usd_write::write_override(&prims, std::path::Path::new(&path)),
-            Some(types::EvalResult::Single(_)) => Err(
-                "The input is one plain mesh, with no primitive path (after Unpack, or a Merge set to Flatten)"
-                    .to_string(),
-            ),
-            Some(types::EvalResult::Material(_)) => {
-                Err("The input is a material, not primitives: plug it into Material Binding".to_string())
-            }
-            Some(_) => Err("The input is a clip, not primitives".to_string()),
-            None => Err("The input did not cook".to_string()),
+        if at.is_empty() {
+            return Err("No frames to write: the range ends before it starts".to_string());
         }
+        // Each frame as it cooks then. Nothing above it changing over time
+        // (the same cook key at every frame): one frame, single values.
+        let seconds = |f: f64| graph.scene.seconds(f);
+        let keys: Vec<Option<u64>> = at
+            .iter()
+            .map(|f| graph.with_time(seconds(*f), || graph.cook_key(src, out)))
+            .collect();
+        let still = keys.iter().all(|k| k.is_some() && *k == keys[0]);
+        let at = if still { at[..at.len().min(1)].to_vec() } else { at };
+        let mut cooked = vec![];
+        for f in &at {
+            let r = graph.with_time(seconds(*f), || {
+                graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval)
+            });
+            match r {
+                Some(types::EvalResult::Named(prims)) => cooked.push((*f, prims)),
+                other => return Err(not_prims(other)),
+            }
+        }
+        let layer = std::path::Path::new(&path);
+        if still || cooked.len() == 1 {
+            return usd_write::write_override(&cooked[0].1, layer);
+        }
+        usd_write::write_frames(&cooked, layer, graph.scene.fps())
     })();
     usd_write::remember(id, result);
+}
+
+/// Why what arrives at a Write USD is not primitives to write.
+fn not_prims(r: Option<types::EvalResult>) -> String {
+    match r {
+        Some(types::EvalResult::Single(_)) => {
+            "The input is one plain mesh, with no primitive path (after Unpack, or a Merge set to Flatten)".to_string()
+        }
+        Some(types::EvalResult::Material(_)) => {
+            "The input is a material, not primitives: plug it into Material Binding".to_string()
+        }
+        Some(types::EvalResult::Named(_)) => String::new(),
+        Some(_) => "The input is a clip, not primitives".to_string(),
+        None => "The input did not cook".to_string(),
+    }
 }
 
 // Scene setup

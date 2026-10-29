@@ -220,8 +220,9 @@ It runs through the system's shell (`sh -c`; `cmd /C` on Windows), in the
 background: Imago stays in use. Stop, or closing Imago, ends the command and
 everything it started.
 
-The layer holds the scene at the current frame (animation is not written yet),
-so every frame of a range renders the same picture for now.
+The layer holds the frames its Write USD writes (the scene's range by default),
+what changes over them as time samples, so each frame of a range renders as it
+is shown.
 
 ## Image Viewer
 

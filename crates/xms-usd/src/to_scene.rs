@@ -37,6 +37,10 @@ pub struct SceneOptions {
     /// arrays, primvars, materials, bindings or authored values: a first pass a
     /// big stage can show quickly, before the whole of it.
     pub boxes_only: bool,
+    /// Every time sample of the stage, over its authored time range (all of
+    /// them when it states none), not those of the shutter alone: a stage to
+    /// be shown at any frame from one translation.
+    pub all_samples: bool,
 }
 
 /// The default curve-primvar prefix.
@@ -65,6 +69,7 @@ impl Default for SceneOptions {
             import_curves: true,
             curve_primvars: Some(CURVE_PRIMVAR_PREFIX.to_string()),
             boxes_only: false,
+            all_samples: false,
         }
     }
 }
@@ -139,7 +144,11 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
     let mut tr = Translator {
         stage,
         time,
-        window: (t + opts.shutter.0, t + opts.shutter.1),
+        window: match (opts.all_samples, time_range) {
+            (true, Some((start, end))) => (start.min(end), start.max(end)),
+            (true, None) => (-1e15, 1e15),
+            (false, _) => (t + opts.shutter.0, t + opts.shutter.1),
+        },
         import_curves: opts.import_curves,
         boxes_only: opts.boxes_only,
         scene: rs::Scene::new(),
@@ -161,6 +170,7 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         z_up,
         meters_per_unit,
         time_range,
+        time_codes_per_second: stage.time_codes_per_second(),
         source: Some(path_str.to_string()),
         default_prim,
     };

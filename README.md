@@ -123,6 +123,9 @@ selection](docs/xms_edit_poly.png)
 - **Write it back:** Write USD saves what the scene graph changed as an override
   layer over the original file. Only what changed is written, and the layer
   opens on its own in usdview or rray
+- **Time samples:** an animated stage plays on the timeline (a time code is a
+  frame) through the whole graph, and Write USD writes the scene's range, what
+  changes from frame to frame as `timeSamples`
 - **Materials and textures in the Viewer**, straight from the `.usdz`: PNG,
   JPEG, TIFF, TGA, HDR and OpenEXR, and UDIM tiles from a `<UDIM>` path
   (`body.<UDIM>.exr`), each part of the mesh showing the tile its UVs fall in
@@ -440,8 +443,8 @@ then runs the program.
 - Rendering from inside Imago: the render operators author UsdRender prims for
   husk, kick and other renderers
 - USD: normal and roughness maps in the Viewer, depth of field and gate offsets
-  when looking through a camera, animation and skinning, per-face material
-  subsets, writing time samples and edits inside instances
+  when looking through a camera, skeletal animation and skinning, per-face
+  material subsets, edits inside instances
 - UV: editing single UV vertices and edges, a checker in the Viewer, UVs kept
   through Edit Poly, UVs written to FBX files. Unwrapping is LSCM only: ABF++,
   SLIM and BFF are not implemented

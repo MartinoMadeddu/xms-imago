@@ -105,9 +105,19 @@ pub enum NodeType {
         #[serde(default)]
         convert: bool,
     },
-    /// Write what the network changed in its stages as a USD override layer.
+    /// Write what the network changed in its stages as a USD override layer,
+    /// over `frames`: what changes from frame to frame as time samples.
     WriteUsd {
         path: String,
+        #[serde(default)]
+        frames: WriteFrames,
+        /// A custom range's first and last frames, and the step between.
+        #[serde(default = "one_i64")]
+        start: i64,
+        #[serde(default = "hundred_twenty")]
+        end: i64,
+        #[serde(default = "one_f32")]
+        step: f32,
     },
     /// Mark packed primitives whose path matches a pattern as picked.
     PickPrims {
@@ -578,6 +588,28 @@ impl AnimAlign {
     }
 }
 
+/// The frames Write USD writes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum WriteFrames {
+    /// Every frame of the scene's range.
+    #[default]
+    Scene,
+    /// The frame shown: single values.
+    Current,
+    /// Its own first and last frames and step.
+    Custom,
+}
+
+fn one_i64() -> i64 {
+    1
+}
+fn hundred_twenty() -> i64 {
+    120
+}
+fn one_f32() -> f32 {
+    1.0
+}
+
 /// How a Merge joins its inputs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MergeMode {
@@ -656,6 +688,16 @@ pub fn camera_location() -> String {
 
 impl NodeType {
     /// A cube at its default Primitive Location.
+    /// A Write USD writing to `path`, over the scene's range.
+    pub fn write_usd(path: impl Into<String>) -> Self {
+        NodeType::WriteUsd {
+            path: path.into(),
+            frames: WriteFrames::Scene,
+            start: 1,
+            end: 120,
+            step: 1.0,
+        }
+    }
     pub fn cube(size: f32) -> Self {
         NodeType::CreateCube {
             size,

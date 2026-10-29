@@ -43,7 +43,7 @@ baked into the points, so what is written back matches the file.
 | Cameras | Primitives with no geometry: projection, focal length, aperture and offsets, clipping range, f-stop, focus distance, where they are. Moved by Transform, looked through in the Viewer |
 | Lights | Primitives with no geometry: every UsdLux type (Dome, Rect, Sphere, Disk, Cylinder, Distant), with its values (intensity, exposure, colour, temperature, size, texture, shaping), where it is and which way it faces. Moved by Transform, listed in the Primitive Inspector (see [Lights](#lights)) |
 | Skeletons | Listed by name |
-| Time samples | Read at the stage's start time |
+| Time samples | Every sample of the stage, over its time range: a time code is a frame, so the timeline plays the file's animation (transforms, visibility, points and primvars, point instancers, cameras' lenses, lights' values) through the whole graph. A stage that changes over time cooks again at each frame, its still geometry shared; one that does not costs nothing more |
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked
 beside itself so its textures are files the Viewer can read.
@@ -537,7 +537,21 @@ Not written yet, and listed by the panel:
 - Changes to a point instancer's prototypes, which go through the instancer's
   positions, orientations and scales.
 
-Values are written at the current frame, as single values.
+**Frames.** Write USD writes the scene's range by default (or the current frame,
+or a range and step of its own; a step of 0.5 writes samples between frames,
+for motion blur). Each frame is cooked and compared with the stage at that
+frame; what changes from frame to frame is written as `timeSamples`, what does
+not as a single value, and the layer says `startTimeCode`, `endTimeCode`,
+`timeCodesPerSecond` and `framesPerSecond`. A prim edited at any frame is
+written at every frame, so the file's own animation is not seen through where
+Imago left it alone. Imago's own animation (keys on a Transform, a camera, a
+light, a shape) is written the same way. Nothing above Write USD changing over
+time, one frame is written. Relationships and `uniform` values cannot be
+animated in USD: when one changes, the first frame's is written, and the panel
+says so.
+
+The Load USD panel shows the stage's time range, and **Use as Scene Range**
+makes it the scene's frames and rate.
 
 ## Not done yet
 
@@ -545,8 +559,7 @@ Values are written at the current frame, as single values.
   population masks, payloads left unloaded; moving the referenced prim itself
   when it is a mesh is written without the axis and unit transform
 
-- Write USD: time samples over a frame range, editing inside instances, a
-  flattened single file; the stage's own `defaultPrim` (the first root prim is
+- Write USD: editing inside instances, a flattened single file; the stage's own `defaultPrim` (the first root prim is
   used)
 - A Primitive Location for the operators that make a plain mesh (Unpack, Merge
   set to Flatten); until then it has no path, and Write USD says so. ICE keeps
@@ -555,8 +568,10 @@ Values are written at the current frame, as single values.
 - Normal, roughness, metallic and occlusion maps in the Viewer
 - Cameras: gate offsets and depth of field in the Viewer, cameras inside native
   instances, animated cameras, editing a file's camera's lens
-- Animation: time samples beyond the start time, skeletal animation, skinning,
-  blend shapes
+- Animation: topology that changes over time (a mesh's polygons are those of
+  the stage's start time), skeletal animation, skinning, blend shapes, value
+  clips; a file's camera's apertures and clipping range, and lights' shapes, are
+  read at the start time
 - Per-face material subsets, creases and holes (kept in the file, not shown),
   NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Point instancers nested more than four deep (listed in the node's "Not read in
