@@ -272,17 +272,26 @@ impl NodeGraphState {
                 keys::set(&mut kept, &c.path, o);
             }
         }
-        // A number that follows another keeps its own; changed, the number it
-        // follows takes the change.
+        // A value that follows another keeps its own; changed, the value it
+        // follows takes the change. Those kept beside the parameters follow
+        // on their own (`follow_kept`).
+        let differs = |p: &str| match (crate::compounds::get(&edited, p), crate::compounds::get(&shown_v, p)) {
+            (Some(a), Some(b)) => match (a.as_f64(), b.as_f64()) {
+                (Some(x), Some(y)) => (x - y).abs() > 1e-6 * (1.0 + y.abs()),
+                _ => a != b,
+            },
+            _ => false,
+        };
         let mut through = vec![];
-        for l in &node.links {
-            if changed(&l.path) {
-                if let (Some(root), Some(x)) = (self.root_of(id, &l.path), keys::get(&edited, &l.path)) {
+        for l in node.links.iter().filter(|l| !super::links::kept(&l.path)) {
+            if differs(&l.path) {
+                let x = crate::compounds::get(&edited, &l.path).cloned();
+                if let (Some(root), Some(x)) = (self.root_of(id, &l.path), x) {
                     through.push((root, x));
                 }
             }
-            if let Some(o) = keys::get(&own_v, &l.path) {
-                keys::set(&mut kept, &l.path, o);
+            if let Some(o) = crate::compounds::get(&own_v, &l.path).cloned() {
+                crate::compounds::put(&mut kept, &l.path, o);
             }
         }
         let Some(node) = self.node_mut(id) else { return };
@@ -293,7 +302,26 @@ impl NodeGraphState {
             self.set_key_value(id, &p, key, v);
         }
         for ((root, p), v) in through {
-            self.set_number(root, &p, v);
+            self.set_value(root, &p, v);
+        }
+    }
+
+    /// Set value `path` of a node to `x`: a number keyed at its playhead when
+    /// it is keyed; else its own, when it can hold it (`GraphNode::put_value`).
+    pub(crate) fn set_value(&mut self, id: NodeId, path: &str, x: serde_json::Value) {
+        if let Some(v) = x.as_f64() {
+            let keyed = self
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .is_some_and(|n| n.channels.iter().any(|c| c.path == path));
+            if keyed {
+                self.set_number(id, path, v);
+                return;
+            }
+        }
+        if let Some(n) = self.node_mut(id) {
+            n.put_value(path, x);
         }
     }
 

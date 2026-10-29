@@ -1,22 +1,25 @@
-//! References: a number of an operator's parameters following another
-//! operator's (see `docs/compounds.md`, Promotion and references).
+//! References: a parameter of an operator following another operator's (see
+//! `docs/compounds.md`, Promotion and references): a number, a part of a
+//! vector, text, a switch, a choice, a vector or a list, each following one
+//! of its own kind.
 //!
 //! - **Kept on the operator that follows,** beside its keys (`GraphNode::links`):
 //!   a reference copies, pastes, deletes and undoes with it.
 //! - **Applied where keys are:** an operator's parameters as it cooks
 //!   (`shown_at`, which `animated_type` is) are its own, with its keyed numbers
-//!   from their curves and its referenced ones from their sources, as those
+//!   from their curves and its referenced values from their sources, as those
 //!   cook. The graph is not written to, so a reference adds no step to the
 //!   history, and the cook key, made from those parameters, follows the
 //!   source. A reference to a keyed number follows its animation.
-//!   A reference reads the number at the end of its chain (`root_of`): each
-//!   number is looked up once, however many references an operator has.
-//! - **Refused:** a number following itself, one that is keyed (and keying one
-//!   that follows: take the reference away first), one that is not a number,
-//!   and a loop (a number following one that follows it, on the same operator
-//!   or another).
-//! - **Editing** a number that follows, in the Parameters pane or with a
-//!   handle, changes the number it follows (at the end of its chain), so both
+//!   A reference reads the value at the end of its chain (`root_of`).
+//!   Values kept beside the parameters (a spare parameter, the Prims Location
+//!   tab) are set from their source once a frame instead (`follow_kept`).
+//! - **Refused:** a value following itself, a number that is keyed (and
+//!   keying one that follows: take the reference away first), values of two
+//!   kinds (text and a number, a 3D and a 2D vector), one the parameter cannot
+//!   hold (text that is none of a choice's options), and a loop.
+//! - **Editing** a value that follows, in the Parameters pane or with a
+//!   handle, changes the value it follows (at the end of its chain), so both
 //!   change and the reference stays (`keying::end_edit`). Remove Reference
 //!   takes it away.
 
@@ -26,11 +29,12 @@ use serde::{Deserialize, Serialize};
 
 use super::keying::animated_at;
 use super::{GraphNode, NodeGraphState};
+use crate::compounds;
 use crate::core::keys;
 use crate::types::{NodeId, NodeType};
 
-/// Number `path` of an operator's parameters (`translation/1`), following
-/// number `from` of operator `node`.
+/// Parameter `path` of an operator's parameters (`translation/1`), following
+/// parameter `from` of operator `node`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Link {
     pub path: String,
@@ -38,76 +42,153 @@ pub struct Link {
     pub from: String,
 }
 
-/// What each spare parameter that follows another number followed, by its
-/// operator and path (`NodeGraphState::follow_spares`).
-pub type Followed = std::collections::HashMap<(NodeId, String), f64>;
+/// What each value kept beside the parameters that follows another followed,
+/// by its operator and path (`NodeGraphState::follow_kept`).
+pub type Followed = std::collections::HashMap<(NodeId, String), serde_json::Value>;
+
+/// Whether `path` is of a value kept beside an operator's parameters: a spare
+/// parameter, the Prims Location tab.
+pub fn kept(path: &str) -> bool {
+    path.starts_with(super::spare::PREFIX) || path == compounds::LOCATIONS
+}
+
+/// Whether value `b` can stand for `a`: both numbers, text, switches, text
+/// rows (a list, any length), or numbers side by side as many.
+pub fn same_kind(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value as V;
+    let text = |x: &[V]| x.iter().all(V::is_string);
+    let numbers = |x: &[V]| x.iter().all(V::is_number);
+    match (a, b) {
+        (V::Number(_), V::Number(_)) | (V::String(_), V::String(_)) | (V::Bool(_), V::Bool(_)) => true,
+        (V::Array(x), V::Array(y)) if text(x) && text(y) => true,
+        (V::Array(x), V::Array(y)) => x.len() == y.len() && numbers(x) && numbers(y),
+        _ => false,
+    }
+}
+
+impl GraphNode {
+    /// The value of parameter `path` of its own (not as keyed or referenced):
+    /// of its parameters, a spare parameter's, its Prims Location rows.
+    pub fn value_at(&self, path: &str) -> Option<serde_json::Value> {
+        if path == compounds::LOCATIONS {
+            return Some(serde_json::json!(self.locations));
+        }
+        if path.starts_with(super::spare::PREFIX) {
+            return self.spare.get(path);
+        }
+        compounds::get(&serde_json::to_value(&self.node_type).ok()?, path).cloned()
+    }
+
+    /// Set value `path` of its own to `x` when it can hold it. Whether it did.
+    pub fn put_value(&mut self, path: &str, x: serde_json::Value) -> bool {
+        if path == compounds::LOCATIONS {
+            let Some(rows) = x.as_array() else { return false };
+            self.locations = rows.iter().filter_map(|r| r.as_str().map(str::to_string)).collect();
+            return true;
+        }
+        if path.starts_with(super::spare::PREFIX) {
+            return self.spare.put(path, x);
+        }
+        let Ok(mut v) = serde_json::to_value(&self.node_type) else {
+            return false;
+        };
+        match put_checked(&mut v, path, x) {
+            Some(t) => {
+                self.node_type = t;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// `x` put at `path` of parameters `v` when it is of the kind there and the
+/// parameters still read as an operator's: those parameters.
+fn put_checked(v: &mut serde_json::Value, path: &str, x: serde_json::Value) -> Option<NodeType> {
+    let was = compounds::get(v, path)?;
+    if !same_kind(was, &x) {
+        return None;
+    }
+    let mut next = v.clone();
+    if !compounds::put(&mut next, path, x) {
+        return None;
+    }
+    let t = serde_json::from_value(next.clone()).ok()?;
+    *v = next;
+    Some(t)
+}
 
 impl NodeGraphState {
     /// An operator's parameters as it cooks at `frame`: its keyed numbers from
-    /// their curves, its referenced ones from their sources.
+    /// their curves, its referenced values from their sources (each that it
+    /// can hold).
     pub fn shown_at<'a>(&self, node: &'a GraphNode, frame: f64) -> Cow<'a, NodeType> {
         let keyed = animated_at(node, frame);
-        if node.links.is_empty() {
+        if node.links.iter().all(|l| kept(&l.path)) {
             return keyed;
         }
         let Ok(mut v) = serde_json::to_value(&*keyed) else {
             return keyed;
         };
-        let mut any = false;
-        for l in &node.links {
-            if let Some(x) = self.followed(l) {
-                any |= keys::set(&mut v, &l.path, x);
+        let mut shown = None;
+        for l in node.links.iter().filter(|l| !kept(&l.path)) {
+            if let Some(t) = self.followed(l).and_then(|x| put_checked(&mut v, &l.path, x)) {
+                shown = Some(t);
             }
         }
-        if !any {
-            return keyed;
-        }
-        match serde_json::from_value(v) {
-            Ok(t) => Cow::Owned(t),
-            Err(_) => keyed,
+        match shown {
+            Some(t) => Cow::Owned(t),
+            None => keyed,
         }
     }
 
-    /// The number a reference reads: the one at the end of its chain, as its
+    /// The value a reference reads: the one at the end of its chain, as its
     /// operator cooks. None when an operator on the way is gone, the chain
-    /// loops, or there is no number there.
-    fn followed(&self, l: &Link) -> Option<f64> {
+    /// loops, or there is no value there.
+    pub(crate) fn followed(&self, l: &Link) -> Option<serde_json::Value> {
         let (id, path) = self.root_of(l.node, &l.from)?;
         let src = self.nodes.iter().find(|n| n.id == id)?;
-        // A spare parameter: its value, as it is not keyed.
-        if path.starts_with(super::spare::PREFIX) {
-            return src.spare.get(&path)?.as_f64();
+        if kept(&path) {
+            return src.value_at(&path);
         }
-        keys::get(
-            &serde_json::to_value(&*animated_at(src, self.node_frame(src))).ok()?,
-            &path,
-        )
+        let v = serde_json::to_value(&*animated_at(src, self.node_frame(src))).ok()?;
+        compounds::get(&v, &path).cloned()
     }
 
-    /// Spare parameters that follow another number take its value, once a
-    /// frame; one changed by hand changes the number it follows (as any
-    /// reference does) and keeps following it. `last` is what each followed
-    /// last time, by operator and path.
-    pub fn follow_spares(&mut self, last: &mut Followed) {
-        let mut set: Vec<(NodeId, String, f64)> = vec![];
-        let mut through: Vec<((NodeId, String), f64)> = vec![];
+    /// The value of parameter `path` of operator `id` as it is shown: keyed
+    /// at the playhead, referenced from its source.
+    pub fn shown_value(&self, id: NodeId, path: &str) -> Option<serde_json::Value> {
+        let n = self.nodes.iter().find(|n| n.id == id)?;
+        if kept(path) {
+            return n.value_at(path);
+        }
+        compounds::get(&serde_json::to_value(&*self.animated_type(n)).ok()?, path).cloned()
+    }
+
+    /// Values kept beside the parameters (a spare parameter, the Prims
+    /// Location tab) that follow another take its value, once a frame; one
+    /// changed by hand changes the value it follows (as any reference does)
+    /// and keeps following it. `last` is what each followed last time.
+    pub fn follow_kept(&mut self, last: &mut Followed) {
+        let mut set: Vec<(NodeId, String, serde_json::Value)> = vec![];
+        let mut through: Vec<((NodeId, String), serde_json::Value)> = vec![];
         for n in &self.nodes {
-            for l in n.links.iter().filter(|l| l.path.starts_with(super::spare::PREFIX)) {
+            for l in n.links.iter().filter(|l| kept(&l.path)) {
                 let key = (n.id, l.path.clone());
-                let now = n.spare.get(&l.path).and_then(|v| v.as_f64());
+                let now = n.value_at(&l.path);
                 let Some(src) = self.followed(l) else { continue };
-                let was = last.get(&key).copied();
+                let was = last.get(&key).cloned();
                 match (now, was) {
                     // Changed here, not at the source: the source takes it.
                     (Some(x), Some(w)) if x != w && src == w => {
                         if let Some(root) = self.root_of(n.id, &l.path) {
-                            through.push((root, x));
+                            through.push((root, x.clone()));
                         }
                         last.insert(key, x);
                     }
-                    _ => {
-                        if now != Some(src) {
-                            set.push((n.id, l.path.clone(), src));
+                    (now, _) => {
+                        if now.as_ref() != Some(&src) {
+                            set.push((n.id, l.path.clone(), src.clone()));
                         }
                         last.insert(key, src);
                     }
@@ -116,10 +197,10 @@ impl NodeGraphState {
         }
         let any = !set.is_empty() || !through.is_empty();
         for (id, path, x) in set {
-            self.set_number(id, &path, x);
+            self.set_value(id, &path, x);
         }
         for ((id, path), x) in through {
-            self.set_number(id, &path, x);
+            self.set_value(id, &path, x);
         }
         if any {
             self.mark_dirty();
@@ -171,22 +252,32 @@ impl NodeGraphState {
             return Err("That operator is gone".into());
         };
         if to == node && path == from {
-            return Err("A number cannot follow itself".into());
+            return Err("A parameter cannot follow itself".into());
         }
-        let number = |id: NodeId, p: &str| {
-            let spare = self
-                .nodes
-                .iter()
-                .find(|n| n.id == id)
-                .map(|n| n.spare.numbers())
-                .unwrap_or_default();
-            self.keyable_values(id).iter().chain(&spare).any(|(k, _)| k == p)
+        let (Some(here), Some(there)) = (self.shown_value(to, path), self.shown_value(node, from)) else {
+            let (whose, what) = match self.shown_value(to, path) {
+                None => (&target, path),
+                Some(_) => (&source, from),
+            };
+            return Err(format!("{whose} has no parameter {}", keys::label(what)));
         };
-        if !number(to, path) {
-            return Err(format!("{path} is not a number of {target}"));
+        if !same_kind(&here, &there) {
+            return Err(format!(
+                "{target} {} and {source} {} are not of one kind: a reference follows a value of its own kind",
+                keys::label(path),
+                keys::label(from)
+            ));
         }
-        if !number(node, from) {
-            return Err(format!("{from} is not a number of {source}"));
+        // One it cannot hold (text that is none of a choice's options).
+        if !kept(path) {
+            let mut t = self.nodes.iter().find(|n| n.id == to).cloned();
+            if !t.as_mut().is_some_and(|t| t.put_value(path, there.clone())) {
+                return Err(format!(
+                    "{target} {} cannot take {source} {}",
+                    keys::label(path),
+                    keys::label(from)
+                ));
+            }
         }
         let keyed = self
             .nodes
@@ -256,6 +347,34 @@ mod tests {
         }
     }
 
+    /// Every kind of value follows one of its kind: a vector, text, the Prims
+    /// Location rows (set once a frame); two kinds are refused.
+    #[test]
+    fn every_kind_of_value_follows_its_own_kind() {
+        let at = egui::pos2(0.0, 0.0);
+        let mut g = NodeGraphState::default();
+        let a = g.add_node("A".into(), transform(2.0), at);
+        let b = g.add_node("B".into(), transform(0.0), at);
+        g.link(b, "translation", a, "translation").unwrap();
+        assert_eq!(y_of(&g, b), 2.0, "a vector follows a vector");
+        assert!(g.link(b, "scale", a, "translation/1").unwrap_err().contains("kind"));
+        let c = g.add_node("C".into(), NodeType::cube(1.0), at);
+        let d = g.add_node("D".into(), NodeType::cube(1.0), at);
+        assert!(g.nodes[2].put_value("location", serde_json::json!("/set/box")));
+        assert!(
+            !g.nodes[2].put_value("location", serde_json::json!(3.0)),
+            "not a number in text"
+        );
+        g.link(d, "location", c, "location").unwrap();
+        assert_eq!(g.shown_value(d, "location"), Some(serde_json::json!("/set/box")));
+        assert!(g.link(d, "size", c, "location").is_err());
+        g.nodes[0].locations = vec!["/a".into(), "/b".into()];
+        g.link(b, "@locations", a, "@locations").unwrap();
+        let mut last = Followed::new();
+        g.follow_kept(&mut last);
+        assert_eq!(g.nodes[1].locations, vec!["/a".to_string(), "/b".to_string()]);
+    }
+
     /// A parameter follows a spare parameter; a spare parameter follows a
     /// parameter, and changed by hand changes it.
     #[test]
@@ -278,11 +397,11 @@ mod tests {
         g.nodes[0].node_type = transform(2.0);
         g.link(b, "spare/lift", a, "translation/1").unwrap();
         let mut last = Followed::new();
-        g.follow_spares(&mut last);
+        g.follow_kept(&mut last);
         assert_eq!(g.nodes[1].spare.get("spare/lift"), Some(serde_json::json!(2.0)));
         // Changed by hand: A's Y takes it.
         g.nodes[1].spare.put("spare/lift", serde_json::json!(5.0));
-        g.follow_spares(&mut last);
+        g.follow_kept(&mut last);
         assert!(matches!(&g.nodes[0].node_type, NodeType::Transform { translation, .. } if translation.y == 5.0));
         assert_eq!(g.nodes[1].spare.get("spare/lift"), Some(serde_json::json!(5.0)));
     }

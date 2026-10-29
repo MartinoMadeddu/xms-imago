@@ -97,8 +97,10 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 - **Promoted parameters** show in the instance's parameters by group: numbers,
   switches, text, choices, lists and vectors. A value set back to the default is the default
   again. Each instance keeps its own.
-- **References:** right-click any number's row (or the number in the Keys
-  list), **Copy as Reference**; on another number, **Paste as Reference**: it follows the first,
+- **References:** right-click any row (a number, a part of a vector, text, a
+  switch, a choice, a vector, a list, the Prims Location tab's rows; or the
+  number in the Keys list), **Copy as Reference**; on another row of the same
+  kind, **Paste as Reference**: it follows the first,
   as it cooks (keyed, it follows its animation). Both stay joined: changing
   either changes both, since a value typed (or dragged, or moved with a
   handle) over the number that follows goes to the number it follows, at the
@@ -293,8 +295,14 @@ operator's parameter (a reference) or the compound's promoted parameter
   which it is.
 - **Linked rows** show a link mark and a tooltip naming their source; editing
   one replaces the link with its own value.
-- **Cycles are refused** when the link is made. **Types match:** a number to a
-  number, a vector to a vector, one channel (`translation/1`) to a number.
+- **Cycles are refused** when the link is made. **Kinds match:** a number to a
+  number, one channel (`translation/1`) to a number, a vector to a vector of
+  as many numbers, text to text, a switch to a switch, a list to a list (any
+  number of rows); a value the parameter cannot hold (text that is none of a
+  choice's options) is refused too. Values kept beside the parameters (a
+  spare parameter, the Prims Location rows) are set from their source once a
+  frame (`links::follow_kept`); changed by hand, their source takes the
+  change, as any reference's does.
 
 On the right-click menu of a parameter row: **Copy as Reference**, **Paste as
 Reference**, **Remove Reference**; inside an editable compound, **Promote…**,
