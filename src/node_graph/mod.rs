@@ -4,6 +4,7 @@ pub mod keying;
 pub mod links;
 pub mod local;
 pub mod nodes;
+pub mod spare;
 pub mod ui;
 
 use crate::types::{BodyView, ConnectionId, EvalResult, IceGraphId, MeshData, NodeId, NodeType};
@@ -199,6 +200,8 @@ pub struct GraphNode {
     /// Numbers of its parameters following another operator's (`links`).
     /// Saved.
     pub links: Vec<links::Link>,
+    /// Parameters added to it from its Parameters with + (`spare`). Saved.
+    pub spare: spare::Spare,
 }
 
 #[derive(Clone)]
@@ -445,6 +448,9 @@ impl NodeGraphState {
             }
             n.locations.hash(&mut w.0);
             n.links.hash(&mut w.0);
+            if !n.spare.is_empty() {
+                let _ = serde_json::to_writer(&mut w, &n.spare);
+            }
         }
         for c in &self.connections {
             (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut w.0);
@@ -486,6 +492,7 @@ impl NodeGraphState {
             channels: vec![],
             links: vec![],
             locations: vec![],
+            spare: Default::default(),
         });
         // The first operator of a graph is viewed: there is always one.
         if self.view_flag.is_none() {

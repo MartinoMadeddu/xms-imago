@@ -40,6 +40,9 @@ struct SavedNode {
     /// there are none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     links: Vec<crate::node_graph::links::Link>,
+    /// Its spare parameters and their values. Left out when there are none.
+    #[serde(default, skip_serializing_if = "crate::node_graph::spare::Spare::is_empty")]
+    spare: crate::node_graph::spare::Spare,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -138,6 +141,7 @@ pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
                 channels: n.channels.clone(),
                 locations: n.locations.clone(),
                 links: n.links.clone(),
+                spare: n.spare.clone(),
             })
             .collect(),
         connections: graph
@@ -182,6 +186,7 @@ pub fn from_json(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, json: 
             node.channels = n.channels;
             node.locations = n.locations;
             node.links = n.links;
+            node.spare = n.spare;
         }
         graph.next_node_id = graph.next_node_id.max(n.id + 1);
     }
@@ -489,6 +494,7 @@ pub fn copy(graph: &NodeGraphState, subnets: &IceGraphStore, ids: &[NodeId]) -> 
                 channels: n.channels.clone(),
                 locations: n.locations.clone(),
                 links: n.links.clone(),
+                spare: n.spare.clone(),
             })
             .collect(),
         connections: graph
@@ -553,6 +559,7 @@ pub fn paste(
             node.channels = n.channels.clone();
             node.locations = n.locations.clone();
             node.links = n.links.clone();
+            node.spare = n.spare.clone();
         }
         placed.insert(n.id, new);
     }

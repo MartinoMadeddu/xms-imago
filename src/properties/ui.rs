@@ -1250,6 +1250,7 @@ pub fn draw_properties(
             resync |= f.text("Name", Some("The output port's name on the compound"), name, "Scene").changed();
         }),
     }
+    spare_rows(ui, node);
     if enter_compound {
         graph.inside.request = Some(crate::node_graph::compound::Request::Enter(sel_id));
     }
@@ -1261,6 +1262,151 @@ pub fn draw_properties(
     // 7,777,777 inputs would be made), put back after the panel.
     if resync && !form::probe_put() {
         graph.sync_sockets(sel_id);
+    }
+}
+
+// Spare parameters
+
+/// The + window's spare parameter, while it is open: for operator `node`.
+#[derive(Clone)]
+struct SpareDraft {
+    node: NodeId,
+    kind: crate::compounds::ParameterType,
+    label: String,
+    group: String,
+    range: bool,
+    min: f64,
+    max: f64,
+    /// A choice's options, one a line.
+    options: String,
+    error: Option<String>,
+}
+
+fn spare_draft_id() -> egui::Id {
+    egui::Id::new("spare_parameter_draft")
+}
+
+/// An operator's spare parameters (`node_graph::spare`), by group, as a
+/// compound's promoted parameters are drawn; then + to add one, in a window:
+/// its type picked from those there are, a name, a group, a number's range, a
+/// choice's options.
+fn spare_rows(ui: &mut egui::Ui, node: &mut crate::node_graph::GraphNode) {
+    use crate::compounds::ParameterType as T;
+    use crate::node_graph::spare::KINDS;
+    let spare = &mut node.spare;
+    if !spare.is_empty() {
+        let params = spare.parameters.clone();
+        promoted_groups(ui, &params, &mut spare.values);
+    }
+    let add = ui
+        .button("+ Spare Parameter")
+        .on_hover_text("Add a parameter of your own to this operator: a number, text, a switch, a choice, for its parameters (or another operator's) to follow, and to promote");
+    if add.clicked() {
+        let d = SpareDraft {
+            node: node.id,
+            kind: T::Float,
+            label: String::new(),
+            group: "Spare".into(),
+            range: false,
+            min: 0.0,
+            max: 1.0,
+            options: String::new(),
+            error: None,
+        };
+        ui.data_mut(|m| m.insert_temp(spare_draft_id(), d));
+    }
+    let Some(mut d) = ui.data(|m| m.get_temp::<SpareDraft>(spare_draft_id())) else {
+        return;
+    };
+    // Another operator selected: its window closes.
+    if d.node != node.id {
+        ui.data_mut(|m| m.remove::<SpareDraft>(spare_draft_id()));
+        return;
+    }
+    let groups: Vec<String> = {
+        let mut g: Vec<String> = vec![];
+        for p in &spare.parameters {
+            if !p.group.is_empty() && !g.contains(&p.group) {
+                g.push(p.group.clone());
+            }
+        }
+        g
+    };
+    let (mut open, mut made) = (true, false);
+    egui::Window::new("Add Spare Parameter")
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            egui::Grid::new("spare_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Type");
+                let shown = KINDS.iter().find(|(k, _)| *k == d.kind).map_or("", |(_, l)| *l);
+                egui::ComboBox::from_id_salt("spare_kind")
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        for (k, l) in KINDS {
+                            ui.selectable_value(&mut d.kind, *k, *l);
+                        }
+                    });
+                ui.end_row();
+                ui.label("Name");
+                ui.text_edit_singleline(&mut d.label);
+                ui.end_row();
+                ui.label("Group");
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut d.group).desired_width(140.0));
+                    ui.add_enabled_ui(!groups.is_empty(), |ui| {
+                        crate::menus::menu(ui, "▾", |ui| {
+                            for g in &groups {
+                                if ui.button(g).clicked() {
+                                    d.group = g.clone();
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("A group its spare parameters are in already");
+                    });
+                });
+                ui.end_row();
+                if matches!(d.kind, T::Float | T::Integer) {
+                    ui.label("Range");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut d.range, "")
+                            .on_hover_text("A slider between the two, else a number to drag");
+                        ui.add_enabled(d.range, egui::DragValue::new(&mut d.min).speed(0.1));
+                        ui.label("to");
+                        ui.add_enabled(d.range, egui::DragValue::new(&mut d.max).speed(0.1));
+                    });
+                    ui.end_row();
+                }
+                if d.kind == T::Choice {
+                    ui.label("Options");
+                    ui.add(
+                        egui::TextEdit::multiline(&mut d.options)
+                            .desired_rows(3)
+                            .hint_text("one a line"),
+                    );
+                    ui.end_row();
+                }
+            });
+            if let Some(e) = &d.error {
+                ui.colored_label(ink::BAD(), e);
+            }
+            made = ui.button("Add").clicked();
+        });
+    if made {
+        let range = d.range.then_some([d.min.min(d.max), d.min.max(d.max)]);
+        let options: Vec<String> = d.options.lines().map(str::to_string).collect();
+        match spare.add(d.kind, &d.label, &d.group, range, &options) {
+            Ok(_) => open = false,
+            Err(e) => d.error = Some(e),
+        }
+    }
+    if open {
+        ui.data_mut(|m| m.insert_temp(spare_draft_id(), d));
+    } else {
+        ui.data_mut(|m| m.remove::<SpareDraft>(spare_draft_id()));
     }
 }
 

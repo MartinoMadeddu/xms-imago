@@ -303,6 +303,22 @@ interface, this row its target. Promoting a promoted row adds it as another
 target. Until every row knows its serde path (step 4), these are on the rows of
 the Keys list, which already names every number by its path.
 
+### Spare parameters
+
+Any operator's Parameters end with **+ Spare Parameter**: a window asks for its
+type (a drop-down of those there are: Float, Integer, Toggle, Text, 2D, 3D and
+4D Vector, Colour, Choice, Text List), a name, a group (typed, or one of its
+spare groups picked) and, for a number, a range; a Choice takes its options, one
+a line. The spare parameter is drawn in its group after the operator's own, as
+promoted parameters are, and is a row like any other: **Copy as Reference** from
+it and **Paste as Reference** on a parameter (that one follows it), or the
+other way (the spare one follows, and changed by hand changes its source);
+promoted inside a compound; **Remove Spare Parameter** on its right-click menu
+takes it away with the references to and from it. Its path is
+`spare/<name>` (`node_graph::spare`); it is saved with the operator, and its
+changes are steps of the history. Not on ICE or MaterialX nodes yet, and no
+buttons (nothing to run them yet).
+
 ## Cooking
 
 - **A scene compound instance cooks its inner graph:** its inputs fed to the

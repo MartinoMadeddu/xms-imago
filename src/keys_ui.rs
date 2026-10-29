@@ -44,10 +44,11 @@ enum RowAsk {
     CopyReference(String),
     PasteReference(String),
     RemoveReference(String),
-    /// The path, its value, a list's options.
     /// Its path, value, options (a list's) and group (`form::row_group`).
     Promote(String, serde_json::Value, Vec<(String, serde_json::Value)>, String),
     RemovePromotion(String),
+    /// A spare parameter taken away, with the references to and from it.
+    RemoveSpare(String),
 }
 
 /// The number Copy as Reference copied: the operator, its name (to know it
@@ -280,6 +281,17 @@ fn number_menu(
             ui.close();
         }
     }
+    if path.starts_with(crate::node_graph::spare::PREFIX) {
+        ui.separator();
+        if ui
+            .button("Remove Spare Parameter")
+            .on_hover_text("Take this spare parameter away, and the references to and from it")
+            .clicked()
+        {
+            ask = Some(RowAsk::RemoveSpare(path.to_string()));
+            ui.close();
+        }
+    }
     ask
 }
 
@@ -325,6 +337,7 @@ fn carry_out(ctx: &egui::Context, graph: &mut NodeGraphState, id: NodeId, ask: R
             remove_promotion(graph, &node_name, &p);
             Some(format!("{node_name} {} is no longer promoted", keys::label(&p)))
         }
+        RowAsk::RemoveSpare(p) => Some(remove_spare(graph, id, &p)),
     }
 }
 
@@ -490,6 +503,17 @@ pub fn found_row(
             let probed = node.locations.iter().any(|l| l.to_lowercase().contains(probe));
             let changed = before.as_ref().is_some_and(|b| b.locations != node.locations);
             (probed || changed).then(|| crate::compounds::LOCATIONS.to_string())
+        })
+        // A spare parameter's row: found in its values as a parameter's is.
+        .or_else(|| {
+            let now = node.spare.json();
+            let was = before.as_ref().map(|b| b.spare.json());
+            let p = probed_path(&now, was.as_ref())?;
+            Some(format!(
+                "{}{}",
+                crate::node_graph::spare::PREFIX,
+                crate::compounds::whole_list(&now, &p)
+            ))
         });
     let was: Vec<(String, f64)> = was_v.as_ref().map(keys::keyable).unwrap_or_default();
     let value = path
@@ -777,6 +801,7 @@ fn promoting(
     let label = keys::label(
         path.strip_prefix("params/")
             .or_else(|| path.strip_prefix("values/"))
+            .or_else(|| path.strip_prefix(crate::node_graph::spare::PREFIX))
             .unwrap_or(path),
     );
     let label = if path == crate::compounds::LOCATIONS {
@@ -809,6 +834,9 @@ fn promoting(
 fn current(n: &crate::node_graph::GraphNode, path: &str) -> Option<serde_json::Value> {
     if path == crate::compounds::LOCATIONS {
         return Some(serde_json::json!(n.locations));
+    }
+    if let Some(v) = n.spare.get(path) {
+        return Some(v);
     }
     let v = serde_json::to_value(&n.node_type).ok()?;
     crate::compounds::get(&v, path).cloned()
@@ -934,6 +962,33 @@ fn promote(graph: &mut NodeGraphState, p: &Promoting) -> String {
         "Promoted as {}: the compound's instances set it, once you leave the compound",
         p.label.trim()
     )
+}
+
+/// Take spare parameter `path` (or the one a part of it is of) of operator
+/// `id` away, with the references to and from it. What to tell.
+fn remove_spare(graph: &mut NodeGraphState, id: NodeId, path: &str) -> String {
+    let prefix = crate::node_graph::spare::PREFIX;
+    let Some(name) = path.strip_prefix(prefix).and_then(|r| r.split('/').next()) else {
+        return "Not a spare parameter".into();
+    };
+    let whole = format!("{prefix}{name}");
+    let of = |p: &str| p == whole || p.starts_with(&format!("{whole}/"));
+    let Some(n) = graph.nodes.iter_mut().find(|n| n.id == id) else {
+        return "That operator is gone".into();
+    };
+    let label = n
+        .spare
+        .parameters
+        .iter()
+        .find(|p| p.name == name)
+        .map_or(name.to_string(), |p| p.label.clone());
+    n.spare.remove(&whole);
+    n.links.retain(|l| !of(&l.path));
+    let node = n.name.clone();
+    for m in graph.nodes.iter_mut() {
+        m.links.retain(|l| !(l.node == id && of(&l.from)));
+    }
+    format!("{node}'s spare parameter {label} is taken away")
 }
 
 /// Take number `path` of inner operator `node` off the compound's parameters:

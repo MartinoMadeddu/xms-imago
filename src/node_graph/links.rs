@@ -38,6 +38,10 @@ pub struct Link {
     pub from: String,
 }
 
+/// What each spare parameter that follows another number followed, by its
+/// operator and path (`NodeGraphState::follow_spares`).
+pub type Followed = std::collections::HashMap<(NodeId, String), f64>;
+
 impl NodeGraphState {
     /// An operator's parameters as it cooks at `frame`: its keyed numbers from
     /// their curves, its referenced ones from their sources.
@@ -70,10 +74,56 @@ impl NodeGraphState {
     fn followed(&self, l: &Link) -> Option<f64> {
         let (id, path) = self.root_of(l.node, &l.from)?;
         let src = self.nodes.iter().find(|n| n.id == id)?;
+        // A spare parameter: its value, as it is not keyed.
+        if path.starts_with(super::spare::PREFIX) {
+            return src.spare.get(&path)?.as_f64();
+        }
         keys::get(
             &serde_json::to_value(&*animated_at(src, self.node_frame(src))).ok()?,
             &path,
         )
+    }
+
+    /// Spare parameters that follow another number take its value, once a
+    /// frame; one changed by hand changes the number it follows (as any
+    /// reference does) and keeps following it. `last` is what each followed
+    /// last time, by operator and path.
+    pub fn follow_spares(&mut self, last: &mut Followed) {
+        let mut set: Vec<(NodeId, String, f64)> = vec![];
+        let mut through: Vec<((NodeId, String), f64)> = vec![];
+        for n in &self.nodes {
+            for l in n.links.iter().filter(|l| l.path.starts_with(super::spare::PREFIX)) {
+                let key = (n.id, l.path.clone());
+                let now = n.spare.get(&l.path).and_then(|v| v.as_f64());
+                let Some(src) = self.followed(l) else { continue };
+                let was = last.get(&key).copied();
+                match (now, was) {
+                    // Changed here, not at the source: the source takes it.
+                    (Some(x), Some(w)) if x != w && src == w => {
+                        if let Some(root) = self.root_of(n.id, &l.path) {
+                            through.push((root, x));
+                        }
+                        last.insert(key, x);
+                    }
+                    _ => {
+                        if now != Some(src) {
+                            set.push((n.id, l.path.clone(), src));
+                        }
+                        last.insert(key, src);
+                    }
+                }
+            }
+        }
+        let any = !set.is_empty() || !through.is_empty();
+        for (id, path, x) in set {
+            self.set_number(id, &path, x);
+        }
+        for ((id, path), x) in through {
+            self.set_number(id, &path, x);
+        }
+        if any {
+            self.mark_dirty();
+        }
     }
 
     /// The numbers number `path` of operator `id` follows, one after the
@@ -123,7 +173,15 @@ impl NodeGraphState {
         if to == node && path == from {
             return Err("A number cannot follow itself".into());
         }
-        let number = |id: NodeId, p: &str| self.keyable_values(id).iter().any(|(k, _)| k == p);
+        let number = |id: NodeId, p: &str| {
+            let spare = self
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .map(|n| n.spare.numbers())
+                .unwrap_or_default();
+            self.keyable_values(id).iter().chain(&spare).any(|(k, _)| k == p)
+        };
         if !number(to, path) {
             return Err(format!("{path} is not a number of {target}"));
         }
@@ -196,6 +254,37 @@ mod tests {
             NodeType::Transform { translation, .. } => translation.y,
             _ => f32::NAN,
         }
+    }
+
+    /// A parameter follows a spare parameter; a spare parameter follows a
+    /// parameter, and changed by hand changes it.
+    #[test]
+    fn spare_parameters_follow_and_are_followed() {
+        use crate::compounds::ParameterType;
+        let mut g = NodeGraphState::default();
+        let a = g.add_node("A".into(), transform(0.0), egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), transform(1.0), egui::pos2(0.0, 100.0));
+        let spare = &mut g.nodes[0].spare;
+        spare.add(ParameterType::Float, "Height", "", None, &[]).unwrap();
+        spare.put("spare/height", serde_json::json!(4.0));
+        g.link(b, "translation/1", a, "spare/height").unwrap();
+        assert_eq!(y_of(&g, b), 4.0, "a parameter follows a spare one");
+        assert!(g.link(b, "translation/1", a, "spare/nothing").is_err());
+        // A spare parameter of B follows A's Y.
+        g.nodes[1]
+            .spare
+            .add(ParameterType::Float, "Lift", "", None, &[])
+            .unwrap();
+        g.nodes[0].node_type = transform(2.0);
+        g.link(b, "spare/lift", a, "translation/1").unwrap();
+        let mut last = Followed::new();
+        g.follow_spares(&mut last);
+        assert_eq!(g.nodes[1].spare.get("spare/lift"), Some(serde_json::json!(2.0)));
+        // Changed by hand: A's Y takes it.
+        g.nodes[1].spare.put("spare/lift", serde_json::json!(5.0));
+        g.follow_spares(&mut last);
+        assert!(matches!(&g.nodes[0].node_type, NodeType::Transform { translation, .. } if translation.y == 5.0));
+        assert_eq!(g.nodes[1].spare.get("spare/lift"), Some(serde_json::json!(5.0)));
     }
 
     /// A number follows another as it cooks, the operator's own unchanged;

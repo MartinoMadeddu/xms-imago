@@ -298,8 +298,8 @@ impl NodeGraphState {
     }
 
     /// Set number `path` of a node to `value`: keyed at its playhead when it
-    /// is keyed, its own otherwise.
-    fn set_number(&mut self, id: NodeId, path: &str, value: f64) {
+    /// is keyed, its own otherwise; a spare parameter's its value.
+    pub(crate) fn set_number(&mut self, id: NodeId, path: &str, value: f64) {
         let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
             return;
         };
@@ -309,6 +309,16 @@ impl NodeGraphState {
             return;
         }
         let Some(node) = self.node_mut(id) else { return };
+        if path.starts_with(super::spare::PREFIX) {
+            let whole = node.spare.get(path).is_some_and(|v| v.is_i64() || v.is_u64());
+            let x = if whole {
+                serde_json::json!(value.round() as i64)
+            } else {
+                serde_json::json!(value)
+            };
+            node.spare.put(path, x);
+            return;
+        }
         let Ok(mut v) = serde_json::to_value(&node.node_type) else {
             return;
         };

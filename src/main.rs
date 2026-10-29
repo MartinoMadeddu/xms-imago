@@ -1490,6 +1490,11 @@ pub(crate) fn history_frame(ctx: &egui::Context, app: &mut AppState) {
         ..
     } = app;
     crate::ice::compound::keep_params(graph, subnets);
+    // What each spare parameter that follows another followed last frame.
+    thread_local! {
+        static FOLLOWED: std::cell::RefCell<crate::node_graph::links::Followed> = Default::default();
+    }
+    FOLLOWED.with(|f| graph.follow_spares(&mut f.borrow_mut()));
     history.set_ice(subnets.content_hash());
     let typing = ctx.egui_wants_keyboard_input();
     if !typing && !browser.is_open() {

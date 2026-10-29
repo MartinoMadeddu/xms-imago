@@ -79,6 +79,10 @@ fn node_hash(n: &GraphNode, core: bool) -> (u64, usize) {
         let _ = serde_json::to_writer(&mut w, &n.channels);
     }
     n.links.hash(&mut h);
+    if !n.spare.is_empty() {
+        let mut w = HashWriter(&mut h, 0);
+        let _ = serde_json::to_writer(&mut w, &n.spare);
+    }
     n.position.x.to_bits().hash(&mut h);
     n.position.y.to_bits().hash(&mut h);
     for i in &n.inputs {
@@ -673,6 +677,7 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     let mut frozen = vec![];
     let mut ghosted = vec![];
     let mut keyed = vec![];
+    let mut spared = vec![];
     for (i, n) in b.nodes.iter().enumerate() {
         let Some(o) = a.node(n.id) else { continue };
         if a.nodes.iter().position(|x| x.id == n.id).map(|j| a.node_hashes[j]) == Some(b.node_hashes[i]) {
@@ -699,6 +704,9 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
         if o.locations != n.locations {
             located.push(n.id);
         }
+        if o.spare != n.spare {
+            spared.push(n.id);
+        }
         if o.position != n.position {
             moved.push(n.id);
         }
@@ -717,6 +725,7 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
     touch(&renamed);
     touch(&bypassed);
     touch(&located);
+    touch(&spared);
     touch(&frozen);
     touch(&ghosted);
     touch(&keyed);
@@ -764,6 +773,14 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
         (format!("{}: keys", name(b, keyed[0])), Kind::Edit)
     } else if !located.is_empty() {
         (format!("{}: Prims Location", name(b, located[0])), Kind::Edit)
+    } else if !spared.is_empty() {
+        let (o, n) = (a.node(spared[0]).map(|n| &n.spare), b.node(spared[0]).map(|n| &n.spare));
+        let what = match (o.map_or(0, |s| s.parameters.len()), n.map_or(0, |s| s.parameters.len())) {
+            (x, y) if y > x => "add spare parameter",
+            (x, y) if y < x => "remove spare parameter",
+            _ => "spare parameters",
+        };
+        (format!("{}: {what}", name(b, spared[0])), Kind::Edit)
     } else if !renamed.is_empty() {
         (
             format!("Rename {} to {}", name(a, renamed[0]), name(b, renamed[0])),

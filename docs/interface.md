@@ -498,7 +498,9 @@ holds the parameters and the state of the node and little else.
 Right-click a row (a number, text, a switch, a choice, a list's row) for its
 menu: Promote inside a compound, Copy and Paste as Reference. Right-click a
 group's title for Promote Group and Remove Group Promotion (see
-[Compounds](compounds.md)).
+[Compounds](compounds.md)). **+ Spare Parameter**, at the end of an
+operator's Parameters, adds a parameter of its own (see
+[Spare parameters](compounds.md#spare-parameters)).
 
 **A typed value takes effect on Enter**, or on leaving the field (Tab, or a
 click elsewhere), not as each letter or digit is typed: typing 0.25 cooks once,

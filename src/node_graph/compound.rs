@@ -174,6 +174,10 @@ pub fn apply_values(g: &mut NodeGraphState, d: &Definition, values: &BTreeMap<St
                 }
                 continue;
             }
+            // A spare parameter.
+            if node.spare.put(&t.path, value.clone()) {
+                continue;
+            }
             let Ok(mut v) = serde_json::to_value(&node.node_type) else {
                 continue;
             };
@@ -195,6 +199,9 @@ pub fn take_values(g: &mut NodeGraphState, d: &Definition, values: &mut BTreeMap
             let node = g.nodes.iter().find(|n| n.name == t.node)?;
             if t.path == compounds::LOCATIONS {
                 return Some(serde_json::json!(node.locations));
+            }
+            if let Some(v) = node.spare.get(&t.path) {
+                return Some(v);
             }
             let v = serde_json::to_value(&node.node_type).ok()?;
             compounds::get(&v, &t.path).cloned()
