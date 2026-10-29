@@ -566,7 +566,12 @@ fn group_ask_id() -> egui::Id {
 /// inside an editable compound); one chosen waits while the group's rows are
 /// found, then promotes (or takes back) each parameter in it, as Promote does,
 /// in a group of the compound's of the same title. Returns what to tell.
-pub fn group_menu(ctx: &egui::Context, graph: &mut NodeGraphState, id: Option<NodeId>) -> Option<String> {
+pub fn group_menu(
+    ctx: &egui::Context,
+    graph: &mut NodeGraphState,
+    id: Option<NodeId>,
+    ice_settings: &[crate::compounds::Parameter],
+) -> Option<String> {
     if let (Some((title, at)), Some(node)) = (crate::properties::form::group_clicked(), id) {
         ctx.data_mut(|d| d.insert_temp(group_menu_id(), GroupMenu { node, title, at }));
     }
@@ -646,7 +651,8 @@ pub fn group_menu(ctx: &egui::Context, graph: &mut NodeGraphState, id: Option<No
             remove_promotion(graph, &name, &path);
             n += 1;
         } else if !ask.remove && !promoted {
-            let p = promoting(graph, &name, &path, serde_json::Value::Null, choices, ask.title.clone());
+            let (value, choices) = kept_default(ice_settings, &path, serde_json::Value::Null, choices);
+            let p = promoting(graph, &name, &path, value, choices, ask.title.clone());
             if !p.default.is_null() {
                 promote(graph, &p);
                 n += 1;
@@ -706,6 +712,28 @@ fn promote_open(
         graph.inside.path.last().cloned().unwrap_or_default(),
     );
     ctx.data_mut(|d| d.insert_temp(promoting_id(), p));
+}
+
+/// The value and options to promote parameter `path` with when the operator
+/// does not hold it: an ICE operator keeps a parameter of its graph
+/// (`ice_settings`) only once set, so its default and its options are the
+/// parameter's; else `value` and `choices`, the row's.
+pub fn kept_default(
+    ice_settings: &[crate::compounds::Parameter],
+    path: &str,
+    value: serde_json::Value,
+    choices: Vec<(String, serde_json::Value)>,
+) -> (serde_json::Value, Vec<(String, serde_json::Value)>) {
+    let kept = path
+        .strip_prefix("params/")
+        .and_then(|name| ice_settings.iter().find(|q| q.name == name));
+    match kept {
+        Some(q) => (
+            q.default.clone(),
+            if choices.is_empty() { q.choices.clone() } else { choices },
+        ),
+        None => (value, choices),
+    }
 }
 
 /// What promoting parameter `path` of inner operator `node` makes: its label
@@ -956,6 +984,27 @@ mod tests {
             min: 0.0,
             max: 10.0,
         }
+    }
+
+    /// An ICE operator's parameter it does not hold yet is promoted with the
+    /// parameter's default and options; any other with the row's.
+    #[test]
+    fn a_kept_parameter_promotes_with_its_default() {
+        let mode = crate::compounds::Parameter {
+            name: "draw_mode".into(),
+            label: String::new(),
+            kind: crate::compounds::ParameterType::Choice,
+            default: serde_json::json!("Default"),
+            range: None,
+            group: String::new(),
+            help: String::new(),
+            targets: vec![],
+            choices: vec![("Geometry".into(), serde_json::json!("Default"))],
+        };
+        let (v, c) = kept_default(&[mode.clone()], "params/draw_mode", serde_json::json!(0.0), vec![]);
+        assert_eq!((v, c), (serde_json::json!("Default"), mode.choices.clone()));
+        let (v, c) = kept_default(&[mode], "size", serde_json::json!(2.0), vec![]);
+        assert_eq!((v, c), (serde_json::json!(2.0), vec![]));
     }
 
     /// A switch flipped or an option picked is found where it changed.

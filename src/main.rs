@@ -1048,7 +1048,11 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // The parameters as they were, for a probed row to be found
                     // by what it changed, and put back.
                     let before = selected
-                        .filter(|_| !linked.is_empty() || ui.input(|i| i.pointer.secondary_clicked()))
+                        .filter(|_| {
+                            !linked.is_empty()
+                                || ui.input(|i| i.pointer.secondary_clicked())
+                                || crate::properties::form::seeking()
+                        })
                         .cloned();
                     // An ICE graph's nodes are probed by the ICE panel, rows of its own.
                     if own_parameters {
@@ -1069,6 +1073,8 @@ impl egui_dock::TabViewer for Panes<'_> {
                             &mut io,
                         )
                     });
+                    // An ICE operator's parameters, for those it keeps only once set.
+                    let ice_settings = io.ice_settings.clone();
                     use crate::properties::form::Probe;
                     match (crate::properties::form::probed(), &editing) {
                         (Some(Probe::Clicked(old, at)), Some((id, _))) => {
@@ -1078,7 +1084,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                                     Some(t) => serde_json::json!(t),
                                     None => serde_json::json!(value),
                                 };
-                                let choices = crate::properties::form::row_choices(None);
+                                let (value, choices) = crate::keys_ui::kept_default(
+                                    &ice_settings,
+                                    &path,
+                                    value,
+                                    crate::properties::form::row_choices(None),
+                                );
                                 crate::keys_ui::open_row_menu(ui.ctx(), *id, path, value, choices, at);
                             }
                         }
@@ -1091,7 +1102,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // A group's title right-clicked: Promote Group.
                     if own_parameters {
                         let id = editing.as_ref().map(|(id, _)| *id);
-                        if let Some(m) = crate::keys_ui::group_menu(ui.ctx(), self.graph, id) {
+                        if let Some(m) = crate::keys_ui::group_menu(ui.ctx(), self.graph, id, &ice_settings) {
                             self.graph_file.message = m;
                         }
                     }

@@ -85,7 +85,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   the same. A switch promotes as a switch, a choice (a drop-down, side-by-side
   options) with its options. A row of a list (Primitive Locations, an ICE
   Get Reference's paths) promotes the whole list, and the **Prims Location**
-  tab promotes whole too: the instance's parameter is the list of rows.
+  tab promotes whole too: the instance's parameter is the list of rows. An empty list
+  promotes too: right-click its + Add Location (or + Row) button.
 - **Promote Group:** right-click a group's title (its name above its rows)
   for **Promote Group**: each of its parameters is promoted, one by one, into
   a group of that name on the compound; **Remove Group Promotion** takes them

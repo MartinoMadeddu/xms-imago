@@ -995,6 +995,20 @@ pub fn seek_group(title: Option<String>) {
     PROBING.with(|p| p.borrow_mut().seeking = title);
 }
 
+/// Whether a group's rows are being found (`seek_group`): each probed row is
+/// to be put back.
+pub fn seeking() -> bool {
+    PROBING.with(|p| p.borrow().seeking.is_some())
+}
+
+/// A list's button that adds a row (`r`), probed as a row of the list: a row
+/// of the probe text is added, so an empty list is found and promoted whole.
+pub fn probe_list(ui: &egui::Ui, r: &egui::Response, list: &mut Vec<String>) {
+    if probe_row(ui, right_click(r), 0.0, Some(""), r.id) {
+        list.push(PROBE_TEXT.to_string());
+    }
+}
+
 /// The rows of group `title` drawn this frame, once each is found: its path
 /// (None for a row that is not a parameter) and its options (a list's). None
 /// while some are still to be found.
@@ -1195,6 +1209,41 @@ mod tests {
         n.put(PROBE);
         assert_eq!(n.get(), PROBE);
     }
+
+    /// A group's rows sought (Promote Group): an empty list is found by its
+    /// button that adds a row, which adds the probe; once found, the group is.
+    #[test]
+    fn an_empty_list_is_found_by_its_add_button() {
+        let ctx = egui::Context::default();
+        let frame = |list: &mut Vec<String>| {
+            ctx.run_ui(Default::default(), |ui| {
+                group(ui, "Paths", None, |f| {
+                    let add = f.ui.button("+ Row");
+                    probe_list(f.ui, &add, list);
+                });
+            })
+            .drop_without_applying_deltas();
+        };
+        probing(true, 7, vec![]);
+        seek_group(Some("Paths".into()));
+        assert!(seeking());
+        let mut list = vec![];
+        frame(&mut list);
+        assert_eq!(list, vec![PROBE_TEXT.to_string()], "the probe is a row of it");
+        let Some(Probe::Finding(row)) = probed() else {
+            panic!("the button is found")
+        };
+        assert_eq!(group_found("Paths"), None, "not yet known");
+        found(row, Some("paths/0".into()));
+        let mut list = vec![];
+        probing(true, 7, vec![]);
+        frame(&mut list);
+        assert!(list.is_empty(), "known: not probed again");
+        probed();
+        assert_eq!(group_found("Paths"), Some(vec![(Some("paths/0".to_string()), vec![])]));
+        seek_group(None);
+    }
+
     /// A text field changes its text on Enter, not as each letter is typed;
     /// Escape leaves it as it was.
     #[test]

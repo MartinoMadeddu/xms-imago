@@ -1569,7 +1569,11 @@ fn list_rows(f: &mut Rows, label: &str, hint: Option<&str>, rows: &mut Vec<Strin
         rows.remove(k);
         changed = true;
     }
-    let add = f.row(if rows.is_empty() { label } else { "" }, None, |ui| ui.button("+ Row"));
+    let add = f.row(if rows.is_empty() { label } else { "" }, None, |ui| {
+        let add = ui.button("+ Row");
+        form::probe_list(ui, &add, rows);
+        add
+    });
     if add.clicked() {
         rows.push(String::new());
         changed = true;
@@ -3865,6 +3869,7 @@ pub(crate) fn locations_tab(
                     many => format!("Add the {} prims selected in the Scene Explorer. Prims dragged from the Scene Explorer can be dropped here", many.len()),
                 };
                 let add = ui.button("+ Add Location").on_hover_text(tip);
+                crate::properties::form::probe_list(ui, &add, list);
                 if add.clicked() {
                     if selected.is_empty() { add_location(list, ""); }
                     for p in selected { add_location(list, p); }
