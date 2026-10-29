@@ -7,7 +7,7 @@ use crate::core::poly::{ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection
 use crate::examples;
 use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
-use crate::types::{IceGraphNodeType, MergeMode, NodeId, NodeType, RetimeMode, DEFAULT_WRITE_PATH};
+use crate::types::{IceGraphId, IceGraphNodeType, MergeMode, NodeId, NodeType, RetimeMode, DEFAULT_WRITE_PATH};
 
 pub struct Template {
     /// Whose work the template shows: the first level of the Templates menu.
@@ -57,6 +57,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A subdivided cube wrapped onto a squashed sphere by an ICE graph: Closest Point on Surface on the reference input, P read there, blended from where each point was" },
     Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer", build: ice_binding,
         hint: "A cube bound to a grid and carried by its wave, built by hand in an ICE graph: a frame from each sample's triangle (triP, bary) on the rest grid, the point stored in it, then put back by the same frame on the waving grid" },
+    Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer on Alembic", build: ice_binding_alembic,
+        hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, three Alembic caches from Houdini loaded as USD, through the binding deformer's Bind graph" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -2584,7 +2586,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
 /// Array Data with its Geometry wired); the point put back through it
 /// (Transform Point).
 fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
-    use xms_ice::{ArrayOp, Math, Value};
+    use xms_ice::{Math, Value};
     crate::graph_io::clear(g);
     // Wave: P.y += sin(P.x × 2) × 0.4.
     let wave = store.create_subnet("Wave".into());
@@ -2633,6 +2635,134 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             n.position = p(1640.0, 120.0);
         }
     }
+    let bind = bind_subnet(store, "/set/rest", "/set/waving");
+    let rest = g.add_node(
+        "RestGrid".into(),
+        NodeType::CreateGrid {
+            rows: 10,
+            cols: 10,
+            size: 4.0,
+            location: "/set/rest".into(),
+        },
+        p(40.0, 20.0),
+    );
+    let copy = g.add_node(
+        "WavingGrid".into(),
+        NodeType::CreateGrid {
+            rows: 10,
+            cols: 10,
+            size: 4.0,
+            location: "/set/waving".into(),
+        },
+        p(240.0, 20.0),
+    );
+    let waving = g.add_node(
+        "Wave".into(),
+        NodeType::Ice {
+            id: wave,
+            name: "Wave".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(240.0, 120.0),
+    );
+    let grids = g.add_node("Grids".into(), NodeType::merge(), p(140.0, 220.0));
+    let all = || PolySelection {
+        source: SelSource::All,
+        ..Default::default()
+    };
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(440.0, 20.0));
+    let dense = g.add_node(
+        "Subdivide".into(),
+        edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()),
+        p(440.0, 120.0),
+    );
+    let lift = g.add_node(
+        "Above".into(),
+        transform([0.5, 0.8, 0.0], [0.0; 3], [1.0; 3]),
+        p(440.0, 220.0),
+    );
+    let bound = g.add_node(
+        "Bind".into(),
+        NodeType::Ice {
+            id: bind,
+            name: "Bind".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(300.0, 330.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
+    g.add_connection(copy, 0, waving, 0);
+    g.add_connection(rest, 0, grids, 0);
+    g.add_connection(waving, 0, grids, 1);
+    g.add_connection(cube, 0, dense, 0);
+    g.add_connection(dense, 0, lift, 0);
+    g.add_connection(lift, 0, bound, 0);
+    g.add_connection(grids, 0, bound, 1);
+    g.add_connection(bound, 0, result, 0);
+    g.add_connection(waving, 0, result, 1);
+    finish(g, result, bound);
+    "ICE binding deformer, built by hand: the cube is bound to the rest grid and carried by the waving one. Go inside Bind (down arrow): Closest Point on Surface finds each point's sample on the rest grid; a frame is built there from the sample's triangle (triP and bary, Get Array Data with its Samples wired) and composed into a matrix; the point is stored in it (its offset through the transposed frame); the same frame is built on the waving grid (the lower row: Get Array Data with its Geometry wired too) and the point put back through it. Inside Wave, set the Multiply after Sine to 0: the grids are the same, and every point returns exactly where it started.".into()
+}
+
+/// The binding deformer on Alembic caches Martino wrote from Houdini: 1,000
+/// spheres scattered over a pig's head (266,000 points) bound to the head at
+/// rest and carried by the animated head, frames 1001 to 1025 at 25 fps. Each
+/// `.abc` is loaded as USD, referenced at a Primitive Location; Bind is the
+/// binding deformer's graph.
+fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange {
+        start: 1001,
+        end: 1025,
+        fps_num: 25,
+        fps_den: 1,
+    };
+    let bind = bind_subnet(store, "/rest/geo/pighead", "/anim/geo/pighead");
+    let load = |g: &mut NodeGraphState, name: &str, file: &str, location: &str, x: f32| {
+        g.add_node(
+            name.into(),
+            NodeType::LoadUsd {
+                path: examples::path(file),
+                mode: crate::usd_scene::LoadMode::Reference,
+                location: location.into(),
+                prim: String::new(),
+                convert: false,
+            },
+            p(x, 20.0),
+        )
+    };
+    let rest = load(g, "RestHead", examples::PIG_REST_ABC, "/rest", 40.0);
+    let anim = load(g, "AnimatedHead", examples::PIG_ANIM_ABC, "/anim", 240.0);
+    let spheres = load(g, "Spheres", examples::PIG_SPHERES_ABC, "/spheres", 440.0);
+    let heads = g.add_node("Heads".into(), NodeType::merge(), p(140.0, 120.0));
+    let bound = g.add_node(
+        "Bind".into(),
+        NodeType::Ice {
+            id: bind,
+            name: "Bind".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(300.0, 220.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 320.0));
+    g.add_connection(rest, 0, heads, 0);
+    g.add_connection(anim, 0, heads, 1);
+    g.add_connection(spheres, 0, bound, 0);
+    g.add_connection(heads, 0, bound, 1);
+    g.add_connection(bound, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, bound);
+    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Bind is the binding deformer's graph (see ICE: binding deformer), its Get References at /rest/geo/pighead and /anim/geo/pighead. Space plays frames 1001 to 1025.".into()
+}
+
+/// The Bind ICE graph of the binding deformers: each point bound to the mesh at
+/// `rest` on Reference 1 and carried by the mesh at `moving`, of the same
+/// topology (see `ice_binding`).
+fn bind_subnet(store: &mut IceGraphStore, rest: &str, moving: &str) -> IceGraphId {
+    use xms_ice::{ArrayOp, Math, Value};
     let bind = store.create_subnet("Bind".into());
     if let Some(sub) = store.get_mut(bind) {
         let root = sub.root().expect("every ICE graph has a root");
@@ -2640,7 +2770,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             &mut *sub,
             IceGraphNodeType::GetReference {
                 input: 1,
-                paths: vec!["/set/rest".into()],
+                paths: vec![rest.into()],
             },
             p(40.0, 40.0),
         );
@@ -2648,7 +2778,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             &mut *sub,
             IceGraphNodeType::GetReference {
                 input: 1,
-                paths: vec!["/set/waving".into()],
+                paths: vec![moving.into()],
             },
             p(40.0, 640.0),
         );
@@ -2792,74 +2922,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             n.position = p(2900.0, 450.0);
         }
     }
-    let rest = g.add_node(
-        "RestGrid".into(),
-        NodeType::CreateGrid {
-            rows: 10,
-            cols: 10,
-            size: 4.0,
-            location: "/set/rest".into(),
-        },
-        p(40.0, 20.0),
-    );
-    let copy = g.add_node(
-        "WavingGrid".into(),
-        NodeType::CreateGrid {
-            rows: 10,
-            cols: 10,
-            size: 4.0,
-            location: "/set/waving".into(),
-        },
-        p(240.0, 20.0),
-    );
-    let waving = g.add_node(
-        "Wave".into(),
-        NodeType::Ice {
-            id: wave,
-            name: "Wave".into(),
-            references: 1,
-            params: Default::default(),
-        },
-        p(240.0, 120.0),
-    );
-    let grids = g.add_node("Grids".into(), NodeType::merge(), p(140.0, 220.0));
-    let all = || PolySelection {
-        source: SelSource::All,
-        ..Default::default()
-    };
-    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(440.0, 20.0));
-    let dense = g.add_node(
-        "Subdivide".into(),
-        edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()),
-        p(440.0, 120.0),
-    );
-    let lift = g.add_node(
-        "Above".into(),
-        transform([0.5, 0.8, 0.0], [0.0; 3], [1.0; 3]),
-        p(440.0, 220.0),
-    );
-    let bound = g.add_node(
-        "Bind".into(),
-        NodeType::Ice {
-            id: bind,
-            name: "Bind".into(),
-            references: 1,
-            params: Default::default(),
-        },
-        p(300.0, 330.0),
-    );
-    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
-    g.add_connection(copy, 0, waving, 0);
-    g.add_connection(rest, 0, grids, 0);
-    g.add_connection(waving, 0, grids, 1);
-    g.add_connection(cube, 0, dense, 0);
-    g.add_connection(dense, 0, lift, 0);
-    g.add_connection(lift, 0, bound, 0);
-    g.add_connection(grids, 0, bound, 1);
-    g.add_connection(bound, 0, result, 0);
-    g.add_connection(waving, 0, result, 1);
-    finish(g, result, bound);
-    "ICE binding deformer, built by hand: the cube is bound to the rest grid and carried by the waving one. Go inside Bind (down arrow): Closest Point on Surface finds each point's sample on the rest grid; a frame is built there from the sample's triangle (triP and bary, Get Array Data with its Samples wired) and composed into a matrix; the point is stored in it (its offset through the transposed frame); the same frame is built on the waving grid (the lower row: Get Array Data with its Geometry wired too) and the point put back through it. Inside Wave, set the Multiply after Sine to 0: the grids are the same, and every point returns exactly where it started.".into()
+    bind
 }
 
 /// Martino's instancing graph: a 40 m grid as the scene; a cube and a sphere
@@ -3572,6 +3635,46 @@ mod tests {
             let r = back.transform_point3(*w).length();
             assert!((0.98..=1.0001).contains(&r), "{w}: {r}");
         }
+    }
+
+    /// The binding deformer on the Alembic pig's head: the spheres move with
+    /// the animated head; bound to the head at rest and carried by it too,
+    /// every point stays where it was.
+    #[test]
+    fn the_alembic_binding_template_carries_the_spheres_with_the_head() {
+        let name = "ICE: binding deformer on Alembic";
+        let spheres = |prims: &[(String, Vec<Vec3>)]| {
+            prims
+                .iter()
+                .find(|(p, _)| p.starts_with("/spheres"))
+                .unwrap_or_else(|| panic!("no spheres in {:?}", prims.iter().map(|(p, _)| p).collect::<Vec<_>>()))
+                .1
+                .clone()
+        };
+        let start = spheres(&ice_points(name, Some("Spheres"), |_, _| {}));
+        assert_eq!(start.len(), 266_000);
+        let carried = spheres(&ice_points(name, None, |_, _| {}));
+        let still = spheres(&ice_points(name, None, |_, store| {
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Bind") {
+                for n in sg.nodes.iter_mut() {
+                    if let IceGraphNodeType::GetReference { paths, .. } = &mut n.node_type {
+                        if paths.iter().any(|p| p == "/anim/geo/pighead") {
+                            *paths = vec!["/rest/geo/pighead".into()];
+                        }
+                    }
+                }
+            }
+        }));
+        let most = |a: &[Vec3], b: &[Vec3]| a.iter().zip(b).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert_eq!(carried.len(), start.len());
+        assert!(
+            most(&still, &start) < 1e-3,
+            "carried by the rest head: {}",
+            most(&still, &start)
+        );
+        // The animated head is up to 1.43 from the rest head (frame 1001).
+        let moved = most(&carried, &start);
+        assert!(moved > 0.1 && moved < 3.0, "{moved}");
     }
 
     /// The binding deformer carries the cube with the wave; with the wave's

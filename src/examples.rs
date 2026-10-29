@@ -40,6 +40,11 @@ pub const CAR_KIT_USD: &str = "usd/mini_car_kit/assets/vehicles/vehicleVariants.
 /// Models fetched when asked for (see `SOURCES`).
 pub const BIKE_USDZ: &str = "usd/carbon_frame_bike/CarbonFrameBike.usdz";
 pub const ELEPHANT_USDC: &str = "usd/elephant/SoC-ElephantWithMonochord.usdc";
+/// Martino's pig's head from Houdini, as Alembic: at rest, animated (frames
+/// 1001 to 1025 at 25 fps), and spheres scattered over it.
+pub const PIG_REST_ABC: &str = "alembic/pighead_rest.abc";
+pub const PIG_ANIM_ABC: &str = "alembic/pighead_anim.abc";
+pub const PIG_SPHERES_ABC: &str = "alembic/pighead_spheres.abc";
 
 /// The examples folder: the one named by XMS_EXAMPLES, next to the program, at
 /// the root of the source tree when run through cargo, or in the working

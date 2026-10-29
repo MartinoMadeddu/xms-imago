@@ -4377,6 +4377,7 @@ dependencies = [
  "openusd 0.8.0",
  "rayon",
  "rustc-hash 2.1.1",
+ "xms-alembic",
  "xms-scene",
 ]
 
