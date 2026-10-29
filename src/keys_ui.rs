@@ -570,7 +570,7 @@ pub fn group_menu(ctx: &egui::Context, graph: &mut NodeGraphState, id: Option<No
     if let (Some((title, at)), Some(node)) = (crate::properties::form::group_clicked(), id) {
         ctx.data_mut(|d| d.insert_temp(group_menu_id(), GroupMenu { node, title, at }));
     }
-    let promoting = !graph.inside.path.is_empty() && !graph.inside.locked;
+    let editable = !graph.inside.path.is_empty() && !graph.inside.locked;
     if let Some(m) = ctx.data(|d| d.get_temp::<GroupMenu>(group_menu_id())) {
         let mut chosen = None;
         let area = egui::Area::new(group_menu_id())
@@ -581,7 +581,7 @@ pub fn group_menu(ctx: &egui::Context, graph: &mut NodeGraphState, id: Option<No
                     ui.label(egui::RichText::new(&m.title).small().weak());
                     let hint = "Inside an editable compound: go inside one, Make Editable if it is locked";
                     if ui
-                        .add_enabled(promoting, egui::Button::new("Promote Group"))
+                        .add_enabled(editable, egui::Button::new("Promote Group"))
                         .on_hover_text("Each of its parameters on the compound's, in a group of this name")
                         .on_disabled_hover_text(hint)
                         .clicked()
@@ -589,7 +589,7 @@ pub fn group_menu(ctx: &egui::Context, graph: &mut NodeGraphState, id: Option<No
                         chosen = Some(false);
                     }
                     if ui
-                        .add_enabled(promoting, egui::Button::new("Remove Group Promotion"))
+                        .add_enabled(editable, egui::Button::new("Remove Group Promotion"))
                         .on_disabled_hover_text(hint)
                         .clicked()
                     {
