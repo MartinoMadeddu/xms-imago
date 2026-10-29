@@ -12,7 +12,7 @@ use egui::containers::menu::{is_in_menu, MenuButton, MenuConfig, SubMenuButton};
 /// Window `w` (its key `key`) as a popup opens: just left of the pointer, its
 /// top right corner there, kept on the screen, on the frame it opens; moved
 /// after, it stays where it is put. Called only on the frames it is shown.
-pub fn at_pointer<'a>(ctx: &egui::Context, w: egui::Window<'a>, key: impl std::hash::Hash) -> egui::Window<'a> {
+pub fn at_pointer<'a>(ctx: &egui::Context, w: egui::Window<'a>, key: &str) -> egui::Window<'a> {
     let frame = ctx.cumulative_frame_nr();
     let id = egui::Id::new(("popup_shown", key));
     let last: Option<u64> = ctx.data(|d| d.get_temp(id));
