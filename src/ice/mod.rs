@@ -232,8 +232,14 @@ impl IceGraph {
             .map(|n| n.id)
     }
 
+    /// Add a node named `name`, or `name2`, `name3`… when a node has it:
+    /// its settings are promoted by its name, which has to be its own.
     pub fn add_node(&mut self, name: String, t: IceGraphNodeType, pos: egui::Pos2) -> NodeId {
-        let name = crate::node_graph::node_name(&name);
+        let base = crate::node_graph::node_name(&name);
+        let name = (1..)
+            .map(|k| if k == 1 { base.clone() } else { format!("{base}{k}") })
+            .find(|n| !self.nodes.iter().any(|m| m.name == *n))
+            .unwrap_or_default();
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let (inputs, outputs) = Self::create_sockets(&t);

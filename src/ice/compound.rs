@@ -758,17 +758,30 @@ pub fn promote_setting(
     group: &str,
     choices: Vec<(String, serde_json::Value)>,
 ) -> Result<String, String> {
+    // Its settings are promoted by its name: another node called the same
+    // (from a graph made before names were kept apart), it is renamed.
+    let named = g
+        .nodes
+        .iter()
+        .find(|n| n.id == id)
+        .ok_or("That node is gone")?
+        .name
+        .clone();
+    let renamed = if g.nodes.iter().filter(|m| m.name == named).count() > 1 {
+        let taken: Vec<String> = g.nodes.iter().map(|m| m.name.clone()).collect();
+        let name = unique(&named, &taken);
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) {
+            n.name = name.clone();
+        }
+        Some(name)
+    } else {
+        None
+    };
     let n = g.nodes.iter().find(|n| n.id == id).ok_or("That node is gone")?;
     // A row of a list stands for the list (a Primitive Locations).
     let json = serde_json::to_value(&n.node_type).unwrap_or_default();
     let path = compounds::whole_list(&json, path);
     let path = path.as_str();
-    if g.nodes.iter().filter(|m| m.name == n.name).count() > 1 {
-        return Err(format!(
-            "Two nodes are called {}: rename one to promote its settings",
-            n.name
-        ));
-    }
     let target = Target {
         node: n.name.clone(),
         path: path.to_string(),
@@ -804,10 +817,14 @@ pub fn promote_setting(
         targets: vec![target],
         choices,
     });
-    Ok(if g.outer.is_empty() {
+    let told = if g.outer.is_empty() {
         format!("{label} is a parameter of the ICE operator: set it in its parameters")
     } else {
         format!("{label} is a parameter of the compound, once you go back out")
+    };
+    Ok(match renamed {
+        Some(name) => format!("Renamed {named} to {name}, its name its own. {told}"),
+        None => told,
     })
 }
 
@@ -1218,6 +1235,26 @@ mod tests {
         promote_setting(&mut g, r, "input", "References", choices).unwrap();
         assert_eq!(g.parameters[1].kind, ParameterType::Choice);
         assert_eq!(g.parameters[1].choices.len(), 2);
+    }
+
+    /// Nodes are named apart; two of one name (a graph from before) and one
+    /// promoted, that one is renamed so its promotion is its own.
+    #[test]
+    fn a_setting_of_a_node_named_as_another_promotes() {
+        let mut g = IceGraph::new(IceGraphId(0), "g".into());
+        let paths = |p: &str| IceGraphNodeType::GetReference {
+            input: 1,
+            paths: vec![p.into()],
+        };
+        let a = g.add_node("Ref".into(), paths("/a"), egui::pos2(0.0, 0.0));
+        let b = g.add_node("Ref".into(), paths("/b"), egui::pos2(0.0, 0.0));
+        let name = |g: &IceGraph, id: NodeId| g.nodes.iter().find(|n| n.id == id).unwrap().name.clone();
+        assert_eq!((name(&g, a), name(&g, b)), ("Ref".to_string(), "Ref2".to_string()));
+        g.nodes.iter_mut().find(|n| n.id == b).unwrap().name = "Ref".into();
+        let told = promote_setting(&mut g, b, "paths/0", "", vec![]).unwrap();
+        assert!(told.starts_with("Renamed Ref to Ref2"), "{told}");
+        assert_eq!(g.parameters[0].targets[0].node, "Ref2");
+        assert_eq!(g.parameters[0].default, serde_json::json!(["/b"]));
     }
 
     /// Inside a compound, a setting promoted is a parameter of the compound:

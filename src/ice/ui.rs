@@ -939,7 +939,14 @@ fn group_promoted(
         }
     }
     let mut n = 0;
+    let mut refused = None;
     for (path, choices) in paths {
+        // Its name now: promoting can rename it (named as another).
+        let name = graph
+            .nodes
+            .iter()
+            .find(|m| m.id == id)
+            .map_or(name.clone(), |m| m.name.clone());
         let promoted = graph
             .parameters
             .iter()
@@ -947,11 +954,16 @@ fn group_promoted(
         if remove && promoted {
             super::compound::remove_promotion(graph, &name, &path);
             n += 1;
-        } else if !remove && !promoted && super::compound::promote_setting(graph, id, &path, title, choices).is_ok() {
-            n += 1;
+        } else if !remove && !promoted {
+            match super::compound::promote_setting(graph, id, &path, title, choices) {
+                Ok(_) => n += 1,
+                Err(e) => refused = refused.or(Some(e)),
+            }
         }
     }
+    let name = graph.nodes.iter().find(|m| m.id == id).map_or(name, |m| m.name.clone());
     match (remove, n) {
+        (false, 0) if refused.is_some() => refused.unwrap_or_default(),
         (false, 0) => format!("Nothing in {title} to promote"),
         (true, 0) => format!("Nothing in {title} promoted"),
         (false, n) => format!("Promoted {n} of {name}'s {title}"),
