@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.95"
 
 [workspace]
-members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx", "crates/xms-geo", "crates/xms-ice", "crates/xms-image"]
+members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx", "crates/xms-geo", "crates/xms-ice", "crates/xms-image", "crates/xms-alembic"]
 resolver = "2"
 
 

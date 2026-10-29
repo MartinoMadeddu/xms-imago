@@ -10,7 +10,8 @@
 //! | module | role |
 //! |---|---|
 //! | `to_scene` | USD stage → scene layer: the only code reading the stage |
-//! | `values` | `sdf::Value` conversions |
+//! | `alembic` | `.abc` files as USD layers (`register_formats`) |
+//! | `values` | `vt::Value` conversions |
 //! | `xform` | xformOps, quaternions |
 //! | `curves` | curve UV-set names (shared constant) |
 //! | `materialx` | `.mtlx` references authored in the root `.usda` layer |
@@ -23,9 +24,10 @@ use rustc_hash::FxHashMap as HashMap;
 
 use nalgebra::{Matrix4, Rotation3, Vector3};
 use openusd::gf;
-use openusd::sdf::{Value, ValueKind};
+use openusd::vt::{Value, ValueKind};
 use openusd::usd::Prim;
 
+mod alembic;
 mod curves;
 mod materialx;
 mod to_scene;
@@ -34,6 +36,7 @@ mod xform;
 // mod export;   // later: .usda override-layer export (needs adapting to xms-scene)
 
 /// rray's name for [`translate`], kept so code ported from rray reads the same.
+pub use alembic::register_formats;
 pub use to_scene::translate as translate_to_scene;
 pub use to_scene::{translate, translate_phased, translate_stage, SceneOptions, Translated, CURVE_PRIMVAR_PREFIX};
 

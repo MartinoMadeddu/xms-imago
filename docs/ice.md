@@ -146,6 +146,12 @@ the tree's parameters).
   made once per run of the graph, the first time it is searched, so a graph per
   point searches it from every thread at once. What it makes possible:
   shrink-wraps, sticking points to a body, falloffs by distance to a surface.
+  Curves on the reference input are searched too, their control points joined
+  by straight lines: a sample on a curve is a place on one of its segments,
+  read as the blend of its two points; its face is the curve, so Get Array Data
+  there (`P`, context Point) gives the curve's points as a list. Hair is carried
+  by its guides this way (the "ICE: hair carried by guides on Alembic"
+  template).
 - **Get Data at samples.** Wire surface samples (Scatter's third output, Closest
   Point on Surface's first) into a Get Data's **Samples** input and it reads its
   attribute there instead of per element (unwired, it reads as above; graphs

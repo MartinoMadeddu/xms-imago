@@ -1,0 +1,7 @@
+[package]
+name = "xms-alembic"
+version.workspace = true
+edition.workspace = true
+description = "Alembic (.abc, Ogawa) reader: the archive's objects, properties and time samplings, and the AbcGeom schemas (Xform, PolyMesh, SubD, Curves, Points, Camera, FaceSet)"
+
+[dependencies]

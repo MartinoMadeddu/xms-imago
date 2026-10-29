@@ -5,7 +5,7 @@ use crate::*;
 
 /// gf matrices are row-major with row vectors; nalgebra here uses column
 /// vectors.
-pub(crate) fn gf_to_col(m: gf::Matrix4d) -> M4 {
+pub(crate) fn gf_to_col(m: gf::Mat4d) -> M4 {
     M4::from_row_slice(&m.0).transpose()
 }
 
@@ -15,7 +15,7 @@ pub(crate) fn quat_matrix(v: Value) -> Option<M4> {
         other => other.coerce_to_kind(ValueKind::Quatf).ok()?,
     };
     match v {
-        Value::Quatf(q) => Some(gf_to_col(gf::Matrix4d::from_quat(q))),
+        Value::Quatf(q) => Some(gf_to_col(gf::Mat4d::from_quat(q))),
         _ => None,
     }
 }

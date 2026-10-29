@@ -661,7 +661,7 @@ pub fn draw_properties(
         // Files
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
-                path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd"]);
+                path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd", "abc"]);
                 path_status(f, path);
             });
             let read = crate::core::vars::expand(path.trim(), &[]);

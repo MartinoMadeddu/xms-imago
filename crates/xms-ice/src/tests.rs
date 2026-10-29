@@ -2181,3 +2181,141 @@ fn get_data_from_another_prim() {
     let e = super::compile_with(&g, &three, &refs).unwrap_err();
     assert!(e.message.contains("same topology"), "{}", e.message);
 }
+
+/// Two linear curves of three points: at /rest along X at heights 0 and 2, and
+/// at /anim the same lifted 1 and stretched twice as long.
+fn rest_and_animated_curves() -> Vec<Reference> {
+    use xms_geo::{CurveBasis, CurveWrap, Topology};
+    let curves = |pts: Vec<[f32; 3]>| {
+        let mut g = Geo::from_points(pts);
+        g.topology = Topology::curves(vec![3, 3], CurveBasis::Linear, CurveWrap::Nonperiodic);
+        Arc::new(g)
+    };
+    let rest = curves(vec![
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [0.0, 2.0, 0.0],
+        [1.0, 2.0, 0.0],
+        [2.0, 2.0, 0.0],
+    ]);
+    let anim = curves(vec![
+        [0.0, 1.0, 0.0],
+        [2.0, 1.0, 0.0],
+        [4.0, 1.0, 0.0],
+        [0.0, 3.0, 0.0],
+        [2.0, 3.0, 0.0],
+        [4.0, 3.0, 0.0],
+    ]);
+    vec![Reference {
+        paths: vec!["/rest".into(), "/anim".into()],
+        meshes: vec![
+            super::RefMesh {
+                path: "/rest".into(),
+                world: glam::Mat4::IDENTITY,
+                geo: super::RefGeo::ready(rest),
+            },
+            super::RefMesh {
+                path: "/anim".into(),
+                world: glam::Mat4::IDENTITY,
+                geo: super::RefGeo::ready(anim),
+            },
+        ],
+    }]
+}
+
+/// Closest Point on Surface on curves: the nearest place on their segments,
+/// its curve (`faceIndex` there), and P read there on the curves at rest and on
+/// the animated ones of the same topology (how guides carry hair).
+#[test]
+fn closest_points_on_curves_are_read_on_their_animated_copy() {
+    let geo = Geo::from_points(vec![[1.5, 0.25, 0.0], [0.5, 1.75, 1.0], [-1.0, 0.0, 0.0]]);
+    let mut g = Graph::default();
+    let rest = g.add(
+        Op::GetReference {
+            input: 1,
+            paths: Some(vec!["/rest".into()]),
+        },
+        vec![],
+    );
+    let anim = g.add(
+        Op::GetReference {
+            input: 1,
+            paths: Some(vec!["/anim".into()]),
+        },
+        vec![],
+    );
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(
+        Op::ClosestPoint,
+        vec![wire(rest), wire(p), Input::Value(Value::Float(0.0))],
+    );
+    let at = |g: &mut Graph, on: Option<usize>| {
+        let mut ins = vec![wire(near)];
+        ins.extend(on.map(wire));
+        g.add(
+            Op::GetDataAt {
+                name: "P".into(),
+                context: None,
+            },
+            ins,
+        )
+    };
+    let (there, moved) = (at(&mut g, None), at(&mut g, Some(anim)));
+    let curve = g.add(
+        Op::GetDataAt {
+            name: "faceIndex".into(),
+            context: None,
+        },
+        vec![wire(near)],
+    );
+    let far = Input::Wire {
+        node: near,
+        output: super::graph::CLOSEST_DISTANCE,
+    };
+    let sets = [
+        g.add(Op::set("there"), vec![wire(there)]),
+        g.add(Op::set("moved"), vec![wire(moved)]),
+        g.add(Op::set("curve"), vec![wire(curve)]),
+        g.add(Op::set("far"), vec![far]),
+    ];
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        sets.iter().map(|&s| wire(s)).collect(),
+    );
+    let refs = rest_and_animated_curves();
+    let out = run(
+        &super::compile_with(&g, &geo, &refs).unwrap(),
+        &geo,
+        &no_params(),
+        &refs,
+    )
+    .geo;
+    let v = |n: &str| {
+        out.attr(Context::Point, n)
+            .and_then(|a| a.column.vec3s())
+            .unwrap()
+            .to_vec()
+    };
+    let near = |a: [f32; 3], b: [f32; 3]| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-5);
+    // On the lower curve's second segment; on the upper's first, from
+    // above it; before the lower one's start, its first point.
+    let want = [[1.5, 0.0, 0.0], [0.5, 2.0, 0.0], [0.0, 0.0, 0.0]];
+    for (got, want) in v("there").into_iter().zip(want) {
+        assert!(near(got, want), "{got:?} vs {want:?}");
+    }
+    // The same places on the animated curves: lifted 1, twice as far along.
+    let want = [[3.0, 1.0, 0.0], [1.0, 3.0, 0.0], [0.0, 1.0, 0.0]];
+    for (got, want) in v("moved").into_iter().zip(want) {
+        assert!(near(got, want), "{got:?} vs {want:?}");
+    }
+    let curve = out.attr(Context::Point, "curve").and_then(|a| a.column.ints()).unwrap();
+    assert_eq!(curve, &[0, 1, 0]);
+    let far = out.attr(Context::Point, "far").and_then(|a| a.column.floats()).unwrap();
+    let want = [0.25, (0.0625f32 + 1.0).sqrt(), 1.0];
+    for (got, want) in far.iter().zip(want) {
+        assert!((got - want).abs() < 1e-5, "{got} vs {want}");
+    }
+}

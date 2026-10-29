@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::Path as FsPath;
 use std::time::Instant;
 
-use openusd::sdf::{Value, ValueKind};
+use openusd::vt::{Value, ValueKind};
 use openusd::usd::{Attribute, Prim, Stage, TimeCode};
 use xms_scene as rs;
 use xms_scene::{Mat4d, Path, PrimKind, Sampled};
@@ -84,6 +84,7 @@ pub struct Translated {
 /// Open `path` and translate the whole stage.
 pub fn translate(path: &FsPath, opts: SceneOptions) -> Result<Translated, String> {
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
+    crate::register_formats();
     let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
     translate_stage(&stage, path, opts)
 }
@@ -97,6 +98,7 @@ pub fn translate_phased(
     boxes: impl FnOnce(Translated),
 ) -> Result<Translated, String> {
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
+    crate::register_formats();
     let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
     if let Ok(first) = translate_stage(
         &stage,
@@ -183,7 +185,11 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
     // Root prims come back as names
     for name in roots {
         if let Ok(prim) = stage.prim(format!("/{}", name.as_str()).as_str()) {
-            tr.walk(&prim);
+            // An `over` no layer defines is not drawn (an Alembic file's
+            // instance prototypes are such).
+            if prim.is_defined().unwrap_or(true) {
+                tr.walk(&prim);
+            }
         }
     }
     {
@@ -515,11 +521,11 @@ impl<'s> Translator<'s> {
     /// Sample times of an animated attribute covering the shutter window
     /// (samples inside it plus the bracketing ones); empty when it's static.
     fn sample_times(&self, attr: &Attribute) -> Vec<f64> {
-        if !attr.value_might_be_time_varying().unwrap_or(false) {
+        if !attr.might_be_time_varying().unwrap_or(false) {
             return Vec::new();
         }
         let (open, close) = self.window;
-        let mut times = attr.time_samples_in_interval(open..=close).unwrap_or_default();
+        let mut times = attr.time_samples_in(open..=close).unwrap_or_default();
         for t in [open, close] {
             if let Ok(Some((lo, hi))) = attr.bracketing_time_samples(TimeCode::new(t)) {
                 times.push(lo);
@@ -850,7 +856,7 @@ impl<'s> Translator<'s> {
                 out.push(("kind".to_string(), rs::ShaderValue::String(k.as_str().to_string())));
             }
         }
-        if let Ok(Some(Value::Bool(b))) = prim.get_metadata::<Value>("instanceable") {
+        if let Ok(Some(Value::Bool(b))) = prim.metadata::<Value>("instanceable") {
             out.push(("instanceable".to_string(), rs::ShaderValue::Bool(b)));
         }
         for name in prim.authored_property_names().unwrap_or_default() {
@@ -918,7 +924,7 @@ impl<'s> Translator<'s> {
         let values = self.sampled(prim, attr, primvar_values)?;
         let interp = prim
             .attribute(attr)
-            .get_metadata::<Value>("interpolation")
+            .metadata::<Value>("interpolation")
             .ok()
             .flatten()
             .and_then(|v| tok(&v));
@@ -1267,7 +1273,7 @@ impl<'s> Translator<'s> {
                 // Color space: only texture `file` inputs carry it (as the importer reads)
                 let color_space = (name == "file")
                     .then(|| {
-                        attr.get_metadata::<Value>("colorSpace")
+                        attr.metadata::<Value>("colorSpace")
                             .ok()
                             .flatten()
                             .and_then(|v| tok(&v))

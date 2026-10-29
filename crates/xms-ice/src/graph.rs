@@ -123,8 +123,10 @@ pub enum Op {
         name: String,
         context: Option<Context>,
     },
-    /// The nearest place on the meshes of a reference input: input 0 their
-    /// paths (Get Reference; a group names the meshes below it), input 1 the
+    /// The nearest place on the meshes and curves of a reference input (a
+    /// curve's segments: a sample on one is its two points and their weights,
+    /// its face the curve): input 0 their paths (Get Reference; a group names
+    /// the meshes below it), input 1 the
     /// origin (a 3D vector: per element, P; one; or, in an Object graph, an
     /// array), input 2 the radius searched within (a number for all or per
     /// element; 0, anywhere). The meshes are taken into the graph's space. Two

@@ -6,7 +6,10 @@ description = "OpenUSD stage -> xms-scene translation for XMS | Imago"
 
 [dependencies]
 xms-scene = { path = "../xms-scene" }
-openusd = "0.7"
+# Imago's fork of openusd 0.8 (branch `xms`): formats beyond usda, usdc and
+# usdz can be registered (`sdf::LayerRegistry::register_format`), for Alembic.
+openusd = { git = "https://github.com/MartinoMadeddu/openusd", branch = "xms" }
 rustc-hash = "2"
+xms-alembic = { path = "../xms-alembic" }
 rayon = "1.10"
 nalgebra = "0.34"

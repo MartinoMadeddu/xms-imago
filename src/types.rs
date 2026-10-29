@@ -1038,8 +1038,8 @@ pub enum IceGraphNodeType {
         #[serde(default)]
         context: Option<crate::core::geo::Context>,
     },
-    /// Closest Point on Surface: the nearest places on reference meshes
-    /// (Geometry, Get Reference's paths) to each Origin, within a Radius, and
+    /// Closest Point on Surface: the nearest places on reference meshes and
+    /// curves (Geometry, Get Reference's paths) to each Origin, within a Radius, and
     /// how far each is (see `xms_ice::Op::ClosestPoint`).
     ClosestPoint,
     /// Random rotations up along normals, one per element or an array (see

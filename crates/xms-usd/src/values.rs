@@ -1,8 +1,8 @@
-//! `sdf::Value` → plain Rust conversions.
+//! `vt::Value` → plain Rust conversions.
 
 use crate::*;
 
-// Value helpers (sdf::Value -> plain Rust)
+// Value helpers (vt::Value -> plain Rust)
 
 pub(crate) fn tok(v: &Value) -> Option<String> {
     match v {

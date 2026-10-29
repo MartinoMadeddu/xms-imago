@@ -7,7 +7,7 @@ use crate::core::poly::{ExtrudeMode, PolyMesh, PolyOp, PolyOpKind, PolySelection
 use crate::examples;
 use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
-use crate::types::{IceGraphNodeType, MergeMode, NodeId, NodeType, RetimeMode, DEFAULT_WRITE_PATH};
+use crate::types::{IceGraphId, IceGraphNodeType, MergeMode, NodeId, NodeType, RetimeMode, DEFAULT_WRITE_PATH};
 
 pub struct Template {
     /// Whose work the template shows: the first level of the Templates menu.
@@ -57,6 +57,10 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A subdivided cube wrapped onto a squashed sphere by an ICE graph: Closest Point on Surface on the reference input, P read there, blended from where each point was" },
     Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer", build: ice_binding,
         hint: "A cube bound to a grid and carried by its wave, built by hand in an ICE graph: a frame from each sample's triangle (triP, bary) on the rest grid, the point stored in it, then put back by the same frame on the waving grid" },
+    Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer on Alembic", build: ice_binding_alembic,
+        hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, three Alembic caches from Houdini loaded as USD, through the binding deformer's Bind graph" },
+    Template { by: MARTINO, group: "ICE", name: "ICE: hair carried by guides on Alembic", build: ice_guide_deform,
+        hint: "9,534 hairs carried by 314 animated guides, Alembic caches from Houdini loaded as USD: each hair follows the guide nearest its root, point by point, moved and turned with it" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -2584,7 +2588,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
 /// Array Data with its Geometry wired); the point put back through it
 /// (Transform Point).
 fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
-    use xms_ice::{ArrayOp, Math, Value};
+    use xms_ice::{Math, Value};
     crate::graph_io::clear(g);
     // Wave: P.y += sin(P.x × 2) × 0.4.
     let wave = store.create_subnet("Wave".into());
@@ -2633,6 +2637,388 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             n.position = p(1640.0, 120.0);
         }
     }
+    let bind = bind_subnet(store, "/set/rest", "/set/waving");
+    let rest = g.add_node(
+        "RestGrid".into(),
+        NodeType::CreateGrid {
+            rows: 10,
+            cols: 10,
+            size: 4.0,
+            location: "/set/rest".into(),
+        },
+        p(40.0, 20.0),
+    );
+    let copy = g.add_node(
+        "WavingGrid".into(),
+        NodeType::CreateGrid {
+            rows: 10,
+            cols: 10,
+            size: 4.0,
+            location: "/set/waving".into(),
+        },
+        p(240.0, 20.0),
+    );
+    let waving = g.add_node(
+        "Wave".into(),
+        NodeType::Ice {
+            id: wave,
+            name: "Wave".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(240.0, 120.0),
+    );
+    let grids = g.add_node("Grids".into(), NodeType::merge(), p(140.0, 220.0));
+    let all = || PolySelection {
+        source: SelSource::All,
+        ..Default::default()
+    };
+    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(440.0, 20.0));
+    let dense = g.add_node(
+        "Subdivide".into(),
+        edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()),
+        p(440.0, 120.0),
+    );
+    let lift = g.add_node(
+        "Above".into(),
+        transform([0.5, 0.8, 0.0], [0.0; 3], [1.0; 3]),
+        p(440.0, 220.0),
+    );
+    let bound = g.add_node(
+        "Bind".into(),
+        NodeType::Ice {
+            id: bind,
+            name: "Bind".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(300.0, 330.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
+    g.add_connection(copy, 0, waving, 0);
+    g.add_connection(rest, 0, grids, 0);
+    g.add_connection(waving, 0, grids, 1);
+    g.add_connection(cube, 0, dense, 0);
+    g.add_connection(dense, 0, lift, 0);
+    g.add_connection(lift, 0, bound, 0);
+    g.add_connection(grids, 0, bound, 1);
+    g.add_connection(bound, 0, result, 0);
+    g.add_connection(waving, 0, result, 1);
+    finish(g, result, bound);
+    "ICE binding deformer, built by hand: the cube is bound to the rest grid and carried by the waving one. Go inside Bind (down arrow): Closest Point on Surface finds each point's sample on the rest grid; a frame is built there from the sample's triangle (triP and bary, Get Array Data with its Samples wired) and composed into a matrix; the point is stored in it (its offset through the transposed frame); the same frame is built on the waving grid (the lower row: Get Array Data with its Geometry wired too) and the point put back through it. Inside Wave, set the Multiply after Sine to 0: the grids are the same, and every point returns exactly where it started.".into()
+}
+
+/// The binding deformer on Alembic caches Martino wrote from Houdini: 1,000
+/// spheres scattered over a pig's head (266,000 points) bound to the head at
+/// rest and carried by the animated head, frames 1001 to 1025 at 25 fps. Each
+/// `.abc` is loaded as USD, referenced at a Primitive Location; Bind is the
+/// binding deformer's graph.
+fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange {
+        start: 1001,
+        end: 1025,
+        fps_num: 25,
+        fps_den: 1,
+    };
+    let bind = bind_subnet(store, "/rest/geo/pighead", "/anim/geo/pighead");
+    let load = |g: &mut NodeGraphState, name: &str, file: &str, location: &str, x: f32| {
+        g.add_node(
+            name.into(),
+            NodeType::LoadUsd {
+                path: examples::path(file),
+                mode: crate::usd_scene::LoadMode::Reference,
+                location: location.into(),
+                prim: String::new(),
+                convert: false,
+            },
+            p(x, 20.0),
+        )
+    };
+    let rest = load(g, "RestHead", examples::PIG_REST_ABC, "/rest", 40.0);
+    let anim = load(g, "AnimatedHead", examples::PIG_ANIM_ABC, "/anim", 240.0);
+    let spheres = load(g, "Spheres", examples::PIG_SPHERES_ABC, "/spheres", 440.0);
+    let heads = g.add_node("Heads".into(), NodeType::merge(), p(140.0, 120.0));
+    let bound = g.add_node(
+        "Bind".into(),
+        NodeType::Ice {
+            id: bind,
+            name: "Bind".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(300.0, 220.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 320.0));
+    g.add_connection(rest, 0, heads, 0);
+    g.add_connection(anim, 0, heads, 1);
+    g.add_connection(spheres, 0, bound, 0);
+    g.add_connection(heads, 0, bound, 1);
+    g.add_connection(bound, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, bound);
+    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Bind is the binding deformer's graph (see ICE: binding deformer), its Get References at /rest/geo/pighead and /anim/geo/pighead. Space plays frames 1001 to 1025.".into()
+}
+
+/// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
+/// 9,534 hairs and 314 guides of 13 points each over the pig's head, the
+/// guides at rest and animated (frames 1001 to 1050 at 25 fps). Each curves
+/// prim is referenced from its `.abc` at the root. Roots (per curve) stores
+/// each hair's first point (`rootP`); GuideDeform (per point) finds the guide
+/// nearest that root (Closest Point on Surface, on the rest guides), reads that
+/// guide's points as a list on the rest and the animated guides (Get Array
+/// Data with its Samples wired), takes the point's own number along its hair
+/// (`ptIndex` - `firstCorner`) from each, and carries the point by the guide
+/// there: moved with it, turned as its direction turned.
+fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use crate::core::geo::Context;
+    use xms_ice::{ArrayOp, Math, Value};
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange {
+        start: 1001,
+        end: 1050,
+        fps_num: 25,
+        fps_den: 1,
+    };
+    let get = |name: &str, context: Option<Context>| IceGraphNodeType::GetData {
+        name: name.into(),
+        context,
+        resample: Default::default(),
+    };
+    let set_root = |sub: &mut crate::ice::IceGraph, set: NodeId, context: Context, at: egui::Pos2| {
+        let root = sub.root().expect("every ICE graph has a root");
+        sub.add_connection(set, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root { context };
+            n.position = at;
+        }
+    };
+    // Roots, per curve: its first point.
+    let roots = store.create_subnet("Roots".into());
+    if let Some(sub) = store.get_mut(roots) {
+        let pts = ice_add(
+            &mut *sub,
+            IceGraphNodeType::GetArrayData {
+                name: "P".into(),
+                context: Some(Context::Point),
+            },
+            p(40.0, 120.0),
+        );
+        let first = ice_add(
+            &mut *sub,
+            IceGraphNodeType::Array { op: ArrayOp::Element },
+            p(260.0, 120.0),
+        );
+        sub.add_connection(pts, 0, first, 0);
+        ice_value(&mut *sub, first, 1, Value::Int(0));
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("rootP"), p(480.0, 120.0));
+        sub.add_connection(first, 0, set, 0);
+        set_root(&mut *sub, set, Context::Face, p(700.0, 120.0));
+    }
+    // GuideDeform, per point.
+    let deform = store.create_subnet("GuideDeform".into());
+    if let Some(sub) = store.get_mut(deform) {
+        let reference = |sub: &mut crate::ice::IceGraph, path: &str, y: f32| {
+            ice_add(
+                &mut *sub,
+                IceGraphNodeType::GetReference {
+                    input: 1,
+                    paths: vec![path.into()],
+                },
+                p(40.0, y),
+            )
+        };
+        let rest = reference(&mut *sub, "/restGuides", 40.0);
+        let anim = reference(&mut *sub, "/animGuides", 640.0);
+        let root = ice_add(&mut *sub, get("rootP", Some(Context::Face)), p(40.0, 140.0));
+        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
+        sub.add_connection(rest, 0, near, 0);
+        sub.add_connection(root, 0, near, 1);
+        // The point's number along its hair, and those before and after it.
+        let index = ice_add(&mut *sub, get("ptIndex", None), p(40.0, 260.0));
+        let first = ice_add(&mut *sub, get("firstCorner", Some(Context::Face)), p(40.0, 360.0));
+        let k = ice_add(
+            &mut *sub,
+            IceGraphNodeType::Math { op: Math::Subtract },
+            p(260.0, 300.0),
+        );
+        sub.add_connection(index, 0, k, 0);
+        sub.add_connection(first, 0, k, 1);
+        let step = |sub: &mut crate::ice::IceGraph, op: Math, y: f32| {
+            let n = ice_add(&mut *sub, IceGraphNodeType::Math { op }, p(480.0, y));
+            sub.add_connection(k, 0, n, 0);
+            ice_value(&mut *sub, n, 1, Value::Int(1));
+            n
+        };
+        let (before, after) = (
+            step(&mut *sub, Math::Subtract, 300.0),
+            step(&mut *sub, Math::Add, 400.0),
+        );
+        // On a guide (`on`: its Geometry, none for the rest guides the root
+        // was found on): its point k, and its direction there.
+        let guide = |sub: &mut crate::ice::IceGraph, on: Option<NodeId>, y: f32| -> (NodeId, NodeId) {
+            let list = ice_add(
+                &mut *sub,
+                IceGraphNodeType::GetArrayData {
+                    name: "P".into(),
+                    context: Some(Context::Point),
+                },
+                p(700.0, y),
+            );
+            sub.add_connection(near, xms_ice::CLOSEST_SAMPLES, list, 0);
+            if let Some(g) = on {
+                sub.add_connection(g, 0, list, 1);
+            }
+            let at = |sub: &mut crate::ice::IceGraph, i: NodeId, dy: f32| {
+                let e = ice_add(
+                    &mut *sub,
+                    IceGraphNodeType::Array { op: ArrayOp::Element },
+                    p(920.0, y + dy),
+                );
+                sub.add_connection(list, 0, e, 0);
+                sub.add_connection(i, 0, e, 1);
+                e
+            };
+            let (here, a, b) = (
+                at(&mut *sub, k, 0.0),
+                at(&mut *sub, before, 100.0),
+                at(&mut *sub, after, 200.0),
+            );
+            let d = ice_add(
+                &mut *sub,
+                IceGraphNodeType::Math { op: Math::Subtract },
+                p(1140.0, y + 150.0),
+            );
+            sub.add_connection(b, 0, d, 0);
+            sub.add_connection(a, 0, d, 1);
+            let dir = ice_add(
+                &mut *sub,
+                IceGraphNodeType::Math { op: Math::Normalize },
+                p(1360.0, y + 150.0),
+            );
+            sub.add_connection(d, 0, dir, 0);
+            (here, dir)
+        };
+        let (rest_at, rest_dir) = guide(&mut *sub, None, 40.0);
+        let (anim_at, anim_dir) = guide(&mut *sub, Some(anim), 640.0);
+        // The turn from the rest direction to the animated one: (rest × anim,
+        // 1 + rest · anim), made unit.
+        let axis = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Cross }, p(1580.0, 300.0));
+        sub.add_connection(rest_dir, 0, axis, 0);
+        sub.add_connection(anim_dir, 0, axis, 1);
+        let dot = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Dot }, p(1580.0, 420.0));
+        sub.add_connection(rest_dir, 0, dot, 0);
+        sub.add_connection(anim_dir, 0, dot, 1);
+        let real = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Add }, p(1800.0, 420.0));
+        sub.add_connection(dot, 0, real, 0);
+        ice_value(&mut *sub, real, 1, Value::Float(1.0));
+        let parts = ice_add(
+            &mut *sub,
+            IceGraphNodeType::Decompose {
+                op: xms_ice::Decompose::Vec3,
+            },
+            p(1800.0, 300.0),
+        );
+        sub.add_connection(axis, 0, parts, 0);
+        let turn = ice_add(
+            &mut *sub,
+            IceGraphNodeType::Compose {
+                op: xms_ice::Compose::Quat,
+            },
+            p(2020.0, 340.0),
+        );
+        for i in 0..3 {
+            sub.add_connection(parts, i, turn, i);
+        }
+        sub.add_connection(real, 0, turn, 3);
+        // The point's offset from the rest guide, turned, from the animated one.
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(1800.0, 160.0));
+        let offset = ice_add(
+            &mut *sub,
+            IceGraphNodeType::Math { op: Math::Subtract },
+            p(2020.0, 160.0),
+        );
+        sub.add_connection(pos, 0, offset, 0);
+        sub.add_connection(rest_at, 0, offset, 1);
+        let turned = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Rotate }, p(2240.0, 250.0));
+        sub.add_connection(turn, 0, turned, 0);
+        sub.add_connection(offset, 0, turned, 1);
+        let carried = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Add }, p(2460.0, 450.0));
+        sub.add_connection(anim_at, 0, carried, 0);
+        sub.add_connection(turned, 0, carried, 1);
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(2680.0, 450.0));
+        sub.add_connection(carried, 0, set, 0);
+        set_root(&mut *sub, set, Context::Point, p(2900.0, 450.0));
+    }
+    let load = |g: &mut NodeGraphState, name: &str, file: &str, prim: &str, location: &str, x: f32| {
+        g.add_node(
+            name.into(),
+            NodeType::LoadUsd {
+                path: examples::path(file),
+                mode: crate::usd_scene::LoadMode::Reference,
+                location: location.into(),
+                prim: prim.into(),
+                convert: false,
+            },
+            p(x, 20.0),
+        )
+    };
+    let guides = "/ASSET/groom/pighead/GRM_guide";
+    let rest = load(g, "RestGuides", examples::GUIDES_REST_ABC, guides, "/restGuides", 40.0);
+    let anim = load(
+        g,
+        "AnimatedGuides",
+        examples::GUIDES_ANIM_ABC,
+        guides,
+        "/animGuides",
+        240.0,
+    );
+    let hair = load(
+        g,
+        "Hair",
+        examples::HAIR_ABC,
+        "/ASSET/groom/pighead/GRM_hair",
+        "/hair",
+        440.0,
+    );
+    let both = g.add_node("Guides".into(), NodeType::merge(), p(140.0, 120.0));
+    let rooted = g.add_node(
+        "Roots".into(),
+        NodeType::Ice {
+            id: roots,
+            name: "Roots".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(440.0, 120.0),
+    );
+    let carried = g.add_node(
+        "GuideDeform".into(),
+        NodeType::Ice {
+            id: deform,
+            name: "GuideDeform".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(300.0, 220.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 320.0));
+    g.add_connection(rest, 0, both, 0);
+    g.add_connection(anim, 0, both, 1);
+    g.add_connection(hair, 0, rooted, 0);
+    g.add_connection(rooted, 0, carried, 0);
+    g.add_connection(both, 0, carried, 1);
+    g.add_connection(carried, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, carried);
+    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). Roots stores each hair's first point (per curve); inside GuideDeform (down arrow), per point: Closest Point on Surface finds the guide nearest the hair's root, Get Array Data reads that guide's points on the rest and the animated guides, the point's number along its hair (ptIndex - firstCorner) picks its own from each, and the point is moved with it and turned as the guide's direction turned. Space plays frames 1001 to 1050.".into()
+}
+
+/// The Bind ICE graph of the binding deformers: each point bound to the mesh at
+/// `rest` on Reference 1 and carried by the mesh at `moving`, of the same
+/// topology (see `ice_binding`).
+fn bind_subnet(store: &mut IceGraphStore, rest: &str, moving: &str) -> IceGraphId {
+    use xms_ice::{ArrayOp, Math, Value};
     let bind = store.create_subnet("Bind".into());
     if let Some(sub) = store.get_mut(bind) {
         let root = sub.root().expect("every ICE graph has a root");
@@ -2640,7 +3026,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             &mut *sub,
             IceGraphNodeType::GetReference {
                 input: 1,
-                paths: vec!["/set/rest".into()],
+                paths: vec![rest.into()],
             },
             p(40.0, 40.0),
         );
@@ -2648,7 +3034,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             &mut *sub,
             IceGraphNodeType::GetReference {
                 input: 1,
-                paths: vec!["/set/waving".into()],
+                paths: vec![moving.into()],
             },
             p(40.0, 640.0),
         );
@@ -2792,74 +3178,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             n.position = p(2900.0, 450.0);
         }
     }
-    let rest = g.add_node(
-        "RestGrid".into(),
-        NodeType::CreateGrid {
-            rows: 10,
-            cols: 10,
-            size: 4.0,
-            location: "/set/rest".into(),
-        },
-        p(40.0, 20.0),
-    );
-    let copy = g.add_node(
-        "WavingGrid".into(),
-        NodeType::CreateGrid {
-            rows: 10,
-            cols: 10,
-            size: 4.0,
-            location: "/set/waving".into(),
-        },
-        p(240.0, 20.0),
-    );
-    let waving = g.add_node(
-        "Wave".into(),
-        NodeType::Ice {
-            id: wave,
-            name: "Wave".into(),
-            references: 1,
-            params: Default::default(),
-        },
-        p(240.0, 120.0),
-    );
-    let grids = g.add_node("Grids".into(), NodeType::merge(), p(140.0, 220.0));
-    let all = || PolySelection {
-        source: SelSource::All,
-        ..Default::default()
-    };
-    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(440.0, 20.0));
-    let dense = g.add_node(
-        "Subdivide".into(),
-        edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()),
-        p(440.0, 120.0),
-    );
-    let lift = g.add_node(
-        "Above".into(),
-        transform([0.5, 0.8, 0.0], [0.0; 3], [1.0; 3]),
-        p(440.0, 220.0),
-    );
-    let bound = g.add_node(
-        "Bind".into(),
-        NodeType::Ice {
-            id: bind,
-            name: "Bind".into(),
-            references: 1,
-            params: Default::default(),
-        },
-        p(300.0, 330.0),
-    );
-    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
-    g.add_connection(copy, 0, waving, 0);
-    g.add_connection(rest, 0, grids, 0);
-    g.add_connection(waving, 0, grids, 1);
-    g.add_connection(cube, 0, dense, 0);
-    g.add_connection(dense, 0, lift, 0);
-    g.add_connection(lift, 0, bound, 0);
-    g.add_connection(grids, 0, bound, 1);
-    g.add_connection(bound, 0, result, 0);
-    g.add_connection(waving, 0, result, 1);
-    finish(g, result, bound);
-    "ICE binding deformer, built by hand: the cube is bound to the rest grid and carried by the waving one. Go inside Bind (down arrow): Closest Point on Surface finds each point's sample on the rest grid; a frame is built there from the sample's triangle (triP and bary, Get Array Data with its Samples wired) and composed into a matrix; the point is stored in it (its offset through the transposed frame); the same frame is built on the waving grid (the lower row: Get Array Data with its Geometry wired too) and the point put back through it. Inside Wave, set the Multiply after Sine to 0: the grids are the same, and every point returns exactly where it started.".into()
+    bind
 }
 
 /// Martino's instancing graph: a 40 m grid as the scene; a cube and a sphere
@@ -3572,6 +3891,86 @@ mod tests {
             let r = back.transform_point3(*w).length();
             assert!((0.98..=1.0001).contains(&r), "{w}: {r}");
         }
+    }
+
+    /// The binding deformer on the Alembic pig's head: the spheres move with
+    /// the animated head; bound to the head at rest and carried by it too,
+    /// every point stays where it was.
+    #[test]
+    fn the_alembic_binding_template_carries_the_spheres_with_the_head() {
+        let name = "ICE: binding deformer on Alembic";
+        let spheres = |prims: &[(String, Vec<Vec3>)]| {
+            prims
+                .iter()
+                .find(|(p, _)| p.starts_with("/spheres"))
+                .unwrap_or_else(|| panic!("no spheres in {:?}", prims.iter().map(|(p, _)| p).collect::<Vec<_>>()))
+                .1
+                .clone()
+        };
+        let start = spheres(&ice_points(name, Some("Spheres"), |_, _| {}));
+        assert_eq!(start.len(), 266_000);
+        let carried = spheres(&ice_points(name, None, |_, _| {}));
+        let still = spheres(&ice_points(name, None, |_, store| {
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Bind") {
+                for n in sg.nodes.iter_mut() {
+                    if let IceGraphNodeType::GetReference { paths, .. } = &mut n.node_type {
+                        if paths.iter().any(|p| p == "/anim/geo/pighead") {
+                            *paths = vec!["/rest/geo/pighead".into()];
+                        }
+                    }
+                }
+            }
+        }));
+        let most = |a: &[Vec3], b: &[Vec3]| a.iter().zip(b).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert_eq!(carried.len(), start.len());
+        assert!(
+            most(&still, &start) < 1e-3,
+            "carried by the rest head: {}",
+            most(&still, &start)
+        );
+        // The animated head is up to 1.43 from the rest head (frame 1001).
+        let moved = most(&carried, &start);
+        assert!(moved > 0.1 && moved < 3.0, "{moved}");
+    }
+
+    /// Hair carried by its guides: moved with the animated guides; carried by
+    /// the guides at rest, every point stays where it was.
+    #[test]
+    fn the_guide_template_carries_the_hair_with_its_guides() {
+        let name = "ICE: hair carried by guides on Alembic";
+        let hair = |prims: &[(String, Vec<Vec3>)]| {
+            prims
+                .iter()
+                .find(|(p, _)| p == "/hair")
+                .unwrap_or_else(|| panic!("no hair in {:?}", prims.iter().map(|(p, _)| p).collect::<Vec<_>>()))
+                .1
+                .clone()
+        };
+        let start = hair(&ice_points(name, Some("Hair"), |_, _| {}));
+        assert_eq!(start.len(), 9534 * 13);
+        let carried = hair(&ice_points(name, None, |_, _| {}));
+        let still = hair(&ice_points(name, None, |_, store| {
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "GuideDeform") {
+                for n in sg.nodes.iter_mut() {
+                    if let IceGraphNodeType::GetReference { paths, .. } = &mut n.node_type {
+                        if paths.iter().any(|p| p == "/animGuides") {
+                            *paths = vec!["/restGuides".into()];
+                        }
+                    }
+                }
+            }
+        }));
+        let most = |a: &[Vec3], b: &[Vec3]| a.iter().zip(b).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert_eq!(carried.len(), start.len());
+        assert!(
+            most(&still, &start) < 1e-4,
+            "carried by the rest guides: {}",
+            most(&still, &start)
+        );
+        // At frame 1001 the guides are up to 0.07 from rest; a hair, turned
+        // with its guide, up to 0.13.
+        let moved = most(&carried, &start);
+        assert!(moved > 0.02 && moved < 0.5, "{moved}");
     }
 
     /// The binding deformer carries the cube with the wave; with the wave's
