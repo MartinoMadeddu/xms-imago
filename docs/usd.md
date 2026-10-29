@@ -591,6 +591,18 @@ makes it the scene's frames and rate.
   but not listed; `velocities` and `accelerations` are not read; a Transform
   moves an instancer by its placement, not its points
 
+## Alembic
+
+Alembic files (`.abc`) are to open as USD layers, as `usdAbc` makes them in
+USD: opened, sublayered or referenced, with their time samples. The first part
+is built: `crates/xms-alembic` reads them (the Ogawa kind every program has
+written since about 2013; not the older HDF5 kind), with their transforms,
+polygon meshes, subdivision surfaces, curves, points, cameras, face sets,
+instances and every geometry parameter, each property with its own samples and
+times. Next: `xms-usd` turns them into USD layer data for `openusd`, which
+Imago's fork of it lets register as a layer format, so Load USD opens an `.abc`
+and a `.usda` that sublayers or references one composes as USD has it.
+
 ## Example file
 
 `examples/DeLorean.usdz`: 43 mesh prims, 461,595 triangles, 30 materials, 40
