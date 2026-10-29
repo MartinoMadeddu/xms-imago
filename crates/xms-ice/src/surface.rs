@@ -1,7 +1,12 @@
-//! Surfaces a graph queries: the meshes on the operator's reference inputs
-//! (Closest Point on Surface), moved into the space the graph runs in, with a
-//! BVH over their triangles; and the graph's own geometry, for reading at its
-//! own samples.
+//! Surfaces a graph queries: the meshes and curves on the operator's reference
+//! inputs (Closest Point on Surface), moved into the space the graph runs in,
+//! with a BVH over their triangles and curve segments; and the graph's own
+//! geometry, for reading at its own samples.
+//!
+//! A curve is read as a face whose corners are its points, in order: a sample
+//! on it is a segment's two points and their weights (`corners` `[a, b, b]`,
+//! weights `[1 - t, t, 0]`), `face` the curve. Its segments are its control
+//! points joined by straight lines, as a linear curve is drawn.
 
 use std::sync::{Arc, OnceLock};
 
@@ -73,11 +78,13 @@ impl std::fmt::Debug for RefGeo {
     }
 }
 
-/// A mesh of a surface: its geometry, where each face's corners start, and the
-/// matrix into the graph's space.
+/// A mesh or curves of a surface: its geometry, where each face's (curve's)
+/// corners start, and the matrix into the graph's space.
 pub(crate) struct Mesh {
     pub geo: Arc<Geo>,
     pub face_off: Vec<u32>,
+    /// Curves: a corner is a point (`corner_points` is every point in order).
+    curve_points: Vec<u32>,
     pub to_graph: Mat4,
     /// For normals: the inverse transpose of `to_graph`'s 3×3.
     pub normals: Mat3,
@@ -88,17 +95,22 @@ pub(crate) struct Mesh {
 impl Mesh {
     fn new(geo: Arc<Geo>, to_graph: Mat4) -> Mesh {
         let mut face_off = vec![0u32];
-        if let Topology::Mesh { counts, .. } = &geo.topology {
+        let mut curve_points = vec![];
+        if let Topology::Mesh { counts, .. } | Topology::Curves { counts, .. } = &geo.topology {
             let mut total = 0u32;
             for &c in counts.iter() {
                 total += c;
                 face_off.push(total);
+            }
+            if matches!(geo.topology, Topology::Curves { .. }) {
+                curve_points = (0..total).collect();
             }
         }
         let normals = Mat3::from_mat4(to_graph).inverse().transpose();
         Mesh {
             geo,
             face_off,
+            curve_points,
             to_graph,
             normals,
             moved: to_graph != Mat4::IDENTITY,
@@ -109,6 +121,7 @@ impl Mesh {
     pub fn corner_points(&self) -> &[u32] {
         match &self.geo.topology {
             Topology::Mesh { indices, .. } => indices.as_slice(),
+            Topology::Curves { .. } => &self.curve_points,
             _ => &[],
         }
     }
@@ -124,7 +137,8 @@ impl Mesh {
 }
 
 /// A triangle of a surface, in the graph's space: the mesh, the face and the
-/// corners it is from.
+/// corners it is from. A curve's segment is one too, its last corner its
+/// second again.
 struct Tri {
     mesh: u32,
     face: u32,
@@ -151,7 +165,7 @@ impl Surface {
 
     /// The reference prims `paths` name (a group names those below it), in the
     /// space of the graph (`space`: where its primitive is in the world).
-    /// Polygons are searched; points and curves only read.
+    /// Polygons and curves are searched; points only read.
     pub fn of(paths: &[Arc<str>], references: &[Reference], space: Mat4) -> Surface {
         let back = space.inverse();
         let named = |path: &str| {
@@ -172,7 +186,7 @@ impl Surface {
         }
     }
 
-    /// Its triangles and their BVH, made once.
+    /// Its triangles (and curve segments) and their BVH, made once.
     fn index(&self) -> &(Vec<Tri>, Option<Bvh>) {
         self.index.get_or_init(|| {
             let meshes = &self.meshes;
@@ -193,11 +207,14 @@ impl Surface {
                         ))
                     };
                     let faces = m.face_off.len().saturating_sub(1);
+                    // A curve's segments: corners c and c + 1, the second twice.
+                    let curve = matches!(m.geo.topology, Topology::Curves { .. });
                     (0..faces)
                         .flat_map(move |f| {
                             let (first, end) = (m.face_off[f], m.face_off[f + 1]);
-                            (first + 1..end.saturating_sub(1)).map(move |c| {
-                                let corners = [first, c, c + 1];
+                            let from = if curve { first } else { first + 1 };
+                            (from..end.saturating_sub(1)).map(move |c| {
+                                let corners = if curve { [c, c + 1, c + 1] } else { [first, c, c + 1] };
                                 Tri {
                                     mesh: k as u32,
                                     face: f as u32,
@@ -225,7 +242,11 @@ impl Surface {
         if let Some(bvh) = bvh {
             bvh.nearest(p, &mut best, |i, best| {
                 let t = &tris[i as usize];
-                let w = closest_on_triangle(p, t.p[0], t.p[1], t.p[2]);
+                let w = if t.corners[1] == t.corners[2] {
+                    closest_on_segment(p, t.p[0], t.p[1])
+                } else {
+                    closest_on_triangle(p, t.p[0], t.p[1], t.p[2])
+                };
                 let q = t.p[0] * w[0] + t.p[1] * w[1] + t.p[2] * w[2];
                 let d = (p - q).length_squared();
                 if d <= *best {
@@ -256,4 +277,17 @@ impl Surface {
             ),
         }
     }
+}
+
+/// The weights of the place nearest `p` on the segment from `a` to `b`, as a
+/// triangle's: `[1 - t, t, 0]`.
+fn closest_on_segment(p: Vec3, a: Vec3, b: Vec3) -> [f32; 3] {
+    let d = b - a;
+    let len2 = d.length_squared();
+    let t = if len2 > 0.0 {
+        ((p - a).dot(d) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    [1.0 - t, t, 0.0]
 }

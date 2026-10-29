@@ -45,6 +45,11 @@ pub const ELEPHANT_USDC: &str = "usd/elephant/SoC-ElephantWithMonochord.usdc";
 pub const PIG_REST_ABC: &str = "alembic/pighead_rest.abc";
 pub const PIG_ANIM_ABC: &str = "alembic/pighead_anim.abc";
 pub const PIG_SPHERES_ABC: &str = "alembic/pighead_spheres.abc";
+/// Martino's groom over it from Houdini: guides at rest and animated (frames
+/// 1001 to 1050 at 25 fps), and the hair.
+pub const GUIDES_REST_ABC: &str = "alembic/groom_guides_rest.abc";
+pub const GUIDES_ANIM_ABC: &str = "alembic/groom_guides_anim.abc";
+pub const HAIR_ABC: &str = "alembic/groom_hair.abc";
 
 /// The examples folder: the one named by XMS_EXAMPLES, next to the program, at
 /// the root of the source tree when run through cargo, or in the working
