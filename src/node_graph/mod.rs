@@ -11,6 +11,38 @@ use crate::types::{BodyView, ConnectionId, EvalResult, IceGraphId, MeshData, Nod
 use nodes::evaluate_node_type;
 use std::collections::HashMap;
 
+/// What each ICE graph computes, as the app last said (`know_ice`): an ICE
+/// operator whose graph is listed is kept between evaluations as any other
+/// operator is; one not listed cooks every time. `stale`: a graph ran with
+/// another key than the one listed (changed since it was said): nothing more
+/// is kept until the keys are said again.
+#[derive(Clone, Default)]
+pub struct IceKeys(std::sync::Arc<std::sync::Mutex<IceKeysInner>>);
+
+#[derive(Default)]
+struct IceKeysInner {
+    keys: HashMap<IceGraphId, u64>,
+    stale: bool,
+}
+
+impl IceKeys {
+    fn get(&self, id: IceGraphId) -> Option<u64> {
+        self.0.lock().ok()?.keys.get(&id).copied()
+    }
+    fn stale(&self) -> bool {
+        self.0.lock().map_or(true, |k| k.stale)
+    }
+    /// Graph `id` ran (with key `ran`, when it did): stale when it is listed
+    /// with another key.
+    fn ran(&self, id: IceGraphId, ran: Option<u64>) {
+        if let (Ok(mut k), Some(ran)) = (self.0.lock(), ran) {
+            if k.keys.get(&id).is_some_and(|listed| *listed != ran) {
+                k.stale = true;
+            }
+        }
+    }
+}
+
 /// What frozen nodes hold: per node, the freeze it is on (a new one each time
 /// it is frozen, so what is below sees a new result) and its results by output.
 /// Shared by copies of the graph, as `Cooked` is.
@@ -271,6 +303,8 @@ pub struct NodeGraphState {
     pub cooked: Cooked,
     /// What frozen nodes hold.
     pub frozen: Frozen,
+    /// What each ICE graph computes, for keeping ICE operators' results.
+    pub ice_keys: IceKeys,
     /// How long each node last took to cook.
     pub cook_times: CookTimes,
     /// The node a middle-click is held on: its information is shown.
@@ -378,6 +412,7 @@ impl Default for NodeGraphState {
             frame_request: true,
             cooked: Cooked::default(),
             frozen: Frozen::default(),
+            ice_keys: IceKeys::default(),
             cook_times: CookTimes::default(),
             info_node: None,
             time: 0.0,
@@ -1107,11 +1142,22 @@ impl NodeGraphState {
         self.eval_node_out(id, 0, cache, eval_subnet)
     }
 
+    /// What each ICE graph computes now (`IceGraphStore::cook_keys`): ICE
+    /// operators are kept by it. Said before cooking, after the ICE graphs may
+    /// have changed.
+    pub fn know_ice(&self, subnets: &crate::ice::IceGraphStore) {
+        if let Ok(mut k) = self.ice_keys.0.lock() {
+            k.keys = subnets.cook_keys();
+            k.stale = false;
+        }
+    }
+
     /// The key an output's result is kept under: the node's parameters, whether
     /// it is bypassed, which output, and the keys of what is wired into it.
     /// Files read are keyed by when they were last written; Body Collide by the
-    /// solves finished so far. None for what cannot be keyed (an ICE node,
-    /// whose graph is kept elsewhere, and what comes after one).
+    /// solves finished so far; an ICE operator by what its graph computes
+    /// (`know_ice`). None for what cannot be keyed (an ICE operator whose
+    /// graph's key is not known, and what comes after one).
     pub fn cook_key(&self, id: NodeId, output: usize) -> Option<u64> {
         self.cook_key_depth(id, output, 0)
     }
@@ -1128,8 +1174,8 @@ impl NodeGraphState {
             ("frozen", id.0, output, self.frozen.epoch(id)).hash(&mut h);
             return Some(h.finish());
         }
-        if matches!(node.node_type, NodeType::Ice { .. }) {
-            return None;
+        if let NodeType::Ice { id: graph, .. } = &node.node_type {
+            ("ice", self.ice_keys.get(*graph)?).hash(&mut h);
         }
         // `$OPNAME` in its paths is its name; `{name}` what comes down to it
         // (keyed through the inputs' keys).
@@ -1242,7 +1288,11 @@ impl NodeGraphState {
             return kept;
         }
         let result = self.cook(id, output, cache, eval_subnet);
-        if let Some(k) = key {
+        // An ICE operator's graph ran with the key it was kept by.
+        if let Some(NodeType::Ice { id: graph, .. }) = self.nodes.iter().find(|n| n.id == id).map(|n| &n.node_type) {
+            self.ice_keys.ran(*graph, crate::ice::ran(*graph));
+        }
+        if let Some(k) = key.filter(|_| !self.ice_keys.stale()) {
             self.cooked.put(k, &result);
         }
         result
@@ -1746,6 +1796,82 @@ mod cook_tests {
         // A copy of the graph (an undo step, a batch) finds the same results.
         let copy = g.clone();
         assert!(Arc::ptr_eq(&walk_before, &copy.eval_anim(walk).unwrap()));
+    }
+
+    /// An ICE operator is kept as any other operator once its graph's key is
+    /// known: cooked once while nothing it reads changes, again when its graph
+    /// or what comes in does; not kept while its graph's key is not known, nor
+    /// when its graph ran with another key than the one known.
+    #[test]
+    fn an_ice_operator_is_kept_while_nothing_it_reads_changes() {
+        use std::cell::Cell;
+        let mut subnets = crate::ice::IceGraphStore::default();
+        let sid = subnets.create_subnet("Lift".into());
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let ice = g.add_node(
+            "Lift".into(),
+            NodeType::Ice {
+                id: sid,
+                name: "Lift".into(),
+                references: 1,
+                params: Default::default(),
+            },
+            egui::pos2(0.0, 100.0),
+        );
+        g.add_connection(cube, 0, ice, 0);
+        let runs = Cell::new(0);
+        let cook = |g: &NodeGraphState, subnets: &crate::ice::IceGraphStore| {
+            let eval = |id: IceGraphId, m: &crate::core::geo::Geo, refs: &[crate::ice::Reference]| {
+                runs.set(runs.get() + 1);
+                subnets
+                    .get(id)
+                    .map(|sg| sg.evaluate(m, refs))
+                    .unwrap_or_else(|| m.clone())
+            };
+            g.eval_node(ice, &mut Default::default(), &eval)
+        };
+        // Its graph's key not known: cooked every time.
+        cook(&g, &subnets);
+        cook(&g, &subnets);
+        assert_eq!(runs.get(), 2);
+        // Known: cooked once, then kept.
+        g.know_ice(&subnets);
+        cook(&g, &subnets);
+        cook(&g, &subnets);
+        assert_eq!(runs.get(), 3);
+        let flip = |subnets: &mut crate::ice::IceGraphStore| {
+            let sg = subnets.get_mut(sid).unwrap();
+            for n in &mut sg.nodes {
+                if let crate::types::IceGraphNodeType::Root { context } = &mut n.node_type {
+                    *context = match context {
+                        crate::core::geo::Context::Point => crate::core::geo::Context::Face,
+                        _ => crate::core::geo::Context::Point,
+                    };
+                }
+            }
+        };
+        // Its graph changed, and said: cooked again.
+        flip(&mut subnets);
+        g.know_ice(&subnets);
+        cook(&g, &subnets);
+        cook(&g, &subnets);
+        assert_eq!(runs.get(), 4);
+        // Changed again but not said: it runs with another key than the one
+        // known, and what it gives is not kept.
+        flip(&mut subnets);
+        g.cooked = Default::default();
+        cook(&g, &subnets);
+        cook(&g, &subnets);
+        assert_eq!(runs.get(), 6);
+        // What comes in changed: cooked again.
+        g.know_ice(&subnets);
+        cook(&g, &subnets);
+        if let NodeType::CreateCube { size, .. } = &mut g.nodes.iter_mut().find(|n| n.id == cube).unwrap().node_type {
+            *size = 2.0;
+        }
+        cook(&g, &subnets);
+        assert_eq!(runs.get(), 8);
     }
 
     /// A frozen node keeps its result while what is above it changes, and what

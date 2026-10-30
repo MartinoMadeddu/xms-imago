@@ -383,6 +383,10 @@ work in on a heavy model as the scene graph. A run keeps the geometry it ran on
 (its columns shared, not copied); the editor works out port types and Get Data's
 list from it, not the run.
 
+In the scene graph an ICE operator's result is kept as any operator's: kept
+while what comes in, its references, its parameters and its graph stay the same,
+so a capture on rest meshes is cooked once without freezing it.
+
 The graph is compiled, then run in parallel batches of 4,096 elements:
 
 - only the attributes the graph reads are read, a batch at a time;

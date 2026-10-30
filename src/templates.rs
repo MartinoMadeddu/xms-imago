@@ -2580,7 +2580,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
 }
 
 /// A binding deformer, by hand: a rest grid and a copy waved by an ICE graph
-/// (Wave); a cube above them as the scene. Capture (frozen), per point, on the
+/// (Wave); a cube above them as the scene. Capture, per point, on the
 /// rest grid: Closest Point on Surface's Polygon and Param UV, the frame there
 /// (`frame_at`) and the point in it, stored; Deform, per point, on the waving
 /// grid: the frame at the stored Polygon and Param UV, the point put back through
@@ -2695,7 +2695,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(deform, 0, result, 0);
     g.add_connection(waving, 0, result, 1);
     finish(g, result, deform);
-    "ICE binding deformer, built by hand, in two operators as Houdini's capture and deform. Capture (frozen: it cooks once and holds) binds each point of the cube to the rest grid: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the waving grid (Get Array Data with its Geometry wired too), putting the point back through it: no search. Inside Wave, set the Multiply after Sine to 0: every point returns exactly where it started. Change the rest grid or the cube, then unfreeze and freeze Capture to bind again.".into()
+    "ICE binding deformer, built by hand, in two operators as Houdini's capture and deform. Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point of the cube to the rest grid: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the waving grid (Get Array Data with its Geometry wired too), putting the point back through it: no search. Inside Wave, set the Multiply after Sine to 0: every point returns exactly where it started. Change the rest grid or the cube and Capture binds again.".into()
 }
 
 /// The binding deformer on Alembic caches Martino wrote from Houdini: 1,000
@@ -2739,14 +2739,14 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     g.add_connection(deform, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, deform);
-    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Capture (frozen: it cooks once and holds) stores each point's place on the rest head (bindPoly, bindParamUV) and where it is in the frame there (bindLocal); Deform, every frame, builds that frame on the animated head and puts the point back through it (see ICE: binding deformer). Space plays frames 1001 to 1025.".into()
+    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Capture (kept: it cooks once, and again only when what it reads or its graph changes) stores each point's place on the rest head (bindPoly, bindParamUV) and where it is in the frame there (bindLocal); Deform, every frame, builds that frame on the animated head and puts the point back through it (see ICE: binding deformer). Space plays frames 1001 to 1025.".into()
 }
 
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
 /// 9,534 hairs and 314 guides of 13 points each over the pig's head, the
 /// guides at rest and animated (frames 1001 to 1050 at 25 fps). Each curves
-/// prim is referenced from its `.abc` at the root. GuideBind (per curve,
-/// frozen) stores the guide nearest each hair's first point (`guide`, a
+/// prim is referenced from its `.abc` at the root. GuideBind (per curve)
+/// stores the guide nearest each hair's first point (`guide`, a
 /// Polygon of the rest guides). GuideDeform (per point) reads that guide at
 /// the point's u along its hair (`(ptIndex - firstCorner) / (corners - 1)`, as
 /// a curve's Param UV counts segments) on the rest and the animated guides, and
@@ -2982,9 +2982,6 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         params: Default::default(),
     };
     let bound = g.add_node("GuideBind".into(), ice(bind, "GuideBind"), p(440.0, 120.0));
-    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == bound) {
-        n.frozen = true;
-    }
     let carried = g.add_node("GuideDeform".into(), ice(deform, "GuideDeform"), p(300.0, 220.0));
     let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 320.0));
     g.add_connection(rest, 0, both, 0);
@@ -2996,7 +2993,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, frozen: it cooks once and holds) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((ptIndex - firstCorner) / (corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
+    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, kept: it cooks once, and again only when what it reads or its graph changes) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((ptIndex - firstCorner) / (corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
 }
 
 /// A frame at a place on a surface, as the binding deformers build it, laid
@@ -3184,7 +3181,8 @@ fn deform_subnet(store: &mut IceGraphStore, moving: &str) -> IceGraphId {
 }
 
 /// Two ICE operators binding `scene` to the reference `rest` and carrying it by
-/// `moving`: Capture (frozen: it cooks once, then holds) and Deform after it.
+/// `moving`: Capture (cooked once and kept, as nothing it reads moves) and Deform
+/// after it.
 /// Deform's node.
 fn capture_and_deform(
     g: &mut NodeGraphState,
@@ -3204,9 +3202,6 @@ fn capture_and_deform(
     let deform = deform_subnet(store, moving.1);
     let c = g.add_node("Capture".into(), ice(capture, "Capture"), at);
     let d = g.add_node("Deform".into(), ice(deform, "Deform"), at + egui::vec2(0.0, 110.0));
-    if let Some(n) = g.nodes.iter_mut().find(|n| n.id == c) {
-        n.frozen = true;
-    }
     g.add_connection(scene, 0, c, 0);
     g.add_connection(rest.0, 0, c, 1);
     g.add_connection(c, 0, d, 0);

@@ -37,6 +37,15 @@ thread_local! {
     /// The values the ICE operator sets on its graph's Parameter nodes, by
     /// name (`set_params`), taken by `evaluate` as `SPACE` is.
     static PARAMS: std::cell::RefCell<std::collections::BTreeMap<String, serde_json::Value>> = std::cell::RefCell::new(std::collections::BTreeMap::new());
+    /// The key each graph last ran with on this thread (`IceGraph::cook_key`),
+    /// by its id: the scene graph checks it is the one it kept the result
+    /// under (`ran`).
+    static RAN: std::cell::RefCell<HashMap<IceGraphId, u64>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// The key graph `id` last ran with on this thread, taken.
+pub fn ran(id: IceGraphId) -> Option<u64> {
+    RAN.with(|r| r.borrow_mut().remove(&id))
 }
 
 /// The next graph run on this thread takes these values for its parameters
@@ -794,6 +803,21 @@ impl IceGraph {
         h.finish()
     }
 
+    /// What a run of it gives depends on, its input and parameters aside: what
+    /// it computes (`content_hash`) and the definitions of the ICE compounds in
+    /// it (one following the library changes with it).
+    pub fn cook_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.content_hash().hash(&mut h);
+        for n in &self.nodes {
+            if matches!(n.node_type, IceGraphNodeType::Compound { .. }) {
+                compound::definition(&n.node_type).map(|d| d.hash()).ok().hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
     /// Work out the type of every node's output, wired or not, on the geometry
     /// the graph last ran on. Cheap (no attribute is read), so the editor does
     /// it as it draws.
@@ -927,6 +951,8 @@ impl IceGraph {
     /// stays shared with `input`. A graph that does not compile gives `input`
     /// back, and says why on the node that broke it.
     pub fn evaluate(&self, input: &Geo, references: &[Reference]) -> Geo {
+        let key = self.cook_key();
+        RAN.with(|r| r.borrow_mut().insert(self.id, key));
         // While an ICE compound's inside is looked at: the graph it is in,
         // with it.
         let composed = self.composed();
@@ -1070,6 +1096,11 @@ impl IceGraphStore {
     }
     pub fn get(&self, id: IceGraphId) -> Option<&IceGraph> {
         self.subnets.get(&id)
+    }
+
+    /// Each graph's key (`IceGraph::cook_key`), by its id.
+    pub fn cook_keys(&self) -> HashMap<IceGraphId, u64> {
+        self.subnets.iter().map(|(id, g)| (*id, g.cook_key())).collect()
     }
 
     /// What every graph computes (`IceGraph::content_hash`), together.

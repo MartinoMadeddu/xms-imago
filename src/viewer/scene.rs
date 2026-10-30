@@ -421,6 +421,9 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
 
     let graph = input.graph;
     let subnets = input.subnets;
+    // ICE operators kept by what their graphs compute now: one changed this
+    // frame cooks again.
+    graph.know_ice(subnets);
     let eval_subnet =
         |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
             subnets
