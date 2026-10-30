@@ -27,7 +27,8 @@ applied to it. Change any value upstream and everything after it follows.
 Fifty templates ship with the program, one for each area of it, in three parts:
 Martino's (composed USD stages: composition, curves and points, point
 instancers, native instances, purposes, cameras, materials; ICE: spherify, a
-shrink-wrap, a binding deformer built by hand, instancing), Simon's (modelling,
+shrink-wrap, binding deformers on Alembic caches for points, hair by its guides
+and hair by the skin, instancing), Simon's (modelling,
 UV, USD models, animation and mocap, FBX and characters) and XMS's (lighting and
 rendering: the DeLorean lit by a dome and a rect light and rendered with Karma
 through husk). Each loads a working graph and tells you what to try.

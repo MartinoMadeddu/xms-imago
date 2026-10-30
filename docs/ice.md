@@ -163,7 +163,7 @@ the tree's parameters).
   Curves on the reference input are searched too, along their control points
   joined by straight lines; a curve is a primitive like a face, so Get Array
   Data there (`P`, context Point) gives the curve's points as a list. Hair is
-  carried by its guides this way (the "ICE: hair carried by guides on Alembic"
+  carried by its guides this way (the "Bind simple hair deform by guides"
   template).
 - **`curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,

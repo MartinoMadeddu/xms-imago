@@ -55,12 +55,12 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A subdivided cube pushed onto a sphere by an ICE graph. Select the ICE node and press the down arrow to go inside, the up arrow to come back" },
     Template { by: MARTINO, group: "ICE", name: "ICE: shrink-wrap", build: ice_shrink_wrap,
         hint: "A subdivided cube wrapped onto a squashed sphere by an ICE graph: Closest Point on Surface on the reference input, P read there, blended from where each point was" },
-    Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer", build: ice_binding,
-        hint: "A cube bound to a grid and carried by its wave, built by hand in two ICE graphs, as Houdini's capture and deform: Capture stores each point's place on the rest grid (Polygon and Param UV) and where it is in the frame there; Deform builds that frame on the waving grid and puts the point back through it" },
-    Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer on Alembic", build: ice_binding_alembic,
-        hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, three Alembic caches from Houdini loaded as USD, through the binding deformer's Capture and Deform" },
-    Template { by: MARTINO, group: "ICE", name: "ICE: hair carried by guides on Alembic", build: ice_guide_deform,
+    Template { by: MARTINO, group: "ICE", name: "Bind simple point deformer", build: ice_binding_alembic,
+        hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, Alembic caches from Houdini loaded as USD, in two ICE graphs as Houdini's capture and deform: Capture stores each point's place on the rest head (Polygon and Param UV) and where it is in the frame there; Deform builds that frame on the animated head and puts the point back through it" },
+    Template { by: MARTINO, group: "ICE", name: "Bind simple hair deform by guides", build: ice_guide_deform,
         hint: "9,534 hairs carried by 314 animated guides, Alembic caches from Houdini loaded as USD: each hair bound to the guide nearest its root, each point read on that guide at its u along the hair, moved and turned with it" },
+    Template { by: MARTINO, group: "ICE", name: "Bind rigid hair deform by skin", build: ice_rigid_hair,
+        hint: "9,534 hairs carried rigidly by the animated pig's head, Alembic caches from Houdini loaded as USD: each hair bound once, at its root, to the head at rest (RootBind, per curve); every point stored in the frame there (Capture) and put back through that frame on the animated head (Deform)" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -2579,130 +2579,14 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
     "ICE shrink-wrap: every point of the subdivided cube goes to the nearest place on the squashed sphere wired into Reference 1. Go inside the ShrinkWrap node (down arrow): Closest Point on Surface searches the reference (Get Reference) from each P, a Get Data with its Polygon and Param UV wired reads P there, and Linear Interpolate blends from the cube by its T (1: on the sphere; try 0.5). Move or turn the Squash: the cube follows it where the Viewer shows it.".into()
 }
 
-/// A binding deformer, by hand: a rest grid and a copy waved by an ICE graph
-/// (Wave); a cube above them as the scene. Capture, per point, on the
-/// rest grid: Closest Point on Surface's Polygon and Param UV, the frame there
-/// (`frame_at`) and the point in it, stored; Deform, per point, on the waving
-/// grid: the frame at the stored Polygon and Param UV, the point put back through
-/// it (see `capture_subnet`, `deform_subnet`).
-fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
-    use xms_ice::{Math, Value};
-    crate::graph_io::clear(g);
-    // Wave: P.y += sin(P.x × 2) × 0.4.
-    let wave = store.create_subnet("Wave".into());
-    if let Some(sub) = store.get_mut(wave) {
-        let root = sub.root().expect("every ICE graph has a root");
-        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 120.0));
-        let parts = ice_add(
-            &mut *sub,
-            IceGraphNodeType::Decompose {
-                op: xms_ice::Decompose::Vec3,
-            },
-            p(240.0, 200.0),
-        );
-        let freq = ice_add(
-            &mut *sub,
-            IceGraphNodeType::Math { op: Math::Multiply },
-            p(440.0, 200.0),
-        );
-        ice_value(&mut *sub, freq, 1, Value::Float(2.0));
-        let sine = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Sin }, p(640.0, 200.0));
-        let amp = ice_add(
-            &mut *sub,
-            IceGraphNodeType::Math { op: Math::Multiply },
-            p(840.0, 200.0),
-        );
-        ice_value(&mut *sub, amp, 1, Value::Float(0.4));
-        let up = ice_add(
-            &mut *sub,
-            IceGraphNodeType::Compose {
-                op: xms_ice::Compose::Vec3,
-            },
-            p(1040.0, 200.0),
-        );
-        let add = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Add }, p(1240.0, 120.0));
-        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(1440.0, 120.0));
-        sub.add_connection(pos, 0, parts, 0);
-        sub.add_connection(parts, 0, freq, 0);
-        sub.add_connection(freq, 0, sine, 0);
-        sub.add_connection(sine, 0, amp, 0);
-        sub.add_connection(amp, 0, up, 1);
-        sub.add_connection(pos, 0, add, 0);
-        sub.add_connection(up, 0, add, 1);
-        sub.add_connection(add, 0, set, 0);
-        sub.add_connection(set, 0, root, 0);
-        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
-            n.position = p(1640.0, 120.0);
-        }
-    }
-    let rest = g.add_node(
-        "RestGrid".into(),
-        NodeType::CreateGrid {
-            rows: 10,
-            cols: 10,
-            size: 4.0,
-            location: "/set/rest".into(),
-        },
-        p(40.0, 20.0),
-    );
-    let copy = g.add_node(
-        "WavingGrid".into(),
-        NodeType::CreateGrid {
-            rows: 10,
-            cols: 10,
-            size: 4.0,
-            location: "/set/waving".into(),
-        },
-        p(240.0, 20.0),
-    );
-    let waving = g.add_node(
-        "Wave".into(),
-        NodeType::Ice {
-            id: wave,
-            name: "Wave".into(),
-            references: 1,
-            params: Default::default(),
-        },
-        p(240.0, 120.0),
-    );
-    let all = || PolySelection {
-        source: SelSource::All,
-        ..Default::default()
-    };
-    let cube = g.add_node("Cube".into(), NodeType::cube(1.0), p(440.0, 20.0));
-    let dense = g.add_node(
-        "Subdivide".into(),
-        edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()),
-        p(440.0, 120.0),
-    );
-    let lift = g.add_node(
-        "Above".into(),
-        transform([0.5, 0.8, 0.0], [0.0; 3], [1.0; 3]),
-        p(440.0, 220.0),
-    );
-    g.add_connection(copy, 0, waving, 0);
-    g.add_connection(cube, 0, dense, 0);
-    g.add_connection(dense, 0, lift, 0);
-    let deform = capture_and_deform(
-        g,
-        store,
-        lift,
-        (rest, "/set/rest"),
-        (waving, "/set/waving"),
-        p(300.0, 330.0),
-    );
-    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 550.0));
-    g.add_connection(deform, 0, result, 0);
-    g.add_connection(waving, 0, result, 1);
-    finish(g, result, deform);
-    "ICE binding deformer, built by hand, in two operators as Houdini's capture and deform. Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point of the cube to the rest grid: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the waving grid (Get Array Data with its Geometry wired too), putting the point back through it: no search. Inside Wave, set the Multiply after Sine to 0: every point returns exactly where it started. Change the rest grid or the cube and Capture binds again.".into()
-}
-
-/// The binding deformer on Alembic caches Martino wrote from Houdini: 1,000
+/// A point deformer on Alembic caches Martino wrote from Houdini: 1,000
 /// spheres scattered over a pig's head (266,000 points) bound to the head at
 /// rest and carried by the animated head, frames 1001 to 1025 at 25 fps. Each
-/// `.abc` is loaded as USD, referenced at a Primitive Location; Capture and
-/// Deform are the binding deformer's.
+/// `.abc` is loaded as USD, referenced at a Primitive Location. Capture, per
+/// point, on the rest head: Closest Point on Surface's Polygon and Param UV,
+/// the frame there (`frame_at`) and the point in it, stored; Deform, per point,
+/// on the animated head: the frame at the stored Polygon and Param UV, the
+/// point put back through it (see `capture_subnet`, `deform_subnet`).
 fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     crate::graph_io::clear(g);
     g.scene = crate::node_graph::SceneRange {
@@ -2739,7 +2623,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     g.add_connection(deform, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, deform);
-    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Capture (kept: it cooks once, and again only when what it reads or its graph changes) stores each point's place on the rest head (bindPoly, bindParamUV) and where it is in the frame there (bindLocal); Deform, every frame, builds that frame on the animated head and puts the point back through it (see ICE: binding deformer). Space plays frames 1001 to 1025.".into()
+    "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
 }
 
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
@@ -3073,12 +2957,132 @@ fn frame_at(
     (m, origin)
 }
 
+/// Get Data of `name` stored in `context`.
+fn stored_in(name: &str, context: crate::core::geo::Context) -> IceGraphNodeType {
+    IceGraphNodeType::GetData {
+        name: name.into(),
+        context: Some(context),
+        resample: Default::default(),
+    }
+}
+
+/// The groom over the pig's head carried rigidly by the animated head, on
+/// Alembic caches Martino wrote from Houdini (frames 1001 to 1025 at 25 fps).
+/// RootBind, per curve: the place on the head at rest nearest the hair's first
+/// point, stored on the curve (`bindPoly`, `bindParamUV`). Capture, per point:
+/// the frame at the curve's place on the head at rest, the point in it
+/// (`bindLocal`). Deform, per point: the same frame on the animated head, the
+/// point put back through it. Every point of a hair goes through its root's
+/// frame, so the hair moves as one piece.
+fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use crate::core::geo::Context;
+    use xms_ice::{ArrayOp, Value};
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange {
+        start: 1001,
+        end: 1025,
+        fps_num: 25,
+        fps_den: 1,
+    };
+    let (rest_head, anim_head) = ("/rest/geo/pighead", "/anim/geo/pighead");
+    let root_bind = store.create_subnet("RootBind".into());
+    if let Some(sub) = store.get_mut(root_bind) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let surface = ice_add(
+            &mut *sub,
+            IceGraphNodeType::GetReference {
+                input: 1,
+                paths: vec![rest_head.into()],
+            },
+            p(40.0, 40.0),
+        );
+        let pts = ice_add(
+            &mut *sub,
+            IceGraphNodeType::GetArrayData {
+                name: "P".into(),
+                context: Some(Context::Point),
+            },
+            p(40.0, 160.0),
+        );
+        let first = ice_add(
+            &mut *sub,
+            IceGraphNodeType::Array { op: ArrayOp::Element },
+            p(260.0, 160.0),
+        );
+        sub.add_connection(pts, 0, first, 0);
+        ice_value(&mut *sub, first, 1, Value::Int(0));
+        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(480.0, 80.0));
+        sub.add_connection(surface, 0, near, 0);
+        sub.add_connection(first, 0, near, 1);
+        let stored = [
+            ("bindPoly", xms_ice::CLOSEST_POLYGONS, 40.0),
+            ("bindParamUV", xms_ice::CLOSEST_PARAM_UVS, 140.0),
+        ];
+        for (port, (name, out, y)) in stored.into_iter().enumerate() {
+            let set = ice_add(&mut *sub, IceGraphNodeType::set(name), p(700.0, y));
+            sub.add_connection(near, out, set, 0);
+            sub.add_connection(set, 0, root, port);
+        }
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root { context: Context::Face };
+            n.position = p(920.0, 80.0);
+        }
+    }
+    let capture = capture_subnet(store, rest_head, Some(Context::Face));
+    let deform = deform_subnet(store, anim_head, Some(Context::Face));
+    let load = |g: &mut NodeGraphState, name: &str, file: &str, prim: &str, location: &str, x: f32| {
+        g.add_node(
+            name.into(),
+            NodeType::LoadUsd {
+                path: examples::path(file),
+                mode: crate::usd_scene::LoadMode::Reference,
+                location: location.into(),
+                prim: prim.into(),
+                convert: false,
+            },
+            p(x, 20.0),
+        )
+    };
+    let rest = load(g, "RestHead", examples::PIG_REST_ABC, "", "/rest", 40.0);
+    let anim = load(g, "AnimatedHead", examples::PIG_ANIM_ABC, "", "/anim", 240.0);
+    let hair = load(
+        g,
+        "Hair",
+        examples::HAIR_ABC,
+        "/ASSET/groom/pighead/GRM_hair",
+        "/hair",
+        440.0,
+    );
+    let ice = |id: IceGraphId, name: &str| NodeType::Ice {
+        id,
+        name: name.into(),
+        references: 1,
+        params: Default::default(),
+    };
+    let bound = g.add_node("RootBind".into(), ice(root_bind, "RootBind"), p(440.0, 120.0));
+    let captured = g.add_node("Capture".into(), ice(capture, "Capture"), p(440.0, 220.0));
+    let carried = g.add_node("Deform".into(), ice(deform, "Deform"), p(300.0, 320.0));
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 420.0));
+    g.add_connection(hair, 0, bound, 0);
+    g.add_connection(rest, 0, bound, 1);
+    g.add_connection(bound, 0, captured, 0);
+    g.add_connection(rest, 0, captured, 1);
+    g.add_connection(captured, 0, carried, 0);
+    g.add_connection(anim, 0, carried, 1);
+    g.add_connection(carried, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, carried);
+    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). RootBind, per curve, finds the place on the head at rest nearest each hair's first point (Closest Point on Surface) and stores it on the curve (bindPoly, bindParamUV). Capture, per point, builds the frame at its curve's place on the head at rest (triP and bary, Get Array Data with the Polygon, Param UV and Geometry wired) and stores the point in it (bindLocal). Deform, every frame, builds the same frame on the animated head and puts the point back through it: every point of a hair goes through its root's frame, so the hair moves as one piece. RootBind and Capture cook once and are kept. Space plays frames 1001 to 1025.".into()
+}
+
 /// The Capture ICE graph of the binding deformers, per point: the place on the
 /// mesh at `rest` (on Reference 1) nearest it (Closest Point on Surface), the
 /// frame there (`frame_at`), and the point in that frame (its offset from the
 /// origin through the frame's transpose), stored as `bindPoly`, `bindParamUV` and
-/// `bindLocal`.
-fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
+/// `bindLocal`. With `bound`, the place is not searched but read, as
+/// `bindPoly` and `bindParamUV` stored in that context (a curve's, for one
+/// place per curve), and only `bindLocal` is stored.
+fn capture_subnet(store: &mut IceGraphStore, rest: &str, bound: Option<crate::core::geo::Context>) -> IceGraphId {
     use xms_ice::Math;
     let id = store.create_subnet("Capture".into());
     if let Some(sub) = store.get_mut(id) {
@@ -3092,12 +3096,24 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
             p(40.0, 40.0),
         );
         let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 160.0));
-        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
-        sub.add_connection(surface, 0, near, 0);
-        sub.add_connection(pos, 0, near, 1);
-        let prim = (near, xms_ice::CLOSEST_POLYGONS);
-        let uv = (near, xms_ice::CLOSEST_PARAM_UVS);
-        let (frame, origin) = frame_at(&mut *sub, prim, uv, None, 40.0);
+        let (prim, uv, on) = match bound {
+            None => {
+                let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
+                sub.add_connection(surface, 0, near, 0);
+                sub.add_connection(pos, 0, near, 1);
+                (
+                    (near, xms_ice::CLOSEST_POLYGONS),
+                    (near, xms_ice::CLOSEST_PARAM_UVS),
+                    None,
+                )
+            }
+            Some(context) => {
+                let poly = ice_add(&mut *sub, stored_in("bindPoly", context), p(260.0, 80.0));
+                let uv = ice_add(&mut *sub, stored_in("bindParamUV", context), p(260.0, 180.0));
+                ((poly, 0), (uv, 0), Some(surface))
+            }
+        };
+        let (frame, origin) = frame_at(&mut *sub, prim, uv, on, 40.0);
         let offset = ice_add(
             &mut *sub,
             IceGraphNodeType::Math { op: Math::Subtract },
@@ -3120,11 +3136,10 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
         );
         sub.add_connection(back, 0, local, 0);
         sub.add_connection(offset, 0, local, 1);
-        let stored = [
-            ("bindPoly", prim, 400.0),
-            ("bindParamUV", uv, 500.0),
-            ("bindLocal", (local, 0), 600.0),
-        ];
+        let mut stored = vec![("bindLocal", (local, 0), 600.0)];
+        if bound.is_none() {
+            stored.splice(0..0, [("bindPoly", prim, 400.0), ("bindParamUV", uv, 500.0)]);
+        }
         for (port, (name, (from, out), y)) in stored.into_iter().enumerate() {
             let set = ice_add(&mut *sub, IceGraphNodeType::set(name), p(2460.0, y));
             sub.add_connection(from, out, set, 0);
@@ -3138,10 +3153,11 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
 }
 
 /// The Deform ICE graph of the binding deformers, per point: the place Capture
-/// stored (`bindPoly`, `bindParamUV`) read on the mesh at `moving` (on Reference 1,
-/// of the rest mesh's topology), the frame there, and the point put back
-/// through it from where it was in the rest frame (`bindLocal`).
-fn deform_subnet(store: &mut IceGraphStore, moving: &str) -> IceGraphId {
+/// stored (`bindPoly`, `bindParamUV`, in context `bound`: the point's own when
+/// none) read on the mesh at `moving` (on Reference 1, of the rest mesh's
+/// topology), the frame there, and the point put back through it from where it
+/// was in the rest frame (`bindLocal`).
+fn deform_subnet(store: &mut IceGraphStore, moving: &str, bound: Option<crate::core::geo::Context>) -> IceGraphId {
     use xms_ice::Math;
     let id = store.create_subnet("Deform".into());
     if let Some(sub) = store.get_mut(id) {
@@ -3154,12 +3170,14 @@ fn deform_subnet(store: &mut IceGraphStore, moving: &str) -> IceGraphId {
             },
             p(40.0, 40.0),
         );
-        let stored = |sub: &mut crate::ice::IceGraph, name: &str, y: f32| {
-            ice_add(&mut *sub, IceGraphNodeType::get(name), p(260.0, y))
+        let read = |sub: &mut crate::ice::IceGraph, t: IceGraphNodeType, y: f32| ice_add(&mut *sub, t, p(260.0, y));
+        let place = |name: &str| match bound {
+            Some(context) => stored_in(name, context),
+            None => IceGraphNodeType::get(name),
         };
-        let prim = stored(&mut *sub, "bindPoly", 80.0);
-        let uv = stored(&mut *sub, "bindParamUV", 180.0);
-        let local = stored(&mut *sub, "bindLocal", 600.0);
+        let prim = read(&mut *sub, place("bindPoly"), 80.0);
+        let uv = read(&mut *sub, place("bindParamUV"), 180.0);
+        let local = read(&mut *sub, IceGraphNodeType::get("bindLocal"), 600.0);
         let (frame, _) = frame_at(&mut *sub, (prim, 0), (uv, 0), Some(surface), 40.0);
         let carried = ice_add(
             &mut *sub,
@@ -3198,8 +3216,8 @@ fn capture_and_deform(
         references: 1,
         params: Default::default(),
     };
-    let capture = capture_subnet(store, rest.1);
-    let deform = deform_subnet(store, moving.1);
+    let capture = capture_subnet(store, rest.1, None);
+    let deform = deform_subnet(store, moving.1, None);
     let c = g.add_node("Capture".into(), ice(capture, "Capture"), at);
     let d = g.add_node("Deform".into(), ice(deform, "Deform"), at + egui::vec2(0.0, 110.0));
     g.add_connection(scene, 0, c, 0);
@@ -3926,7 +3944,7 @@ mod tests {
     /// every point stays where it was.
     #[test]
     fn the_alembic_binding_template_carries_the_spheres_with_the_head() {
-        let name = "ICE: binding deformer on Alembic";
+        let name = "Bind simple point deformer";
         let spheres = |prims: &[(String, Vec<Vec3>)]| {
             prims
                 .iter()
@@ -3969,7 +3987,7 @@ mod tests {
     /// the guides at rest, every point stays where it was.
     #[test]
     fn the_guide_template_carries_the_hair_with_its_guides() {
-        let name = "ICE: hair carried by guides on Alembic";
+        let name = "Bind simple hair deform by guides";
         let hair = |prims: &[(String, Vec<Vec3>)]| {
             prims
                 .iter()
@@ -4005,52 +4023,50 @@ mod tests {
         assert!(moved > 0.02 && moved < 0.5, "{moved}");
     }
 
-    /// The binding deformer carries the cube with the wave; with the wave's
-    /// height at 0 every point returns exactly where it started.
+    /// Hair carried rigidly by the head: each hair moves as one piece (its
+    /// points as far apart as they were), and carried by the head at rest,
+    /// every point stays where it was.
     #[test]
-    fn the_binding_template_carries_the_cube_and_returns_it_flat() {
-        let waved = ice_points("ICE: binding deformer", None, |_, _| {});
-        let start = ice_points("ICE: binding deformer", Some("Above"), |_, _| {});
-        let cube =
-            |prims: &[(String, Vec<Vec3>)]| prims.iter().find(|(p, _)| !p.starts_with("/set")).unwrap().1.clone();
-        let flat = ice_points("ICE: binding deformer", None, |_, store| {
-            // Wave's Multiply after Sine (its amplitude) to 0.
-            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Wave") {
-                let amp = sg
-                    .nodes
-                    .iter()
-                    .filter(|n| {
-                        matches!(
-                            n.node_type,
-                            IceGraphNodeType::Math {
-                                op: xms_ice::Math::Multiply
-                            }
-                        )
-                    })
-                    .last()
-                    .unwrap()
-                    .id;
-                if let Some(n) = sg.nodes.iter_mut().find(|n| n.id == amp) {
-                    n.inputs[1].value = Some(xms_ice::Value::Float(0.0));
+    fn the_rigid_hair_template_carries_each_hair_as_one_piece() {
+        let name = "Bind rigid hair deform by skin";
+        let hair = |prims: &[(String, Vec<Vec3>)]| {
+            prims
+                .iter()
+                .find(|(p, _)| p == "/hair")
+                .unwrap_or_else(|| panic!("no hair in {:?}", prims.iter().map(|(p, _)| p).collect::<Vec<_>>()))
+                .1
+                .clone()
+        };
+        let start = hair(&ice_points(name, Some("Hair"), |_, _| {}));
+        assert_eq!(start.len(), 9534 * 13);
+        let carried = hair(&ice_points(name, None, |_, _| {}));
+        let still = hair(&ice_points(name, None, |g, store| {
+            let id = |name: &str| g.nodes.iter().find(|n| n.name == name).unwrap().id;
+            let (rest, deform) = (id("RestHead"), id("Deform"));
+            g.add_connection(rest, 0, deform, 1);
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Deform") {
+                for n in sg.nodes.iter_mut() {
+                    if let IceGraphNodeType::GetReference { paths, .. } = &mut n.node_type {
+                        *paths = vec!["/rest/geo/pighead".into()];
+                    }
                 }
             }
-        });
-        let (waved, flat, start) = (cube(&waved), cube(&flat), cube(&start));
-        assert_eq!(waved.len(), flat.len());
-        // Flat: every point where it started (the cube put above the grid).
-        let off = flat
-            .iter()
-            .zip(&start)
-            .map(|(a, b)| (*a - *b).length())
+        }));
+        let most = |a: &[Vec3], b: &[Vec3]| a.iter().zip(b).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert_eq!(carried.len(), start.len());
+        assert!(
+            most(&still, &start) < 1e-4,
+            "carried by the rest head: {}",
+            most(&still, &start)
+        );
+        // At frame 1001 the head is up to 1.65 from rest, a hair up to 1.23.
+        let moved = most(&carried, &start);
+        assert!(moved > 0.1 && moved < 3.0, "{moved}");
+        let bent = (0..start.len() / 13)
+            .flat_map(|c| (0..13).flat_map(move |i| (0..i).map(move |j| (c * 13 + i, c * 13 + j))))
+            .map(|(i, j)| ((carried[i] - carried[j]).length() - (start[i] - start[j]).length()).abs())
             .fold(0.0f32, f32::max);
-        assert!(off < 1e-4, "a point moved by {off} with the grids the same");
-        // Waved: moved, and by the wave's height at most (0.4) and some.
-        let most = waved
-            .iter()
-            .zip(&flat)
-            .map(|(a, b)| (*a - *b).length())
-            .fold(0.0f32, f32::max);
-        assert!(most > 0.05 && most < 1.5, "{most}");
+        assert!(bent < 1e-4, "a hair bent by {bent}");
     }
 
     #[test]
