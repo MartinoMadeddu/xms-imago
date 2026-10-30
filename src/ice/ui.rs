@@ -128,16 +128,22 @@ fn from_geometry(node: &IceGraphNode) -> bool {
     matches!(
         node.node_type,
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
-    ) && node.inputs.get(1).is_some_and(|i| i.connected_output.is_some())
+    ) && node
+        .inputs
+        .get(super::READ_GEOMETRY)
+        .is_some_and(|i| i.connected_output.is_some())
 }
 
-/// A Get Data or Get Array Data reading at surface samples: its Samples input
-/// wired.
+/// A Get Data or Get Array Data reading at places on a surface: its Primitive
+/// input wired.
 fn sampled(node: &IceGraphNode) -> bool {
     matches!(
         node.node_type,
         IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
-    ) && node.inputs.first().is_some_and(|i| i.connected_output.is_some())
+    ) && node
+        .inputs
+        .get(super::READ_PRIMITIVE)
+        .is_some_and(|i| i.connected_output.is_some())
 }
 
 /// A constant's value, or the attribute a Get or Set Data names, shown in a row
@@ -158,15 +164,15 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             Value::Sample(l) => format!("face {}", l.face),
         }),
         // Across contexts: where from, and how the values become one.
-        // Wired to samples: read there.
+        // Wired to a Primitive and UV: read there.
         IceGraphNodeType::GetData { name, .. } if sampled(node) && from_geometry(node) => {
-            Some(format!("{name} at samples, on geometry"))
+            Some(format!("geometry.primuv.{name}"))
         }
         IceGraphNodeType::GetArrayData { name, .. } if sampled(node) && from_geometry(node) => {
-            Some(format!("{name}[] at samples, on geometry"))
+            Some(format!("geometry.primuv.{name}[]"))
         }
-        IceGraphNodeType::GetData { name, .. } if sampled(node) => Some(format!("{name} at samples")),
-        IceGraphNodeType::GetArrayData { name, .. } if sampled(node) => Some(format!("{name}[] at samples")),
+        IceGraphNodeType::GetData { name, .. } if sampled(node) => Some(format!("primuv.{name}")),
+        IceGraphNodeType::GetArrayData { name, .. } if sampled(node) => Some(format!("primuv.{name}[]")),
         IceGraphNodeType::GetData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}")),
         IceGraphNodeType::GetArrayData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}[]")),
         IceGraphNodeType::GetData {
@@ -523,7 +529,7 @@ pub fn draw_subnet_node_properties(
             }
         }
     }
-    // Get Data and Get Array Data with samples wired read there.
+    // Get Data and Get Array Data with a Primitive wired read there.
     let at_samples = sampled(node);
     // A compound's promoted parameters.
     let compound_params = super::compound::definition(&node.node_type)
@@ -580,11 +586,11 @@ pub fn draw_subnet_node_properties(
                     );
                 }
                 if at_samples {
-                    f.choice("Context", Some("Read at the samples wired in: a point's or a corner's attribute blended across the triangle each sample is in, a face's that face's, the object's its one value. Auto: the first that has it, point, corner, face, object"),
+                    f.choice("Context", Some("Read at the Primitive and UV wired in (Houdini's primuv): a point's or a corner's attribute blended from the corners the place is made from, a face's that face's, the object's its one value. Auto: the first that has it, point, corner, face, object"),
                              context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                     return;
                 }
-                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire samples into Samples to read there instead; wire a Geometry (Get Reference) to read it from that prim, element by element (it has the same topology: a rest mesh and its animated copy)"),
+                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire a Primitive and its UV (Closest Point on Surface's, Scatter on Surface's, or stored) to read at that place instead; wire a Geometry (Get Reference) to read it from that prim, element by element (it has the same topology: a rest mesh and its animated copy)"),
                          context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                 if context.is_some_and(|c| c != Context::Object) {
                     f.choice("Resample", Some("Reading from another context resamples it: when an element touches several of the context read (a face's points, the faces around a point), how they become one value"),
@@ -1591,7 +1597,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
 fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     use xms_ice::{Math, Value};
     let mut out = vec![
-        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points). Wire surface samples into its Samples (Scatter on Surface's, Closest Point on Surface's) to read it there instead, blended across the surface, in the graph's space"),
+        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points). Wire a Primitive and UV into it (Scatter on Surface's, Closest Point on Surface's, or stored) to read it at that place instead, blended from the corners there, in the graph's space"),
         ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the Execution Ports"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Float(0.0) }, "A number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Int(0) }, "A whole number"),
@@ -1602,9 +1608,9 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: Value::Quat([0.0, 0.0, 0.0, 1.0]) }, "A rotation (i, j, k, real); none by default"),
         ("Constants", IceGraphNodeType::Constant { value: super::identity() }, "A matrix: three axes and an origin; the identity by default"),
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
-        ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there and the surface samples, each an array"),
-        ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire surface samples into its Samples to read, at each, the values of the face it is on (its points' P, ptIndices, its corners' uv)"),
-        ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): surface samples to read with Get Data at Samples, and how far each is. For deformers: shrink-wrap, stick to a body, blend by distance"),
+        ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there, and each place as its Primitive and UV (Houdini's parametric coordinates), each an array"),
+        ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire a Primitive and UV into it to read, at each, the values of the face (or curve) it is on: its points' P, ptIndices, its corners' uv; triP and bary are the corners the place is made from and their weights"),
+        ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes and curves (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): each as its Primitive and UV (Houdini's xyzdist), to read with Get Data or store, and how far each is. For deformers: shrink-wrap, stick to a body, bind and carry, blend by distance"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),

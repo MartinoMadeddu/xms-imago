@@ -99,47 +99,53 @@ pub enum Op {
     /// A vector (or a rotation) taken apart (see `Decompose`): one output per
     /// part.
     Decompose(Decompose),
-    /// Places on the mesh's surface, spread evenly by area: input 0 (an int) of
-    /// them, the same for the same seed. `weight`: the name of a per-face or
+    /// Places on the mesh's polygons, spread evenly by area: input 0 (an int)
+    /// of them, the same for the same seed. `weight`: the name of a per-face or
     /// per-point float that scales how many land where (0 none, 2 twice as
-    /// many); empty, none. In an Object graph. Three outputs, each an array: 0
+    /// many); empty, none. In an Object graph. Four outputs, each an array: 0
     /// the positions (USD's `point3f[]`), 1 the normals there (the mesh's, or
-    /// each face's own), 2 the surface samples themselves (`Ty::Sample`), for
-    /// Get Data at Samples.
+    /// each face's own), 2 and 3 each place as its Primitive and UV (see
+    /// `Loc`), for Get Data at them.
     Scatter {
         seed: u32,
         weight: String,
     },
-    /// An attribute read at surface samples (input 0): a point's or a corner's
-    /// interpolated across the triangle the sample is in, a face's that face's,
-    /// the object's its one value. `P` is the points; `N` the normals, or the
-    /// face's own when there are none. `context`: where the attribute is read
-    /// from; `None`, the first that has it (point, corner, face, object). The
-    /// app's Get Data with its Samples input wired. Input 1, when there is one,
-    /// is a Geometry (Get Reference's paths): the samples' faces and weights
-    /// read on that prim instead, one of the same topology (rest samples on an
-    /// animated mesh).
+    /// An attribute read at places on a surface, Houdini's `primuv`: input 0
+    /// the Primitive (an int: a face's, or a curve's, number), input 1 its UV
+    /// (the parametric coordinates on it, see `Loc`). A point's or a corner's
+    /// attribute is blended from the corners the place is made from, a face's
+    /// is that face's, the object's its one value. `P` is the points; `N` the
+    /// normals, or the face's own when there are none. `context`: where the
+    /// attribute is read from; `None`, the first that has it (point, corner,
+    /// face, object). Read on input 2, a Geometry (Get Reference's paths), when
+    /// there is one (a prim of the same topology: rest places on an animated
+    /// mesh); else on the surface the Primitive was found on (Closest Point's);
+    /// else on the graph's own geometry. `bary` is the place's weights on the
+    /// first three of those corners. The app's Get Data with its Primitive
+    /// wired.
     GetDataAt {
         name: String,
         context: Option<Context>,
     },
-    /// The nearest place on the meshes and curves of a reference input (a
-    /// curve's segments: a sample on one is its two points and their weights,
-    /// its face the curve): input 0 their paths (Get Reference; a group names
-    /// the meshes below it), input 1 the
-    /// origin (a 3D vector: per element, P; one; or, in an Object graph, an
-    /// array), input 2 the radius searched within (a number for all or per
-    /// element; 0, anywhere). The meshes are taken into the graph's space. Two
-    /// outputs: 0 the surface samples (`Ty::Sample`), for Get Data at Samples
-    /// and Get Array Data at Samples, which read the meshes' attributes there,
-    /// in the graph's space; 1 how far each is. Nothing within the radius: a
-    /// sample of nothing (it reads as zero) at the radius's distance.
+    /// The nearest places on the meshes and curves of a reference input,
+    /// Houdini's `xyzdist`: input 0 their paths (Get Reference; a group names
+    /// the meshes below it), input 1 the origin (a 3D vector: per element, P;
+    /// one; or, in an Object graph, an array), input 2 the radius searched
+    /// within (a number for all or per element; 0, anywhere). The meshes are
+    /// taken into the graph's space; a curve is searched along its control
+    /// points. Three outputs: 0 each place's Primitive (numbered across the
+    /// meshes in order), 1 how far each is, 2 its UV; for Get Data and Get
+    /// Array Data at them, or to store. Nothing within the radius: Primitive
+    /// -1 (it reads as zero), at the radius's distance.
     ClosestPoint,
-    /// At surface samples (input 0, one per element), the values of the face
-    /// each is on, kept as a list: its points' (P, `ptIndices` their numbers),
-    /// its corners' (uv), the face's own (a list of one). `context` as Get Data
-    /// at Samples'. The app's Get Array Data with its Samples input wired; a
-    /// Geometry input 1 as Get Data at Samples'.
+    /// At places on a surface (a Primitive and UV per element, as Get Data at
+    /// them takes, its Geometry too), the values of the face (or curve) each is
+    /// on, kept as a list: its points' (P, `ptIndices` their numbers), its
+    /// corners' (uv), the face's own (a list of one). `triP` is the points of
+    /// the corners the place is made from (three on a triangle, four on a quad,
+    /// all of a larger polygon, two on a curve) and `bary` their weights:
+    /// `triP` by `bary`, summed, is the place. The app's Get Array Data with
+    /// its Primitive wired.
     GetArrayDataAt {
         name: String,
         context: Option<Context>,
@@ -469,7 +475,7 @@ impl Op {
         match self {
             Op::Root { .. } => None,
             Op::Parameter { .. } | Op::Constant(_) => Some(0),
-            // A Geometry, a Samples (and a Geometry), or nothing.
+            // A Geometry, a Primitive and UV (and a Geometry), or nothing.
             Op::GetData { .. } | Op::GetArrayData { .. } | Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => None,
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
@@ -491,11 +497,13 @@ impl Op {
 /// Scatter on Surface's outputs (see `Op::Scatter`).
 pub const SCATTER_POSITIONS: usize = 0;
 pub const SCATTER_NORMALS: usize = 1;
-pub const SCATTER_SAMPLES: usize = 2;
+pub const SCATTER_PRIMITIVES: usize = 2;
+pub const SCATTER_UVS: usize = 3;
 
 /// Closest Point on Surface's outputs (see `Op::ClosestPoint`).
-pub const CLOSEST_SAMPLES: usize = 0;
+pub const CLOSEST_PRIMITIVES: usize = 0;
 pub const CLOSEST_DISTANCE: usize = 1;
+pub const CLOSEST_UVS: usize = 2;
 
 impl Op {
     /// Get Data of an attribute in the graph's own context.

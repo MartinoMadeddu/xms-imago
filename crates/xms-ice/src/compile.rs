@@ -16,7 +16,8 @@ use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
 use super::graph::{
-    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, SCATTER_NORMALS, SCATTER_SAMPLES,
+    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, CLOSEST_UVS, SCATTER_NORMALS,
+    SCATTER_POSITIONS, SCATTER_PRIMITIVES, SCATTER_UVS,
 };
 use super::surface::Reference;
 use super::types::{Ty, Value};
@@ -228,15 +229,33 @@ pub(crate) enum Ins {
         surface: Option<usize>,
         flat: bool,
     },
-    /// The weights of the samples in `loc` on their triangles' corners: a 3D
-    /// vector each, or (`list`) three numbers each.
+    /// The weights of the samples in `loc` on the corners they are made from:
+    /// the first three (a triangle's) as a 3D vector each, or (`list`) all of
+    /// them, a list each.
     Bary {
         dst: usize,
         loc: usize,
+        surface: Option<usize>,
         list: bool,
     },
-    /// The three points of each sample's triangle, in the graph's space: a list
-    /// each (`flat`: one sample's, as an array).
+    /// The samples at the Primitives in `prim` and parametric coordinates in
+    /// `uv` of surface `surface` (`None`: the graph's own geometry).
+    Locate {
+        dst: usize,
+        prim: usize,
+        uv: usize,
+        surface: Option<usize>,
+    },
+    /// The samples in `loc`, of surface `surface`, as their Primitives (into
+    /// `prim`) and parametric coordinates (into `uv`).
+    PrimUv {
+        prim: usize,
+        uv: usize,
+        loc: usize,
+        surface: Option<usize>,
+    },
+    /// The points of the corners each sample is made from, in the graph's
+    /// space: a list each (`flat`: one sample's, as an array).
     TriP {
         dst: usize,
         loc: usize,
@@ -289,10 +308,10 @@ fn error<T>(node: usize, message: impl Into<String>) -> Result<T, CompileError> 
 enum ListOf {
     /// What each element touches in a context (Get Array Data).
     Touch(Context),
-    /// The face of each sample in a register (Get Array Data at Samples).
+    /// The face of each Primitive in a register (Get Array Data at samples).
     Face(usize),
-    /// The triangle of each sample in a register: three items (`triP`, `bary`
-    /// as a list).
+    /// The corners the place at each Primitive in a register is made from
+    /// (`triP`, `bary` as a list): as many as its face's kind has.
     Tri(usize),
 }
 
@@ -549,18 +568,28 @@ impl Lower<'_> {
                     message: format!("No output {output}"),
                 });
             }
-            // Its samples are its value; its distances kept in `outs`.
-            Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => {
+            // Its Primitives are its value; its distances and UVs kept in `outs`.
+            Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE || output == CLOSEST_UVS => {
                 self.value(node)?;
                 return self.outs.get(&(node, output)).copied().ok_or(CompileError {
                     node,
                     message: format!("No output {output}"),
                 });
             }
-            Some(Op::Scatter { .. }) if output != SCATTER_SAMPLES => {}
+            Some(Op::Scatter { .. }) => {}
             _ => return self.value(node),
         }
+        // Scatter's: its samples are its value; its outputs read from them.
         let samples = self.value(node)?;
+        if output == SCATTER_PRIMITIVES || output == SCATTER_UVS {
+            let (prim, uv) = self.prim_uv(samples);
+            self.outs.insert((node, SCATTER_PRIMITIVES), prim);
+            self.outs.insert((node, SCATTER_UVS), uv);
+            return Ok(if output == SCATTER_UVS { uv } else { prim });
+        }
+        if output != SCATTER_POSITIONS && output != SCATTER_NORMALS {
+            return error(node, format!("No output {output}"));
+        }
         let read = if output == SCATTER_NORMALS {
             // The mesh's normals where it has some, else each face's own.
             let found = [Context::Point, Context::Corner, Context::Face]
@@ -585,6 +614,77 @@ impl Lower<'_> {
         v.array = true;
         self.outs.insert((node, output), v);
         Ok(v)
+    }
+
+    /// Samples as their Primitives and parametric coordinates.
+    fn prim_uv(&mut self, samples: Val) -> (Val, Val) {
+        let uniform = samples.uniform;
+        let uv = self.alloc(uniform, Ty::Vec2);
+        let mut prim = self.emit(uniform, Ty::Int, |dst| Ins::PrimUv {
+            prim: dst,
+            uv,
+            loc: samples.reg,
+            surface: samples.surface,
+        });
+        prim.array = samples.array;
+        prim.surface = samples.surface;
+        let uv = Val {
+            reg: uv,
+            ty: Ty::Vec2,
+            of: None,
+            ..prim
+        };
+        (prim, uv)
+    }
+
+    /// The samples a Get Data or Get Array Data at samples reads at: its
+    /// Primitive (input 0) and UV (input 1), on its Geometry (input 2) when one
+    /// is wired, else on the surface the Primitive was found on (Closest
+    /// Point's), else on the graph's own geometry.
+    /// Also the register of the Primitives, which lists read at them are lists
+    /// of (`ListOf`).
+    fn samples_in(&mut self, node: usize, what: &str) -> Result<(Val, usize), CompileError> {
+        let prim = self.input(node, 0, Some(Ty::Int))?;
+        if prim.ty != Ty::Int || prim.is_list() {
+            return error(
+                node,
+                format!(
+                    "{what}'s Primitive is an int: Closest Point on Surface's or Scatter on Surface's, or one stored"
+                ),
+            );
+        }
+        let uv = match self.graph.nodes[node].inputs.get(1) {
+            Some(_) => self.input(node, 1, Some(Ty::Vec2))?,
+            None => self.constant(Value::Vec2([0.0; 2])),
+        };
+        if uv.ty != Ty::Vec2 || uv.is_list() {
+            return error(
+                node,
+                format!("{what}'s UV is a 2D vector: the parametric coordinates on the Primitive"),
+            );
+        }
+        let surface = self.geometry_input(node, 2)?.or(prim.surface);
+        let uniform = prim.uniform && uv.uniform;
+        let (p, w) = if uniform {
+            (prim.reg, uv.reg)
+        } else {
+            if prim.array || uv.array {
+                return error(
+                    node,
+                    format!("{what} reads at one Primitive per element, or the graph's arrays in an Object graph"),
+                );
+            }
+            (self.varying(prim), self.varying(uv))
+        };
+        let mut v = self.emit(uniform, Ty::Sample, |dst| Ins::Locate {
+            dst,
+            prim: p,
+            uv: w,
+            surface,
+        });
+        v.array = prim.array || uv.array;
+        v.surface = surface;
+        Ok((v, prim.reg))
     }
 
     /// The value of a node's output (Scatter's: its samples).
@@ -1103,31 +1203,18 @@ impl Lower<'_> {
     }
 
     fn at_location(&mut self, node: usize, name: &str, context: Option<Context>) -> Result<Val, CompileError> {
-        let loc = self.input(node, 0, None)?;
-        if loc.ty != Ty::Sample {
-            return error(
-                node,
-                "Get Data's Samples are surface samples (Scatter on Surface's, Closest Point on Surface's)",
-            );
-        }
         if name.trim().is_empty() {
             return error(node, "Get Data needs the name of the attribute it reads");
         }
+        let (loc, _) = self.samples_in(node, "Get Data")?;
         let contexts = sample_contexts(context);
-        // Read on another prim of the same topology, when a Geometry is wired.
-        let loc = match self.geometry_input(node, 1)? {
-            Some(s) => Val {
-                surface: Some(s),
-                ..loc
-            },
-            None => loc,
-        };
-        // What every sample has: its weights on its triangle's corners.
+        // What every sample has: its weights on the corners it is made from.
         match name.trim() {
             "bary" => {
                 let mut v = self.emit(loc.uniform, Ty::Vec3, |dst| Ins::Bary {
                     dst,
                     loc: loc.reg,
+                    surface: loc.surface,
                     list: false,
                 });
                 v.array = loc.array;
@@ -1136,7 +1223,7 @@ impl Lower<'_> {
             "triP" => {
                 return error(
                     node,
-                    "triP is a sample's triangle's three points, a list: read it with Get Array Data",
+                    "triP is the points a place is made from, a list: read it with Get Array Data",
                 )
             }
             _ => {}
@@ -1364,9 +1451,10 @@ impl Lower<'_> {
         Ok((read, ty))
     }
 
-    /// Closest Point on Surface: the samples of the reference meshes (input 0,
+    /// Closest Point on Surface: the places on the reference meshes (input 0,
     /// their paths) nearest each origin (input 1), within the radius (input 2;
-    /// 0, anywhere); its second output how far each is.
+    /// 0, anywhere): their Primitives (its value), how far each is and their
+    /// parametric coordinates (kept in `outs`).
     fn closest(&mut self, node: usize) -> Result<Val, CompileError> {
         let paths = self.input(node, 0, None)?;
         if paths.ty != Ty::Token || !paths.uniform {
@@ -1425,7 +1513,9 @@ impl Lower<'_> {
                 surface: None,
             },
         );
-        Ok(v)
+        let (prim, uv) = self.prim_uv(v);
+        self.outs.insert((node, CLOSEST_UVS), uv);
+        Ok(prim)
     }
 
     /// Get Array Data at Samples: at each sample, the values of the face it is
@@ -1433,32 +1523,19 @@ impl Lower<'_> {
     /// (ptIndices), its corners' UVs. One sample per element gives a list per
     /// element; one sample in all, an array.
     fn array_at(&mut self, node: usize, name: &str, context: Option<Context>) -> Result<Val, CompileError> {
-        let loc = self.input(node, 0, None)?;
-        if loc.ty != Ty::Sample {
-            return error(
-                node,
-                "Get Array Data's Samples are surface samples (Closest Point on Surface's)",
-            );
-        }
+        let (loc, prims) = self.samples_in(node, "Get Array Data")?;
         if loc.array {
-            return error(node, "Get Array Data reads at one sample per element (Closest Point's, per point): an array of samples would give a list per sample, not yet");
+            return error(node, "Get Array Data reads at one Primitive per element (Closest Point's, per point): an array of them would give a list each, not yet");
         }
-        // Read on another prim of the same topology, when a Geometry is wired.
-        let loc = match self.geometry_input(node, 1)? {
-            Some(s) => Val {
-                surface: Some(s),
-                ..loc
-            },
-            None => loc,
-        };
-        // What every sample has: its triangle's three points, in the
-        // graph's space, and its weights on them, item by item.
+        // What every sample has: the points of the corners it is made from, in
+        // the graph's space, and its weights on them, item by item.
         if matches!(name.trim(), "triP" | "bary") {
             let (flat, surface) = (loc.uniform, loc.surface);
             let mut v = if name.trim() == "bary" {
                 self.emit(flat, Ty::Float, |dst| Ins::Bary {
                     dst,
                     loc: loc.reg,
+                    surface,
                     list: true,
                 })
             } else {
@@ -1471,7 +1548,7 @@ impl Lower<'_> {
             };
             v.array = true;
             if !flat {
-                v.of = Some(ListOf::Tri(loc.reg));
+                v.of = Some(ListOf::Tri(prims));
             }
             return Ok(v);
         }
@@ -1492,7 +1569,7 @@ impl Lower<'_> {
         });
         v.array = true;
         if !flat {
-            v.of = Some(ListOf::Face(loc.reg));
+            v.of = Some(ListOf::Face(prims));
         }
         Ok(v)
     }
@@ -2022,10 +2099,10 @@ fn type_of(
                 _ => None,
             })
         }
-        // Its samples; its positions and normals by `wire_ty`.
-        Op::Scatter { .. } => Some(Ty::Sample),
-        // Its samples; its distances by `wire_ty`.
-        Op::ClosestPoint => Some(Ty::Sample),
+        // Its positions; its other outputs by `wire_ty`.
+        Op::Scatter { .. } => Some(Ty::Vec3),
+        // Its Primitives; its other outputs by `wire_ty`.
+        Op::ClosestPoint => Some(Ty::Int),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
         Op::GetArrayDataAt { name, .. } if name.trim() == "triP" => Some(Ty::Vec3),
@@ -2091,8 +2168,13 @@ fn wire_ty(
     depth: usize,
 ) -> Option<Ty> {
     match graph.nodes.get(node).map(|n| &n.op) {
-        Some(Op::Scatter { .. }) if output != SCATTER_SAMPLES => Some(Ty::Vec3),
+        Some(Op::Scatter { .. }) => Some(match output {
+            SCATTER_PRIMITIVES => Ty::Int,
+            SCATTER_UVS => Ty::Vec2,
+            _ => Ty::Vec3,
+        }),
         Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => Some(Ty::Float),
+        Some(Op::ClosestPoint) if output == CLOSEST_UVS => Some(Ty::Vec2),
         Some(Op::Decompose(d)) => d.outputs().get(output).map(|o| o.1),
         _ => type_of(graph, geo, context, node, memo, depth),
     }

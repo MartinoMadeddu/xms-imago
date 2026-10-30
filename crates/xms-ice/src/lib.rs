@@ -38,8 +38,8 @@ pub mod types;
 pub use compile::{compile, compile_with, output_arrays, output_types, CompileError, Plan};
 pub use exec::{run, run_in, Instances, Ran, BATCH};
 pub use graph::{
-    ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Resample, CLOSEST_DISTANCE, CLOSEST_SAMPLES,
-    SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES,
+    ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PRIMITIVES,
+    CLOSEST_UVS, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_PRIMITIVES, SCATTER_UVS,
 };
 pub use surface::{RefGeo, RefMesh, Reference};
 pub use types::{Loc, Ty, Value};
