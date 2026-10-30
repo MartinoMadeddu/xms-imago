@@ -273,6 +273,9 @@ pub struct AnimData {
     /// What is what in the skeleton, set by hand on a Characterize node. Slots
     /// not set here are read from the joint names.
     pub human: Option<Arc<super::human::Picks>>,
+    /// What the rig knows of the joints: a guide clip's locators, a built
+    /// skeleton's roles, frames and limits (see `core::rig`).
+    pub rig: Option<Arc<super::rig::RigInfo>>,
 }
 
 /// The axes, unit and joint kinds of a source file.
@@ -899,6 +902,7 @@ pub fn create_test_clip(seconds: f32, rate: FrameRate) -> AnimData {
         skin: None,
         space: None,
         human: None,
+        rig: None,
     }
 }
 

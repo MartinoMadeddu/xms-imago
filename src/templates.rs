@@ -35,6 +35,7 @@ pub const MENU: [(&str, &[&str]); 3] = [
             "USD",
             "Animation & Mocap",
             "FBX and characters",
+            "Rigging",
         ],
     ),
     (XMS, &["Lighting & Rendering"]),
@@ -143,6 +144,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A folder of raw takes, each actor placed and retargeted onto a skinned character, kept out of the set by Body Collide, and written as skinned FBX. Write FBX with All files solves and writes every take" },
     Template { by: SIMON, group: "FBX and characters", name: "Human Limits", build: human_limits,
         hint: "An elbow turned the wrong way by Fix Pose, put back by the Body Collide node's human pass" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: full human", build: rig_human,
+        hint: "The example character's mesh given a new deform skeleton: guides for a whole human fitted to it (in the Full Human compound), joints built for Unreal, a hard bind along the surface, a range of motion, and smooth weights baked from the hard skin delta-mushed. Skin plays the range of motion with the baked weights" },
     Template { by: XMS, group: "Lighting & Rendering", name: "DeLorean: lit and rendered with Karma", build: delorean_render,
         hint: "The DeLorean under a dome (a sky HDR) and a blue rect light, a camera, Render Commons, Karma's Render Settings and AOVs, Write USD and a husk Render Command" },
 ];
@@ -2193,6 +2196,129 @@ fn capture_skin(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.selected_node = Some(skin);
     g.selected_nodes = vec![skin];
     format!("Capture and Skin: the character's mesh weighted again by proximity to its bones (Capture), then that skin put on the retargeted take by joint name (Skin). Bypass Capture to use the weights the file came with. Space plays.{}", missing_examples())
+}
+
+/// A whole human rigged on the example character's mesh: the guides of every
+/// component chained and packed into a compound, a skeleton for Unreal, a
+/// hard bind, a range of motion, weights baked through a delta mush, and the
+/// skin played through the range of motion.
+fn rig_human(g: &mut NodeGraphState, subnets: &mut IceGraphStore) -> String {
+    use crate::core::rig::{node::guide, Component, Side};
+    crate::graph_io::clear(g);
+    let who = g.add_node(
+        "Character".into(),
+        NodeType::LoadFbx {
+            path: examples::path(examples::CHARACTER_FBX),
+            take: 0,
+        },
+        p(40.0, 20.0),
+    );
+    let parts = [
+        ("Spine", Component::Spine, Side::Centre),
+        ("Neck", Component::Neck, Side::Centre),
+        ("ArmL", Component::Arm, Side::Left),
+        ("ArmR", Component::Arm, Side::Right),
+        ("HandL", Component::Hand, Side::Left),
+        ("HandR", Component::Hand, Side::Right),
+        ("LegL", Component::Leg, Side::Left),
+        ("LegR", Component::Leg, Side::Right),
+    ];
+    let mut guides = vec![];
+    for (k, (name, c, s)) in parts.iter().enumerate() {
+        let n = g.add_node((*name).into(), guide(*c, *s), p(300.0, 20.0 + 70.0 * k as f32));
+        g.add_connection(who, 1, n, 0);
+        if let Some(prev) = guides.last() {
+            g.add_connection(*prev, 0, n, 1);
+        }
+        guides.push(n);
+    }
+    let last = *guides.last().unwrap();
+    let build = g.add_node(
+        "Skeleton".into(),
+        NodeType::BuildSkeleton {
+            settings: Default::default(),
+        },
+        p(300.0, 620.0),
+    );
+    g.add_connection(last, 0, build, 0);
+    let hard = g.add_node("HardBind".into(), NodeType::HardBind, p(40.0, 720.0));
+    g.add_connection(who, 1, hard, 0);
+    g.add_connection(build, 0, hard, 1);
+    let rom = g.add_node(
+        "RangeOfMotion".into(),
+        NodeType::RangeOfMotion {
+            settings: Default::default(),
+        },
+        p(560.0, 720.0),
+    );
+    g.add_connection(build, 0, rom, 0);
+    let mush = g.add_node(
+        "DeltaMush".into(),
+        NodeType::DeltaMush {
+            settings: Default::default(),
+        },
+        p(40.0, 840.0),
+    );
+    let bake = g.add_node(
+        "BakeWeights".into(),
+        NodeType::BakeWeights {
+            settings: Default::default(),
+            samples: 120,
+        },
+        p(300.0, 840.0),
+    );
+    for n in [mush, bake] {
+        g.add_connection(hard, 0, n, 0);
+        g.add_connection(build, 0, n, 1);
+        g.add_connection(rom, 0, n, 2);
+    }
+    let skin = g.add_node("Skin".into(), NodeType::Skin, p(300.0, 960.0));
+    g.add_connection(bake, 0, skin, 0);
+    g.add_connection(build, 0, skin, 1);
+    g.add_connection(rom, 0, skin, 2);
+    // The scene's frames: the whole range of motion (it has as many frames
+    // for any human of these components, wherever their guides are).
+    let mut reference: Option<crate::core::anim::AnimData> = None;
+    for (_, c, sd) in parts {
+        let part = crate::core::rig::node::part_info(
+            c,
+            sd,
+            0,
+            "",
+            if c == Component::Spine { 5 } else { 2 },
+            2,
+            &crate::core::rig::Finger::ALL,
+            true,
+        );
+        reference = Some(crate::core::rig::guides::add_part(
+            reference.as_ref(),
+            &part,
+            None,
+            None,
+            false,
+            &[],
+        ));
+    }
+    let frames = reference
+        .and_then(|r| crate::core::rig::build::build(&r, &Default::default()).ok())
+        .and_then(|sk| crate::core::rig::rom::range_of_motion(&sk, &Default::default()))
+        .map(|(rom, _)| rom.frames as i64)
+        .unwrap_or(120);
+    g.scene = crate::node_graph::SceneRange {
+        start: 1,
+        end: frames,
+        fps_num: 24,
+        fps_den: 1,
+    };
+    // The guides as one operator: double-click it to see them.
+    let packed = g.make_compound(subnets, &guides, "Full Human").ok();
+    if let Some(c) = packed {
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == c) {
+            n.name = "FullHuman".into();
+        }
+    }
+    finish(g, skin, packed.unwrap_or(build));
+    format!("Rig: full human. The example character's mesh (its own skeleton is not used) given guides for a whole human, fitted by autofit: double-click Full Human to see the eight Rig Guides inside. Skeleton builds the joints for Unreal; HardBind gives every point to one joint; RangeOfMotion sweeps each joint and poses the body; BakeWeights fits smooth weights to the hard skin delta-mushed over it. Skin plays it all: press Space. View HardBind or BakeWeights to see the weights painted.{}", missing_examples())
 }
 
 /// The whole mocap pipeline, per actor: a folder of raw takes, split, each

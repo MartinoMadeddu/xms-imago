@@ -651,6 +651,7 @@ impl AnimData {
                 skin: target.skin.clone(),
                 space: target.space.clone(),
                 human: target.human.clone(),
+                rig: target.rig.clone(),
             },
             matched,
         )

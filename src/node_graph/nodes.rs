@@ -454,6 +454,16 @@ pub fn evaluate_node_type(
                 out
             }
         },
+        t @ (NodeType::RigGuide { .. }
+        | NodeType::BuildSkeleton { .. }
+        | NodeType::HardBind
+        | NodeType::Envelope { .. }
+        | NodeType::RangeOfMotion { .. }
+        | NodeType::DeltaMush { .. }
+        | NodeType::BakeWeights { .. }) => {
+            let ports: Vec<Option<EvalResult>> = inputs.iter().cloned().map(Some).collect();
+            crate::core::rig::node::cook(t, &ports, 0.0)
+        }
         NodeType::Capture { falloff } => {
             let EvalResult::Named(prims) = prims_of(inputs.first()?) else {
                 return None;

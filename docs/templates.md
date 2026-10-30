@@ -116,6 +116,12 @@ it is opened, or until Show all geometry is ticked.
 | Novasci clip onto the character | A Mixamo-skeleton clip from the Novasci Free Motion Pack (`mocap/novasci/ComeHere1.fbx`, 66 joints, 30 fps) retargeted onto the 342-joint character |
 | Novasci clip: thumbs up (download) | The same with `ThumbsUp1.fbx`, which is not in the repository: the download dialog fetches it on first use |
 
+## Simon: Rigging
+
+| Template | Shows |
+|---|---|
+| Rig: full human | The example character's mesh (its own skeleton not used) given guides for a whole human by autofit, packed in the Full Human compound; a skeleton for Unreal; Hard Bind; Range of Motion (2,097 frames, the scene's range); Delta Mush; Bake Weights; Skin playing the range of motion with the baked weights. See [Rigging](rigging.md) |
+
 ## Example files
 
 In the `examples` folder:

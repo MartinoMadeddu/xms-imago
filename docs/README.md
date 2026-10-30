@@ -29,6 +29,9 @@
   and Merge Animation
 - [Body Collide](body-collide.md): keeping a captured character out of a set and
   out of itself
+- [Rigging](rigging.md): guides fitted to a mesh, a deform skeleton for Unreal,
+  HumanIK or Maya with joint limits, hard bind, envelopes, range of motion,
+  delta mush and baked weights
 - [Builds and releases](releases.md): where the binaries come from
 
 How the program should work and why is in

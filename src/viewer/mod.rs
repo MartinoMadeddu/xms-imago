@@ -97,7 +97,9 @@ impl Viewer {
         let key = (
             input.revision,
             input.playback.time.to_bits(),
-            crate::theme::revision() ^ crate::viewport::textures::generation().rotate_left(32),
+            crate::theme::revision()
+                ^ crate::viewport::textures::generation().rotate_left(32)
+                ^ crate::core::rig::view::revision().rotate_left(16),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
             crate::viewport::display::mode() as u64 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),

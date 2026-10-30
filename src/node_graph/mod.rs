@@ -675,6 +675,13 @@ impl NodeGraphState {
             NodeType::HumanLimits { .. } => (vec![i("Clip"), i("Reference")], vec![o("Clip")]),
             NodeType::Capture { .. } => (vec![i("Geometry"), i("Skeleton")], vec![o("Geometry")]),
             NodeType::Skin => (vec![i("Geometry"), i("Rest"), i("Clip")], vec![o("Clip")]),
+            NodeType::RigGuide { .. } => (vec![i("Mesh"), i("Guides")], vec![o("Guides")]),
+            NodeType::BuildSkeleton { .. } => (vec![i("Guides")], vec![o("Skeleton")]),
+            NodeType::HardBind | NodeType::Envelope { .. } => (vec![i("Geometry"), i("Skeleton")], vec![o("Geometry")]),
+            NodeType::RangeOfMotion { .. } => (vec![i("Skeleton")], vec![o("Clip")]),
+            NodeType::DeltaMush { .. } | NodeType::BakeWeights { .. } => {
+                (vec![i("Geometry"), i("Rest"), i("Clip")], vec![o("Geometry")])
+            }
             NodeType::UvUnwrap { .. } | NodeType::UvTransform { .. } | NodeType::UvEdit { .. } => {
                 (vec![i("Scene")], vec![o("Scene")])
             }
@@ -1121,13 +1128,15 @@ impl NodeGraphState {
                 self.eval_anim_node(src, out, cache, eval_subnet)
             }
             // Transform passes a clip on when it is given one; so do the
-            // operators that place things in time.
-            NodeType::Transform { .. } | NodeType::LocalAnimation { .. } | NodeType::MergeAnimation { .. } => {
-                match self.eval_node_out(id, output, cache, eval_subnet) {
-                    Some(r @ EvalResult::Anim(_)) => Some(r),
-                    _ => None,
-                }
-            }
+            // operators that place things in time, and a compound whose graph
+            // gives one (Full Human's guides).
+            NodeType::Transform { .. }
+            | NodeType::LocalAnimation { .. }
+            | NodeType::MergeAnimation { .. }
+            | NodeType::Compound { .. } => match self.eval_node_out(id, output, cache, eval_subnet) {
+                Some(r @ EvalResult::Anim(_)) => Some(r),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -1230,6 +1239,8 @@ impl NodeGraphState {
                 file.hash(&mut h);
             }
             NodeType::Ragdoll { .. } => crate::ragdoll::generation().hash(&mut h),
+            // The mesh skinned at the playhead.
+            NodeType::DeltaMush { .. } => self.frame().to_bits().hash(&mut h),
             // A material is named by its operator.
             NodeType::Material { .. } | NodeType::MaterialX { .. } => node.name.hash(&mut h),
             // A compound by the definition it cooks (a locked one follows the
@@ -1434,6 +1445,18 @@ impl NodeGraphState {
                 &node.locations,
                 bindings,
             ))
+        } else if crate::core::rig::node::is_rig(node_type) {
+            // Each input by its port: a Rig Guide's mesh and guides are both
+            // optional.
+            let ports: Vec<Option<EvalResult>> = node
+                .inputs
+                .iter()
+                .map(|s| {
+                    s.connected_output
+                        .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet))
+                })
+                .collect();
+            crate::core::rig::node::cook(node_type, &ports, self.now())
         } else if crate::core::locations::takes_locations(node_type) && crate::core::locations::is_set(&node.locations)
         {
             // The operator works on the primitives its Prims Location tab

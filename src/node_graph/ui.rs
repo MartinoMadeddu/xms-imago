@@ -1529,6 +1529,22 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::ProxySkin { thickness: 1.0 }, "A body of spheres and cylinders, bound to the skeleton"),
             (NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, "Keep the character out of the set and out of itself, within what a human body can do"),
         ]),
+        ("🦴", "Rigging", {
+            use crate::core::rig::{node::guide, Component, Side};
+            vec![
+                (guide(Component::Spine, Side::Centre), "Guide locators for a spine: hips, mid, chest; fitted to the mesh"),
+                (guide(Component::Neck, Side::Centre), "Guide locators for the neck and the head, on the spine's chest"),
+                (guide(Component::Arm, Side::Left), "Guide locators for an arm: clavicle to hand, and the elbow's pole"),
+                (guide(Component::Hand, Side::Left), "Guide locators for the fingers and the thumb, on an arm's wrist"),
+                (guide(Component::Leg, Side::Left), "Guide locators for a leg: hip to toe, the heel, and the knee's pole"),
+                (NodeType::BuildSkeleton { settings: Default::default() }, "Joints from guides, named and oriented for Unreal, HumanIK or Maya, with limits"),
+                (NodeType::HardBind, "Every point of the mesh to one joint, along the surface"),
+                (NodeType::Envelope { edits: vec![] }, "Move where joints' regions meet: slide, tilt, grow"),
+                (NodeType::RangeOfMotion { settings: Default::default() }, "Every joint swept within its limits, then whole-body poses"),
+                (NodeType::DeltaMush { settings: Default::default() }, "The skinned mesh at the playhead, smoothed, its detail kept"),
+                (NodeType::BakeWeights { settings: Default::default(), samples: 120 }, "Smooth weights fitted to the hard skin, mushed over a range of motion"),
+            ]
+        }),
     ]
 }
 

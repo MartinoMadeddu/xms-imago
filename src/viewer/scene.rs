@@ -574,6 +574,47 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             } else {
                 prims
             };
+            // A skin operator viewed: its weights painted on the geometry
+            // (`core::rig::view`).
+            let painting = graph
+                .display_source()
+                .and_then(|id| graph.nodes.iter().find(|n| n.id == id))
+                .is_some_and(|n| {
+                    !n.bypassed
+                        && matches!(
+                            n.node_type,
+                            crate::types::NodeType::HardBind
+                                | crate::types::NodeType::Envelope { .. }
+                                | crate::types::NodeType::DeltaMush { .. }
+                                | crate::types::NodeType::BakeWeights { .. }
+                        )
+                });
+            let prims = if painting {
+                let shown = crate::core::rig::view::shown();
+                let mut left = vec![];
+                for p in prims {
+                    match crate::core::rig::view::painted_kept(&p, shown.as_deref()) {
+                        Some(pieces) => {
+                            for (md, c) in pieces.iter() {
+                                let l = linear_f(*c);
+                                let mut inst = vec![];
+                                push_instance(&mut inst, &Mat4::IDENTITY, [l[0], l[1], l[2], 1.0], true);
+                                s.meshes.push(MeshDraw {
+                                    geometry: cache.get(md, Kind::Surface, &mut used),
+                                    instances: inst,
+                                    blend: false,
+                                    edges: false,
+                                    material: None,
+                                });
+                            }
+                        }
+                        None => left.push(p),
+                    }
+                }
+                left
+            } else {
+                prims
+            };
             // How each is drawn: geometry, its box or its origin.
             let (modes, notice) = draw_modes(&prims, input.hierarchy, TRIANGLE_BUDGET);
             s.notice = notice;

@@ -241,6 +241,21 @@ pose](docs/xms_retarget.png)
 ![The timeline follows the selected node: here a trimmed range over the incoming
 clip](docs/xms_anim_timeline.png)
 
+## Rigging: guides, a skeleton, weights in steps
+
+Guide locators for a spine, a neck and head, arms, hands and legs, placed on the
+mesh by autofit and moved by hand after; a deform skeleton built from them,
+named and oriented for Unreal (MetaHuman), HumanIK or Maya, every joint with
+human limits; then the weights: a hard bind grown along the surface, envelopes
+to move where regions meet, a range of motion within the limits, and smooth
+weights baked from the hard skin delta-mushed over it. Change a guide and
+everything after it is built again. On the example character, autofit puts the
+80 joints a mean 0.9 cm from the character's own; the bake takes 1.6 s. The
+"Rig: full human" template does it all. See [docs/rigging.md](docs/rigging.md).
+
+![Guides fitted, the hard bind's regions, a baked joint's weights, the squat of
+the range of motion](docs/xms_rig_human.png)
+
 ## Body Collide: a capture that respects the set
 
 The actor sat on a box. The character sits in a car, with its hips in the
@@ -426,7 +441,7 @@ On Ubuntu or Debian, first:
 
 [docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD,
 geometry, Viewer navigation, animation and mocap, keys and the Curve Editor,
-Body Collide, builds and releases.
+Body Collide, rigging, builds and releases.
 
 ## Contributing
 
@@ -457,6 +472,9 @@ then runs the program.
   SLIM and BFF are not implemented
 - Mocap: contact detection and foot locking (Reach follows the source's feet);
   FBX blend shapes applied, cameras and lights drawn
+- Rigging: components beyond a human (animal legs, pistons, wheels, vehicles,
+  aircraft, treads), control rigs, dragging guide locators in the Viewer, autofit
+  tried on bodies other than the example character's
 - Timeline zoom and pan
 - Curve cleanup
 - The program icon inside the file itself (Windows Explorer, macOS dock). The

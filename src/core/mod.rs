@@ -48,3 +48,5 @@ pub mod xform;
 pub use xms_geo as geo;
 /// `Geo` to and from `MeshData`.
 pub mod geo_mesh;
+/// Rigging: guides, a deform skeleton built from them, skin weights in steps.
+pub mod rig;

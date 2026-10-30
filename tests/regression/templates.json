@@ -691,6 +691,30 @@
     },
     "cook_ms": 102
   },
+  "Rig: full human": {
+    "nodes": 8,
+    "viewed": "Skin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 2097,
+      "joints": 80,
+      "rate": "24/1",
+      "skin": 32334,
+      "hips_end": [
+        0.0,
+        0.981,
+        0.02
+      ]
+    },
+    "cook_ms": 1910
+  },
   "Shapes": {
     "nodes": 7,
     "viewed": "MergeFloor",

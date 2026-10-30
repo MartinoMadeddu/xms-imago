@@ -453,6 +453,8 @@ pub fn draw_properties(
         },
         _ => Default::default(),
     };
+    // What reaches a rig operator, and what it gives.
+    let rig_in = super::rig::rig_in(graph, sel_id);
     // What reaches a Body Collide node: its clip and its collider.
     let collide_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::Ragdoll { .. }) => graph.ragdoll_inputs(sel_id),
@@ -1245,6 +1247,13 @@ pub fn draw_properties(
         }),
         NodeType::Characterize { picks } => characterize(ui, picks, &anim.input),
         NodeType::Ragdoll { settings, view, limits } => body_collide(ui, settings, view, limits, &collide_in),
+        t @ (NodeType::RigGuide { .. }
+        | NodeType::BuildSkeleton { .. }
+        | NodeType::HardBind
+        | NodeType::Envelope { .. }
+        | NodeType::RangeOfMotion { .. }
+        | NodeType::DeltaMush { .. }
+        | NodeType::BakeWeights { .. }) => super::rig::rig_rows(ui, t, &rig_in),
 
         // Modelling
         NodeType::EditPoly { ops, pending, edit, auto_collapse } => edit_poly(ui, ops, pending, edit, auto_collapse, io),

@@ -57,6 +57,14 @@ have **parameters**.
 | A compound instance that follows its definition, or has its own copy | locked / unlocked, synced | **locked** (the default), **editable** (after **Make Editable**) | |
 | A value an ICE operator gives its graph by name | exposed parameter, attribute (Houdini) | **Parameter** (an ICE node); its values the ICE operator's **Parameters** | Set in the ICE operator's parameters, so a scene compound can promote it. |
 
+| One part of a rig placed on a mesh (a spine, an arm, a leg…) | guide component, module, rig part | **guide** (a **Rig Guide** operator: Spine Guide, Arm Guide…); a set of them chained, the **guides** | mGear's word. A component is the kind (Spine, Arm…), named `{component}_{side}{index}` (`arm_L0`). |
+| A point of a guide | guide point, marker, null | **locator** (`arm_L0_elbow`) | Maya's word for a point you place. `pole` is where a hinge points. |
+| Placing the locators by measuring the mesh | auto-placement, auto-guide | **autofit** | On by default; the locators are moved by hand after. |
+| The skeleton a rig deforms the mesh with | bind skeleton, skin joints | **deform skeleton**, made by **Build Skeleton** for a **target** (Unreal, HumanIK, Maya) | Naming, axes, rotation order and root joint come with the target and can each be changed. |
+| A joint's frame the rig reasons in, whatever the target's axes | joint orient | **canonical frame**: X to the child, Y to the pole, Z = X×Y | Limits and the range of motion are written in it. |
+| Weights of 0 or 1, each point to one joint | rigid bind, hard skin | **hard bind** (Hard Bind), its points per joint a **region** | Changed by **Envelope**: slide, tilt, grow. |
+| Every joint moved through what it can do | ROM, calisthenics | **range of motion** (Range of Motion) | Sweeps of each joint, then poses, as fractions of the joints' **limits**. |
+
 ### Contexts and USD
 
 | Context | Values per | USD interpolation |

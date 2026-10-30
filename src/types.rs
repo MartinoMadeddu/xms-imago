@@ -441,6 +441,55 @@ pub enum NodeType {
     /// Geometry with skin weights, the skeleton it was weighted in, and an
     /// animation: the animation with that skin, joints matched by name.
     Skin,
+
+    // Rigging (`core::rig`)
+    /// One component's guide locators (a spine, an arm, a leg…), fitted to
+    /// the mesh, added to the guides that come in.
+    RigGuide {
+        component: crate::core::rig::Component,
+        #[serde(default)]
+        side: crate::core::rig::Side,
+        #[serde(default)]
+        index: u32,
+        /// The locator it hangs from; empty, the component's usual one.
+        #[serde(default)]
+        attach: String,
+        autofit: bool,
+        /// Spine or neck joints.
+        segments: u32,
+        /// Twist joints along each bone of an arm or a leg.
+        twists: u32,
+        fingers: Vec<crate::core::rig::Finger>,
+        metacarpals: bool,
+        /// Locators moved by hand after autofit.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        edits: Vec<crate::core::rig::guides::GuideEdit>,
+    },
+    /// A deform skeleton from guides, named and oriented for a target.
+    BuildSkeleton {
+        settings: crate::core::rig::build::BuildSettings,
+    },
+    /// Every point of the geometry to one joint, by regions grown along the
+    /// surface.
+    HardBind,
+    /// Where joints' regions end, moved, tilted, grown or shrunk.
+    Envelope {
+        #[serde(default)]
+        edits: Vec<crate::core::rig::bind::EnvelopeEdit>,
+    },
+    /// Each joint swept within its limits, then whole-body poses.
+    RangeOfMotion {
+        settings: crate::core::rig::rom::RomSettings,
+    },
+    /// The geometry skinned at the playhead, smoothed, its detail kept.
+    DeltaMush {
+        settings: crate::core::rig::mush::MushSettings,
+    },
+    /// Smooth weights fitted to the hard skin mushed over a range of motion.
+    BakeWeights {
+        settings: crate::core::rig::mush::MushSettings,
+        samples: u32,
+    },
     TimeWarp {
         speed: f32,
         reverse: bool,
@@ -817,6 +866,9 @@ impl NodeType {
                     | NodeType::Reach { .. }
                     | NodeType::HumanLimits { .. }
                     | NodeType::Skin
+                    | NodeType::RigGuide { .. }
+                    | NodeType::BuildSkeleton { .. }
+                    | NodeType::RangeOfMotion { .. }
                     | NodeType::TimeWarp { .. }
                     | NodeType::PruneJoints { .. }
                     | NodeType::FloorClip { .. }
@@ -882,6 +934,13 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::HumanLimits { .. } => "💪",
         NodeType::Capture { .. } => "🔗",
         NodeType::Skin => "👕",
+        NodeType::RigGuide { .. } => "📍",
+        NodeType::BuildSkeleton { .. } => "🦴",
+        NodeType::HardBind => "🧱",
+        NodeType::Envelope { .. } => "🫧",
+        NodeType::RangeOfMotion { .. } => "🤸",
+        NodeType::DeltaMush { .. } => "🫠",
+        NodeType::BakeWeights { .. } => "🍞",
         NodeType::TimeWarp { .. } => "⏩",
         NodeType::PruneJoints { .. } => "🌿",
         NodeType::FloorClip { .. } => "⬇",
@@ -950,6 +1009,19 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::HumanLimits { .. } => "Human Limits",
         NodeType::Capture { .. } => "Capture",
         NodeType::Skin => "Skin",
+        NodeType::RigGuide { component, .. } => match component {
+            crate::core::rig::Component::Spine => "Spine Guide",
+            crate::core::rig::Component::Neck => "Neck Guide",
+            crate::core::rig::Component::Arm => "Arm Guide",
+            crate::core::rig::Component::Hand => "Hand Guide",
+            crate::core::rig::Component::Leg => "Leg Guide",
+        },
+        NodeType::BuildSkeleton { .. } => "Build Skeleton",
+        NodeType::HardBind => "Hard Bind",
+        NodeType::Envelope { .. } => "Envelope",
+        NodeType::RangeOfMotion { .. } => "Range of Motion",
+        NodeType::DeltaMush { .. } => "Delta Mush",
+        NodeType::BakeWeights { .. } => "Bake Weights",
         NodeType::TimeWarp { .. } => "Time Warp",
         NodeType::PruneJoints { .. } => "Prune Joints",
         NodeType::FloorClip { .. } => "Floor",

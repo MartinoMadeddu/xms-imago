@@ -486,6 +486,7 @@ pub fn load_fbx(path: &str, take: u32) -> Result<LoadedFbx, String> {
             skin: skin.clone(),
             space: space.clone(),
             human: None,
+            rig: None,
         }
     } else {
         let stack = &scene.anim_stacks[(take as usize).min(scene.anim_stacks.len() - 1)];
@@ -520,6 +521,7 @@ pub fn load_fbx(path: &str, take: u32) -> Result<LoadedFbx, String> {
             skin: skin.clone(),
             space: space.clone(),
             human: None,
+            rig: None,
         }
     };
 

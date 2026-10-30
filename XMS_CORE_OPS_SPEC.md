@@ -447,7 +447,9 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 USD time samples are read at the stage's start time only. Skeletal animation,
 skinning and blend shapes from USD are not read yet. Imago's mocap operators
 (Split Characters, Retarget, Reach, Body Collide, Capture, Skin…) work on clips
-and stay outside this spec.
+and stay outside this spec, as do the rigging operators (Rig Guide, Build
+Skeleton, Hard Bind, Envelope, Range of Motion, Delta Mush, Bake Weights; see
+`docs/rigging.md`).
 
 ---
 
