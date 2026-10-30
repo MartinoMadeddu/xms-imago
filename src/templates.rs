@@ -60,7 +60,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: MARTINO, group: "ICE", name: "Bind simple hair deform by guides", build: ice_guide_deform,
         hint: "9,534 hairs carried by 314 animated guides, Alembic caches from Houdini loaded as USD: each hair bound to the guide nearest its root, each point read on that guide at its u along the hair, moved and turned with it" },
     Template { by: MARTINO, group: "ICE", name: "Bind rigid hair deform by skin", build: ice_rigid_hair,
-        hint: "9,534 hairs carried rigidly by the animated pig's head, Alembic caches from Houdini loaded as USD: each hair bound once, at its root, to the head at rest (RootBind, per curve); every point stored in the frame there (Capture) and put back through that frame on the animated head (Deform)" },
+        hint: "9,534 hairs carried rigidly by the animated pig's head, Alembic caches from Houdini loaded as USD: each hair bound once, at its root, to the head at rest (RootBind, per curve); its move made per curve each frame (Carry), one matrix, and every point put through it (Deform)" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -2957,26 +2957,18 @@ fn frame_at(
     (m, origin)
 }
 
-/// Get Data of `name` stored in `context`.
-fn stored_in(name: &str, context: crate::core::geo::Context) -> IceGraphNodeType {
-    IceGraphNodeType::GetData {
-        name: name.into(),
-        context: Some(context),
-        resample: Default::default(),
-    }
-}
-
 /// The groom over the pig's head carried rigidly by the animated head, on
 /// Alembic caches Martino wrote from Houdini (frames 1001 to 1025 at 25 fps).
-/// RootBind, per curve: the place on the head at rest nearest the hair's first
-/// point, stored on the curve (`bindPoly`, `bindParamUV`). Capture, per point:
-/// the frame at the curve's place on the head at rest, the point in it
-/// (`bindLocal`). Deform, per point: the same frame on the animated head, the
-/// point put back through it. Every point of a hair goes through its root's
-/// frame, so the hair moves as one piece.
+/// Everything is per curve but the last step. RootBind, once: the place on the
+/// head at rest nearest the hair's first point and the inverse of the frame
+/// there (`frame_at`), stored on the curve (`bindPoly`, `bindParamUV`,
+/// `bindInverse`). Carry, every frame: the frame at that place on the animated
+/// head by the inverse, the curve's move from rest (`carry`). Deform, per
+/// point: the point through its curve's `carry`, so the hair moves as one
+/// piece.
 fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     use crate::core::geo::Context;
-    use xms_ice::{ArrayOp, Value};
+    use xms_ice::{ArrayOp, Math, Value};
     crate::graph_io::clear(g);
     g.scene = crate::node_graph::SceneRange {
         start: 1001,
@@ -2984,18 +2976,33 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         fps_num: 25,
         fps_den: 1,
     };
-    let (rest_head, anim_head) = ("/rest/geo/pighead", "/anim/geo/pighead");
-    let root_bind = store.create_subnet("RootBind".into());
-    if let Some(sub) = store.get_mut(root_bind) {
-        let root = sub.root().expect("every ICE graph has a root");
-        let surface = ice_add(
+    let reference = |sub: &mut crate::ice::IceGraph, path: &str| {
+        ice_add(
             &mut *sub,
             IceGraphNodeType::GetReference {
                 input: 1,
-                paths: vec![rest_head.into()],
+                paths: vec![path.into()],
             },
             p(40.0, 40.0),
-        );
+        )
+    };
+    let set_root = |sub: &mut crate::ice::IceGraph, sets: &[NodeId], context: Context, at: egui::Pos2| {
+        let root = sub.root().expect("every ICE graph has a root");
+        for (port, set) in sets.iter().enumerate() {
+            sub.add_connection(*set, 0, root, port);
+        }
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.node_type = IceGraphNodeType::Root { context };
+            n.position = at;
+        }
+    };
+    let math = |sub: &mut crate::ice::IceGraph, op: Math, at: egui::Pos2| {
+        ice_add(&mut *sub, IceGraphNodeType::Math { op }, at)
+    };
+    // RootBind, per curve, once.
+    let root_bind = store.create_subnet("RootBind".into());
+    if let Some(sub) = store.get_mut(root_bind) {
+        let surface = reference(&mut *sub, "/rest/geo/pighead");
         let pts = ice_add(
             &mut *sub,
             IceGraphNodeType::GetArrayData {
@@ -3011,25 +3018,67 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         );
         sub.add_connection(pts, 0, first, 0);
         ice_value(&mut *sub, first, 1, Value::Int(0));
-        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(480.0, 80.0));
+        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 40.0));
         sub.add_connection(surface, 0, near, 0);
         sub.add_connection(first, 0, near, 1);
+        let prim = (near, xms_ice::CLOSEST_POLYGONS);
+        let uv = (near, xms_ice::CLOSEST_PARAM_UVS);
+        let (frame, _) = frame_at(&mut *sub, prim, uv, None, 40.0);
+        let inverse = math(&mut *sub, Math::Invert, p(2020.0, 200.0));
+        sub.add_connection(frame, 0, inverse, 0);
         let stored = [
-            ("bindPoly", xms_ice::CLOSEST_POLYGONS, 40.0),
-            ("bindParamUV", xms_ice::CLOSEST_PARAM_UVS, 140.0),
+            ("bindPoly", prim, 400.0),
+            ("bindParamUV", uv, 500.0),
+            ("bindInverse", (inverse, 0), 600.0),
         ];
-        for (port, (name, out, y)) in stored.into_iter().enumerate() {
-            let set = ice_add(&mut *sub, IceGraphNodeType::set(name), p(700.0, y));
-            sub.add_connection(near, out, set, 0);
-            sub.add_connection(set, 0, root, port);
-        }
-        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
-            n.node_type = IceGraphNodeType::Root { context: Context::Face };
-            n.position = p(920.0, 80.0);
-        }
+        let sets: Vec<NodeId> = stored
+            .into_iter()
+            .map(|(name, (from, out), y)| {
+                let set = ice_add(&mut *sub, IceGraphNodeType::set(name), p(2240.0, y));
+                sub.add_connection(from, out, set, 0);
+                set
+            })
+            .collect();
+        set_root(&mut *sub, &sets, Context::Face, p(2460.0, 500.0));
     }
-    let capture = capture_subnet(store, rest_head, Some(Context::Face));
-    let deform = deform_subnet(store, anim_head, Some(Context::Face));
+    // Carry, per curve, every frame.
+    let carry = store.create_subnet("Carry".into());
+    if let Some(sub) = store.get_mut(carry) {
+        let surface = reference(&mut *sub, "/anim/geo/pighead");
+        let stored = |sub: &mut crate::ice::IceGraph, name: &str, y: f32| {
+            ice_add(&mut *sub, IceGraphNodeType::get(name), p(260.0, y))
+        };
+        let prim = stored(&mut *sub, "bindPoly", 80.0);
+        let uv = stored(&mut *sub, "bindParamUV", 180.0);
+        let inverse = stored(&mut *sub, "bindInverse", 600.0);
+        let (frame, _) = frame_at(&mut *sub, (prim, 0), (uv, 0), Some(surface), 40.0);
+        let moved = math(&mut *sub, Math::Multiply, p(2020.0, 300.0));
+        sub.add_connection(frame, 0, moved, 0);
+        sub.add_connection(inverse, 0, moved, 1);
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("carry"), p(2240.0, 300.0));
+        sub.add_connection(moved, 0, set, 0);
+        set_root(&mut *sub, &[set], Context::Face, p(2460.0, 300.0));
+    }
+    // Deform, per point: through its curve's carry.
+    let deform = store.create_subnet("Deform".into());
+    if let Some(sub) = store.get_mut(deform) {
+        let m = ice_add(
+            &mut *sub,
+            IceGraphNodeType::GetData {
+                name: "carry".into(),
+                context: Some(Context::Face),
+                resample: Default::default(),
+            },
+            p(40.0, 40.0),
+        );
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 160.0));
+        let carried = math(&mut *sub, Math::TransformPoint, p(260.0, 100.0));
+        sub.add_connection(m, 0, carried, 0);
+        sub.add_connection(pos, 0, carried, 1);
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(480.0, 100.0));
+        sub.add_connection(carried, 0, set, 0);
+        set_root(&mut *sub, &[set], Context::Point, p(700.0, 100.0));
+    }
     let load = |g: &mut NodeGraphState, name: &str, file: &str, prim: &str, location: &str, x: f32| {
         g.add_node(
             name.into(),
@@ -3060,29 +3109,26 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         params: Default::default(),
     };
     let bound = g.add_node("RootBind".into(), ice(root_bind, "RootBind"), p(440.0, 120.0));
-    let captured = g.add_node("Capture".into(), ice(capture, "Capture"), p(440.0, 220.0));
+    let moved = g.add_node("Carry".into(), ice(carry, "Carry"), p(440.0, 220.0));
     let carried = g.add_node("Deform".into(), ice(deform, "Deform"), p(300.0, 320.0));
     let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 420.0));
     g.add_connection(hair, 0, bound, 0);
     g.add_connection(rest, 0, bound, 1);
-    g.add_connection(bound, 0, captured, 0);
-    g.add_connection(rest, 0, captured, 1);
-    g.add_connection(captured, 0, carried, 0);
-    g.add_connection(anim, 0, carried, 1);
+    g.add_connection(bound, 0, moved, 0);
+    g.add_connection(anim, 0, moved, 1);
+    g.add_connection(moved, 0, carried, 0);
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). RootBind, per curve, finds the place on the head at rest nearest each hair's first point (Closest Point on Surface) and stores it on the curve (bindPoly, bindParamUV). Capture, per point, builds the frame at its curve's place on the head at rest (triP and bary, Get Array Data with the Polygon, Param UV and Geometry wired) and stores the point in it (bindLocal). Deform, every frame, builds the same frame on the animated head and puts the point back through it: every point of a hair goes through its root's frame, so the hair moves as one piece. RootBind and Capture cook once and are kept. Space plays frames 1001 to 1025.".into()
+    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Everything is done per curve but the last step. RootBind, per curve (kept: it cooks once), finds the place on the head at rest nearest each hair's first point (Closest Point on Surface), builds the frame there (triP and bary, Get Array Data with the Polygon and Param UV wired) and stores the place and the frame's inverse on the curve (bindPoly, bindParamUV, bindInverse). Carry, per curve, every frame, builds the same frame on the animated head and multiplies it by the inverse: the curve's move from rest (carry). Deform, per point, reads its curve's carry (Get Data, context Face) and puts the point through it, so each hair moves as one piece. Space plays frames 1001 to 1025.".into()
 }
 
 /// The Capture ICE graph of the binding deformers, per point: the place on the
 /// mesh at `rest` (on Reference 1) nearest it (Closest Point on Surface), the
 /// frame there (`frame_at`), and the point in that frame (its offset from the
 /// origin through the frame's transpose), stored as `bindPoly`, `bindParamUV` and
-/// `bindLocal`. With `bound`, the place is not searched but read, as
-/// `bindPoly` and `bindParamUV` stored in that context (a curve's, for one
-/// place per curve), and only `bindLocal` is stored.
-fn capture_subnet(store: &mut IceGraphStore, rest: &str, bound: Option<crate::core::geo::Context>) -> IceGraphId {
+/// `bindLocal`.
+fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
     use xms_ice::Math;
     let id = store.create_subnet("Capture".into());
     if let Some(sub) = store.get_mut(id) {
@@ -3096,24 +3142,12 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str, bound: Option<crate::co
             p(40.0, 40.0),
         );
         let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 160.0));
-        let (prim, uv, on) = match bound {
-            None => {
-                let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
-                sub.add_connection(surface, 0, near, 0);
-                sub.add_connection(pos, 0, near, 1);
-                (
-                    (near, xms_ice::CLOSEST_POLYGONS),
-                    (near, xms_ice::CLOSEST_PARAM_UVS),
-                    None,
-                )
-            }
-            Some(context) => {
-                let poly = ice_add(&mut *sub, stored_in("bindPoly", context), p(260.0, 80.0));
-                let uv = ice_add(&mut *sub, stored_in("bindParamUV", context), p(260.0, 180.0));
-                ((poly, 0), (uv, 0), Some(surface))
-            }
-        };
-        let (frame, origin) = frame_at(&mut *sub, prim, uv, on, 40.0);
+        let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
+        sub.add_connection(surface, 0, near, 0);
+        sub.add_connection(pos, 0, near, 1);
+        let prim = (near, xms_ice::CLOSEST_POLYGONS);
+        let uv = (near, xms_ice::CLOSEST_PARAM_UVS);
+        let (frame, origin) = frame_at(&mut *sub, prim, uv, None, 40.0);
         let offset = ice_add(
             &mut *sub,
             IceGraphNodeType::Math { op: Math::Subtract },
@@ -3136,10 +3170,11 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str, bound: Option<crate::co
         );
         sub.add_connection(back, 0, local, 0);
         sub.add_connection(offset, 0, local, 1);
-        let mut stored = vec![("bindLocal", (local, 0), 600.0)];
-        if bound.is_none() {
-            stored.splice(0..0, [("bindPoly", prim, 400.0), ("bindParamUV", uv, 500.0)]);
-        }
+        let stored = [
+            ("bindPoly", prim, 400.0),
+            ("bindParamUV", uv, 500.0),
+            ("bindLocal", (local, 0), 600.0),
+        ];
         for (port, (name, (from, out), y)) in stored.into_iter().enumerate() {
             let set = ice_add(&mut *sub, IceGraphNodeType::set(name), p(2460.0, y));
             sub.add_connection(from, out, set, 0);
@@ -3153,11 +3188,10 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str, bound: Option<crate::co
 }
 
 /// The Deform ICE graph of the binding deformers, per point: the place Capture
-/// stored (`bindPoly`, `bindParamUV`, in context `bound`: the point's own when
-/// none) read on the mesh at `moving` (on Reference 1, of the rest mesh's
-/// topology), the frame there, and the point put back through it from where it
-/// was in the rest frame (`bindLocal`).
-fn deform_subnet(store: &mut IceGraphStore, moving: &str, bound: Option<crate::core::geo::Context>) -> IceGraphId {
+/// stored (`bindPoly`, `bindParamUV`) read on the mesh at `moving` (on Reference 1,
+/// of the rest mesh's topology), the frame there, and the point put back
+/// through it from where it was in the rest frame (`bindLocal`).
+fn deform_subnet(store: &mut IceGraphStore, moving: &str) -> IceGraphId {
     use xms_ice::Math;
     let id = store.create_subnet("Deform".into());
     if let Some(sub) = store.get_mut(id) {
@@ -3170,14 +3204,12 @@ fn deform_subnet(store: &mut IceGraphStore, moving: &str, bound: Option<crate::c
             },
             p(40.0, 40.0),
         );
-        let read = |sub: &mut crate::ice::IceGraph, t: IceGraphNodeType, y: f32| ice_add(&mut *sub, t, p(260.0, y));
-        let place = |name: &str| match bound {
-            Some(context) => stored_in(name, context),
-            None => IceGraphNodeType::get(name),
+        let stored = |sub: &mut crate::ice::IceGraph, name: &str, y: f32| {
+            ice_add(&mut *sub, IceGraphNodeType::get(name), p(260.0, y))
         };
-        let prim = read(&mut *sub, place("bindPoly"), 80.0);
-        let uv = read(&mut *sub, place("bindParamUV"), 180.0);
-        let local = read(&mut *sub, IceGraphNodeType::get("bindLocal"), 600.0);
+        let prim = stored(&mut *sub, "bindPoly", 80.0);
+        let uv = stored(&mut *sub, "bindParamUV", 180.0);
+        let local = stored(&mut *sub, "bindLocal", 600.0);
         let (frame, _) = frame_at(&mut *sub, (prim, 0), (uv, 0), Some(surface), 40.0);
         let carried = ice_add(
             &mut *sub,
@@ -3216,8 +3248,8 @@ fn capture_and_deform(
         references: 1,
         params: Default::default(),
     };
-    let capture = capture_subnet(store, rest.1, None);
-    let deform = deform_subnet(store, moving.1, None);
+    let capture = capture_subnet(store, rest.1);
+    let deform = deform_subnet(store, moving.1);
     let c = g.add_node("Capture".into(), ice(capture, "Capture"), at);
     let d = g.add_node("Deform".into(), ice(deform, "Deform"), at + egui::vec2(0.0, 110.0));
     g.add_connection(scene, 0, c, 0);
@@ -4042,9 +4074,9 @@ mod tests {
         let carried = hair(&ice_points(name, None, |_, _| {}));
         let still = hair(&ice_points(name, None, |g, store| {
             let id = |name: &str| g.nodes.iter().find(|n| n.name == name).unwrap().id;
-            let (rest, deform) = (id("RestHead"), id("Deform"));
-            g.add_connection(rest, 0, deform, 1);
-            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Deform") {
+            let (rest, carry) = (id("RestHead"), id("Carry"));
+            g.add_connection(rest, 0, carry, 1);
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "Carry") {
                 for n in sg.nodes.iter_mut() {
                     if let IceGraphNodeType::GetReference { paths, .. } = &mut n.node_type {
                         *paths = vec!["/rest/geo/pighead".into()];
