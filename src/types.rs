@@ -975,8 +975,8 @@ pub enum IceGraphNodeType {
     },
     /// An attribute of the geometry (`P` is the points), read in the graph's
     /// own context, or from `context` across (see `xms_ice::Op::GetData`), the
-    /// values an element touches made one by `resample`. With its Primitive
-    /// (and UV) wired, read at that place instead (`xms_ice::Op::GetDataAt`),
+    /// values an element touches made one by `resample`. With its Polygon
+    /// (and Param UV) wired, read at that place instead (`xms_ice::Op::GetDataAt`),
     /// from `context` when one is set. Graphs saved with a Get Data at Samples
     /// node read it as this.
     #[serde(alias = "GetDataAt")]
@@ -1021,7 +1021,7 @@ pub enum IceGraphNodeType {
         op: xms_ice::Decompose,
     },
     /// Places on the surface, spread by area: their positions, the normals
-    /// there, and their Primitives and UVs (see `xms_ice::Op::Scatter`).
+    /// there, and their Polygons and Param UVs (see `xms_ice::Op::Scatter`).
     Scatter {
         seed: u32,
         #[serde(default)]

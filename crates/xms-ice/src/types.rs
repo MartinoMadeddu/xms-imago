@@ -41,8 +41,8 @@ pub enum Ty {
 /// - **Curve:** u from 0 at its first point to 1 at its last, each segment
 ///   adding 1/(n - 1); v is 0.
 ///
-/// Graphs see it as its Primitive (the face's number, counted across the
-/// surface's meshes in order) and its UV.
+/// Graphs see it as its Polygon (the face's number, counted across the
+/// surface's meshes in order) and its Param UV.
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Loc {
     #[serde(default)]

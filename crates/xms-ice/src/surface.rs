@@ -315,7 +315,7 @@ struct Tri {
 pub(crate) struct Surface {
     pub meshes: Vec<Mesh>,
     /// The number of the first face of each mesh, and of all the faces after:
-    /// faces are numbered across the meshes in order (a Primitive).
+    /// faces are numbered across the meshes in order (a Polygon).
     first_face: Vec<u32>,
     /// Its triangles and a BVH over them: made the first time it is searched,
     /// not for reading alone.
@@ -361,17 +361,17 @@ impl Surface {
         )
     }
 
-    /// A sample's Primitive: its face's number across the meshes; -1 for a
+    /// A sample's Polygon: its face's number across the meshes; -1 for a
     /// sample of nothing.
-    pub fn primitive(&self, l: &Loc) -> i32 {
+    pub fn polygon(&self, l: &Loc) -> i32 {
         match self.first_face.get(l.mesh as usize) {
             Some(&f) if l.found() => (f + l.face) as i32,
             _ => -1,
         }
     }
 
-    /// The sample at `uv` on Primitive `prim`; a sample of nothing for a
-    /// Primitive the surface does not have.
+    /// The sample at `uv` on Polygon `prim`; a sample of nothing for a
+    /// Polygon the surface does not have.
     pub fn sample(&self, prim: i32, uv: [f32; 2]) -> Loc {
         let total = self.first_face.last().copied().unwrap_or(0);
         if prim < 0 || prim as u32 >= total {
@@ -572,7 +572,7 @@ mod tests {
         let mut w = vec![];
         // The triangle: u and v are corners 1's and 2's weights.
         let (l, _) = s.closest(Vec3::new(0.25, 0.5, 1.0), 0.0);
-        assert_eq!(s.primitive(&l), 0);
+        assert_eq!(s.polygon(&l), 0);
         assert!(
             (l.uv[0] - 0.25).abs() < 1e-6 && (l.uv[1] - 0.5).abs() < 1e-6,
             "{:?}",
@@ -580,7 +580,7 @@ mod tests {
         );
         // The quad: corner 1 is (u, v) = (0, 1), corner 3 (1, 0).
         let (l, _) = s.closest(Vec3::new(2.5, 1.5, -1.0), 0.0);
-        assert_eq!(s.primitive(&l), 1);
+        assert_eq!(s.polygon(&l), 1);
         assert!(
             (l.uv[0] - 0.25).abs() < 1e-5 && (l.uv[1] - 0.75).abs() < 1e-5,
             "{:?}",
@@ -596,7 +596,7 @@ mod tests {
             Vec3::new(7.1, 1.2, 0.5),
         ] {
             let (l, _) = s.closest(q, 0.0);
-            assert_eq!(s.primitive(&l), 2);
+            assert_eq!(s.polygon(&l), 2);
             s.weights(&l, &mut w);
             let at: Vec3 = w.iter().map(|&(c, k)| s.meshes[0].corner_at(c) * k).sum();
             assert!((at - Vec3::new(q.x, q.y, 0.0)).length() < 1e-5, "{q}: {at}");

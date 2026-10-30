@@ -673,11 +673,11 @@ fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph 
 }
 
 /// A tree's wires, those of a Get Data or Get Array Data saved before they read
-/// at a Primitive and its UV brought up to date. Such a node had two inputs,
-/// Samples and Geometry (a value saved for each), now three: Primitive, UV and
+/// at a Polygon and its Param UV brought up to date. Such a node had two inputs,
+/// Samples and Geometry (a value saved for each), now three: Polygon, Param UV and
 /// Geometry. Its Geometry wire moves to the third; a Samples wire from Closest
-/// Point on Surface or Scatter on Surface stays as the Primitive (the outputs
-/// kept their numbers), and their UV output is wired in beside it.
+/// Point on Surface or Scatter on Surface stays as the Polygon (the outputs
+/// kept their numbers), and their Param UV output is wired in beside it.
 fn sample_wires_upgraded(t: &SavedTree) -> Vec<[usize; 4]> {
     use crate::types::IceGraphNodeType as T;
     let kind = |id: usize| {
@@ -699,13 +699,13 @@ fn sample_wires_upgraded(t: &SavedTree) -> Vec<[usize; 4]> {
         match input {
             1 => out.push([from, output, to, crate::ice::READ_GEOMETRY]),
             0 => {
-                out.push([from, output, to, crate::ice::READ_PRIMITIVE]);
+                out.push([from, output, to, crate::ice::READ_POLYGON]);
                 let uv = match kind(from) {
-                    Some(T::ClosestPoint) => Some(xms_ice::CLOSEST_UVS),
-                    Some(T::Scatter { .. }) => Some(xms_ice::SCATTER_UVS),
+                    Some(T::ClosestPoint) => Some(xms_ice::CLOSEST_PARAM_UVS),
+                    Some(T::Scatter { .. }) => Some(xms_ice::SCATTER_PARAM_UVS),
                     _ => None,
                 };
-                out.extend(uv.map(|uv| [from, uv, to, crate::ice::READ_UV]));
+                out.extend(uv.map(|uv| [from, uv, to, crate::ice::READ_PARAM_UV]));
             }
             _ => out.push([from, output, to, input]),
         }
@@ -1293,7 +1293,7 @@ mod tests {
     }
 
     /// An ICE graph saved when Get Data read at Samples: its wires as they are
-    /// now, the Primitive where the Samples were, the UV beside it, the
+    /// now, the Polygon where the Samples were, the Param UV beside it, the
     /// Geometry moved to its own input.
     #[test]
     fn samples_wires_of_older_graphs_become_primitive_and_uv() {
@@ -1317,11 +1317,11 @@ mod tests {
                 .find(|c| c.to_node == NodeId(to) && c.to_input == input)
                 .map(|c| (c.from_node.0, c.from_output))
         };
+        assert_eq!(wire(4, crate::ice::READ_POLYGON), Some((2, xms_ice::CLOSEST_POLYGONS)));
         assert_eq!(
-            wire(4, crate::ice::READ_PRIMITIVE),
-            Some((2, xms_ice::CLOSEST_PRIMITIVES))
+            wire(4, crate::ice::READ_PARAM_UV),
+            Some((2, xms_ice::CLOSEST_PARAM_UVS))
         );
-        assert_eq!(wire(4, crate::ice::READ_UV), Some((2, xms_ice::CLOSEST_UVS)));
         assert_eq!(wire(4, crate::ice::READ_GEOMETRY), Some((3, 0)));
         // Saved again, as it is now: read back the same.
         let again = ice_from_value(&ice_to_value(&g)).unwrap();

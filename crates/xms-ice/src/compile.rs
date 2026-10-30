@@ -16,8 +16,8 @@ use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::derived;
 use super::graph::{
-    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, CLOSEST_UVS, SCATTER_NORMALS,
-    SCATTER_POSITIONS, SCATTER_PRIMITIVES, SCATTER_UVS,
+    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PARAM_UVS,
+    SCATTER_NORMALS, SCATTER_PARAM_UVS, SCATTER_POLYGONS, SCATTER_POSITIONS,
 };
 use super::surface::Reference;
 use super::types::{Ty, Value};
@@ -238,7 +238,7 @@ pub(crate) enum Ins {
         surface: Option<usize>,
         list: bool,
     },
-    /// The samples at the Primitives in `prim` and parametric coordinates in
+    /// The samples at the Polygons in `prim` and parametric coordinates in
     /// `uv` of surface `surface` (`None`: the graph's own geometry).
     Locate {
         dst: usize,
@@ -246,7 +246,7 @@ pub(crate) enum Ins {
         uv: usize,
         surface: Option<usize>,
     },
-    /// The samples in `loc`, of surface `surface`, as their Primitives (into
+    /// The samples in `loc`, of surface `surface`, as their Polygons (into
     /// `prim`) and parametric coordinates (into `uv`).
     PrimUv {
         prim: usize,
@@ -308,9 +308,9 @@ fn error<T>(node: usize, message: impl Into<String>) -> Result<T, CompileError> 
 enum ListOf {
     /// What each element touches in a context (Get Array Data).
     Touch(Context),
-    /// The face of each Primitive in a register (Get Array Data at samples).
+    /// The face of each Polygon in a register (Get Array Data at samples).
     Face(usize),
-    /// The corners the place at each Primitive in a register is made from
+    /// The corners the place at each Polygon in a register is made from
     /// (`triP`, `bary` as a list): as many as its face's kind has.
     Tri(usize),
 }
@@ -568,8 +568,8 @@ impl Lower<'_> {
                     message: format!("No output {output}"),
                 });
             }
-            // Its Primitives are its value; its distances and UVs kept in `outs`.
-            Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE || output == CLOSEST_UVS => {
+            // Its Polygons are its value; its distances and Param UVs kept in `outs`.
+            Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE || output == CLOSEST_PARAM_UVS => {
                 self.value(node)?;
                 return self.outs.get(&(node, output)).copied().ok_or(CompileError {
                     node,
@@ -581,11 +581,11 @@ impl Lower<'_> {
         }
         // Scatter's: its samples are its value; its outputs read from them.
         let samples = self.value(node)?;
-        if output == SCATTER_PRIMITIVES || output == SCATTER_UVS {
+        if output == SCATTER_POLYGONS || output == SCATTER_PARAM_UVS {
             let (prim, uv) = self.prim_uv(samples);
-            self.outs.insert((node, SCATTER_PRIMITIVES), prim);
-            self.outs.insert((node, SCATTER_UVS), uv);
-            return Ok(if output == SCATTER_UVS { uv } else { prim });
+            self.outs.insert((node, SCATTER_POLYGONS), prim);
+            self.outs.insert((node, SCATTER_PARAM_UVS), uv);
+            return Ok(if output == SCATTER_PARAM_UVS { uv } else { prim });
         }
         if output != SCATTER_POSITIONS && output != SCATTER_NORMALS {
             return error(node, format!("No output {output}"));
@@ -616,7 +616,7 @@ impl Lower<'_> {
         Ok(v)
     }
 
-    /// Samples as their Primitives and parametric coordinates.
+    /// Samples as their Polygons and parametric coordinates.
     fn prim_uv(&mut self, samples: Val) -> (Val, Val) {
         let uniform = samples.uniform;
         let uv = self.alloc(uniform, Ty::Vec2);
@@ -638,10 +638,10 @@ impl Lower<'_> {
     }
 
     /// The samples a Get Data or Get Array Data at samples reads at: its
-    /// Primitive (input 0) and UV (input 1), on its Geometry (input 2) when one
-    /// is wired, else on the surface the Primitive was found on (Closest
+    /// Polygon (input 0) and Param UV (input 1), on its Geometry (input 2) when one
+    /// is wired, else on the surface the Polygon was found on (Closest
     /// Point's), else on the graph's own geometry.
-    /// Also the register of the Primitives, which lists read at them are lists
+    /// Also the register of the Polygons, which lists read at them are lists
     /// of (`ListOf`).
     fn samples_in(&mut self, node: usize, what: &str) -> Result<(Val, usize), CompileError> {
         let prim = self.input(node, 0, Some(Ty::Int))?;
@@ -649,7 +649,7 @@ impl Lower<'_> {
             return error(
                 node,
                 format!(
-                    "{what}'s Primitive is an int: Closest Point on Surface's or Scatter on Surface's, or one stored"
+                    "{what}'s Polygon is an int: Closest Point on Surface's or Scatter on Surface's, or one stored"
                 ),
             );
         }
@@ -660,7 +660,7 @@ impl Lower<'_> {
         if uv.ty != Ty::Vec2 || uv.is_list() {
             return error(
                 node,
-                format!("{what}'s UV is a 2D vector: the parametric coordinates on the Primitive"),
+                format!("{what}'s Param UV is a 2D vector: the parametric coordinates on the Polygon"),
             );
         }
         let surface = self.geometry_input(node, 2)?.or(prim.surface);
@@ -671,7 +671,7 @@ impl Lower<'_> {
             if prim.array || uv.array {
                 return error(
                     node,
-                    format!("{what} reads at one Primitive per element, or the graph's arrays in an Object graph"),
+                    format!("{what} reads at one Polygon per element, or the graph's arrays in an Object graph"),
                 );
             }
             (self.varying(prim), self.varying(uv))
@@ -1453,7 +1453,7 @@ impl Lower<'_> {
 
     /// Closest Point on Surface: the places on the reference meshes (input 0,
     /// their paths) nearest each origin (input 1), within the radius (input 2;
-    /// 0, anywhere): their Primitives (its value), how far each is and their
+    /// 0, anywhere): their Polygons (its value), how far each is and their
     /// parametric coordinates (kept in `outs`).
     fn closest(&mut self, node: usize) -> Result<Val, CompileError> {
         let paths = self.input(node, 0, None)?;
@@ -1514,7 +1514,7 @@ impl Lower<'_> {
             },
         );
         let (prim, uv) = self.prim_uv(v);
-        self.outs.insert((node, CLOSEST_UVS), uv);
+        self.outs.insert((node, CLOSEST_PARAM_UVS), uv);
         Ok(prim)
     }
 
@@ -1525,7 +1525,7 @@ impl Lower<'_> {
     fn array_at(&mut self, node: usize, name: &str, context: Option<Context>) -> Result<Val, CompileError> {
         let (loc, prims) = self.samples_in(node, "Get Array Data")?;
         if loc.array {
-            return error(node, "Get Array Data reads at one Primitive per element (Closest Point's, per point): an array of them would give a list each, not yet");
+            return error(node, "Get Array Data reads at one Polygon per element (Closest Point's, per point): an array of them would give a list each, not yet");
         }
         // What every sample has: the points of the corners it is made from, in
         // the graph's space, and its weights on them, item by item.
@@ -2101,7 +2101,7 @@ fn type_of(
         }
         // Its positions; its other outputs by `wire_ty`.
         Op::Scatter { .. } => Some(Ty::Vec3),
-        // Its Primitives; its other outputs by `wire_ty`.
+        // Its Polygons; its other outputs by `wire_ty`.
         Op::ClosestPoint => Some(Ty::Int),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
@@ -2169,12 +2169,12 @@ fn wire_ty(
 ) -> Option<Ty> {
     match graph.nodes.get(node).map(|n| &n.op) {
         Some(Op::Scatter { .. }) => Some(match output {
-            SCATTER_PRIMITIVES => Ty::Int,
-            SCATTER_UVS => Ty::Vec2,
+            SCATTER_POLYGONS => Ty::Int,
+            SCATTER_PARAM_UVS => Ty::Vec2,
             _ => Ty::Vec3,
         }),
         Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => Some(Ty::Float),
-        Some(Op::ClosestPoint) if output == CLOSEST_UVS => Some(Ty::Vec2),
+        Some(Op::ClosestPoint) if output == CLOSEST_PARAM_UVS => Some(Ty::Vec2),
         Some(Op::Decompose(d)) => d.outputs().get(output).map(|o| o.1),
         _ => type_of(graph, geo, context, node, memo, depth),
     }

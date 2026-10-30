@@ -157,8 +157,8 @@ copying.
   node lowered once keeps its outputs in `Lower::outs` (Decompose: one
   instruction filling a register per part), and Scatter on Surface's positions
   and normals are read at its places. A place (`types::Loc`) is a mesh of the
-  surface, a face and Houdini's parametric UV; graphs see it as a Primitive (an
-  int) and a UV (a 2D vector), which `Ins::Locate` and `Ins::PrimUv` turn into
+  surface, a face and Houdini's Param UV; graphs see it as a Polygon (an
+  int) and a Param UV (a 2D vector), which `Ins::Locate` and `Ins::PrimUv` turn into
   one another, and `surface::Mesh::weights` into the corners it is made from.
 - **Draw modes and the budget:** `viewer::scene::draw_modes` decides how each
   prim is drawn: the Scene Explorer's choice (`SceneHierarchy::draw_override`,

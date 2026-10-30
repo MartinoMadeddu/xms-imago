@@ -104,14 +104,14 @@ pub enum Op {
     /// per-point float that scales how many land where (0 none, 2 twice as
     /// many); empty, none. In an Object graph. Four outputs, each an array: 0
     /// the positions (USD's `point3f[]`), 1 the normals there (the mesh's, or
-    /// each face's own), 2 and 3 each place as its Primitive and UV (see
+    /// each face's own), 2 and 3 each place as its Polygon and Param UV (see
     /// `Loc`), for Get Data at them.
     Scatter {
         seed: u32,
         weight: String,
     },
     /// An attribute read at places on a surface, Houdini's `primuv`: input 0
-    /// the Primitive (an int: a face's, or a curve's, number), input 1 its UV
+    /// the Polygon (an int: a face's, or a curve's, number), input 1 its Param UV
     /// (the parametric coordinates on it, see `Loc`). A point's or a corner's
     /// attribute is blended from the corners the place is made from, a face's
     /// is that face's, the object's its one value. `P` is the points; `N` the
@@ -119,9 +119,9 @@ pub enum Op {
     /// attribute is read from; `None`, the first that has it (point, corner,
     /// face, object). Read on input 2, a Geometry (Get Reference's paths), when
     /// there is one (a prim of the same topology: rest places on an animated
-    /// mesh); else on the surface the Primitive was found on (Closest Point's);
+    /// mesh); else on the surface the Polygon was found on (Closest Point's);
     /// else on the graph's own geometry. `bary` is the place's weights on the
-    /// first three of those corners. The app's Get Data with its Primitive
+    /// first three of those corners. The app's Get Data with its Polygon
     /// wired.
     GetDataAt {
         name: String,
@@ -133,19 +133,19 @@ pub enum Op {
     /// one; or, in an Object graph, an array), input 2 the radius searched
     /// within (a number for all or per element; 0, anywhere). The meshes are
     /// taken into the graph's space; a curve is searched along its control
-    /// points. Three outputs: 0 each place's Primitive (numbered across the
-    /// meshes in order), 1 how far each is, 2 its UV; for Get Data and Get
-    /// Array Data at them, or to store. Nothing within the radius: Primitive
+    /// points. Three outputs: 0 each place's Polygon (numbered across the
+    /// meshes in order), 1 how far each is, 2 its Param UV; for Get Data and Get
+    /// Array Data at them, or to store. Nothing within the radius: Polygon
     /// -1 (it reads as zero), at the radius's distance.
     ClosestPoint,
-    /// At places on a surface (a Primitive and UV per element, as Get Data at
+    /// At places on a surface (a Polygon and Param UV per element, as Get Data at
     /// them takes, its Geometry too), the values of the face (or curve) each is
     /// on, kept as a list: its points' (P, `ptIndices` their numbers), its
     /// corners' (uv), the face's own (a list of one). `triP` is the points of
     /// the corners the place is made from (three on a triangle, four on a quad,
     /// all of a larger polygon, two on a curve) and `bary` their weights:
     /// `triP` by `bary`, summed, is the place. The app's Get Array Data with
-    /// its Primitive wired.
+    /// its Polygon wired.
     GetArrayDataAt {
         name: String,
         context: Option<Context>,
@@ -475,7 +475,7 @@ impl Op {
         match self {
             Op::Root { .. } => None,
             Op::Parameter { .. } | Op::Constant(_) => Some(0),
-            // A Geometry, a Primitive and UV (and a Geometry), or nothing.
+            // A Geometry, a Polygon and Param UV (and a Geometry), or nothing.
             Op::GetData { .. } | Op::GetArrayData { .. } | Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => None,
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
@@ -497,13 +497,13 @@ impl Op {
 /// Scatter on Surface's outputs (see `Op::Scatter`).
 pub const SCATTER_POSITIONS: usize = 0;
 pub const SCATTER_NORMALS: usize = 1;
-pub const SCATTER_PRIMITIVES: usize = 2;
-pub const SCATTER_UVS: usize = 3;
+pub const SCATTER_POLYGONS: usize = 2;
+pub const SCATTER_PARAM_UVS: usize = 3;
 
 /// Closest Point on Surface's outputs (see `Op::ClosestPoint`).
-pub const CLOSEST_PRIMITIVES: usize = 0;
+pub const CLOSEST_POLYGONS: usize = 0;
 pub const CLOSEST_DISTANCE: usize = 1;
-pub const CLOSEST_UVS: usize = 2;
+pub const CLOSEST_PARAM_UVS: usize = 2;
 
 impl Op {
     /// Get Data of an attribute in the graph's own context.

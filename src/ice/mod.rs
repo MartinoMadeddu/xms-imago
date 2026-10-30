@@ -269,9 +269,9 @@ impl IceGraph {
         };
         match t {
             IceGraphNodeType::Root { .. } => (vec![execute_port(1)], vec![]),
-            // Primitive and UV, unwired: the geometry's own elements.
+            // Polygon and Param UV, unwired: the geometry's own elements.
             // Geometry, unwired: the geometry the graph runs on (or, with a
-            // Primitive, the surface it was found on).
+            // Polygon, the surface it was found on).
             IceGraphNodeType::GetData { .. } => (read_inputs(), vec![output("Value", "Any")]),
             IceGraphNodeType::SetData { .. } => (vec![input("Value", 0.0)], vec![output("Execute", "Execute")]),
             IceGraphNodeType::Constant { value } => (vec![], vec![output("Value", type_hint(value.ty()))]),
@@ -409,8 +409,8 @@ impl IceGraph {
                 vec![
                     output("Positions", "Any"),
                     output("Normals", "Any"),
-                    output("Primitive", "Any"),
-                    output("UV", "Any"),
+                    output("Polygon", "Any"),
+                    output("Param UV", "Any"),
                 ],
             ),
             // Outputs in `xms_ice::CLOSEST_*`'s order. The Origin, the
@@ -428,9 +428,9 @@ impl IceGraph {
                     input("Radius", 0.0),
                 ],
                 vec![
-                    output("Primitive", "Any"),
+                    output("Polygon", "Any"),
                     output("Distance", "Any"),
-                    output("UV", "Any"),
+                    output("Param UV", "Any"),
                 ],
             ),
             // Normals +Y (none) and a random turn about it, when not wired;
@@ -649,9 +649,9 @@ impl IceGraph {
             .map(|n| {
                 let root = matches!(n.node_type, IceGraphNodeType::Root { .. });
                 // Get Data and Get Array Data read at samples when their
-                // Primitive input is wired, from another prim when their
-                // Geometry is. The engine takes [Primitive, UV, Geometry],
-                // [Primitive, UV] or [Geometry]: an unwired UV is (0, 0), an
+                // Polygon input is wired, from another prim when their
+                // Geometry is. The engine takes [Polygon, Param UV, Geometry],
+                // [Polygon, Param UV] or [Geometry]: an unwired Param UV is (0, 0), an
                 // unwired Geometry is not an input to run.
                 let reads = matches!(
                     n.node_type,
@@ -735,7 +735,7 @@ impl IceGraph {
                         });
                         match wired {
                             Some(w) => Some(w),
-                            None if sampled && k == READ_UV => Some(Input::Value(Value::Vec2([0.0; 2]))),
+                            None if sampled && k == READ_PARAM_UV => Some(Input::Value(Value::Vec2([0.0; 2]))),
                             // The root's free Execute ports are not inputs to run,
                             // nor a read's unwired ones.
                             None if root || reads => None,
@@ -903,16 +903,16 @@ impl IceGraph {
             "Execute" => None,
             _ => match &n.node_type {
                 IceGraphNodeType::Constant { value } => Some(value.ty()),
-                // Positions and normals, then the Primitives and their UVs.
+                // Positions and normals, then the Polygons and their Param UVs.
                 IceGraphNodeType::Scatter { .. } => Some(match output {
-                    xms_ice::SCATTER_PRIMITIVES => xms_ice::Ty::Int,
-                    xms_ice::SCATTER_UVS => xms_ice::Ty::Vec2,
+                    xms_ice::SCATTER_POLYGONS => xms_ice::Ty::Int,
+                    xms_ice::SCATTER_PARAM_UVS => xms_ice::Ty::Vec2,
                     _ => xms_ice::Ty::Vec3,
                 }),
-                // The Primitives, the distances, the UVs.
+                // The Polygons, the distances, the Param UVs.
                 IceGraphNodeType::ClosestPoint => Some(match output {
                     xms_ice::CLOSEST_DISTANCE => xms_ice::Ty::Float,
-                    xms_ice::CLOSEST_UVS => xms_ice::Ty::Vec2,
+                    xms_ice::CLOSEST_PARAM_UVS => xms_ice::Ty::Vec2,
                     _ => xms_ice::Ty::Int,
                 }),
                 // Each part its own type, whatever comes in.
@@ -1017,15 +1017,15 @@ impl IceGraph {
 }
 
 /// Get Data's and Get Array Data's inputs, by number.
-pub const READ_PRIMITIVE: usize = 0;
-pub const READ_UV: usize = 1;
+pub const READ_POLYGON: usize = 0;
+pub const READ_PARAM_UV: usize = 1;
 pub const READ_GEOMETRY: usize = 2;
 
-/// Get Data's and Get Array Data's inputs: a Primitive and its UV (Closest
+/// Get Data's and Get Array Data's inputs: a Polygon and its Param UV (Closest
 /// Point on Surface's, Scatter on Surface's, or stored) to read at, and a
 /// Geometry (Get Reference's paths) to read on. None holds a value.
 fn read_inputs() -> Vec<IceGraphInputSocket> {
-    ["Primitive", "UV", "Geometry"]
+    ["Polygon", "Param UV", "Geometry"]
         .into_iter()
         .map(|name| IceGraphInputSocket {
             name: name.into(),
@@ -1443,13 +1443,13 @@ mod tests {
             );
             let p = g.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
             let near = g.add_node("Near".into(), IceGraphNodeType::ClosestPoint, egui::pos2(0.0, 0.0));
-            // Get Data with its Primitive and UV wired: P read where each landed.
+            // Get Data with its Polygon and Param UV wired: P read where each landed.
             let at = g.add_node("At".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
             let set = g.add_node("Set".into(), IceGraphNodeType::set("P"), egui::pos2(0.0, 0.0));
             g.add_connection(refs, 0, near, 0);
             g.add_connection(p, 0, near, 1);
-            g.add_connection(near, xms_ice::CLOSEST_PRIMITIVES, at, READ_PRIMITIVE);
-            g.add_connection(near, xms_ice::CLOSEST_UVS, at, READ_UV);
+            g.add_connection(near, xms_ice::CLOSEST_POLYGONS, at, READ_POLYGON);
+            g.add_connection(near, xms_ice::CLOSEST_PARAM_UVS, at, READ_PARAM_UV);
             g.add_connection(at, 0, set, 0);
             g.add_connection(set, 0, root, 0);
         }

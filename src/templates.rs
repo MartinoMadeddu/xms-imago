@@ -56,7 +56,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: MARTINO, group: "ICE", name: "ICE: shrink-wrap", build: ice_shrink_wrap,
         hint: "A subdivided cube wrapped onto a squashed sphere by an ICE graph: Closest Point on Surface on the reference input, P read there, blended from where each point was" },
     Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer", build: ice_binding,
-        hint: "A cube bound to a grid and carried by its wave, built by hand in two ICE graphs, as Houdini's capture and deform: Capture stores each point's place on the rest grid (Primitive and UV) and where it is in the frame there; Deform builds that frame on the waving grid and puts the point back through it" },
+        hint: "A cube bound to a grid and carried by its wave, built by hand in two ICE graphs, as Houdini's capture and deform: Capture stores each point's place on the rest grid (Polygon and Param UV) and where it is in the frame there; Deform builds that frame on the waving grid and puts the point back through it" },
     Template { by: MARTINO, group: "ICE", name: "ICE: binding deformer on Alembic", build: ice_binding_alembic,
         hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, three Alembic caches from Houdini loaded as USD, through the binding deformer's Capture and Deform" },
     Template { by: MARTINO, group: "ICE", name: "ICE: hair carried by guides on Alembic", build: ice_guide_deform,
@@ -2503,7 +2503,7 @@ fn ice_value(sub: &mut crate::ice::IceGraph, id: NodeId, input: usize, v: xms_ic
 /// Transform on Reference 1. Inside, per point: Closest Point on Surface on the
 /// reference finds the nearest place on the sphere (where the Viewer shows it:
 /// the squash is taken into the cube's space), a Get Data wired to its
-/// Primitive and UV reads P there, and Linear Interpolate blends from where the
+/// Polygon and Param UV reads P there, and Linear Interpolate blends from where the
 /// point was by Blend (1: on the surface).
 fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     use xms_ice::{Math, Value};
@@ -2527,8 +2527,8 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
         let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(920.0, 200.0));
         sub.add_connection(surface, 0, near, 0);
         sub.add_connection(pos, 0, near, 1);
-        sub.add_connection(near, xms_ice::CLOSEST_PRIMITIVES, there, crate::ice::READ_PRIMITIVE);
-        sub.add_connection(near, xms_ice::CLOSEST_UVS, there, crate::ice::READ_UV);
+        sub.add_connection(near, xms_ice::CLOSEST_POLYGONS, there, crate::ice::READ_POLYGON);
+        sub.add_connection(near, xms_ice::CLOSEST_PARAM_UVS, there, crate::ice::READ_PARAM_UV);
         sub.add_connection(pos, 0, blend, 0);
         sub.add_connection(there, 0, blend, 1);
         sub.add_connection(blend, 0, set, 0);
@@ -2576,14 +2576,14 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
     g.add_connection(dense, 0, wrap, 0);
     g.add_connection(squash, 0, wrap, 1);
     finish(g, wrap, wrap);
-    "ICE shrink-wrap: every point of the subdivided cube goes to the nearest place on the squashed sphere wired into Reference 1. Go inside the ShrinkWrap node (down arrow): Closest Point on Surface searches the reference (Get Reference) from each P, a Get Data with its Primitive and UV wired reads P there, and Linear Interpolate blends from the cube by its T (1: on the sphere; try 0.5). Move or turn the Squash: the cube follows it where the Viewer shows it.".into()
+    "ICE shrink-wrap: every point of the subdivided cube goes to the nearest place on the squashed sphere wired into Reference 1. Go inside the ShrinkWrap node (down arrow): Closest Point on Surface searches the reference (Get Reference) from each P, a Get Data with its Polygon and Param UV wired reads P there, and Linear Interpolate blends from the cube by its T (1: on the sphere; try 0.5). Move or turn the Squash: the cube follows it where the Viewer shows it.".into()
 }
 
 /// A binding deformer, by hand: a rest grid and a copy waved by an ICE graph
 /// (Wave); a cube above them as the scene. Capture (frozen), per point, on the
-/// rest grid: Closest Point on Surface's Primitive and UV, the frame there
+/// rest grid: Closest Point on Surface's Polygon and Param UV, the frame there
 /// (`frame_at`) and the point in it, stored; Deform, per point, on the waving
-/// grid: the frame at the stored Primitive and UV, the point put back through
+/// grid: the frame at the stored Polygon and Param UV, the point put back through
 /// it (see `capture_subnet`, `deform_subnet`).
 fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     use xms_ice::{Math, Value};
@@ -2695,7 +2695,7 @@ fn ice_binding(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(deform, 0, result, 0);
     g.add_connection(waving, 0, result, 1);
     finish(g, result, deform);
-    "ICE binding deformer, built by hand, in two operators as Houdini's capture and deform. Capture (frozen: it cooks once and holds) binds each point of the cube to the rest grid: inside it (down arrow), Closest Point on Surface gives the nearest place as its Primitive and UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Primitive and UV wired) and the point is put in it; the Primitive, UV and the point in the frame are stored (bindPrim, bindUV, bindLocal). Deform, every frame, reads them and builds the same frame on the waving grid (Get Array Data with its Geometry wired too), putting the point back through it: no search. Inside Wave, set the Multiply after Sine to 0: every point returns exactly where it started. Change the rest grid or the cube, then unfreeze and freeze Capture to bind again.".into()
+    "ICE binding deformer, built by hand, in two operators as Houdini's capture and deform. Capture (frozen: it cooks once and holds) binds each point of the cube to the rest grid: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the waving grid (Get Array Data with its Geometry wired too), putting the point back through it: no search. Inside Wave, set the Multiply after Sine to 0: every point returns exactly where it started. Change the rest grid or the cube, then unfreeze and freeze Capture to bind again.".into()
 }
 
 /// The binding deformer on Alembic caches Martino wrote from Houdini: 1,000
@@ -2739,7 +2739,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     g.add_connection(deform, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, deform);
-    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Capture (frozen: it cooks once and holds) stores each point's place on the rest head (bindPrim, bindUV) and where it is in the frame there (bindLocal); Deform, every frame, builds that frame on the animated head and puts the point back through it (see ICE: binding deformer). Space plays frames 1001 to 1025.".into()
+    "ICE binding deformer on Alembic: the spheres scattered over the pig's head (Spheres) are bound to the head at rest (RestHead) and carried by the animated head (AnimatedHead), each an .abc loaded as USD at /spheres, /rest and /anim. Capture (frozen: it cooks once and holds) stores each point's place on the rest head (bindPoly, bindParamUV) and where it is in the frame there (bindLocal); Deform, every frame, builds that frame on the animated head and puts the point back through it (see ICE: binding deformer). Space plays frames 1001 to 1025.".into()
 }
 
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
@@ -2747,9 +2747,9 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
 /// guides at rest and animated (frames 1001 to 1050 at 25 fps). Each curves
 /// prim is referenced from its `.abc` at the root. GuideBind (per curve,
 /// frozen) stores the guide nearest each hair's first point (`guide`, a
-/// Primitive of the rest guides). GuideDeform (per point) reads that guide at
+/// Polygon of the rest guides). GuideDeform (per point) reads that guide at
 /// the point's u along its hair (`(ptIndex - firstCorner) / (corners - 1)`, as
-/// a curve's UV counts segments) on the rest and the animated guides, and
+/// a curve's Param UV counts segments) on the rest and the animated guides, and
 /// carries the point by it: moved with it, turned as its direction there
 /// turned.
 fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
@@ -2808,7 +2808,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         sub.add_connection(rest, 0, near, 0);
         sub.add_connection(first, 0, near, 1);
         let set = ice_add(&mut *sub, IceGraphNodeType::set("guide"), p(700.0, 80.0));
-        sub.add_connection(near, xms_ice::CLOSEST_PRIMITIVES, set, 0);
+        sub.add_connection(near, xms_ice::CLOSEST_POLYGONS, set, 0);
         set_root(&mut *sub, set, Context::Face, p(920.0, 80.0));
     }
     // GuideDeform, per point.
@@ -2852,8 +2852,8 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         let guide_at = |sub: &mut crate::ice::IceGraph, on: NodeId, y: f32| -> (NodeId, NodeId) {
             let read = |sub: &mut crate::ice::IceGraph, t: IceGraphNodeType, dy: f32| {
                 let n = ice_add(&mut *sub, t, p(700.0, y + dy));
-                sub.add_connection(guide, 0, n, crate::ice::READ_PRIMITIVE);
-                sub.add_connection(uv, 0, n, crate::ice::READ_UV);
+                sub.add_connection(guide, 0, n, crate::ice::READ_POLYGON);
+                sub.add_connection(uv, 0, n, crate::ice::READ_PARAM_UV);
                 sub.add_connection(on, 0, n, crate::ice::READ_GEOMETRY);
                 n
             };
@@ -2996,13 +2996,13 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, frozen: it cooks once and holds) stores the guide nearest each hair's first point as `guide`, a Primitive of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((ptIndex - firstCorner) / (corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Primitive and UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
+    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, frozen: it cooks once and holds) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((ptIndex - firstCorner) / (corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
 }
 
 /// A frame at a place on a surface, as the binding deformers build it, laid
-/// out from row `y` of ICE graph `sub`: the corners the place (Primitive
-/// `prim`, UV `uv`, each a node's output) is made from (`triP`) and their
-/// weights (`bary`), read on Geometry `on` (none: the surface the Primitive was
+/// out from row `y` of ICE graph `sub`: the corners the place (Polygon
+/// `prim`, Param UV `uv`, each a node's output) is made from (`triP`) and their
+/// weights (`bary`), read on Geometry `on` (none: the surface the Polygon was
 /// found on); the origin, triP by bary summed; tangent p1 - p0, normal (p1 -
 /// p0) × (p2 - p0), both normalised; bitangent normal × tangent; composed into
 /// a matrix. The matrix's node and the origin's.
@@ -3023,8 +3023,8 @@ fn frame_at(
             },
             p(x, y),
         );
-        sub.add_connection(prim.0, prim.1, n, crate::ice::READ_PRIMITIVE);
-        sub.add_connection(uv.0, uv.1, n, crate::ice::READ_UV);
+        sub.add_connection(prim.0, prim.1, n, crate::ice::READ_POLYGON);
+        sub.add_connection(uv.0, uv.1, n, crate::ice::READ_PARAM_UV);
         if let Some(g) = on {
             sub.add_connection(g, 0, n, crate::ice::READ_GEOMETRY);
         }
@@ -3079,7 +3079,7 @@ fn frame_at(
 /// The Capture ICE graph of the binding deformers, per point: the place on the
 /// mesh at `rest` (on Reference 1) nearest it (Closest Point on Surface), the
 /// frame there (`frame_at`), and the point in that frame (its offset from the
-/// origin through the frame's transpose), stored as `bindPrim`, `bindUV` and
+/// origin through the frame's transpose), stored as `bindPoly`, `bindParamUV` and
 /// `bindLocal`.
 fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
     use xms_ice::Math;
@@ -3098,8 +3098,8 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
         let near = ice_add(&mut *sub, IceGraphNodeType::ClosestPoint, p(260.0, 80.0));
         sub.add_connection(surface, 0, near, 0);
         sub.add_connection(pos, 0, near, 1);
-        let prim = (near, xms_ice::CLOSEST_PRIMITIVES);
-        let uv = (near, xms_ice::CLOSEST_UVS);
+        let prim = (near, xms_ice::CLOSEST_POLYGONS);
+        let uv = (near, xms_ice::CLOSEST_PARAM_UVS);
         let (frame, origin) = frame_at(&mut *sub, prim, uv, None, 40.0);
         let offset = ice_add(
             &mut *sub,
@@ -3124,8 +3124,8 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
         sub.add_connection(back, 0, local, 0);
         sub.add_connection(offset, 0, local, 1);
         let stored = [
-            ("bindPrim", prim, 400.0),
-            ("bindUV", uv, 500.0),
+            ("bindPoly", prim, 400.0),
+            ("bindParamUV", uv, 500.0),
             ("bindLocal", (local, 0), 600.0),
         ];
         for (port, (name, (from, out), y)) in stored.into_iter().enumerate() {
@@ -3141,7 +3141,7 @@ fn capture_subnet(store: &mut IceGraphStore, rest: &str) -> IceGraphId {
 }
 
 /// The Deform ICE graph of the binding deformers, per point: the place Capture
-/// stored (`bindPrim`, `bindUV`) read on the mesh at `moving` (on Reference 1,
+/// stored (`bindPoly`, `bindParamUV`) read on the mesh at `moving` (on Reference 1,
 /// of the rest mesh's topology), the frame there, and the point put back
 /// through it from where it was in the rest frame (`bindLocal`).
 fn deform_subnet(store: &mut IceGraphStore, moving: &str) -> IceGraphId {
@@ -3160,8 +3160,8 @@ fn deform_subnet(store: &mut IceGraphStore, moving: &str) -> IceGraphId {
         let stored = |sub: &mut crate::ice::IceGraph, name: &str, y: f32| {
             ice_add(&mut *sub, IceGraphNodeType::get(name), p(260.0, y))
         };
-        let prim = stored(&mut *sub, "bindPrim", 80.0);
-        let uv = stored(&mut *sub, "bindUV", 180.0);
+        let prim = stored(&mut *sub, "bindPoly", 80.0);
+        let uv = stored(&mut *sub, "bindParamUV", 180.0);
         let local = stored(&mut *sub, "bindLocal", 600.0);
         let (frame, _) = frame_at(&mut *sub, (prim, 0), (uv, 0), Some(surface), 40.0);
         let carried = ice_add(

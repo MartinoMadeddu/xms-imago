@@ -128,12 +128,12 @@ the tree's parameters).
   twice as many. In an Object graph (one array for the whole primitive) it gives
   three arrays: **Positions** (where they are: what a PointInstancer's
   `positions` takes), **Normals** (the surface's there: the mesh's normals, or
-  each face's own), and each place as its **Primitive** and **UV** (see below),
+  each face's own), and each place as its **Polygon** and **Param UV** (see below),
   to read anything else there with a Get Data wired to them. Each place is its
   own hash of the seed: made in parallel, the same every time.
-- **A place on a surface is a Primitive and a UV**, as Houdini's `xyzdist`
-  and `primuv` have it: the Primitive is a face's (or a curve's) number, counted
-  across the Geometry's prims in order, and the UV its parametric coordinates
+- **A place on a surface is a Polygon and a Param UV**, as Houdini's `xyzdist`
+  and `primuv` have it: the Polygon is a face's (or a curve's) number, counted
+  across the Geometry's prims in order, and the Param UV its parametric coordinates
   on it, by Houdini's rules. On a **triangle**, u and v are the weights of
   corners 1 and 2 (corner 0's is 1 - u - v); a **quad** is a bilinear patch
   (`P0 (1-u)(1-v) + P1 (1-u) v + P2 u v + P3 u (1-v)`); a polygon of **five
@@ -141,7 +141,7 @@ the tree's parameters).
   1/n to u and v going from 0 on the edge to 1 at the middle; on a **curve**, u
   goes from 0 at its first point to 1 at its last, each segment adding 1/(n -
   1), and v is 0. They are an int and a 2D vector like any other: store them
-  with Set Data (`bindPrim`, `bindUV`) and read there again, frame after frame,
+  with Set Data (`bindPoly`, `bindParamUV`) and read there again, frame after frame,
   without searching (a binding deformer's capture, then its deform).
 - **Closest Point on Surface** finds, for each **Origin** (a 3D vector: `P` per
   point, one for all, or an array in an Object graph), the nearest place on the
@@ -151,11 +151,11 @@ the tree's parameters).
   0 searches without a limit). The meshes are taken from where they are in the
   world into the space of the primitive the graph runs on, so what is read there
   lines up with the primitive where the Viewer shows both. It gives each place's
-  **Primitive** and **UV**, and the **Distance** to it. Nothing within the
-  radius: Primitive -1, which reads as zero, at the radius's distance
+  **Polygon** and **Param UV**, and the **Distance** to it. Nothing within the
+  radius: Polygon -1, which reads as zero, at the radius's distance
   (use the Distance to blend: Linear Interpolate from `P` to the place found by
   `1 - Distance / Radius`). A BVH over the meshes' faces, cut into the triangles
-  their UVs are made on (a quad's two, a larger polygon's fan around its middle,
+  their Param UVs are made on (a quad's two, a larger polygon's fan around its middle,
   a curve's segments), is made with rray's builder once per run of the graph,
   the first time it is searched, so a graph per
   point searches it from every thread at once. What it makes possible:
@@ -166,19 +166,19 @@ the tree's parameters).
   carried by its guides this way (the "ICE: hair carried by guides on Alembic"
   template).
 - **`curveu`** is made from the topology on curves' points: how far along its
-  curve each point is, by length, from 0 to 1. A curve's UV counts segments,
+  curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.
-- **Get Data at a Primitive and UV.** Wire a Primitive and UV (Closest Point on
+- **Get Data at a Polygon and Param UV.** Wire a Polygon and Param UV (Closest Point on
   Surface's, Scatter on Surface's, or stored attributes) into a Get Data's
-  **Primitive** and **UV** inputs and it reads its attribute there instead of
+  **Polygon** and **Param UV** inputs and it reads its attribute there instead of
   per element (unwired, it reads as above; graphs saved when it read at
-  **Samples** open with the Primitive and UV wired in their place): `uv`, a
+  **Samples** open with the Polygon and Param UV wired in their place): `uv`, a
   colour, or any other, `P` and `N` too. On a reference mesh it reads that
   mesh's attribute, taken into the graph's space by its role: a position moved,
   a normal turned, a vector turned. A point's or a corner's attribute is
   blended from the corners the place is made from, a face's is that face's, the
   object's its one value. It reads on its **Geometry** when one is wired, else
-  on the prims the Primitive was found on (Closest Point's), else on the
+  on the prims the Polygon was found on (Closest Point's), else on the
   geometry the graph runs on.
 - **Random Orientation** gives a rotation with its +Y turned along **Normals**,
   then turned at random up to **Random Rotation** degrees about each axis,
@@ -246,21 +246,21 @@ the tree's parameters).
   graph runs on (the first one the paths name), taken into the graph's space
   (positions moved, normals and vectors turned):
 
-  | Primitive, UV | Geometry | Reads |
+  | Polygon, Param UV | Geometry | Reads |
   |---|---|---|
   | — | — | the attribute of each element, as above |
   | wired | — | at those places, on the prims they were found on (or the graph's own) |
   | wired | wired | at those places, on the Geometry's prims: places found on a rest mesh read on its animated copy |
   | — | wired | the Geometry's attribute element by element, in the Context set (across contexts as Get Data reads across): an attribute transfer by name |
 
-  Element by element (and a Primitive and UV) takes prims of the **same
+  Element by element (and a Polygon and Param UV) takes prims of the **same
   topology**: the same counts per context, the same faces (a rest mesh and its
   animated copy; a mesh and the copy a branch of the graph changed); Get Data
   says so when the counts differ. Between meshes of different topology, Closest
-  Point on Surface and a Get Data at its Primitive and UV transfer by place.
+  Point on Surface and a Get Data at its Polygon and Param UV transfer by place.
 - **The corners a place is made from.** A place is a blend of some of its
   face's corners: a triangle's three, a quad's four, all of a larger polygon's,
-  a curve's segment's two. Read at a Primitive and UV, two names give them
+  a curve's segment's two. Read at a Polygon and Param UV, two names give them
   whatever the mesh holds: **`triP`** (Get Array Data: those corners' points, in
   the graph's space) and **`bary`** (Get Array Data: their weights, a list;
   Get Data: the first three, as a 3D vector). A list of `triP` and one of `bary`
@@ -268,11 +268,11 @@ the tree's parameters).
   is; Select in Array 0, 1 and 2 gives three corners in order, for a frame's
   edges (tangent `p1 - p0`, normal `(p1 - p0) × (p2 - p0)`, both normalised,
   bitangent normal × tangent).
-- **Get Array Data at a Primitive and UV.** Wired through its **Primitive** and
-  **UV** inputs, a Get Array Data reads, at each place, the values of the
+- **Get Array Data at a Polygon and Param UV.** Wired through its **Polygon** and
+  **Param UV** inputs, a Get Array Data reads, at each place, the values of the
   **face** (or curve) it is on, kept as a list: its points' positions (`P`),
   their numbers (`ptIndices`), its corners' UVs (`uv`); a face's own attribute
-  is a list of one. Lists read at the same Primitives meet in maths (a face's
+  is a list of one. Lists read at the same Polygons meet in maths (a face's
   `P` and `uv`, item by item, on a rest mesh and its animated copy); Array Size,
   Select in Array, Sum and Average make one value of each. One place per
   element (Closest Point's, per point) gives a list per element; one place for
@@ -416,7 +416,7 @@ parameters.
   nearest points, by a kd-tree); ray casts (Raycast on Surface); Get Array Data
   on an array of places
 - Cubic curves searched along the curve they draw (today along their control
-  points), and a curve's UV by length as an option (Houdini's `primuvconvert`)
+  points), and a curve's Param UV by length as an option (Houdini's `primuvconvert`)
 - Reading at a place on a reference mesh in the editor's types: the port shows
   its type once the graph has run on that mesh
 - Snippets: code in a node, compiled to the same instructions

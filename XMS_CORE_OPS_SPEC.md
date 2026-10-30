@@ -425,7 +425,7 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
   Data), Scatter on Surface and the Instancer, and spatial queries: Closest
   Point on Surface searches a reference input's meshes (taken into the graph's
   space, a BVH over their faces and curves) and Get Data and Get Array Data read
-  there, at a Primitive and UV (Houdini's `primuv`), and from another prim of
+  there, at a Polygon and Param UV (Houdini's `primuv`), and from another prim of
   the same topology through their Geometry input (attribute transfer by
   element, or places read on an animated copy). Not yet: neighbours, closest points on points, ray
   casts, snippets. A graph file keeps each ICE node's graph.

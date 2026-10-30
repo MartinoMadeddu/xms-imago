@@ -1181,7 +1181,7 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 let (p, w): (Vec<i32>, Vec<Vec2>) = {
                     let s = env.surface_of(surface, regs, uniform);
                     match &regs[loc] {
-                        Reg::Sample(at) => at.iter().map(|l| (s.primitive(l), Vec2::from_array(l.uv))).unzip(),
+                        Reg::Sample(at) => at.iter().map(|l| (s.polygon(l), Vec2::from_array(l.uv))).unzip(),
                         _ => (vec![], vec![]),
                     }
                 };

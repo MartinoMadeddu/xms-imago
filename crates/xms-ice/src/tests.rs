@@ -4,8 +4,8 @@ use std::sync::Arc;
 use xms_geo::{Attr, Column, Context, Geo, Role, POINTS};
 
 use super::graph::{
-    wire, ArrayOp, Graph, Input, Math, Op, CLOSEST_PRIMITIVES, CLOSEST_UVS, SCATTER_NORMALS, SCATTER_POSITIONS,
-    SCATTER_PRIMITIVES, SCATTER_UVS,
+    wire, ArrayOp, Graph, Input, Math, Op, CLOSEST_PARAM_UVS, CLOSEST_POLYGONS, SCATTER_NORMALS, SCATTER_PARAM_UVS,
+    SCATTER_POLYGONS, SCATTER_POSITIONS,
 };
 use super::types::Value;
 use super::{compile, run, Reference};
@@ -38,32 +38,32 @@ fn points(g: &Geo) -> &[[f32; 3]] {
     g.points()
 }
 
-/// The Primitive and UV outputs of Closest Point on Surface node `near`, as a
+/// The Polygon and Param UV outputs of Closest Point on Surface node `near`, as a
 /// Get Data's first two inputs.
 fn closest_at(near: usize) -> Vec<Input> {
     vec![
         Input::Wire {
             node: near,
-            output: CLOSEST_PRIMITIVES,
+            output: CLOSEST_POLYGONS,
         },
         Input::Wire {
             node: near,
-            output: CLOSEST_UVS,
+            output: CLOSEST_PARAM_UVS,
         },
     ]
 }
 
-/// Scatter on Surface node `at`'s Primitive and UV outputs, as a Get Data's
+/// Scatter on Surface node `at`'s Polygon and Param UV outputs, as a Get Data's
 /// first two inputs.
 fn scattered_at(at: usize) -> Vec<Input> {
     vec![
         Input::Wire {
             node: at,
-            output: SCATTER_PRIMITIVES,
+            output: SCATTER_POLYGONS,
         },
         Input::Wire {
             node: at,
-            output: SCATTER_UVS,
+            output: SCATTER_PARAM_UVS,
         },
     ]
 }
@@ -1212,12 +1212,12 @@ fn scatter_gives_positions_normals_and_samples() {
     };
     assert_eq!(
         read(SCATTER_POSITIONS, None),
-        read(SCATTER_PRIMITIVES, Some("P")),
+        read(SCATTER_POLYGONS, Some("P")),
         "positions are P at the samples"
     );
     assert_eq!(
         read(SCATTER_NORMALS, None),
-        read(SCATTER_PRIMITIVES, Some("N")),
+        read(SCATTER_POLYGONS, Some("N")),
         "normals are N at the samples"
     );
     // A position is not a sample: Get Data at Samples refuses it.
@@ -1419,7 +1419,7 @@ fn the_instancer_is_for_object_graphs_and_wants_positions_and_paths() {
     let (err, inst) = make(Context::Object, SCATTER_POSITIONS, false);
     assert_eq!(err, Some(inst), "positions are not prototypes");
     // Each graph's own Instancer: with Get Reference added, it is one node further on.
-    let (err, inst) = make(Context::Object, SCATTER_PRIMITIVES, true);
+    let (err, inst) = make(Context::Object, SCATTER_POLYGONS, true);
     assert_eq!(err, Some(inst), "samples are not positions");
     assert!(make(Context::Object, SCATTER_POSITIONS, true).0.is_none());
 }
