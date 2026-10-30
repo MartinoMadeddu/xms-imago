@@ -889,8 +889,10 @@ keys of what is wired into it, so:
   its input stays the same.
 - A file read is read again when it is written again (its date and size are part
   of the key). Body Collide is asked again when a solve finishes or is cleared.
-- ICE operators, and what comes after them, are cooked each time asked, as
-  before.
+- An ICE operator is kept as the others are, its graph part of its key: it
+  cooks again when what comes in, its references, its parameters or its graph
+  (a compound inside it included) change. A capture that reads only rest
+  meshes cooks once, and a deform after it every frame.
 
 Results are kept up to about 3 GB, the least recently used going first. Copies
 of the graph (undo steps, Write FBX over a folder) share them.

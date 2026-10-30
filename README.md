@@ -27,7 +27,8 @@ applied to it. Change any value upstream and everything after it follows.
 Fifty templates ship with the program, one for each area of it, in three parts:
 Martino's (composed USD stages: composition, curves and points, point
 instancers, native instances, purposes, cameras, materials; ICE: spherify, a
-shrink-wrap, a binding deformer built by hand, instancing), Simon's (modelling,
+shrink-wrap, binding deformers on Alembic caches for points, hair by its guides
+and hair by the skin, instancing), Simon's (modelling,
 UV, USD models, animation and mocap, FBX and characters) and XMS's (lighting and
 rendering: the DeLorean lit by a dome and a rect light and rendered with Karma
 through husk). Each loads a working graph and tells you what to try.
@@ -387,8 +388,10 @@ Joints](docs/xms_bypass_pick.png)
   on Surface finds the nearest places on a reference input's meshes (a BVH over
   their triangles), to read anything there: shrink-wraps and other deformers.
   Matrices (compose from axes and an origin, multiply, invert, transpose,
-  transform points and vectors) and each sample's triangle (`triP`, `bary`)
-  build frames on a surface by hand. Selected nodes make a compound (one node,
+  transform points and vectors) and the corners a place is made from (`triP`,
+  `bary`) build frames on a surface by hand; a place is a Polygon and Param UV, as
+  Houdini's `xyzdist` and `primuv` have it, kept as attributes to bind once and
+  deform every frame. Selected nodes make a compound (one node,
   its ports the wires that crossed the selection), saved as a definition and
   found in the add menu; Parameter nodes are set in the ICE operator's
   parameters. Compiled and run in parallel batches by the

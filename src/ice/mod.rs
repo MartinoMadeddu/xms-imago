@@ -37,6 +37,15 @@ thread_local! {
     /// The values the ICE operator sets on its graph's Parameter nodes, by
     /// name (`set_params`), taken by `evaluate` as `SPACE` is.
     static PARAMS: std::cell::RefCell<std::collections::BTreeMap<String, serde_json::Value>> = std::cell::RefCell::new(std::collections::BTreeMap::new());
+    /// The key each graph last ran with on this thread (`IceGraph::cook_key`),
+    /// by its id: the scene graph checks it is the one it kept the result
+    /// under (`ran`).
+    static RAN: std::cell::RefCell<HashMap<IceGraphId, u64>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// The key graph `id` last ran with on this thread, taken.
+pub fn ran(id: IceGraphId) -> Option<u64> {
+    RAN.with(|r| r.borrow_mut().remove(&id))
 }
 
 /// The next graph run on this thread takes these values for its parameters
@@ -269,21 +278,10 @@ impl IceGraph {
         };
         match t {
             IceGraphNodeType::Root { .. } => (vec![execute_port(1)], vec![]),
-            // Samples, unwired: the geometry's own elements. Geometry,
-            // unwired: the geometry the graph runs on.
-            IceGraphNodeType::GetData { .. } => (
-                vec![
-                    IceGraphInputSocket {
-                        value: None,
-                        ..input("Samples", 0.0)
-                    },
-                    IceGraphInputSocket {
-                        value: None,
-                        ..input("Geometry", 0.0)
-                    },
-                ],
-                vec![output("Value", "Any")],
-            ),
+            // Polygon and Param UV, unwired: the geometry's own elements.
+            // Geometry, unwired: the geometry the graph runs on (or, with a
+            // Polygon, the surface it was found on).
+            IceGraphNodeType::GetData { .. } => (read_inputs(), vec![output("Value", "Any")]),
             IceGraphNodeType::SetData { .. } => (vec![input("Value", 0.0)], vec![output("Execute", "Execute")]),
             IceGraphNodeType::Constant { value } => (vec![], vec![output("Value", type_hint(value.ty()))]),
             IceGraphNodeType::Math { op } => {
@@ -420,7 +418,8 @@ impl IceGraph {
                 vec![
                     output("Positions", "Any"),
                     output("Normals", "Any"),
-                    output("Surface Samples", "Any"),
+                    output("Polygon", "Any"),
+                    output("Param UV", "Any"),
                 ],
             ),
             // Outputs in `xms_ice::CLOSEST_*`'s order. The Origin, the
@@ -437,7 +436,11 @@ impl IceGraph {
                     },
                     input("Radius", 0.0),
                 ],
-                vec![output("Surface Samples", "Any"), output("Distance", "Any")],
+                vec![
+                    output("Polygon", "Any"),
+                    output("Distance", "Any"),
+                    output("Param UV", "Any"),
+                ],
             ),
             // Normals +Y (none) and a random turn about it, when not wired;
             // a count of 0, one per element (or per normal of an array).
@@ -463,19 +466,7 @@ impl IceGraph {
                 vec![output("Orientations", "Any")],
             ),
             IceGraphNodeType::GetReference { .. } => (vec![], vec![output("Paths", "Any")]),
-            IceGraphNodeType::GetArrayData { .. } => (
-                vec![
-                    IceGraphInputSocket {
-                        value: None,
-                        ..input("Samples", 0.0)
-                    },
-                    IceGraphInputSocket {
-                        value: None,
-                        ..input("Geometry", 0.0)
-                    },
-                ],
-                vec![output("Array", "Any")],
-            ),
+            IceGraphNodeType::GetArrayData { .. } => (read_inputs(), vec![output("Array", "Any")]),
             // A PointInstancer's attributes; one orientation and scale for
             // all when not wired, a prototype picked at random (-1).
             IceGraphNodeType::Instancer { .. } => (
@@ -667,9 +658,10 @@ impl IceGraph {
             .map(|n| {
                 let root = matches!(n.node_type, IceGraphNodeType::Root { .. });
                 // Get Data and Get Array Data read at samples when their
-                // Samples input is wired, from another prim when their
-                // Geometry is; an unwired one is not an input to run (the
-                // engine takes [Samples, Geometry], [Samples] or [Geometry]).
+                // Polygon input is wired, from another prim when their
+                // Geometry is. The engine takes [Polygon, Param UV, Geometry],
+                // [Polygon, Param UV] or [Geometry]: an unwired Param UV is (0, 0), an
+                // unwired Geometry is not an input to run.
                 let reads = matches!(
                     n.node_type,
                     IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
@@ -743,7 +735,8 @@ impl IceGraph {
                 let inputs = n
                     .inputs
                     .iter()
-                    .filter_map(|i| {
+                    .enumerate()
+                    .filter_map(|(k, i)| {
                         let wired = i.connected_output.and_then(|(from, output)| {
                             ids.iter()
                                 .position(|id| *id == from)
@@ -751,8 +744,9 @@ impl IceGraph {
                         });
                         match wired {
                             Some(w) => Some(w),
+                            None if sampled && k == READ_PARAM_UV => Some(Input::Value(Value::Vec2([0.0; 2]))),
                             // The root's free Execute ports are not inputs to run,
-                            // nor an unwired Samples.
+                            // nor a read's unwired ones.
                             None if root || reads => None,
                             None => Some(Input::Value(i.value.unwrap_or(Value::Float(0.0)))),
                         }
@@ -806,6 +800,21 @@ impl IceGraph {
             (c.from_node.0, c.from_output, c.to_node.0, c.to_input).hash(&mut h);
         }
         serde_json::to_string(&self.parameters).unwrap_or_default().hash(&mut h);
+        h.finish()
+    }
+
+    /// What a run of it gives depends on, its input and parameters aside: what
+    /// it computes (`content_hash`) and the definitions of the ICE compounds in
+    /// it (one following the library changes with it).
+    pub fn cook_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.content_hash().hash(&mut h);
+        for n in &self.nodes {
+            if matches!(n.node_type, IceGraphNodeType::Compound { .. }) {
+                compound::definition(&n.node_type).map(|d| d.hash()).ok().hash(&mut h);
+            }
+        }
         h.finish()
     }
 
@@ -918,17 +927,17 @@ impl IceGraph {
             "Execute" => None,
             _ => match &n.node_type {
                 IceGraphNodeType::Constant { value } => Some(value.ty()),
-                // Positions and normals, then the samples.
-                IceGraphNodeType::Scatter { .. } => Some(if output == xms_ice::SCATTER_SAMPLES {
-                    xms_ice::Ty::Sample
-                } else {
-                    xms_ice::Ty::Vec3
+                // Positions and normals, then the Polygons and their Param UVs.
+                IceGraphNodeType::Scatter { .. } => Some(match output {
+                    xms_ice::SCATTER_POLYGONS => xms_ice::Ty::Int,
+                    xms_ice::SCATTER_PARAM_UVS => xms_ice::Ty::Vec2,
+                    _ => xms_ice::Ty::Vec3,
                 }),
-                // The samples, then the distances.
-                IceGraphNodeType::ClosestPoint => Some(if output == xms_ice::CLOSEST_DISTANCE {
-                    xms_ice::Ty::Float
-                } else {
-                    xms_ice::Ty::Sample
+                // The Polygons, the distances, the Param UVs.
+                IceGraphNodeType::ClosestPoint => Some(match output {
+                    xms_ice::CLOSEST_DISTANCE => xms_ice::Ty::Float,
+                    xms_ice::CLOSEST_PARAM_UVS => xms_ice::Ty::Vec2,
+                    _ => xms_ice::Ty::Int,
                 }),
                 // Each part its own type, whatever comes in.
                 IceGraphNodeType::Decompose { op } => op.outputs().get(output).map(|o| o.1),
@@ -942,6 +951,8 @@ impl IceGraph {
     /// stays shared with `input`. A graph that does not compile gives `input`
     /// back, and says why on the node that broke it.
     pub fn evaluate(&self, input: &Geo, references: &[Reference]) -> Geo {
+        let key = self.cook_key();
+        RAN.with(|r| r.borrow_mut().insert(self.id, key));
         // While an ICE compound's inside is looked at: the graph it is in,
         // with it.
         let composed = self.composed();
@@ -1031,6 +1042,26 @@ impl IceGraph {
     }
 }
 
+/// Get Data's and Get Array Data's inputs, by number.
+pub const READ_POLYGON: usize = 0;
+pub const READ_PARAM_UV: usize = 1;
+pub const READ_GEOMETRY: usize = 2;
+
+/// Get Data's and Get Array Data's inputs: a Polygon and its Param UV (Closest
+/// Point on Surface's, Scatter on Surface's, or stored) to read at, and a
+/// Geometry (Get Reference's paths) to read on. None holds a value.
+fn read_inputs() -> Vec<IceGraphInputSocket> {
+    ["Polygon", "Param UV", "Geometry"]
+        .into_iter()
+        .map(|name| IceGraphInputSocket {
+            name: name.into(),
+            value_hint: "Any",
+            connected_output: None,
+            value: None,
+        })
+        .collect()
+}
+
 /// The root's Execute port number `n`. Concatenate Arrays' input `n` (from 1).
 pub(crate) fn array_port(n: usize) -> IceGraphInputSocket {
     IceGraphInputSocket {
@@ -1065,6 +1096,11 @@ impl IceGraphStore {
     }
     pub fn get(&self, id: IceGraphId) -> Option<&IceGraph> {
         self.subnets.get(&id)
+    }
+
+    /// Each graph's key (`IceGraph::cook_key`), by its id.
+    pub fn cook_keys(&self) -> HashMap<IceGraphId, u64> {
+        self.subnets.iter().map(|(id, g)| (*id, g.cook_key())).collect()
     }
 
     /// What every graph computes (`IceGraph::content_hash`), together.
@@ -1438,12 +1474,13 @@ mod tests {
             );
             let p = g.add_node("P".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
             let near = g.add_node("Near".into(), IceGraphNodeType::ClosestPoint, egui::pos2(0.0, 0.0));
-            // Get Data with its Samples wired: P read where each landed.
+            // Get Data with its Polygon and Param UV wired: P read where each landed.
             let at = g.add_node("At".into(), IceGraphNodeType::get("P"), egui::pos2(0.0, 0.0));
             let set = g.add_node("Set".into(), IceGraphNodeType::set("P"), egui::pos2(0.0, 0.0));
             g.add_connection(refs, 0, near, 0);
             g.add_connection(p, 0, near, 1);
-            g.add_connection(near, 0, at, 0);
+            g.add_connection(near, xms_ice::CLOSEST_POLYGONS, at, READ_POLYGON);
+            g.add_connection(near, xms_ice::CLOSEST_PARAM_UVS, at, READ_PARAM_UV);
             g.add_connection(at, 0, set, 0);
             g.add_connection(set, 0, root, 0);
         }

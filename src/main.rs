@@ -1564,6 +1564,8 @@ pub(crate) fn track_revision_frame(ctx: &egui::Context, app: &mut AppState, last
         h.finish()
     };
     let _ = ctx;
+    // ICE operators are kept by what their graphs compute now.
+    graph.know_ice(subnets);
     // A solve that finished on its thread changes what its node puts out.
     // So does a stage read in the background, as its boxes then all of it arrive.
     if *last != Some(hash) || ragdoll::take_changed() | usd_scene::take_changed() {

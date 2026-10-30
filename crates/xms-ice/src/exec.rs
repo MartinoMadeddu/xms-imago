@@ -894,16 +894,23 @@ fn item(m: &Mesh, col: &MeshCol, e: usize, ty: Ty) -> Value {
     v.convert(ty).unwrap_or_else(|| zero(ty))
 }
 
-/// The elements of `ctx` a sample reads, with their weights: its triangle's
-/// points or corners, its face, the object.
-fn sample_elements(m: &Mesh, ctx: Context, l: &Loc) -> [(usize, f32); 3] {
-    let cp = m.corner_points();
-    let w = l.weights;
+/// The elements of `ctx` a sample reads, with their weights: the corners its
+/// place is made from (or their points), its face, the object.
+fn sample_elements(s: &Surface, ctx: Context, l: &Loc, out: &mut Vec<(usize, f32)>) {
+    out.clear();
+    let Some(m) = s.meshes.get(l.mesh as usize) else { return };
     match ctx {
-        Context::Point => std::array::from_fn(|k| (cp.get(l.corners[k] as usize).copied().unwrap_or(0) as usize, w[k])),
-        Context::Corner => std::array::from_fn(|k| (l.corners[k] as usize, w[k])),
-        Context::Face => [(l.face as usize, 1.0), (l.face as usize, 0.0), (l.face as usize, 0.0)],
-        Context::Object => [(0, 1.0), (0, 0.0), (0, 0.0)],
+        Context::Point | Context::Corner => {
+            let mut w = Vec::with_capacity(4);
+            m.weights(l.face, l.uv, &mut w);
+            let cp = m.corner_points();
+            out.extend(w.into_iter().map(|(c, k)| match ctx {
+                Context::Point => (cp.get(c as usize).copied().unwrap_or(0) as usize, k),
+                _ => (c as usize, k),
+            }));
+        }
+        Context::Face => out.push((l.face as usize, 1.0)),
+        Context::Object => out.push((0, 1.0)),
     }
 }
 
@@ -914,8 +921,12 @@ fn at_sample(surface: &Surface, cols: &[Option<MeshCol>], ctx: Context, ty: Ty, 
     let (Some(m), Some(Some(col))) = (surface.meshes.get(l.mesh as usize), cols.get(l.mesh as usize)) else {
         return zero(ty);
     };
-    let el = sample_elements(m, ctx, l);
-    let nearest = el.iter().copied().fold(el[0], |b, x| if x.1 > b.1 { x } else { b }).0;
+    let mut el = Vec::with_capacity(4);
+    sample_elements(surface, ctx, l, &mut el);
+    let Some(&first) = el.first() else {
+        return zero(ty);
+    };
+    let nearest = el.iter().copied().fold(first, |b, x| if x.1 > b.1 { x } else { b }).0;
     match ty {
         // Ints, bools and matrices: the nearest corner's.
         Ty::Bool | Ty::Int | Ty::Mat4 | Ty::Sample | Ty::Token => item(m, col, nearest, ty),
@@ -1136,15 +1147,46 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 weight,
             } => {
                 let n = value_at(&regs[count], 0).as_i32().max(0) as usize;
-                let made = scatter(env.geo, seed, n, weight.map(|w| &env.sources[w]));
+                let own = env.surface_of(None, regs, uniform);
+                let made = scatter(own, seed, n, weight.map(|w| &env.sources[w]));
                 *locs(&mut regs[dst]) = made;
             }
             Ins::AtLocation { dst, read, loc } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
                 if let Reg::Sample(at) = &regs[loc] {
-                    at_location(env.geo, &env.sources[read], at, &mut out);
+                    at_location(env.surface_of(None, regs, uniform), &env.sources[read], at, &mut out);
                 }
                 regs[dst] = out;
+            }
+            Ins::Locate { dst, prim, uv, surface } => {
+                let made = {
+                    let s = env.surface_of(surface, regs, uniform);
+                    let (p, w): (&[i32], &[Vec2]) = match (&regs[prim], &regs[uv]) {
+                        (Reg::Int(p), Reg::Vec2(w)) => (p, w),
+                        _ => (&[], &[]),
+                    };
+                    // One of either meets each of the other.
+                    let n = p.len().max(w.len());
+                    (0..n)
+                        .map(|i| {
+                            let p = p.get(i).or(p.first()).copied().unwrap_or(-1);
+                            let w = w.get(i).or(w.first()).copied().unwrap_or_default();
+                            s.sample(p, w.to_array())
+                        })
+                        .collect()
+                };
+                *locs(&mut regs[dst]) = made;
+            }
+            Ins::PrimUv { prim, uv, loc, surface } => {
+                let (p, w): (Vec<i32>, Vec<Vec2>) = {
+                    let s = env.surface_of(surface, regs, uniform);
+                    match &regs[loc] {
+                        Reg::Sample(at) => at.iter().map(|l| (s.polygon(l), Vec2::from_array(l.uv))).unzip(),
+                        _ => (vec![], vec![]),
+                    }
+                };
+                *ints(&mut regs[prim]) = p;
+                *vec2s(&mut regs[uv]) = w;
             }
             Ins::Closest {
                 dst,
@@ -1230,21 +1272,44 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 };
                 regs[dst] = made;
             }
-            Ins::Bary { dst, loc, list } => {
+            Ins::Bary {
+                dst,
+                loc,
+                surface,
+                list,
+            } => {
                 let made = {
+                    let s = env.surface_of(surface, regs, uniform);
                     let at: &[Loc] = match &regs[loc] {
                         Reg::Sample(v) => v,
                         _ => &[],
                     };
+                    let mut w = Vec::with_capacity(4);
                     if !list {
-                        Reg::Vec3(at.iter().map(|l| Vec3::from_array(l.weights)).collect())
+                        // The first three: a triangle's own.
+                        Reg::Vec3(
+                            at.iter()
+                                .map(|l| {
+                                    s.weights(l, &mut w);
+                                    let k = |i: usize| w.get(i).map_or(0.0, |x| x.1);
+                                    Vec3::new(k(0), k(1), k(2))
+                                })
+                                .collect(),
+                        )
                     } else {
-                        let items = Reg::Float(at.iter().flat_map(|l| l.weights).collect());
+                        let mut offsets = Vec::with_capacity(at.len() + 1);
+                        offsets.push(0u32);
+                        let mut items = vec![];
+                        for l in at {
+                            s.weights(l, &mut w);
+                            items.extend(w.iter().map(|x| x.1));
+                            offsets.push(items.len() as u32);
+                        }
                         // One sample's, in the uniform program: an array.
                         if uniform {
-                            items
+                            Reg::Float(items)
                         } else {
-                            Reg::List((0..=at.len() as u32).map(|k| k * 3).collect(), Box::new(items))
+                            Reg::List(offsets, Box::new(Reg::Float(items)))
                         }
                     }
                 };
@@ -1265,10 +1330,12 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                     let mut offsets = Vec::with_capacity(at.len() + 1);
                     offsets.push(0u32);
                     let mut points: Vec<Vec3> = Vec::with_capacity(at.len() * 3);
+                    let mut w = Vec::with_capacity(4);
                     for l in at {
                         if let Some(m) = s.meshes.get(l.mesh as usize) {
                             let (cp, pts) = (m.corner_points(), m.geo.points());
-                            for c in l.corners {
+                            s.weights(l, &mut w);
+                            for &(c, _) in &w {
                                 let p = cp
                                     .get(c as usize)
                                     .and_then(|&p| pts.get(p as usize))
@@ -2140,14 +2207,6 @@ fn array_op(op: ArrayOp, a: &Reg, b: &Reg, out: &mut Reg) {
     }
 }
 
-/// The point each corner is at, and each face's first corner.
-fn corner_points(geo: &Geo) -> (&[u32], &[u32]) {
-    match &geo.topology {
-        Topology::Mesh { counts, indices, .. } => (counts.as_slice(), indices.as_slice()),
-        _ => (&[], &[]),
-    }
-}
-
 /// A number of a float or int column at element `e` (through its indices).
 fn number_at(s: &Source, e: usize) -> f32 {
     let i = value_index(s.indices, e);
@@ -2158,97 +2217,36 @@ fn number_at(s: &Source, e: usize) -> f32 {
     }
 }
 
-/// `count` places on the mesh's surface, spread evenly by area (scaled by
-/// `weight`, per face or per point), the same for the same seed: each a
-/// triangle of a face's fan picked by area, then a point in it.
-fn scatter(geo: &Geo, seed: u32, count: usize, weight: Option<&Source>) -> Vec<Loc> {
-    let (counts, corner_point) = corner_points(geo);
-    let pts = geo.points();
-    let at = |c: u32| {
-        Vec3::from_array(
-            corner_point
-                .get(c as usize)
-                .and_then(|&p| pts.get(p as usize))
-                .copied()
-                .unwrap_or_default(),
-        )
+/// `count` places on the mesh's polygons, spread evenly by area (scaled by
+/// `weight`, per face or per point), the same for the same seed (see
+/// `Surface::scatter`).
+fn scatter(own: &Surface, seed: u32, count: usize, weight: Option<&Source>) -> Vec<Loc> {
+    let weight = |face: u32, points: &[u32]| match weight {
+        None => 1.0,
+        Some(w) if w.context == Context::Face => number_at(w, face as usize),
+        Some(w) => points.iter().map(|&p| number_at(w, p as usize)).sum::<f32>() / points.len().max(1) as f32,
     };
-    let mut tris: Vec<(u32, [u32; 3])> = Vec::with_capacity(corner_point.len());
-    let mut sums: Vec<f64> = Vec::with_capacity(corner_point.len());
-    let (mut total, mut first) = (0.0f64, 0u32);
-    for (face, &n) in counts.iter().enumerate() {
-        for k in 1..n.saturating_sub(1) {
-            let c = [first, first + k, first + k + 1];
-            let area = (at(c[1]) - at(c[0])).cross(at(c[2]) - at(c[0])).length() * 0.5;
-            let scale = match weight {
-                None => 1.0,
-                Some(w) if w.context == Context::Face => number_at(w, face),
-                Some(w) => {
-                    c.iter()
-                        .map(|&c| number_at(w, corner_point.get(c as usize).copied().unwrap_or(0) as usize))
-                        .sum::<f32>()
-                        / 3.0
-                }
-            };
-            total += (area * scale.max(0.0)) as f64;
-            tris.push((face as u32, c));
-            sums.push(total);
-        }
-        first += n;
-    }
-    if total <= 0.0 || tris.is_empty() {
-        return vec![];
-    }
-    // Each place is its own hash: made in parallel, the same either way.
-    (0..count)
-        .into_par_iter()
-        .map(|i| {
-            let t = sums
-                .partition_point(|&s| s <= unit(seed, i, 0) as f64 * total)
-                .min(tris.len() - 1);
-            let (face, corners) = tris[t];
-            // Uniform in the triangle: a point in the unit square, folded.
-            let (mut a, mut b) = (unit(seed, i, 1), unit(seed, i, 2));
-            if a + b > 1.0 {
-                (a, b) = (1.0 - a, 1.0 - b);
-            }
-            Loc {
-                face,
-                corners,
-                weights: [1.0 - a - b, a, b],
-                mesh: 0,
-            }
-        })
-        .collect()
+    own.scatter(count, weight, |i, k| unit(seed, i, k))
 }
 
 /// An attribute at surface samples: a point's or a corner's weighted across the
 /// sample's triangle, a face's that face's, the object's its one value. Numbers
 /// and vectors are blended; a rotation blended and made unit again; ints and
 /// bools take the nearest corner's.
-fn at_location(geo: &Geo, s: &Source, at: &[Loc], out: &mut Reg) {
-    let (_, corner_point) = corner_points(geo);
+fn at_location(own: &Surface, s: &Source, at: &[Loc], out: &mut Reg) {
     // The elements a sample reads, with their weights.
-    let elements = |l: &Loc| -> [(usize, f32); 3] {
-        let w = l.weights;
-        match s.context {
-            Context::Point => std::array::from_fn(|k| {
-                (
-                    corner_point.get(l.corners[k] as usize).copied().unwrap_or(0) as usize,
-                    w[k],
-                )
-            }),
-            Context::Corner => std::array::from_fn(|k| (l.corners[k] as usize, w[k])),
-            Context::Face => [(l.face as usize, 1.0), (l.face as usize, 0.0), (l.face as usize, 0.0)],
-            Context::Object => [(0, 1.0), (0, 0.0), (0, 0.0)],
-        }
+    let elements = |l: &Loc| -> Vec<(usize, f32)> {
+        let mut e = Vec::with_capacity(4);
+        sample_elements(own, s.context, l, &mut e);
+        e
     };
     fn get<T: Copy + Default>(v: &[T], ix: Option<&[u32]>, e: usize) -> T {
         value_index(ix, e).and_then(|i| v.get(i)).copied().unwrap_or_default()
     }
     let nearest = |l: &Loc| {
         let e = elements(l);
-        e.iter().copied().fold(e[0], |b, x| if x.1 > b.1 { x } else { b }).0
+        let first = e.first().copied().unwrap_or((0, 0.0));
+        e.iter().copied().fold(first, |b, x| if x.1 > b.1 { x } else { b }).0
     };
     let ix = s.indices;
     match s.column {

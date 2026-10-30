@@ -604,6 +604,7 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
 /// The ICE graph a saved tree holds, as graph `sid`. `root`: one with no
 /// Execution Ports (from before the new engine) gets an empty one.
 fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph {
+    let connections = sample_wires_upgraded(t);
     let mut sg = crate::ice::IceGraph::new(sid, t.name.clone());
     sg.parameters = t.parameters.clone();
     sg.nodes.clear();
@@ -650,8 +651,7 @@ fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph 
             crate::types::IceGraphNodeType::Concat => crate::ice::array_port,
             _ => continue,
         };
-        let wanted = t
-            .connections
+        let wanted = connections
             .iter()
             .filter(|c| c[2] == node.id.0)
             .map(|c| c[3] + 1)
@@ -662,7 +662,7 @@ fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph 
             node.inputs.push(port(n));
         }
     }
-    for &[from, out, to, input] in &t.connections {
+    for &[from, out, to, input] in &connections {
         let ok = sg.nodes.iter().any(|n| n.id.0 == from && out < n.outputs.len())
             && sg.nodes.iter().any(|n| n.id.0 == to && input < n.inputs.len());
         if ok {
@@ -670,6 +670,47 @@ fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph 
         }
     }
     sg
+}
+
+/// A tree's wires, those of a Get Data or Get Array Data saved before they read
+/// at a Polygon and its Param UV brought up to date. Such a node had two inputs,
+/// Samples and Geometry (a value saved for each), now three: Polygon, Param UV and
+/// Geometry. Its Geometry wire moves to the third; a Samples wire from Closest
+/// Point on Surface or Scatter on Surface stays as the Polygon (the outputs
+/// kept their numbers), and their Param UV output is wired in beside it.
+fn sample_wires_upgraded(t: &SavedTree) -> Vec<[usize; 4]> {
+    use crate::types::IceGraphNodeType as T;
+    let kind = |id: usize| {
+        t.nodes
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| serde_json::from_value::<T>(n.node_type.clone()).ok())
+    };
+    let old_read = |id: usize| {
+        t.nodes.iter().any(|n| n.id == id && n.values.len() < 3)
+            && matches!(kind(id), Some(T::GetData { .. } | T::GetArrayData { .. }))
+    };
+    let mut out = vec![];
+    for &[from, output, to, input] in &t.connections {
+        if !old_read(to) {
+            out.push([from, output, to, input]);
+            continue;
+        }
+        match input {
+            1 => out.push([from, output, to, crate::ice::READ_GEOMETRY]),
+            0 => {
+                out.push([from, output, to, crate::ice::READ_POLYGON]);
+                let uv = match kind(from) {
+                    Some(T::ClosestPoint) => Some(xms_ice::CLOSEST_PARAM_UVS),
+                    Some(T::Scatter { .. }) => Some(xms_ice::SCATTER_PARAM_UVS),
+                    _ => None,
+                };
+                out.extend(uv.map(|uv| [from, uv, to, crate::ice::READ_PARAM_UV]));
+            }
+            _ => out.push([from, output, to, input]),
+        }
+    }
+    out
 }
 
 /// Add every node of `other` to `graph`, to the right of what is there, the
@@ -885,6 +926,8 @@ pub(crate) fn clear(graph: &mut NodeGraphState) {
     graph.variables = Default::default();
     graph.dragging_node = None;
     graph.connecting_from = None;
+    // What frozen operators held goes with them.
+    graph.frozen = Default::default();
 }
 
 /// Graph that splits a two-character mocap take for Unreal: per character, one
@@ -1247,6 +1290,42 @@ mod tests {
             }
         ));
         assert!(serde_json::to_string(&old).unwrap().contains(r#""resample":"Max""#));
+    }
+
+    /// An ICE graph saved when Get Data read at Samples: its wires as they are
+    /// now, the Polygon where the Samples were, the Param UV beside it, the
+    /// Geometry moved to its own input.
+    #[test]
+    fn samples_wires_of_older_graphs_become_primitive_and_uv() {
+        let json = serde_json::json!({
+            "node": 0,
+            "name": "Bind",
+            "nodes": [
+                {"id": 0, "name": "Execution Ports", "position": [500.0, 0.0], "node_type": {"Root": {"context": "Point"}}, "values": [null]},
+                {"id": 1, "name": "Rest", "position": [0.0, 0.0], "node_type": {"GetReference": {"input": 1, "paths": ["/rest"]}}, "values": []},
+                {"id": 2, "name": "Near", "position": [100.0, 0.0], "node_type": "ClosestPoint", "values": [null, null, {"Float": 0.0}]},
+                {"id": 3, "name": "Moving", "position": [0.0, 100.0], "node_type": {"GetReference": {"input": 1, "paths": ["/anim"]}}, "values": []},
+                {"id": 4, "name": "There", "position": [200.0, 0.0], "node_type": {"GetData": {"name": "P"}}, "values": [null, null]},
+                {"id": 5, "name": "Set", "position": [300.0, 0.0], "node_type": {"SetData": {"name": "P"}}, "values": [null]}
+            ],
+            "connections": [[1, 0, 2, 0], [2, 0, 4, 0], [3, 0, 4, 1], [4, 0, 5, 0], [5, 0, 0, 0]]
+        });
+        let g = ice_from_value(&json).unwrap();
+        let wire = |to: usize, input: usize| {
+            g.connections
+                .iter()
+                .find(|c| c.to_node == NodeId(to) && c.to_input == input)
+                .map(|c| (c.from_node.0, c.from_output))
+        };
+        assert_eq!(wire(4, crate::ice::READ_POLYGON), Some((2, xms_ice::CLOSEST_POLYGONS)));
+        assert_eq!(
+            wire(4, crate::ice::READ_PARAM_UV),
+            Some((2, xms_ice::CLOSEST_PARAM_UVS))
+        );
+        assert_eq!(wire(4, crate::ice::READ_GEOMETRY), Some((3, 0)));
+        // Saved again, as it is now: read back the same.
+        let again = ice_from_value(&ice_to_value(&g)).unwrap();
+        assert_eq!(again.connections.len(), g.connections.len());
     }
 
     /// A graph file keeps its variables and $JOB; a graph added brings the ones

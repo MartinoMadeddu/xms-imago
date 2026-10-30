@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use xms_geo::{Attr, Column, Context, Geo, Role, POINTS};
 
-use super::graph::{wire, ArrayOp, Graph, Input, Math, Op, SCATTER_NORMALS, SCATTER_POSITIONS, SCATTER_SAMPLES};
+use super::graph::{
+    wire, ArrayOp, Graph, Input, Math, Op, CLOSEST_PARAM_UVS, CLOSEST_POLYGONS, SCATTER_NORMALS, SCATTER_PARAM_UVS,
+    SCATTER_POLYGONS, SCATTER_POSITIONS,
+};
 use super::types::Value;
 use super::{compile, run, Reference};
 
@@ -33,6 +36,36 @@ fn cloud(n: usize) -> Geo {
 
 fn points(g: &Geo) -> &[[f32; 3]] {
     g.points()
+}
+
+/// The Polygon and Param UV outputs of Closest Point on Surface node `near`, as a
+/// Get Data's first two inputs.
+fn closest_at(near: usize) -> Vec<Input> {
+    vec![
+        Input::Wire {
+            node: near,
+            output: CLOSEST_POLYGONS,
+        },
+        Input::Wire {
+            node: near,
+            output: CLOSEST_PARAM_UVS,
+        },
+    ]
+}
+
+/// Scatter on Surface node `at`'s Polygon and Param UV outputs, as a Get Data's
+/// first two inputs.
+fn scattered_at(at: usize) -> Vec<Input> {
+    vec![
+        Input::Wire {
+            node: at,
+            output: SCATTER_POLYGONS,
+        },
+        Input::Wire {
+            node: at,
+            output: SCATTER_PARAM_UVS,
+        },
+    ]
 }
 
 fn no_params() -> HashMap<String, Value> {
@@ -999,10 +1032,7 @@ fn scattered_average(geo: &Geo, seed: u32, count: i32, weight: &str, name: &str)
             name: name.into(),
             context: None,
         },
-        vec![Input::Wire {
-            node: at,
-            output: SCATTER_SAMPLES,
-        }],
+        scattered_at(at),
     );
     let avg = g.add(Op::Array(ArrayOp::Average), vec![wire(read)]);
     object_value(g, avg, "avg", geo)
@@ -1067,7 +1097,7 @@ fn scattering_is_for_the_whole_primitive() {
             name: "P".into(),
             context: None,
         },
-        vec![wire(at)],
+        scattered_at(at),
     );
     let size = g.add(Op::Array(ArrayOp::Size), vec![wire(read)]);
     let set = g.add(Op::set("n"), vec![wire(size)]);
@@ -1169,7 +1199,7 @@ fn scatter_gives_positions_normals_and_samples() {
                     name: n.into(),
                     context: None,
                 },
-                vec![Input::Wire { node: at, output }],
+                scattered_at(at),
             ),
             None => g.add(Op::Array(ArrayOp::Average), vec![Input::Wire { node: at, output }]),
         };
@@ -1182,12 +1212,12 @@ fn scatter_gives_positions_normals_and_samples() {
     };
     assert_eq!(
         read(SCATTER_POSITIONS, None),
-        read(SCATTER_SAMPLES, Some("P")),
+        read(SCATTER_POLYGONS, Some("P")),
         "positions are P at the samples"
     );
     assert_eq!(
         read(SCATTER_NORMALS, None),
-        read(SCATTER_SAMPLES, Some("N")),
+        read(SCATTER_POLYGONS, Some("N")),
         "normals are N at the samples"
     );
     // A position is not a sample: Get Data at Samples refuses it.
@@ -1389,7 +1419,7 @@ fn the_instancer_is_for_object_graphs_and_wants_positions_and_paths() {
     let (err, inst) = make(Context::Object, SCATTER_POSITIONS, false);
     assert_eq!(err, Some(inst), "positions are not prototypes");
     // Each graph's own Instancer: with Get Reference added, it is one node further on.
-    let (err, inst) = make(Context::Object, SCATTER_SAMPLES, true);
+    let (err, inst) = make(Context::Object, SCATTER_POLYGONS, true);
     assert_eq!(err, Some(inst), "samples are not positions");
     assert!(make(Context::Object, SCATTER_POSITIONS, true).0.is_none());
 }
@@ -1694,7 +1724,7 @@ fn closest_point_on_a_reference_mesh() {
             name: "P".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let far = g.add(
         Op::set("far"),
@@ -1754,7 +1784,7 @@ fn closest_point_within_a_radius_and_uvs_there() {
             name: "uv".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let set_uv = g.add(Op::set("st"), vec![wire(uv)]);
     let far = g.add(
@@ -1803,7 +1833,7 @@ fn array_data_at_samples() {
             name: "ptIndices".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let n = g.add(Op::Array(ArrayOp::Size), vec![wire(ids)]);
     let pts = g.add(
@@ -1811,7 +1841,7 @@ fn array_data_at_samples() {
             name: "P".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let mid = g.add(Op::Array(ArrayOp::Average), vec![wire(pts)]);
     let set_n = g.add(Op::set("n"), vec![wire(n)]);
@@ -1857,7 +1887,7 @@ fn closest_point_says_what_it_takes() {
             name: "P".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let set = g.add(Op::set("P"), vec![wire(at)]);
     g.add(
@@ -1890,14 +1920,14 @@ fn a_frame_from_the_triangle_under_each_point() {
             name: "triP".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let bary = g.add(
         Op::GetArrayDataAt {
             name: "bary".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let weighted = g.add(Op::Math(Math::Multiply), vec![wire(tri), wire(bary)]);
     let origin = g.add(Op::Array(ArrayOp::Sum), vec![wire(weighted)]);
@@ -1906,7 +1936,7 @@ fn a_frame_from_the_triangle_under_each_point() {
             name: "P".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     // The edges, from the triangle's points 0, 1 and 2.
     let pick = |g: &mut Graph, k: i32| {
@@ -2079,14 +2109,14 @@ fn samples_read_on_another_mesh_of_the_same_topology() {
             name: "P".into(),
             context: None,
         },
-        vec![wire(near), wire(anim)],
+        [closest_at(near), vec![wire(anim)]].concat(),
     );
     let tri = g.add(
         Op::GetArrayDataAt {
             name: "triP".into(),
             context: None,
         },
-        vec![wire(near), wire(anim)],
+        [closest_at(near), vec![wire(anim)]].concat(),
     );
     let x = g.add(Op::Array(ArrayOp::Average), vec![wire(tri)]);
     let set = g.add(Op::set("P"), vec![wire(there)]);
@@ -2251,7 +2281,7 @@ fn closest_points_on_curves_are_read_on_their_animated_copy() {
         vec![wire(rest), wire(p), Input::Value(Value::Float(0.0))],
     );
     let at = |g: &mut Graph, on: Option<usize>| {
-        let mut ins = vec![wire(near)];
+        let mut ins = closest_at(near);
         ins.extend(on.map(wire));
         g.add(
             Op::GetDataAt {
@@ -2267,7 +2297,7 @@ fn closest_points_on_curves_are_read_on_their_animated_copy() {
             name: "faceIndex".into(),
             context: None,
         },
-        vec![wire(near)],
+        closest_at(near),
     );
     let far = Input::Wire {
         node: near,
@@ -2318,4 +2348,34 @@ fn closest_points_on_curves_are_read_on_their_animated_copy() {
     for (got, want) in far.iter().zip(want) {
         assert!((got - want).abs() < 1e-5, "{got} vs {want}");
     }
+}
+
+/// `curveu`, made from the topology: how far along its curve each point is, by
+/// length, from 0 to 1; curves only.
+#[test]
+fn curveu_is_how_far_along_its_curve() {
+    use xms_geo::{CurveBasis, CurveWrap, Topology};
+    let mut geo = Geo::from_points(vec![
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+        [0.0, 5.0, 0.0],
+        [0.0, 7.0, 0.0],
+    ]);
+    geo.topology = Topology::curves(vec![3, 2], CurveBasis::Linear, CurveWrap::Nonperiodic);
+    let mut g = Graph::default();
+    let u = g.add(Op::get("curveu"), vec![]);
+    let set = g.add(Op::set("u"), vec![wire(u)]);
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        vec![wire(set)],
+    );
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    let u = out.attr(Context::Point, "u").and_then(|a| a.column.floats()).unwrap();
+    assert_eq!(u, &[0.0, 0.25, 1.0, 0.0, 1.0]);
+    // Points that are no curve have none.
+    let cloud = Geo::from_points(vec![[0.0; 3]]);
+    assert!(compile(&g, &cloud).is_err());
 }

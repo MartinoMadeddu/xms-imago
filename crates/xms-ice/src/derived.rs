@@ -5,6 +5,7 @@
 //! | Context | Name               | Type  | What                                        |
 //! |---------|--------------------|-------|---------------------------------------------|
 //! | Point   | `ptIndex`          | Int   | the point's own number (points too)         |
+//! | Point   | `curveu`           | Float | how far along its curve, by length: 0 to 1 (curves only) |
 //! | Face    | `faceIndex`        | Int   | the face's own number                       |
 //! | Face    | `corners`          | Int   | corners of the polygon (control points of a curve) |
 //! | Face    | `firstCorner`      | Int   | its first corner: the others follow it      |
@@ -26,6 +27,7 @@ use super::types::Ty;
 /// Every derived attribute: its context, name and type.
 pub const DERIVED: &[(Context, &str, Ty)] = &[
     (Context::Point, "ptIndex", Ty::Int),
+    (Context::Point, "curveu", Ty::Float),
     (Context::Face, "faceIndex", Ty::Int),
     (Context::Face, "corners", Ty::Int),
     (Context::Face, "firstCorner", Ty::Int),
@@ -45,9 +47,9 @@ fn polygons_only(name: &str) -> bool {
 /// topology has it.
 pub fn ty(geo: &Geo, ctx: Context, name: &str) -> Option<Ty> {
     let (_, _, t) = DERIVED.iter().find(|(c, n, _)| *c == ctx && *n == name)?;
-    // Every geometry has points, numbered.
+    // Every geometry has points, numbered; curves' have their place along them.
     if ctx == Context::Point {
-        return Some(*t);
+        return (name != "curveu" || matches!(geo.topology, Topology::Curves { .. })).then_some(*t);
     }
     match &geo.topology {
         Topology::Points => None,
@@ -81,6 +83,31 @@ pub fn column(geo: &Geo, ctx: Context, name: &str) -> Option<Column> {
     let int = |v: Vec<i32>| Some(Column::Int(Arc::new(v)));
     match (ctx, name) {
         (Context::Point, "ptIndex") => int((0..geo.points().len() as i32).collect()),
+        (Context::Point, "curveu") => {
+            let pts = geo.points();
+            let len = |a: [f32; 3], b: [f32; 3]| {
+                ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+            };
+            let mut u = Vec::with_capacity(pts.len());
+            let mut first = 0usize;
+            for &n in counts {
+                let curve = pts.get(first..first + n as usize).unwrap_or(&[]);
+                let start = u.len();
+                let mut along = 0.0f32;
+                for (k, &p) in curve.iter().enumerate() {
+                    if k > 0 {
+                        along += len(curve[k - 1], p);
+                    }
+                    u.push(along);
+                }
+                if along > 0.0 {
+                    u[start..].iter_mut().for_each(|x| *x /= along);
+                }
+                first += n as usize;
+            }
+            u.resize(pts.len(), 0.0);
+            Some(Column::Float(Arc::new(u)))
+        }
         (Context::Face, "faceIndex") => int((0..counts.len() as i32).collect()),
         (Context::Face, "corners") => int(counts.iter().map(|&c| c as i32).collect()),
         (Context::Face, "firstCorner") => int(counts

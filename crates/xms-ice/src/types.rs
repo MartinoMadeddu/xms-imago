@@ -28,19 +28,28 @@ pub enum Ty {
     Token,
 }
 
-/// A surface sample (`Ty::Sample`), a place on a mesh's surface: a face, the
-/// three corners of the triangle of it the place is in (the face's fan from its
-/// first corner), and the place's weights on those corners (they sum to 1).
-/// `mesh`: which mesh of the surface it is on (0 for the geometry the graph
-/// runs on, Scatter's; a reference mesh's number for Closest Point on
-/// Surface's); `NONE` for a sample that found nothing, which reads as zero.
+/// A surface sample (`Ty::Sample`), a place on a primitive: which mesh of the
+/// surface (`mesh`; `NONE` for a sample that found nothing, which reads as
+/// zero), which face of it (a polygon, or a curve), and where on it (`uv`), as
+/// Houdini's parametric coordinates:
+///
+/// - **Triangle:** u and v are the weights of corners 1 and 2; corner 0's is
+///   1 - u - v.
+/// - **Quad:** a bilinear patch: `P0 (1-u)(1-v) + P1 (1-u) v + P2 u v + P3 u (1-v)`.
+/// - **Five corners or more:** a fan around the average of its corners: each
+///   edge adds 1/n to u (n corners), v is 0 on the edge and 1 at the middle.
+/// - **Curve:** u from 0 at its first point to 1 at its last, each segment
+///   adding 1/(n - 1); v is 0.
+///
+/// Graphs see it as its Polygon (the face's number, counted across the
+/// surface's meshes in order) and its Param UV.
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Loc {
-    pub face: u32,
-    pub corners: [u32; 3],
-    pub weights: [f32; 3],
     #[serde(default)]
     pub mesh: u32,
+    pub face: u32,
+    #[serde(default)]
+    pub uv: [f32; 2],
 }
 
 impl Loc {
