@@ -3810,7 +3810,7 @@ mod tests {
                     .map(|o| {
                         g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
                             .map(|r| r.into_mesh())
-                            .map(|m| m.vertices.len() + m.points.len())
+                            .map(|m| m.vertices.len() + m.points.len() + m.curve_points.len())
                             .unwrap_or(0)
                     })
                     .max()
@@ -3825,7 +3825,7 @@ mod tests {
                     crate::types::EvalResult::Anim(_) => 1,
                     r => {
                         let m = r.into_mesh();
-                        m.vertices.len() + m.points.len()
+                        m.vertices.len() + m.points.len() + m.curve_points.len()
                     }
                 });
             assert!(
@@ -3944,6 +3944,7 @@ mod tests {
                     p.mesh
                         .vertices
                         .iter()
+                        .chain(&p.mesh.curve_points)
                         .map(|v| m.transform_point3(Vec3::from_array(*v)))
                         .collect(),
                 )
