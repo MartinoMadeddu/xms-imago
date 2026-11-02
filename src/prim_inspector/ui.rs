@@ -197,28 +197,6 @@ pub fn draw_prim_inspector(
                         .on_hover_text("One row per corner: a polygon's, or a curve's control point (USD: faceVarying)");
                     tab_btn(ui, state, Tab::Constant, &format!("Object{objects}"))
                         .on_hover_text("One row per primitive (USD: constant)");
-                    // Which columns: what the geometry holds, what it has
-                    // from its topology (intrinsic:…), or both.
-                    if !matches!(state.active_tab, Tab::Properties) {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            use crate::types::InspectorShow as Show;
-                            let name = |s: Show| match s {
-                                Show::All => "All",
-                                Show::Stored => "Stored",
-                                Show::Intrinsics => "Intrinsics",
-                            };
-                            egui::ComboBox::from_id_salt("prim_inspector_show")
-                                .selected_text(name(state.show))
-                                .show_ui(ui, |ui| {
-                                    for s in [Show::All, Show::Stored, Show::Intrinsics] {
-                                        ui.selectable_value(&mut state.show, s, name(s));
-                                    }
-                                })
-                                .response
-                                .on_hover_text("Which columns: all, the attributes the geometry holds, or its intrinsics (intrinsic:…, from its topology and points; what ICE reads by those names)");
-                            ui.label(egui::RichText::new("Show").color(xsi::TEXT_DIM()).size(11.0));
-                        });
-                    }
                 }
                 if clip.is_none() && !props.is_empty() {
                     let prims = props
@@ -231,6 +209,30 @@ pub fn draw_prim_inspector(
                         })
                         .len();
                     tab_btn(ui, state, Tab::Properties, &format!("Properties ({prims})"));
+                }
+                // On a geometry tab, which columns: what the geometry holds,
+                // what it has from its topology (intrinsic:…), or both. Last
+                // in the row: laid out from the right, it takes the room
+                // left, so a tab after it would have none.
+                if clip.is_none() && summary.any() && !matches!(state.active_tab, Tab::Properties) {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        use crate::types::InspectorShow as Show;
+                        let name = |s: Show| match s {
+                            Show::All => "All",
+                            Show::Stored => "Stored",
+                            Show::Intrinsics => "Intrinsics",
+                        };
+                        egui::ComboBox::from_id_salt("prim_inspector_show")
+                            .selected_text(name(state.show))
+                            .show_ui(ui, |ui| {
+                                for s in [Show::All, Show::Stored, Show::Intrinsics] {
+                                    ui.selectable_value(&mut state.show, s, name(s));
+                                }
+                            })
+                            .response
+                            .on_hover_text("Which columns: all, the attributes the geometry holds, or its intrinsics (intrinsic:…, from its topology and points; what ICE reads by those names)");
+                        ui.label(egui::RichText::new("Show").color(xsi::TEXT_DIM()).size(11.0));
+                    });
                 }
             });
         });
