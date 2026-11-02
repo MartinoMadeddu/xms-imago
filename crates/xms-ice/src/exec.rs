@@ -783,8 +783,14 @@ impl<'a> Env<'a> {
                             role: a.role,
                         });
                     }
-                    let role = if r.name == "N" { Role::Normal } else { Role::None };
-                    crate::derived::column(&m.geo, r.context, &r.name).map(|column| MeshCol {
+                    // An intrinsic, in the mesh's own space (its transform
+                    // is taken into the graph's with it, as a matrix is).
+                    let role = if r.name == "intrinsic:N" {
+                        Role::Normal
+                    } else {
+                        Role::None
+                    };
+                    xms_geo::intrinsics::column(&m.geo, r.context, &r.name, None).map(|column| MeshCol {
                         column,
                         indices: None,
                         role,
@@ -1912,7 +1918,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
         .iter()
         .map(|r| {
             if r.derived && r.sampled.is_none() && r.from.is_none() {
-                crate::derived::column(geo, r.context, &r.name)
+                xms_geo::intrinsics::column(geo, r.context, &r.name, Some(space.to_cols_array().map(|x| x as f64)))
             } else {
                 None
             }

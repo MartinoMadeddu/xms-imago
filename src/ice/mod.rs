@@ -899,10 +899,9 @@ pub fn readable(last: &Mutex<Option<Geo>>) -> Vec<(Context, String, String)> {
                 .map(move |(n, a)| (c, n.to_string(), format!("{:?}", a.column.kind())))
         })
         .collect();
-    for &(c, n, t) in xms_ice::derived::DERIVED {
-        let stored = out.iter().any(|(oc, on, _)| *oc == c && on.as_str() == n);
-        if !stored && xms_ice::derived::ty(&input, c, n).is_some() {
-            out.push((c, n.to_string(), type_hint(t).to_string()));
+    for c in Context::ALL {
+        for i in xms_geo::intrinsics::of_geo(&input, c).filter(|i| i.ice && i.gathers.is_none()) {
+            out.push((c, i.name.to_string(), format!("{:?}", i.kind)));
         }
     }
     out
@@ -1039,6 +1038,67 @@ impl IceGraph {
                 input.clone()
             }
         }
+    }
+}
+
+/// What Get Data and Get Array Data read that intrinsics were named before they
+/// were `intrinsic:…`.
+const OLD_INTRINSIC_NAMES: [&str; 11] = [
+    "ptIndex",
+    "curveu",
+    "faceIndex",
+    "corners",
+    "firstCorner",
+    "localCornerIndex",
+    "area",
+    "triP",
+    "bary",
+    "ptIndices",
+    "faceIndices",
+];
+
+/// Saved nodes (`nodes`, as JSON, compounds in them too) reading intrinsics by
+/// their names from before `intrinsic:…`, named as they are now: a face's `N`
+/// read per face too. Not a name the graph sets itself (Set Data), which it
+/// then reads.
+pub fn upgrade_intrinsic_names(nodes: &mut [serde_json::Value]) {
+    use serde_json::Value as J;
+    fn walk(v: &mut J, f: &mut dyn FnMut(&str, &mut serde_json::Map<String, J>)) {
+        match v {
+            J::Object(o) => {
+                for (k, x) in o.iter_mut() {
+                    if let J::Object(fields) = x {
+                        f(k, fields);
+                    }
+                }
+                o.values_mut().for_each(|x| walk(x, f));
+            }
+            J::Array(a) => a.iter_mut().for_each(|x| walk(x, f)),
+            _ => {}
+        }
+    }
+    let mut set: Vec<String> = vec![];
+    for n in nodes.iter_mut() {
+        walk(n, &mut |kind: &str, fields: &mut serde_json::Map<String, J>| {
+            if let (true, Some(J::String(name))) = (kind == "SetData", fields.get("name")) {
+                set.push(name.trim().to_string());
+            }
+        });
+    }
+    for n in nodes.iter_mut() {
+        walk(n, &mut |kind: &str, fields: &mut serde_json::Map<String, J>| {
+            if !matches!(kind, "GetData" | "GetDataAt" | "GetArrayData" | "GetArrayDataAt") {
+                return;
+            }
+            let per_face = fields.get("context").and_then(|c| c.as_str()) == Some("Face");
+            if let Some(J::String(name)) = fields.get_mut("name") {
+                let old = name.trim();
+                let was = OLD_INTRINSIC_NAMES.contains(&old) || (old == "N" && per_face && kind.starts_with("GetData"));
+                if was && !set.iter().any(|s| s == old) {
+                    *name = format!("{}{old}", xms_geo::intrinsics::PREFIX);
+                }
+            }
+        });
     }
 }
 
@@ -1234,6 +1294,32 @@ mod tests {
         assert_eq!(pv.values, vec![vec![2.5]]);
     }
 
+    /// Graphs saved before intrinsics were `intrinsic:…` read them by their
+    /// new names, in compounds too; a face's N read per face is the
+    /// intrinsic, a point's N is not; a name the graph sets itself stays.
+    #[test]
+    fn old_intrinsic_names_read_as_the_new_ones() {
+        let mut nodes: Vec<serde_json::Value> = vec![
+            serde_json::json!({"GetData": {"name": "corners", "context": "Face", "resample": "Average"}}),
+            serde_json::json!({"GetArrayData": {"name": "ptIndices", "context": null}}),
+            serde_json::json!({"GetData": {"name": "N", "context": "Face", "resample": "Average"}}),
+            serde_json::json!({"GetData": {"name": "N", "context": null, "resample": "Average"}}),
+            serde_json::json!({"GetData": {"name": "area", "context": null, "resample": "Average"}}),
+            serde_json::json!({"SetData": {"name": "area", "context": null, "resample": "Average"}}),
+            serde_json::json!({"Compound": {"editable": {"graph": {"nodes": [{"node_type": {"GetArrayData": {"name": "triP", "context": null}}}]}}}}),
+        ];
+        upgrade_intrinsic_names(&mut nodes);
+        let name = |v: &serde_json::Value| v.as_object().unwrap().values().next().unwrap()["name"].clone();
+        assert_eq!(name(&nodes[0]), "intrinsic:corners");
+        assert_eq!(name(&nodes[1]), "intrinsic:ptIndices");
+        assert_eq!(name(&nodes[2]), "intrinsic:N");
+        assert_eq!(name(&nodes[3]), "N");
+        assert_eq!(name(&nodes[4]), "area", "the graph sets an area of its own");
+        assert!(nodes[6].to_string().contains("intrinsic:triP"));
+        let read: IceGraphNodeType = serde_json::from_value(nodes[0].clone()).unwrap();
+        assert!(matches!(read, IceGraphNodeType::GetData { ref name, .. } if name == "intrinsic:corners"));
+    }
+
     /// A picked port's wires come off: an input's one wire, an output's every
     /// wire. Deleting the selection takes the selected wire first, else every
     /// selected node but the root.
@@ -1308,7 +1394,7 @@ mod tests {
         let get = g.add_node(
             "Get".into(),
             IceGraphNodeType::GetData {
-                name: "area".into(),
+                name: "intrinsic:area".into(),
                 context: Some(Context::Face),
                 resample: xms_ice::Resample::Average,
             },
@@ -1321,7 +1407,7 @@ mod tests {
         assert!(
             readable
                 .iter()
-                .any(|(c, n, _)| *c == Context::Face && n == "firstCorner"),
+                .any(|(c, n, _)| *c == Context::Face && n == "intrinsic:firstCorner"),
             "{readable:?}"
         );
         assert!(readable.iter().any(|(c, n, _)| *c == Context::Point && n == POINTS));

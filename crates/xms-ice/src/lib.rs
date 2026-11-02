@@ -20,15 +20,14 @@
 //! - `exec`: the plan run over a `Geo`. Only the attributes the graph reads are
 //!   read, a batch at a time; only the attributes it sets get new columns;
 //!   every other column stays shared with the input.
-//! - `derived`: what the topology gives without being stored (a face's corners,
-//!   first corner, normal and area; a corner's point, face and place in it), as
-//!   the Primitive Inspector shows it.
+//! - Intrinsics (what a primitive has from its topology, `intrinsic:…`) are
+//!   `xms_geo::intrinsics`'s: the one list ICE and the Primitive Inspector
+//!   share.
 //! - `surface`: the reference inputs' meshes a graph queries (Closest Point on
 //!   Surface), taken into the graph's space, and read at samples.
 //! - `spatial`: a BVH (rray's builder) and the closest point on a triangle.
 
 pub mod compile;
-pub mod derived;
 pub mod exec;
 pub mod graph;
 pub mod spatial;

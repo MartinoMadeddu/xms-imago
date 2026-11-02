@@ -605,13 +605,15 @@ fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGr
 /// Execution Ports (from before the new engine) gets an empty one.
 fn graph_of(t: &SavedTree, sid: IceGraphId, root: bool) -> crate::ice::IceGraph {
     let connections = sample_wires_upgraded(t);
+    let mut nodes: Vec<serde_json::Value> = t.nodes.iter().map(|n| n.node_type.clone()).collect();
+    crate::ice::upgrade_intrinsic_names(&mut nodes);
     let mut sg = crate::ice::IceGraph::new(sid, t.name.clone());
     sg.parameters = t.parameters.clone();
     sg.nodes.clear();
     sg.connections.clear();
     sg.next_node_id = 0;
-    for n in &t.nodes {
-        let Ok(node_type) = serde_json::from_value::<crate::types::IceGraphNodeType>(n.node_type.clone()) else {
+    for (n, node_type) in t.nodes.iter().zip(nodes) {
+        let Ok(node_type) = serde_json::from_value::<crate::types::IceGraphNodeType>(node_type) else {
             continue;
         };
         // The root's old names: ICE Tree, then ICEExectPorts.

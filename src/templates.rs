@@ -2749,7 +2749,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     g.add_connection(deform, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, deform);
-    "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
+    "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (intrinsic:triP and intrinsic:bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
 }
 
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
@@ -2758,7 +2758,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
 /// prim is referenced from its `.abc` at the root. GuideBind (per curve)
 /// stores the guide nearest each hair's first point (`guide`, a
 /// Polygon of the rest guides). GuideDeform (per point) reads that guide at
-/// the point's u along its hair (`(ptIndex - firstCorner) / (corners - 1)`, as
+/// the point's u along its hair (`(intrinsic:ptIndex - intrinsic:firstCorner) / (intrinsic:corners - 1)`, as
 /// a curve's Param UV counts segments) on the rest and the animated guides, and
 /// carries the point by it: moved with it, turned as its direction there
 /// turned.
@@ -2828,9 +2828,13 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         let anim = reference(&mut *sub, "/animGuides", 640.0);
         let guide = ice_add(&mut *sub, get("guide", Some(Context::Face)), p(260.0, 340.0));
         // u along the hair: its point's number over the segments.
-        let index = ice_add(&mut *sub, get("ptIndex", None), p(40.0, 260.0));
-        let first = ice_add(&mut *sub, get("firstCorner", Some(Context::Face)), p(40.0, 360.0));
-        let corners = ice_add(&mut *sub, get("corners", Some(Context::Face)), p(40.0, 460.0));
+        let index = ice_add(&mut *sub, get("intrinsic:ptIndex", None), p(40.0, 260.0));
+        let first = ice_add(
+            &mut *sub,
+            get("intrinsic:firstCorner", Some(Context::Face)),
+            p(40.0, 360.0),
+        );
+        let corners = ice_add(&mut *sub, get("intrinsic:corners", Some(Context::Face)), p(40.0, 460.0));
         let k = ice_add(
             &mut *sub,
             IceGraphNodeType::Math { op: Math::Subtract },
@@ -2871,7 +2875,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
             let segment = read(
                 &mut *sub,
                 IceGraphNodeType::GetArrayData {
-                    name: "triP".into(),
+                    name: "intrinsic:triP".into(),
                     context: None,
                 },
                 100.0,
@@ -3003,7 +3007,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, kept: it cooks once, and again only when what it reads or its graph changes) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((ptIndex - firstCorner) / (corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
+    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, kept: it cooks once, and again only when what it reads or its graph changes) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((intrinsic:ptIndex - intrinsic:firstCorner) / (intrinsic:corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
 }
 
 /// A frame at a place on a surface, as the binding deformers build it, laid
@@ -3037,8 +3041,8 @@ fn frame_at(
         }
         n
     };
-    let tri = read(&mut *sub, "triP", 480.0, y);
-    let bary = read(&mut *sub, "bary", 480.0, y + 100.0);
+    let tri = read(&mut *sub, "intrinsic:triP", 480.0, y);
+    let bary = read(&mut *sub, "intrinsic:bary", 480.0, y + 100.0);
     let weighted = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Multiply }, p(700.0, y));
     sub.add_connection(tri, 0, weighted, 0);
     sub.add_connection(bary, 0, weighted, 1);
@@ -3246,7 +3250,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Everything is done per curve but the last step. RootBind, per curve (kept: it cooks once), finds the place on the head at rest nearest each hair's first point (Closest Point on Surface), builds the frame there (triP and bary, Get Array Data with the Polygon and Param UV wired) and stores the place and the frame's inverse on the curve (bindPoly, bindParamUV, bindInverse). Carry, per curve, every frame, builds the same frame on the animated head and multiplies it by the inverse: the curve's move from rest (carry). Deform, per point, reads its curve's carry (Get Data, context Face) and puts the point through it, so each hair moves as one piece. Space plays frames 1001 to 1025.".into()
+    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Everything is done per curve but the last step. RootBind, per curve (kept: it cooks once), finds the place on the head at rest nearest each hair's first point (Closest Point on Surface), builds the frame there (intrinsic:triP and intrinsic:bary, Get Array Data with the Polygon and Param UV wired) and stores the place and the frame's inverse on the curve (bindPoly, bindParamUV, bindInverse). Carry, per curve, every frame, builds the same frame on the animated head and multiplies it by the inverse: the curve's move from rest (carry). Deform, per point, reads its curve's carry (Get Data, context Face) and puts the point through it, so each hair moves as one piece. Space plays frames 1001 to 1025.".into()
 }
 
 /// The Capture ICE graph of the binding deformers, per point: the place on the

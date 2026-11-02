@@ -403,8 +403,8 @@ Joints](docs/xms_bypass_pick.png)
   on Surface finds the nearest places on a reference input's meshes (a BVH over
   their triangles), to read anything there: shrink-wraps and other deformers.
   Matrices (compose from axes and an origin, multiply, invert, transpose,
-  transform points and vectors) and the corners a place is made from (`triP`,
-  `bary`) build frames on a surface by hand; a place is a Polygon and Param UV, as
+  transform points and vectors) and the corners a place is made from
+  (`intrinsic:triP`, `intrinsic:bary`) build frames on a surface by hand; a place is a Polygon and Param UV, as
   Houdini's `xyzdist` and `primuv` have it, kept as attributes to bind once and
   deform every frame. Selected nodes make a compound (one node,
   its ports the wires that crossed the selection), saved as a definition and

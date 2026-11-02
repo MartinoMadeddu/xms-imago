@@ -38,7 +38,7 @@ have **parameters**.
 | How Load USD brings its file in | (always sublayered) | **Sublayer**, **Reference**, **Payload** (Load USD's Mode) | USD's own words. Reference and Payload put the file's default prim at a Primitive Location. |
 | Where Material Binding puts the materials plugged into it | material library | **Material Library Location** (a parameter, `/materials` by default) | A Primitive Location for materials: each goes under it by its operator's name. |
 | How a Get Data reading another context makes the values an element touches one | aggregate, Several | **Resample** (resampling): Average, Sum, Min, Max (Get Data's and Set Data's parameter) | Reading or writing across contexts resamples, from points to faces, faces to points (Martino). Graphs saved with `reduce` still read. A face touches several points. Arrays (Get Array Data) will keep them as a list. |
-| What ICE reads from the topology without it being stored | intrinsic, built-in attribute | the Primitive Inspector's names: `corners`, `firstCorner`, `N`, `area` (Face); `ptIndex`, `faceIndex`, `localCornerIndex` (Corner) | One name for a column wherever it is shown or read. |
+| What a primitive has from its topology and points rather than stored | derived attribute, built-in attribute | **intrinsic**, every one named `intrinsic:…` (`intrinsic:ptIndex`, `intrinsic:corners`, `intrinsic:area`, `intrinsic:pointCount`…) | One list (`xms_geo::intrinsics`), one name wherever it is shown or read: ICE, the Primitive Inspector, the docs. Read only. Point, Face, Corner and Object are Imago's contexts; USD's interpolations (vertex, uniform, faceVarying, constant) are named only where USD is read or written. |
 | The colour a port and its wires get from what they carry | wire colour, socket colour | **data type colour** (`type_colours::DataType`) | One table for every graph: see docs/interface.md, Data type colours. |
 | The operator making a light | Dome Light, Area Light, Point Light (separate nodes) | **Light**, with a **Type**: Dome, Rect, Point, Sphere, Disk, Cylinder, Distant | UsdLux's types by their schema names; the add menu lists one entry per type, all the one operator. A **point light** is a sphere light treated as a point, as USD has it. |
 | A node that hands on what comes in, unchanged, to lay a graph out | Null (Houdini), Dot (Nuke), Reroute | **Pass Through** | Says what it does. |
@@ -79,8 +79,8 @@ them](docs/imago_geo_parts_v3.png)
 
 The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 context: an edge is two points that follow each other around a face, worked out
-from the topology. A face's and an edge's points are its **ptIndices**; a
-corner's point is its **ptIndex**.
+from the topology. A face's and an edge's points are its
+**intrinsic:ptIndices**; a corner's point is its **intrinsic:ptIndex**.
 
 ## Panes
 
