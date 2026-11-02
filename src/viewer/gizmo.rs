@@ -7,7 +7,9 @@
 //!
 //! A Transform node's pivot is its translation: its rotation and scale turn and
 //! stretch about that point, which is what the handles show. A Camera's is the
-//! camera itself.
+//! camera itself. An Edit Primitive's is the first prim it names of its type,
+//! its handles working in that prim's parents' space: a drag overrides its
+//! Translate, Rotate or Scale.
 
 use glam::{EulerRot, Quat, Vec2, Vec3};
 
@@ -31,6 +33,9 @@ pub struct Target {
     pub uniform: bool,
     /// Cameras have no size: no Scale tool.
     pub scales: bool,
+    /// The space `base` is in: the world for every node but Edit Primitive,
+    /// whose prim's parents place it.
+    pub parents: glam::Mat4,
 }
 
 /// The target the selected node makes, if any.
@@ -60,6 +65,7 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
                 ),
                 uniform,
                 scales: true,
+                parents: glam::Mat4::IDENTITY,
             })
         }
         NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => Some(Target {
@@ -77,8 +83,46 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
             ),
             uniform: true,
             scales: false,
+            parents: glam::Mat4::IDENTITY,
         }),
+        NodeType::EditPrimitive { kind, edits } => {
+            use crate::core::edit_primitive::{handles, EditKind};
+            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (src, out) = node.inputs.first()?.connected_output?;
+            let Some(crate::types::EvalResult::Named(prims)) =
+                graph.eval_node_out(src, out, &mut Default::default(), &pass)
+            else {
+                return None;
+            };
+            let (parents, [t, r, s]) = handles(&prims, &node.locations, *kind, edits)?;
+            let r = r.map(f32::to_radians);
+            Some(Target {
+                node: id,
+                pivot: parents.transform_point3(Vec3::from(t)),
+                base: (
+                    Vec3::from(t),
+                    Quat::from_euler(EulerRot::XYZ, r[0], r[1], r[2]),
+                    Vec3::from(s),
+                ),
+                uniform: false,
+                scales: *kind != EditKind::Camera,
+                parents,
+            })
+        }
         _ => None,
+    }
+}
+
+/// A drag made in the world, in the space of `parents`: a move turned and
+/// scaled into it, a turn about the same world axis seen from it.
+pub fn into(parents: glam::Mat4, delta: Delta) -> Delta {
+    match delta {
+        Delta::Translate(v) => Delta::Translate(parents.inverse().transform_vector3(v)),
+        Delta::Rotate(q) => {
+            let (_, r, _) = parents.to_scale_rotation_translation();
+            Delta::Rotate((r.inverse() * q * r).normalize())
+        }
+        Delta::Scale(k) => Delta::Scale(k),
     }
 }
 
@@ -128,6 +172,24 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
             }
             Delta::Scale(_) => {}
         },
+        // An override of the part dragged, the rest left to the prim.
+        NodeType::EditPrimitive { edits, .. } => {
+            let (name, v) = match delta {
+                Delta::Translate(_) => ("translate", t),
+                Delta::Rotate(_) => {
+                    let e = euler();
+                    (
+                        "rotate",
+                        Vec3::new(e.x.to_degrees(), e.y.to_degrees(), e.z.to_degrees()),
+                    )
+                }
+                Delta::Scale(_) => ("scale", s),
+            };
+            let j = serde_json::json!(v.to_array());
+            if edits.get(name) != Some(&j) {
+                edits.insert(name.to_string(), j);
+            }
+        }
         _ => {}
     });
 }
@@ -216,6 +278,7 @@ pub fn run(
                 };
                 delta = Delta::Scale(Vec3::splat(k));
             }
+            let delta = into(t.parents, delta);
             write(graph, d.node, delta, manip::compose(d.base, delta));
             ctx.request_repaint();
         }
@@ -391,6 +454,44 @@ mod tests {
             panic!()
         };
         assert!((rotate[0] + 30.0).abs() < 1e-3, "{rotate:?}");
+    }
+
+    /// An Edit Primitive's handles sit on its prim and override the part
+    /// dragged; a drag in the world is taken into the prim's parents' space.
+    #[test]
+    fn edit_primitive_handles_override_the_part_dragged() {
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let ep = g.add_node(
+            "Edit".into(),
+            NodeType::EditPrimitive {
+                kind: crate::core::edit_primitive::EditKind::Mesh,
+                edits: Default::default(),
+            },
+            egui::pos2(0.0, 100.0),
+        );
+        g.add_connection(cube, 0, ep, 0);
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == ep) {
+            n.locations = vec![crate::types::cube_location()];
+        }
+        g.selected_node = Some(ep);
+        let t = target(&g).expect("handles on the cube");
+        assert!(t.scales && t.pivot.length() < 1e-6);
+        let d = into(t.parents, Delta::Translate(Vec3::X * 0.5));
+        write(&mut g, ep, d, manip::compose(t.base, d));
+        let NodeType::EditPrimitive { edits, .. } = &g.nodes.iter().find(|n| n.id == ep).unwrap().node_type else {
+            panic!()
+        };
+        assert_eq!(edits.get("translate"), Some(&serde_json::json!([0.5, 0.0, 0.0])));
+        assert!(!edits.contains_key("rotate"), "only the part dragged");
+        assert!((target(&g).unwrap().pivot - Vec3::X * 0.5).length() < 1e-6);
+        // Under a parent turned a quarter about Y, a move along the world's X
+        // is along the parent's Z.
+        let turned = glam::Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let Delta::Translate(v) = into(turned, Delta::Translate(Vec3::X)) else {
+            panic!()
+        };
+        assert!((v - Vec3::Z).length() < 1e-6, "{v}");
     }
 
     /// A Transform on a clip scales alike on every axis.

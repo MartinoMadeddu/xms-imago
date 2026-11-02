@@ -357,11 +357,14 @@ pub struct Opinions {
     pub primvars: BTreeMap<String, Value>,
     /// Property values: attributes and metadata by name.
     pub props: BTreeMap<String, Value>,
+    /// Its own transform, relative to its parent, set by Edit Primitive
+    /// (column-major): written as its `xformOp:transform`.
+    pub transform: Option<[f64; 16]>,
 }
 
 impl Opinions {
     pub fn is_empty(&self) -> bool {
-        self.primvars.is_empty() && self.props.is_empty()
+        self.primvars.is_empty() && self.props.is_empty() && self.transform.is_none()
     }
 
     /// `other` over these: its values win.
@@ -370,6 +373,9 @@ impl Opinions {
             .extend(other.primvars.iter().map(|(k, v)| (k.clone(), v.clone())));
         self.props
             .extend(other.props.iter().map(|(k, v)| (k.clone(), v.clone())));
+        if other.transform.is_some() {
+            self.transform = other.transform;
+        }
     }
 }
 

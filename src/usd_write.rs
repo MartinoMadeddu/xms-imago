@@ -283,7 +283,11 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
                 report.skipped.push(format!("{path}: {why}"));
                 continue;
             }
-            opinions(root.at(path), o);
+            opinions(
+                root.at(path),
+                o,
+                nodes.get(path.as_str()).is_some_and(|n| n.reset_xform),
+            );
             report.changed += 1;
         }
     }
@@ -334,7 +338,7 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
         }
     }
     for (path, o) in &above {
-        opinions(root.at(path), o);
+        opinions(root.at(path), o, false);
         report.changed += 1;
     }
 
@@ -714,16 +718,21 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
     };
 
     if let Some(Placement::One(now)) = &e.place {
-        // Same parents, new own transform: L' = L · loaded⁻¹ · now.
-        let local = node.local * loaded.inverse() * now.as_dmat4();
-        spec.lines
-            .push(format!("matrix4d xformOp:transform = {}", matrix(&local)));
-        let order = if node.reset_xform {
-            "[\"!resetXformStack!\", \"xformOp:transform\"]"
-        } else {
-            "[\"xformOp:transform\"]"
-        };
-        spec.lines.push(format!("uniform token[] xformOpOrder = {order}"));
+        // Its parents as they are now: a group above it moved (Edit
+        // Primitive) moves them, written on the group. Its own transform is
+        // what is left: L' = parents⁻¹ · now, written where it is not L.
+        let parent = crate::core::properties::parents(&p.path).pop().unwrap_or_default();
+        let above = tree.world(&parent, true) * tree.world(&parent, false).inverse();
+        let parents = above * loaded * node.local.inverse();
+        let local = parents.inverse() * now.as_dmat4();
+        if !local.abs_diff_eq(node.local, 1e-6) {
+            spec.lines
+                .push(format!("matrix4d xformOp:transform = {}", matrix(&local)));
+            spec.lines.push(format!(
+                "uniform token[] xformOpOrder = {}",
+                xform_order(node.reset_xform)
+            ));
+        }
     }
     if let Some(m) = &e.material {
         bind(spec, m.as_deref());
@@ -933,9 +942,27 @@ fn property(spec: &mut Spec, name: &str, value: &Value) {
     }
 }
 
+/// A transform's op order: the stack reset first where the prim resets it.
+fn xform_order(reset_xform: bool) -> &'static str {
+    if reset_xform {
+        "[\"!resetXformStack!\", \"xformOp:transform\"]"
+    } else {
+        "[\"xformOp:transform\"]"
+    }
+}
+
 /// The values set on a prim without geometry: Object ones as constant primvars,
 /// Property ones as they are written on any prim.
-fn opinions(spec: &mut Spec, o: &Opinions) {
+fn opinions(spec: &mut Spec, o: &Opinions, reset_xform: bool) {
+    // Its own transform, Edit Primitive's: what is below it follows.
+    if let Some(m) = o.transform {
+        spec.lines.push(format!(
+            "matrix4d xformOp:transform = {}",
+            matrix(&DMat4::from_cols_array(&m))
+        ));
+        spec.lines
+            .push(format!("uniform token[] xformOpOrder = {}", xform_order(reset_xform)));
+    }
     for (name, value) in &o.primvars {
         spec.lines.push(format!(
             "{} primvars:{name} = {} (\n    interpolation = \"constant\"\n)",
@@ -2221,6 +2248,61 @@ def PointInstancer "inst" {{
         assert!((b.place.matrices()[1].w_axis.x - 7.0).abs() < 1e-4);
     }
 
+    /// A group of a file moved by Edit Primitive is written as its own
+    /// transform, the file's hierarchy kept: the meshes below it get none of
+    /// their own, and read back they are where Imago showed them.
+    #[test]
+    fn a_moved_group_is_written_on_the_group() {
+        let (_, prims) = load(
+            "group_moved.usda",
+            &format!(
+                r#"#usda 1.0
+def Xform "set" {{
+    def Xform "table" {{
+        double3 xformOp:translate = (2, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Mesh "top" {{{QUAD}        }}
+        def Mesh "leg" {{{QUAD}        }}
+    }}
+}}
+"#
+            ),
+        );
+        let mut edits = BTreeMap::new();
+        edits.insert("translate".to_string(), serde_json::json!([2.0, 3.0, 0.0]));
+        let EvalResult::Named(edited) = crate::core::edit_primitive::edit(
+            &EvalResult::Named(prims),
+            &["/set/table".to_string()],
+            crate::core::edit_primitive::EditKind::Xform,
+            &edits,
+        ) else {
+            panic!()
+        };
+        let shown: Vec<f32> = edited
+            .iter()
+            .map(|p| p.place.matrices().first().map_or(0.0, |m| m.w_axis.y))
+            .collect();
+        assert!(shown.iter().all(|y| (y - 3.0).abs() < 1e-5), "{shown:?}");
+        let out = std::env::temp_dir().join("xms_usd_write_test/group_moved_over.usda");
+        write_override(&edited, &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(
+            text.matches("xformOp:transform =").count(),
+            1,
+            "on the group alone:\n{text}"
+        );
+        let group = text.find("over \"table\"").expect("an over on the group");
+        let op = text.find("xformOp:transform").unwrap();
+        let mesh = text.find("\"top\"").unwrap_or(usize::MAX);
+        assert!(group < op && op < mesh, "{text}");
+        let back = prims_of(&out);
+        assert!(back.iter().all(|p| p
+            .place
+            .matrices()
+            .first()
+            .is_some_and(|m| (m.w_axis.y - 3.0).abs() < 1e-5)));
+    }
+
     #[test]
     fn opinions_on_a_prim_without_geometry() {
         let mut spec = Spec::default();
@@ -2228,7 +2310,7 @@ def PointInstancer "inst" {{
         o.primvars.insert("variant".into(), Value::Int(3));
         o.props.insert("active".into(), Value::Bool(false));
         o.props.insert("purpose".into(), Value::Token("guide".into()));
-        opinions(&mut spec, &o);
+        opinions(&mut spec, &o, false);
         assert_eq!(
             spec.lines[0],
             "int primvars:variant = 3 (\n    interpolation = \"constant\"\n)"

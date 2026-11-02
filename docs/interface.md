@@ -619,7 +619,7 @@ staying where it is (see [USD](usd.md#cameras)).
 
 ## Manipulators
 
-A selected Transform or Camera node has handles in the Viewer, the same ones
+A selected Transform, Camera or Edit Primitive node has handles in the Viewer, the same ones
 Edit Poly has (see [Edit Poly](edit-poly.md)): Q selects, W moves, E rotates, R
 scales, with the cursor over the Viewer. A drag on a handle writes into the
 node's parameters as you drag, and is one step of the history when the button is
@@ -629,6 +629,7 @@ let go. The handle under the cursor turns yellow.
 |---|---|---|
 | Transform | Its translation: where the node turns and scales about | Move along an axis, or free in the plane of the screen from the centre; rotate on a ring; scale along an axis, or evenly from the centre. On a clip the scale is the same on every axis, whichever handle is pulled |
 | Camera | The camera | Move and rotate. R does nothing: a camera has no size |
+| Edit Primitive | The first prim it names of its Type | Move, rotate and scale, in the prim's parents' space; a drag overrides Translate, Rotate or Scale alone. No scale on a camera |
 
 With Q the pivot shows as a small tripod and a dot, so where the handles will be
 is in sight. A move leaves the rotation and scale as they were written; a

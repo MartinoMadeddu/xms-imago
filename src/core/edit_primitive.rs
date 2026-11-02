@@ -209,9 +209,14 @@ fn frame_of(p: &Prim) -> Option<(DMat4, DMat4)> {
         Placement::InPlace => DMat4::IDENTITY,
         Placement::Many(_) => return None,
     };
+    // As loaded, with what a group above it moved since (Edit Primitive).
     let parents = match (&p.stage, &p.source) {
         (Some(tree), Some(src)) => match (tree.node(&p.path), &src.place) {
-            (Some(node), Placement::One(loaded)) => loaded.as_dmat4() * node.local.inverse(),
+            (Some(node), Placement::One(loaded)) => {
+                let parent = crate::core::properties::parents(&p.path).pop().unwrap_or_default();
+                let above = tree.world(&parent, true) * tree.world(&parent, false).inverse();
+                above * loaded.as_dmat4() * node.local.inverse()
+            }
             _ => DMat4::IDENTITY,
         },
         _ => DMat4::IDENTITY,
@@ -226,23 +231,8 @@ fn group_frame(path: &str, tree: Option<&StageTree>) -> (DMat4, DMat4) {
     let Some(tree) = tree else {
         return (DMat4::IDENTITY, DMat4::IDENTITY);
     };
-    let mut world = tree.root.as_dmat4();
-    let mut local = DMat4::IDENTITY;
-    let mut parents = world;
-    for a in crate::core::properties::parents(path)
-        .iter()
-        .chain(std::iter::once(&path.to_string()))
-    {
-        if let Some(n) = tree.node(a) {
-            if n.reset_xform {
-                world = DMat4::IDENTITY;
-            }
-            parents = world;
-            world *= n.local;
-            local = n.local;
-        }
-    }
-    (parents, local)
+    let local = tree.local(path, true).unwrap_or(DMat4::IDENTITY);
+    (tree.world(path, true) * local.inverse(), local)
 }
 
 /// A value authored on a stage prim, by name.
@@ -572,6 +562,8 @@ pub fn edit(
     }
     // Groups named: what is below each moves with it.
     if moves && kind == EditKind::Xform {
+        // Each stage's tree as this operator has left it, by the one loaded.
+        let mut trees: std::collections::HashMap<*const StageTree, Arc<StageTree>> = Default::default();
         for t in targets(prims, list) {
             let Target::Group { path, tree } = t else { continue };
             let (parents, local) = group_frame(&path, tree);
@@ -590,6 +582,22 @@ pub fn edit(
                     Placement::InPlace => Placement::One(delta),
                     place => place.moved(delta),
                 };
+            }
+            // A stage's group keeps its new transform as its own, written on
+            // it: every primitive of the stage then shares the new tree.
+            if let Some(loaded) = tree {
+                let key: *const StageTree = loaded;
+                let now_tree: &StageTree = trees.get(&key).map(|t| &**t).unwrap_or(loaded);
+                let mut new = now_tree.clone();
+                new.opinions.entry(path.clone()).or_default().transform = Some(compose(now).to_cols_array());
+                let new = Arc::new(new);
+                let was: *const StageTree = now_tree;
+                for p in out.iter_mut() {
+                    if p.stage.as_deref().is_some_and(|t| std::ptr::eq(t, was)) {
+                        p.stage = Some(new.clone());
+                    }
+                }
+                trees.insert(key, new);
             }
         }
     }
@@ -622,6 +630,32 @@ pub fn edit(
     } else {
         crate::core::set_attribute::set_attributes(&out, &rows, &taken)
     }
+}
+
+/// Where an Edit Primitive's handles work: on the first prim named of its
+/// type, in its parents' space. Their place in the world, and its translate,
+/// rotate (degrees) and scale as the operator leaves them: its overrides,
+/// else the prim's own.
+pub fn handles(
+    prims: &[Prim],
+    list: &[String],
+    kind: EditKind,
+    edits: &BTreeMap<String, serde_json::Value>,
+) -> Option<(Mat4, [[f32; 3]; 3])> {
+    let all = targets(prims, list);
+    let (parents, local) = match all.iter().find(|t| kind.takes(t.kind()))? {
+        Target::Prim(p) => frame_of(p)?,
+        Target::Group { path, tree } => group_frame(path, *tree),
+    };
+    let mut now = parts(local);
+    for (k, name) in TRANSFORM.iter().enumerate() {
+        if let Some(j) = edits.get(*name) {
+            if let Value::Float3(v) = typed(&Value::Float3(now[k]), j) {
+                now[k] = v;
+            }
+        }
+    }
+    Some((parents.as_mat4(), now))
 }
 
 /// What the targets of a list are in a scene: how many, the kind of the first,

@@ -221,8 +221,15 @@ Write USD writes the overrides over the stage: a file's camera's or light's
 values as its own attributes (`float focalLength = 85`), visibility, purpose,
 active and kind as Set Attribute's are, a moved prim as its own transform. A
 camera or light made in Imago is written whole, with the overrides in it. A
-group moved is written, for now, as the new transforms of the primitives below
-it rather than as the group's own.
+group of a file moved is written as the group's own transform, the file's
+hierarchy kept: the prims below it get no transform of their own unless they
+moved too. (A group Imago made above its shapes is written as its shapes' new
+places.)
+
+With an Edit Primitive selected, the Viewer's handles sit on the first prim it
+names of its Type: W moves, E rotates, R scales (not a camera), working in the
+prim's parents' space, and a drag overrides that part alone (Translate, Rotate
+or Scale), as typing it in the form does.
 
 Only Edit Primitive has overrides like these: every other operator's parameters
 are simply its values.

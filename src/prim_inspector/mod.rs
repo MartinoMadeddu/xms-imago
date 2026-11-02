@@ -378,8 +378,8 @@ pub fn scene_properties(
         // Its own values: those of a primitive, of a stage prim, of an Xform Imago made.
         let own: Opinions = match (prim, node) {
             (Some(p), _) => Opinions {
-                primvars: Default::default(),
                 props: (*p.props).clone(),
+                ..Default::default()
             },
             (None, Some((_, tree))) => tree.opinions.get(path).cloned().unwrap_or_default(),
             (None, None) => prims

@@ -263,6 +263,37 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
 }
 
 impl StageTree {
+    /// A prim's own transform, relative to its parent: the one Edit Primitive
+    /// set when `edited` and there is one (`Opinions::transform`), else as
+    /// loaded. `None` for a path the stage does not have.
+    pub fn local(&self, path: &str, edited: bool) -> Option<glam::DMat4> {
+        let n = self.node(path)?;
+        let set = if edited {
+            self.opinions.get(path).and_then(|o| o.transform)
+        } else {
+            None
+        };
+        Some(set.map(|a| glam::DMat4::from_cols_array(&a)).unwrap_or(n.local))
+    }
+
+    /// Where a prim is in the world: the stage's root correction, then the
+    /// transforms of its parents and its own (`local`), from the nearest that
+    /// resets the stack. The root's correction alone for `/`.
+    pub fn world(&self, path: &str, edited: bool) -> glam::DMat4 {
+        let root = self.root.as_dmat4();
+        let names: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let mut m = root;
+        for k in 1..=names.len() {
+            let at = format!("/{}", names[..k].join("/"));
+            let Some(n) = self.node(&at) else { continue };
+            if n.reset_xform {
+                m = root;
+            }
+            m *= self.local(&at, edited).unwrap_or(n.local);
+        }
+        m
+    }
+
     /// The prim at a path.
     pub fn node(&self, path: &str) -> Option<&StageNode> {
         match self.index.get(path) {
