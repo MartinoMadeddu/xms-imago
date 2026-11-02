@@ -242,7 +242,7 @@ pub fn draw_prim_inspector(
         // (for a clip) the frame changes. Each frame draws the visible rows.
         let tab = state.active_tab.clone();
         if tab == Tab::Properties {
-            go_to = draw_properties(ui, &props);
+            go_to = draw_properties(ui, &props, &mut state.edit_request);
             return;
         }
         // A geometry tab just opened: its geometry is made next frame.
@@ -285,8 +285,13 @@ pub fn draw_prim_inspector(
 /// The Properties tab: one row per property of each prim listed, its value, and
 /// where the value comes from. Several prims: a Path column first. A row is
 /// selected by clicking it; right-click it for "Go to Operator", which gives
-/// the operator the value comes from.
-fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) -> Option<crate::types::NodeId> {
+/// the operator the value comes from, or "Edit Selected", which asks for an
+/// Edit Primitive on its prim (`edit`), as Enter does with a row selected.
+fn draw_properties(
+    ui: &mut egui::Ui,
+    rows: &[super::PropRow],
+    edit: &mut Option<Vec<String>>,
+) -> Option<crate::types::NodeId> {
     // Rows are painted, not laid out as widgets: each column is as wide as
     // its widest cell, and hovering or selecting a row changes its colour
     // only, never a size, so no column edge moves.
@@ -377,6 +382,14 @@ fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) -> Option<crate::
                     selected = Some(k);
                 }
                 resp.context_menu(|ui| {
+                    if ui
+                        .button("Edit Selected")
+                        .on_hover_text("An Edit Primitive on this prim, after the viewed operator: its form shows the prim's values (Enter does it too)")
+                        .clicked()
+                    {
+                        *edit = Some(vec![r.path.clone()]);
+                        ui.close();
+                    }
                     let tip = match r.node {
                         Some(_) => format!("Select the operator the value comes from ({})", r.from),
                         None => "No operator to go to: the value was not made by one".to_string(),
@@ -392,6 +405,13 @@ fn draw_properties(ui: &mut egui::Ui, rows: &[super::PropRow]) -> Option<crate::
                 });
             }
         });
+    // Enter, the pointer over the tab: edit the selected row's prim.
+    let enter = ui.rect_contains_pointer(ui.max_rect())
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    if let (true, Some(r)) = (enter, selected.and_then(|k| rows.get(k))) {
+        *edit = Some(vec![r.path.clone()]);
+    }
     ui.data_mut(|d| d.insert_temp(sel_id, selected));
     go_to
 }

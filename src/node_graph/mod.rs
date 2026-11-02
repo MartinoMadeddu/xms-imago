@@ -767,6 +767,51 @@ impl NodeGraphState {
         self.mark_dirty();
     }
 
+    /// Edit the prims at `paths` of the viewed scene: an Edit Primitive naming
+    /// them, wired after the operator with the view flag, viewed and selected.
+    /// The viewed operator is reused when it is an Edit Primitive with nothing
+    /// overridden yet. Its id; `None` with nothing viewed or no path.
+    pub fn edit_primitives(&mut self, paths: &[String]) -> Option<NodeId> {
+        let view = self.view_flag?;
+        if paths.is_empty() {
+            return None;
+        }
+        let output = self.view_output;
+        let reuse = self
+            .nodes
+            .iter()
+            .find(|n| n.id == view)
+            .is_some_and(|n| matches!(&n.node_type, NodeType::EditPrimitive { edits, .. } if edits.is_empty()));
+        let id = if reuse {
+            view
+        } else {
+            let at = self
+                .nodes
+                .iter()
+                .find(|n| n.id == view)
+                .map(|n| n.position + egui::vec2(0.0, 110.0))
+                .unwrap_or_default();
+            let id = self.add_node(
+                "EditPrimitive".into(),
+                NodeType::EditPrimitive {
+                    kind: Default::default(),
+                    edits: Default::default(),
+                },
+                at,
+            );
+            self.add_connection(view, output, id, 0);
+            id
+        };
+        if let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) {
+            n.locations = paths.to_vec();
+        }
+        self.view_flag = Some(id);
+        self.view_output = 0;
+        self.selected_node = Some(id);
+        self.selected_nodes = vec![id];
+        Some(id)
+    }
+
     // 👁️ NEW - VIEW FLAG SYSTEM
 
     /// Put the view flag on an operator. On the operator that has it already,
@@ -1904,6 +1949,36 @@ mod cook_tests {
     /// A frozen node keeps its result while what is above it changes, and what
     /// is below it is not cooked again; thawed, it follows again. Freezing it
     /// anew takes the result as it is then. Saved and read back.
+    /// Enter or Edit Selected: an Edit Primitive naming the prims, wired
+    /// after the viewed operator, viewed and selected; asked again while it
+    /// overrides nothing, the same one names the new prims.
+    #[test]
+    fn editing_selected_prims_adds_an_edit_primitive_after_the_view() {
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        g.view_flag = Some(cube);
+        assert!(g.edit_primitives(&[]).is_none());
+        let edit = g.edit_primitives(&["/cube".to_string()]).expect("added");
+        assert_ne!(edit, cube);
+        assert_eq!((g.view_flag, g.selected_node), (Some(edit), Some(edit)));
+        assert!(g.connections.iter().any(|c| c.from_node == cube && c.to_node == edit));
+        let node = g.nodes.iter().find(|n| n.id == edit).unwrap();
+        assert_eq!(node.locations, vec!["/cube".to_string()]);
+        assert!(node.position.y > 0.0, "below the operator it follows");
+        // Nothing overridden yet: the same one, naming the new selection.
+        assert_eq!(g.edit_primitives(&["/other".to_string()]), Some(edit));
+        assert_eq!(g.nodes.len(), 2);
+        // Something overridden: a new one after it.
+        if let Some(NodeType::EditPrimitive { edits, .. }) =
+            g.nodes.iter_mut().find(|n| n.id == edit).map(|n| &mut n.node_type)
+        {
+            edits.insert("translate".into(), serde_json::json!([0.0, 1.0, 0.0]));
+        }
+        let next = g.edit_primitives(&["/cube".to_string()]).unwrap();
+        assert_ne!(next, edit);
+        assert!(g.connections.iter().any(|c| c.from_node == edit && c.to_node == next));
+    }
+
     #[test]
     fn a_frozen_node_keeps_its_result() {
         let mut g = NodeGraphState::default();

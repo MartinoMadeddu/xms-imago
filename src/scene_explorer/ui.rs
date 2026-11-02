@@ -83,6 +83,9 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             let mut draw_set: Option<(String, Option<crate::types::DrawMode>)> = None;
             // The row clicked, with Ctrl (Cmd) and Shift.
             let mut clicked: Option<(Option<String>, bool, bool)> = None;
+            // Prims to edit: Edit Selected on a row's right-click.
+            let mut edit: Option<Vec<String>> = None;
+            let selected_now = hierarchy.selected_prim_paths();
 
             let n = hierarchy.objects.len();
             // Whether each row is the last of its siblings, in one pass
@@ -151,11 +154,17 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                             let m = ui.input(|i| i.modifiers);
                             clicked = Some((obj.path.clone(), m.command, m.shift));
                         }
-                        // Right-click a prim: how the Viewer draws it and what
-                        // is below it (not an instance: its instancer's row).
+                        // Right-click a prim: edit it (the selection, when it
+                        // is in it), and how the Viewer draws it and what is
+                        // below it (not an instance: its instancer's row).
                         if let Some(path) = obj.path.as_ref().filter(|p| crate::core::instancing::instance_path(p).is_none()) {
                             let set_here = hierarchy.draw_mode_set(path);
                             row_resp.context_menu(|ui| {
+                                if ui.button("Edit Selected").on_hover_text("An Edit Primitive naming it, after the viewed operator: its form shows the prim's values (Enter does it too)").clicked() {
+                                    edit = Some(if is_sel { selected_now.clone() } else { vec![path.clone()] });
+                                    ui.close();
+                                }
+                                ui.separator();
                                 ui.label(egui::RichText::new("Draw in the Viewer as").small());
                                 for m in crate::types::DrawMode::ALL {
                                     if ui.selectable_label(set_here == Some(m), m.label()).clicked() { draw_set = Some((path.clone(), Some(m))); ui.close(); }
@@ -294,6 +303,16 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             }
             if let Some((path, mode)) = draw_set.take() {
                 hierarchy.set_draw_mode(&path, mode);
+            }
+            // Enter, the pointer over the explorer: edit the selected prims.
+            let enter = ui.rect_contains_pointer(ui.max_rect())
+                && !ui.ctx().egui_wants_keyboard_input()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if enter && !selected_now.is_empty() {
+                edit = Some(selected_now.clone());
+            }
+            if edit.is_some() {
+                hierarchy.edit_request = edit;
             }
             // A click on the geometry square is not a click on the row.
             // What is being dragged, under the pointer, over every pane: the

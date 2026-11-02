@@ -1150,6 +1150,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                     .id_salt("scene_explorer_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy));
+                // Enter or Edit Selected: an Edit Primitive on the selection.
+                if let Some(paths) = self.hierarchy.edit_request.take() {
+                    self.graph.edit_primitives(&paths);
+                }
             }
 
             Pane::CurveEditor => {
@@ -1262,6 +1266,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                 if let Some(id) = go_to {
                     self.graph.selected_node = Some(id);
                     self.graph.selected_nodes = vec![id];
+                }
+                // Enter or Edit Selected on a Properties row: an Edit Primitive on its prim.
+                if let Some(paths) = self.prim_state.edit_request.take() {
+                    self.graph.edit_primitives(&paths);
                 }
             }
 

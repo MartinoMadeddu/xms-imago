@@ -188,7 +188,12 @@ rewrites the primitive's arrays, and that is ICE's.
 ## Edit Primitive
 
 Edit Primitive edits prims already in the scene, a loaded stage's above all, as
-what they are. Name them in its Prims Location tab (a path names that prim, as
+what they are. The quickest way to one: select prims in the Scene Explorer, or a
+row of the Primitive Inspector's Properties tab, and press **Enter** with the
+pointer over it, or right-click and choose **Edit Selected**. An Edit Primitive
+naming them is added after the viewed operator, viewed and selected, its form
+in Parameters; asked again while it overrides nothing, the same one names the
+new selection. Name them in its Prims Location tab (a path names that prim, as
 Set Attribute's do); its **Type** sets itself from the first one: Xform (a
 group, or any prim), Mesh, Curves, Points, Camera or Light. Its form is that
 type's, with the values of the first prim of that type named.

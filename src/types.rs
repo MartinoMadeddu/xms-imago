@@ -2149,6 +2149,10 @@ pub struct PrimInspectorState {
     cached_rev: Option<u64>,
     /// The Properties tab's rows.
     cached_props: std::sync::Arc<Vec<crate::prim_inspector::PropRow>>,
+    /// A prim to edit, asked for on the Properties tab with Enter or Edit
+    /// Selected (right-click): an Edit Primitive naming it is added after the
+    /// viewed operator.
+    pub edit_request: Option<Vec<String>>,
     /// Number of edges of the cached primitives: polygon edges and curve
     /// segments.
     pub edge_count: usize,
@@ -2353,6 +2357,9 @@ pub struct SceneHierarchy {
     /// Explorer (right-click): over what the scene says (`model:drawMode`). Not
     /// part of the scene, not written.
     draw_modes: std::collections::HashMap<String, DrawMode>,
+    /// Prims to edit, asked for with Enter or Edit Selected (right-click): an
+    /// Edit Primitive naming them is added after the viewed operator.
+    pub edit_request: Option<Vec<String>>,
 }
 
 /// How the Viewer draws geometry, as USD's `model:drawMode` has it: as it is,

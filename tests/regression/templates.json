@@ -10,7 +10,7 @@
     "triangles": 5768,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 4
+    "cook_ms": 5
   },
   "Bind simple hair deform by guides": {
     "nodes": 7,
@@ -23,7 +23,7 @@
     "triangles": 0,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 13
+    "cook_ms": 15
   },
   "Bind simple point deformer": {
     "nodes": 6,
@@ -36,7 +36,7 @@
     "triangles": 533768,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 83
+    "cook_ms": 102
   },
   "Body Collide: into the car": {
     "nodes": 4,
@@ -60,7 +60,7 @@
         -1.104
       ]
     },
-    "cook_ms": 1400,
+    "cook_ms": 1503,
     "solved": true
   },
   "Body Collide: obstacle course": {
@@ -123,7 +123,7 @@
         1.057
       ]
     },
-    "cook_ms": 926
+    "cook_ms": 977
   },
   "Clip basics": {
     "nodes": 5,
@@ -160,7 +160,7 @@
     "triangles": 282,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 5
+    "cook_ms": 13
   },
   "Curves and points": {
     "nodes": 1,
@@ -173,7 +173,7 @@
     "triangles": 0,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 2
   },
   "DeLorean: lit and rendered with Karma": {
     "nodes": 10,
@@ -266,6 +266,19 @@
     "cameras": 0,
     "cook_ms": 0
   },
+  "Edit Primitive": {
+    "nodes": 10,
+    "viewed": "MoveSet",
+    "output": 0,
+    "kind": "prims",
+    "prims": 5,
+    "copies": 5,
+    "points": 1218,
+    "triangles": 2260,
+    "materials": 0,
+    "cameras": 2,
+    "cook_ms": 0
+  },
   "Edit UV islands": {
     "nodes": 4,
     "viewed": "Arrange",
@@ -301,7 +314,7 @@
         1.028
       ]
     },
-    "cook_ms": 64
+    "cook_ms": 67
   },
   "Human Limits": {
     "nodes": 3,
@@ -338,7 +351,7 @@
     "triangles": 768,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 0
+    "cook_ms": 1
   },
   "ICE: instancing": {
     "nodes": 7,
@@ -351,7 +364,7 @@
     "triangles": 35624231,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 50
+    "cook_ms": 60
   },
   "ICE: shrink-wrap": {
     "nodes": 5,
@@ -453,7 +466,7 @@
         1.057
       ]
     },
-    "cook_ms": 50,
+    "cook_ms": 46,
     "solved": true
   },
   "Mocap split": {
@@ -528,7 +541,7 @@
     "triangles": 3852,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 4
+    "cook_ms": 8
   },
   "Novasci clip onto the character": {
     "nodes": 3,
@@ -552,7 +565,7 @@
         0.062
       ]
     },
-    "cook_ms": 355
+    "cook_ms": 404
   },
   "Novasci clip: thumbs up (download)": {
     "nodes": 3,
@@ -576,7 +589,7 @@
         0.062
       ]
     },
-    "cook_ms": 356
+    "cook_ms": 411
   },
   "Open assets: carbon frame bike (download)": {
     "nodes": 1,
@@ -589,7 +602,7 @@
     "triangles": 135648,
     "materials": 31,
     "cameras": 0,
-    "cook_ms": 281
+    "cook_ms": 283
   },
   "Open assets: elephant with monochord (download)": {
     "nodes": 1,
@@ -602,7 +615,7 @@
     "triangles": 2762,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 13
+    "cook_ms": 8
   },
   "Open assets: teapot and car kit": {
     "nodes": 4,
@@ -615,7 +628,7 @@
     "triangles": 4460,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 15
+    "cook_ms": 16
   },
   "Point instancer: a forest": {
     "nodes": 2,
@@ -628,7 +641,7 @@
     "triangles": 415006,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 5
+    "cook_ms": 11
   },
   "Purposes: street lamps": {
     "nodes": 1,
@@ -641,7 +654,7 @@
     "triangles": 1218,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 3
   },
   "Retarget": {
     "nodes": 5,
@@ -689,7 +702,7 @@
         1.057
       ]
     },
-    "cook_ms": 102
+    "cook_ms": 99
   },
   "Rig: full human": {
     "nodes": 8,
@@ -713,7 +726,7 @@
         0.02
       ]
     },
-    "cook_ms": 1910
+    "cook_ms": 467
   },
   "Shapes": {
     "nodes": 7,
@@ -815,7 +828,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 3
+    "cook_ms": 4
   },
   "USD: prune": {
     "nodes": 2,
@@ -828,7 +841,7 @@
     "triangles": 72240,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 36
+    "cook_ms": 37
   },
   "USD: set attribute": {
     "nodes": 3,
@@ -854,6 +867,6 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 220
+    "cook_ms": 227
   }
 }
