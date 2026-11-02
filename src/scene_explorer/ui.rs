@@ -24,6 +24,11 @@ mod xsi {
     pub fn SEL_NAME() -> Color32 {
         crate::theme::c(240, 238, 230)
     }
+    /// A row with a selected prim below it: a subtle grey, lighter than the
+    /// panel.
+    pub fn ABOVE_SEL_BG() -> Color32 {
+        crate::theme::c(134, 134, 134)
+    }
     pub fn HOVER_BG() -> Color32 {
         crate::theme::c(108, 108, 108)
     }
@@ -43,7 +48,8 @@ const TREE_LINE_X: f32 = 7.0;
 /// or that group and what is below it, in the Primitive Inspector; clicking it
 /// again shows the whole scene there again. Ctrl (Cmd) adds or takes out a row,
 /// Shift selects the rows between. It does not change which operator is
-/// selected.
+/// selected. A prim selected in the Viewer is selected here too; the rows above
+/// it are marked in a lighter grey, not opened.
 pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
     egui::Frame::NONE
         .fill(xsi::PANEL_BG())
@@ -86,6 +92,13 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             // Prims to edit: Edit Selected on a row's right-click.
             let mut edit: Option<Vec<String>> = None;
             let selected_now = hierarchy.selected_prim_paths();
+            // The rows above a selected prim (clicked in the Viewer, say),
+            // marked without opening them.
+            let above_selected: std::collections::HashSet<String> = hierarchy
+                .selected_paths()
+                .iter()
+                .flat_map(|p| crate::core::properties::parents(p))
+                .collect();
 
             let n = hierarchy.objects.len();
             // Whether each row is the last of its siblings, in one pass
@@ -219,9 +232,12 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                             else { painter.rect_stroke(r, 1.0, egui::Stroke::new(1.0_f32, col), egui::StrokeKind::Middle); }
                         }
 
-                        // Selection background
+                        // Selection background; a lighter grey on a row with a
+                        // selected prim below it.
                         if is_sel {
                             painter.rect_filled(row_rect, 0.0, xsi::SEL_BG());
+                        } else if obj.path.as_ref().is_some_and(|p| above_selected.contains(p)) {
+                            painter.rect_filled(row_rect, 0.0, xsi::ABOVE_SEL_BG());
                         }
 
                         // Tree lines

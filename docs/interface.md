@@ -638,7 +638,8 @@ rotation leaves the translation and scale.
 ![The move handles on MoveSphere; the grid, clicked, outlined](xms_gizmo.png)
 
 Clicking a primitive in the Viewer selects it, as clicking a row of the Scene
-Explorer does: that row lights up, the Primitive Inspector shows the prim, the
+Explorer does: that row lights up (the rows above it are a lighter grey, and
+are not opened, so a selected prim inside closed groups is still found), the Primitive Inspector shows the prim, the
 selected primitives are outlined by their bounds in the Viewer. Ctrl+click
 (Cmd+click on macOS) adds a primitive or takes it out; a click on nothing clears
 the selection. A click is a press and release in place: a drag orbits, pans or
