@@ -135,6 +135,16 @@ pub enum NodeType {
     SetAttribute {
         rows: Vec<crate::core::set_attribute::SetRow>,
     },
+    /// The prims its Primitive Locations name, edited as what they are
+    /// (`kind`: Xform, Mesh, Curves, Points, Camera, Light): its form shows the
+    /// target's values; those changed (`edits`, by name, as plain JSON) are
+    /// overrides, the only values applied. See `core::edit_primitive`.
+    EditPrimitive {
+        #[serde(default)]
+        kind: crate::core::edit_primitive::EditKind,
+        #[serde(default)]
+        edits: std::collections::BTreeMap<String, serde_json::Value>,
+    },
     /// A UsdPreviewSurface material with fixed inputs, named by the operator.
     /// Material Binding puts it in the scene. See `core::material`.
     Material {
@@ -890,6 +900,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PickPrims { .. } => "👆",
         NodeType::PrunePrims { .. } => "🚫",
         NodeType::SetAttribute { .. } => "🏷",
+        NodeType::EditPrimitive { .. } => "✏",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
@@ -965,6 +976,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PickPrims { .. } => "Pick Primitives",
         NodeType::PrunePrims { .. } => "Prune Primitives",
         NodeType::SetAttribute { .. } => "Set Attribute",
+        NodeType::EditPrimitive { .. } => "Edit Primitive",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",

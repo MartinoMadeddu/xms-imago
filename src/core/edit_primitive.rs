@@ -1,0 +1,750 @@
+//! Edit Primitive: the prims its Primitive Locations name, edited as what they
+//! are. Its Type (Xform, Mesh, Curves, Points, Camera, Light) gives its form:
+//! the same values the operator making that kind of prim has, showing the
+//! target's own; a value changed in the form is an override, the only thing
+//! the operator applies (and Write USD writes). Untouched values follow the
+//! target, file changes and animation included.
+//!
+//! Every type has the Xform section: Translate, Rotate and Scale (the prim's
+//! own transform, relative to its parent, as USD composes it: a group moves
+//! with what is below it), visibility, purpose, active and kind. A mesh adds
+//! doubleSided and subdivisionScheme; a camera its lens and gate; a light its
+//! UsdLux values.
+//!
+//! Overrides are kept by name (`translate`, `focalLength`, `inputs:intensity`)
+//! as plain JSON, so only they are saved and keyed.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use glam::{DMat4, EulerRot, Mat4, Quat, Vec3};
+
+use crate::core::geo::Topology;
+use crate::core::locations;
+use crate::core::properties::{SetContext, Value};
+use crate::core::set_attribute::SetRow;
+use crate::types::{EvalResult, Placement, Prim};
+use crate::usd_scene::StageTree;
+
+/// What an Edit Primitive edits its targets as.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum EditKind {
+    #[default]
+    Xform,
+    Mesh,
+    Curves,
+    Points,
+    Camera,
+    Light,
+}
+
+impl EditKind {
+    pub const ALL: [EditKind; 6] = [
+        EditKind::Xform,
+        EditKind::Mesh,
+        EditKind::Curves,
+        EditKind::Points,
+        EditKind::Camera,
+        EditKind::Light,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            EditKind::Xform => "Xform",
+            EditKind::Mesh => "Mesh",
+            EditKind::Curves => "Curves",
+            EditKind::Points => "Points",
+            EditKind::Camera => "Camera",
+            EditKind::Light => "Light",
+        }
+    }
+
+    /// What a primitive is.
+    pub fn of(p: &Prim) -> EditKind {
+        if p.camera.is_some() {
+            return EditKind::Camera;
+        }
+        if p.light.is_some() {
+            return EditKind::Light;
+        }
+        match p.geo.as_ref().map(|g| &g.topology) {
+            Some(Topology::Mesh { .. }) => EditKind::Mesh,
+            Some(Topology::Curves { .. }) => EditKind::Curves,
+            Some(Topology::Points) => EditKind::Points,
+            None if !p.mesh.vertices.is_empty() => EditKind::Mesh,
+            None if !p.mesh.curve_points.is_empty() => EditKind::Curves,
+            None if !p.mesh.points.is_empty() => EditKind::Points,
+            None => EditKind::Xform,
+        }
+    }
+
+    /// Whether a primitive of kind `of` takes this form: every prim takes the
+    /// Xform section.
+    pub fn takes(self, of: EditKind) -> bool {
+        self == EditKind::Xform || self == of
+    }
+}
+
+/// One value of the form: its name (what the override is kept by, USD's for
+/// what is written), label, help, the target's value, and the tokens it may
+/// take.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Param {
+    pub name: String,
+    pub label: String,
+    pub help: String,
+    pub group: String,
+    pub value: Value,
+    pub choices: Vec<String>,
+    /// A slider's range, where the operator making the prim has one.
+    pub range: Option<(f64, f64)>,
+}
+
+fn param(group: &str, name: &str, label: &str, help: &str, value: Value) -> Param {
+    Param {
+        name: name.into(),
+        label: label.into(),
+        help: help.into(),
+        group: group.into(),
+        value,
+        choices: vec![],
+        range: None,
+    }
+}
+
+fn tokens(p: Param, choices: &[&str]) -> Param {
+    Param {
+        choices: choices.iter().map(|c| c.to_string()).collect(),
+        ..p
+    }
+}
+
+/// The Xform section's transform values.
+pub const TRANSFORM: [&str; 3] = ["translate", "rotate", "scale"];
+/// The Xform section's (and a mesh's) values, set as Set Attribute sets them.
+const PROPERTIES: [&str; 6] = [
+    "visibility",
+    "purpose",
+    "active",
+    "kind",
+    "doubleSided",
+    "subdivisionScheme",
+];
+
+/// A target: a primitive, or a prim with none (a group of a stage, or an
+/// Xform Imago made above its primitives).
+pub enum Target<'a> {
+    Prim(&'a Prim),
+    Group { path: String, tree: Option<&'a StageTree> },
+}
+
+/// The targets the locations name in a scene, primitives first, in order; a
+/// group once.
+pub fn targets<'a>(prims: &'a [Prim], list: &[String]) -> Vec<Target<'a>> {
+    let mut out: Vec<Target> = prims
+        .iter()
+        .filter(|p| locations::any_names(list, &p.path))
+        .map(Target::Prim)
+        .collect();
+    let paths: std::collections::HashSet<&str> = prims.iter().map(|p| p.path.as_str()).collect();
+    let mut groups: std::collections::HashSet<String> = Default::default();
+    for p in prims {
+        // The prims above it: its stage's, or the Xforms Imago made.
+        for g in crate::core::properties::parents(&p.path) {
+            if !groups.contains(&g) && !paths.contains(g.as_str()) && locations::any_names(list, &g) {
+                groups.insert(g.clone());
+                out.push(Target::Group {
+                    tree: p.stage.as_deref().filter(|t| t.node(&g).is_some()),
+                    path: g,
+                });
+            }
+        }
+    }
+    out
+}
+
+impl Target<'_> {
+    pub fn path(&self) -> &str {
+        match self {
+            Target::Prim(p) => &p.path,
+            Target::Group { path, .. } => path,
+        }
+    }
+
+    pub fn kind(&self) -> EditKind {
+        match self {
+            Target::Prim(p) => EditKind::of(p),
+            Target::Group { .. } => EditKind::Xform,
+        }
+    }
+}
+
+/// A transform's translate, rotate (degrees, X then Y then Z) and scale.
+fn parts(m: DMat4) -> [[f32; 3]; 3] {
+    let (s, r, t) = m.as_mat4().to_scale_rotation_translation();
+    let (x, y, z) = r.to_euler(EulerRot::XYZ);
+    [
+        t.to_array(),
+        [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+        s.to_array(),
+    ]
+}
+
+fn compose(p: [[f32; 3]; 3]) -> DMat4 {
+    let r = p[1].map(f32::to_radians);
+    Mat4::from_scale_rotation_translation(
+        Vec3::from(p[2]),
+        Quat::from_euler(EulerRot::XYZ, r[0], r[1], r[2]),
+        Vec3::from(p[0]),
+    )
+    .as_dmat4()
+}
+
+/// Where a primitive's parents put it, and its own transform under them: from
+/// the stage it came from (as loaded), else its placement alone. `None` for
+/// instanced geometry, placed many times.
+fn frame_of(p: &Prim) -> Option<(DMat4, DMat4)> {
+    let now = match &p.place {
+        Placement::One(m) => m.as_dmat4(),
+        Placement::InPlace => DMat4::IDENTITY,
+        Placement::Many(_) => return None,
+    };
+    let parents = match (&p.stage, &p.source) {
+        (Some(tree), Some(src)) => match (tree.node(&p.path), &src.place) {
+            (Some(node), Placement::One(loaded)) => loaded.as_dmat4() * node.local.inverse(),
+            _ => DMat4::IDENTITY,
+        },
+        _ => DMat4::IDENTITY,
+    };
+    Some((parents, parents.inverse() * now))
+}
+
+/// A group's place in the world and its own transform: a stage's prim from its
+/// tree (its parents' transforms and the stage's root correction), an Xform
+/// Imago made where it is (none).
+fn group_frame(path: &str, tree: Option<&StageTree>) -> (DMat4, DMat4) {
+    let Some(tree) = tree else {
+        return (DMat4::IDENTITY, DMat4::IDENTITY);
+    };
+    let mut world = tree.root.as_dmat4();
+    let mut local = DMat4::IDENTITY;
+    let mut parents = world;
+    for a in crate::core::properties::parents(path)
+        .iter()
+        .chain(std::iter::once(&path.to_string()))
+    {
+        if let Some(n) = tree.node(a) {
+            if n.reset_xform {
+                world = DMat4::IDENTITY;
+            }
+            parents = world;
+            world *= n.local;
+            local = n.local;
+        }
+    }
+    (parents, local)
+}
+
+/// A value authored on a stage prim, by name.
+fn authored<'a>(tree: Option<&'a StageTree>, path: &str, name: &str) -> Option<&'a Value> {
+    tree?
+        .node(path)?
+        .authored
+        .iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v)
+}
+
+/// The form of `kind` with the values of `target`.
+pub fn params(kind: EditKind, target: &Target) -> Vec<Param> {
+    let (path, tree, prim) = match target {
+        Target::Prim(p) => (p.path.as_str(), p.stage.as_deref(), Some(*p)),
+        Target::Group { path, tree } => (path.as_str(), *tree, None),
+    };
+    let local = match prim {
+        Some(p) => frame_of(p).map(|f| f.1),
+        None => Some(group_frame(path, tree).1),
+    };
+    let [t, r, s] = parts(local.unwrap_or(DMat4::IDENTITY));
+    let prop = |name: &str| {
+        prim.and_then(|p| p.props.get(name).cloned())
+            .or_else(|| {
+                tree.and_then(|t| t.opinions.get(path))
+                    .and_then(|o| o.props.get(name).cloned())
+            })
+            .or_else(|| authored(tree, path, name).cloned())
+    };
+    let token = |name: &str, or: &str| match prop(name) {
+        Some(Value::Token(t)) | Some(Value::String(t)) => t,
+        _ => or.to_string(),
+    };
+    let visibility = match prop("visibility") {
+        Some(Value::Token(t)) => t,
+        _ if tree.and_then(|t| t.node(path)).is_some_and(|n| n.hidden) => "invisible".into(),
+        _ => "inherited".into(),
+    };
+    let purpose = match prim {
+        Some(p) => match crate::core::properties::purpose_of(p) {
+            crate::types::Purpose::Default => "default",
+            crate::types::Purpose::Render { .. } => "render",
+            crate::types::Purpose::Proxy => "proxy",
+            crate::types::Purpose::Guide => "guide",
+        }
+        .to_string(),
+        None => token("purpose", "default"),
+    };
+    let x = "Xform";
+    let mut out = vec![
+        param(
+            x,
+            "translate",
+            "Translate",
+            "Its own transform, relative to its parent: what is below it moves with it",
+            Value::Float3(t),
+        ),
+        param(x, "rotate", "Rotate", "Degrees, X then Y then Z", Value::Float3(r)),
+        param(x, "scale", "Scale", "", Value::Float3(s)),
+        tokens(
+            param(
+                x,
+                "visibility",
+                "Visibility",
+                "Invisible hides it and what is below it",
+                Value::Token(visibility),
+            ),
+            &["inherited", "invisible"],
+        ),
+        tokens(
+            param(
+                x,
+                "purpose",
+                "Purpose",
+                "What kind of drawing it is for: render geometry, a proxy, a guide",
+                Value::Token(purpose),
+            ),
+            &["default", "render", "proxy", "guide"],
+        ),
+        param(
+            x,
+            "active",
+            "Active",
+            "Off takes it, and what is below it, out of the scene",
+            Value::Bool(true),
+        ),
+        tokens(
+            param(
+                x,
+                "kind",
+                "Kind",
+                "Its place in the model hierarchy",
+                Value::Token(token("kind", "")),
+            ),
+            &["", "component", "subcomponent", "assembly", "group"],
+        ),
+    ];
+    match (kind, prim) {
+        (EditKind::Mesh, _) => {
+            let double = matches!(prop("doubleSided"), Some(Value::Bool(true)));
+            let g = "Mesh";
+            out.push(param(
+                g,
+                "doubleSided",
+                "Double sided",
+                "Drawn from both sides",
+                Value::Bool(double),
+            ));
+            out.push(tokens(
+                param(
+                    g,
+                    "subdivisionScheme",
+                    "Subdivision",
+                    "How it is smoothed when subdivided",
+                    Value::Token(token("subdivisionScheme", "catmullClark")),
+                ),
+                &["catmullClark", "loop", "bilinear", "none"],
+            ));
+        }
+        (EditKind::Camera, Some(p)) => {
+            let c = p.camera.as_deref().cloned().unwrap_or_default();
+            let g = "Lens";
+            let f = |v: f32| Value::Float(v);
+            out.push(tokens(
+                param(
+                    g,
+                    "projection",
+                    "Projection",
+                    "",
+                    Value::Token(c.projection.token().into()),
+                ),
+                &["perspective", "orthographic"],
+            ));
+            let mut focal = param(
+                g,
+                "focalLength",
+                "Focal length",
+                "In tenths of a scene unit: millimetres in a centimetre scene",
+                f(c.focal_length),
+            );
+            focal.range = Some((4.0, 300.0));
+            out.push(focal);
+            out.push(param(
+                g,
+                "horizontalAperture",
+                "Filmback H",
+                "The gate's width",
+                f(c.horizontal_aperture),
+            ));
+            out.push(param(
+                g,
+                "verticalAperture",
+                "Filmback V",
+                "The gate's height",
+                f(c.vertical_aperture),
+            ));
+            out.push(param(
+                g,
+                "horizontalApertureOffset",
+                "Filmback offset H",
+                "Written, not shown in the Viewer yet",
+                f(c.horizontal_aperture_offset),
+            ));
+            out.push(param(
+                g,
+                "verticalApertureOffset",
+                "Filmback offset V",
+                "Written, not shown in the Viewer yet",
+                f(c.vertical_aperture_offset),
+            ));
+            out.push(param(
+                "Clipping",
+                "clippingRange",
+                "Clipping range",
+                "Near and far, in scene units",
+                Value::Float2(c.clipping_range),
+            ));
+            out.push(param(
+                "Depth of field",
+                "fStop",
+                "f-stop",
+                "0: no depth of field",
+                f(c.f_stop),
+            ));
+            out.push(param(
+                "Depth of field",
+                "focusDistance",
+                "Focus distance",
+                "In scene units",
+                f(c.focus_distance),
+            ));
+        }
+        (EditKind::Light, Some(p)) => {
+            if let Some(l) = p.light.as_deref() {
+                for lp in l.params() {
+                    out.push(Param {
+                        name: lp.name.clone(),
+                        label: lp.shown().to_string(),
+                        help: lp.help.clone(),
+                        group: lp.group.clone(),
+                        value: l.value(&lp.name).unwrap_or_else(|| l.fallback(lp)),
+                        choices: lp.choices.clone(),
+                        range: lp.min.zip(lp.max),
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// A value as an override keeps it: plain JSON.
+pub fn plain(v: &Value) -> serde_json::Value {
+    use serde_json::json;
+    match v {
+        Value::Bool(b) => json!(b),
+        Value::Int(i) => json!(i),
+        Value::Float(x) => json!(x),
+        Value::Double(x) => json!(x),
+        Value::String(s) | Value::Token(s) | Value::Asset(s) => json!(s),
+        Value::Float2(a) => json!(a),
+        Value::Float3(a) | Value::Color3f(a) => json!(a),
+        Value::Float4(a) => json!(a),
+    }
+}
+
+/// An override read back, of the type of `like` (the target's value).
+pub fn typed(like: &Value, j: &serde_json::Value) -> Value {
+    crate::core::render::value_of(like.kind(), j)
+}
+
+/// The targets edited: each takes the overrides of its kind, its transform
+/// first (a group's moves what is below it), then its properties.
+pub fn edit(
+    input: &EvalResult,
+    list: &[String],
+    kind: EditKind,
+    edits: &BTreeMap<String, serde_json::Value>,
+) -> EvalResult {
+    let EvalResult::Named(prims) = input else {
+        return input.clone();
+    };
+    if edits.is_empty() || !locations::is_set(list) {
+        return input.clone();
+    }
+    let mut out: Vec<Prim> = prims.clone();
+    let moves = TRANSFORM.iter().any(|n| edits.contains_key(*n));
+    // Each primitive named: its own transform, its lens or light.
+    for p in out.iter_mut().filter(|p| locations::any_names(list, &p.path)) {
+        let of = EditKind::of(p);
+        if !kind.takes(of) {
+            continue;
+        }
+        let shown = params(kind, &Target::Prim(p));
+        let value = |name: &str| -> Option<Value> {
+            let j = edits.get(name)?;
+            let like = shown.iter().find(|q| q.name == name)?;
+            Some(typed(&like.value, j))
+        };
+        if moves && p.instanced_by.is_none() {
+            if let Some((parents, local)) = frame_of(p) {
+                let mut now = parts(local);
+                for (k, name) in TRANSFORM.iter().enumerate() {
+                    if let Some(Value::Float3(v)) = value(name) {
+                        now[k] = v;
+                    }
+                }
+                p.place = Placement::One((parents * compose(now)).as_mat4());
+            }
+        }
+        // A file's camera or light: what is written is an override of its
+        // values; one Imago made is written whole from its values.
+        let from_file = p.stage.is_some();
+        let mut written: Vec<(String, Value)> = vec![];
+        if kind == EditKind::Camera {
+            if let Some(c) = p.camera.as_deref() {
+                let mut c = c.clone();
+                for q in shown.iter().filter(|q| q.group != "Xform") {
+                    let Some(v) = value(&q.name) else { continue };
+                    let x = match &v {
+                        Value::Float(x) => *x,
+                        _ => 0.0,
+                    };
+                    match (q.name.as_str(), &v) {
+                        ("projection", Value::Token(t)) => {
+                            c.projection = if t == "orthographic" {
+                                crate::core::camera::Projection::Orthographic
+                            } else {
+                                crate::core::camera::Projection::Perspective
+                            }
+                        }
+                        ("focalLength", _) => c.focal_length = x,
+                        ("horizontalAperture", _) => c.horizontal_aperture = x,
+                        ("verticalAperture", _) => c.vertical_aperture = x,
+                        ("horizontalApertureOffset", _) => c.horizontal_aperture_offset = x,
+                        ("verticalApertureOffset", _) => c.vertical_aperture_offset = x,
+                        ("clippingRange", Value::Float2(r)) => c.clipping_range = *r,
+                        ("fStop", _) => c.f_stop = x,
+                        ("focusDistance", _) => c.focus_distance = x,
+                        _ => continue,
+                    }
+                    written.push((q.name.clone(), v));
+                }
+                p.camera = Some(Arc::new(c));
+            }
+        }
+        if kind == EditKind::Light {
+            if let Some(l) = p.light.as_deref() {
+                let mut l = l.clone();
+                for q in shown.iter().filter(|q| q.group != "Xform") {
+                    if let Some(v) = value(&q.name) {
+                        l.set(&q.name, v.clone());
+                        written.push((q.name.clone(), v));
+                    }
+                }
+                p.light = Some(Arc::new(l));
+            }
+        }
+        if from_file && !written.is_empty() {
+            let mut props = (*p.props).clone();
+            props.extend(written);
+            p.props = Arc::new(props);
+        }
+    }
+    // Groups named: what is below each moves with it.
+    if moves && kind == EditKind::Xform {
+        for t in targets(prims, list) {
+            let Target::Group { path, tree } = t else { continue };
+            let (parents, local) = group_frame(&path, tree);
+            let mut now = parts(local);
+            for (k, name) in TRANSFORM.iter().enumerate() {
+                if let Some(j) = edits.get(*name) {
+                    if let Value::Float3(v) = typed(&Value::Float3(now[k]), j) {
+                        now[k] = v;
+                    }
+                }
+            }
+            let delta = (parents * compose(now) * local.inverse() * parents.inverse()).as_mat4();
+            let below = format!("{path}/");
+            for p in out.iter_mut().filter(|p| p.path.starts_with(&below)) {
+                p.place = match &p.place {
+                    Placement::InPlace => Placement::One(delta),
+                    place => place.moved(delta),
+                };
+            }
+        }
+    }
+    // Visibility, purpose, active, kind and a mesh's values: as Set Attribute
+    // sets them, on the targets of this kind, groups among them.
+    let taken: Vec<String> = targets(prims, list)
+        .iter()
+        .filter(|t| kind.takes(t.kind()))
+        .map(|t| t.path().to_string())
+        .collect();
+    let rows: Vec<SetRow> = PROPERTIES
+        .iter()
+        .filter_map(|name| {
+            let j = edits.get(*name)?;
+            let like = match *name {
+                "active" | "doubleSided" => Value::Bool(false),
+                _ => Value::Token(String::new()),
+            };
+            Some(SetRow {
+                context: SetContext::Property,
+                name: name.to_string(),
+                value: typed(&like, j),
+            })
+        })
+        .collect();
+    let out = EvalResult::Named(out);
+    // None of this kind: nothing (an empty list would be every primitive).
+    if rows.is_empty() || taken.is_empty() {
+        out
+    } else {
+        crate::core::set_attribute::set_attributes(&out, &rows, &taken)
+    }
+}
+
+/// What the targets of a list are in a scene: how many, the kind of the first,
+/// and how many are of another kind than `kind` (left as they are).
+pub fn survey(prims: &[Prim], list: &[String], kind: EditKind) -> (usize, Option<EditKind>, usize) {
+    let all = targets(prims, list);
+    let first = all.first().map(|t| t.kind());
+    let other = all.iter().filter(|t| !kind.takes(t.kind())).count();
+    (all.len(), first, other)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::MeshData;
+
+    fn scene() -> Vec<Prim> {
+        let cube = crate::node_graph::nodes::create_cube(1.0);
+        let at = |x: f32| Placement::One(Mat4::from_translation(Vec3::new(x, 0.0, 0.0)));
+        let camera = Prim {
+            camera: Some(Arc::new(crate::core::camera::Camera::default())),
+            place: at(0.0),
+            ..Prim::new("/shot/cam".into(), MeshData::default())
+        };
+        vec![
+            Prim {
+                place: at(1.0),
+                ..Prim::new("/set/table/top".into(), cube.clone())
+            },
+            Prim {
+                place: at(2.0),
+                ..Prim::new("/set/table/leg".into(), cube)
+            },
+            camera,
+        ]
+    }
+
+    fn named(r: &EvalResult) -> &[Prim] {
+        match r {
+            EvalResult::Named(p) => p,
+            _ => panic!("primitives"),
+        }
+    }
+
+    /// The form shows the target's values; only what is overridden changes.
+    #[test]
+    fn a_prim_takes_only_its_overrides() {
+        let prims = scene();
+        let list = vec!["/set/table/top".to_string()];
+        let shown = params(EditKind::Mesh, &Target::Prim(&prims[0]));
+        let translate = shown.iter().find(|p| p.name == "translate").unwrap();
+        assert_eq!(translate.value, Value::Float3([1.0, 0.0, 0.0]));
+        assert!(shown.iter().any(|p| p.name == "subdivisionScheme"));
+        // Nothing overridden: nothing changes.
+        let none = edit(
+            &EvalResult::Named(prims.clone()),
+            &list,
+            EditKind::Mesh,
+            &BTreeMap::new(),
+        );
+        assert!(named(&none)[0].place.same(&prims[0].place));
+        // Rotate overridden: turned where it was, the leg left alone.
+        let mut edits = BTreeMap::new();
+        edits.insert("rotate".to_string(), serde_json::json!([0.0, 90.0, 0.0]));
+        let out = edit(&EvalResult::Named(prims.clone()), &list, EditKind::Mesh, &edits);
+        let Placement::One(m) = named(&out)[0].place else {
+            panic!()
+        };
+        assert!((m.w_axis.truncate() - Vec3::X).length() < 1e-5, "it stays where it was");
+        assert!((m.transform_vector3(Vec3::Z) - Vec3::X).length() < 1e-5, "and turns");
+        assert!(named(&out)[1].place.same(&prims[1].place));
+    }
+
+    /// A group named: what is below it moves with it, as USD composes a
+    /// group's transform.
+    #[test]
+    fn a_group_moves_what_is_below_it() {
+        let prims = scene();
+        let list = vec!["/set/table".to_string()];
+        let (n, first, other) = survey(&prims, &list, EditKind::Xform);
+        assert_eq!((n, first, other), (1, Some(EditKind::Xform), 0));
+        let mut edits = BTreeMap::new();
+        edits.insert("translate".to_string(), serde_json::json!([0.0, 3.0, 0.0]));
+        let out = edit(&EvalResult::Named(prims.clone()), &list, EditKind::Xform, &edits);
+        for (k, x) in [(0, 1.0), (1, 2.0)] {
+            let Placement::One(m) = named(&out)[k].place else {
+                panic!()
+            };
+            assert!((m.w_axis.truncate() - Vec3::new(x, 3.0, 0.0)).length() < 1e-5);
+        }
+        assert!(named(&out)[2].place.same(&prims[2].place), "the camera is not below it");
+    }
+
+    /// A camera's lens: the overridden values, the rest as they were; a
+    /// mesh named with the Camera type is left as it is.
+    #[test]
+    fn a_camera_takes_its_lens_overrides() {
+        let prims = scene();
+        let list = vec!["/shot/cam".to_string(), "/set/table/top".to_string()];
+        let (_, first, other) = survey(&prims, &list, EditKind::Camera);
+        assert_eq!((first, other), (Some(EditKind::Mesh), 1), "the mesh is of another kind");
+        let mut edits = BTreeMap::new();
+        edits.insert("focalLength".to_string(), serde_json::json!(85.0));
+        edits.insert("visibility".to_string(), serde_json::json!("invisible"));
+        let out = edit(&EvalResult::Named(prims.clone()), &list, EditKind::Camera, &edits);
+        let cam = named(&out)[2].camera.as_deref().unwrap();
+        assert_eq!(cam.focal_length, 85.0);
+        assert_eq!(
+            cam.horizontal_aperture,
+            crate::core::camera::Camera::default().horizontal_aperture
+        );
+        assert!(named(&out)[0].camera.is_none());
+        assert!(!named(&out)[0].props.contains_key("visibility"), "nor made invisible");
+        // Made in Imago: written whole from its values, not as properties too.
+        assert!(!named(&out)[2].props.contains_key("focalLength"));
+        assert_eq!(
+            named(&out)[2].props.get("visibility"),
+            Some(&Value::Token("invisible".into()))
+        );
+        // An override kept as plain JSON reads back as its type.
+        assert_eq!(
+            typed(&Value::Float(0.0), &plain(&Value::Float(85.0))),
+            Value::Float(85.0)
+        );
+    }
+}

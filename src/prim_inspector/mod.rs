@@ -551,8 +551,9 @@ fn upstream<'a>(
 }
 
 /// The Set Attribute operator nearest upstream of `view` with a row setting
-/// `name` in this context on `path`: one with no Primitive Locations, or with
-/// one naming the path. Its id and name.
+/// `name` in this context on `path` (one with no Primitive Locations, or with
+/// one naming the path), or the Edit Primitive overriding it there. Its id and
+/// name.
 pub fn set_by(
     graph: &crate::node_graph::NodeGraphState,
     view: NodeId,
@@ -567,6 +568,12 @@ pub fn set_by(
                 .any(|r| r.context == context && r.name.trim() == name && r.is_usable())
                 && (!crate::core::locations::is_set(&n.locations)
                     || crate::core::locations::any_names(&n.locations, path))
+        }
+        // An Edit Primitive overriding it.
+        NodeType::EditPrimitive { edits, .. } => {
+            context == crate::core::properties::SetContext::Property
+                && edits.contains_key(name)
+                && crate::core::locations::any_names(&n.locations, path)
         }
         _ => false,
     })

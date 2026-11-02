@@ -118,6 +118,10 @@ selection](docs/xms_edit_poly.png)
 - **Set values on any prim:** Set Attribute sets primvars for rendering and
   properties such as visibility, purpose, kind and active, on meshes, groups,
   cameras or lights, one row per value
+- **Edit prims as what they are:** Edit Primitive shows a named prim's own
+  form (a camera's lens, a light's values, any prim's transform) with its
+  values; what you change overrides them, and only that is applied, keyed and
+  written
 - **Sublayer, reference or payload:** Load USD brings a file in whole at its own
   paths, or its default prim at a Primitive Location (`/root` by default),
   written back as a sublayer, a reference or a payload

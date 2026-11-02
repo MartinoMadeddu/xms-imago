@@ -102,6 +102,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Values set on prims: the wheels made invisible, the model's root made a component asset. Add a Write USD node to see them written" },
     Template { by: MARTINO, group: "USD stages", name: "Cameras", build: cameras,
         hint: "Three shapes and two cameras, one perspective, one orthographic from above. Choose one in the Viewer's camera menu to look through it" },
+    Template { by: MARTINO, group: "USD stages", name: "Edit Primitive", build: edit_primitive,
+        hint: "The Cameras scene edited after it is made: the Front camera's lens overridden to 85 mm, and the /set group moved back, its shapes with it. Each Edit Primitive's form shows its prim's values; the overridden ones are marked" },
     Template { by: MARTINO, group: "USD stages", name: "Material bindings", build: material_bindings,
         hint: "Four shapes in one Merge, three materials bound to them by row under /root/materials, and a second Material Binding giving a fourth shape the textured ground material by Location. Write USD is viewed" },
     Template { by: MARTINO, group: "USD stages", name: "MaterialX: three shaders", build: materialx_shaders,
@@ -1252,6 +1254,38 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     }
     finish(g, merge, front);
     "Cameras: Front, a 35 mm lens on a full-frame gate, and Top, orthographic, 8 m across. Choose one in the Viewer's camera menu (🎥 Perspective) or press Look through on the operator; navigating leaves it.".into()
+}
+
+/// The Cameras scene, edited after it is made: Edit Primitive on
+/// /cameras/front (Camera) overriding its focal length, and on /set (Xform,
+/// the group Imago made above the shapes) moving it back with what is below it.
+fn edit_primitive(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use crate::core::edit_primitive::EditKind;
+    cameras(g, store);
+    let merge = g.view_flag.expect("the cameras scene is viewed");
+    let edit = |kind: EditKind, edits: &[(&str, serde_json::Value)]| NodeType::EditPrimitive {
+        kind,
+        edits: edits.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+    };
+    let lens = g.add_node(
+        "Lens".into(),
+        edit(EditKind::Camera, &[("focalLength", serde_json::json!(85.0))]),
+        p(480.0, 320.0),
+    );
+    let back = g.add_node(
+        "MoveSet".into(),
+        edit(EditKind::Xform, &[("translate", serde_json::json!([0.0, 0.0, -1.5]))]),
+        p(480.0, 420.0),
+    );
+    for (id, at) in [(lens, "/cameras/front"), (back, "/set")] {
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) {
+            n.locations = vec![at.into()];
+        }
+    }
+    g.add_connection(merge, 0, lens, 0);
+    g.add_connection(lens, 0, back, 0);
+    finish(g, back, lens);
+    "Edit Primitive: the Cameras scene edited after it is made. Lens overrides the Front camera's focal length (85, marked ✎ in its form; the rest of its lens is the camera's own). MoveSet moves /set, the group above the shapes, 1.5 back: the shapes move with it. Select either to see its prim's form; change a value to override it, ↺ to give it back.".into()
 }
 
 /// Martino's material bindings graph: shapes at Primitive Locations under
@@ -4100,6 +4134,31 @@ mod tests {
             let r = back.transform_point3(*w).length();
             assert!((0.98..=1.0001).contains(&r), "{w}: {r}");
         }
+    }
+
+    /// Edit Primitive's template: the Front camera with an 85 mm lens, the
+    /// rest of it its own; the shapes under /set moved back with it, the
+    /// cameras not.
+    #[test]
+    fn the_edit_primitive_template_overrides_a_lens_and_moves_a_group() {
+        let t = TEMPLATES.iter().find(|t| t.name == "Edit Primitive").unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        t.load(&mut g, &mut store);
+        let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+        let Some(crate::types::EvalResult::Named(prims)) =
+            g.eval_node(g.view_flag.unwrap(), &mut Default::default(), &pass)
+        else {
+            panic!("primitives")
+        };
+        let at = |path: &str| prims.iter().find(|p| p.path == path).unwrap();
+        let front = at("/cameras/front").camera.as_deref().unwrap();
+        assert_eq!((front.focal_length, front.horizontal_aperture), (85.0, 36.0));
+        let z = |path: &str| match at(path).place {
+            crate::types::Placement::One(m) => m.w_axis.z,
+            _ => 0.0,
+        };
+        assert!((z("/set/cube") + 1.5).abs() < 1e-5, "{}", z("/set/cube"));
+        assert!((z("/cameras/front") - 5.5).abs() < 1e-5);
     }
 
     /// The binding deformer on the Alembic pig's head: the spheres move with

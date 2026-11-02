@@ -575,7 +575,8 @@ impl NodeGraphState {
             | NodeType::PrunePrims { .. }
             | NodeType::UnpackPrims
             | NodeType::WriteUsd { .. }
-            | NodeType::SetAttribute { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            | NodeType::SetAttribute { .. }
+            | NodeType::EditPrimitive { .. } => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. }
@@ -1469,6 +1470,9 @@ impl NodeGraphState {
                 // geometry among them: it reads the list itself.
                 NodeType::SetAttribute { rows } => {
                     Some(crate::core::set_attribute::set_attributes(first, rows, &node.locations))
+                }
+                NodeType::EditPrimitive { kind, edits } => {
+                    Some(crate::core::edit_primitive::edit(first, &node.locations, *kind, edits))
                 }
                 t => {
                     let mut targeted = inputs.clone();
