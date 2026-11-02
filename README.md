@@ -413,7 +413,9 @@ Joints](docs/xms_bypass_pick.png)
   ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
 - Primitive Inspector: the attributes of the selected node or primitive. Object,
   Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's
-  control points are points, its segments edges, the curve a face), Joint and
+  control points are points and corners, its segments edges, the curve a face),
+  each listing the stored attributes and the intrinsics (`intrinsic:…`, the
+  names ICE reads them by), with a Show dropdown for either or both; Joint and
   Bone tabs for a clip, and a Properties tab for the selected prims themselves
   (groups, cameras and lights too): each property's value and where it comes
   from

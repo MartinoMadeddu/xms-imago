@@ -1195,7 +1195,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 // Explorer and what is below them, or all of it.
                 let subnets = &*self.subnets;
                 let paths = self.hierarchy.selected_prim_paths();
-                let get_parts = |g: &NodeGraphState| -> Option<Vec<MeshData>> {
+                let get_parts = |g: &NodeGraphState| -> Option<Vec<prim_inspector::Part>> {
                     let eval = |sid: IceGraphId,
                                 mesh: &crate::core::geo::Geo,
                                 template: &[crate::ice::Reference]|

@@ -2071,12 +2071,36 @@ pub enum PrimInspectorTab {
     Bone,
 }
 
+/// Which columns the Primitive Inspector's geometry tabs show.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InspectorShow {
+    #[default]
+    All,
+    /// What the geometry holds.
+    Stored,
+    /// What it has from its topology and points (`intrinsic:…`).
+    Intrinsics,
+}
+
+impl InspectorShow {
+    /// Whether the column named `name` is shown.
+    pub fn shows(self, name: &str) -> bool {
+        let intrinsic = xms_geo::intrinsics::is_intrinsic(name);
+        match self {
+            InspectorShow::All => true,
+            InspectorShow::Stored => !intrinsic,
+            InspectorShow::Intrinsics => intrinsic,
+        }
+    }
+}
+
 /// One tab of the inspector, ready to draw.
 #[derive(Clone, Debug, Default)]
 pub struct InspectorTable {
     pub rows: usize,
-    /// Text column before the numbers (joint names), with its heading.
-    pub labels: Option<(String, Vec<String>)>,
+    /// Text columns before the numbers (joint names; a primitive's path and
+    /// type), each with its heading.
+    pub texts: Vec<(String, Vec<String>)>,
     /// Column group name and its values per row. A group wider than one is
     /// shown as name.X, name.Y, name.Z, unless it is an array.
     pub cols: Vec<(String, Vec<Vec<f32>>)>,
@@ -2096,12 +2120,15 @@ pub fn array_text(values: &[f32]) -> String {
 pub struct PrimInspectorState {
     pub active_tab: PrimInspectorTab,
     pub row_offset: usize,
+    /// Which columns the geometry tabs show: all, the stored attributes, or
+    /// the intrinsics.
+    pub show: InspectorShow,
 
     // Primitives or clip of the scene at the view flag (the selected row's
     // part of it), cooked once per graph revision and selection. The
     // primitives only once a geometry tab asks for them (`parts_loaded`);
     // until then `summary` counts them.
-    cached_parts: Option<std::sync::Arc<Vec<MeshData>>>,
+    cached_parts: Option<std::sync::Arc<Vec<crate::prim_inspector::Part>>>,
     parts_loaded: bool,
     summary: crate::prim_inspector::Summary,
     cached_clip: Option<std::sync::Arc<crate::core::anim::AnimData>>,
@@ -2151,10 +2178,10 @@ impl PrimInspectorState {
     }
 
     /// The geometry, made when a geometry tab first asks for it.
-    pub fn set_parts(&mut self, parts: Vec<MeshData>) {
+    pub fn set_parts(&mut self, parts: Vec<crate::prim_inspector::Part>) {
         self.edge_count = parts
             .iter()
-            .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
+            .map(|m| crate::core::poly::PolyMesh::from_mesh(&m.mesh).edges().len() + m.curve_segments().len())
             .sum();
         self.cached_parts = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
         self.parts_loaded = true;
@@ -2173,7 +2200,7 @@ impl PrimInspectorState {
     }
 
     /// The primitives shown, each where it is drawn.
-    pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> {
+    pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<crate::prim_inspector::Part>>> {
         self.cached_parts.clone()
     }
     pub fn cached_clip(&self) -> Option<std::sync::Arc<crate::core::anim::AnimData>> {

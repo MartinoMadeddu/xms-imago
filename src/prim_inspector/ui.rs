@@ -1,5 +1,6 @@
 use crate::core::anim::AnimData;
 use crate::node_graph::NodeGraphState;
+use crate::prim_inspector::Part;
 use crate::types::{array_text, InspectorTable, MeshData, PrimInspectorState, PrimInspectorTab, PrimVarInterp};
 
 const ROW_H: f32 = 20.0;
@@ -73,7 +74,7 @@ pub fn draw_prim_inspector(
     revision: u64,
     // Playhead, for the pose a clip is listed in.
     time: f64,
-    get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<MeshData>>,
+    get_parts: &dyn Fn(&NodeGraphState) -> Option<Vec<Part>>,
     // The counts of that geometry, without making it.
     get_summary: &dyn Fn(&NodeGraphState) -> crate::prim_inspector::Summary,
     get_clip: &dyn Fn(&NodeGraphState) -> Option<std::sync::Arc<AnimData>>,
@@ -185,11 +186,39 @@ pub fn draw_prim_inspector(
                         loaded(state.edge_count),
                         loaded(mesh.as_deref().map_or(0, |p| object_rows(p))),
                     );
-                    tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", summary.points));
-                    tab_btn(ui, state, Tab::Edge, &format!("Edge{edges}"));
-                    tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", summary.faces));
-                    tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", summary.corners));
-                    tab_btn(ui, state, Tab::Constant, &format!("Object{objects}"));
+                    // Imago's contexts; USD's interpolations in the tooltips.
+                    tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", summary.points))
+                        .on_hover_text("One row per point (USD: vertex)");
+                    tab_btn(ui, state, Tab::Edge, &format!("Edge{edges}"))
+                        .on_hover_text("One row per edge: not a context, worked out from the topology");
+                    tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", summary.faces))
+                        .on_hover_text("One row per polygon or curve (USD: uniform)");
+                    tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", summary.corners))
+                        .on_hover_text("One row per corner: a polygon's, or a curve's control point (USD: faceVarying)");
+                    tab_btn(ui, state, Tab::Constant, &format!("Object{objects}"))
+                        .on_hover_text("One row per primitive (USD: constant)");
+                    // Which columns: what the geometry holds, what it has
+                    // from its topology (intrinsic:…), or both.
+                    if !matches!(state.active_tab, Tab::Properties) {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            use crate::types::InspectorShow as Show;
+                            let name = |s: Show| match s {
+                                Show::All => "All",
+                                Show::Stored => "Stored",
+                                Show::Intrinsics => "Intrinsics",
+                            };
+                            egui::ComboBox::from_id_salt("prim_inspector_show")
+                                .selected_text(name(state.show))
+                                .show_ui(ui, |ui| {
+                                    for s in [Show::All, Show::Stored, Show::Intrinsics] {
+                                        ui.selectable_value(&mut state.show, s, name(s));
+                                    }
+                                })
+                                .response
+                                .on_hover_text("Which columns: all, the attributes the geometry holds, or its intrinsics (intrinsic:…, from its topology and points; what ICE reads by those names)");
+                            ui.label(egui::RichText::new("Show").color(xsi::TEXT_DIM()).size(11.0));
+                        });
+                    }
                 }
                 if clip.is_none() && !props.is_empty() {
                     let prims = props
@@ -233,16 +262,20 @@ pub fn draw_prim_inspector(
             state.set_table(tab.clone(), frame, table);
         }
         let table = state.take_table();
-        if table.cols.is_empty() {
+        // A geometry tab shows the columns Show picks; a clip's, all.
+        let shown = |name: &str| clip.is_some() || state.show.shows(name);
+        if !table.cols.iter().any(|c| shown(&c.0)) && !table.texts.iter().any(|c| shown(&c.0)) {
             ui.add_space(12.0);
-            let what = match tab {
-                Tab::FaceVarying => "No Corner attributes. A UV Unwrap node adds UVs.",
-                Tab::Constant => "No Object attributes.",
+            let what = match (tab, state.show) {
+                (_, crate::types::InspectorShow::Stored) => "No stored attributes here: Show All lists the intrinsics too.",
+                (Tab::FaceVarying, _) => "No Corner attributes. A UV Unwrap node adds UVs.",
+                (Tab::Constant, _) => "No Object attributes.",
                 _ => "No data.",
             };
             ui.label(egui::RichText::new(what).color(xsi::TEXT_DIM()));
         } else {
-            draw_spreadsheet(ui, state, &table);
+            let filter = if clip.is_some() { None } else { Some(state.show) };
+            draw_spreadsheet(ui, state, &table, filter);
         }
         state.put_table(table);
     });
@@ -386,7 +419,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
                 .collect();
             InspectorTable {
                 rows: list.len(),
-                labels: Some(("from > to".into(), labels)),
+                texts: vec![("from > to".into(), labels)],
                 cols: vec![
                     ("from".into(), list.iter().map(|(a, _)| vec![*a as f32]).collect()),
                     ("to".into(), list.iter().map(|(_, b)| vec![*b as f32]).collect()),
@@ -412,7 +445,7 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
             };
             InspectorTable {
                 rows: n,
-                labels: Some(("joint".into(), clip.joints.iter().map(|j| j.name.clone()).collect())),
+                texts: vec![("joint".into(), clip.joints.iter().map(|j| j.name.clone()).collect())],
                 cols: vec![
                     (
                         "parent".into(),
@@ -437,31 +470,26 @@ pub fn clip_table(clip: &AnimData, tab: &PrimInspectorTab, frame: usize) -> Insp
 /// One component tab of a mesh.
 #[cfg(test)]
 pub fn mesh_table(mesh: &MeshData, tab: &PrimInspectorTab) -> InspectorTable {
-    parts_table(std::slice::from_ref(mesh), tab)
+    parts_table(&[Part::from(mesh.clone())], tab)
 }
 
-/// Rows of the Object tab: one per primitive, when any has Object attributes.
-pub fn object_rows(parts: &[MeshData]) -> usize {
-    let any = parts
-        .iter()
-        .any(|m| m.primvars.iter().any(|p| p.interp == PrimVarInterp::Constant));
-    if any {
-        parts.len()
-    } else {
-        0
-    }
+/// Rows of the Object tab: one per primitive.
+pub fn object_rows(parts: &[Part]) -> usize {
+    parts.len()
 }
 
 /// One component tab of some primitives, each where it is drawn: the rows of
 /// each primitive in turn, with point, face and corner numbers counted
-/// across all of them.
+/// across all of them. Stored attributes first, then the intrinsics
+/// (`xms_geo::intrinsics`), named as ICE reads them.
 /// A column one primitive lacks shows `-` on its rows.
-pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable {
+pub fn parts_table(parts: &[Part], tab: &PrimInspectorTab) -> InspectorTable {
     let mut rows = 0usize;
     let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
+    let mut texts: Vec<(String, Vec<String>)> = vec![];
     let mut first = First::default();
     for m in parts {
-        let (n, part_cols) = part_table(m, tab, first);
+        let (n, part_cols, part_texts) = part_table(m, tab, first);
         for (name, values) in part_cols {
             let at = match cols.iter().position(|c| c.0 == name) {
                 Some(at) => at,
@@ -472,27 +500,38 @@ pub fn parts_table(parts: &[MeshData], tab: &PrimInspectorTab) -> InspectorTable
             };
             cols[at].1.extend(values);
         }
+        for (name, values) in part_texts {
+            let at = match texts.iter().position(|c| c.0 == name) {
+                Some(at) => at,
+                None => {
+                    texts.push((name, vec![String::new(); rows]));
+                    texts.len() - 1
+                }
+            };
+            texts[at].1.extend(values);
+        }
         rows += n;
         for c in cols.iter_mut() {
             c.1.resize(rows, vec![]);
         }
+        for c in texts.iter_mut() {
+            c.1.resize(rows, String::new());
+        }
         first.point += m.point_count();
         first.face += m.polygons().len() + m.curve_counts.len();
-        first.corner += m.corner_count();
+        first.corner += m.corner_count() + m.curve_points.len();
     }
-    // The points of an edge or a face: one array each, `ptIndices`, as the
-    // face's slice of `Topology::Mesh::indices` (USD faceVertexIndices).
-    let arrays = match tab {
-        PrimInspectorTab::Edge | PrimInspectorTab::Uniform => cols
-            .iter()
-            .filter(|c| c.0 == "ptIndices")
-            .map(|c| (c.0.clone(), c.1.iter().map(|v| array_text(v).len()).max().unwrap_or(2)))
-            .collect(),
-        _ => vec![],
-    };
+    // Lists of element numbers, one array each (a face's or an edge's points,
+    // a point's faces), as wide as their widest cell.
+    let lists = ["intrinsic:ptIndices", "intrinsic:faceIndices"];
+    let arrays = cols
+        .iter()
+        .filter(|c| lists.contains(&c.0.as_str()))
+        .map(|c| (c.0.clone(), c.1.iter().map(|v| array_text(v).len()).max().unwrap_or(2)))
+        .collect();
     InspectorTable {
         rows,
-        labels: None,
+        texts,
         cols,
         arrays,
     }
@@ -507,23 +546,230 @@ struct First {
     corner: usize,
 }
 
-/// One component tab of one primitive, numbered on from `first`.
-fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first: First) -> (usize, Vec<(String, Vec<Vec<f32>>)>) {
-    let first_point = first.point;
-    use glam::Vec3;
+/// A primitive's geometry as the intrinsics are made from: its polygons, then
+/// its curves, then its free points, as the inspector lists them, each with
+/// where its points, faces and corners start in the primitive's rows.
+fn kinds(mesh: &MeshData) -> Vec<(crate::core::geo::Geo, First)> {
+    use crate::core::geo::{Geo, Topology};
+    let mut out = vec![];
+    let mut at = First::default();
+    if !mesh.vertices.is_empty() {
+        let polys = mesh.polygons();
+        let counts = polys.iter().map(|q| q.len() as u32).collect();
+        let indices = polys.iter().flatten().copied().collect();
+        out.push((Geo::from_polygons(mesh.vertices.clone(), counts, indices), at));
+        at.point += mesh.vertices.len();
+        at.face += polys.len();
+        at.corner += mesh.corner_count();
+    }
+    if !mesh.curve_points.is_empty() {
+        let mut g = Geo::from_points(mesh.curve_points.clone());
+        g.topology = Topology::curves(mesh.curve_counts.clone(), mesh.curve_basis, mesh.curve_wrap);
+        out.push((g, at));
+        at.point += mesh.curve_points.len();
+        at.face += mesh.curve_counts.len();
+        at.corner += mesh.curve_points.len();
+    }
+    if !mesh.points.is_empty() {
+        out.push((Geo::from_points(mesh.points.clone()), at));
+    }
+    out
+}
+
+/// A column's values as the table shows them: one number list per row.
+fn rows_of(column: &crate::core::geo::Column) -> Vec<Vec<f32>> {
+    use crate::core::geo::Column;
+    match column {
+        Column::Bool(v) => v.iter().map(|x| vec![*x as u8 as f32]).collect(),
+        Column::Int(v) => v.iter().map(|x| vec![*x as f32]).collect(),
+        Column::Float(v) => v.iter().map(|x| vec![*x]).collect(),
+        Column::Vec2(v) => v.iter().map(|x| x.to_vec()).collect(),
+        Column::Vec3(v) => v.iter().map(|x| x.to_vec()).collect(),
+        Column::Vec4(v) | Column::Quat(v) => v.iter().map(|x| x.to_vec()).collect(),
+        Column::Mat4(v) => v.iter().map(|x| x.iter().map(|y| *y as f32).collect()).collect(),
+        Column::Token(v) => v.iter().map(|_| vec![]).collect(),
+    }
+}
+
+/// The intrinsics of one primitive in a component tab, numbered on from
+/// `first`: per point, face and corner, per edge, or the primitive's own.
+fn intrinsic_cols(
+    part: &Part,
+    tab: &PrimInspectorTab,
+    first: First,
+) -> (Vec<(String, Vec<Vec<f32>>)>, Vec<(String, Vec<String>)>) {
+    use crate::core::geo::Context;
+    use xms_geo::intrinsics::{self, Scope};
+    let ctx = match tab {
+        PrimInspectorTab::Vertex => Some(Context::Point),
+        PrimInspectorTab::Uniform => Some(Context::Face),
+        PrimInspectorTab::FaceVarying => Some(Context::Corner),
+        PrimInspectorTab::Constant => Some(Context::Object),
+        _ => None,
+    };
+    // Element numbers, counted across the table.
+    let base = |c: Context, at: First| match c {
+        Context::Point => first.point + at.point,
+        Context::Face => first.face + at.face,
+        Context::Corner => first.corner + at.corner,
+        Context::Object => 0,
+    };
+    let numbered = |values: Vec<Vec<f32>>, what: Option<Context>, at: First| -> Vec<Vec<f32>> {
+        match what {
+            Some(c) => {
+                let b = base(c, at) as f32;
+                values
+                    .into_iter()
+                    .map(|v| v.into_iter().map(|x| x + b).collect())
+                    .collect()
+            }
+            None => values,
+        }
+    };
+    let rows_in = |c: Context, g: &crate::core::geo::Geo| match c {
+        Context::Object => 0,
+        c => g.count(c),
+    };
+    let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
+    let pieces = kinds(&part.mesh);
+    match ctx {
+        // The primitive's own: one row, made from all of it.
+        Some(Context::Object) => {
+            let all: Vec<&crate::core::geo::Geo> = pieces.iter().map(|(g, _)| g).collect();
+            let sum = |c: Context| all.iter().map(|g| rows_in(c, *g)).sum::<usize>() as f32;
+            let pts: Vec<[f32; 3]> = all.iter().flat_map(|g| g.points().iter().copied()).collect();
+            let lo = pts.iter().fold(pts.first().copied().unwrap_or([0.0; 3]), |a, p| {
+                [a[0].min(p[0]), a[1].min(p[1]), a[2].min(p[2])]
+            });
+            let hi = pts.iter().fold(pts.first().copied().unwrap_or([0.0; 3]), |a, p| {
+                [a[0].max(p[0]), a[1].max(p[1]), a[2].max(p[2])]
+            });
+            cols.push(("intrinsic:pointCount".into(), vec![vec![sum(Context::Point)]]));
+            cols.push(("intrinsic:faceCount".into(), vec![vec![sum(Context::Face)]]));
+            cols.push(("intrinsic:cornerCount".into(), vec![vec![sum(Context::Corner)]]));
+            cols.push(("intrinsic:boundsMin".into(), vec![lo.to_vec()]));
+            cols.push(("intrinsic:boundsMax".into(), vec![hi.to_vec()]));
+            // The matrix by its rows, as USD writes them: four of four.
+            for (k, row) in part.transform.chunks(4).enumerate() {
+                cols.push((
+                    format!("intrinsic:transform[{k}]"),
+                    vec![row.iter().map(|x| *x as f32).collect()],
+                ));
+            }
+            let kind = all.first().map_or("Points", |g| intrinsics::type_name(*g));
+            let texts = vec![
+                ("intrinsic:path".to_string(), vec![part.path.clone()]),
+                ("intrinsic:typeName".to_string(), vec![kind.to_string()]),
+            ];
+            return (cols, texts);
+        }
+        Some(c) => {
+            let mut names: Vec<&'static str> = vec![];
+            for (g, _) in &pieces {
+                for i in intrinsics::of_geo(g, c) {
+                    if !names.contains(&i.name) {
+                        names.push(i.name);
+                    }
+                }
+            }
+            // A piece without one of them: `-` on its rows.
+            for name in names {
+                let Some(i) = intrinsics::get(Scope::In(c), name) else {
+                    continue;
+                };
+                let mut col = vec![];
+                for (g, at) in &pieces {
+                    if intrinsics::of_geo(g, c).any(|j| j.name == name) {
+                        let values = match i.gathers {
+                            Some((of, _)) => touched(g, c, of),
+                            None => intrinsics::column(g, c, name, None)
+                                .map(|col| rows_of(&col))
+                                .unwrap_or_default(),
+                        };
+                        col.extend(numbered(values, i.numbers, *at));
+                    } else {
+                        col.extend(vec![vec![]; rows_in(c, g)]);
+                    }
+                }
+                cols.push((name.to_string(), col));
+            }
+            return (cols, vec![]);
+        }
+        None => {}
+    }
+    // Edges: polygon edges, then curve segments.
+    if matches!(tab, PrimInspectorTab::Edge) {
+        let (mut pts, mut lengths) = (vec![], vec![]);
+        for (g, at) in &pieces {
+            let edges = intrinsics::edges(g);
+            let b = (first.point + at.point) as f32;
+            pts.extend(edges.iter().map(|e| vec![e[0] as f32 + b, e[1] as f32 + b]));
+            lengths.extend(intrinsics::edge_lengths(g, &edges).into_iter().map(|l| vec![l]));
+        }
+        cols.push(("intrinsic:ptIndices".into(), pts));
+        cols.push(("intrinsic:length".into(), lengths));
+    }
+    (cols, vec![])
+}
+
+/// What each element of `c` touches in `of`, as numbers: a face's points
+/// (corner by corner), a point's faces.
+fn touched(g: &crate::core::geo::Geo, c: crate::core::geo::Context, of: crate::core::geo::Context) -> Vec<Vec<f32>> {
+    use crate::core::geo::{Context, Topology};
+    let (counts, corner_point): (&[u32], Vec<u32>) = match &g.topology {
+        Topology::Points => (&[], vec![]),
+        Topology::Mesh { counts, indices, .. } => (counts.as_slice(), indices.to_vec()),
+        Topology::Curves { counts, .. } => (counts.as_slice(), (0..counts.iter().sum::<u32>()).collect()),
+    };
+    let mut faces: Vec<Vec<f32>> = vec![];
+    let mut start = 0usize;
+    for &n in counts {
+        faces.push(
+            corner_point[start..start + n as usize]
+                .iter()
+                .map(|p| *p as f32)
+                .collect(),
+        );
+        start += n as usize;
+    }
+    match (c, of) {
+        (Context::Face, Context::Point) => faces,
+        (Context::Point, Context::Face) => {
+            let mut around = vec![vec![]; g.point_count()];
+            for (f, pts) in faces.iter().enumerate() {
+                for p in pts {
+                    let list: &mut Vec<f32> = &mut around[*p as usize];
+                    if list.last() != Some(&(f as f32)) {
+                        list.push(f as f32);
+                    }
+                }
+            }
+            around
+        }
+        _ => vec![vec![]; g.count(c)],
+    }
+}
+
+/// One component tab of one primitive, numbered on from `first`: what it
+/// holds, then its intrinsics, and its text columns.
+fn part_table(
+    part: &Part,
+    tab: &PrimInspectorTab,
+    first: First,
+) -> (usize, Vec<(String, Vec<Vec<f32>>)>, Vec<(String, Vec<String>)>) {
+    let mesh = &part.mesh;
     let vars = |interp: PrimVarInterp| mesh.primvars.iter().filter(move |p| p.interp == interp);
     // Points, numbered as listed: polygon vertices, curve control points, free points.
     let (nv, nc) = (mesh.vertices.len(), mesh.curve_points.len());
-    let at = |i: usize| -> Vec3 {
-        Vec3::from_array(if i < nv {
+    let at = |i: usize| -> [f32; 3] {
+        if i < nv {
             mesh.vertices[i]
         } else if i < nv + nc {
             mesh.curve_points[i - nv]
         } else {
             mesh.points[i - nv - nc]
-        })
+        }
     };
-    let num = |i: usize| (first_point + i) as f32;
     // A column with values on some rows and `-` on the others.
     let fill = |n: usize, from: usize, values: Vec<Vec<f32>>| -> Vec<Vec<f32>> {
         let mut col = vec![vec![]; n];
@@ -534,11 +780,10 @@ fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first: First) -> (usize, 
         }
         col
     };
-    match tab {
+    let (n, mut cols): (usize, Vec<(String, Vec<Vec<f32>>)>) = match tab {
         PrimInspectorTab::Vertex => {
             let n = mesh.point_count();
-            let mut cols: Vec<(String, Vec<Vec<f32>>)> =
-                vec![("P".into(), (0..n).map(|i| at(i).to_array().to_vec()).collect())];
+            let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![("P".into(), (0..n).map(|i| at(i).to_vec()).collect())];
             if !mesh.normals.is_empty() {
                 cols.push((
                     "N".into(),
@@ -561,125 +806,24 @@ fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first: First) -> (usize, 
             (n, cols)
         }
         PrimInspectorTab::Edge => {
-            // Polygon edges, then the segments of each curve.
-            let mut edges = crate::core::poly::PolyMesh::from_mesh(mesh).edges();
-            edges.extend(
-                mesh.curve_segments()
-                    .into_iter()
-                    .map(|[a, b]| [a + nv as u32, b + nv as u32]),
-            );
-            (
-                edges.len(),
-                vec![
-                    (
-                        "ptIndices".into(),
-                        edges
-                            .iter()
-                            .map(|e| vec![num(e[0] as usize), num(e[1] as usize)])
-                            .collect(),
-                    ),
-                    (
-                        "length".into(),
-                        edges
-                            .iter()
-                            .map(|e| vec![at(e[0] as usize).distance(at(e[1] as usize))])
-                            .collect(),
-                    ),
-                ],
-            )
+            let polys = crate::core::poly::PolyMesh::from_mesh(mesh).edges().len();
+            (polys + mesh.curve_segments().len(), vec![])
         }
         PrimInspectorTab::Uniform => {
-            // Polygons, then curves: a curve is one face, its control points
-            // its corners (as `Topology::corner_count` counts them).
-            let poly = crate::core::poly::PolyMesh::from_mesh(mesh);
-            let np = poly.polys.len();
-            let mut corners: Vec<Vec<usize>> = poly
-                .polys
-                .iter()
-                .map(|q| q.iter().map(|v| *v as usize).collect())
+            let n = mesh.polygons().len() + mesh.curve_counts.len();
+            let cols = vars(PrimVarInterp::Uniform)
+                .map(|pv| (pv.name.clone(), fill(n, 0, pv.values.clone())))
                 .collect();
-            let mut next = nv;
-            for &c in &mesh.curve_counts {
-                corners.push((next..next + c as usize).collect());
-                next += c as usize;
-            }
-            let n = corners.len();
-            let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![
-                ("corners".into(), corners.iter().map(|q| vec![q.len() as f32]).collect()),
-                (
-                    "ptIndices".into(),
-                    corners.iter().map(|q| q.iter().map(|v| num(*v)).collect()).collect(),
-                ),
-            ];
-            if np > 0 {
-                // Where each polygon's corners start in the Corner tab: its
-                // corners are firstCorner, firstCorner + 1, … (corners).
-                let starts = poly.polys.iter().scan(first.corner, |at, q| {
-                    let s = *at;
-                    *at += q.len();
-                    Some(vec![s as f32])
-                });
-                cols.push(("firstCorner".into(), fill(n, 0, starts.collect())));
-                cols.push((
-                    "N".into(),
-                    fill(n, 0, (0..np).map(|q| poly.normal(q).to_array().to_vec()).collect()),
-                ));
-                cols.push((
-                    "area".into(),
-                    fill(
-                        n,
-                        0,
-                        (0..np).map(|q| vec![poly.area_normal(q).length() * 0.5]).collect(),
-                    ),
-                ));
-            }
-            if n > np {
-                // Along the control points, closing a periodic curve.
-                let closed = mesh.curve_wrap == crate::types::CurveWrap::Periodic;
-                let length = |cv: &Vec<usize>| -> f32 {
-                    let open: f32 = cv.windows(2).map(|w| at(w[0]).distance(at(w[1]))).sum();
-                    if closed && cv.len() > 2 {
-                        open + at(cv[cv.len() - 1]).distance(at(cv[0]))
-                    } else {
-                        open
-                    }
-                };
-                cols.push((
-                    "length".into(),
-                    fill(n, np, corners[np..].iter().map(|cv| vec![length(cv)]).collect()),
-                ));
-            }
-            for pv in vars(PrimVarInterp::Uniform) {
-                cols.push((pv.name.clone(), fill(n, 0, pv.values.clone())));
-            }
             (n, cols)
         }
         PrimInspectorTab::FaceVarying => {
-            // Polygon corners, polygon after polygon: the point each belongs to
-            // (several corners share a point), the face it is a corner of and
-            // its place in that face (0 for a face's first corner), then what
-            // each corner carries. The row number is the corner's own number,
+            // Polygon corners, polygon after polygon, then each curve's
+            // control points: the row number is the corner's own number,
             // counted across the whole mesh as USD counts faceVarying values.
-            let n = mesh.corner_count();
+            let n = mesh.corner_count() + nc;
             let mut cols: Vec<(String, Vec<Vec<f32>>)> = vec![];
-            if n > 0 {
-                cols.push((
-                    "ptIndex".into(),
-                    mesh.corner_points().iter().map(|i| vec![num(*i as usize)]).collect(),
-                ));
-                let polys = mesh.polygons();
-                let of_face = |f: usize, q: &Vec<u32>| (0..q.len()).map(move |k| (f, k));
-                let (faces, local): (Vec<Vec<f32>>, Vec<Vec<f32>>) = polys
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(f, q)| of_face(f, q))
-                    .map(|(f, k)| (vec![(first.face + f) as f32], vec![k as f32]))
-                    .unzip();
-                cols.push(("faceIndex".into(), faces));
-                cols.push(("localCornerIndex".into(), local));
-            }
             if let Some(uvs) = mesh.corner_uvs() {
-                cols.push(("uv".into(), uvs.iter().map(|uv| uv.to_vec()).collect()));
+                cols.push(("uv".into(), fill(n, 0, uvs.iter().map(|uv| uv.to_vec()).collect())));
             }
             cols.extend(vars(PrimVarInterp::FaceVarying).map(|pv| (pv.name.clone(), fill(n, 0, pv.values.clone()))));
             (n, cols)
@@ -691,13 +835,18 @@ fn part_table(mesh: &MeshData, tab: &PrimInspectorTab, first: First) -> (usize, 
                 .collect();
             (1, cols)
         }
-        _ => (0, vec![]),
-    }
+        _ => return (0, vec![], vec![]),
+    };
+    let (own, texts) = intrinsic_cols(part, tab, first);
+    cols.extend(own.into_iter().map(|(name, mut values)| {
+        values.resize(n, vec![]);
+        (name, values)
+    }));
+    (n, cols, texts)
 }
 
 // Tab button
-// Update tab_btn to use the new method
-fn tab_btn(ui: &mut egui::Ui, state: &mut PrimInspectorState, tab: PrimInspectorTab, label: &str) {
+fn tab_btn(ui: &mut egui::Ui, state: &mut PrimInspectorState, tab: PrimInspectorTab, label: &str) -> egui::Response {
     let is_active = state.active_tab == tab;
     let btn = egui::Button::new(
         egui::RichText::new(label)
@@ -712,21 +861,39 @@ fn tab_btn(ui: &mut egui::Ui, state: &mut PrimInspectorState, tab: PrimInspector
     .frame(true)
     .min_size(egui::vec2(0.0, 22.0));
 
-    if ui.add(btn).clicked() {
-        state.set_active_tab(tab); // ✅ Use new method
+    let response = ui.add(btn);
+    if response.clicked() {
+        state.set_active_tab(tab);
     }
+    response
 }
 
 // Spreadsheet grid
 
 /// `cols` is a list of (column_group_name, per_row_components). Components
 /// wider than 1 are shown as name.X / name.Y / name.Z.
-fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &InspectorTable) {
+/// `filter`: which columns a geometry tab shows (none: all). An intrinsic's
+/// heading is coloured as the row numbers are: it is not stored.
+fn draw_spreadsheet(
+    ui: &mut egui::Ui,
+    state: &mut PrimInspectorState,
+    table: &InspectorTable,
+    filter: Option<crate::types::InspectorShow>,
+) {
     let row_count = table.rows;
-    let cols = &table.cols;
-    // Width of the text column, when the table has one.
-    let label_w = if table.labels.is_some() { LABEL_COL_W } else { 0.0 };
-    if row_count == 0 || cols.is_empty() {
+    let shown = |name: &str| filter.map_or(true, |f| f.shows(name));
+    let cols: Vec<&(String, Vec<Vec<f32>>)> = table.cols.iter().filter(|c| shown(&c.0)).collect();
+    let texts: Vec<&(String, Vec<String>)> = table.texts.iter().filter(|c| shown(&c.0)).collect();
+    let heading_colour = |name: &str| {
+        if xms_geo::intrinsics::is_intrinsic(name) {
+            xsi::TEXT_IDX()
+        } else {
+            xsi::TEXT()
+        }
+    };
+    // Width of the text columns, when the table has some.
+    let label_w = texts.len() as f32 * LABEL_COL_W;
+    if row_count == 0 || (cols.is_empty() && texts.is_empty()) {
         ui.label(egui::RichText::new("No data.").color(xsi::TEXT_DIM()));
         return;
     }
@@ -743,9 +910,13 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
     }
     let mut col_defs: Vec<ColDef> = Vec::new();
     let mut x = 0.0;
-    for (name, rows) in cols {
+    // Wide enough for its heading (an intrinsic's is long).
+    let fit = |header: &str| (header.chars().count() as f32 * 6.4 + 14.0).max(DATA_COL_W);
+    for (name, rows) in cols.iter().map(|c| (&c.0, &c.1)) {
         if let Some((_, chars)) = table.arrays.iter().find(|a| a.0 == *name) {
-            let w = (*chars as f32 * ARRAY_CHAR_W + 12.0).clamp(DATA_COL_W, ARRAY_COL_MAX_W);
+            let w = (*chars as f32 * ARRAY_CHAR_W + 12.0)
+                .max(fit(name))
+                .clamp(DATA_COL_W, ARRAY_COL_MAX_W);
             col_defs.push(ColDef {
                 header: name.to_string(),
                 source: name,
@@ -760,27 +931,30 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
         // A row may be empty (`-`) where a primitive lacks the column.
         let width = rows.iter().map(|r| r.len()).find(|&w| w > 0).unwrap_or(1);
         if width == 1 {
+            let w = fit(name);
             col_defs.push(ColDef {
                 header: name.to_string(),
                 source: name,
                 component: 0,
                 array: false,
                 x,
-                w: DATA_COL_W,
+                w,
             });
-            x += DATA_COL_W;
+            x += w;
         } else {
             let suffixes = ["X", "Y", "Z", "W"];
             for c in 0..width {
+                let header = format!("{}.{}", name, suffixes.get(c).unwrap_or(&"?"));
+                let w = fit(&header);
                 col_defs.push(ColDef {
-                    header: format!("{}.{}", name, suffixes.get(c).unwrap_or(&"?")),
+                    header,
                     source: name,
                     component: c,
                     array: false,
                     x,
-                    w: DATA_COL_W,
+                    w,
                 });
-                x += DATA_COL_W;
+                x += w;
             }
         }
     }
@@ -820,10 +994,10 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
             egui::StrokeKind::Middle,
         );
 
-        if let Some((heading, _)) = &table.labels {
+        for (k, (heading, _)) in texts.iter().map(|c| (&c.0, &c.1)).enumerate() {
             let cell = egui::Rect::from_min_size(
-                egui::pos2(outer_rect.min.x + IDX_COL_W, outer_rect.min.y),
-                egui::vec2(label_w, HEADER_H),
+                egui::pos2(outer_rect.min.x + IDX_COL_W + k as f32 * LABEL_COL_W, outer_rect.min.y),
+                egui::vec2(LABEL_COL_W, HEADER_H),
             );
             painter.rect_stroke(
                 cell,
@@ -836,7 +1010,7 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
                 egui::Align2::CENTER_CENTER,
                 heading,
                 egui::FontId::proportional(11.0),
-                xsi::TEXT(),
+                heading_colour(heading),
             );
         }
 
@@ -854,7 +1028,7 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
                 egui::Align2::CENTER_CENTER,
                 &cd.header,
                 egui::FontId::proportional(11.0),
-                xsi::TEXT(),
+                heading_colour(cd.source),
             );
         }
 
@@ -883,10 +1057,12 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
                 xsi::TEXT_IDX(),
             );
 
-            // Text cell
-            if let Some((_, labels)) = &table.labels {
-                let cell =
-                    egui::Rect::from_min_size(egui::pos2(outer_rect.min.x + IDX_COL_W, y), egui::vec2(label_w, ROW_H));
+            // Text cells
+            for (k, labels) in texts.iter().map(|c| &c.1).enumerate() {
+                let cell = egui::Rect::from_min_size(
+                    egui::pos2(outer_rect.min.x + IDX_COL_W + k as f32 * LABEL_COL_W, y),
+                    egui::vec2(LABEL_COL_W, ROW_H),
+                );
                 painter.rect_stroke(
                     cell,
                     0.0,
@@ -896,7 +1072,11 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
                 painter.with_clip_rect(cell.shrink(2.0)).text(
                     egui::pos2(cell.min.x + 6.0, cell.center().y),
                     egui::Align2::LEFT_CENTER,
-                    labels.get(row_idx).map(|s| s.as_str()).unwrap_or("-"),
+                    labels
+                        .get(row_idx)
+                        .map(|s| s.as_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("-"),
                     egui::FontId::proportional(10.5),
                     xsi::TEXT(),
                 );
@@ -913,10 +1093,7 @@ fn draw_spreadsheet(ui: &mut egui::Ui, state: &mut PrimInspectorState, table: &I
                     egui::StrokeKind::Middle,
                 );
 
-                let row = cols
-                    .iter()
-                    .find(|(n, _)| *n == cd.source)
-                    .and_then(|(_, rows)| rows.get(row_idx));
+                let row = cols.iter().find(|c| c.0 == cd.source).and_then(|c| c.1.get(row_idx));
                 if cd.array {
                     // The whole array in one cell, from the left; cut off at
                     // the edge when it is longer than the widest column allows.
@@ -1009,29 +1186,29 @@ mod tests {
         assert_eq!(col(&v, "P")[1], vec![0.5, -0.5, -0.5]);
         let e = mesh_table(&cube, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 12);
-        assert!(col(&e, "length").iter().all(|l| (l[0] - 1.0).abs() < 1e-6));
+        assert!(col(&e, "intrinsic:length").iter().all(|l| (l[0] - 1.0).abs() < 1e-6));
         // Polygons, not the triangles they are drawn with.
         let p = mesh_table(&cube, &PrimInspectorTab::Uniform);
         assert_eq!(p.rows, 6);
-        assert!(col(&p, "corners").iter().all(|c| c[0] == 4.0));
-        assert!(col(&p, "area").iter().all(|a| (a[0] - 1.0).abs() < 1e-6));
-        assert_eq!(col(&p, "N")[3], vec![0.0, 1.0, 0.0]);
+        assert!(col(&p, "intrinsic:corners").iter().all(|c| c[0] == 4.0));
+        assert!(col(&p, "intrinsic:area").iter().all(|a| (a[0] - 1.0).abs() < 1e-6));
+        assert_eq!(col(&p, "intrinsic:N")[3], vec![0.0, 1.0, 0.0]);
         // Corners of the polygons, not of the triangles drawn: 6 quads, 24
         // corners, each with the point it belongs to. No UVs, no uv column.
         let c = mesh_table(&cube, &PrimInspectorTab::FaceVarying);
         assert_eq!(c.rows, 24);
-        let pt: Vec<f32> = col(&c, "ptIndex").iter().map(|v| v[0]).collect();
+        let pt: Vec<f32> = col(&c, "intrinsic:ptIndex").iter().map(|v| v[0]).collect();
         assert_eq!(&pt[..4], &[0.0, 3.0, 2.0, 1.0], "the first face's corners");
         // Each of the 8 points is shared by three corners.
         assert!((0..8).all(|p| pt.iter().filter(|&&q| q == p as f32).count() == 3));
         assert!(c.cols.iter().all(|c| c.0 != "vtx" && c.0 != "uv"));
         // The face each corner belongs to, and its place in that face.
-        let face: Vec<f32> = col(&c, "faceIndex").iter().map(|v| v[0]).collect();
-        let local: Vec<f32> = col(&c, "localCornerIndex").iter().map(|v| v[0]).collect();
+        let face: Vec<f32> = col(&c, "intrinsic:faceIndex").iter().map(|v| v[0]).collect();
+        let local: Vec<f32> = col(&c, "intrinsic:localCornerIndex").iter().map(|v| v[0]).collect();
         assert_eq!(&face[..6], &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
         assert_eq!(&local[..6], &[0.0, 1.0, 2.0, 3.0, 0.0, 1.0]);
         // A face's first corner, which a corner of local index 0 is.
-        let starts: Vec<f32> = col(&p, "firstCorner").iter().map(|v| v[0]).collect();
+        let starts: Vec<f32> = col(&p, "intrinsic:firstCorner").iter().map(|v| v[0]).collect();
         assert_eq!(starts, vec![0.0, 4.0, 8.0, 12.0, 16.0, 20.0]);
         assert!(starts.iter().all(|&s| local[s as usize] == 0.0));
         // With UVs: one per polygon corner, read back from the triangles.
@@ -1040,7 +1217,7 @@ mod tests {
         grid.uvs = crate::core::uv::unwrap(&grid, crate::core::uv::UvMethod::Planar, 0.0, 0.0, 1, 1);
         let fv = mesh_table(&grid, &PrimInspectorTab::FaceVarying);
         assert_eq!(fv.rows, 16);
-        let (pts, uvs) = (col(&fv, "ptIndex"), col(&fv, "uv"));
+        let (pts, uvs) = (col(&fv, "intrinsic:ptIndex"), col(&fv, "uv"));
         assert_eq!(uvs.len(), 16);
         assert_eq!(uvs[0].len(), 2);
         for a in 0..16 {
@@ -1079,46 +1256,56 @@ mod tests {
         // Segments between control points that follow each other, per curve.
         let e = mesh_table(&open, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 4);
-        assert_eq!(col(&e, "ptIndices")[2], vec![3.0, 4.0]);
-        assert_eq!(e.arrays, vec![("ptIndices".to_string(), "[0, 1]".len())]);
-        assert_eq!(col(&e, "length")[3], vec![4.0]);
+        assert_eq!(col(&e, "intrinsic:ptIndices")[2], vec![3.0, 4.0]);
+        assert_eq!(e.arrays, vec![("intrinsic:ptIndices".to_string(), "[0, 1]".len())]);
+        assert_eq!(col(&e, "intrinsic:length")[3], vec![4.0]);
         // One face per curve: its control points are its corners.
         let f = mesh_table(&open, &PrimInspectorTab::Uniform);
         assert_eq!(f.rows, 2);
-        assert_eq!(col(&f, "corners")[1], vec![3.0]);
+        assert_eq!(col(&f, "intrinsic:corners")[1], vec![3.0]);
         // Every point of the face, as one array: as many as it has corners.
-        assert_eq!(col(&f, "ptIndices")[1], vec![3.0, 4.0, 5.0]);
+        assert_eq!(col(&f, "intrinsic:ptIndices")[1], vec![3.0, 4.0, 5.0]);
         assert!(
             f.cols.iter().all(|c| !c.0.starts_with("vtx[")),
             "one ptIndices array, not a column per point"
         );
-        assert_eq!(col(&f, "length")[1], vec![7.0]);
+        assert_eq!(col(&f, "intrinsic:length")[1], vec![7.0]);
         assert!(
-            f.cols.iter().all(|c| c.0 != "area" && c.0 != "N"),
+            f.cols.iter().all(|c| c.0 != "intrinsic:area" && c.0 != "intrinsic:N"),
             "no polygon columns for curves"
         );
         // A periodic curve closes: one more segment, and a longer curve.
         let ring = two_curves(CurveWrap::Periodic);
         let e = mesh_table(&ring, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 6);
-        assert_eq!(col(&e, "ptIndices")[5], vec![5.0, 3.0]);
+        assert_eq!(col(&e, "intrinsic:ptIndices")[5], vec![5.0, 3.0]);
         assert_eq!(
             mesh_table(&ring, &PrimInspectorTab::Uniform)
                 .cols
                 .iter()
-                .find(|c| c.0 == "length")
+                .find(|c| c.0 == "intrinsic:length")
                 .unwrap()
                 .1[1],
             vec![12.0]
         );
-        // Curves have no polygon corners.
-        assert!(mesh_table(&open, &PrimInspectorTab::FaceVarying).cols.is_empty());
+        // A curve's corners are its control points, as ICE has them.
+        let c = mesh_table(&open, &PrimInspectorTab::FaceVarying);
+        assert_eq!(c.rows, 6);
+        assert_eq!(col(&c, "intrinsic:localCornerIndex")[4], vec![1.0]);
+        assert_eq!(col(&c, "intrinsic:faceIndex")[4], vec![1.0]);
+        // Each point's u along its curve, and the curve it is on.
+        let v = mesh_table(&open, &PrimInspectorTab::Vertex);
+        assert_eq!(col(&v, "intrinsic:curveu")[1], vec![0.5]);
+        assert_eq!(col(&v, "intrinsic:faceIndices")[4], vec![1.0]);
     }
 
     #[test]
     fn primitives_are_listed_one_after_the_other() {
         use crate::types::CurveWrap;
-        let parts = vec![create_cube(1.0), two_curves(CurveWrap::Nonperiodic)];
+        let parts: Vec<Part> = vec![create_cube(1.0), two_curves(CurveWrap::Nonperiodic)]
+            .into_iter()
+            .map(Part::from)
+            .collect();
         // Points: the cube's 8, then the curves', numbered on.
         let v = parts_table(&parts, &PrimInspectorTab::Vertex);
         assert_eq!(v.rows, 14);
@@ -1127,28 +1314,57 @@ mod tests {
         assert!(col(&v, "N")[8].is_empty(), "a curve point has no normal: shown as -");
         let e = parts_table(&parts, &PrimInspectorTab::Edge);
         assert_eq!(e.rows, 12 + 4);
-        assert_eq!(col(&e, "ptIndices")[12], vec![8.0, 9.0]);
+        assert_eq!(col(&e, "intrinsic:ptIndices")[12], vec![8.0, 9.0]);
         let f = parts_table(&parts, &PrimInspectorTab::Uniform);
         assert_eq!(f.rows, 6 + 2);
-        assert_eq!(col(&f, "corners")[6], vec![3.0]);
-        assert_eq!(col(&f, "ptIndices")[6], vec![8.0, 9.0, 10.0]);
-        assert_eq!(col(&f, "ptIndices")[0].len(), 4);
+        assert_eq!(col(&f, "intrinsic:corners")[6], vec![3.0]);
+        assert_eq!(col(&f, "intrinsic:ptIndices")[6], vec![8.0, 9.0, 10.0]);
+        assert_eq!(col(&f, "intrinsic:ptIndices")[0].len(), 4);
         // The widest cell sets the column's width: a quad, "[0, 3, 2, 1]".
-        assert_eq!(f.arrays, vec![("ptIndices".to_string(), 12)]);
-        assert_eq!(col(&f, "area")[0].len(), 1);
-        assert!(col(&f, "area")[6].is_empty() && col(&f, "length")[0].is_empty());
-        assert!(col(&f, "firstCorner")[6].is_empty(), "curves have no polygon corners");
+        assert_eq!(f.arrays, vec![("intrinsic:ptIndices".to_string(), 12)]);
+        assert_eq!(col(&f, "intrinsic:area")[0].len(), 1);
+        assert!(col(&f, "intrinsic:area")[6].is_empty() && col(&f, "intrinsic:length")[0].is_empty());
+        assert_eq!(
+            col(&f, "intrinsic:firstCorner")[6],
+            vec![24.0],
+            "a curve's corners are its control points, after the cube's 24"
+        );
+
+        // The Object tab: one row each, its counts, bounds, placement, path
+        // and type; Show picks the stored columns or the intrinsics.
+        let mut placed = parts.clone();
+        placed[1].path = "/curves".into();
+        placed[1].transform[12] = 5.0;
+        let o = parts_table(&placed, &PrimInspectorTab::Constant);
+        assert_eq!(o.rows, 2);
+        assert_eq!(col(&o, "intrinsic:pointCount"), &vec![vec![8.0], vec![6.0]]);
+        assert_eq!(col(&o, "intrinsic:faceCount")[1], vec![2.0]);
+        assert_eq!(col(&o, "intrinsic:cornerCount")[0], vec![24.0]);
+        assert_eq!(col(&o, "intrinsic:boundsMax")[1], vec![3.0, 4.0, 2.0]);
+        assert_eq!(col(&o, "intrinsic:transform[3]")[1], vec![5.0, 0.0, 0.0, 1.0]);
+        let text = |name: &str| o.texts.iter().find(|t| t.0 == name).unwrap().1.clone();
+        assert_eq!(text("intrinsic:path"), vec![String::new(), "/curves".into()]);
+        assert_eq!(
+            text("intrinsic:typeName"),
+            vec!["Mesh".to_string(), "BasisCurves".into()]
+        );
+        use crate::types::InspectorShow;
+        assert!(InspectorShow::Stored.shows("P") && !InspectorShow::Stored.shows("intrinsic:area"));
+        assert!(InspectorShow::Intrinsics.shows("intrinsic:area") && !InspectorShow::Intrinsics.shows("P"));
 
         // Face and corner numbers run on from one primitive to the next.
-        let two = vec![create_cube(1.0), create_cube(1.0)];
+        let two: Vec<Part> = vec![Part::from(create_cube(1.0)), Part::from(create_cube(1.0))];
         let c = parts_table(&two, &PrimInspectorTab::FaceVarying);
         assert_eq!(c.rows, 48);
         assert_eq!(
-            (col(&c, "faceIndex")[24][0], col(&c, "localCornerIndex")[24][0]),
+            (
+                col(&c, "intrinsic:faceIndex")[24][0],
+                col(&c, "intrinsic:localCornerIndex")[24][0]
+            ),
             (6.0, 0.0)
         );
         assert_eq!(
-            col(&parts_table(&two, &PrimInspectorTab::Uniform), "firstCorner")[6],
+            col(&parts_table(&two, &PrimInspectorTab::Uniform), "intrinsic:firstCorner")[6],
             vec![24.0]
         );
     }
@@ -1169,7 +1385,11 @@ mod tests {
                 ..Prim::new(m.path.clone(), (*m.mesh).clone())
             })
             .collect();
-        let parts = EvalResult::Named(prims).into_parts();
+        let parts: Vec<Part> = EvalResult::Named(prims)
+            .into_parts()
+            .into_iter()
+            .map(Part::from)
+            .collect();
 
         // Control points as authored, of every basis (not the polylines they
         // are drawn as), then the 400 points of the spiral.
@@ -1193,7 +1413,7 @@ mod tests {
         // One face per curve.
         let f = parts_table(&parts, &PrimInspectorTab::Uniform);
         assert_eq!(f.rows, 4 + 600);
-        assert!(col(&f, "length").iter().all(|l| l[0] > 0.0));
+        assert!(col(&f, "intrinsic:length").iter().all(|l| l[0] > 0.0));
     }
 
     #[test]
@@ -1201,7 +1421,7 @@ mod tests {
         let clip = create_test_clip(1.0, FrameRate::new(30, 1));
         let j = clip_table(&clip, &PrimInspectorTab::Joint, 0);
         assert_eq!(j.rows, 19);
-        let (heading, names) = j.labels.as_ref().unwrap();
+        let (heading, names) = &j.texts[0];
         assert_eq!(heading, "joint");
         assert_eq!(names[0], "Take01:Hips");
         assert_eq!(col(&j, "parent")[0], vec![-1.0]);
@@ -1214,7 +1434,7 @@ mod tests {
         // A bone runs from a joint to the joint below it: 18 for 19 joints.
         let b = clip_table(&clip, &PrimInspectorTab::Bone, 0);
         assert_eq!(b.rows, 18);
-        let (_, names) = b.labels.as_ref().unwrap();
+        let (_, names) = &b.texts[0];
         assert_eq!(names[0], "Take01:Hips > Take01:Spine");
         assert_eq!((col(&b, "from")[0][0], col(&b, "to")[0][0]), (0.0, 1.0));
         assert!((col(&b, "length")[0][0] - 0.12).abs() < 1e-4);
