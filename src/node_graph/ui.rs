@@ -1471,6 +1471,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),
             (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove primitives, or keep only some"),
             (NodeType::SetAttribute { rows: vec![] }, "Set values on prims: a primvar for rendering, or a property such as visibility, purpose, kind or active"),
+            (NodeType::EditPrimitive { kind: Default::default(), edits: Default::default() }, "Edit prims already in the scene as what they are: a camera's lens, a light's values, any prim's transform. Its form shows the prim's values; what you change overrides them"),
             (NodeType::UnpackPrims, "Merge primitives into one mesh"),
         ]),
         ("🎨", "Materials", vec![

@@ -11,6 +11,34 @@ pub struct Source {
     pub paths: Vec<String>,
 }
 
+/// One primitive the inspector lists: its geometry (where it is drawn, or in
+/// its own space when instanced), its path, and where it is placed (column-major,
+/// as `intrinsic:transform` gives it). Read as its geometry.
+#[derive(Clone, Debug, Default)]
+pub struct Part {
+    pub mesh: MeshData,
+    pub path: String,
+    pub transform: [f64; 16],
+}
+
+impl From<MeshData> for Part {
+    /// Geometry with no path, where it is.
+    fn from(mesh: MeshData) -> Part {
+        Part {
+            mesh,
+            path: String::new(),
+            transform: glam::Mat4::IDENTITY.to_cols_array().map(|x| x as f64),
+        }
+    }
+}
+
+impl std::ops::Deref for Part {
+    type Target = MeshData;
+    fn deref(&self) -> &MeshData {
+        &self.mesh
+    }
+}
+
 /// The primitives of a scene at or below any of `paths` (all of them with
 /// none), each where it is drawn. `/set` takes `/set` and `/set/a`, not
 /// `/settle`.
@@ -20,13 +48,23 @@ pub struct Source {
 /// native instances (shared by every instance of a prototype). A point
 /// instancer itself is listed as its points, one per instance. So what is
 /// listed grows with the geometry there is, not with the copies drawn.
-pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<MeshData> {
+pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<Part> {
     match scene {
         EvalResult::Named(prims) => shown(&prims, paths)
             .into_iter()
-            .map(|(p, placed)| part(p, placed))
+            .map(|(p, placed)| {
+                let at = match p.place.matrices() {
+                    [one] if placed => *one,
+                    _ => glam::Mat4::IDENTITY,
+                };
+                Part {
+                    mesh: part(p, placed),
+                    path: p.path.clone(),
+                    transform: at.to_cols_array().map(|x| x as f64),
+                }
+            })
             .collect(),
-        scene => scene.into_parts(),
+        scene => scene.into_parts().into_iter().map(Part::from).collect(),
     }
 }
 
@@ -52,7 +90,8 @@ pub fn scene_summary(scene: &EvalResult, paths: &[String]) -> Summary {
     let of = |m: &MeshData| Summary {
         points: m.point_count(),
         faces: m.num_faces() + m.curve_counts.len(),
-        corners: m.corner_count(),
+        // A curve's control points are its corners.
+        corners: m.corner_count() + m.curve_points.len(),
     };
     let add = |a: Summary, b: Summary| Summary {
         points: a.points + b.points,
@@ -512,8 +551,9 @@ fn upstream<'a>(
 }
 
 /// The Set Attribute operator nearest upstream of `view` with a row setting
-/// `name` in this context on `path`: one with no Primitive Locations, or with
-/// one naming the path. Its id and name.
+/// `name` in this context on `path` (one with no Primitive Locations, or with
+/// one naming the path), or the Edit Primitive overriding it there. Its id and
+/// name.
 pub fn set_by(
     graph: &crate::node_graph::NodeGraphState,
     view: NodeId,
@@ -528,6 +568,12 @@ pub fn set_by(
                 .any(|r| r.context == context && r.name.trim() == name && r.is_usable())
                 && (!crate::core::locations::is_set(&n.locations)
                     || crate::core::locations::any_names(&n.locations, path))
+        }
+        // An Edit Primitive overriding it.
+        NodeType::EditPrimitive { edits, .. } => {
+            context == crate::core::properties::SetContext::Property
+                && edits.contains_key(name)
+                && crate::core::locations::any_names(&n.locations, path)
         }
         _ => false,
     })

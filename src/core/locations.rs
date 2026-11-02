@@ -23,6 +23,7 @@ pub fn takes_locations(t: &NodeType) -> bool {
             | NodeType::EditPoly { .. }
             | NodeType::PrunePrims { .. }
             | NodeType::SetAttribute { .. }
+            | NodeType::EditPrimitive { .. }
             | NodeType::MaterialBinding { .. }
             | NodeType::Ice { .. }
     )
@@ -31,7 +32,7 @@ pub fn takes_locations(t: &NodeType) -> bool {
 /// Whether an operator's locations name prims rather than take what is below
 /// them too (see `names`).
 pub fn names_prims(t: &NodeType) -> bool {
-    matches!(t, NodeType::SetAttribute { .. })
+    matches!(t, NodeType::SetAttribute { .. } | NodeType::EditPrimitive { .. })
 }
 
 /// The rows that say something: trimmed, blank ones left out.

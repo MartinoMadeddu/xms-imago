@@ -1643,6 +1643,29 @@ def Xform "shot" {{
             "{:?}",
             moved.position()
         );
+
+        // A file's camera, its lens overridden by Edit Primitive: the focal
+        // length written over it, and nothing else of its lens.
+        let loaded =
+            crate::node_graph::nodes::stage_prims(&scene, crate::usd_scene::LoadMode::Sublayer, "", "").unwrap();
+        let mut edits = std::collections::BTreeMap::new();
+        edits.insert("focalLength".to_string(), serde_json::json!(85.0));
+        let edited = crate::core::edit_primitive::edit(
+            &EvalResult::Named(loaded),
+            &["/shot/cam".to_string()],
+            crate::core::edit_primitive::EditKind::Camera,
+            &edits,
+        );
+        let EvalResult::Named(edited) = edited else { panic!() };
+        let out = std::env::temp_dir().join("xms_usd_write_test/camera_lens.usda");
+        let report = write_override(&edited, &out).unwrap();
+        assert_eq!((report.changed, report.added), (1, 0), "{report:?}");
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert!(text.contains("float focalLength = 85"), "{text}");
+        assert!(!text.contains("horizontalAperture"), "{text}");
+        let back = crate::usd_scene::load(&out).unwrap();
+        let lens = back.cameras.iter().find(|c| c.path == "/shot/cam").unwrap();
+        assert_eq!(lens.camera.focal_length, 85.0);
     }
 
     /// The render operators' prims are written as `def RenderSettings`,

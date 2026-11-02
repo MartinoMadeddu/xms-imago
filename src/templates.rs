@@ -102,6 +102,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "Values set on prims: the wheels made invisible, the model's root made a component asset. Add a Write USD node to see them written" },
     Template { by: MARTINO, group: "USD stages", name: "Cameras", build: cameras,
         hint: "Three shapes and two cameras, one perspective, one orthographic from above. Choose one in the Viewer's camera menu to look through it" },
+    Template { by: MARTINO, group: "USD stages", name: "Edit Primitive", build: edit_primitive,
+        hint: "The Cameras scene edited after it is made: the Front camera's lens overridden to 85 mm, and the /set group moved back, its shapes with it. Each Edit Primitive's form shows its prim's values; the overridden ones are marked" },
     Template { by: MARTINO, group: "USD stages", name: "Material bindings", build: material_bindings,
         hint: "Four shapes in one Merge, three materials bound to them by row under /root/materials, and a second Material Binding giving a fourth shape the textured ground material by Location. Write USD is viewed" },
     Template { by: MARTINO, group: "USD stages", name: "MaterialX: three shaders", build: materialx_shaders,
@@ -1252,6 +1254,38 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     }
     finish(g, merge, front);
     "Cameras: Front, a 35 mm lens on a full-frame gate, and Top, orthographic, 8 m across. Choose one in the Viewer's camera menu (🎥 Perspective) or press Look through on the operator; navigating leaves it.".into()
+}
+
+/// The Cameras scene, edited after it is made: Edit Primitive on
+/// /cameras/front (Camera) overriding its focal length, and on /set (Xform,
+/// the group Imago made above the shapes) moving it back with what is below it.
+fn edit_primitive(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use crate::core::edit_primitive::EditKind;
+    cameras(g, store);
+    let merge = g.view_flag.expect("the cameras scene is viewed");
+    let edit = |kind: EditKind, edits: &[(&str, serde_json::Value)]| NodeType::EditPrimitive {
+        kind,
+        edits: edits.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+    };
+    let lens = g.add_node(
+        "Lens".into(),
+        edit(EditKind::Camera, &[("focalLength", serde_json::json!(85.0))]),
+        p(480.0, 320.0),
+    );
+    let back = g.add_node(
+        "MoveSet".into(),
+        edit(EditKind::Xform, &[("translate", serde_json::json!([0.0, 0.0, -1.5]))]),
+        p(480.0, 420.0),
+    );
+    for (id, at) in [(lens, "/cameras/front"), (back, "/set")] {
+        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == id) {
+            n.locations = vec![at.into()];
+        }
+    }
+    g.add_connection(merge, 0, lens, 0);
+    g.add_connection(lens, 0, back, 0);
+    finish(g, back, lens);
+    "Edit Primitive: the Cameras scene edited after it is made. Lens overrides the Front camera's focal length (85, marked ✎ in its form; the rest of its lens is the camera's own). MoveSet moves /set, the group above the shapes, 1.5 back: the shapes move with it. Select either to see its prim's form; change a value to override it, ↺ to give it back.".into()
 }
 
 /// Martino's material bindings graph: shapes at Primitive Locations under
@@ -2749,7 +2783,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     g.add_connection(deform, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, deform);
-    "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (triP and bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
+    "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (intrinsic:triP and intrinsic:bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
 }
 
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
@@ -2758,7 +2792,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
 /// prim is referenced from its `.abc` at the root. GuideBind (per curve)
 /// stores the guide nearest each hair's first point (`guide`, a
 /// Polygon of the rest guides). GuideDeform (per point) reads that guide at
-/// the point's u along its hair (`(ptIndex - firstCorner) / (corners - 1)`, as
+/// the point's u along its hair (`(intrinsic:ptIndex - intrinsic:firstCorner) / (intrinsic:corners - 1)`, as
 /// a curve's Param UV counts segments) on the rest and the animated guides, and
 /// carries the point by it: moved with it, turned as its direction there
 /// turned.
@@ -2828,9 +2862,13 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         let anim = reference(&mut *sub, "/animGuides", 640.0);
         let guide = ice_add(&mut *sub, get("guide", Some(Context::Face)), p(260.0, 340.0));
         // u along the hair: its point's number over the segments.
-        let index = ice_add(&mut *sub, get("ptIndex", None), p(40.0, 260.0));
-        let first = ice_add(&mut *sub, get("firstCorner", Some(Context::Face)), p(40.0, 360.0));
-        let corners = ice_add(&mut *sub, get("corners", Some(Context::Face)), p(40.0, 460.0));
+        let index = ice_add(&mut *sub, get("intrinsic:ptIndex", None), p(40.0, 260.0));
+        let first = ice_add(
+            &mut *sub,
+            get("intrinsic:firstCorner", Some(Context::Face)),
+            p(40.0, 360.0),
+        );
+        let corners = ice_add(&mut *sub, get("intrinsic:corners", Some(Context::Face)), p(40.0, 460.0));
         let k = ice_add(
             &mut *sub,
             IceGraphNodeType::Math { op: Math::Subtract },
@@ -2871,7 +2909,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
             let segment = read(
                 &mut *sub,
                 IceGraphNodeType::GetArrayData {
-                    name: "triP".into(),
+                    name: "intrinsic:triP".into(),
                     context: None,
                 },
                 100.0,
@@ -3003,7 +3041,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, kept: it cooks once, and again only when what it reads or its graph changes) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((ptIndex - firstCorner) / (corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
+    "Hair carried by its guides, three Alembic caches from Houdini loaded as USD: the hair (Hair, at /hair), the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind (per curve, kept: it cooks once, and again only when what it reads or its graph changes) stores the guide nearest each hair's first point as `guide`, a Polygon of the rest guides (Closest Point on Surface). Inside GuideDeform (down arrow), per point: the point's u along its hair ((intrinsic:ptIndex - intrinsic:firstCorner) / (intrinsic:corners - 1)) is where it reads its guide, Get Data and Get Array Data with that Polygon and Param UV wired, on the rest and the animated guides; the point is moved with the guide there and turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
 }
 
 /// A frame at a place on a surface, as the binding deformers build it, laid
@@ -3037,8 +3075,8 @@ fn frame_at(
         }
         n
     };
-    let tri = read(&mut *sub, "triP", 480.0, y);
-    let bary = read(&mut *sub, "bary", 480.0, y + 100.0);
+    let tri = read(&mut *sub, "intrinsic:triP", 480.0, y);
+    let bary = read(&mut *sub, "intrinsic:bary", 480.0, y + 100.0);
     let weighted = ice_add(&mut *sub, IceGraphNodeType::Math { op: Math::Multiply }, p(700.0, y));
     sub.add_connection(tri, 0, weighted, 0);
     sub.add_connection(bary, 0, weighted, 1);
@@ -3246,7 +3284,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(carried, 0, result, 0);
     g.add_connection(anim, 0, result, 1);
     finish(g, result, carried);
-    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Everything is done per curve but the last step. RootBind, per curve (kept: it cooks once), finds the place on the head at rest nearest each hair's first point (Closest Point on Surface), builds the frame there (triP and bary, Get Array Data with the Polygon and Param UV wired) and stores the place and the frame's inverse on the curve (bindPoly, bindParamUV, bindInverse). Carry, per curve, every frame, builds the same frame on the animated head and multiplies it by the inverse: the curve's move from rest (carry). Deform, per point, reads its curve's carry (Get Data, context Face) and puts the point through it, so each hair moves as one piece. Space plays frames 1001 to 1025.".into()
+    "Bind rigid hair deform by skin: the groom (Hair, at /hair) carried rigidly by the pig's head, Alembic caches from Houdini loaded as USD, the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Everything is done per curve but the last step. RootBind, per curve (kept: it cooks once), finds the place on the head at rest nearest each hair's first point (Closest Point on Surface), builds the frame there (intrinsic:triP and intrinsic:bary, Get Array Data with the Polygon and Param UV wired) and stores the place and the frame's inverse on the curve (bindPoly, bindParamUV, bindInverse). Carry, per curve, every frame, builds the same frame on the animated head and multiplies it by the inverse: the curve's move from rest (carry). Deform, per point, reads its curve's carry (Get Data, context Face) and puts the point through it, so each hair moves as one piece. Space plays frames 1001 to 1025.".into()
 }
 
 /// The Capture ICE graph of the binding deformers, per point: the place on the
@@ -4096,6 +4134,31 @@ mod tests {
             let r = back.transform_point3(*w).length();
             assert!((0.98..=1.0001).contains(&r), "{w}: {r}");
         }
+    }
+
+    /// Edit Primitive's template: the Front camera with an 85 mm lens, the
+    /// rest of it its own; the shapes under /set moved back with it, the
+    /// cameras not.
+    #[test]
+    fn the_edit_primitive_template_overrides_a_lens_and_moves_a_group() {
+        let t = TEMPLATES.iter().find(|t| t.name == "Edit Primitive").unwrap();
+        let (mut g, mut store) = (NodeGraphState::default(), IceGraphStore::default());
+        t.load(&mut g, &mut store);
+        let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+        let Some(crate::types::EvalResult::Named(prims)) =
+            g.eval_node(g.view_flag.unwrap(), &mut Default::default(), &pass)
+        else {
+            panic!("primitives")
+        };
+        let at = |path: &str| prims.iter().find(|p| p.path == path).unwrap();
+        let front = at("/cameras/front").camera.as_deref().unwrap();
+        assert_eq!((front.focal_length, front.horizontal_aperture), (85.0, 36.0));
+        let z = |path: &str| match at(path).place {
+            crate::types::Placement::One(m) => m.w_axis.z,
+            _ => 0.0,
+        };
+        assert!((z("/set/cube") + 1.5).abs() < 1e-5, "{}", z("/set/cube"));
+        assert!((z("/cameras/front") - 5.5).abs() < 1e-5);
     }
 
     /// The binding deformer on the Alembic pig's head: the spheres move with

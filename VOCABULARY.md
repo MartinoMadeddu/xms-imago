@@ -21,6 +21,7 @@ have **parameters**.
 | Cube, sphere, grid | primitives | **shapes** | Frees "primitive" for stage objects. |
 | Where an operator puts the primitive it makes | path / prim path | **Primitive Location** (a parameter) | As in Solaris: a USD path such as `/cube` or `/set/props/box1`. The parents on it are Xforms. |
 | The primitives an operator works on | Pick Primitives upstream | **Primitive Locations**, in the operator's **Prims Location** tab | As Solaris' Primitives parameter on a LOP: each operator says what it works on. Paths with `*`, `?` and `**`; a path takes everything below it; empty means everything. |
+| The operator editing prims already in the scene as what they are | Camera Edit, Light Edit, Edit Properties, Action: Edit (Solaris) | **Edit Primitive**, with a **Type** (Xform, Mesh, Curves, Points, Camera, Light) | One operator for every kind of prim, its form that kind's. A value changed there is an **override** (✎); the rest follows the prim. Only Edit Primitive has overrides: every other operator's parameters are its values, with no per-parameter create or edit state. |
 | What a Set Attribute row's value is in USD | Set Primvar, Set Metadata, Set Active, Set Kind… (separate operators) | **Object** (a constant primvar) or **Property** (the prim's own attribute or metadata) | One operator sets every value on a prim; the context says how it is written. Object is the context of the same name, one value per primitive; per point, face and corner values are ICE's. |
 | How a Merge joins its inputs | (none: always one mesh) | **Auto**, **Primitives**, **Flatten** (Merge's Mode) | Auto goes by the first input. "Flatten" is what Unpack does: everything as one plain mesh. |
 | What the Viewer and the Scene Explorer show | Output node | **view flag** | One operator always has it. |
@@ -38,7 +39,7 @@ have **parameters**.
 | How Load USD brings its file in | (always sublayered) | **Sublayer**, **Reference**, **Payload** (Load USD's Mode) | USD's own words. Reference and Payload put the file's default prim at a Primitive Location. |
 | Where Material Binding puts the materials plugged into it | material library | **Material Library Location** (a parameter, `/materials` by default) | A Primitive Location for materials: each goes under it by its operator's name. |
 | How a Get Data reading another context makes the values an element touches one | aggregate, Several | **Resample** (resampling): Average, Sum, Min, Max (Get Data's and Set Data's parameter) | Reading or writing across contexts resamples, from points to faces, faces to points (Martino). Graphs saved with `reduce` still read. A face touches several points. Arrays (Get Array Data) will keep them as a list. |
-| What ICE reads from the topology without it being stored | intrinsic, built-in attribute | the Primitive Inspector's names: `corners`, `firstCorner`, `N`, `area` (Face); `ptIndex`, `faceIndex`, `localCornerIndex` (Corner) | One name for a column wherever it is shown or read. |
+| What a primitive has from its topology and points rather than stored | derived attribute, built-in attribute | **intrinsic**, every one named `intrinsic:…` (`intrinsic:ptIndex`, `intrinsic:corners`, `intrinsic:area`, `intrinsic:pointCount`…) | One list (`xms_geo::intrinsics`), one name wherever it is shown or read: ICE, the Primitive Inspector, the docs. Read only. Point, Face, Corner and Object are Imago's contexts; USD's interpolations (vertex, uniform, faceVarying, constant) are named only where USD is read or written. |
 | The colour a port and its wires get from what they carry | wire colour, socket colour | **data type colour** (`type_colours::DataType`) | One table for every graph: see docs/interface.md, Data type colours. |
 | The operator making a light | Dome Light, Area Light, Point Light (separate nodes) | **Light**, with a **Type**: Dome, Rect, Point, Sphere, Disk, Cylinder, Distant | UsdLux's types by their schema names; the add menu lists one entry per type, all the one operator. A **point light** is a sphere light treated as a point, as USD has it. |
 | A node that hands on what comes in, unchanged, to lay a graph out | Null (Houdini), Dot (Nuke), Reroute | **Pass Through** | Says what it does. |
@@ -79,8 +80,8 @@ them](docs/imago_geo_parts_v3.png)
 
 The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 context: an edge is two points that follow each other around a face, worked out
-from the topology. A face's and an edge's points are its **ptIndices**; a
-corner's point is its **ptIndex**.
+from the topology. A face's and an edge's points are its
+**intrinsic:ptIndices**; a corner's point is its **intrinsic:ptIndex**.
 
 ## Panes
 

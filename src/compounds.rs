@@ -202,7 +202,8 @@ impl Definition {
     /// A definition from an `.icd` file's text. Refused: what is not a
     /// definition, one written by a newer Imago, one with no name.
     pub fn from_json(text: &str) -> Result<Definition, String> {
-        let d: Definition = serde_json::from_str(text).map_err(|e| format!("not a compound definition: {e}"))?;
+        let mut d: Definition = serde_json::from_str(text).map_err(|e| format!("not a compound definition: {e}"))?;
+        crate::ice::upgrade_intrinsic_names(std::slice::from_mut(&mut d.graph));
         if d.format != FORMAT {
             return Err(format!("not a compound definition (its format is \"{}\")", d.format));
         }

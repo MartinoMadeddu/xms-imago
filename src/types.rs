@@ -135,6 +135,16 @@ pub enum NodeType {
     SetAttribute {
         rows: Vec<crate::core::set_attribute::SetRow>,
     },
+    /// The prims its Primitive Locations name, edited as what they are
+    /// (`kind`: Xform, Mesh, Curves, Points, Camera, Light): its form shows the
+    /// target's values; those changed (`edits`, by name, as plain JSON) are
+    /// overrides, the only values applied. See `core::edit_primitive`.
+    EditPrimitive {
+        #[serde(default)]
+        kind: crate::core::edit_primitive::EditKind,
+        #[serde(default)]
+        edits: std::collections::BTreeMap<String, serde_json::Value>,
+    },
     /// A UsdPreviewSurface material with fixed inputs, named by the operator.
     /// Material Binding puts it in the scene. See `core::material`.
     Material {
@@ -890,6 +900,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PickPrims { .. } => "👆",
         NodeType::PrunePrims { .. } => "🚫",
         NodeType::SetAttribute { .. } => "🏷",
+        NodeType::EditPrimitive { .. } => "✏",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
@@ -965,6 +976,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PickPrims { .. } => "Pick Primitives",
         NodeType::PrunePrims { .. } => "Prune Primitives",
         NodeType::SetAttribute { .. } => "Set Attribute",
+        NodeType::EditPrimitive { .. } => "Edit Primitive",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",
@@ -2071,12 +2083,36 @@ pub enum PrimInspectorTab {
     Bone,
 }
 
+/// Which columns the Primitive Inspector's geometry tabs show.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InspectorShow {
+    #[default]
+    All,
+    /// What the geometry holds.
+    Stored,
+    /// What it has from its topology and points (`intrinsic:…`).
+    Intrinsics,
+}
+
+impl InspectorShow {
+    /// Whether the column named `name` is shown.
+    pub fn shows(self, name: &str) -> bool {
+        let intrinsic = xms_geo::intrinsics::is_intrinsic(name);
+        match self {
+            InspectorShow::All => true,
+            InspectorShow::Stored => !intrinsic,
+            InspectorShow::Intrinsics => intrinsic,
+        }
+    }
+}
+
 /// One tab of the inspector, ready to draw.
 #[derive(Clone, Debug, Default)]
 pub struct InspectorTable {
     pub rows: usize,
-    /// Text column before the numbers (joint names), with its heading.
-    pub labels: Option<(String, Vec<String>)>,
+    /// Text columns before the numbers (joint names; a primitive's path and
+    /// type), each with its heading.
+    pub texts: Vec<(String, Vec<String>)>,
     /// Column group name and its values per row. A group wider than one is
     /// shown as name.X, name.Y, name.Z, unless it is an array.
     pub cols: Vec<(String, Vec<Vec<f32>>)>,
@@ -2096,12 +2132,15 @@ pub fn array_text(values: &[f32]) -> String {
 pub struct PrimInspectorState {
     pub active_tab: PrimInspectorTab,
     pub row_offset: usize,
+    /// Which columns the geometry tabs show: all, the stored attributes, or
+    /// the intrinsics.
+    pub show: InspectorShow,
 
     // Primitives or clip of the scene at the view flag (the selected row's
     // part of it), cooked once per graph revision and selection. The
     // primitives only once a geometry tab asks for them (`parts_loaded`);
     // until then `summary` counts them.
-    cached_parts: Option<std::sync::Arc<Vec<MeshData>>>,
+    cached_parts: Option<std::sync::Arc<Vec<crate::prim_inspector::Part>>>,
     parts_loaded: bool,
     summary: crate::prim_inspector::Summary,
     cached_clip: Option<std::sync::Arc<crate::core::anim::AnimData>>,
@@ -2110,6 +2149,10 @@ pub struct PrimInspectorState {
     cached_rev: Option<u64>,
     /// The Properties tab's rows.
     cached_props: std::sync::Arc<Vec<crate::prim_inspector::PropRow>>,
+    /// A prim to edit, asked for on the Properties tab with Enter or Edit
+    /// Selected (right-click): an Edit Primitive naming it is added after the
+    /// viewed operator.
+    pub edit_request: Option<Vec<String>>,
     /// Number of edges of the cached primitives: polygon edges and curve
     /// segments.
     pub edge_count: usize,
@@ -2151,10 +2194,10 @@ impl PrimInspectorState {
     }
 
     /// The geometry, made when a geometry tab first asks for it.
-    pub fn set_parts(&mut self, parts: Vec<MeshData>) {
+    pub fn set_parts(&mut self, parts: Vec<crate::prim_inspector::Part>) {
         self.edge_count = parts
             .iter()
-            .map(|m| crate::core::poly::PolyMesh::from_mesh(m).edges().len() + m.curve_segments().len())
+            .map(|m| crate::core::poly::PolyMesh::from_mesh(&m.mesh).edges().len() + m.curve_segments().len())
             .sum();
         self.cached_parts = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
         self.parts_loaded = true;
@@ -2173,7 +2216,7 @@ impl PrimInspectorState {
     }
 
     /// The primitives shown, each where it is drawn.
-    pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<MeshData>>> {
+    pub fn cached_parts(&self) -> Option<std::sync::Arc<Vec<crate::prim_inspector::Part>>> {
         self.cached_parts.clone()
     }
     pub fn cached_clip(&self) -> Option<std::sync::Arc<crate::core::anim::AnimData>> {
@@ -2314,6 +2357,9 @@ pub struct SceneHierarchy {
     /// Explorer (right-click): over what the scene says (`model:drawMode`). Not
     /// part of the scene, not written.
     draw_modes: std::collections::HashMap<String, DrawMode>,
+    /// Prims to edit, asked for with Enter or Edit Selected (right-click): an
+    /// Edit Primitive naming them is added after the viewed operator.
+    pub edit_request: Option<Vec<String>>,
 }
 
 /// How the Viewer draws geometry, as USD's `model:drawMode` has it: as it is,

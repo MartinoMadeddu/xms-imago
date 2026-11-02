@@ -14,13 +14,13 @@ use std::collections::{HashMap, HashSet};
 
 use xms_geo::{Column, Context, Geo, Role, POINTS};
 
-use super::derived;
 use super::graph::{
     ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PARAM_UVS,
     SCATTER_NORMALS, SCATTER_PARAM_UVS, SCATTER_POLYGONS, SCATTER_POSITIONS,
 };
 use super::surface::Reference;
 use super::types::{Ty, Value};
+use xms_geo::intrinsics::{self, BARY, TRI_P};
 
 /// A plan: what to read, the two programs, what to write. Made once per graph
 /// (and geometry layout); run as often as wanted, with new parameter values
@@ -360,23 +360,49 @@ struct Found {
 }
 
 fn find_in(geo: &Geo, ctx: Context, name: &str) -> Option<Found> {
-    if let Some(a) = geo.attr(ctx, column_in(geo, ctx, name)) {
-        return Some(Found {
-            ty: column_ty(&a.column),
-            derived: false,
+    if intrinsics::is_intrinsic(name) {
+        return intrinsics::on(geo, ctx, name).filter(|i| i.ice).map(|i| Found {
+            ty: kind_ty(i.kind),
+            derived: true,
         });
     }
-    derived::ty(geo, ctx, name).map(|t| Found {
-        ty: Some(t),
-        derived: true,
+    geo.attr(ctx, column_in(geo, ctx, name)).map(|a| Found {
+        ty: column_ty(&a.column),
+        derived: false,
     })
 }
 
-/// The context `name` is in, stored or derived, if any.
+/// The context `name` is in, stored or an intrinsic, if any.
 fn context_of(geo: &Geo, name: &str) -> Option<Context> {
-    geo.find(column_name(name))
-        .map(|(c, _)| c)
-        .or_else(|| derived::context_of(geo, name))
+    if intrinsics::is_intrinsic(name) {
+        return Context::ALL.into_iter().find(|c| find_in(geo, *c, name).is_some());
+    }
+    geo.find(column_name(name)).map(|(c, _)| c)
+}
+
+/// What a list intrinsic is read as: the intrinsic per element it gathers and
+/// where; any other name as it is.
+fn gathered(name: &str, from: Option<Context>) -> (&str, Option<Context>) {
+    match intrinsics::gathered(name, None) {
+        Some((c, n)) if from.is_none() || from == Some(c) => (n, Some(c)),
+        _ => (name, from),
+    }
+}
+
+/// The type ICE reads a column kind as (`None`: tokens, not yet).
+fn kind_ty(k: xms_geo::Kind) -> Option<Ty> {
+    use xms_geo::Kind;
+    Some(match k {
+        Kind::Bool => Ty::Bool,
+        Kind::Int => Ty::Int,
+        Kind::Float => Ty::Float,
+        Kind::Vec2 => Ty::Vec2,
+        Kind::Vec3 => Ty::Vec3,
+        Kind::Vec4 => Ty::Vec4,
+        Kind::Quat => Ty::Quat,
+        Kind::Mat4 => Ty::Mat4,
+        Kind::Token => return None,
+    })
 }
 
 fn column_ty(c: &Column) -> Option<Ty> {
@@ -592,17 +618,22 @@ impl Lower<'_> {
         }
         let read = if output == SCATTER_NORMALS {
             // The mesh's normals where it has some, else each face's own.
-            let found = [Context::Point, Context::Corner, Context::Face]
-                .into_iter()
-                .find_map(|c| {
-                    find_in(self.geo, c, "N")
-                        .filter(|f| f.ty == Some(Ty::Vec3))
-                        .map(|f| (c, f.derived))
-                });
-            let Some((c, derived)) = found else {
+            let found = [
+                (Context::Point, "N"),
+                (Context::Corner, "N"),
+                (Context::Face, "N"),
+                (Context::Face, "intrinsic:N"),
+            ]
+            .into_iter()
+            .find_map(|(c, name)| {
+                find_in(self.geo, c, name)
+                    .filter(|f| f.ty == Some(Ty::Vec3))
+                    .map(|f| (c, name, f.derived))
+            });
+            let Some((c, name, derived)) = found else {
                 return error(node, "No normals to give: the mesh has none, nor faces");
             };
-            self.location_read(c, "N", derived)
+            self.location_read(c, name, derived)
         } else {
             self.location_read(Context::Point, "P", false)
         };
@@ -1083,11 +1114,7 @@ impl Lower<'_> {
         let (geo, context) = (self.geo, self.plan.context);
         // The intrinsic lists by their own names: a face's points, a
         // point's faces.
-        let (name, from) = match (name.trim(), from) {
-            ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
-            ("faceIndices", None) => ("faceIndex", Some(Context::Face)),
-            (n, f) => (n, f),
-        };
+        let (name, from) = gathered(name.trim(), from);
         if name.is_empty() {
             return error(node, "Get Array Data needs the name of the attribute it reads");
         }
@@ -1210,7 +1237,7 @@ impl Lower<'_> {
         let contexts = sample_contexts(context);
         // What every sample has: its weights on the corners it is made from.
         match name.trim() {
-            "bary" => {
+            BARY => {
                 let mut v = self.emit(loc.uniform, Ty::Vec3, |dst| Ins::Bary {
                     dst,
                     loc: loc.reg,
@@ -1220,10 +1247,10 @@ impl Lower<'_> {
                 v.array = loc.array;
                 return Ok(v);
             }
-            "triP" => {
+            TRI_P => {
                 return error(
                     node,
-                    "triP is the points a place is made from, a list: read it with Get Array Data",
+                    "intrinsic:triP is the points a place is made from, a list: read it with Get Array Data",
                 )
             }
             _ => {}
@@ -1354,11 +1381,7 @@ impl Lower<'_> {
             return error(node, "Get Array Data reads from a Geometry wired in");
         };
         let context = self.plan.context;
-        let (name, from) = match (name.trim(), from) {
-            ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
-            ("faceIndices", None) => ("faceIndex", Some(Context::Face)),
-            (n, f) => (n, f),
-        };
+        let (name, from) = gathered(name.trim(), from);
         if name.is_empty() {
             return error(node, "Get Array Data needs the name of the attribute it reads");
         }
@@ -1529,9 +1552,9 @@ impl Lower<'_> {
         }
         // What every sample has: the points of the corners it is made from, in
         // the graph's space, and its weights on them, item by item.
-        if matches!(name.trim(), "triP" | "bary") {
+        if matches!(name.trim(), TRI_P | BARY) {
             let (flat, surface) = (loc.uniform, loc.surface);
-            let mut v = if name.trim() == "bary" {
+            let mut v = if name.trim() == BARY {
                 self.emit(flat, Ty::Float, |dst| Ins::Bary {
                     dst,
                     loc: loc.reg,
@@ -1552,10 +1575,9 @@ impl Lower<'_> {
             }
             return Ok(v);
         }
-        let (name, contexts) = match name.trim() {
-            "ptIndices" => ("ptIndex", vec![Context::Point]),
-            "" => return error(node, "Get Array Data needs the name of the attribute it reads"),
-            n => (n, sample_contexts(context)),
+        let (name, contexts) = match gathered(name.trim(), context) {
+            ("", _) => return error(node, "Get Array Data needs the name of the attribute it reads"),
+            (n, c) => (n, sample_contexts(c)),
         };
         let (read, ty) = self.sampled_read(node, name, loc.surface, &contexts)?;
         let flat = loc.uniform;
@@ -1859,6 +1881,15 @@ impl Lower<'_> {
         if name.trim().is_empty() {
             return error(node, "Set Data needs the name of the attribute it sets");
         }
+        if intrinsics::is_intrinsic(name.trim()) {
+            return error(
+                node,
+                format!(
+                    "{} is an intrinsic, made from the primitive: it is read, not set",
+                    name.trim()
+                ),
+            );
+        }
         if column_name(name) == POINTS && context != Context::Point {
             return error(
                 node,
@@ -2105,26 +2136,18 @@ fn type_of(
         Op::ClosestPoint => Some(Ty::Int),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
-        Op::GetArrayDataAt { name, .. } if name.trim() == "triP" => Some(Ty::Vec3),
-        Op::GetArrayDataAt { name, .. } if name.trim() == "bary" => Some(Ty::Float),
-        Op::GetDataAt { name, .. } if name.trim() == "bary" => Some(Ty::Vec3),
+        Op::GetArrayDataAt { name, .. } if name.trim() == TRI_P => Some(Ty::Vec3),
+        Op::GetArrayDataAt { name, .. } if name.trim() == BARY => Some(Ty::Float),
+        Op::GetDataAt { name, .. } if name.trim() == BARY => Some(Ty::Vec3),
         Op::GetArrayDataAt { name, context: from } => {
-            let name = if name.trim() == "ptIndices" {
-                "ptIndex"
-            } else {
-                name.trim()
-            };
-            sample_contexts(*from)
+            let (name, from) = gathered(name.trim(), *from);
+            sample_contexts(from)
                 .into_iter()
                 .find_map(|c| find_in(geo, c, name))
                 .and_then(|f| f.ty)
         }
         Op::GetArrayData { name, context: from } => {
-            let (name, from) = match (name.trim(), from) {
-                ("ptIndices", None) => ("ptIndex", Some(Context::Point)),
-                ("faceIndices", None) => ("faceIndex", Some(Context::Face)),
-                (n, f) => (n, *f),
-            };
+            let (name, from) = gathered(name.trim(), *from);
             from.or_else(|| context_of(geo, name))
                 .and_then(|c| find_in(geo, c, name))
                 .and_then(|f| f.ty)

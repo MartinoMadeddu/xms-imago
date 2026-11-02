@@ -58,7 +58,7 @@ itself, each with what it holds](docs/imago_geo_parts_v3.png)
 Edges are not a context: they are worked out from the topology (each pair of
 points that follow each other around a face, or along a curve), so they carry no
 attributes of their own. The Primitive Inspector lists them, with their
-`ptIndices` and length.
+`intrinsic:ptIndices` and `intrinsic:length`.
 
 - **`Column`:** a typed array, `Arc<Vec<T>>` for `T` in
   `bool, i32, f32, [f32;2], [f32;3], [f32;4], quat, [f64;16], token`. This is
@@ -318,10 +318,10 @@ Data nodes) run in order over a context; Get Data reads attributes (`P` =
 points). Only the set attributes get new columns. The output is the primitive
 with its `geo` updated, so ICE results are edits like any other node's and are
 written to USD the same way. A graph that does not compile leaves the primitive
-as it came, and shows why on the node. What the topology gives (a face's
-corners, first corner, normal, area; a corner's point, face, place) is read
-under the Primitive Inspector's names (`xms_ice::derived`), made only when a
-plan reads it. Set Data writes into its own context or carries the column into
+as it came, and shows why on the node. Intrinsics, what a primitive has from
+its topology and points (`intrinsic:corners`, `intrinsic:area`,
+`intrinsic:pointCount`…), are one list in `xms_geo::intrinsics` that ICE reads
+and the Primitive Inspector shows; a column is made only when a plan reads it. Set Data writes into its own context or carries the column into
 another after the run (`exec::carry`, the same maps as Get Data, the other way).
 Only nodes reaching the Execution Ports count towards the cook; the editor keeps
 the last input geometry (columns shared) to colour ports and list attributes.

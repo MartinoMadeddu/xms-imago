@@ -520,6 +520,8 @@ pub fn draw_properties(
         _ => vec![],
     };
     let range_now = graph.time_range(sel_id);
+    // What an Edit Primitive's prims are: the form of its type, their values.
+    let edit_in = super::edit_primitive::edit_in(graph, sel_id);
 
     let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sel_id) else {
         return;
@@ -880,6 +882,9 @@ pub fn draw_properties(
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
         NodeType::SetAttribute { rows } => set_attribute_rows(ui, rows, located, prim_paths.len()),
+        NodeType::EditPrimitive { kind, edits } => {
+            super::edit_primitive::rows(ui, kind, edits, &mut node.channels, &edit_in, located)
+        }
         NodeType::Material { surface } => material_rows(ui, surface, &node.name, io, sel_id),
         NodeType::MaterialX { graph } => crate::materialx::params::operator(ui, sel_id, &node.name, graph, io),
         NodeType::MaterialBinding { library, inputs, .. } => {

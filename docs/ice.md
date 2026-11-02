@@ -43,29 +43,42 @@ the tree's parameters).
   **Attributes** list, in a Get Data's parameters, shows those of the geometry
   the graph last ran on, by context, with their kind; picking one sets the name
   and the context. The list is made when it is opened, not as the graph runs.
-- **What the topology gives** is read like a stored attribute, under the names
-  the Primitive Inspector shows (a stored attribute of the same name comes
-  first):
+- **Intrinsics**, what a primitive has from its topology and points rather
+  than stored, are read like stored attributes, by names that all start with
+  `intrinsic:`, so one is never taken for a stored attribute (and a stored one
+  never hides one). They are read only: Set Data refuses them. The one list
+  (`xms_geo::intrinsics`) is what ICE reads, the Primitive Inspector shows and
+  this table lists:
 
   | Context | Name | Type | What |
   |---|---|---|---|
-  | Point | `ptIndex` | Integer | its own number (on points too) |
-  | Point | `curveu` | Float | how far along its curve, by length, 0 to 1 (curves only) |
-  | Face | `faceIndex` | Integer | its own number |
-  | Face | `corners` | Integer | its corners (a curve's control points) |
-  | Face | `firstCorner` | Integer | its first corner; the others follow it |
-  | Face | `N` | 3D Vector | its normal (polygons only) |
-  | Face | `area` | Scalar | its area (polygons only) |
-  | Corner | `ptIndex` | Integer | the point it is at |
-  | Corner | `faceIndex` | Integer | the face it is a corner of |
-  | Corner | `localCornerIndex` | Integer | its place in that face (0 for the first) |
+  | Point | `intrinsic:ptIndex` | Integer | its own number (on points too) |
+  | Point | `intrinsic:curveu` | Float | how far along its curve, by length, 0 to 1 (curves only) |
+  | Point | `intrinsic:faceIndices` | list of Integer | the faces it is on (Get Array Data) |
+  | Face | `intrinsic:faceIndex` | Integer | its own number |
+  | Face | `intrinsic:corners` | Integer | its corners (a curve's control points) |
+  | Face | `intrinsic:firstCorner` | Integer | its first corner; the others follow it |
+  | Face | `intrinsic:N` | 3D Vector | its normal (polygons only) |
+  | Face | `intrinsic:area` | Scalar | its area (polygons only) |
+  | Face | `intrinsic:length` | Scalar | its length along its control points (curves only; closed when periodic) |
+  | Face | `intrinsic:ptIndices` | list of Integer | its points, corner by corner (Get Array Data) |
+  | Corner | `intrinsic:ptIndex` | Integer | the point it is at |
+  | Corner | `intrinsic:faceIndex` | Integer | the face it is a corner of |
+  | Corner | `intrinsic:localCornerIndex` | Integer | its place in that face (0 for the first) |
+  | Object | `intrinsic:pointCount`, `intrinsic:faceCount`, `intrinsic:cornerCount` | Integer | how many points, faces (polygons or curves), corners |
+  | Object | `intrinsic:boundsMin`, `intrinsic:boundsMax` | 3D Vector | the low and high corners of the box around its points, in its own space |
+  | Object | `intrinsic:transform` | Matrix | where it is placed in the world |
+  | Object | `intrinsic:typeName`, `intrinsic:path` | Token | Mesh, BasisCurves or Points, and its path: in the Primitive Inspector, not read by ICE yet (tokens) |
+  | At a place | `intrinsic:triP`, `intrinsic:bary` | lists | the points a place is made from and their weights (below) |
 
   Made when a graph that reads them runs, once per run. Per point, Get Data
-  `firstCorner` (Context Face, Resample Min) gives the first corner of the first
-  face around each point. A face's `ptIndices` is a list, for Get Array Data.
-  Short names work too: `P` the points, `N` the normals, `uv` the first texture
-  coordinates. Quaternions read as their four numbers; matrices and tokens are
-  not read yet.
+  `intrinsic:firstCorner` (Context Face, Resample Min) gives the first corner
+  of the first face around each point; the Object's are one value for every
+  element. Short names work for stored attributes: `P` the points, `N` the
+  normals, `uv` the first texture coordinates. Quaternions read as their four
+  numbers; tokens are not read yet. Graphs saved before intrinsics had the
+  prefix read them by the new names when opened (a name the graph sets itself
+  stays its own).
 - **Set Data** writes an attribute, for every element; a new name makes a new
   attribute. Its Execute output goes into the Execution Ports. A Get Data of an
   attribute set by an earlier port reads the new values. Its **Context** says
@@ -116,7 +129,7 @@ the tree's parameters).
   ints include Max), different for each element and the same every time for the
   same Seed. With a Count, it gives an array of that many instead. Its **Seed
   input** says what each value is drawn for: unwired, the element's own number
-  (`ptIndex` per point, `faceIndex` per face, its index in an array); wired, an
+  (`intrinsic:ptIndex` per point, `intrinsic:faceIndex` per face, its index in an array); wired, an
   int per element draws each for its seed, so elements sharing a seed share a
   value (each point of a face, with the face's index read from its corners; a
   stable `id` when points are reordered), and one int for all moves every value
@@ -165,7 +178,7 @@ the tree's parameters).
   Data there (`P`, context Point) gives the curve's points as a list. Hair is
   carried by its guides this way (the "Bind simple hair deform by guides"
   template).
-- **`curveu`** is made from the topology on curves' points: how far along its
+- **`intrinsic:curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.
 - **Get Data at a Polygon and Param UV.** Wire a Polygon and Param UV (Closest Point on
@@ -231,8 +244,8 @@ the tree's parameters).
   "array of ints", "array of paths").
 - **Get Array Data** reads an attribute as a **list per element**, every value
   it touches kept rather than made one as Get Data's Resample does: per face,
-  `ptIndices` (its point numbers, in order), or `P` from Point (its points'
-  positions); per point, `faceIndices` (the faces around it); a corner's is a
+  `intrinsic:ptIndices` (its point numbers, in order), or `P` from Point (its
+  points' positions); per point, `intrinsic:faceIndices` (the faces around it); a corner's is a
   list of one. Maths works on a list item by item, a per-element value meeting
   each item (each point's x plus the face's own id), and lists of one context
   meet each other. Array Size, Select in Array (an index for all, or one per
@@ -261,9 +274,10 @@ the tree's parameters).
 - **The corners a place is made from.** A place is a blend of some of its
   face's corners: a triangle's three, a quad's four, all of a larger polygon's,
   a curve's segment's two. Read at a Polygon and Param UV, two names give them
-  whatever the mesh holds: **`triP`** (Get Array Data: those corners' points, in
-  the graph's space) and **`bary`** (Get Array Data: their weights, a list;
-  Get Data: the first three, as a 3D vector). A list of `triP` and one of `bary`
+  whatever the mesh holds: **`intrinsic:triP`** (Get Array Data: those corners'
+  points, in the graph's space) and **`intrinsic:bary`** (Get Array Data: their
+  weights, a list; Get Data: the first three, as a 3D vector). A list of
+  `intrinsic:triP` and one of `intrinsic:bary`
   meet item by item: multiply them and Array Sum is the place, as P read there
   is; Select in Array 0, 1 and 2 gives three corners in order, for a frame's
   edges (tangent `p1 - p0`, normal `(p1 - p0) × (p2 - p0)`, both normalised,
@@ -271,7 +285,7 @@ the tree's parameters).
 - **Get Array Data at a Polygon and Param UV.** Wired through its **Polygon** and
   **Param UV** inputs, a Get Array Data reads, at each place, the values of the
   **face** (or curve) it is on, kept as a list: its points' positions (`P`),
-  their numbers (`ptIndices`), its corners' UVs (`uv`); a face's own attribute
+  their numbers (`intrinsic:ptIndices`), its corners' UVs (`uv`); a face's own attribute
   is a list of one. Lists read at the same Polygons meet in maths (a face's
   `P` and `uv`, item by item, on a rest mesh and its animated copy); Array Size,
   Select in Array, Sum and Average make one value of each. One place per

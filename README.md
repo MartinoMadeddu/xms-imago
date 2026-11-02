@@ -118,6 +118,10 @@ selection](docs/xms_edit_poly.png)
 - **Set values on any prim:** Set Attribute sets primvars for rendering and
   properties such as visibility, purpose, kind and active, on meshes, groups,
   cameras or lights, one row per value
+- **Edit prims as what they are:** Edit Primitive shows a named prim's own
+  form (a camera's lens, a light's values, any prim's transform) with its
+  values; what you change overrides them, and only that is applied, keyed and
+  written
 - **Sublayer, reference or payload:** Load USD brings a file in whole at its own
   paths, or its default prim at a Primitive Location (`/root` by default),
   written back as a sublayer, a reference or a payload
@@ -403,8 +407,8 @@ Joints](docs/xms_bypass_pick.png)
   on Surface finds the nearest places on a reference input's meshes (a BVH over
   their triangles), to read anything there: shrink-wraps and other deformers.
   Matrices (compose from axes and an origin, multiply, invert, transpose,
-  transform points and vectors) and the corners a place is made from (`triP`,
-  `bary`) build frames on a surface by hand; a place is a Polygon and Param UV, as
+  transform points and vectors) and the corners a place is made from
+  (`intrinsic:triP`, `intrinsic:bary`) build frames on a surface by hand; a place is a Polygon and Param UV, as
   Houdini's `xyzdist` and `primuv` have it, kept as attributes to bind once and
   deform every frame. Selected nodes make a compound (one node,
   its ports the wires that crossed the selection), saved as a definition and
@@ -413,7 +417,9 @@ Joints](docs/xms_bypass_pick.png)
   ICE engine (`crates/xms-ice`); see [docs/ice.md](docs/ice.md)
 - Primitive Inspector: the attributes of the selected node or primitive. Object,
   Point, Edge, Face and Corner tabs for meshes, curves and points (a curve's
-  control points are points, its segments edges, the curve a face), Joint and
+  control points are points and corners, its segments edges, the curve a face),
+  each listing the stored attributes and the intrinsics (`intrinsic:…`, the
+  names ICE reads them by), with a Show dropdown for either or both; Joint and
   Bone tabs for a clip, and a Properties tab for the selected prims themselves
   (groups, cameras and lights too): each property's value and where it comes
   from

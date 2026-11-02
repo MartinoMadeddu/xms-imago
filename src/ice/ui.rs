@@ -559,14 +559,14 @@ pub fn draw_subnet_node_properties(
             resample,
         } => {
             group(ui, "Attribute", None, |f| {
-                f.text("Name", Some("P is the points, N the normals, uv the first texture coordinates; any other name is an attribute of the geometry"), name, "P");
+                f.text("Name", Some("P is the points, N the normals, uv the first texture coordinates; intrinsic:… what the primitive has from its topology (intrinsic:ptIndex, intrinsic:area, intrinsic:pointCount…); any other name is an attribute of the geometry"), name, "P");
                 // Every attribute of the geometry the graph last ran on, as the
                 // Primitive Inspector lists them: choosing one sets the name
                 // and where it is read from. Listed when opened, not before.
                 if last_input.lock().is_ok_and(|g| g.is_some()) {
                     f.row(
                         "Attributes",
-                        Some("The attributes of the geometry coming in: pick one to read it"),
+                        Some("The attributes of the geometry coming in, then its intrinsics: pick one to read it"),
                         |ui| {
                             egui::ComboBox::from_id_salt("ice_get_data_attrs")
                                 .width(ui.available_width() - 8.0)
@@ -605,7 +605,7 @@ pub fn draw_subnet_node_properties(
         } => group(ui, "Attribute", None, |f| {
             f.text(
                 "Name",
-                Some("P is the points, N the normals; any other name makes or sets an attribute"),
+                Some("P is the points, N the normals; any other name makes or sets an attribute (not intrinsic:…, which are read only)"),
                 name,
                 "P",
             );
@@ -635,13 +635,13 @@ pub fn draw_subnet_node_properties(
             f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
         }),
         IceGraphNodeType::GetArrayData { name, context } if at_samples => group(ui, "Attribute", None, |f| {
-            f.text("Name", Some("What each sample reads of the face it is on, kept as a list: P its points' positions, ptIndices their numbers, uv its corners'; a face's own attribute, a list of one"), name, "P");
+            f.text("Name", Some("What each sample reads of the face it is on, kept as a list: P its points' positions, intrinsic:ptIndices their numbers, uv its corners'; intrinsic:triP the points the place is made from and intrinsic:bary their weights; a face's own attribute, a list of one"), name, "P");
             f.choice("Context", Some("Which of the face's elements: its points, its corners, the face itself, the object. Auto: the first that has the attribute"),
                      context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
         }),
         IceGraphNodeType::GetArrayData { name, context } => group(ui, "Attribute", None, |f| {
-            f.text("Name", Some("The attribute each element reads as a list, every value it touches kept: P from Point, a face's points' positions; ptIndices, a face's point numbers; faceIndices, a point's faces"), name, "ptIndices");
-            f.choice("Context", Some("Where the values are read from. Auto: where the attribute is (ptIndices: Point, faceIndices: Face). A face reads its points or corners, a point the faces or corners around it, a corner its point or face (a list of one); in an Object graph, every one, as the graph's array"),
+            f.text("Name", Some("The attribute each element reads as a list, every value it touches kept: P from Point, a face's points' positions; intrinsic:ptIndices, a face's point numbers; intrinsic:faceIndices, a point's faces"), name, "intrinsic:ptIndices");
+            f.choice("Context", Some("Where the values are read from. Auto: where the attribute is (intrinsic:ptIndices: Point, intrinsic:faceIndices: Face). A face reads its points or corners, a point the faces or corners around it, a corner its point or face (a list of one); in an Object graph, every one, as the graph's array"),
                      context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
         }),
         IceGraphNodeType::RandomOrientation { seed } => group(ui, "Random", None, |f| {
@@ -1609,7 +1609,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Constants", IceGraphNodeType::Constant { value: super::identity() }, "A matrix: three axes and an origin; the identity by default"),
         ("Random", IceGraphNodeType::Random { seed: 0 }, "A random value between Min and Max, one per element; with a Count, an array of that many. Wire a Seed (ptIndex, an id, a face's index) to say what each is drawn for"),
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there, and each place as its Polygon and Param UV (Houdini's parametric coordinates), each an array"),
-        ("Data Access", IceGraphNodeType::GetArrayData { name: "ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire a Polygon and Param UV into it to read, at each, the values of the face (or curve) it is on: its points' P, ptIndices, its corners' uv; triP and bary are the corners the place is made from and their weights"),
+        ("Data Access", IceGraphNodeType::GetArrayData { name: "intrinsic:ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire a Polygon and Param UV into it to read, at each, the values of the face (or curve) it is on: its points' P, ptIndices, its corners' uv; triP and bary are the corners the place is made from and their weights"),
         ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes and curves (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): each as its Polygon and Param UV (Houdini's xyzdist), to read with Get Data or store, and how far each is. For deformers: shrink-wrap, stick to a body, bind and carry, blend by distance"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),

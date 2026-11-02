@@ -157,6 +157,8 @@ pub fn evaluate_node_type(
         NodeType::Compound { .. } | NodeType::CompoundInput { .. } | NodeType::CompoundOutput { .. } => {
             inputs.first().cloned()
         }
+        // Without Primitive Locations it names nothing: what comes in goes on.
+        NodeType::EditPrimitive { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs
             .first()

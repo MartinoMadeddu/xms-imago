@@ -391,6 +391,77 @@ fn reading(context: Context, name: &str, what: &str, from: Context, resample: su
     g
 }
 
+/// Intrinsics are named `intrinsic:…`: read in any graph (the object's in a
+/// per-point one, its placement among them), never set, and a bare name is a
+/// stored attribute's only.
+#[test]
+fn intrinsics_are_read_by_their_prefixed_names_only() {
+    use super::graph::Resample;
+    let geo = two_quads();
+    // The object's, read per point: one value for every point.
+    let plan = compile(
+        &reading(
+            Context::Point,
+            "n",
+            "intrinsic:pointCount",
+            Context::Object,
+            Resample::Average,
+        ),
+        &geo,
+    )
+    .unwrap();
+    let out = run(&plan, &geo, &no_params(), &[]).geo;
+    assert_eq!(out.attr(Context::Point, "n").unwrap().column.ints().unwrap(), &[6; 6]);
+    // Its placement, as the operator places it.
+    let mut g = Graph::default();
+    let m = g.add(Op::get("intrinsic:transform"), vec![]);
+    let s = g.add(Op::set("m"), vec![wire(m)]);
+    g.add(
+        Op::Root {
+            context: Context::Object,
+        },
+        vec![wire(s)],
+    );
+    let placed = glam::Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
+    let out = super::run_in(&compile(&g, &geo).unwrap(), &geo, placed, &no_params(), &[]).geo;
+    let got = out.attr(Context::Object, "m").unwrap().column.mat4s().unwrap()[0];
+    assert_eq!(&got[12..15], &[1.0, 2.0, 3.0]);
+    // A face's points as a list, by the list's own name.
+    let mut g = Graph::default();
+    let ix = g.add(
+        Op::GetArrayData {
+            name: "intrinsic:ptIndices".into(),
+            context: None,
+        },
+        vec![],
+    );
+    let n = g.add(Op::Array(ArrayOp::Size), vec![wire(ix)]);
+    assert_eq!(face_value(g, n, &geo).ints().unwrap(), &[4, 4]);
+    // The bare name is nobody's; nor is it set.
+    assert!(compile(
+        &reading(Context::Face, "a", "area", Context::Face, Resample::Average),
+        &geo
+    )
+    .is_err());
+    let mut g = Graph::default();
+    let s = g.add(Op::set("intrinsic:area"), vec![Input::Value(Value::Float(1.0))]);
+    g.add(Op::Root { context: Context::Face }, vec![wire(s)]);
+    let e = compile(&g, &geo).unwrap_err();
+    assert!(e.message.contains("read, not set"), "{}", e.message);
+    // Tokens are not read yet.
+    assert!(compile(
+        &reading(
+            Context::Object,
+            "t",
+            "intrinsic:typeName",
+            Context::Object,
+            Resample::Average
+        ),
+        &geo
+    )
+    .is_err());
+}
+
 /// Reading across contexts: a face its points, a corner its point, a point the
 /// faces around it, the object everything.
 #[test]
@@ -490,7 +561,13 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     // Per point, the lowest first corner of its faces: points 1 and 4 are on
     // both quads, so 0; points 2 and 5 only on the second, so 4.
     let plan = compile(
-        &reading(Context::Point, "fc", "firstCorner", Context::Face, Resample::Min),
+        &reading(
+            Context::Point,
+            "fc",
+            "intrinsic:firstCorner",
+            Context::Face,
+            Resample::Min,
+        ),
         &geo,
     )
     .unwrap();
@@ -501,23 +578,23 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     );
     // A face's corners, area and normal; a corner's point, face and place.
     for (ctx, what, from, want) in [
-        (Context::Face, "corners", Context::Face, vec![4.0, 4.0]),
-        (Context::Face, "area", Context::Face, vec![1.0, 1.0]),
+        (Context::Face, "intrinsic:corners", Context::Face, vec![4.0, 4.0]),
+        (Context::Face, "intrinsic:area", Context::Face, vec![1.0, 1.0]),
         (
             Context::Corner,
-            "ptIndex",
+            "intrinsic:ptIndex",
             Context::Corner,
             vec![0.0, 1.0, 4.0, 3.0, 1.0, 2.0, 5.0, 4.0],
         ),
         (
             Context::Corner,
-            "faceIndex",
+            "intrinsic:faceIndex",
             Context::Corner,
             vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
         ),
         (
             Context::Corner,
-            "localCornerIndex",
+            "intrinsic:localCornerIndex",
             Context::Corner,
             vec![0.0, 1.0, 2.0, 3.0, 0.0, 1.0, 2.0, 3.0],
         ),
@@ -544,7 +621,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     }
     // The face normal: the quads wind counter-clockwise seen from +Z.
     let plan = compile(
-        &reading(Context::Face, "n", "N", Context::Face, Resample::Average),
+        &reading(Context::Face, "n", "intrinsic:N", Context::Face, Resample::Average),
         &geo,
     )
     .unwrap();
@@ -555,7 +632,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     );
     // Unset, the context finds it and says which to set.
     let mut g = Graph::default();
-    let get = g.add(Op::get("firstCorner"), vec![]);
+    let get = g.add(Op::get("intrinsic:firstCorner"), vec![]);
     let set = g.add(Op::set("fc"), vec![wire(get)]);
     g.add(
         Op::Root {
@@ -567,7 +644,7 @@ fn what_the_inspector_shows_reads_from_the_topology() {
     assert!(e.message.contains("per Face"), "{}", e.message);
     // Points have no faces: nothing derived.
     assert!(compile(
-        &reading(Context::Point, "a", "area", Context::Face, Resample::Sum),
+        &reading(Context::Point, "a", "intrinsic:area", Context::Face, Resample::Sum),
         &cloud(3)
     )
     .is_err());
@@ -746,7 +823,7 @@ fn a_seed_per_element_draws_each_for_its_seed() {
     );
     assert_eq!(
         random_by(&geo, None),
-        random_by(&geo, Some("ptIndex")),
+        random_by(&geo, Some("intrinsic:ptIndex")),
         "unwired is the point's own number"
     );
     let by_group = random_by(&geo, Some("group"));
@@ -1051,7 +1128,7 @@ fn scattered_places_spread_by_area_and_lie_on_the_surface() {
         "{c:?}"
     );
     // The face's normal where there are no normals: straight up or down.
-    let n = scattered_average(&geo, 1, 100, "", "N").vec3s().unwrap()[0];
+    let n = scattered_average(&geo, 1, 100, "", "intrinsic:N").vec3s().unwrap()[0];
     assert!((n[1].abs() - 1.0).abs() < 1e-5, "{n:?}");
 }
 
@@ -1217,7 +1294,7 @@ fn scatter_gives_positions_normals_and_samples() {
     );
     assert_eq!(
         read(SCATTER_NORMALS, None),
-        read(SCATTER_POLYGONS, Some("N")),
+        read(SCATTER_POLYGONS, Some("intrinsic:N")),
         "normals are N at the samples"
     );
     // A position is not a sample: Get Data at Samples refuses it.
@@ -1448,11 +1525,11 @@ fn get_array_data_keeps_what_each_face_touches() {
     };
     // How many, and the first of each: faces 0 1 2 3 and 1 4 5 2.
     let mut g = Graph::default();
-    let ix = list(&mut g, "ptIndices", None);
+    let ix = list(&mut g, "intrinsic:ptIndices", None);
     let size = g.add(Op::Array(ArrayOp::Size), vec![wire(ix)]);
     assert_eq!(face_value(g, size, &geo).ints().unwrap(), &[4, 4]);
     let mut g = Graph::default();
-    let ix = list(&mut g, "ptIndices", None);
+    let ix = list(&mut g, "intrinsic:ptIndices", None);
     let second = g.add(Op::Array(ArrayOp::Element), vec![wire(ix), Input::Value(Value::Int(1))]);
     assert_eq!(face_value(g, second, &geo).ints().unwrap(), &[1, 4]);
     // The points' positions doubled, item by item, then averaged: twice
@@ -1481,7 +1558,7 @@ fn get_array_data_keeps_what_each_face_touches() {
     );
     // A list is not written as an attribute.
     let mut g = Graph::default();
-    let ix = list(&mut g, "ptIndices", None);
+    let ix = list(&mut g, "intrinsic:ptIndices", None);
     let set = g.add(Op::set("v"), vec![wire(ix)]);
     g.add(Op::Root { context: Context::Face }, vec![wire(set)]);
     assert_eq!(compile(&g, &geo).unwrap_err().node, set);
@@ -1830,7 +1907,7 @@ fn array_data_at_samples() {
     );
     let ids = g.add(
         Op::GetArrayDataAt {
-            name: "ptIndices".into(),
+            name: "intrinsic:ptIndices".into(),
             context: None,
         },
         closest_at(near),
@@ -1917,14 +1994,14 @@ fn a_frame_from_the_triangle_under_each_point() {
     );
     let tri = g.add(
         Op::GetArrayDataAt {
-            name: "triP".into(),
+            name: "intrinsic:triP".into(),
             context: None,
         },
         closest_at(near),
     );
     let bary = g.add(
         Op::GetArrayDataAt {
-            name: "bary".into(),
+            name: "intrinsic:bary".into(),
             context: None,
         },
         closest_at(near),
@@ -2113,7 +2190,7 @@ fn samples_read_on_another_mesh_of_the_same_topology() {
     );
     let tri = g.add(
         Op::GetArrayDataAt {
-            name: "triP".into(),
+            name: "intrinsic:triP".into(),
             context: None,
         },
         [closest_at(near), vec![wire(anim)]].concat(),
@@ -2294,7 +2371,7 @@ fn closest_points_on_curves_are_read_on_their_animated_copy() {
     let (there, moved) = (at(&mut g, None), at(&mut g, Some(anim)));
     let curve = g.add(
         Op::GetDataAt {
-            name: "faceIndex".into(),
+            name: "intrinsic:faceIndex".into(),
             context: None,
         },
         closest_at(near),
@@ -2364,7 +2441,7 @@ fn curveu_is_how_far_along_its_curve() {
     ]);
     geo.topology = Topology::curves(vec![3, 2], CurveBasis::Linear, CurveWrap::Nonperiodic);
     let mut g = Graph::default();
-    let u = g.add(Op::get("curveu"), vec![]);
+    let u = g.add(Op::get("intrinsic:curveu"), vec![]);
     let set = g.add(Op::set("u"), vec![wire(u)]);
     g.add(
         Op::Root {

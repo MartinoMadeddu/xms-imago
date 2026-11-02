@@ -13,6 +13,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
+| Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light): its form shows their values, and what is changed overrides them |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -183,6 +184,48 @@ primitive's own attributes. Write USD writes each value once, on the group.
 
 Values per point, per face or per corner are not set here: changing them
 rewrites the primitive's arrays, and that is ICE's.
+
+## Edit Primitive
+
+Edit Primitive edits prims already in the scene, a loaded stage's above all, as
+what they are. The quickest way to one: select prims in the Scene Explorer, or a
+row of the Primitive Inspector's Properties tab, and press **Enter** with the
+pointer over it, or right-click and choose **Edit Selected**. An Edit Primitive
+naming them is added after the viewed operator, viewed and selected, its form
+in Parameters; asked again while it overrides nothing, the same one names the
+new selection. Name them in its Prims Location tab (a path names that prim, as
+Set Attribute's do); its **Type** sets itself from the first one: Xform (a
+group, or any prim), Mesh, Curves, Points, Camera or Light. Its form is that
+type's, with the values of the first prim of that type named.
+
+| Type | Its form |
+|---|---|
+| Every type | **Xform**: Translate, Rotate, Scale (the prim's own transform, relative to its parent), Visibility, Purpose, Active, Kind |
+| Mesh | Double sided, Subdivision |
+| Camera | Projection, focal length, filmback and its offset, clipping range, f-stop, focus distance, as the Camera operator has them |
+| Light | Its UsdLux values, as the Light operator has them |
+
+**Only what you change is an override.** A value changed in the form is marked
+✎, with ↺ beside it to give it back to the prim; the **Overrides** group lists
+them, with **Revert all**. Everything else follows the prim: a value the file
+changes, or animates, still comes through. Overrides can be keyed, and only
+they can (the Keys group lists them). Overrides are absolute: a Translate
+overridden puts the prim there, under its parent. To move prims by an amount,
+use Transform.
+
+Every prim named of the Type takes the overrides; one of another type is left
+as it is, and the panel says how many. The Xform section's values reach every
+prim named of the type. A group named moves what is below it.
+
+Write USD writes the overrides over the stage: a file's camera's or light's
+values as its own attributes (`float focalLength = 85`), visibility, purpose,
+active and kind as Set Attribute's are, a moved prim as its own transform. A
+camera or light made in Imago is written whole, with the overrides in it. A
+group moved is written, for now, as the new transforms of the primitives below
+it rather than as the group's own.
+
+Only Edit Primitive has overrides like these: every other operator's parameters
+are simply its values.
 
 ## Shapes are primitives
 
