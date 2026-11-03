@@ -320,6 +320,15 @@ pub fn scene_properties(
         }
         let origin = (if node.is_some() { "file" } else { "Imago" }).to_string();
         let made_here = || (origin.clone(), maker);
+        // A value of what the prim is (a camera's lens, curves' basis): the
+        // operator overriding it here, else where the prim came from.
+        let made_or_set = |name: &str| {
+            set_by(graph, view, path, name, SetContext::Property)
+                .map(|(id, n)| (n, Some(id)))
+                .unwrap_or_else(made_here)
+        };
+        // Those values, listed once: not again as the file's or as set.
+        let mut own_values: Vec<String> = vec![];
 
         // What the prim is.
         let ty = match (node, prim) {
@@ -449,16 +458,28 @@ pub fn scene_properties(
                     row("copies", copies(p, prims).to_string(), made_here());
                 }
                 // A camera: its lens and gate, where it came from.
+                let mut values: Vec<(String, String)> = vec![];
                 if let Some(c) = &p.camera {
-                    for (name, value) in c.properties() {
-                        row(&name, value, made_here());
-                    }
+                    values.extend(c.properties());
                 }
                 // A light: every value it has, the schema's where none is set.
                 if let Some(l) = &p.light {
-                    for (name, value) in l.properties() {
-                        row(&name, value, made_here());
+                    values.extend(l.properties());
+                }
+                // Curves: their type, basis and wrap as they are now.
+                if matches!(
+                    p.geo.as_deref().map(|g| &g.topology),
+                    Some(crate::core::geo::Topology::Curves { .. })
+                ) {
+                    let (ty, basis, wrap) =
+                        crate::core::edit_primitive::curve_tokens(crate::core::edit_primitive::curve_shape(p));
+                    for (name, v) in [("type", ty), ("basis", basis), ("wrap", wrap)] {
+                        values.push((name.into(), v.into()));
                     }
+                }
+                for (name, value) in values {
+                    row(&name, value, made_or_set(&name));
+                    own_values.push(name);
                 }
                 let bound = p.material.clone().unwrap_or_else(|| "none".into());
                 let rebound = p.source.as_ref().is_some_and(|s| s.material != p.material);
@@ -501,7 +522,11 @@ pub fn scene_properties(
         // What the file authors on it (`kind`, `doubleSided`, custom
         // attributes), unless Set Attribute set it since.
         for (name, v) in &file_values {
-            if name == "visibility" || (prim.is_some() && name == "purpose") || own.props.contains_key(name) {
+            if name == "visibility"
+                || (prim.is_some() && name == "purpose")
+                || own.props.contains_key(name)
+                || own_values.contains(name)
+            {
                 continue;
             }
             row(name, v.display(), ("file".into(), maker));
@@ -510,7 +535,7 @@ pub fn scene_properties(
         // inherited in USD (and Object values, in the Object tab): `kind` or
         // `doubleSided` on a group say nothing about what is below it.
         for (name, v) in &own.props {
-            if name == "visibility" {
+            if name == "visibility" || own_values.contains(name) {
                 continue;
             }
             row(name, v.display(), setter(path, name, SetContext::Property));
@@ -874,5 +899,45 @@ mod tests {
         // Nothing selected: the root prims.
         let roots = scene_properties(&g, view, &scene, &[]);
         assert!(roots.iter().all(|r| r.path == "/root") && !roots.is_empty());
+    }
+
+    /// Curves list their type, basis and wrap as they are, an Edit Primitive
+    /// overriding one named as where it comes from, each once.
+    #[test]
+    fn curves_list_what_edit_primitive_made_them() {
+        use crate::core::edit_primitive::{edit, EditKind};
+        use crate::core::geo::{CurveBasis, CurveWrap, Geo, Topology};
+        use crate::core::geo_mesh::GeoMesh;
+        use crate::types::NodeType;
+        use std::sync::Arc;
+        let mut hair = Geo::from_points(vec![[0.0; 3], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0], [0.0, 3.0, 0.0]]);
+        hair.topology = Topology::curves(vec![4], CurveBasis::Bspline, CurveWrap::Nonperiodic);
+        let prims = vec![Prim {
+            geo: Some(Arc::new(hair.clone())),
+            ..Prim::new("/hair".into(), hair.to_mesh())
+        }];
+        let mut edits = std::collections::BTreeMap::new();
+        edits.insert("basis".to_string(), serde_json::json!("catmullRom"));
+        let mut g = crate::node_graph::NodeGraphState::default();
+        let ep = g.add_node(
+            "Groom".into(),
+            NodeType::EditPrimitive {
+                kind: EditKind::Curves,
+                edits: edits.clone(),
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        g.nodes.iter_mut().find(|n| n.id == ep).unwrap().locations = vec!["/hair".into()];
+        let list = vec!["/hair".to_string()];
+        let scene = edit(&EvalResult::Named(prims), &list, EditKind::Curves, &edits);
+        let rows = scene_properties(&g, ep, &scene, &list);
+        let find = |name: &str| {
+            rows.iter()
+                .filter(|r| r.name == name)
+                .map(|r| (r.value.clone(), r.from.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(find("basis"), [("catmullRom".to_string(), "Groom".to_string())]);
+        assert_eq!(find("wrap"), [("nonperiodic".to_string(), "Imago".to_string())]);
     }
 }

@@ -147,7 +147,7 @@ const PROPERTIES: [&str; 6] = [
 const CURVE: [&str; 3] = ["type", "basis", "wrap"];
 
 /// Curves' basis and wrap: their topology's, else what the Viewer draws.
-fn curve_shape(p: &Prim) -> (CurveBasis, CurveWrap) {
+pub fn curve_shape(p: &Prim) -> (CurveBasis, CurveWrap) {
     match p.geo.as_deref().map(|g| &g.topology) {
         Some(Topology::Curves { basis, wrap, .. }) => (*basis, *wrap),
         _ => (p.mesh.curve_basis, p.mesh.curve_wrap),
@@ -156,7 +156,7 @@ fn curve_shape(p: &Prim) -> (CurveBasis, CurveWrap) {
 
 /// Basis and wrap as USD's `type`, `basis` and `wrap` tokens. Linear curves
 /// have no basis of their own: USD's fallback, bezier.
-fn curve_tokens((basis, wrap): (CurveBasis, CurveWrap)) -> (&'static str, &'static str, &'static str) {
+pub fn curve_tokens((basis, wrap): (CurveBasis, CurveWrap)) -> (&'static str, &'static str, &'static str) {
     let (ty, b) = match basis {
         CurveBasis::Linear => ("linear", "bezier"),
         CurveBasis::Bezier => ("cubic", "bezier"),
