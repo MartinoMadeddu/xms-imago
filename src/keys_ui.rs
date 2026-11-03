@@ -1010,30 +1010,37 @@ fn remove_promotion(graph: &mut NodeGraphState, node: &str, path: &str) {
     graph.inside.parameters.retain(|q| !q.targets.is_empty());
 }
 
-/// S, tapped: key every number of the selected operator at the playhead. A tap,
-/// so a navigation style that holds S to move the camera keeps it: a mouse
-/// button pressed while S is down makes it a hold. Not while typing.
+/// S, tapped: key every number of the selected operator at the playhead. A tap
+/// of S alone: Cmd+S or Ctrl+S (saving) never keys, nor a navigation style
+/// that holds S to move the camera (a mouse button pressed while S is down
+/// makes it a hold). Not while typing.
 pub fn s_key(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<String> {
     if ctx.egui_wants_keyboard_input() {
         return None;
     }
-    let (pressed, released, mouse) = ctx.input(|i| {
-        (
-            i.key_pressed(egui::Key::S) && !i.modifiers.any(),
-            i.key_released(egui::Key::S),
-            i.pointer.any_down(),
-        )
+    let input = ctx.input(|i| STap {
+        // The first press, not the key repeating while held.
+        pressed: i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key {
+                    key: egui::Key::S,
+                    pressed: true,
+                    repeat: false,
+                    ..
+                }
+            )
+        }),
+        held: i.key_down(egui::Key::S),
+        released: i.key_released(egui::Key::S),
+        modifiers: i.modifiers.any(),
+        mouse: i.pointer.any_down(),
     });
-    let id_used = egui::Id::new("s_key_used");
-    let mut used: bool = ctx.data(|d| d.get_temp(id_used)).unwrap_or(false);
-    if pressed {
-        used = false;
-    }
-    if mouse && ctx.input(|i| i.key_down(egui::Key::S)) {
-        used = true;
-    }
-    ctx.data_mut(|d| d.insert_temp(id_used, used));
-    if !released || used {
+    let id_armed = egui::Id::new("s_key_armed");
+    let mut armed: bool = ctx.data(|d| d.get_temp(id_armed)).unwrap_or(false);
+    let tapped = input.step(&mut armed);
+    ctx.data_mut(|d| d.insert_temp(id_armed, armed));
+    if !tapped {
         return None;
     }
     let id = graph.selected_node?;
@@ -1057,9 +1064,89 @@ pub fn s_key(ctx: &egui::Context, graph: &mut NodeGraphState) -> Option<String> 
     ))
 }
 
+/// One frame of the S key, for `s_key`.
+struct STap {
+    pressed: bool,
+    held: bool,
+    released: bool,
+    modifiers: bool,
+    mouse: bool,
+}
+
+impl STap {
+    /// Whether this frame ends a tap. `armed`: S went down alone and nothing
+    /// since made it a shortcut or a hold.
+    fn step(&self, armed: &mut bool) -> bool {
+        if self.pressed {
+            *armed = !self.modifiers;
+        }
+        if (self.held || self.released) && (self.modifiers || self.mouse) {
+            *armed = false;
+        }
+        let tapped = self.released && *armed;
+        if self.released {
+            *armed = false;
+        }
+        tapped
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// S tapped alone keys; Cmd+S (its press taken by the save shortcut, or
+    /// not), Cmd let go before S, and S held while dragging do not.
+    #[test]
+    fn only_a_tap_of_s_alone_keys() {
+        let frame = |pressed, held, released, modifiers, mouse| STap {
+            pressed,
+            held,
+            released,
+            modifiers,
+            mouse,
+        };
+        let run = |frames: &[STap]| {
+            let mut armed = false;
+            frames.iter().map(|f| f.step(&mut armed)).collect::<Vec<_>>()
+        };
+        let tap = [
+            frame(true, true, false, false, false),
+            frame(false, false, true, false, false),
+        ];
+        assert_eq!(run(&tap), [false, true]);
+        // Cmd+S: the press seen, or taken by the save shortcut first.
+        let save = [
+            frame(true, true, false, true, false),
+            frame(false, false, true, true, false),
+        ];
+        assert_eq!(run(&save), [false, false]);
+        let taken = [
+            frame(false, true, false, true, false),
+            frame(false, false, true, true, false),
+        ];
+        assert_eq!(run(&taken), [false, false]);
+        // Cmd let go first, S after.
+        let late = [
+            frame(true, true, false, true, false),
+            frame(false, true, false, false, false),
+            frame(false, false, true, false, false),
+        ];
+        assert_eq!(run(&late), [false, false, false]);
+        // S held to move the camera.
+        let hold = [
+            frame(true, true, false, false, false),
+            frame(false, true, false, false, true),
+            frame(false, false, true, false, false),
+        ];
+        assert_eq!(run(&hold), [false, false, false]);
+        // After a tap, a save does not key: nothing is left armed.
+        let mut armed = false;
+        for f in tap.iter().chain(&taken) {
+            f.step(&mut armed);
+        }
+        assert!(!armed);
+    }
 
     fn promoting(node: &str, path: &str, into: Option<&str>, label: &str) -> Promoting {
         Promoting {

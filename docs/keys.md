@@ -12,7 +12,7 @@ group under the parameters, the keys of Bounce on the timeline](xms_keys.png)
 
 | To | Do this |
 |---|---|
-| Key every number of the selected operator at the playhead | Tap S (anywhere but a text field), or Key all in the Keys group, or right-click the timeline |
+| Key every number of the selected operator at the playhead | Tap S alone (anywhere but a text field; Cmd+S or Ctrl+S saves and keys nothing), or Key all in the Keys group, or right-click the timeline |
 | Key one number | Click its diamond in the Keys group, at the bottom of Parameters |
 | Change a keyed number | Change it in Parameters, or drag a handle in the Viewer: it is keyed at the playhead with the new value |
 | Take a key away | Click its filled diamond; Delete keys here in the Keys group or on the timeline's right-click menu; Delete in the Curve Editor |
