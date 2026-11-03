@@ -324,7 +324,8 @@ pub fn find_settings(prims: &[Prim], fallback: &str) -> Found {
     if let Some(p) = prims.iter().find(settings) {
         return Found::First(p.path.clone());
     }
-    if let Some(p) = stage_paths(prims, "RenderSettings").into_iter().next() {
+    // A file's: the one it names, else its first.
+    if let Some(p) = file_settings(prims).or_else(|| stage_paths(prims, "RenderSettings").into_iter().next()) {
         return Found::InFile(p);
     }
     Found::Made(fallback.to_string())
@@ -335,6 +336,9 @@ pub fn find_settings(prims: &[Prim], fallback: &str) -> Found {
 pub struct Context {
     pub cameras: Vec<String>,
     pub products: Vec<String>,
+    /// Every RenderSettings prim coming in, and those of them from a file.
+    pub all_settings: Vec<String>,
+    pub file_settings: Vec<String>,
     /// The RenderSettings prim found, if any (`None`: one would be made).
     pub settings: Option<Found>,
 }
@@ -346,6 +350,8 @@ pub fn context(input: &EvalResult) -> Context {
     Context {
         cameras: cameras(&prims),
         products: all_of(&prims, RenderKind::Product),
+        all_settings: all_settings(&prims),
+        file_settings: stage_paths(&prims, "RenderSettings"),
         settings: (!matches!(found, Found::Made(_))).then_some(found),
     }
 }
@@ -521,8 +527,9 @@ pub fn scene_settings(input: Option<&EvalResult>, s: &SceneSettings) -> EvalResu
             p.render = Some(Arc::new(r));
         }
     }
+    // Named whether Imago made it or it is a file's, written as an over.
     let mut st = take(&prims, &path, RenderKind::Settings);
-    st.primary = !st.over;
+    st.primary = true;
     let camera = if s.camera.trim().is_empty() {
         cameras(&prims).into_iter().next()
     } else {
@@ -1393,23 +1400,110 @@ pub fn settings_list(prims: &[Prim]) -> Vec<SettingsInfo> {
 /// The path of the RenderSettings prim a layer names: the one named, else the
 /// first made in Imago (not one of a file: that one's file names its own).
 pub fn layer_settings(prims: &[Prim]) -> Option<String> {
-    let made: Vec<&Prim> = prims
+    let settings = |p: &&Prim| p.render.as_ref().is_some_and(|r| r.kind == RenderKind::Settings);
+    if let Some(p) = prims
         .iter()
-        .filter(|p| {
-            p.render
-                .as_ref()
-                .is_some_and(|r| r.kind == RenderKind::Settings && !r.over)
-        })
-        .collect();
-    made.iter()
+        .filter(settings)
         .find(|p| p.render.as_ref().is_some_and(|r| r.primary))
-        .or(made.first())
-        .map(|p| p.path.clone())
+    {
+        return Some(p.path.clone());
+    }
+    if let Some(p) = prims
+        .iter()
+        .filter(settings)
+        .find(|p| p.render.as_ref().is_some_and(|r| !r.over))
+    {
+        return Some(p.path.clone());
+    }
+    file_settings(prims)
+}
+
+/// The RenderSettings prim a stage coming in names (`renderSettingsPrimPath`),
+/// the first stage's that names one and still has it.
+pub fn file_settings(prims: &[Prim]) -> Option<String> {
+    let mut seen: Vec<&Arc<crate::usd_scene::StageTree>> = vec![];
+    for t in prims.iter().filter_map(|p| p.stage.as_ref()) {
+        if seen.iter().any(|x| Arc::ptr_eq(x, t)) {
+            continue;
+        }
+        seen.push(t);
+        if let Some(path) = t.render_settings.as_ref().filter(|p| t.node(p).is_some()) {
+            return Some(path.clone());
+        }
+    }
+    None
+}
+
+/// Every RenderSettings prim of a scene: those Imago made or changed, then
+/// those of its stages, each once.
+pub fn all_settings(prims: &[Prim]) -> Vec<String> {
+    let mut out = made(prims, RenderKind::Settings);
+    for p in stage_paths(prims, "RenderSettings") {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Render Commons on a file's RenderSettings prim: it is the one named,
+    /// written as an over. With none, the one a file names is.
+    #[test]
+    fn the_rendered_settings_are_render_commons_else_the_files() {
+        use crate::usd_scene::{StageNode, StageTree};
+        let tree = Arc::new(StageTree {
+            nodes: vec![
+                StageNode {
+                    path: "/Render".into(),
+                    type_name: "Scope".into(),
+                    depth: 1,
+                    ..Default::default()
+                },
+                StageNode {
+                    path: "/Render/rendersettings".into(),
+                    type_name: "RenderSettings".into(),
+                    depth: 2,
+                    ..Default::default()
+                },
+                StageNode {
+                    path: "/Render/other".into(),
+                    type_name: "RenderSettings".into(),
+                    depth: 2,
+                    ..Default::default()
+                },
+            ],
+            render_settings: Some("/Render/rendersettings".into()),
+            ..Default::default()
+        });
+        let card = Prim {
+            stage: Some(tree),
+            ..Prim::new("/card".into(), crate::types::MeshData::default())
+        };
+        let prims = vec![card];
+        assert_eq!(layer_settings(&prims), Some("/Render/rendersettings".into()));
+        assert_eq!(
+            all_settings(&prims),
+            vec!["/Render/rendersettings".to_string(), "/Render/other".to_string()]
+        );
+        let on_file = SceneSettings {
+            location: "/Render/other".into(),
+            ..Default::default()
+        };
+        let out = named(scene_settings(Some(&EvalResult::Named(prims)), &on_file));
+        let st = out
+            .iter()
+            .find(|p| p.path == "/Render/other")
+            .unwrap()
+            .render
+            .clone()
+            .unwrap();
+        assert!(st.over && st.primary, "an over, and the one named");
+        assert_eq!(layer_settings(&out), Some("/Render/other".into()));
+    }
 
     fn named(r: EvalResult) -> Vec<Prim> {
         match r {

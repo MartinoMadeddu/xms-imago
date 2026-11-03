@@ -165,6 +165,9 @@ pub struct StageTree {
     /// the file at a Primitive Location, its paths rebased there. `None`:
     /// sublayered, at the file's own paths.
     pub arc: Option<StageArc>,
+    /// The RenderSettings prim the file names (`renderSettingsPrimPath`), at
+    /// its path in the scene: the one rendered when Imago names none.
+    pub render_settings: Option<String>,
 }
 
 /// How Load USD brings its file in.
@@ -259,6 +262,7 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
         source: tree.source.clone(),
         up_axis: tree.up_axis.clone(),
         meters_per_unit: tree.meters_per_unit,
+        render_settings: tree.render_settings.as_deref().and_then(|p| arc.place(p)),
     }
 }
 

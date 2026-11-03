@@ -321,6 +321,7 @@ fn scene_of(
         opinions: Default::default(),
         index: nodes_index,
         arc: None,
+        render_settings: info.render_settings.clone(),
     });
     scene.notes = counts.notes();
     if boxes {

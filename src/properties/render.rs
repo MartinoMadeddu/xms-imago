@@ -178,9 +178,29 @@ fn path_pick(f: &mut Rows, label: &str, hint: &str, value: &mut String, placehol
 
 pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Context) {
     let path = s.path();
-    group(ui, "Primitive", Some("The RenderSettings prim. Render Settings and Render Variables find it without a wire: the layer names it (renderSettingsPrimPath)"), |f| {
-        f.text_vars("Primitive Location", Some("A USD path, such as /Render/Settings. Variables are put in"), &mut s.location, "/Render/Settings", false);
+    group(ui, "Primitive", Some("The RenderSettings prim rendered: the layer names it (renderSettingsPrimPath), and Render Settings and Render Variables find it without a wire. A new one, or one of the scene's: a file's gets these values written over its own"), |f| {
+        path_pick(
+            f,
+            "Primitive Location",
+            "A USD path, such as /Render/Settings: a new prim, or one of the RenderSettings coming in (Pick)",
+            &mut s.location,
+            "/Render/Settings",
+            &ctx.all_settings,
+        );
         if path != s.location.trim() { f.status(Status::Info, format!("Used as {path}")); }
+        if ctx.file_settings.contains(&path) {
+            f.status(Status::Info, format!("{path} is a file's: rendered, with its values replaced by these. To keep the file's and change a few, use Edit Primitive on it instead (select it in the Scene Explorer, Enter)"));
+        }
+        let unused: Vec<&String> = ctx.all_settings.iter().filter(|p| **p != path).collect();
+        if !unused.is_empty() {
+            f.status(
+                Status::Info,
+                format!(
+                    "Also in the scene, not rendered: {}",
+                    unused.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", ")
+                ),
+            );
+        }
     });
     group(
         ui,

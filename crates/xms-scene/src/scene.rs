@@ -94,6 +94,9 @@ pub struct StageInfo {
     pub source: Option<String>,
     /// `defaultPrim`: the root prim a reference to the file brings in
     pub default_prim: Option<String>,
+    /// `renderSettingsPrimPath`: the RenderSettings prim rendered when none
+    /// is asked for
+    pub render_settings: Option<String>,
 }
 
 impl Default for StageInfo {
@@ -105,6 +108,7 @@ impl Default for StageInfo {
             time_codes_per_second: 24.0,
             source: None,
             default_prim: None,
+            render_settings: None,
         }
     }
 }

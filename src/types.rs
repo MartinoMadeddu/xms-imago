@@ -3071,6 +3071,16 @@ impl SceneHierarchy {
                     let at = self.objects.iter().position(|o| o.id == group_id).map_or(0, |k| k + 1);
                     let rows = self.objects.split_off(at);
                     self.objects.extend(merged(rows));
+                    // The RenderSettings prim a render of this scene uses.
+                    if let Some(used) = crate::core::render::layer_settings(&prims) {
+                        if let Some(row) = self
+                            .objects
+                            .iter_mut()
+                            .find(|o| o.path.as_deref() == Some(used.as_str()))
+                        {
+                            row.type_name.push_str(" · rendered");
+                        }
+                    }
                 }
             }
         }
@@ -3252,7 +3262,7 @@ mod explorer_tests {
 
     /// Two stages with a group of the same path, and a prim made in Imago
     /// under a group a stage has: one row for each path, what each has below
-    /// it under it.
+    /// it under it. The RenderSettings rendered is marked.
     #[test]
     fn prims_of_several_stages_under_one_path_are_one_tree() {
         use crate::usd_scene::{StageNode, StageTree};
@@ -3315,7 +3325,7 @@ mod explorer_tests {
                 (2, "sonic", "Mesh"),
                 (0, "Render", "Scope"),
                 (1, "rendersettings", "RenderSettings"),
-                (1, "Settings", "RenderSettings"),
+                (1, "Settings", "RenderSettings · rendered"),
             ]
         );
     }

@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use std::path::Path as FsPath;
 use std::time::Instant;
 
-use openusd::vt::{Value, ValueKind};
 use openusd::usd::{Attribute, Prim, Stage, TimeCode};
+use openusd::vt::{Value, ValueKind};
 use xms_scene as rs;
 use xms_scene::{Mat4d, Path, PrimKind, Sampled};
 
@@ -138,6 +138,12 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         .flatten()
         .and_then(|v| tok(&v))
         .filter(|s| !s.is_empty());
+    let render_settings = stage
+        .stage_metadata("renderSettingsPrimPath")
+        .ok()
+        .flatten()
+        .and_then(|v| tok(&v))
+        .filter(|s| !s.is_empty());
     let time_range = stage
         .has_authored_time_code_range()
         .then(|| (stage.start_time_code(), stage.end_time_code()));
@@ -175,6 +181,7 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         time_codes_per_second: stage.time_codes_per_second(),
         source: Some(path_str.to_string()),
         default_prim,
+        render_settings,
     };
     tr.scene.set_time(rs::SceneTime {
         time: t,

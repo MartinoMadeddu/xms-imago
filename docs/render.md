@@ -24,7 +24,7 @@ under Scopes.
 
 | Group | Parameter | USD |
 |---|---|---|
-| Primitive | Primitive Location | the RenderSettings prim's path; the layer names it (`renderSettingsPrimPath`) |
+| Primitive | Primitive Location: a new prim's path, or one of the RenderSettings coming in (**Pick**) | the RenderSettings prim rendered: the layer names it (`renderSettingsPrimPath`) |
 | Camera | Camera: a path, or picked from the cameras coming in. Empty: the first camera coming in | `rel camera` |
 | Image | Resolution, with presets (HD 720, HD 1080, 2K DCI, UHD, 4K DCI, square) | `uniform int2 resolution` |
 | | Pixel Aspect | `uniform float pixelAspectRatio` |
@@ -38,14 +38,29 @@ under Scopes.
 Filtering and bit depth are not here: they belong to each RenderVar, or are the
 renderer's own settings.
 
+**Which RenderSettings is rendered.** One prim, decided in one place:
+
+- With a Render Commons, the prim at its Primitive Location: a new one, or one
+  of a loaded file's, picked from those coming in. A file's is written as an
+  `over` with Render Commons' values over its own, and named. The panel lists
+  the other RenderSettings in the scene, which are not rendered.
+- Without one, the prim the loaded file names (its `renderSettingsPrimPath`),
+  else the first one made in Imago. Write USD names it again in its layer,
+  since a renderer reads that from the layer it opens: a Houdini scene renders
+  with its own settings.
+- To keep a file's settings and change a few, edit it with Edit Primitive
+  instead (its RenderSettings type): only what is changed is written.
+
+The Scene Explorer marks the one rendered (`RenderSettings · rendered`).
+
 ## Render Settings
 
 How a renderer renders it. Choose the **Renderer** from its menu: **Karma**,
 **Arnold**, any renderer with a definition file, or **Custom**.
 
-**Which RenderSettings prim:** the one the scene names (made by Render Commons),
-else the first one made in Imago, else the first one of a loaded file (changed
-with an `over`), else it makes one at its own Primitive Location
+**Which RenderSettings prim:** the one the scene names (Render Commons'),
+else the first one made in Imago, else the one a loaded file names, else its
+first (changed with an `over`), else it makes one at its own Primitive Location
 (`/Render/Settings`). The panel says which.
 
 **Settings tab:** the renderer's settings, by group (Sampling, Limits, Ray
@@ -372,8 +387,6 @@ kick): the renderer reads the RenderSettings prim the layer names.
 - Rendering inside Imago (the Viewer's Render mode, rray as its render
   delegate), and the image streamed into the Viewer while husk renders
 - Several Render Commands queued, or sent to a farm
-- A file's own `renderSettingsPrimPath` read (its first RenderSettings prim is
-  taken), a file's products and RenderVars read as relationships
-- Several RenderSettings prims to choose between, a camera or resolution per
-  product
+- A file's products and RenderVars read as relationships
+- A camera or resolution per product
 - Settings that change over time
