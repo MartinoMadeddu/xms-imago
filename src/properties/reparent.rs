@@ -55,7 +55,7 @@ pub fn rows(
         |f| {
             super::render::path_pick(
                 f,
-                "Primitive Location",
+                "Parent Location",
                 "The Parent: a prim of the scene (Pick), or a new path, made as an Xform",
                 parent,
                 "/world",

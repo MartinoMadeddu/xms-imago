@@ -239,7 +239,7 @@ are simply its values.
 ## Reparent
 
 Reparent moves prims under another prim, each with what is below it. Its
-**Primitive Location** is the Parent: a prim of the scene (Pick lists them) or
+**Parent Location** is the Parent: a prim of the scene (Pick lists them) or
 a new path, made as an Xform (with Xforms above it). **Move** says what goes
 there: **Primitives**, the prims its Prims Location tab names (a path names
 that prim, as Edit Primitive's do; a prim below another named goes with it),
