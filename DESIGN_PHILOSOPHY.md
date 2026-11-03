@@ -1068,3 +1068,4 @@ which shows everything Y up in metres, writes the transform that does it.
 - 03/11/2026: Keying with S is a tap of S alone (Martino): S held with Cmd or Ctrl, before or after it, is saving, and a mouse button down while S is held is navigating; neither keys. (Martino)
 - 03/11/2026: Edit Primitive's Curves type has the curves' Type, Basis and Wrap, by USD's tokens (Martino): what the Viewer draws and Write USD writes follow them. (Martino)
 - 03/11/2026: The Primitive Inspector lists what a prim is as it is now (Martino): a camera's lens, a light's values and curves' type, basis and wrap once each, from the Edit Primitive overriding them when one does, not as the file authored them. (Martino)
+- 03/11/2026: XMS_CORE_OPS_SPEC (v0.5) and ARCHITECTURE brought up to date with compounds, time samples, Alembic, intrinsics, Edit Primitive, Reparent, the Scene Explorer's one tree and the RenderSettings rendered (Martino). (Martino)

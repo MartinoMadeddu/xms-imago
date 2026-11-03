@@ -644,7 +644,7 @@ makes it the scene's frames and rate.
   plain
 - Normal, roughness, metallic and occlusion maps in the Viewer
 - Cameras: gate offsets and depth of field in the Viewer, cameras inside native
-  instances, animated cameras, editing a file's camera's lens
+  instances
 - Animation: topology that changes over time (a mesh's polygons are those of
   the stage's start time), skeletal animation, skinning, blend shapes, value
   clips; a file's camera's apertures and clipping range, and lights' shapes, are
@@ -653,8 +653,8 @@ makes it the scene's frames and rate.
   NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
 - Point instancers nested more than four deep (listed in the node's "Not read in
   full")
-- Materials with a graph inside (compounds); nodes to edit materials read from a
-  file, cameras or the hierarchy
+- Materials with a graph inside (compounds); editing materials read from a
+  file (Edit Primitive has no Material type yet)
 - Material Binding: binding a group as a group (one `material:binding` on it,
   inherited below, with `bindMaterialAs` strength), binding purposes (`preview`,
   `full`), collections; the colour of a file's material no primitive wore before

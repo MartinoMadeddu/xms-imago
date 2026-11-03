@@ -36,8 +36,19 @@ file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) 
   single-valued attributes; read by `xms-usd` from openusd's `kind()`, metadata
   and `authored_property_names()`, arrays and geometry skipped by name).
   `node(path)` finds a prim through an index. The tree also records the stage's
-  root correction (up axis, unit) and source file. It drives the Scene Explorer,
-  viewport boxes and writing.
+  root correction (up axis, unit), source file, the RenderSettings prim the
+  file names (`render_settings`, from `renderSettingsPrimPath`), and what
+  operators did to prims without geometry: values (`opinions`, a group's
+  transform among them, `Opinions::transform`), Reparent's moves (`moves`) and
+  the Xforms it made (`made`). `local(path, edited)` and `world(path, edited)`
+  give a prim's transform with those edits or as loaded. It drives the Scene
+  Explorer, viewport boxes and writing.
+- **Time samples:** a stage is read with every sample over its time range; one
+  that changes over time cooks again at each frame
+  (`usd_scene::cooking_at`), its still geometry shared.
+- **Alembic** (`.abc`) opens as a USD layer: `crates/xms-alembic` reads it,
+  `xms-usd`'s `alembic` module makes it a layer format of `openusd`, as
+  `usdAbc` does.
 
 ## 3. Geometry: `Geo`
 
@@ -116,16 +127,19 @@ copying.
   Viewer's own camera at that place (`Viewer::leave_camera`).
 - **Render prims** (`core::render`): Render Commons, Render Settings and Render
   Variables each take the scene and put back their render prims (`render::put`:
-  in place of the prim at that path, else last). Render Settings and Render
-  Variables find the RenderSettings prim without a wire
-  (`render::find_settings`: the `primary` one Render Commons made, else the
-  first made, else the first of a stage's `StageTree` by type, written as an
-  `over`, else made). Renderer definitions are JSON (`render::Definition`),
-  Karma's and Arnold's embedded with `include_str!` from `assets/renderers`,
-  others read once from the renderers folder (`render::definitions`). The
-  Parameters pane reads the scene coming in through
-  `NodeGraphState::eval_render_context` (cameras, products, the settings found),
-  kept until the graph changes; its panels are `properties::render`.
+  in place of the prim at that path, else last). Which RenderSettings is
+  rendered is decided in one place (`render::layer_settings`): the `primary` one
+  Render Commons made at its Primitive Location (a file's prim there is taken
+  over, written as an `over` with its values, and named), else the one the
+  loaded file names (`StageTree::render_settings`), which Write USD names again.
+  Render Settings and Render Variables find it without a wire
+  (`render::find_settings`); the Scene Explorer marks it "· rendered". Renderer
+  definitions are JSON (`render::Definition`), Karma's and Arnold's embedded
+  with `include_str!` from `assets/renderers`, others read once from the
+  renderers folder (`render::definitions`). The Parameters pane reads the scene
+  coming in through `NodeGraphState::eval_render_context` (cameras, products,
+  the settings found), kept until the graph changes; its panels are
+  `properties::render`.
 - **Load modes:** Load USD builds its primitives with `nodes::stage_prims`.
   Sublayered, they keep the file's paths and share the cached stage's tree.
   Referenced or payloaded, `usd_scene::referenced_prim` picks the prim (named,
@@ -188,12 +202,15 @@ copying.
 - **Nothing is baked.** A stage is read as authored; with Load USD's Y-up metres
   on, its up axis and unit are corrected in the placement, never in the points.
 - **Primitive Locations:** an operator that takes them
-  (`core::locations::takes_locations`: Transform, Edit Poly, Prune) holds a list
+  (`core::locations::takes_locations`: Transform, Edit Poly, Prune, Set
+  Attribute, Edit Primitive, Reparent, Material Binding, ICE) holds a list
   on its `GraphNode` (`locations`), saved with it and part of its cook key. When
   the list says something, `cook` picks what it matches (`locations::target`),
   runs the operator, and puts the incoming picks back (`restore_picks`), so the
   list never reaches the operators after it. Prune prunes by the list. An empty
-  list leaves the operator as it was.
+  list leaves the operator as it was. Set Attribute, Edit Primitive and
+  Reparent read the list themselves (`names_prims`): it **names** prims of any
+  type (`locations::names`), groups, cameras and lights among them.
 - **Pick, then edit:** nodes work on picked primitives and pass the rest
   through. A single placed prim is edited where it's drawn and returned to its
   own space and placement (`map_mesh`). Several picked prims are merged
@@ -240,6 +257,42 @@ copying.
   read a stage (`load_of`, by the stage's layer) and the shape that made a
   primitive (`shape_of`): each row keeps that operator, which its "Go to
   Operator" selects.
+- **Edit Primitive** (`core::edit_primitive`, its panel
+  `properties::edit_primitive`): the prims it names (`targets`: primitives,
+  then groups of a stage or Imago's Xforms, then stage prims with no
+  primitive), edited as its `EditKind` (Xform, Mesh, Curves, Points, Camera,
+  Light, RenderSettings; set from the first target until something is
+  overridden). `params` gives a kind's form with the target's values; the
+  operator holds only the overrides (`edits`, by name, as plain JSON, so only
+  they are saved and keyed). A primitive's transform is its placement in its
+  parents' frame (`frame_of`); a group's goes in its stage's `opinions`
+  (`Opinions::transform`) and moves what is below it; a camera's or light's
+  values change the prim and, for a file's, go in `Prim::props` to be written;
+  curves' type, basis and wrap change their `Topology` and the `MeshData`
+  view; visibility, purpose, active, kind and a mesh's values go through Set
+  Attribute's `set_attributes`; a file's RenderSettings becomes an `over`
+  render prim. The Viewer's handles (`viewer::gizmo`) work on its first target
+  (`handles`), a drag converted into the parents' space (`gizmo::into`).
+  **Edit Selected** (Enter, or right-click, in the Scene Explorer or on a
+  Properties row) adds one after the viewed operator
+  (`NodeGraphState::edit_primitives`), reusing the viewed one while it
+  overrides nothing.
+- **Reparent** (`core::reparent`, its panel `properties::reparent`): `plan`
+  works out the moves (the topmost prims named, or every root prim; a number
+  added to a name the Parent already has; a prim holding the Parent skipped),
+  `reparent` makes them. Every path under a moved prim changes: the primitives,
+  their bindings, instancing and `above` keys, render relationships, and each
+  stage's tree (`moved_tree`: nodes, opinions, earlier moves, `arc.at`, the
+  Parent and the Xforms above it added as `made`). Keep World Position puts
+  `W(parent)⁻¹ · W(old parent) · L` on a moved group (a primitive's place stays
+  as it was); off, placements move by `W(parent) · W(old parent)⁻¹`. Sources
+  move by the unedited version of the same, so what is unedited still compares
+  as unedited. A file's prim moved is a `Moved` (`file`, its path in the file
+  through `StageTree::file_path`; `from`; `to`); a binding from inside it to a
+  material outside it is cleared on the source, so it is written again.
+- **The Scene Explorer is one tree** (`types::merged`): rows of several stages
+  and of Imago under one path are one row, what each has below it under it.
+  Rows above a selected prim are marked lighter grey, not opened.
 - **Merge by data type:** `MergeMode::Auto` merges primitives when the first
   input is primitives (`nodes::merge_prims`), else flattens; Primitives and
   Flatten force it. Any number of inputs (`NodeType::Merge::inputs`, one kept
@@ -261,21 +314,34 @@ copying.
   only `over`s.
   - It repeats `upAxis` and `metersPerUnit`, since USD reads stage metadata only
     from the root layer.
-  - Moved prims get their own `xformOp:transform` (`L' = L · loaded⁻¹ · now`),
-    so they keep following their parents.
+  - Moved prims get their own `xformOp:transform` (`L' = parents⁻¹ · now`,
+    the parents as they are now: a group moved above them is written on the
+    group, through `StageTree::world(parent, edited)`), so they keep following
+    their parents. A group's transform (`Opinions::transform`) is written on
+    it.
   - Changed attributes are written with type, interpolation and indices; lost
     ones are blocked with `= None`.
   - Pruned prims are deactivated; new prims are written as `def`s, their parents
     as `def Xform` unless a stage has them, in the first stage's axes and unit
-    (Y up, metres without one). `defaultPrim` is the first stage's first root,
-    or the first prim made in Imago.
+    (Y up, metres without one), their transform relative to their parent's
+    place where a stage has the parent. `defaultPrim` is the first stage's
+    first root, or the first prim made in Imago. `renderSettingsPrimPath` names
+    the RenderSettings rendered.
+  - Reparent's moves: each `Moved` is a `def` at its new path with `prepend
+    references = @file@</its path in the file>` (or `payload`, for a
+    payloaded stage), the old path `active = false`; the Xforms it made are
+    `def Xform`. Edits below are written at the new paths.
+  - `over`s that say nothing are left out (`Spec::prune`).
   - **Not written yet, but reported:** edits inside native instances (instance
     proxies are read-only in USD) and on point-instancer prototypes.
   - Set Attribute's values: `Prim::props` and `StageTree::opinions` are empty as
     loaded, so all they hold is written, as attributes or metadata by name
     (`props::written`), Object values on prims without geometry as constant
     primvars.
-  - Values are written at the current frame.
+  - **Frames:** the scene's range by default (or the current frame, or a range
+    and step of its own): each frame cooked and compared with the stage at that
+    frame, what changes written as `timeSamples`, what does not as one value
+    (`write_frames`, `merged`).
 
 ## 7. Viewer
 
@@ -397,7 +463,7 @@ Three layers.
    consuming the scene layer plus edits (dirty bits). At that point `xms-scene`
    and `rray-scene` merge into one shared crate.
 4. **Follow-ups:**
-   - Write USD: time samples over a range, prototype/de-instance choice, flatten
+   - Write USD: prototype/de-instance choice, flatten
    - instancer edits
    - LOD and culling for heavy instancers
    - implicit shapes, per-face material subsets
@@ -437,6 +503,9 @@ Three layers.
 | `src/core/command.rs` | Command lines run on the system (Render Command): tokens (`expand`), progress read from output, runs in the background by operator id (`start`, `stop`, `snapshot`), each in its own process group so Stop ends what it started. Pure std. `main::run_command` writes the layer first: the Write USD that gives `{usd}` as it comes down the wires (`NodeGraphState::from_above`) |
 | `src/core/light.rs`, `assets/usdlux.json` | Lights as UsdLux has them: `LightType`, `Light` (values kept where they differ from the schema's fallbacks), the definitions read from `usdlux.json` (LightAPI's attributes, each type's, written from OpenUSD's schemas), `.usda` lines, a blackbody tint. A file's lights come from the scene layer through `usd_stage::light_of`. The Light operator's panel: `src/properties/light.rs` |
 | `src/core/set_attribute.rs` | The Set Attribute operator: its rows, and setting them on the prims its Prims Location tab names |
+| `src/core/edit_primitive.rs`, `src/properties/edit_primitive.rs` | Edit Primitive: its kinds, targets, forms (`params`), overrides applied (`edit`), the Viewer's handles on it (`handles`); its panel (✎ and ↺ per override, the Overrides group) |
+| `src/core/reparent.rs`, `src/properties/reparent.rs` | Reparent: the moves (`plan`), made on primitives and stage trees (`reparent`, `moved_tree`); its panel (Parent Location, Move, Keep World Position, what it moves) |
+| `crates/xms-geo/src/intrinsics.rs` | The intrinsics: one list of what a primitive has from its topology and points (`intrinsic:` names, by context), read by ICE and listed by the Primitive Inspector; Set Data refuses them |
 | `src/core/locations.rs` | Primitive Locations: matching paths, picking by a list, pruning |
 | `src/types.rs` | `Prim`, `Placement`, `Source`, `Purpose`, `EvalResult`, `map_mesh` |
 | `src/edits.rs` | edits against the source, edit sets, layers between nodes |

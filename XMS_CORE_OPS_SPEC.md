@@ -1,6 +1,7 @@
 # XMS Core Operator Specification
 
-**Status:** Draft v0.4 (20/10/2026), checked against `main` at c05c497
+**Status:** Draft v0.5 (03/11/2026), checked against `main` at 341aff0 with
+Edit Primitive's curves and the Primitive Inspector's edited values
 **Scope:** The minimum operator set needed to load, modify, author and render
 OpenUSD scenes. **Principle:** One operator per USD concept (prims, properties,
 composition arcs, collections, render prims). Operators edit a USD scene; they
@@ -99,17 +100,18 @@ Rules:
 
 ### 1.4 Compounds
 
-Status: **Not yet** for the scene graph.
+Status: **Done** for the scene graph and ICE (`docs/compounds.md`).
 
-- Any operator network can be wrapped in a **Compound**.
-- Compounds expose chosen parameters and can be dived into.
+- Any operator network can be wrapped in a **Compound** (Make Compound), and an
+  ICE network in an ICE compound; definitions are `.icd` files in a library.
+- Compounds expose chosen parameters (Promote, Promote Group) and are dived
+  into as ICE graphs are: double-click, or ↓ and ↑. Locked, a compound follows
+  its definition; Make Editable gives the instance its own copy.
 - **Nested compounds are supported.**
-- Materials are compounds (section 9).
-
-Today the only graph inside an operator is the **ICE graph** of an ICE operator:
-it runs on each primitive (or the picked ones) in the primitive's own space and
-writes attributes. Scene-graph compounds should be dived into the same way as
-ICE graphs: double-click, or ↓ and ↑.
+- References: any parameter can follow another operator's of its kind; spare
+  parameters can be added to any operator.
+- Not yet: materials as compounds (section 9), Ramp, Viewer tools inside
+  compounds, shipped compounds.
 
 ### 1.5 Operator definition template
 
@@ -137,8 +139,10 @@ and **Status**.
   file's default prim, or a named one, at a Primitive Location, `/root` by
   default, its paths rebased; written as `references` or `payload` on that prim,
   with the axis and unit transform where the file's differ from the layer's).
-  Not yet: `open` as its own mode, population mask, payload control, layer
-  offsets.
+  Every time sample is read: the timeline plays the file's animation through
+  the graph. Alembic (`.abc`) opens as a USD layer, as `usdAbc` makes it. The
+  file's `renderSettingsPrimPath` is read. Not yet: `open` as its own mode,
+  population mask, payload control, layer offsets.
 
 ### 2.2 Write USD (Save / Export Layer)
 - **Purpose:** Write the authored result to disk.
@@ -150,9 +154,13 @@ and **Status**.
 - **Status:** **Partial.** Write USD writes an **override layer** (`.usda`): it
   sublayers each stage's file and holds only what changed (moved prims, changed
   points, topology and primvars, blocked attributes, pruned prims deactivated,
-  material binding and purpose). Prims made in Imago are written as `def`s under
-  `def Xform` parents, with a `defaultPrim`. Not yet: `usdc`/`usdz`, flatten,
-  choosing the target layer, time samples over a frame range.
+  material binding and purpose, Set Attribute's and Edit Primitive's values, a
+  group's transform on the group). Prims made in Imago are written as `def`s
+  under `def Xform` parents, with a `defaultPrim`; Reparent's moves as
+  references to the file's prims at their new paths, the old ones deactivated;
+  the RenderSettings rendered named in `renderSettingsPrimPath`. The scene's
+  range is written by default, what changes as `timeSamples`. Not yet:
+  `usdc`/`usdz`, flatten, choosing the target layer.
 
 ### 2.3 Sublayer
 - **Purpose:** Add layers to the layer stack.
@@ -210,8 +218,10 @@ Cube, Sphere, Cylinder, Cone, Capsule, Plane.
   (curves); widths; normals; subdivision scheme
 - **USD mapping:** `UsdGeomMesh`, `UsdGeomBasisCurves`, `UsdGeomPoints`
 - **Status:** **Partial.** All three are read with their primvars, kept as
-  authored, shown in the Primitive Inspector (Point, Edge, Face, Corner, Object)
-  and written back by Write USD. Explicit geometry comes from files and shapes;
+  authored, shown in the Primitive Inspector (Point, Edge, Face, Corner, Object,
+  with the intrinsics) and written back by Write USD. Edit Primitive (6.6) sets
+  curves' type, basis and wrap and a mesh's `doubleSided` and
+  `subdivisionScheme`. Explicit geometry comes from files, shapes and ICE;
   there is no operator that authors raw points or indices.
 
 ### 3.5 Camera
@@ -221,11 +231,13 @@ Cube, Sphere, Cylinder, Cone, Capsule, Plane.
 - **Status:** **Partial.** Cameras are primitives with no geometry
   (`Prim::camera`): a file's, read with every value above but the shutter, and
   the **Camera** operator's, at a Primitive Location with Translate and Rotate.
-  Transform moves them; Write USD writes the operator's as `def Camera` and a
-  file's moved camera as its transform; a pruned one is deactivated. The Viewer
-  draws them and looks through any of them (its camera menu), showing the whole
-  gate. Not yet: shutter, gate offsets and depth of field in the Viewer,
-  animated cameras, editing a file camera's lens.
+  Transform moves them; Edit Primitive (6.6) edits any camera's lens and
+  transform, a file's written as its own attributes; Write USD writes the
+  operator's as `def Camera` and a file's moved camera as its transform; a
+  pruned one is deactivated. A file's animated lens plays from its time samples
+  (apertures and clipping range read at the start time). The Viewer draws them
+  and looks through any of them (its camera menu), showing the whole gate. Not
+  yet: shutter, gate offsets and depth of field in the Viewer.
 
 ### 3.6 Lights
 Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
@@ -239,8 +251,9 @@ Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
   Disk, Cylinder, Distant), an add-menu entry per type, its parameters laid out
   from `assets/usdlux.json` (OpenUSD's schemas), written as `def DomeLight` and
   so on with every value; drawn in the Viewer as their shapes, in their colour,
-  picked by them. Not yet: lighting with them, Portal, ShapingAPI and ShadowAPI
-  in the operator, a file's light's values edited.
+  picked by them. Edit Primitive (6.6) edits any light's values, a file's
+  written as its own attributes. Not yet: lighting with them, Portal,
+  ShapingAPI and ShadowAPI in the operator.
 
 ### 3.7 Point Instancer
 - **Parameters:** prototypes (relationship); proto indices; positions;
@@ -264,7 +277,7 @@ All operators in this section take **Primitive Locations**.
 | Operator | Purpose | Key parameters | Status |
 |---|---|---|---|
 | **Merge** | Combine scenes (rule in 1.2) | Mode (Auto, Primitives, Flatten); later input stronger on the same path | **Done** (any number of inputs; the conflict rule not yet a parameter) |
-| **Reparent / Graft** | Move prims under a new parent | destination path (Primitive Location); keep world transform | Not yet |
+| **Reparent / Graft** | Move prims under a new parent | Parent Location; Move (Primitives, Whole scene: every root prim); Keep World Position | **Done** (Reparent): a name the Parent has gets a number; what comes after sees the new paths; a file's prim is written as a `def` referencing it at its new path, deactivated at the old one, a binding to a material outside it written again. Not yet: other relationships to prims outside a moved prim (light linking, skeleton bindings), reparenting to the root |
 | **Rename** | Rename prims | find/replace; pattern; prefix/suffix | Not yet |
 | **Duplicate** | Copy prims | count; naming pattern; per-copy transform | Not yet |
 | **Prune / Delete** | Remove prims | Matches: Remove / Keep only (the invert) | **Done** (Prune Primitives; written as `active = false`) |
@@ -276,6 +289,7 @@ Imago operators not in the original list:
 | Operator | Purpose | Status |
 |---|---|---|
 | **Pick Primitives** | Choose prims for the operators after it, by regular expression | **Done**, kept for older graphs; Primitive Locations replace it |
+| **Edit Primitive** | Edit prims as what they are, with overrides (6.6) | **Done** |
 | **Unpack** | Every primitive as one plain mesh | **Done** |
 
 ---
@@ -401,8 +415,9 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
   prims its Prims Location tab lists (or every prim). Moves placements, not
   points; instanced copies move as matrices; clips move too. Written back as one
   `xformOp:transform` that keeps the prim following its parents;
-  `!resetXformStack!` is read and kept. Not yet: rotation order, pivot,
-  authoring separate xformOps.
+  `!resetXformStack!` is read and kept. Edit Primitive (6.6) sets a prim's own
+  transform absolutely, a group's moving what is below it. Not yet: rotation
+  order, pivot, authoring separate xformOps.
 
 ### 6.4 Attribute Delete / Rename
 - **Parameters:** attribute name pattern; new name
@@ -427,8 +442,37 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
   space, a BVH over their faces and curves) and Get Data and Get Array Data read
   there, at a Polygon and Param UV (Houdini's `primuv`), and from another prim of
   the same topology through their Geometry input (attribute transfer by
-  element, or places read on an animated copy). Not yet: neighbours, closest points on points, ray
-  casts, snippets. A graph file keeps each ICE node's graph.
+  element, or places read on an animated copy). What the topology and points
+  give are **intrinsics**, one list (`xms_geo::intrinsics`) named
+  `intrinsic:…` (`intrinsic:area`, `intrinsic:pointCount`, an Object's counts,
+  bounds and transform, a curve's length), which Get Data reads, Set Data
+  refuses and the Primitive Inspector lists. ICE compounds (1.4). ICE results
+  are kept as other operators' are, keyed by their graph. Not yet: neighbours,
+  closest points on points, ray casts, snippets. A graph file keeps each ICE
+  node's graph.
+
+### 6.6 Edit Primitive
+- **Purpose:** Edit prims already in the scene as what they are: one operator
+  for every kind of prim, its form that kind's (Solaris' Camera Edit, Light
+  Edit and Edit Properties in one).
+- **Parameters:** Type (Xform, Mesh, Curves, Points, Camera, Light,
+  RenderSettings; set from the first prim named); the form of that type with
+  the prim's values. Every type but RenderSettings has the Xform section
+  (Translate, Rotate, Scale, Visibility, Purpose, Active, Kind); Mesh adds
+  Double sided and Subdivision; Curves Type, Basis and Wrap; Camera the lens
+  and gate; Light its UsdLux values; RenderSettings Render Commons' values by
+  their USD names.
+- **Overrides:** a value changed is an override (✎, ↺ to give it back, an
+  Overrides group with Revert all), the only thing applied, saved and keyed;
+  the rest follows the prim. Only Edit Primitive has overrides: every other
+  operator's parameters are its values.
+- **Targeting:** Primitive Locations, naming prims (a group, a camera, a light
+  as well as a primitive). **Edit Selected** (Enter or right-click in the Scene
+  Explorer or the Properties tab) adds one on the selected prims.
+- **USD mapping:** `over`s with the overridden attributes, metadata and
+  `xformOp:transform`; a file's RenderSettings as an `over` of the overrides.
+- **Status:** **Done**, with the Viewer's handles on its first prim. Not yet:
+  materials, Points' own values.
 
 ---
 
@@ -437,15 +481,17 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 | Operator | Purpose | Key parameters | Status |
 |---|---|---|---|
 | **Time Shift / Retime** | Offset or scale time | offset; scale; hold/loop | Partial: Retime, Time Warp, Trim, Loop and Set Timecode exist **for clips**; not yet for USD time samples |
-| **Set Time Samples** | Author samples | attribute; sample list | Not yet (Write USD writes values at the current frame) |
+| **Set Time Samples** | Author samples | attribute; sample list | Not a separate operator: keys on any operator, and the file's own samples, are written by Write USD over the scene's range |
 | **Resample** | Interpolate to a new sample set | rate; interpolation (held/linear) | Partial: Retime (Resample) for clips |
 | **Motion Blur Attrs** | Velocity, acceleration, shutter | velocities attr; accelerations attr; shutter open/close | Not yet |
-| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Curve Editor (`core::keys`, `docs/keys.md`); cooked at the playhead. Not written to USD as time samples yet |
+| **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Curve Editor (`core::keys`, `docs/keys.md`); cooked at the playhead; S tapped alone keys the selected operator. Write USD writes what they animate as time samples over the range |
 | **Local Animation** | Key the parameters of the operator before it, on frames of its own | start; end | **Done** (`node_graph::local`) |
 | **Merge Animation** | Merge, each input moved in time | align (frame to frame, first, last, middle, stretch, shrink); match rate | **Done** for animated parameters; for clips, only input A's is put out, retimed by Stretch and Shrink |
 
-USD time samples are read at the stage's start time only. Skeletal animation,
-skinning and blend shapes from USD are not read yet. Imago's mocap operators
+A stage's time samples are read over its range (transforms, visibility, points
+and primvars, instancers, cameras' lenses, lights' values), Alembic's too.
+Topology that changes over time, skeletal animation, skinning, blend shapes and
+value clips from USD are not read yet. Imago's mocap operators
 (Split Characters, Retarget, Reach, Body Collide, Capture, Skin…) work on clips
 and stay outside this spec, as do the rigging operators (Rig Guide, Build
 Skeleton, Hard Bind, Envelope, Range of Motion, Delta Mush, Bake Weights,
@@ -572,7 +618,7 @@ All take **Primitive Locations** where they edit prims.
 | **Boolean** | Mesh booleans | operation; inputs A/B | Not yet |
 | **Smooth** | Relax geometry | iterations; strength | Partial: Edit Poly's Relax |
 | **Mesh to Points** / **Points to Mesh** | Convert representation | per-vertex or per-face | Not yet (ICE graphs can scatter and copy to points) |
-| **Subdivision Scheme** | Set scheme on meshes | `catmullClark`, `loop`, `bilinear`, `none` | Not a separate operator: Set Attribute's `subdivisionScheme` (6.1), written for the renderer. The scheme is read and kept |
+| **Subdivision Scheme** | Set scheme on meshes | `catmullClark`, `loop`, `bilinear`, `none` | Not a separate operator: Set Attribute's `subdivisionScheme` (6.1), or Edit Primitive's Subdivision (6.6), written for the renderer. The scheme is read and kept |
 | **Crease / Corner** | Author crease and corner data | indices; sharpness | Not yet (creases and holes in files are kept, not shown) |
 
 ---
@@ -597,8 +643,13 @@ In Imago: **Render Commons** (what is rendered) and **Render Settings** (how a
 renderer renders it).
 
 **Render Commons**
-- **Primitive Location:** `/Render/Settings` by default. It is the
-  RenderSettings prim the layer names (`renderSettingsPrimPath`).
+- **Primitive Location:** `/Render/Settings` by default, or one of a file's
+  RenderSettings (Pick): the prim rendered, which the layer names
+  (`renderSettingsPrimPath`). A file's is written as an `over` with these
+  values. Without a Render Commons, the prim the loaded file names is
+  rendered, and named again by Write USD. Keeping a file's settings and
+  changing a few is Edit Primitive's (6.6). The Scene Explorer marks the one
+  rendered.
 - **Parameters:** camera (the relationship; empty: the first camera coming in,
   picked from a list); resolution, with presets; pixel aspect ratio; aspect
   ratio conform policy; overscan, as `dataWindowNDC` from -overscan to 1 +
@@ -611,9 +662,9 @@ renderer renders it).
 
 **Render Settings**
 - **Finds** the RenderSettings prim of the scene coming in, without following
-  wires: the one the layer names (Render Commons'), else the first made in
-  Imago, else the first of a file (changed with an `over`), else it makes one at
-  its Primitive Location (`/Render/Settings`).
+  wires: the one rendered (Render Commons'), else the first made in Imago, else
+  the one a loaded file names, else a file's first (changed with an `over`),
+  else it makes one at its Primitive Location (`/Render/Settings`).
 - **Renderer:** Karma, Arnold, any renderer with a definition file, or
   **Custom**. A definition is a JSON file: the renderer's namespace and its
   settings (namespaced attribute name, type, default, group, label, help, range,
@@ -635,12 +686,11 @@ renderer renders it).
   (`/Render/Products/Vars/<name>`), added to its `orderedVars`.
 - **USD mapping:** `UsdRenderSettings`, renderer settings as namespaced
   attributes on it.
-- **Status:** **Partial.** Not yet: the `renderSettingsPrimPath` of a file read
-  (a file's first RenderSettings prim is taken), several RenderSettings prims
-  chosen between, settings that change over time. Karma's settings and AOVs are
-  those Houdini 20.5's Karma Render Settings writes (checked against a Houdini
-  stage); a few AOVs not in that stage are marked unconfirmed. Rendered with
-  husk from Imago: done (Martino, 20/10/2026).
+- **Status:** **Partial.** Not yet: settings that change over time, a file's
+  camera relationship read (a file's RenderSettings shows USD's fallback).
+  Karma's settings and AOVs are those Houdini 20.5's Karma Render Settings
+  writes (checked against a Houdini stage); a few AOVs not in that stage are
+  marked unconfirmed. Rendered with husk from Imago: done (Martino, 20/10/2026).
 
 ### 11.2 Render Product
 - **Parameters:** output path (`productName`); product type; ordered render vars
@@ -694,7 +744,7 @@ In Imago: **Render Variables**.
 |---|---|---|
 | **Switch / Conditional** | Select an input by index or expression | Not yet |
 | **Null / Dot** | Organisational pass-through | **Done** as **Pass Through**: one input, one output, the scene handed on unchanged; drawn narrower and square-cornered (Organise in the add menu) |
-| **Compound / Subgraph** | Encapsulate a network (section 1.4) | Not yet |
+| **Compound / Subgraph** | Encapsulate a network (section 1.4) | **Done** (Compound, Compound Input, Compound Output; ICE compounds) |
 | **Python Script** | Run Python against the stage | Not yet |
 | **Expression** | Drive parameter values | Not yet |
 | **Placeholder** | An operator that does not exist yet: named inputs and outputs, data passed through, and a description of what it should do, saved with the graph | **Done** |
@@ -718,8 +768,8 @@ Enough for a complete load, edit, bind, render loop:
 | 7 | Reference | Partial (Load USD's Reference and Payload modes) |
 | 8 | Variant Select | Not yet (read only) |
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
-| 10 | Light | Partial (Light operator, every type; files' lights read and moved; drawn and picked in the Viewer; no lighting yet) |
-| 11 | Camera | Partial (Camera operator, file cameras, looked through in the Viewer) |
+| 10 | Light | Partial (Light operator, every type; files' lights read, moved and edited with Edit Primitive; drawn and picked in the Viewer; no lighting yet) |
+| 11 | Camera | Partial (Camera operator, file cameras edited with Edit Primitive, looked through in the Viewer) |
 | 12 | Render Settings | Partial (Render Commons, Render Settings with Karma, Arnold and Custom, Render Variables) |
 | 13 | Render | Partial (Render Command runs husk on the written layer) |
-| 14 | Write USD (Save) | Partial (override layer in `usda`) |
+| 14 | Write USD (Save) | Partial (override layer in `usda`, time samples over the range) |
