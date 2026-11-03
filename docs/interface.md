@@ -740,8 +740,11 @@ The Scene Explorer lists the scene at the operator with the view flag as its own
 tree, as usdview would: the prims of a stage in the stage's hierarchy, prims
 made in Imago under the Xforms of their path, the joints of a clip. There is no
 row for the operator: a Prune, a Merge or a shape put on another prim's path
-shows as the scene has it. A plain mesh, which has no path (after Unpack, or a
-Merge set to Flatten), is one row with the operator's name.
+shows as the scene has it. Prims of several stages, or of a stage and Imago,
+under the same path are one tree: `/ASSET` of two Load USDs is one row, with
+what each has below it under it, as a composed stage would show them. A plain
+mesh, which has no path (after Unpack, or a Merge set to Flatten), is one row
+with the operator's name.
 
 Clicking a row shows that prim, or that group and everything below it, in the
 Primitive Inspector. Ctrl+click (Cmd+click on macOS) adds a row to the selection

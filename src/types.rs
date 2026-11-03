@@ -3066,11 +3066,88 @@ impl SceneHierarchy {
                     // Point instancers: their instances under them, listed
                     // when asked.
                     self.push_instances(&prims);
+                    // One tree: a path several stages (or a stage and Imago)
+                    // have is one row, what each has below it under it.
+                    let at = self.objects.iter().position(|o| o.id == group_id).map_or(0, |k| k + 1);
+                    let rows = self.objects.split_off(at);
+                    self.objects.extend(merged(rows));
                 }
             }
         }
     }
 }
+/// Rows listed source by source (each stage's hierarchy, then the prims of
+/// none), depth first, as one tree: rows of the same path become one, in the
+/// order first met, with what each had below it under it; rows with no path
+/// (a point instancer's Instances row and its instances) stay under the row
+/// they were listed under. Where two rows of one path differ, the first one
+/// from a stage gives the type, icon and stage path (what the Viewer draws it
+/// by); a group's Scope gives way to an Xform.
+fn merged(rows: Vec<SceneObject>) -> Vec<SceneObject> {
+    struct Node {
+        row: SceneObject,
+        kids: Vec<usize>,
+    }
+    let mut nodes: Vec<Node> = Vec::with_capacity(rows.len());
+    let mut roots: Vec<usize> = vec![];
+    let mut by_path: std::collections::HashMap<String, usize> = Default::default();
+    // The rows above the one being placed: their listed depth, their node.
+    let mut stack: Vec<(usize, usize)> = vec![];
+    for row in rows {
+        while stack.last().is_some_and(|&(d, _)| d >= row.depth) {
+            stack.pop();
+        }
+        let depth = row.depth;
+        let parent = stack.last().map(|&(_, n)| n);
+        let found = row.path.as_ref().and_then(|p| by_path.get(p)).copied();
+        let k = match found {
+            Some(k) => {
+                let have = &mut nodes[k].row;
+                let take_stage = have.stage_path.is_none() && row.stage_path.is_some();
+                if take_stage || (have.type_name.is_empty() && !row.type_name.is_empty()) {
+                    have.type_name = row.type_name.clone();
+                    have.icon = row.icon;
+                }
+                if take_stage {
+                    have.stage_path = row.stage_path.clone();
+                }
+                if have.type_name == "Scope" && row.type_name == "Xform" {
+                    have.type_name = row.type_name.clone();
+                }
+                have.has_children |= row.has_children;
+                k
+            }
+            None => {
+                let k = nodes.len();
+                if let Some(p) = &row.path {
+                    by_path.insert(p.clone(), k);
+                }
+                nodes.push(Node { row, kids: vec![] });
+                match parent {
+                    Some(up) => nodes[up].kids.push(k),
+                    None => roots.push(k),
+                }
+                k
+            }
+        };
+        stack.push((depth, k));
+    }
+    // Depth first, each row's depth that of its place in the one tree (a
+    // root prim's is 1).
+    let (rows, kids): (Vec<SceneObject>, Vec<Vec<usize>>) = nodes.into_iter().map(|n| (n.row, n.kids)).unzip();
+    let mut rows: Vec<Option<SceneObject>> = rows.into_iter().map(Some).collect();
+    let mut out = Vec::with_capacity(rows.len());
+    let mut todo: Vec<(usize, usize)> = roots.iter().rev().map(|&k| (k, 1)).collect();
+    while let Some((k, depth)) = todo.pop() {
+        let Some(mut row) = rows[k].take() else { continue };
+        row.depth = depth;
+        row.has_children |= !kids[k].is_empty();
+        out.push(row);
+        todo.extend(kids[k].iter().rev().map(|&c| (c, depth + 1)));
+    }
+    out
+}
+
 /// The key of a point instancer's Instances row, before its path.
 const INSTANCES_KEY: &str = "instances:";
 
@@ -3171,6 +3248,76 @@ mod explorer_tests {
         // Selected, an instance is its instancer for the Inspector.
         h.click("/root/trees[2]", false, false, &[]);
         assert_eq!(h.selected_prim_paths(), vec!["/root/trees".to_string()]);
+    }
+
+    /// Two stages with a group of the same path, and a prim made in Imago
+    /// under a group a stage has: one row for each path, what each has below
+    /// it under it.
+    #[test]
+    fn prims_of_several_stages_under_one_path_are_one_tree() {
+        use crate::usd_scene::{StageNode, StageTree};
+        let node = |path: &str, ty: &str| StageNode {
+            path: path.into(),
+            name: path.rsplit('/').next().unwrap().into(),
+            type_name: ty.into(),
+            depth: path.matches('/').count(),
+            ..Default::default()
+        };
+        let tree = |nodes: Vec<StageNode>| {
+            std::sync::Arc::new(StageTree {
+                nodes,
+                ..Default::default()
+            })
+        };
+        let fur = tree(vec![
+            node("/ASSET", "Xform"),
+            node("/ASSET/geo", "Xform"),
+            node("/ASSET/geo/fur", "Mesh"),
+        ]);
+        let sonic = tree(vec![
+            node("/ASSET", "Xform"),
+            node("/ASSET/geo", "Scope"),
+            node("/ASSET/geo/sonic", "Mesh"),
+            node("/Render", "Scope"),
+            node("/Render/rendersettings", "RenderSettings"),
+        ]);
+        let staged = |path: &str, t: &std::sync::Arc<StageTree>| Prim {
+            stage: Some(t.clone()),
+            ..Prim::new(path.into(), MeshData::default())
+        };
+        let settings = Prim {
+            render: Some(std::sync::Arc::new(crate::core::render::RenderPrim::new(
+                crate::core::render::RenderKind::Settings,
+            ))),
+            ..Prim::new("/Render/Settings".into(), MeshData::default())
+        };
+        let mut h = SceneHierarchy::default();
+        h.rebuild_scene(Some((
+            NodeId(0),
+            "Merge".into(),
+            EvalResult::Named(vec![
+                staged("/ASSET/geo/fur", &fur),
+                staged("/ASSET/geo/sonic", &sonic),
+                settings,
+            ]),
+        )));
+        let rows: Vec<(usize, &str, &str)> = h
+            .objects
+            .iter()
+            .map(|o| (o.depth, o.name.as_str(), o.type_name.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (0, "ASSET", "Xform"),
+                (1, "geo", "Xform"),
+                (2, "fur", "Mesh"),
+                (2, "sonic", "Mesh"),
+                (0, "Render", "Scope"),
+                (1, "rendersettings", "RenderSettings"),
+                (1, "Settings", "RenderSettings"),
+            ]
+        );
     }
 
     #[test]
