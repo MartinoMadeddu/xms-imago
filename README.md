@@ -122,6 +122,9 @@ selection](docs/xms_edit_poly.png)
   form (a camera's lens, a light's values, any prim's transform) with its
   values; what you change overrides them, and only that is applied, keyed and
   written
+- **Reparent prims:** Reparent moves named prims, or the whole scene, under
+  another prim, keeping where they are in the world; a file's prim is written
+  as a reference to it at its new path
 - **Sublayer, reference or payload:** Load USD brings a file in whole at its own
   paths, or its default prim at a Primitive Location (`/root` by default),
   written back as a sublayer, a reference or a payload

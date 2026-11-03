@@ -159,6 +159,8 @@ pub fn evaluate_node_type(
         }
         // Without Primitive Locations it names nothing: what comes in goes on.
         NodeType::EditPrimitive { .. } => inputs.first().cloned(),
+        // Cooked by the graph, with its locations (`core::reparent`).
+        NodeType::Reparent { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs
             .first()

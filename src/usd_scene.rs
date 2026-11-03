@@ -168,6 +168,21 @@ pub struct StageTree {
     /// The RenderSettings prim the file names (`renderSettingsPrimPath`), at
     /// its path in the scene: the one rendered when Imago names none.
     pub render_settings: Option<String>,
+    /// Prims of the file Reparent moved: each written as a reference to it at
+    /// its new path, deactivated at its old one.
+    pub moves: Vec<Moved>,
+    /// Prims Reparent put above what it moved where the file has none (its
+    /// Parent and the prims above that): Xforms, written as `def`s.
+    pub made: std::collections::BTreeSet<String>,
+}
+
+/// A prim of the file Reparent moved: `file` is its path in the file, `from`
+/// the path deactivated, `to` where the reference to it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Moved {
+    pub file: String,
+    pub from: String,
+    pub to: String,
 }
 
 /// How Load USD brings its file in.
@@ -263,6 +278,7 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
         up_axis: tree.up_axis.clone(),
         meters_per_unit: tree.meters_per_unit,
         render_settings: tree.render_settings.as_deref().and_then(|p| arc.place(p)),
+        ..Default::default()
     }
 }
 
@@ -296,6 +312,25 @@ impl StageTree {
             m *= self.local(&at, edited).unwrap_or(n.local);
         }
         m
+    }
+
+    /// The path in the file of the prim at a scene path: through the deepest
+    /// Reparent move holding it, else the arc's prim, else the path itself.
+    /// `None` for a prim the file does not have (one Imago made above an arc
+    /// or a move).
+    pub fn file_path(&self, path: &str) -> Option<String> {
+        let below = |root: &str| path == root || path.strip_prefix(root).is_some_and(|r| r.starts_with('/'));
+        if let Some(m) = self.moves.iter().filter(|m| below(&m.to)).max_by_key(|m| m.to.len()) {
+            return Some(format!("{}{}", m.file, &path[m.to.len()..]));
+        }
+        if self.made.contains(path) {
+            return None;
+        }
+        match &self.arc {
+            Some(a) if below(&a.at) => Some(format!("{}{}", a.prim, &path[a.at.len()..])),
+            Some(_) => None,
+            None => Some(path.to_string()),
+        }
     }
 
     /// The prim at a path.

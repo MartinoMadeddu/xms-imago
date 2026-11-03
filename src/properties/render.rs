@@ -153,7 +153,14 @@ fn extra_rows(
 }
 
 /// A path field with a menu of paths to pick from, and what an empty one means.
-fn path_pick(f: &mut Rows, label: &str, hint: &str, value: &mut String, placeholder: &str, choices: &[String]) {
+pub(super) fn path_pick(
+    f: &mut Rows,
+    label: &str,
+    hint: &str,
+    value: &mut String,
+    placeholder: &str,
+    choices: &[String],
+) {
     f.row(label, Some(hint), |ui| {
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 48.0).max(60.0);

@@ -14,6 +14,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
 | Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light, RenderSettings): its form shows their values, and what is changed overrides them |
+| Reparent | Moves prims under another prim, its Parent, with what is below them: those its Prims Location tab names, or the whole scene |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -234,6 +235,30 @@ or Scale), as typing it in the form does.
 
 Only Edit Primitive has overrides like these: every other operator's parameters
 are simply its values.
+
+## Reparent
+
+Reparent moves prims under another prim, each with what is below it. Its
+**Primitive Location** is the Parent: a prim of the scene (Pick lists them) or
+a new path, made as an Xform (with Xforms above it). **Move** says what goes
+there: **Primitives**, the prims its Prims Location tab names (a path names
+that prim, as Edit Primitive's do; a prim below another named goes with it),
+or **Whole scene**, every root prim. A prim keeps its name, unless the Parent
+already has a child of that name: then a number is added (`set1`), and the
+panel says so. A prim the Parent is in, or is, stays where it is.
+
+With **Keep World Position** on (the default), what moves stays where it was in
+the world: the prim's own transform changes to make up for its new parent's.
+Off, it keeps its own transform and follows the Parent.
+
+What comes after sees the new paths. Write USD writes a file's prim moved as a
+`def` at its new path referencing the file's prim (`prepend references =
+@set.usda@</set>`), its new transform there when it has one, and deactivates
+it at its old path; edits below it are written at their new paths. A material
+binding from inside it to a material outside it is written again on the prim,
+since a reference drops targets outside the prim it brings in; other
+relationships to prims outside it (a light's linking, a skeleton's binding)
+are not carried yet. A prim Imago made is written whole where it now is.
 
 ## Shapes are primitives
 

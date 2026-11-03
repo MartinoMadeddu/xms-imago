@@ -576,7 +576,8 @@ impl NodeGraphState {
             | NodeType::UnpackPrims
             | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
-            | NodeType::EditPrimitive { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            | NodeType::EditPrimitive { .. }
+            | NodeType::Reparent { .. } => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. }
@@ -1506,6 +1507,16 @@ impl NodeGraphState {
                 })
                 .collect();
             crate::core::rig::node::cook(node_type, &ports, self.now())
+        } else if let NodeType::Reparent {
+            parent,
+            mode,
+            keep_world,
+        } = node_type
+        {
+            // The whole scene needs no locations.
+            inputs
+                .first()
+                .map(|r| crate::core::reparent::reparent(r, &node.locations, parent, *mode, *keep_world))
         } else if crate::core::locations::takes_locations(node_type) && crate::core::locations::is_set(&node.locations)
         {
             // The operator works on the primitives its Prims Location tab

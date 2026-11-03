@@ -171,6 +171,7 @@ pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
         .nodes
         .iter()
         .filter(|n| !n.hidden && geometry.contains(&n.type_name.as_str()) && !present.contains(n.path.as_str()))
+        .filter(|n| !tree.made.contains(&n.path))
         .filter(|n| !below_off(&n.path))
         .map(|n| n.path.clone())
         .collect();

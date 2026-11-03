@@ -217,12 +217,39 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
     // stage metadata only comes from the root layer; Imago's (Y up, metres)
     // when there is none.
     let layer_root = sublayered.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
-    let in_a_sublayer = |path: &str| sublayered.iter().any(|t| t.node(path).is_some());
+    // A prim a file has (not one Reparent made above what it moved).
+    let in_file = |t: &StageTree, path: &str| t.node(path).is_some() && !t.made.contains(path);
+    let in_a_sublayer = |path: &str| sublayered.iter().any(|t| in_file(t, path));
     let dir = out.parent().unwrap_or(Path::new("."));
 
     for tree in &trees {
         if let Some(arc) = &tree.arc {
             arc_prim(&mut root, tree, arc, layer_root, dir, &in_a_sublayer);
+            report.referenced += 1;
+        }
+        // Reparent: each prim of the file moved is a reference to it at its
+        // new path, deactivated at the old one; the prims made above are
+        // Xforms.
+        for path in &tree.made {
+            let spec = root.at(path);
+            if spec.def.is_none() && !in_a_sublayer(path) {
+                spec.def = Some("Xform");
+            }
+        }
+        for m in tree.moves.iter().filter(|m| m.from != m.to) {
+            root.at(&m.from).meta.push("active = false".into());
+            let spec = root.at(&m.to);
+            spec.def = Some("");
+            spec.meta.push(format!(
+                "prepend {} = @{}@<{}>",
+                if tree.arc.as_ref().is_some_and(|a| a.payload) {
+                    "payload"
+                } else {
+                    "references"
+                },
+                relative(&tree.source, dir).display(),
+                m.file
+            ));
             report.referenced += 1;
         }
         let nodes: BTreeMap<&str, &StageNode> = tree.nodes.iter().map(|n| (n.path.as_str(), n)).collect();
@@ -260,8 +287,13 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
                 continue;
             }
             let spec = root.at(&e.path);
+            let had = spec.lines.len() + spec.meta.len();
             prim_opinions(spec, p, e, node, tree);
-            report.changed += 1;
+            // A placement edit that leaves its own transform as it was (what
+            // moved is above it) writes nothing.
+            if spec.lines.len() + spec.meta.len() > had {
+                report.changed += 1;
+            }
         }
         for path in &set.removed {
             if let Some(why) = nodes.get(path.as_str()).and_then(|n| read_only(n)) {
@@ -297,7 +329,7 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
     // Xforms, except where a stage already has a prim on that path; those
     // with materials alone below them (the Material Library Location) are
     // Scopes.
-    let in_a_stage = |path: &str| trees.iter().any(|t| t.nodes.iter().any(|n| n.path == path));
+    let in_a_stage = |path: &str| trees.iter().any(|t| in_file(t, path));
     // Values set on those Xforms, carried by each primitive below them.
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
     let mut made: Vec<&Prim> = prims.iter().filter(|p| p.stage.is_none()).collect();
@@ -314,7 +346,16 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
             ));
             continue;
         }
-        new_prim(root.at(&p.path), p, layer_root);
+        // Its transform is relative to its parent: where a stage has it (it
+        // can be a file's prim, or under one), else the layer's axes.
+        let frame = crate::core::properties::parents(&p.path)
+            .pop()
+            .and_then(|a| {
+                let t = trees.iter().find(|t| t.node(&a).is_some())?;
+                Some((layer_root.as_dmat4() * t.root.as_dmat4().inverse() * t.world(&a, true)).as_mat4())
+            })
+            .unwrap_or(layer_root);
+        new_prim(root.at(&p.path), p, frame);
         // A render prim of a file, changed: an `over`.
         if p.render.as_ref().is_some_and(|r| r.over) {
             report.changed += 1;
@@ -389,6 +430,7 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
             .map(|t| format!("@{}@", relative(&t.source, dir).display()))
             .collect(),
     };
+    root.prune();
     (root, header, report)
 }
 
@@ -662,6 +704,14 @@ struct Spec {
 }
 
 impl Spec {
+    /// Its `over`s that say nothing left out.
+    fn prune(&mut self) {
+        self.children.retain(|_, c| {
+            c.prune();
+            c.def.is_some() || !c.meta.is_empty() || !c.lines.is_empty() || !c.children.is_empty()
+        });
+    }
+
     /// The spec at a path, made (as `over`s) on the way.
     fn at(&mut self, path: &str) -> &mut Spec {
         path.split('/')
@@ -2301,6 +2351,65 @@ def Xform "set" {{
             .matrices()
             .first()
             .is_some_and(|m| (m.w_axis.y - 3.0).abs() < 1e-5)));
+    }
+
+    /// A file's group reparented is a reference to it at its new path, the old
+    /// one deactivated; its binding to a material outside it is written again.
+    /// Read back, its meshes are where they were in the world.
+    #[test]
+    fn a_reparented_group_is_a_reference_at_its_new_path() {
+        let (_, prims) = load(
+            "reparented.usda",
+            &format!(
+                r#"#usda 1.0
+def Xform "set" {{
+    double3 xformOp:translate = (2, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+    def Mesh "top" {{{QUAD}        rel material:binding = </mtl/wood>
+    }}
+}}
+def Xform "world" {{
+    double3 xformOp:translate = (0, 5, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+}}
+def Scope "mtl" {{
+    def Material "wood" {{
+    }}
+}}
+"#
+            ),
+        );
+        let shown: Vec<Placement> = prims.iter().map(|p| p.place.clone()).collect();
+        let EvalResult::Named(moved) = crate::core::reparent::reparent(
+            &EvalResult::Named(prims),
+            &["/set".to_string()],
+            "/world",
+            crate::core::reparent::ReparentMode::Primitives,
+            true,
+        ) else {
+            panic!()
+        };
+        let out = std::env::temp_dir().join("xms_usd_write_test/reparented_over.usda");
+        write_override(&moved, &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in [
+            "prepend references = @./reparented.usda@</set>",
+            "active = false",
+            "rel material:binding = </mtl/wood>",
+            "matrix4d xformOp:transform",
+        ] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        let back = prims_of(&out);
+        let top = back
+            .iter()
+            .find(|p| p.path == "/world/set/top")
+            .expect("at its new path");
+        assert!(!back.iter().any(|p| p.path == "/set/top"), "gone from the old one");
+        let (Placement::One(now), Placement::One(was)) = (&top.place, &shown[0]) else {
+            panic!("placed")
+        };
+        assert!(now.abs_diff_eq(*was, 1e-4), "{now} vs {was}");
     }
 
     #[test]

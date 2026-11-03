@@ -322,6 +322,7 @@ fn scene_of(
         index: nodes_index,
         arc: None,
         render_settings: info.render_settings.clone(),
+        ..Default::default()
     });
     scene.notes = counts.notes();
     if boxes {

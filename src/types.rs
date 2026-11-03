@@ -145,6 +145,18 @@ pub enum NodeType {
         #[serde(default)]
         edits: std::collections::BTreeMap<String, serde_json::Value>,
     },
+    /// Prims moved under `parent` (made as an Xform when the scene has none),
+    /// each with what is below it: those its Prims Location tab names, or
+    /// every root prim (`mode`). `keep_world`: they stay where they were in
+    /// the world. See `core::reparent`.
+    Reparent {
+        #[serde(default)]
+        parent: String,
+        #[serde(default)]
+        mode: crate::core::reparent::ReparentMode,
+        #[serde(default = "yes")]
+        keep_world: bool,
+    },
     /// A UsdPreviewSurface material with fixed inputs, named by the operator.
     /// Material Binding puts it in the scene. See `core::material`.
     Material {
@@ -917,6 +929,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. } => "🚫",
         NodeType::SetAttribute { .. } => "🏷",
         NodeType::EditPrimitive { .. } => "✏",
+        NodeType::Reparent { .. } => "↳",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
@@ -996,6 +1009,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. } => "Prune Primitives",
         NodeType::SetAttribute { .. } => "Set Attribute",
         NodeType::EditPrimitive { .. } => "Edit Primitive",
+        NodeType::Reparent { .. } => "Reparent",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",
