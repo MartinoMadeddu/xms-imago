@@ -9,7 +9,9 @@
 //! own transform, relative to its parent, as USD composes it: a group moves
 //! with what is below it), visibility, purpose, active and kind. A mesh adds
 //! doubleSided and subdivisionScheme; a camera its lens and gate; a light its
-//! UsdLux values.
+//! UsdLux values. A RenderSettings prim has Render Commons' values alone: a
+//! file's is written as an over of what is overridden, and stays the one
+//! rendered when it was.
 //!
 //! Overrides are kept by name (`translate`, `focalLength`, `inputs:intensity`)
 //! as plain JSON, so only they are saved and keyed.
@@ -36,16 +38,19 @@ pub enum EditKind {
     Points,
     Camera,
     Light,
+    /// A RenderSettings prim: a file's, or one Imago made.
+    RenderSettings,
 }
 
 impl EditKind {
-    pub const ALL: [EditKind; 6] = [
+    pub const ALL: [EditKind; 7] = [
         EditKind::Xform,
         EditKind::Mesh,
         EditKind::Curves,
         EditKind::Points,
         EditKind::Camera,
         EditKind::Light,
+        EditKind::RenderSettings,
     ];
 
     pub fn label(self) -> &'static str {
@@ -56,6 +61,7 @@ impl EditKind {
             EditKind::Points => "Points",
             EditKind::Camera => "Camera",
             EditKind::Light => "Light",
+            EditKind::RenderSettings => "RenderSettings",
         }
     }
 
@@ -66,6 +72,12 @@ impl EditKind {
         }
         if p.light.is_some() {
             return EditKind::Light;
+        }
+        if p.render
+            .as_ref()
+            .is_some_and(|r| r.kind == crate::core::render::RenderKind::Settings)
+        {
+            return EditKind::RenderSettings;
         }
         match p.geo.as_ref().map(|g| &g.topology) {
             Some(Topology::Mesh { .. }) => EditKind::Mesh,
@@ -78,10 +90,10 @@ impl EditKind {
         }
     }
 
-    /// Whether a primitive of kind `of` takes this form: every prim takes the
-    /// Xform section.
+    /// Whether a primitive of kind `of` takes this form: every prim but a
+    /// RenderSettings takes the Xform section.
     pub fn takes(self, of: EditKind) -> bool {
-        self == EditKind::Xform || self == of
+        self == of || (self == EditKind::Xform && of != EditKind::RenderSettings)
     }
 }
 
@@ -160,6 +172,24 @@ pub fn targets<'a>(prims: &'a [Prim], list: &[String]) -> Vec<Target<'a>> {
             }
         }
     }
+    // The other prims of the stages with no primitive of their own: a
+    // RenderSettings, a scope of materials, a camera rig.
+    let mut trees: Vec<&'a StageTree> = vec![];
+    for t in prims.iter().filter_map(|p| p.stage.as_deref()) {
+        if trees.iter().any(|x| std::ptr::eq(*x, t)) {
+            continue;
+        }
+        trees.push(t);
+        for n in &t.nodes {
+            if !groups.contains(&n.path) && !paths.contains(n.path.as_str()) && locations::any_names(list, &n.path) {
+                groups.insert(n.path.clone());
+                out.push(Target::Group {
+                    tree: Some(t),
+                    path: n.path.clone(),
+                });
+            }
+        }
+    }
     out
 }
 
@@ -174,7 +204,10 @@ impl Target<'_> {
     pub fn kind(&self) -> EditKind {
         match self {
             Target::Prim(p) => EditKind::of(p),
-            Target::Group { .. } => EditKind::Xform,
+            Target::Group { path, tree } => match tree.and_then(|t| t.node(path)) {
+                Some(n) if n.type_name == "RenderSettings" => EditKind::RenderSettings,
+                _ => EditKind::Xform,
+            },
         }
     }
 }
@@ -247,6 +280,9 @@ fn authored<'a>(tree: Option<&'a StageTree>, path: &str, name: &str) -> Option<&
 
 /// The form of `kind` with the values of `target`.
 pub fn params(kind: EditKind, target: &Target) -> Vec<Param> {
+    if kind == EditKind::RenderSettings {
+        return render_params(target);
+    }
     let (path, tree, prim) = match target {
         Target::Prim(p) => (p.path.as_str(), p.stage.as_deref(), Some(*p)),
         Target::Group { path, tree } => (path.as_str(), *tree, None),
@@ -447,6 +483,135 @@ pub fn params(kind: EditKind, target: &Target) -> Vec<Param> {
     out
 }
 
+/// A RenderSettings prim's form, Render Commons' values by their USD names,
+/// with the target's: what a file authors (USD's fallbacks where it does not;
+/// its camera is not read yet), or what Imago set on one it made.
+fn render_params(target: &Target) -> Vec<Param> {
+    use crate::core::render::RAttr;
+    // A value written by a render operator, read back as `like` is.
+    let parsed = |a: &RAttr, like: &Value| -> Option<Value> {
+        let t = a.literal.trim();
+        let nums: Vec<f32> = t
+            .split(|c: char| c == '(' || c == ')' || c == ',' || c.is_whitespace())
+            .filter_map(|x| x.parse().ok())
+            .collect();
+        Some(match like {
+            Value::Bool(_) => Value::Bool(t == "true" || t == "1"),
+            Value::Token(_) => Value::Token(t.trim_matches('"').to_string()),
+            Value::Float(_) => Value::Float(*nums.first()?),
+            Value::Float2(_) => Value::Float2([*nums.first()?, *nums.get(1)?]),
+            Value::Float4(_) => Value::Float4([*nums.first()?, *nums.get(1)?, *nums.get(2)?, *nums.get(3)?]),
+            _ => return None,
+        })
+    };
+    let value = |name: &str, fallback: Value| -> Value {
+        let found = match target {
+            Target::Prim(p) => p.render.as_deref().and_then(|r| {
+                if name == "camera" {
+                    return r
+                        .rels
+                        .get("camera")
+                        .and_then(|c| c.targets.first())
+                        .map(|c| Value::Token(c.clone()));
+                }
+                r.attrs.get(name).and_then(|a| parsed(a, &fallback))
+            }),
+            Target::Group { path, tree } => authored(*tree, path, name).cloned().map(|v| match (&fallback, v) {
+                (Value::Float2(_), Value::Float2(x)) => Value::Float2(x),
+                (Value::Float2(_), Value::Float3(x)) => Value::Float2([x[0], x[1]]),
+                (_, v) => v,
+            }),
+        };
+        found.filter(|v| v.kind() == fallback.kind()).unwrap_or(fallback)
+    };
+    let g = "Render Settings";
+    vec![
+        param(
+            g,
+            "camera",
+            "Camera",
+            "The camera rendered through (rel camera). A file's is not read yet: empty shows it is kept",
+            value("camera", Value::Token(String::new())),
+        ),
+        param(
+            g,
+            "resolution",
+            "Resolution",
+            "Width and height in pixels (uniform int2 resolution)",
+            value("resolution", Value::Float2([2048.0, 1080.0])),
+        ),
+        param(
+            g,
+            "pixelAspectRatio",
+            "Pixel Aspect",
+            "",
+            value("pixelAspectRatio", Value::Float(1.0)),
+        ),
+        tokens(
+            param(
+                g,
+                "aspectRatioConformPolicy",
+                "Aspect Conform",
+                "How the camera's aperture and the image's aspect are made to agree",
+                value("aspectRatioConformPolicy", Value::Token("expandAperture".into())),
+            ),
+            &[
+                "expandAperture",
+                "cropAperture",
+                "adjustApertureWidth",
+                "adjustApertureHeight",
+                "adjustPixelAspectRatio",
+            ],
+        ),
+        param(
+            g,
+            "dataWindowNDC",
+            "Data Window",
+            "The part of the frame rendered, from 0 to 1 (overscan beyond it)",
+            value("dataWindowNDC", Value::Float4([0.0, 0.0, 1.0, 1.0])),
+        ),
+        param(
+            g,
+            "disableMotionBlur",
+            "Disable Motion Blur",
+            "",
+            value("disableMotionBlur", Value::Bool(false)),
+        ),
+        param(
+            g,
+            "disableDepthOfField",
+            "Disable Depth of Field",
+            "",
+            value("disableDepthOfField", Value::Bool(false)),
+        ),
+    ]
+}
+
+/// The overrides of a RenderSettings prim's form written into it: its camera
+/// as a relationship, its resolution as two whole numbers, the rest as they
+/// are, all `uniform` as the schema has them.
+fn render_overrides(
+    r: &mut crate::core::render::RenderPrim,
+    shown: &[Param],
+    edits: &BTreeMap<String, serde_json::Value>,
+) {
+    use crate::core::render::RAttr;
+    for q in shown {
+        let Some(j) = edits.get(&q.name) else { continue };
+        match (q.name.as_str(), typed(&q.value, j)) {
+            ("camera", Value::Token(c)) if c.trim().is_empty() => {
+                r.rels.remove("camera");
+            }
+            ("camera", Value::Token(c)) => r.targets("camera", vec![c.trim().to_string()]),
+            ("resolution", Value::Float2([w, h])) => r.set(
+                "resolution",
+                RAttr::int2([w.round() as i32, h.round() as i32]).uniform(),
+            ),
+            (name, v) => r.set(name, RAttr::of(&v).uniform()),
+        }
+    }
+}
+
 /// A value as an override keeps it: plain JSON.
 pub fn plain(v: &Value) -> serde_json::Value {
     use serde_json::json;
@@ -554,10 +719,32 @@ pub fn edit(
                 p.light = Some(Arc::new(l));
             }
         }
+        if kind == EditKind::RenderSettings {
+            if let Some(r) = p.render.as_deref() {
+                let mut r = r.clone();
+                render_overrides(&mut r, &shown, edits);
+                p.render = Some(Arc::new(r));
+            }
+        }
         if from_file && !written.is_empty() {
             let mut props = (*p.props).clone();
             props.extend(written);
             p.props = Arc::new(props);
+        }
+    }
+    // A file's RenderSettings prim named: an over of it, with the overrides.
+    if kind == EditKind::RenderSettings {
+        for t in targets(prims, list) {
+            if t.kind() != EditKind::RenderSettings {
+                continue;
+            }
+            let Target::Group { path, .. } = &t else { continue };
+            let mut r = crate::core::render::RenderPrim::new(crate::core::render::RenderKind::Settings);
+            r.over = true;
+            render_overrides(&mut r, &params(kind, &t), edits);
+            if !r.attrs.is_empty() || !r.rels.is_empty() {
+                out.push(crate::core::render::render_prim(path, r));
+            }
         }
     }
     // Groups named: what is below each moves with it.
@@ -565,6 +752,9 @@ pub fn edit(
         // Each stage's tree as this operator has left it, by the one loaded.
         let mut trees: std::collections::HashMap<*const StageTree, Arc<StageTree>> = Default::default();
         for t in targets(prims, list) {
+            if !kind.takes(t.kind()) {
+                continue;
+            }
             let Target::Group { path, tree } = t else { continue };
             let (parents, local) = group_frame(&path, tree);
             let mut now = parts(local);
@@ -642,6 +832,10 @@ pub fn handles(
     kind: EditKind,
     edits: &BTreeMap<String, serde_json::Value>,
 ) -> Option<(Mat4, [[f32; 3]; 3])> {
+    // A RenderSettings prim is not placed.
+    if kind == EditKind::RenderSettings {
+        return None;
+    }
     let all = targets(prims, list);
     let (parents, local) = match all.iter().find(|t| kind.takes(t.kind()))? {
         Target::Prim(p) => frame_of(p)?,
@@ -747,6 +941,59 @@ mod tests {
             assert!((m.w_axis.truncate() - Vec3::new(x, 3.0, 0.0)).length() < 1e-5);
         }
         assert!(named(&out)[2].place.same(&prims[2].place), "the camera is not below it");
+    }
+
+    /// A file's RenderSettings prim: its form shows what it authors (USD's
+    /// fallbacks elsewhere), and the overrides make an over of it, nothing
+    /// else written; it stays the one rendered.
+    #[test]
+    fn a_files_render_settings_take_their_overrides_as_an_over() {
+        use crate::usd_scene::{StageNode, StageTree};
+        let node = |path: &str, ty: &str, depth: usize| StageNode {
+            path: path.into(),
+            type_name: ty.into(),
+            depth,
+            ..Default::default()
+        };
+        let mut rs = node("/Render/rendersettings", "RenderSettings", 2);
+        rs.authored = vec![("pixelAspectRatio".into(), Value::Float(2.0))];
+        let tree = Arc::new(StageTree {
+            nodes: vec![node("/Render", "Scope", 1), rs],
+            render_settings: Some("/Render/rendersettings".into()),
+            ..Default::default()
+        });
+        let card = Prim {
+            stage: Some(tree),
+            ..Prim::new("/card".into(), crate::node_graph::nodes::create_cube(1.0))
+        };
+        let list = vec!["/Render/rendersettings".to_string()];
+        let prims = vec![card];
+        assert_eq!(survey(&prims, &list, EditKind::Xform).1, Some(EditKind::RenderSettings));
+        let shown = params(EditKind::RenderSettings, &targets(&prims, &list)[0]);
+        let at = |name: &str| shown.iter().find(|p| p.name == name).unwrap().value.clone();
+        assert_eq!(at("pixelAspectRatio"), Value::Float(2.0), "the file's");
+        assert_eq!(at("resolution"), Value::Float2([2048.0, 1080.0]), "USD's fallback");
+        assert!(shown.iter().all(|p| p.group != "Xform"), "not placed");
+        let mut edits = BTreeMap::new();
+        edits.insert("resolution".to_string(), serde_json::json!([1280.0, 720.0]));
+        edits.insert("camera".to_string(), serde_json::json!("/cam"));
+        let out = edit(&EvalResult::Named(prims), &list, EditKind::RenderSettings, &edits);
+        let over = named(&out)
+            .iter()
+            .find(|p| p.path == "/Render/rendersettings")
+            .expect("an over of it");
+        let r = over.render.as_deref().unwrap();
+        assert!(r.over && !r.primary);
+        assert_eq!(
+            r.attrs.get("resolution").unwrap().line("resolution"),
+            "uniform int2 resolution = (1280, 720)"
+        );
+        assert!(!r.attrs.contains_key("pixelAspectRatio"), "only the overrides");
+        assert_eq!(r.rels.get("camera").unwrap().targets, vec!["/cam".to_string()]);
+        assert_eq!(
+            crate::core::render::layer_settings(named(&out)),
+            Some("/Render/rendersettings".into())
+        );
     }
 
     /// A camera's lens: the overridden values, the rest as they were; a

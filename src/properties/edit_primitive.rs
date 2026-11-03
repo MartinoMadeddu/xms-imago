@@ -183,7 +183,7 @@ fn row(f: &mut Rows, p: &Param, edits: &mut BTreeMap<String, serde_json::Value>)
     let hint = (!hint.is_empty()).then_some(hint.as_str());
     let mut back = false;
     match &mut v {
-        Value::Token(t) => {
+        Value::Token(t) if !p.choices.is_empty() => {
             let mut options: Vec<(String, &str)> = p
                 .choices
                 .iter()

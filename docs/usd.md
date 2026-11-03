@@ -13,7 +13,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
-| Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light): its form shows their values, and what is changed overrides them |
+| Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light, RenderSettings): its form shows their values, and what is changed overrides them |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -195,7 +195,7 @@ naming them is added after the viewed operator, viewed and selected, its form
 in Parameters; asked again while it overrides nothing, the same one names the
 new selection. Name them in its Prims Location tab (a path names that prim, as
 Set Attribute's do); its **Type** sets itself from the first one: Xform (a
-group, or any prim), Mesh, Curves, Points, Camera or Light. Its form is that
+group, or any prim), Mesh, Curves, Points, Camera, Light or RenderSettings. Its form is that
 type's, with the values of the first prim of that type named.
 
 | Type | Its form |
@@ -204,6 +204,7 @@ type's, with the values of the first prim of that type named.
 | Mesh | Double sided, Subdivision |
 | Camera | Projection, focal length, filmback and its offset, clipping range, f-stop, focus distance, as the Camera operator has them |
 | Light | Its UsdLux values, as the Light operator has them |
+| RenderSettings | Render Commons' values by their USD names: camera, resolution, pixel aspect, aspect conform, data window, motion blur and depth of field off. No Xform section. A file's prim shows what it authors (USD's fallbacks elsewhere; its camera is not read yet) and is written as an `over` of what is overridden: it stays the one rendered when it was |
 
 **Only what you change is an override.** A value changed in the form is marked
 ✎, with ↺ beside it to give it back to the prim; the **Overrides** group lists
