@@ -8,10 +8,10 @@
 //! Every type has the Xform section: Translate, Rotate and Scale (the prim's
 //! own transform, relative to its parent, as USD composes it: a group moves
 //! with what is below it), visibility, purpose, active and kind. A mesh adds
-//! doubleSided and subdivisionScheme; a camera its lens and gate; a light its
-//! UsdLux values. A RenderSettings prim has Render Commons' values alone: a
-//! file's is written as an over of what is overridden, and stays the one
-//! rendered when it was.
+//! doubleSided and subdivisionScheme; curves their type, basis and wrap; a
+//! camera its lens and gate; a light its UsdLux values. A RenderSettings prim
+//! has Render Commons' values alone: a file's is written as an over of what is
+//! overridden, and stays the one rendered when it was.
 //!
 //! Overrides are kept by name (`translate`, `focalLength`, `inputs:intensity`)
 //! as plain JSON, so only they are saved and keyed.
@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use glam::{DMat4, EulerRot, Mat4, Quat, Vec3};
 
-use crate::core::geo::Topology;
+use crate::core::geo::{CurveBasis, CurveWrap, Topology};
 use crate::core::locations;
 use crate::core::properties::{SetContext, Value};
 use crate::core::set_attribute::SetRow;
@@ -142,6 +142,50 @@ const PROPERTIES: [&str; 6] = [
     "doubleSided",
     "subdivisionScheme",
 ];
+
+/// Curves' values, kept in their topology.
+const CURVE: [&str; 3] = ["type", "basis", "wrap"];
+
+/// Curves' basis and wrap: their topology's, else what the Viewer draws.
+fn curve_shape(p: &Prim) -> (CurveBasis, CurveWrap) {
+    match p.geo.as_deref().map(|g| &g.topology) {
+        Some(Topology::Curves { basis, wrap, .. }) => (*basis, *wrap),
+        _ => (p.mesh.curve_basis, p.mesh.curve_wrap),
+    }
+}
+
+/// Basis and wrap as USD's `type`, `basis` and `wrap` tokens. Linear curves
+/// have no basis of their own: USD's fallback, bezier.
+fn curve_tokens((basis, wrap): (CurveBasis, CurveWrap)) -> (&'static str, &'static str, &'static str) {
+    let (ty, b) = match basis {
+        CurveBasis::Linear => ("linear", "bezier"),
+        CurveBasis::Bezier => ("cubic", "bezier"),
+        CurveBasis::Bspline => ("cubic", "bspline"),
+        CurveBasis::CatmullRom => ("cubic", "catmullRom"),
+    };
+    let w = match wrap {
+        CurveWrap::Nonperiodic => "nonperiodic",
+        CurveWrap::Periodic => "periodic",
+        CurveWrap::Pinned => "pinned",
+    };
+    (ty, b, w)
+}
+
+/// The basis and wrap of USD's tokens.
+fn curve_shape_of(ty: &str, basis: &str, wrap: &str) -> (CurveBasis, CurveWrap) {
+    let b = match (ty, basis) {
+        ("linear", _) => CurveBasis::Linear,
+        (_, "bspline") => CurveBasis::Bspline,
+        (_, "catmullRom") => CurveBasis::CatmullRom,
+        _ => CurveBasis::Bezier,
+    };
+    let w = match wrap {
+        "periodic" => CurveWrap::Periodic,
+        "pinned" => CurveWrap::Pinned,
+        _ => CurveWrap::Nonperiodic,
+    };
+    (b, w)
+}
 
 /// A target: a primitive, or a prim with none (a group of a stage, or an
 /// Xform Imago made above its primitives).
@@ -388,6 +432,40 @@ pub fn params(kind: EditKind, target: &Target) -> Vec<Param> {
                     Value::Token(token("subdivisionScheme", "catmullClark")),
                 ),
                 &["catmullClark", "loop", "bilinear", "none"],
+            ));
+        }
+        (EditKind::Curves, Some(p)) => {
+            let (ty, basis, wrap) = curve_tokens(curve_shape(p));
+            let g = "Curves";
+            out.push(tokens(
+                param(
+                    g,
+                    "type",
+                    "Type",
+                    "USD type: linear, or cubic through Basis",
+                    Value::Token(ty.into()),
+                ),
+                &["linear", "cubic"],
+            ));
+            out.push(tokens(
+                param(
+                    g,
+                    "basis",
+                    "Basis",
+                    "USD basis: how cubic curves pass through their points (not used by linear ones)",
+                    Value::Token(basis.into()),
+                ),
+                &["bezier", "bspline", "catmullRom"],
+            ));
+            out.push(tokens(
+                param(
+                    g,
+                    "wrap",
+                    "Wrap",
+                    "USD wrap: open (nonperiodic), closed (periodic), or reaching its end points (pinned)",
+                    Value::Token(wrap.into()),
+                ),
+                &["nonperiodic", "periodic", "pinned"],
             ));
         }
         (EditKind::Camera, Some(p)) => {
@@ -707,6 +785,31 @@ pub fn edit(
                 p.camera = Some(Arc::new(c));
             }
         }
+        // Curves: their type, basis and wrap, in the geometry (written with
+        // its topology) and in what the Viewer draws.
+        if kind == EditKind::Curves && CURVE.iter().any(|n| edits.contains_key(*n)) {
+            let (ty, basis, wrap) = curve_tokens(curve_shape(p));
+            let pick = |name: &str, or: &str| match value(name) {
+                Some(Value::Token(t)) => t,
+                _ => or.to_string(),
+            };
+            let (b, w) = curve_shape_of(&pick("type", ty), &pick("basis", basis), &pick("wrap", wrap));
+            if let Some(geo) = p.geo.as_deref() {
+                if let Topology::Curves { counts, .. } = &geo.topology {
+                    let mut geo = geo.clone();
+                    geo.topology = Topology::Curves {
+                        counts: counts.clone(),
+                        basis: b,
+                        wrap: w,
+                    };
+                    p.geo = Some(Arc::new(geo));
+                }
+            }
+            let mut mesh = (*p.mesh).clone();
+            mesh.curve_basis = b;
+            mesh.curve_wrap = w;
+            p.mesh = Arc::new(mesh);
+        }
         if kind == EditKind::Light {
             if let Some(l) = p.light.as_deref() {
                 let mut l = l.clone();
@@ -921,6 +1024,56 @@ mod tests {
         assert!((m.w_axis.truncate() - Vec3::X).length() < 1e-5, "it stays where it was");
         assert!((m.transform_vector3(Vec3::Z) - Vec3::X).length() < 1e-5, "and turns");
         assert!(named(&out)[1].place.same(&prims[1].place));
+    }
+
+    /// Curves show their type, basis and wrap; overridden, the geometry and
+    /// what the Viewer draws take them.
+    #[test]
+    fn curves_take_their_type_basis_and_wrap() {
+        use crate::core::geo_mesh::GeoMesh;
+        let mut hair =
+            crate::core::geo::Geo::from_points(vec![[0.0; 3], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0], [0.0, 3.0, 0.0]]);
+        hair.topology = Topology::curves(vec![4], CurveBasis::Bspline, CurveWrap::Nonperiodic);
+        let prims = vec![Prim {
+            geo: Some(Arc::new(hair.clone())),
+            ..Prim::new("/hair".into(), hair.to_mesh())
+        }];
+        let shown = params(EditKind::Curves, &Target::Prim(&prims[0]));
+        let token = |name: &str| shown.iter().find(|p| p.name == name).map(|p| p.value.clone());
+        assert_eq!(token("type"), Some(Value::Token("cubic".into())));
+        assert_eq!(token("basis"), Some(Value::Token("bspline".into())));
+        assert_eq!(token("wrap"), Some(Value::Token("nonperiodic".into())));
+        let mut edits = BTreeMap::new();
+        edits.insert("basis".to_string(), serde_json::json!("catmullRom"));
+        edits.insert("wrap".to_string(), serde_json::json!("pinned"));
+        let out = edit(
+            &EvalResult::Named(prims.clone()),
+            &["/hair".to_string()],
+            EditKind::Curves,
+            &edits,
+        );
+        let p = &named(&out)[0];
+        assert!(matches!(
+            p.geo.as_deref().unwrap().topology,
+            Topology::Curves {
+                basis: CurveBasis::CatmullRom,
+                wrap: CurveWrap::Pinned,
+                ..
+            }
+        ));
+        assert_eq!(
+            (p.mesh.curve_basis, p.mesh.curve_wrap),
+            (CurveBasis::CatmullRom, CurveWrap::Pinned)
+        );
+        // Linear: no basis of its own.
+        edits.insert("type".to_string(), serde_json::json!("linear"));
+        let out = edit(
+            &EvalResult::Named(prims),
+            &["/hair".to_string()],
+            EditKind::Curves,
+            &edits,
+        );
+        assert_eq!(named(&out)[0].mesh.curve_basis, CurveBasis::Linear);
     }
 
     /// A group named: what is below it moves with it, as USD composes a

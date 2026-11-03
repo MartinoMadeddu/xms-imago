@@ -203,6 +203,7 @@ type's, with the values of the first prim of that type named.
 |---|---|
 | Every type | **Xform**: Translate, Rotate, Scale (the prim's own transform, relative to its parent), Visibility, Purpose, Active, Kind |
 | Mesh | Double sided, Subdivision |
+| Curves | Type (linear or cubic), Basis (bezier, bspline, catmullRom: how cubic curves pass through their points), Wrap (nonperiodic, periodic, pinned), as USD names them. Written with the curves' counts, as their topology |
 | Camera | Projection, focal length, filmback and its offset, clipping range, f-stop, focus distance, as the Camera operator has them |
 | Light | Its UsdLux values, as the Light operator has them |
 | RenderSettings | Render Commons' values by their USD names: camera, resolution, pixel aspect, aspect conform, data window, motion blur and depth of field off. No Xform section. A file's prim shows what it authors (USD's fallbacks elsewhere; its camera is not read yet) and is written as an `over` of what is overridden: it stays the one rendered when it was |
