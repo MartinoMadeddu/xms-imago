@@ -462,7 +462,10 @@ pub fn evaluate_node_type(
         | NodeType::Envelope { .. }
         | NodeType::RangeOfMotion { .. }
         | NodeType::DeltaMush { .. }
-        | NodeType::BakeWeights { .. }) => {
+        | NodeType::BakeWeights { .. }
+        | NodeType::RigidBind { .. }
+        | NodeType::RigidSkin
+        | NodeType::RigProxy) => {
             let ports: Vec<Option<EvalResult>> = inputs.iter().cloned().map(Some).collect();
             crate::core::rig::node::cook(t, &ports, 0.0)
         }

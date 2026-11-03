@@ -26,9 +26,11 @@ pub mod bind;
 pub mod build;
 pub mod fit;
 pub mod guides;
+pub mod mech;
 pub mod mush;
 pub mod node;
 pub mod presets;
+pub mod rigid;
 pub mod rom;
 pub mod surface;
 pub mod view;
@@ -47,15 +49,48 @@ pub enum Component {
     Hand,
     /// Thigh, calf, foot, ball of the foot.
     Leg,
+    /// A four-legged animal's leg: hip (or shoulder), stifle (or elbow), hock
+    /// (or knee), fetlock, hoof or paw, toe.
+    AnimalLeg,
+    /// Joints along a curve: a tail, a tentacle, an antenna, a finger alone.
+    Chain,
+    /// The rigid frame of a machine: a car's body, a hull, a fuselage. What
+    /// the machine's other parts hang from.
+    Body,
+    /// One joint turning about a line, within limits: a door, a flap, an
+    /// aileron, a rudder, a bucket, a robot's axis.
+    Hinge,
+    /// A joint spinning without end about an axis: a propeller, a rotor, a
+    /// turret; blades on it, each pitching about its length.
+    Rotor,
+    /// A cylinder aimed at its rod's end, the rod sliding in it.
+    Piston,
+    /// A wheel: suspension sliding up and down, steering if it steers, the
+    /// wheel spinning on its axle.
+    Wheel,
+    /// A gear spinning about its axis; on another gear's centre, it meshes
+    /// with it, turning the other way by the ratio of their radii.
+    Gear,
+    /// A track around two wheels: links that run round the loop.
+    Tread,
 }
 
 impl Component {
-    pub const ALL: [Component; 5] = [
+    pub const ALL: [Component; 14] = [
         Component::Spine,
         Component::Neck,
         Component::Arm,
         Component::Hand,
         Component::Leg,
+        Component::AnimalLeg,
+        Component::Chain,
+        Component::Body,
+        Component::Hinge,
+        Component::Rotor,
+        Component::Piston,
+        Component::Wheel,
+        Component::Gear,
+        Component::Tread,
     ];
 
     /// As in the locators' and the parts' names.
@@ -66,6 +101,15 @@ impl Component {
             Component::Arm => "arm",
             Component::Hand => "hand",
             Component::Leg => "leg",
+            Component::AnimalLeg => "animalLeg",
+            Component::Chain => "chain",
+            Component::Body => "body",
+            Component::Hinge => "hinge",
+            Component::Rotor => "rotor",
+            Component::Piston => "piston",
+            Component::Wheel => "wheel",
+            Component::Gear => "gear",
+            Component::Tread => "tread",
         }
     }
 
@@ -76,12 +120,42 @@ impl Component {
             Component::Arm => "Arm",
             Component::Hand => "Hand",
             Component::Leg => "Leg",
+            Component::AnimalLeg => "Animal leg",
+            Component::Chain => "Chain",
+            Component::Body => "Body",
+            Component::Hinge => "Hinge",
+            Component::Rotor => "Rotor",
+            Component::Piston => "Piston",
+            Component::Wheel => "Wheel",
+            Component::Gear => "Gear",
+            Component::Tread => "Tread",
         }
+    }
+
+    /// A human's part: placed by autofit on a body.
+    pub fn human(self) -> bool {
+        matches!(
+            self,
+            Component::Spine | Component::Neck | Component::Arm | Component::Hand | Component::Leg
+        )
+    }
+
+    /// On the centre line only.
+    pub fn centred(self) -> bool {
+        matches!(self, Component::Spine | Component::Neck | Component::Body)
     }
 
     /// Paired: a left and a right one.
     pub fn sided(self) -> bool {
-        matches!(self, Component::Arm | Component::Hand | Component::Leg)
+        matches!(
+            self,
+            Component::Arm
+                | Component::Hand
+                | Component::Leg
+                | Component::AnimalLeg
+                | Component::Wheel
+                | Component::Tread
+        )
     }
 }
 
@@ -171,6 +245,28 @@ pub enum Role {
     /// A finger's joints: 0 the metacarpal (in the palm), 1 to 3 the
     /// phalanges from the knuckle out. The thumb has 1 to 3.
     Finger(Finger, u8),
+    /// An animal leg's joints from the hip (0) to the hoof (4).
+    AnimalLeg(u8),
+    /// A chain's joints from its start, from 1.
+    Chain(u8),
+    /// A machine's frame.
+    Body,
+    Hinge,
+    /// A rotor's hub, spinning.
+    Rotor,
+    /// A rotor's blade, pitching about its length, from 1.
+    Blade(u8),
+    PistonBase,
+    PistonRod,
+    /// A wheel's suspension, sliding along its up.
+    Suspension,
+    /// A wheel's steering, turning about its up.
+    Steer,
+    /// The wheel, spinning on its axle.
+    Wheel,
+    Gear,
+    /// A tread's links round its loop, from 1.
+    TreadLink(u16),
 }
 
 impl Role {
@@ -247,18 +343,46 @@ impl RotOrder {
 }
 
 /// How far a joint turns from its rest, about each axis of its canonical
-/// frame, in degrees: X twists, Y swings, Z bends.
+/// frame, in degrees: X twists, Y swings, Z bends; and how far it slides
+/// along its X, in scene units (a piston's rod, a suspension).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Limits {
     pub min: [f32; 3],
     pub max: [f32; 3],
+    pub slide: [f32; 2],
+    /// Spins without end about X (a wheel, a rotor, a gear): a full turn
+    /// is its range.
+    pub spin: bool,
 }
 
 impl Limits {
-    const fn new(x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> Limits {
+    pub const fn new(x: [f32; 2], y: [f32; 2], z: [f32; 2]) -> Limits {
         Limits {
             min: [x[0], y[0], z[0]],
             max: [x[1], y[1], z[1]],
+            slide: [0.0; 2],
+            spin: false,
+        }
+    }
+
+    /// Turning about Z only, from `min` to `max` degrees.
+    pub fn hinge(min: f32, max: f32) -> Limits {
+        Limits::new([0.0; 2], [0.0; 2], [min, max])
+    }
+
+    /// Spinning about X without end.
+    pub fn spinning() -> Limits {
+        Limits {
+            spin: true,
+            ..Limits::new([-180.0, 180.0], [0.0; 2], [0.0; 2])
+        }
+    }
+
+    /// Sliding along X, from `min` to `max` scene units.
+    pub fn sliding(min: f32, max: f32) -> Limits {
+        Limits {
+            slide: [min, max],
+            ..Limits::none()
         }
     }
 
@@ -272,6 +396,16 @@ impl Limits {
         Limits {
             min: [-self.max[0], -self.max[1], self.min[2]],
             max: [-self.min[0], -self.min[1], self.max[2]],
+            ..self
+        }
+    }
+
+    /// A slide from the fraction `f` in -1..1.
+    pub fn slide_at(&self, f: f32) -> f32 {
+        if f >= 0.0 {
+            self.slide[1] * f
+        } else {
+            -self.slide[0] * f
         }
     }
 
@@ -318,6 +452,65 @@ pub fn human_limits(role: Role, drop: f32) -> Limits {
     }
 }
 
+/// An animal leg's limits, canonical frame, from the hip (0) to the hoof
+/// (4): the stifle and hock bend one way each, the fetlock both ways.
+pub fn animal_limits(k: u8) -> Limits {
+    let l = Limits::new;
+    match k {
+        0 => l([-10.0, 10.0], [-15.0, 15.0], [-50.0, 60.0]),
+        1 => l([-5.0, 5.0], [-5.0, 5.0], [-90.0, 5.0]),
+        2 => l([-5.0, 5.0], [-5.0, 5.0], [-90.0, 5.0]),
+        3 => l([0.0, 0.0], [-5.0, 5.0], [-60.0, 40.0]),
+        _ => l([0.0, 0.0], [-5.0, 5.0], [-30.0, 30.0]),
+    }
+}
+
+/// What a machine part or a chain is set to, besides its locators.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MechParams {
+    /// A hinge's turn, a chain joint's bend, a blade's pitch, degrees; a
+    /// wheel's steering is the larger.
+    pub limits: [f32; 2],
+    /// A suspension's travel or a piston's stroke, each way, scene units.
+    pub travel: f32,
+    /// Blades of a rotor, links of a tread.
+    pub count: u32,
+    /// The wheel steers.
+    pub steer: bool,
+    /// The primitives the part is fitted to (words or regular expressions
+    /// found in their paths, comma-separated: `wheel1`):
+    /// its locators are placed from their bounds.
+    pub fit: String,
+}
+
+impl Default for MechParams {
+    fn default() -> Self {
+        MechParams::of(Component::Hinge)
+    }
+}
+
+impl MechParams {
+    /// What a new component of a kind starts with.
+    pub fn of(c: Component) -> MechParams {
+        let (limits, travel, count) = match c {
+            Component::Hinge => ([-45.0, 45.0], 0.0, 0),
+            Component::Chain => ([-40.0, 40.0], 0.0, 0),
+            Component::Rotor => ([-15.0, 15.0], 0.0, 0),
+            Component::Piston => ([0.0, 0.0], 0.1, 0),
+            Component::Wheel => ([-35.0, 35.0], 0.05, 0),
+            Component::Tread => ([0.0, 0.0], 0.0, 40),
+            _ => ([0.0, 0.0], 0.0, 0),
+        };
+        MechParams {
+            limits,
+            travel,
+            count,
+            steer: false,
+            fit: String::new(),
+        }
+    }
+}
+
 /// One guide locator: whose it is and what it marks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GuideTag {
@@ -342,12 +535,21 @@ pub struct PartInfo {
     /// Fingers of a hand, metacarpals in the palm.
     pub fingers: Vec<Finger>,
     pub metacarpals: bool,
+    /// Its own word in place of the component's: `aileron` makes
+    /// `aileron_L0`. Empty: the component's.
+    pub label: String,
+    pub mech: MechParams,
 }
 
 impl PartInfo {
-    /// `arm_L0`.
+    /// `arm_L0`, `aileron_L0`.
     pub fn name(&self) -> String {
-        format!("{}_{}{}", self.component.word(), self.side.letter(), self.index)
+        let word = if self.label.trim().is_empty() {
+            self.component.word()
+        } else {
+            self.label.trim()
+        };
+        format!("{}_{}{}", word, self.side.letter(), self.index)
     }
 }
 
@@ -368,6 +570,65 @@ pub struct JointInfo {
     pub deform: bool,
     /// Where its bone ends, in the rest pose: the point it aims at.
     pub tip: glam::Vec3,
+    /// A wheel's, a gear's, a rotor's radius; a tread's loop's.
+    pub radius: f32,
+    /// Spins with another joint (a gear meshing): its X turn is this many
+    /// times that joint's.
+    pub follow: Option<(usize, f32)>,
+    /// A tread link: the loop it runs round.
+    pub tread: Option<TreadPath>,
+    /// A body's half extents: across, up, along.
+    pub size: glam::Vec3,
+}
+
+/// A tread's loop in the rest pose, world space: round two wheels of one
+/// radius, the link at `start` along it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TreadPath {
+    pub front: glam::Vec3,
+    pub rear: glam::Vec3,
+    /// Out of the loop's plane (the axle).
+    pub axle: glam::Vec3,
+    pub radius: f32,
+    pub start: f32,
+}
+
+impl TreadPath {
+    /// Its length.
+    pub fn length(&self) -> f32 {
+        2.0 * self.front.distance(self.rear) + std::f32::consts::TAU * self.radius
+    }
+
+    /// Where on the loop `s` is along it, and the way along it there: from
+    /// the top of the front wheel back along the top, round the rear wheel,
+    /// forward along the bottom, round the front wheel.
+    pub fn at(&self, s: f32) -> (glam::Vec3, glam::Vec3) {
+        let len = self.length();
+        let s = s.rem_euclid(len.max(1e-6));
+        let back = (self.rear - self.front).normalize_or(glam::Vec3::NEG_Z);
+        let up = self.axle.cross(back).normalize_or(glam::Vec3::Y);
+        let up = if up.y < 0.0 { -up } else { up };
+        let straight = self.front.distance(self.rear);
+        let half = std::f32::consts::PI * self.radius;
+        let r = self.radius;
+        if s < straight {
+            (self.front + up * r + back * s, back)
+        } else if s < straight + half {
+            let a = (s - straight) / r.max(1e-6);
+            (
+                self.rear + (up * a.cos() + back * a.sin()) * r,
+                back * a.cos() - up * a.sin(),
+            )
+        } else if s < 2.0 * straight + half {
+            (self.rear - up * r - back * (s - straight - half), -back)
+        } else {
+            let a = (s - 2.0 * straight - half) / r.max(1e-6);
+            (
+                self.front - (up * a.cos() + back * a.sin()) * r,
+                up * a.sin() - back * a.cos(),
+            )
+        }
+    }
 }
 
 /// What the rig knows about a clip's joints: guides on a guide clip, joints on

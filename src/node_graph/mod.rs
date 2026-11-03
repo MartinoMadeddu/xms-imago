@@ -680,6 +680,9 @@ impl NodeGraphState {
             NodeType::BuildSkeleton { .. } => (vec![i("Guides")], vec![o("Skeleton")]),
             NodeType::HardBind | NodeType::Envelope { .. } => (vec![i("Geometry"), i("Skeleton")], vec![o("Geometry")]),
             NodeType::RangeOfMotion { .. } => (vec![i("Skeleton")], vec![o("Clip")]),
+            NodeType::RigidBind { .. } => (vec![i("Geometry"), i("Skeleton")], vec![o("Geometry")]),
+            NodeType::RigidSkin => (vec![i("Geometry"), i("Rest"), i("Clip")], vec![o("Geometry")]),
+            NodeType::RigProxy => (vec![i("Skeleton")], vec![o("Geometry")]),
             NodeType::DeltaMush { .. } | NodeType::BakeWeights { .. } => {
                 (vec![i("Geometry"), i("Rest"), i("Clip")], vec![o("Geometry")])
             }
@@ -1286,7 +1289,7 @@ impl NodeGraphState {
             }
             NodeType::Ragdoll { .. } => crate::ragdoll::generation().hash(&mut h),
             // The mesh skinned at the playhead.
-            NodeType::DeltaMush { .. } => self.frame().to_bits().hash(&mut h),
+            NodeType::DeltaMush { .. } | NodeType::RigidSkin => self.frame().to_bits().hash(&mut h),
             // A material is named by its operator.
             NodeType::Material { .. } | NodeType::MaterialX { .. } => node.name.hash(&mut h),
             // A compound by the definition it cooks (a locked one follows the

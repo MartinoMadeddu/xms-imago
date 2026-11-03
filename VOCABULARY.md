@@ -64,6 +64,9 @@ have **parameters**.
 | The skeleton a rig deforms the mesh with | bind skeleton, skin joints | **deform skeleton**, made by **Build Skeleton** for a **target** (Unreal, HumanIK, Maya) | Naming, axes, rotation order and root joint come with the target and can each be changed. |
 | A joint's frame the rig reasons in, whatever the target's axes | joint orient | **canonical frame**: X to the child, Y to the pole, Z = X×Y | Limits and the range of motion are written in it. |
 | Weights of 0 or 1, each point to one joint | rigid bind, hard skin | **hard bind** (Hard Bind), its points per joint a **region** | Changed by **Envelope**: slide, tilt, grow. |
+| A machine's piece bound whole to one joint | rigid skin, parented geometry | **Rigid Bind** (binding), **Rigid Skin** (moving it by its placement) | Its geometry and materials stay as they are. |
+| Simple shapes standing in for a mesh | proxy geometry | **Rig Proxy** | One primitive per joint, `/proxy/<joint>`. |
+| A machine part's or a chain's own word in its name | custom name, prefix | the part's **Name** (`aileron` makes `aileron_L0`) | Parts of one name on both sides move together in the range of motion. |
 | Every joint moved through what it can do | ROM, calisthenics | **range of motion** (Range of Motion) | Sweeps of each joint, then poses, as fractions of the joints' **limits**. |
 
 ### Contexts and USD

@@ -9,7 +9,10 @@ use std::sync::Arc;
 use glam::{Mat3, Mat4, Quat, Vec3};
 
 use super::presets::{self, Axis, Orient, Preset};
-use super::{human_limits, locator_name, Component, Finger, JointInfo, PartInfo, RigInfo, Role, RotOrder, Side};
+use super::{
+    human_limits, locator_name, Component, Finger, JointInfo, Limits, PartInfo, RigInfo, Role, RotOrder, Side,
+    TreadPath,
+};
 use crate::core::anim::{AnimData, FrameRate, Joint};
 use crate::core::human::Slot;
 use crate::core::xform::Transform;
@@ -67,6 +70,12 @@ struct Proto {
     pole: Vec3,
     /// A twist joint: the joint whose frame it takes.
     twin: Option<usize>,
+    /// A machine part's or an animal's own limits; None: a human's.
+    limits: Option<Limits>,
+    radius: f32,
+    follow: Option<(usize, f32)>,
+    tread: Option<TreadPath>,
+    size: Vec3,
 }
 
 /// The canonical frame: X to `aim`, Y toward `pole` at right angles to X.
@@ -192,6 +201,11 @@ pub fn build(guides: &AnimData, s: &BuildSettings) -> Result<AnimData, String> {
             aim: None,
             pole: front,
             twin: None,
+            limits: Some(Limits::none()),
+            radius: 0.0,
+            follow: None,
+            tread: None,
+            size: Vec3::ZERO,
         });
         Some(0)
     } else {
@@ -221,6 +235,11 @@ pub fn build(guides: &AnimData, s: &BuildSettings) -> Result<AnimData, String> {
                 aim,
                 pole,
                 twin: None,
+                limits: None,
+                radius: 0.0,
+                follow: None,
+                tread: None,
+                size: Vec3::ZERO,
             });
             protos.len() - 1
         };
@@ -356,6 +375,206 @@ pub fn build(guides: &AnimData, s: &BuildSettings) -> Result<AnimData, String> {
                         pole,
                     );
                     protos[j].twin = Some(ca);
+                }
+            }
+            Component::AnimalLeg => {
+                let names = ["hip", "knee", "hock", "fetlock", "hoof", "toe"];
+                let pts: Vec<Vec3> = names.iter().map(|n| need(n)).collect::<Result<_, _>>()?;
+                // Each joint's pole: where its apex points between its
+                // neighbours; the hip's, the knee's.
+                let apex = |k: usize| -> Vec3 {
+                    let (a, b, c) = (pts[k - 1], pts[k], pts[k + 1]);
+                    let ac = c - a;
+                    let t = ((b - a).dot(ac) / ac.length_squared().max(1e-12)).clamp(0.0, 1.0);
+                    (b - (a + ac * t)).normalize_or(front)
+                };
+                let mut up = attach;
+                for k in 0..5usize {
+                    let pole = apex((k).clamp(1, 4));
+                    let j = push(
+                        &mut protos,
+                        Role::AnimalLeg(k as u8),
+                        pts[k],
+                        up,
+                        Some(pts[k + 1]),
+                        pole,
+                    );
+                    protos[j].limits = Some(super::animal_limits(k as u8));
+                    made.insert(locator_name(&name, names[k]), j);
+                    up = Some(j);
+                }
+            }
+            Component::Chain => {
+                let (a, m, e, pl) = (need("start")?, need("mid")?, need("end")?, need("pole")?);
+                let n = part.segments.clamp(1, 64) as usize;
+                let pts: Vec<Vec3> = (0..=n).map(|k| curve(a, m, e, k as f32 / n as f32)).collect();
+                let l = part.mech.limits;
+                let mut up = attach;
+                for k in 0..n {
+                    let j = push(
+                        &mut protos,
+                        Role::Chain(k as u8 + 1),
+                        pts[k],
+                        up,
+                        Some(pts[k + 1]),
+                        pl - pts[k],
+                    );
+                    let swing = l[0].abs().max(l[1].abs()) * 0.5;
+                    protos[j].limits = Some(Limits::new([-10.0, 10.0], [-swing, swing], [l[0], l[1]]));
+                    if k == 0 {
+                        made.insert(locator_name(&name, "start"), j);
+                    }
+                    if k == n / 2 {
+                        made.insert(locator_name(&name, "mid"), j);
+                    }
+                    made.insert(locator_name(&name, "end"), j);
+                    up = Some(j);
+                }
+            }
+            Component::Body => {
+                let (c, f) = (need("centre")?, need("front")?);
+                let j = push(&mut protos, Role::Body, c, attach, Some(f), Vec3::Y);
+                let side = get(&name, "side").map(|x| x.distance(c)).unwrap_or(0.0);
+                let top = get(&name, "top").map(|x| x.distance(c)).unwrap_or(0.0);
+                protos[j].size = Vec3::new(side, top, f.distance(c));
+                protos[j].limits = Some(Limits::new([-4.0, 4.0], [0.0; 2], [-3.0, 3.0]));
+                made.insert(locator_name(&name, "centre"), j);
+            }
+            Component::Hinge => {
+                let (p, ax, tip) = (need("pivot")?, need("axis")?, need("tip")?);
+                let axis = (ax - p).normalize_or(Vec3::X);
+                let out = tip - p;
+                let out = (out - axis * out.dot(axis)).normalize_or(axis.any_orthonormal_vector());
+                let j = push(
+                    &mut protos,
+                    Role::Hinge,
+                    p,
+                    attach,
+                    Some(p + out * tip.distance(p).max(1e-3)),
+                    axis.cross(out),
+                );
+                protos[j].limits = Some(Limits::hinge(part.mech.limits[0], part.mech.limits[1]));
+                protos[j].radius = ax.distance(p);
+                made.insert(locator_name(&name, "pivot"), j);
+                made.insert(locator_name(&name, "tip"), j);
+            }
+            Component::Rotor | Component::Gear => {
+                let (c, ax, tip) = (need("centre")?, need("axis")?, need("tip")?);
+                let axis = (ax - c).normalize_or(Vec3::Y);
+                let out = tip - c;
+                let radius = (out - axis * out.dot(axis)).length();
+                let out = (out - axis * out.dot(axis)).normalize_or(axis.any_orthonormal_vector());
+                // A gear on another gear's centre meshes with it: it hangs
+                // from what that gear hangs from and turns the other way.
+                let leader = attach.filter(|a| protos[*a].role == Role::Gear && part.component == Component::Gear);
+                let parent = match leader {
+                    Some(g) => protos[g].parent,
+                    None => attach,
+                };
+                let role = if part.component == Component::Gear {
+                    Role::Gear
+                } else {
+                    Role::Rotor
+                };
+                let hub = push(&mut protos, role, c, parent, Some(c + axis * radius.max(1e-3)), out);
+                protos[hub].limits = Some(Limits::spinning());
+                protos[hub].radius = radius;
+                if let Some(g) = leader {
+                    protos[hub].follow = Some((g, -protos[g].radius / radius.max(1e-6)));
+                }
+                made.insert(locator_name(&name, "centre"), hub);
+                if part.component == Component::Rotor {
+                    let n = part.mech.count;
+                    for k in 0..n {
+                        let turn = Quat::from_axis_angle(axis, k as f32 / n as f32 * std::f32::consts::TAU);
+                        let dir = turn * out;
+                        let b = push(
+                            &mut protos,
+                            Role::Blade(k as u8 + 1),
+                            c,
+                            Some(hub),
+                            Some(c + dir * radius),
+                            axis,
+                        );
+                        let l = part.mech.limits;
+                        protos[b].limits = Some(Limits::new([l[0], l[1]], [0.0; 2], [0.0; 2]));
+                        protos[b].radius = radius;
+                    }
+                }
+            }
+            Component::Piston => {
+                let (b, e) = (need("base")?, need("end")?);
+                let dir = (e - b).normalize_or(Vec3::Y);
+                let pole = dir.any_orthonormal_vector();
+                let base = push(&mut protos, Role::PistonBase, b, attach, Some(e), pole);
+                protos[base].limits = Some(Limits::none());
+                let rod = push(
+                    &mut protos,
+                    Role::PistonRod,
+                    e,
+                    Some(base),
+                    Some(e + dir * b.distance(e)),
+                    pole,
+                );
+                protos[rod].twin = Some(base);
+                let t = part.mech.travel;
+                protos[rod].limits = Some(Limits::sliding(-t, t));
+                made.insert(locator_name(&name, "base"), base);
+                made.insert(locator_name(&name, "end"), rod);
+            }
+            Component::Wheel => {
+                let (c, ax, top) = (need("centre")?, need("axle")?, need("top")?);
+                let up_dir = Vec3::Y;
+                let radius = top.distance(c);
+                let mut up = attach;
+                if part.mech.travel > 0.0 {
+                    let j = push(&mut protos, Role::Suspension, c, up, Some(c + up_dir * radius), front);
+                    protos[j].limits = Some(Limits::sliding(-part.mech.travel, part.mech.travel));
+                    up = Some(j);
+                }
+                if part.mech.steer {
+                    let j = push(&mut protos, Role::Steer, c, up, Some(c + up_dir * radius), front);
+                    let l = part.mech.limits;
+                    protos[j].limits = Some(Limits::new([l[0], l[1]], [0.0; 2], [0.0; 2]));
+                    up = Some(j);
+                }
+                let w = push(&mut protos, Role::Wheel, c, up, Some(ax), up_dir);
+                protos[w].limits = Some(Limits::spinning());
+                protos[w].radius = radius;
+                made.insert(locator_name(&name, "centre"), w);
+            }
+            Component::Tread => {
+                let (f, r, top) = (need("front")?, need("rear")?, need("top")?);
+                let radius = top.distance(f);
+                let back = (r - f).normalize_or(Vec3::NEG_Z);
+                let axle = back.cross((top - f).normalize_or(Vec3::Y)).normalize_or(Vec3::X);
+                let path = TreadPath {
+                    front: f,
+                    rear: r,
+                    axle,
+                    radius,
+                    start: 0.0,
+                };
+                let n = part.mech.count.max(2);
+                let len = path.length();
+                for k in 0..n {
+                    let s0 = k as f32 * len / n as f32;
+                    let (p, t) = path.at(s0);
+                    // Out of the loop: away from the line between the wheels.
+                    let fr = r - f;
+                    let tt = ((p - f).dot(fr) / fr.length_squared().max(1e-12)).clamp(0.0, 1.0);
+                    let outward = (p - (f + fr * tt)).normalize_or(Vec3::Y);
+                    let j = push(
+                        &mut protos,
+                        Role::TreadLink(k as u16 + 1),
+                        p,
+                        attach,
+                        Some(p + t * (len / n as f32)),
+                        outward,
+                    );
+                    protos[j].limits = Some(Limits::none());
+                    protos[j].radius = radius;
+                    protos[j].tread = Some(TreadPath { start: s0, ..path });
                 }
             }
             Component::Hand => {
@@ -494,7 +713,9 @@ pub fn build(guides: &AnimData, s: &BuildSettings) -> Result<AnimData, String> {
         j.is_bone = true;
         joints.push(j);
         let limits = (s.limits && p.role != Role::Root).then(|| {
-            let l = human_limits(p.role, if p.side == Side::Right { drop_r } else { drop_l });
+            let l = p
+                .limits
+                .unwrap_or_else(|| human_limits(p.role, if p.side == Side::Right { drop_r } else { drop_l }));
             if p.side == Side::Right {
                 l.mirrored()
             } else {
@@ -510,6 +731,10 @@ pub fn build(guides: &AnimData, s: &BuildSettings) -> Result<AnimData, String> {
             order: s.order,
             deform: p.role != Role::Root,
             tip: p.aim.unwrap_or(p.pos + canon[i].x_axis * 0.05),
+            radius: p.radius,
+            follow: p.follow,
+            tread: p.tread,
+            size: p.size,
         });
     }
     let human: Vec<(Slot, String)> = protos
@@ -562,6 +787,8 @@ pub(crate) mod tests {
             twists: 2,
             fingers: Finger::ALL.to_vec(),
             metacarpals: true,
+            label: String::new(),
+            mech: crate::core::rig::MechParams::of(component),
         };
         vec![
             p(Component::Spine, Side::Centre, 5),
@@ -579,7 +806,7 @@ pub(crate) mod tests {
     pub(crate) fn human_guides() -> AnimData {
         let mut g: Option<AnimData> = None;
         for part in human_parts() {
-            g = Some(add_part(g.as_ref(), &part, None, None, false, &[]));
+            g = Some(add_part(g.as_ref(), &part, None, None, &[], false, &[]));
         }
         g.unwrap()
     }
@@ -685,7 +912,7 @@ pub(crate) mod tests {
         assert!(!body.has_head && body.arms_apart == [true, true], "{body:?}");
         let mut guides: Option<AnimData> = None;
         for part in human_parts() {
-            guides = Some(add_part(guides.as_ref(), &part, None, Some(&body), true, &[]));
+            guides = Some(add_part(guides.as_ref(), &part, None, Some(&body), &[], true, &[]));
         }
         let sk = build(guides.as_ref().unwrap(), &BuildSettings::default()).unwrap();
         let (w, rw) = (sk.world_pose(0), rest.world_pose(0));

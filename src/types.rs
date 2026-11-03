@@ -474,6 +474,13 @@ pub enum NodeType {
         /// Locators moved by hand after autofit.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         edits: Vec<crate::core::rig::guides::GuideEdit>,
+        /// Its own word in its name (`aileron_L0`); empty, the component's.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        label: String,
+        /// A machine part's or a chain's limits, travel, count, steering and
+        /// the primitives it fits to.
+        #[serde(default)]
+        mech: crate::core::rig::MechParams,
     },
     /// A deform skeleton from guides, named and oriented for a target.
     BuildSkeleton {
@@ -500,6 +507,15 @@ pub enum NodeType {
         settings: crate::core::rig::mush::MushSettings,
         samples: u32,
     },
+    /// Each primitive bound whole to one joint: by rows, else the nearest.
+    RigidBind {
+        #[serde(default)]
+        rows: Vec<crate::core::rig::rigid::RigidRow>,
+    },
+    /// Bound primitives moved by their joints at the playhead.
+    RigidSkin,
+    /// Simple shapes for a skeleton, each bound to its joint.
+    RigProxy,
     TimeWarp {
         speed: f32,
         reverse: bool,
@@ -952,6 +968,9 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::RangeOfMotion { .. } => "🤸",
         NodeType::DeltaMush { .. } => "🫠",
         NodeType::BakeWeights { .. } => "🍞",
+        NodeType::RigidBind { .. } => "🔩",
+        NodeType::RigidSkin => "🚗",
+        NodeType::RigProxy => "🧊",
         NodeType::TimeWarp { .. } => "⏩",
         NodeType::PruneJoints { .. } => "🌿",
         NodeType::FloorClip { .. } => "⬇",
@@ -1027,6 +1046,15 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
             crate::core::rig::Component::Arm => "Arm Guide",
             crate::core::rig::Component::Hand => "Hand Guide",
             crate::core::rig::Component::Leg => "Leg Guide",
+            crate::core::rig::Component::AnimalLeg => "Animal Leg Guide",
+            crate::core::rig::Component::Chain => "Chain Guide",
+            crate::core::rig::Component::Body => "Body Guide",
+            crate::core::rig::Component::Hinge => "Hinge Guide",
+            crate::core::rig::Component::Rotor => "Rotor Guide",
+            crate::core::rig::Component::Piston => "Piston Guide",
+            crate::core::rig::Component::Wheel => "Wheel Guide",
+            crate::core::rig::Component::Gear => "Gear Guide",
+            crate::core::rig::Component::Tread => "Tread Guide",
         },
         NodeType::BuildSkeleton { .. } => "Build Skeleton",
         NodeType::HardBind => "Hard Bind",
@@ -1034,6 +1062,9 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::RangeOfMotion { .. } => "Range of Motion",
         NodeType::DeltaMush { .. } => "Delta Mush",
         NodeType::BakeWeights { .. } => "Bake Weights",
+        NodeType::RigidBind { .. } => "Rigid Bind",
+        NodeType::RigidSkin => "Rigid Skin",
+        NodeType::RigProxy => "Rig Proxy",
         NodeType::TimeWarp { .. } => "Time Warp",
         NodeType::PruneJoints { .. } => "Prune Joints",
         NodeType::FloorClip { .. } => "Floor",

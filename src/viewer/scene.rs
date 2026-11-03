@@ -587,6 +587,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                                 | crate::types::NodeType::Envelope { .. }
                                 | crate::types::NodeType::DeltaMush { .. }
                                 | crate::types::NodeType::BakeWeights { .. }
+                                | crate::types::NodeType::RigidBind { .. }
                         )
                 });
             let prims = if painting {

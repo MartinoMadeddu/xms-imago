@@ -184,6 +184,27 @@ pub fn orient(preset: Preset, role: Role) -> Orient {
     }
 }
 
+/// What a machine part's, an animal leg's or a chain's joint is called in
+/// its part. None for a human's.
+fn mech(role: Role) -> Option<String> {
+    Some(match role {
+        Role::AnimalLeg(k) => ["hip", "stifle", "hock", "fetlock", "hoof"][k.min(4) as usize].into(),
+        Role::Chain(k) => nn(k),
+        Role::Body => "body".into(),
+        Role::Hinge => "hinge".into(),
+        Role::Rotor => "hub".into(),
+        Role::Blade(k) => format!("blade_{}", nn(k)),
+        Role::PistonBase => "base".into(),
+        Role::PistonRod => "rod".into(),
+        Role::Suspension => "suspension".into(),
+        Role::Steer => "steer".into(),
+        Role::Wheel => "spin".into(),
+        Role::Gear => "gear".into(),
+        Role::TreadLink(k) => format!("link_{k:03}"),
+        _ => return None,
+    })
+}
+
 /// Two digits from 1: `01`.
 fn nn(k: u8) -> String {
     format!("{k:02}")
@@ -192,6 +213,15 @@ fn nn(k: u8) -> String {
 /// A joint's name on a target. `part`: its component's name (`arm_L0`), for
 /// the Maya rule.
 pub fn name(preset: Preset, role: Role, side: Side, part: &str) -> String {
+    // Machine parts, animal legs and chains: the part's name and the
+    // joint's, in the target's way.
+    if let Some(what) = mech(role) {
+        return match preset {
+            Preset::Unreal => format!("{}_{what}", part.to_lowercase()),
+            Preset::HumanIk => format!("{part}_{what}"),
+            Preset::Maya => format!("{part}_{what}_jnt"),
+        };
+    }
     match preset {
         Preset::Unreal => unreal(role, side),
         Preset::HumanIk => human_ik(role, side),
@@ -224,6 +254,7 @@ fn unreal(role: Role, side: Side) -> String {
         Role::CalfTwist(k) => format!("calf_twist_{}{s}", nn(k)),
         Role::Finger(f, 0) => format!("{}_metacarpal{s}", f.word()),
         Role::Finger(f, k) => format!("{}_{}{s}", f.word(), nn(k)),
+        _ => String::new(),
     }
 }
 
@@ -269,6 +300,7 @@ fn human_ik(role: Role, side: Side) -> String {
         Role::CalfTwist(k) => roll("Leg", k),
         Role::Finger(f, 0) => format!("{s}InHand{}", finger(f)),
         Role::Finger(f, k) => format!("{s}Hand{}{k}", finger(f)),
+        _ => String::new(),
     }
 }
 
@@ -292,6 +324,7 @@ fn maya(role: Role) -> String {
         Role::ThighTwist(k) => format!("thigh_twist{}", k - 1),
         Role::CalfTwist(k) => format!("calf_twist{}", k - 1),
         Role::Finger(f, k) => format!("{}{k}", f.word()),
+        _ => String::new(),
     }
 }
 

@@ -255,10 +255,18 @@ to move where regions meet, a range of motion within the limits, and smooth
 weights baked from the hard skin delta-mushed over it. Change a guide and
 everything after it is built again. On the example character, autofit puts the
 80 joints a mean 0.9 cm from the character's own; the bake takes 1.6 s. The
-"Rig: full human" template does it all. See [docs/rigging.md](docs/rigging.md).
+"Rig: full human" template does it all. Machines too: bodies, hinges, rotors
+with blades, pistons, wheels that steer and ride a suspension, meshing gears,
+tank treads, animal legs and chains; a machine's pieces bound whole to their
+joints and moved with their materials. Thirteen templates, from a car (the
+DeLorean, fitted to its own wheels) to a helicopter, a tank and a quadruped.
+See [docs/rigging.md](docs/rigging.md).
 
 ![Guides fitted, the hard bind's regions, a baked joint's weights, the squat of
 the range of motion](docs/xms_rig_human.png)
+
+![The DeLorean steering while it drives, the tractor's shovel, an aeroplane, a
+helicopter](docs/xms_rig_vehicles.png)
 
 ## Body Collide: a capture that respects the set
 
@@ -478,8 +486,8 @@ then runs the program.
   SLIM and BFF are not implemented
 - Mocap: contact detection and foot locking (Reach follows the source's feet);
   FBX blend shapes applied, cameras and lights drawn
-- Rigging: components beyond a human (animal legs, pistons, wheels, vehicles,
-  aircraft, treads), control rigs, dragging guide locators in the Viewer, autofit
+- Rigging: control rigs, relations driven outside the range of motion (a gear
+  driving a wheel, a piston aimed at a moving part), dragging guide locators in the Viewer, autofit
   tried on bodies other than the example character's
 - Timeline zoom and pan
 - Curve cleanup

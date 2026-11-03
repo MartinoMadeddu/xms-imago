@@ -38,7 +38,7 @@ pub fn rig_in(graph: &NodeGraphState, id: NodeId) -> RigIn {
     let port = |k: usize| node.inputs.get(k).and_then(|i| i.connected_output);
     let clip_port = match node.node_type {
         NodeType::RigGuide { .. } => 1,
-        NodeType::BuildSkeleton { .. } | NodeType::RangeOfMotion { .. } => 0,
+        NodeType::BuildSkeleton { .. } | NodeType::RangeOfMotion { .. } | NodeType::RigProxy => 0,
         _ => 1,
     };
     let clip = port(clip_port).and_then(|(src, out)| graph.eval_anim_out(src, out));
@@ -115,6 +115,20 @@ fn weight_summary(f: &mut Rows, prims: Option<&Vec<Prim>>, sk: Option<&Arc<AnimD
     f.value("Regions", format!("{} joints", used.len()));
 }
 
+/// From and to, degrees, side by side.
+fn range_row(f: &mut Rows, label: &str, hint: Option<&str>, v: &mut [f32; 2]) {
+    f.row(label, hint, |ui| {
+        ui.horizontal(|ui| {
+            let gap = ui.spacing().item_spacing.x;
+            let w = ((ui.available_width() - gap) / 2.0).max(30.0);
+            let h = ui.spacing().interact_size.y;
+            for (x, p) in v.iter_mut().zip(["from ", "to "]) {
+                super::form::number(ui, Some([w, h]), x, |d| d.speed(0.5).prefix(p).suffix("°"));
+            }
+        });
+    });
+}
+
 fn component_defaults(c: Component) -> (u32, u32) {
     match c {
         Component::Spine => (5, 2),
@@ -137,24 +151,33 @@ pub fn rig_rows(ui: &mut egui::Ui, t: &mut NodeType, r: &RigIn) {
             fingers,
             metacarpals,
             edits,
+            label,
+            mech,
         } => {
-            group(ui, "Component", Some("One part of a rig: its guide locators, added to the guides that come into the second input. Chain one Rig Guide after another to build up a body; Build Skeleton makes the joints from them all"), |f| {
+            group(ui, "Component", Some("One part of a rig: its guide locators, added to the guides that come into the second input. Chain one Rig Guide after another to build up a body or a machine; Build Skeleton makes the joints from them all"), |f| {
                 let was = *component;
                 f.dropdown("Component", None, component, &Component::ALL.map(|c| (c, c.label())));
                 if *component != was {
                     let (s, _) = component_defaults(*component);
                     *segments = s;
+                    *mech = rig::MechParams::of(*component);
                     edits.clear();
                     if component.sided() && *side == Side::Centre {
                         *side = Side::Left;
                     }
+                    if component.centred() {
+                        *side = Side::Centre;
+                    }
                 }
                 if component.sided() {
-                    f.choice("Side", Some("Left is +X, the character facing +Z"), side, &[(Side::Left, "Left"), (Side::Right, "Right")]);
+                    f.choice("Side", Some("Left is +X, facing +Z"), side, &[(Side::Left, "Left"), (Side::Right, "Right")]);
+                } else if !component.centred() {
+                    f.choice("Side", Some("Left is +X, facing +Z"), side, &[(Side::Centre, "Centre"), (Side::Left, "Left"), (Side::Right, "Right")]);
                 }
                 f.drag_u32("Index", Some("Tells apart two components of one kind on one side: arm_L0, arm_L1"), index, 0..=9);
+                f.text("Name", Some("A word of its own in its name and its joints' (aileron makes aileron_L0); empty, the component's. Parts of one word on both sides move together in Range of Motion"), label, component.word());
                 let fallback = rig::guides::default_attach(*component, *side, *index).unwrap_or_default();
-                f.text("Attach to", Some("The locator this component hangs from, by its full name (spine_C0_chest). Empty: the usual one, shown greyed"), attach, &fallback);
+                f.text("Attach to", Some("The locator this component hangs from, by its full name (spine_C0_chest). Empty: the usual one, shown greyed. A gear on another gear's centre meshes with it"), attach, &fallback);
             });
             group(ui, "Joints", None, |f| match component {
                 Component::Spine => {
@@ -201,40 +224,116 @@ pub fn rig_rows(ui: &mut egui::Ui, t: &mut NodeType, r: &RigIn) {
                         metacarpals,
                     );
                 }
-            });
-            group(ui, "Fit", Some("Autofit measures the mesh wired to the first input (standing on the floor, Y up, facing +Z, in an A or T pose) and places the locators on it. Without a mesh, or with autofit off, they go where a reference body has them. Either way, each locator can be moved after"), |f| {
-                f.toggle("Autofit", None, autofit);
-                if !r.mesh {
-                    f.status(Status::Info, "No mesh wired: the reference body");
-                } else if !*autofit {
-                    f.status(Status::Info, "Autofit off: the reference body");
+                Component::Chain => {
+                    f.drag_u32(
+                        "Joints",
+                        Some("Along the curve through the start, mid and end locators"),
+                        segments,
+                        1..=64,
+                    );
+                    range_row(
+                        f,
+                        "Bend",
+                        Some("Each joint's bend, degrees, away from and toward the pole"),
+                        &mut mech.limits,
+                    );
                 }
+                Component::Hinge => {
+                    range_row(
+                        f,
+                        "Turn",
+                        Some("Degrees about the hinge line, from its rest"),
+                        &mut mech.limits,
+                    );
+                }
+                Component::Rotor => {
+                    f.drag_u32(
+                        "Blades",
+                        Some(
+                            "Joints spread round the hub, each pitching about its length. None: a turret, a turntable",
+                        ),
+                        &mut mech.count,
+                        0..=12,
+                    );
+                    range_row(f, "Pitch", Some("Each blade's pitch, degrees"), &mut mech.limits);
+                }
+                Component::Piston => {
+                    f.drag(
+                        "Stroke",
+                        Some("How far the rod slides either way, scene units"),
+                        &mut mech.travel,
+                        0.01,
+                        "",
+                    );
+                }
+                Component::Wheel => {
+                    f.drag(
+                        "Suspension",
+                        Some("Travel up and down, scene units. 0: no suspension joint"),
+                        &mut mech.travel,
+                        0.01,
+                        "",
+                    );
+                    f.toggle("Steers", None, &mut mech.steer);
+                    f.enabled(mech.steer, |f| {
+                        range_row(f, "Steering", Some("Degrees either way"), &mut mech.limits);
+                    });
+                }
+                Component::Tread => {
+                    f.drag_u32("Links", Some("Joints round the loop"), &mut mech.count, 2..=400);
+                }
+                _ => f.status(Status::Info, "Nothing to set"),
             });
-            let part = rig::node::part_info(
-                *component,
-                *side,
-                *index,
-                attach,
-                *segments,
-                *twists,
-                fingers,
-                *metacarpals,
-            )
-            .name();
+            if component.human() {
+                group(ui, "Fit", Some("Autofit measures the mesh wired to the first input (standing on the floor, Y up, facing +Z, in an A or T pose) and places the locators on it. Without a mesh, or with autofit off, they go where a reference body has them. Either way, each locator can be moved after"), |f| {
+                    f.toggle("Autofit", None, autofit);
+                    if !r.mesh {
+                        f.status(Status::Info, "No mesh wired: the reference body");
+                    } else if !*autofit {
+                        f.status(Status::Info, "Autofit off: the reference body");
+                    }
+                });
+            } else {
+                group(ui, "Fit", Some("The primitives of the mesh wired to the first input this part is: words or regular expressions found in their paths, comma-separated. Its locators are placed from their bounds (a wheel's centre, axle and radius; a hinge on the side nearest what it hangs from). Empty, or Fit off: where the reference puts them. Either way, each locator can be moved after"), |f| {
+                    f.toggle("Fit", None, autofit);
+                    f.text("Primitives", None, &mut mech.fit, "wheel1, Wheel_Front_L");
+                    if !r.mesh {
+                        f.status(Status::Info, "No mesh wired: the reference");
+                    }
+                });
+            }
+            let part = rig::node::part_of(&NodeType::RigGuide {
+                component: *component,
+                side: *side,
+                index: *index,
+                attach: attach.clone(),
+                autofit: *autofit,
+                segments: *segments,
+                twists: *twists,
+                fingers: fingers.clone(),
+                metacarpals: *metacarpals,
+                edits: vec![],
+                label: label.clone(),
+                mech: mech.clone(),
+            })
+            .map(|p| p.name())
+            .unwrap_or_default();
             let placed = r
                 .out_clip
                 .as_deref()
                 .map(|g| rig::node::locators_of(g, &part))
                 .unwrap_or_default();
-            group(ui, "Locators", Some("Where each locator is, and how far it was moved from where the fit put it, in centimetres. The skeleton follows when a locator moves"), |f| {
+            // A human in centimetres; a machine in the scene's units.
+            let (scale, unit) = if component.human() { (100.0, " cm") } else { (1.0, "") };
+            group(ui, "Locators", Some("Where each locator is, and how far it was moved from where the fit put it (a human's in centimetres, a machine's in scene units). The skeleton follows when a locator moves"), |f| {
                 if placed.is_empty() {
                     f.status(Status::Info, "Nothing yet");
                 }
                 for (name, at) in &placed {
-                    let mut off = edits.iter().find(|e| &e.locator == name).map(|e| e.offset).unwrap_or([0.0; 3]).map(|v| v * 100.0);
-                    let hint = format!("At {:.1}, {:.1}, {:.1} cm", at.x * 100.0, at.y * 100.0, at.z * 100.0);
-                    if f.xyz(name, Some(&hint), &mut off, 0.1, " cm") {
-                        rig::node::edit_to(edits, name, off.map(|v| v / 100.0));
+                    let mut off = edits.iter().find(|e| &e.locator == name).map(|e| e.offset).unwrap_or([0.0; 3]).map(|v| v * scale);
+                    let hint = format!("At {:.2}, {:.2}, {:.2}{unit}", at.x * scale, at.y * scale, at.z * scale);
+                    if f.xyz(name, Some(&hint), &mut off, 0.1, unit) {
+                        rig::node::edit_to(edits, name, off.map(|v| v / scale));
                     }
                 }
                 if !edits.is_empty() {
@@ -293,6 +392,79 @@ pub fn rig_rows(ui: &mut egui::Ui, t: &mut NodeType, r: &RigIn) {
                             .collect::<Vec<_>>()
                             .join(", "),
                     );
+                }
+            });
+        }
+        NodeType::RigidBind { rows } => {
+            let joints: Vec<String> = r
+                .clip
+                .as_deref()
+                .map(|sk| sk.joints.iter().map(|j| j.name.clone()).collect())
+                .unwrap_or_default();
+            let parts: Vec<String> = r
+                .clip
+                .as_deref()
+                .and_then(|sk| sk.rig.as_deref())
+                .map(|rig| rig.parts.iter().map(|p| p.name()).collect())
+                .unwrap_or_default();
+            group(ui, "Rigid Bind", Some("Each primitive bound whole to one joint, every point weight one: a machine's pieces. A row gives the primitives whose paths match its words (or regular expressions, comma-separated) to a joint, or to a part (its wheel if it has one, else its first joint); the first row that matches wins. A primitive no row takes follows the joint whose bone is nearest the middle of its bounds"), |f| {
+                weight_summary(f, r.out_prims.as_ref(), r.clip.as_ref());
+                show_row(f, &joints_of(r));
+            });
+            let mut gone = None;
+            group(ui, "Rows", None, |f| {
+                for (k, row) in rows.iter_mut().enumerate() {
+                    f.text(&format!("Primitives {}", k + 1), None, &mut row.prims, "Wheel_Front_L");
+                    f.row("Follow", Some("A joint or a part"), |ui| {
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt(("rigid_row", k))
+                                .width((ui.available_width() - 70.0).max(80.0))
+                                .selected_text(if row.joint.is_empty() {
+                                    "Joint…".to_string()
+                                } else {
+                                    row.joint.clone()
+                                })
+                                .show_ui(ui, |ui| {
+                                    for p in &parts {
+                                        ui.selectable_value(&mut row.joint, p.clone(), format!("{p} (part)"));
+                                    }
+                                    for j in &joints {
+                                        ui.selectable_value(&mut row.joint, j.clone(), j);
+                                    }
+                                });
+                            if ui.button("Remove").clicked() {
+                                gone = Some(k);
+                            }
+                        });
+                    });
+                }
+                f.buttons("", None, |ui| {
+                    if ui.button("+ Row").clicked() {
+                        rows.push(rig::rigid::RigidRow {
+                            prims: String::new(),
+                            joint: String::new(),
+                        });
+                    }
+                });
+            });
+            if let Some(k) = gone {
+                rows.remove(k);
+            }
+        }
+        NodeType::RigidSkin => {
+            group(ui, "Rigid Skin", Some("The bound primitives at the playhead: one bound whole to a joint is moved by its placement, its geometry, materials and textures kept as they are; one whose points weigh on several joints is skinned point by point. Inputs: the bound geometry, the skeleton it was bound to, a clip of that skeleton (a Range of Motion)"), |f| {
+                f.value("Frame", format!("{}", r.frame.round()));
+                match &r.out_prims {
+                    Some(p) => f.value("Primitives", format!("{}", p.len())),
+                    None => f.status(Status::Info, "Connect the bound geometry, the skeleton and a clip"),
+                }
+            });
+        }
+        NodeType::RigProxy => {
+            group(ui, "Rig Proxy", Some("Simple shapes for a built skeleton, to see it move without a mesh: a box for a body, a disc for a wheel (a bar across it shows it turning), blades, a plate for a hinge, a cylinder and a rod for a piston, a toothed disc for a gear, a block for each tread link, a box along every other bone. Each is a primitive of its own, /proxy/<joint>, bound whole to its joint for Rigid Skin"), |f| {
+                match &r.out_prims {
+                    Some(p) => f.value("Primitives", format!("{}", p.len())),
+                    None => f.status(Status::Info, "Connect a skeleton from Build Skeleton"),
                 }
             });
         }

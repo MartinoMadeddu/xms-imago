@@ -36,6 +36,9 @@ fn loc(name: &str, parent: Option<&str>, bone: bool) -> Locator {
 
 /// A component's locators, in order: parents before children.
 pub fn locators(part: &PartInfo) -> Vec<Locator> {
+    if let Some(l) = super::mech::locators(part) {
+        return l;
+    }
     match part.component {
         Component::Spine => vec![
             loc("hips", None, true),
@@ -75,6 +78,7 @@ pub fn locators(part: &PartInfo) -> Vec<Locator> {
             loc("heel", Some("ankle"), false),
             loc("pole", Some("knee"), false),
         ],
+        _ => vec![],
     }
 }
 
@@ -95,6 +99,8 @@ pub fn default_attach(component: Component, side: Side, index: u32) -> Option<St
         Component::Neck | Component::Arm => Some("spine_C0_chest".into()),
         Component::Hand => Some(format!("arm_{s}{index}_wrist")),
         Component::Leg => Some("spine_C0_hips".into()),
+        Component::Body | Component::AnimalLeg | Component::Chain => None,
+        _ => Some("body_C0_centre".into()),
     }
 }
 
@@ -200,6 +206,9 @@ fn fingers(frame: Mat3, wrist: Vec3, length: f32, side: Side) -> HashMap<String,
 
 /// The reference positions of a component's locators.
 pub fn reference(part: &PartInfo) -> HashMap<String, Vec3> {
+    if let Some(r) = super::mech::reference(part) {
+        return r;
+    }
     let side = part.side;
     let mut out: HashMap<String, Vec3> = HashMap::new();
     let table: &[(&str, [f32; 3])] = match part.component {
@@ -207,7 +216,7 @@ pub fn reference(part: &PartInfo) -> HashMap<String, Vec3> {
         Component::Neck => &NECK,
         Component::Arm => &ARM,
         Component::Leg => &LEG,
-        Component::Hand => &[],
+        _ => &[],
     };
     for (n, p) in table {
         out.insert(n.to_string(), sided(v(*p), side));
@@ -355,6 +364,7 @@ pub fn autofit(part: &PartInfo, body: &Body, guides: Option<&AnimData>) -> HashM
                 None => out.extend(reference(part)),
             }
         }
+        _ => out.extend(reference(part)),
     }
     out
 }
@@ -377,6 +387,7 @@ pub fn add_part(
     part: &PartInfo,
     mesh: Option<&[Surface]>,
     body: Option<&Body>,
+    bounds: &[(String, Vec3, Vec3)],
     autofit_on: bool,
     edits: &[GuideEdit],
 ) -> AnimData {
@@ -417,15 +428,23 @@ pub fn add_part(
         }
         w
     };
-    let positions = match (autofit_on, body) {
-        (true, Some(b)) => autofit(part, b, incoming),
-        _ => reference(part),
-    };
     let attach = part
         .attach
         .clone()
         .or_else(|| default_attach(part.component, part.side, part.index));
     let attach_ix = attach.as_ref().and_then(|a| joints.iter().position(|j| &j.name == a));
+    let positions = if part.component.human() {
+        match (autofit_on, body) {
+            (true, Some(b)) => autofit(part, b, incoming),
+            _ => reference(part),
+        }
+    } else {
+        // A machine part fits to the primitives it names.
+        autofit_on
+            .then(|| super::mech::fit(part, bounds, attach_ix.map(|i| world[i])))
+            .flatten()
+            .unwrap_or_else(|| reference(part))
+    };
     let mut placed: HashMap<String, (usize, Vec3)> = HashMap::new();
     for l in locators(part) {
         let mut p = positions.get(&l.name).copied().unwrap_or(Vec3::ZERO);

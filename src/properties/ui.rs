@@ -1258,7 +1258,10 @@ pub fn draw_properties(
         | NodeType::Envelope { .. }
         | NodeType::RangeOfMotion { .. }
         | NodeType::DeltaMush { .. }
-        | NodeType::BakeWeights { .. }) => super::rig::rig_rows(ui, t, &rig_in),
+        | NodeType::BakeWeights { .. }
+        | NodeType::RigidBind { .. }
+        | NodeType::RigidSkin
+        | NodeType::RigProxy) => super::rig::rig_rows(ui, t, &rig_in),
 
         // Modelling
         NodeType::EditPoly { ops, pending, edit, auto_collapse } => edit_poly(ui, ops, pending, edit, auto_collapse, io),

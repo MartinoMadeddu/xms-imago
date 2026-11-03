@@ -704,6 +704,32 @@
     },
     "cook_ms": 99
   },
+  "Rig: aeroplane": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 21,
+    "copies": 21,
+    "points": 270,
+    "triangles": 448,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 4
+  },
+  "Rig: car (DeLorean)": {
+    "nodes": 6,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 43,
+    "copies": 43,
+    "points": 376537,
+    "triangles": 461595,
+    "materials": 30,
+    "cameras": 0,
+    "cook_ms": 1330
+  },
   "Rig: full human": {
     "nodes": 8,
     "viewed": "Skin",
@@ -727,6 +753,169 @@
       ]
     },
     "cook_ms": 467
+  },
+  "Rig: gears and a piston": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 6,
+    "copies": 6,
+    "points": 598,
+    "triangles": 976,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 1
+  },
+  "Rig: helicopter": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 12,
+    "copies": 12,
+    "points": 132,
+    "triangles": 216,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 1
+  },
+  "Rig: human arm and hand": {
+    "nodes": 10,
+    "viewed": "Skin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 1361,
+      "joints": 34,
+      "rate": "24/1",
+      "skin": 32334,
+      "hips_end": [
+        0.0,
+        0.981,
+        0.02
+      ]
+    },
+    "cook_ms": 2085
+  },
+  "Rig: human leg": {
+    "nodes": 9,
+    "viewed": "Skin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 769,
+      "joints": 15,
+      "rate": "24/1",
+      "skin": 32334,
+      "hips_end": [
+        0.0,
+        0.981,
+        0.02
+      ]
+    },
+    "cook_ms": 1733
+  },
+  "Rig: quadruped": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 38,
+    "copies": 38,
+    "points": 304,
+    "triangles": 456,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 4
+  },
+  "Rig: robot arm": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 8,
+    "copies": 8,
+    "points": 116,
+    "triangles": 200,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 1
+  },
+  "Rig: spine and neck": {
+    "nodes": 9,
+    "viewed": "Skin",
+    "output": 0,
+    "kind": "clip",
+    "prims": 0,
+    "copies": 0,
+    "points": 0,
+    "triangles": 0,
+    "materials": 0,
+    "cameras": 0,
+    "clip": {
+      "frames": 561,
+      "joints": 10,
+      "rate": "24/1",
+      "skin": 32334,
+      "hips_end": [
+        0.0,
+        0.981,
+        0.02
+      ]
+    },
+    "cook_ms": 1871
+  },
+  "Rig: tank": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 141,
+    "copies": 141,
+    "points": 1574,
+    "triangles": 2544,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 12
+  },
+  "Rig: tentacle": {
+    "nodes": 5,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 16,
+    "copies": 16,
+    "points": 128,
+    "triangles": 192,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
+  },
+  "Rig: tractor (mini car kit)": {
+    "nodes": 6,
+    "viewed": "RigidSkin",
+    "output": 0,
+    "kind": "prims",
+    "prims": 6,
+    "copies": 6,
+    "points": 1010,
+    "triangles": 1988,
+    "materials": 1,
+    "cameras": 0,
+    "cook_ms": 89
   },
   "Shapes": {
     "nodes": 7,

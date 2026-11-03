@@ -24,37 +24,44 @@ fn clip(r: Option<&EvalResult>) -> Option<&Arc<AnimData>> {
     r?.as_anim()
 }
 
-/// A Rig Guide's component, from its parameters.
-#[allow(clippy::too_many_arguments)]
-pub fn part_info(
-    component: Component,
-    side: Side,
-    index: u32,
-    attach: &str,
-    segments: u32,
-    twists: u32,
-    fingers: &[Finger],
-    metacarpals: bool,
-) -> PartInfo {
-    let side = if component.sided() {
-        if side == Side::Centre {
-            Side::Left
-        } else {
-            side
-        }
-    } else {
-        Side::Centre
-    };
-    PartInfo {
+/// A Rig Guide's component, from its parameters. None for another operator.
+pub fn part_of(t: &NodeType) -> Option<PartInfo> {
+    let NodeType::RigGuide {
         component,
         side,
         index,
-        attach: (!attach.trim().is_empty()).then(|| attach.trim().to_string()),
+        attach,
         segments,
         twists,
-        fingers: fingers.to_vec(),
+        fingers,
         metacarpals,
-    }
+        label,
+        mech,
+        ..
+    } = t
+    else {
+        return None;
+    };
+    let component = *component;
+    let side = if component.centred() {
+        Side::Centre
+    } else if component.sided() && *side == Side::Centre {
+        Side::Left
+    } else {
+        *side
+    };
+    Some(PartInfo {
+        component,
+        side,
+        index: *index,
+        attach: (!attach.trim().is_empty()).then(|| attach.trim().to_string()),
+        segments: *segments,
+        twists: *twists,
+        fingers: fingers.clone(),
+        metacarpals: *metacarpals,
+        label: label.clone(),
+        mech: mech.clone(),
+    })
 }
 
 /// What a body measured as, kept by its primitives: the components of one
@@ -118,7 +125,13 @@ pub fn bake_report(out: &[Prim]) -> Option<BakeReport> {
 pub fn guide(component: Component, side: Side) -> NodeType {
     NodeType::RigGuide {
         component,
-        side: if component.sided() { side } else { Side::Centre },
+        side: if component.centred() {
+            Side::Centre
+        } else if component.sided() && side == Side::Centre {
+            Side::Left
+        } else {
+            side
+        },
         index: 0,
         attach: String::new(),
         autofit: true,
@@ -131,6 +144,8 @@ pub fn guide(component: Component, side: Side) -> NodeType {
         fingers: Finger::ALL.to_vec(),
         metacarpals: true,
         edits: vec![],
+        label: String::new(),
+        mech: super::MechParams::of(component),
     }
 }
 
@@ -144,6 +159,9 @@ pub fn is_rig(t: &NodeType) -> bool {
             | NodeType::RangeOfMotion { .. }
             | NodeType::DeltaMush { .. }
             | NodeType::BakeWeights { .. }
+            | NodeType::RigidBind { .. }
+            | NodeType::RigidSkin
+            | NodeType::RigProxy
     )
 }
 
@@ -151,38 +169,24 @@ pub fn is_rig(t: &NodeType) -> bool {
 pub fn cook(t: &NodeType, ports: &[Option<EvalResult>], time: f64) -> Option<EvalResult> {
     let port = |k: usize| ports.get(k).and_then(|p| p.as_ref());
     match t {
-        NodeType::RigGuide {
-            component,
-            side,
-            index,
-            attach,
-            autofit,
-            segments,
-            twists,
-            fingers,
-            metacarpals,
-            edits,
-        } => {
-            let part = part_info(
-                *component,
-                *side,
-                *index,
-                attach,
-                *segments,
-                *twists,
-                fingers,
-                *metacarpals,
-            );
+        NodeType::RigGuide { autofit, edits, .. } => {
+            let part = part_of(t)?;
             let mesh = prims(port(0)).filter(|p| !p.is_empty());
             let (surfaces, body) = match &mesh {
                 Some(p) => measured(p),
                 None => (vec![], None),
             };
+            let bounds: Vec<(String, glam::Vec3, glam::Vec3)> = mesh
+                .iter()
+                .flatten()
+                .filter_map(|p| crate::viewport::bounds::world_bounds(p).map(|b| (p.path.clone(), b.0, b.1)))
+                .collect();
             let guides = add_part(
                 clip(port(1)).map(|a| &**a),
                 &part,
                 (!surfaces.is_empty()).then_some(surfaces.as_slice()),
-                body.as_ref(),
+                body.as_ref().filter(|_| part.component.human()),
+                &bounds,
                 *autofit,
                 edits,
             );
@@ -237,6 +241,23 @@ pub fn cook(t: &NodeType, ports: &[Option<EvalResult>], time: f64) -> Option<Eva
                 keep(&BAKE_REPORTS, Arc::as_ptr(&first.mesh) as usize, report);
             }
             Some(EvalResult::Named(out))
+        }
+        NodeType::RigidBind { rows } => {
+            let (p, sk) = (prims(port(0))?, clip(port(1))?);
+            Some(EvalResult::Named(super::rigid::rigid_bind(&p, sk, rows)))
+        }
+        NodeType::RigidSkin => {
+            let (p, rest, c) = (prims(port(0))?, clip(port(1))?, clip(port(2))?);
+            Some(EvalResult::Named(super::rigid::rigid_skin(
+                &p,
+                rest,
+                c,
+                c.index_at(time),
+            )))
+        }
+        NodeType::RigProxy => {
+            let sk = clip(port(0))?;
+            Some(EvalResult::Named(super::rigid::rig_proxy(sk)))
         }
         _ => None,
     }

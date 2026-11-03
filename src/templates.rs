@@ -19,6 +19,9 @@ pub struct Template {
     pub build: fn(&mut NodeGraphState, &mut IceGraphStore) -> String,
 }
 
+mod rigs;
+use rigs::*;
+
 pub const MARTINO: &str = "Martino";
 pub const SIMON: &str = "Simon";
 pub const XMS: &str = "XMS";
@@ -148,6 +151,30 @@ pub const TEMPLATES: &[Template] = &[
         hint: "An elbow turned the wrong way by Fix Pose, put back by the Body Collide node's human pass" },
     Template { by: SIMON, group: "Rigging", name: "Rig: full human", build: rig_human,
         hint: "The example character's mesh given a new deform skeleton: guides for a whole human fitted to it (in the Full Human compound), joints built for Unreal, a hard bind along the surface, a range of motion, and smooth weights baked from the hard skin delta-mushed. Skin plays the range of motion with the baked weights" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: human leg", build: rig_human_leg,
+        hint: "A spine and the left leg on the example character's mesh, hard bound, put through its range of motion, weights baked, played by Skin" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: human arm and hand", build: rig_human_arm,
+        hint: "A spine, the left arm and the left hand with five fingers on the example character's mesh, with baked weights" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: spine and neck", build: rig_human_spine,
+        hint: "Five spine joints, two neck joints and the head on the example character's mesh, with baked weights" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: car (DeLorean)", build: rig_car,
+        hint: "The DeLorean's body and four wheels fitted to the model's own primitives: steering, suspension, a drive; each of its 43 primitives bound whole to a joint and moved with its materials" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: tractor (mini car kit)", build: rig_tractor,
+        hint: "The mini car kit's tractor: a body, four wheels of two sizes (the fronts steer) and its shovel on a hinge, fitted to the kit's primitives" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: aeroplane", build: rig_aeroplane,
+        hint: "Ailerons, flaps, elevators, a rudder, a three-bladed propeller with pitch and folding landing gear, on Rig Proxy's shapes" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: helicopter", build: rig_helicopter,
+        hint: "A four-bladed main rotor and a two-bladed tail rotor, spinning, blades pitching, on Rig Proxy's shapes" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: tank", build: rig_tank,
+        hint: "A turret, a gun, five road wheels a side and two treads of 64 links that run round with the wheels, on Rig Proxy's shapes" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: gears and a piston", build: rig_machine,
+        hint: "Three meshing gears, each turning the other way by the ratio of their radii, and a piston's rod sliding through its stroke" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: robot arm", build: rig_robot_arm,
+        hint: "Six axes, a turntable, three hinges within their limits, a flange and a gripper, on Rig Proxy's shapes" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: quadruped", build: rig_quadruped,
+        hint: "A horse-sized animal: spine, neck, head and tail chains and four five-joint legs, on Rig Proxy's shapes" },
+    Template { by: SIMON, group: "Rigging", name: "Rig: tentacle", build: rig_tentacle,
+        hint: "A chain of sixteen joints along a curve, sweeping and curling" },
     Template { by: XMS, group: "Lighting & Rendering", name: "DeLorean: lit and rendered with Karma", build: delorean_render,
         hint: "The DeLorean under a dome (a sky HDR) and a blue rect light, a camera, Render Commons, Karma's Render Settings and AOVs, Write USD and a husk Render Command" },
 ];
@@ -2230,129 +2257,6 @@ fn capture_skin(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.selected_node = Some(skin);
     g.selected_nodes = vec![skin];
     format!("Capture and Skin: the character's mesh weighted again by proximity to its bones (Capture), then that skin put on the retargeted take by joint name (Skin). Bypass Capture to use the weights the file came with. Space plays.{}", missing_examples())
-}
-
-/// A whole human rigged on the example character's mesh: the guides of every
-/// component chained and packed into a compound, a skeleton for Unreal, a
-/// hard bind, a range of motion, weights baked through a delta mush, and the
-/// skin played through the range of motion.
-fn rig_human(g: &mut NodeGraphState, subnets: &mut IceGraphStore) -> String {
-    use crate::core::rig::{node::guide, Component, Side};
-    crate::graph_io::clear(g);
-    let who = g.add_node(
-        "Character".into(),
-        NodeType::LoadFbx {
-            path: examples::path(examples::CHARACTER_FBX),
-            take: 0,
-        },
-        p(40.0, 20.0),
-    );
-    let parts = [
-        ("Spine", Component::Spine, Side::Centre),
-        ("Neck", Component::Neck, Side::Centre),
-        ("ArmL", Component::Arm, Side::Left),
-        ("ArmR", Component::Arm, Side::Right),
-        ("HandL", Component::Hand, Side::Left),
-        ("HandR", Component::Hand, Side::Right),
-        ("LegL", Component::Leg, Side::Left),
-        ("LegR", Component::Leg, Side::Right),
-    ];
-    let mut guides = vec![];
-    for (k, (name, c, s)) in parts.iter().enumerate() {
-        let n = g.add_node((*name).into(), guide(*c, *s), p(300.0, 20.0 + 70.0 * k as f32));
-        g.add_connection(who, 1, n, 0);
-        if let Some(prev) = guides.last() {
-            g.add_connection(*prev, 0, n, 1);
-        }
-        guides.push(n);
-    }
-    let last = *guides.last().unwrap();
-    let build = g.add_node(
-        "Skeleton".into(),
-        NodeType::BuildSkeleton {
-            settings: Default::default(),
-        },
-        p(300.0, 620.0),
-    );
-    g.add_connection(last, 0, build, 0);
-    let hard = g.add_node("HardBind".into(), NodeType::HardBind, p(40.0, 720.0));
-    g.add_connection(who, 1, hard, 0);
-    g.add_connection(build, 0, hard, 1);
-    let rom = g.add_node(
-        "RangeOfMotion".into(),
-        NodeType::RangeOfMotion {
-            settings: Default::default(),
-        },
-        p(560.0, 720.0),
-    );
-    g.add_connection(build, 0, rom, 0);
-    let mush = g.add_node(
-        "DeltaMush".into(),
-        NodeType::DeltaMush {
-            settings: Default::default(),
-        },
-        p(40.0, 840.0),
-    );
-    let bake = g.add_node(
-        "BakeWeights".into(),
-        NodeType::BakeWeights {
-            settings: Default::default(),
-            samples: 120,
-        },
-        p(300.0, 840.0),
-    );
-    for n in [mush, bake] {
-        g.add_connection(hard, 0, n, 0);
-        g.add_connection(build, 0, n, 1);
-        g.add_connection(rom, 0, n, 2);
-    }
-    let skin = g.add_node("Skin".into(), NodeType::Skin, p(300.0, 960.0));
-    g.add_connection(bake, 0, skin, 0);
-    g.add_connection(build, 0, skin, 1);
-    g.add_connection(rom, 0, skin, 2);
-    // The scene's frames: the whole range of motion (it has as many frames
-    // for any human of these components, wherever their guides are).
-    let mut reference: Option<crate::core::anim::AnimData> = None;
-    for (_, c, sd) in parts {
-        let part = crate::core::rig::node::part_info(
-            c,
-            sd,
-            0,
-            "",
-            if c == Component::Spine { 5 } else { 2 },
-            2,
-            &crate::core::rig::Finger::ALL,
-            true,
-        );
-        reference = Some(crate::core::rig::guides::add_part(
-            reference.as_ref(),
-            &part,
-            None,
-            None,
-            false,
-            &[],
-        ));
-    }
-    let frames = reference
-        .and_then(|r| crate::core::rig::build::build(&r, &Default::default()).ok())
-        .and_then(|sk| crate::core::rig::rom::range_of_motion(&sk, &Default::default()))
-        .map(|(rom, _)| rom.frames as i64)
-        .unwrap_or(120);
-    g.scene = crate::node_graph::SceneRange {
-        start: 1,
-        end: frames,
-        fps_num: 24,
-        fps_den: 1,
-    };
-    // The guides as one operator: double-click it to see them.
-    let packed = g.make_compound(subnets, &guides, "Full Human").ok();
-    if let Some(c) = packed {
-        if let Some(n) = g.nodes.iter_mut().find(|n| n.id == c) {
-            n.name = "FullHuman".into();
-        }
-    }
-    finish(g, skin, packed.unwrap_or(build));
-    format!("Rig: full human. The example character's mesh (its own skeleton is not used) given guides for a whole human, fitted by autofit: double-click Full Human to see the eight Rig Guides inside. Skeleton builds the joints for Unreal; HardBind gives every point to one joint; RangeOfMotion sweeps each joint and poses the body; BakeWeights fits smooth weights to the hard skin delta-mushed over it. Skin plays it all: press Space. View HardBind or BakeWeights to see the weights painted.{}", missing_examples())
 }
 
 /// The whole mocap pipeline, per actor: a folder of raw takes, split, each

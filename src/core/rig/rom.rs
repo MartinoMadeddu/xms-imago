@@ -10,6 +10,16 @@
 //! Twist joints: when a bone with twist joints turns about its own X, each
 //! twist joint turns back by the part of it that does not reach that far
 //! along the bone, so the skin twists more toward the bone's end.
+//!
+//! Machines, animal legs and chains: their joints are swept by part (both
+//! sides at once): a hinge to each of its limits, a spinning joint a full
+//! turn each way, a sliding joint (a piston's rod, a suspension) to each end
+//! of its travel. Wheels and treads move together, as one drive: a turn of
+//! the largest wheel forward and back, each wheel turning by its own radius,
+//! each tread's links running round its loop as far. A gear meshing with
+//! another turns with it, the other way, by the ratio of their radii. Then
+//! poses: driving while steering each way, every part to its maximum and to
+//! its minimum, an animal's legs folded, a chain curled each way.
 
 use std::sync::Arc;
 
@@ -51,6 +61,49 @@ enum Sel {
     /// A finger's joints (not the thumb's) of this number.
     Fingers(u8),
     Finger(Finger, u8),
+    /// The joints of one kind of the parts of one word (`aileron` on both
+    /// sides), by the kind's discriminant and the word's hash.
+    Kind(std::mem::Discriminant<Role>, u64),
+    /// Every joint of a kind, whatever its part.
+    AnyKind(std::mem::Discriminant<Role>),
+    /// Every wheel and tread, by distance (`f` turns of the largest wheel).
+    Drive,
+    /// Every machine part, animal leg or chain joint that turns or slides
+    /// within limits.
+    Mech,
+}
+
+/// A part's word: its name without side and index (`aileron_L0` is
+/// `aileron`).
+fn word(part: &str) -> &str {
+    part.rsplit_once('_').map(|x| x.0).unwrap_or(part)
+}
+
+fn hash(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish()
+}
+
+/// A machine part's, an animal leg's or a chain's joint: swept by part.
+fn mech(r: Role) -> bool {
+    matches!(
+        r,
+        Role::AnimalLeg(_)
+            | Role::Chain(_)
+            | Role::Body
+            | Role::Hinge
+            | Role::Rotor
+            | Role::Blade(_)
+            | Role::PistonBase
+            | Role::PistonRod
+            | Role::Suspension
+            | Role::Steer
+            | Role::Wheel
+            | Role::Gear
+            | Role::TreadLink(_)
+    )
 }
 
 impl Sel {
@@ -61,6 +114,12 @@ impl Sel {
             Sel::Neck => matches!(j.role, Role::Neck(_)),
             Sel::Fingers(k) => matches!(j.role, Role::Finger(f, n) if f != Finger::Thumb && n == k),
             Sel::Finger(f, k) => j.role == Role::Finger(f, k),
+            Sel::Kind(d, w) => std::mem::discriminant(&j.role) == d && hash(word(&j.part)) == w,
+            Sel::AnyKind(d) => std::mem::discriminant(&j.role) == d,
+            Sel::Drive => matches!(j.role, Role::Wheel | Role::TreadLink(_)),
+            Sel::Mech => {
+                mech(j.role) && !matches!(j.role, Role::Wheel | Role::TreadLink(_) | Role::Body) && j.follow.is_none()
+            }
         }
     }
 }
@@ -96,6 +155,8 @@ fn on(side: Side, sel: Sel, axis: usize, f: f32) -> Move {
 const X: usize = 0;
 const Y: usize = 1;
 const Z: usize = 2;
+/// A slide along X, as a fourth axis.
+const SLIDE: usize = 3;
 
 /// The joints swept alone, in order.
 fn sweep_groups() -> Vec<(&'static str, Sel)> {
@@ -298,6 +359,49 @@ fn poses() -> Vec<(&'static str, Vec<Move>)> {
     ]
 }
 
+/// The machine parts', animal legs' and chains' groups, in the order their
+/// parts come: one per kind of joint per word.
+fn mech_groups(infos: &[JointInfo]) -> Vec<(String, Sel)> {
+    let mut out: Vec<(String, Sel)> = vec![];
+    let mut drive = false;
+    for j in infos.iter().filter(|j| j.deform && mech(j.role)) {
+        if matches!(j.role, Role::Wheel | Role::TreadLink(_)) {
+            drive = true;
+            continue;
+        }
+        if j.follow.is_some() {
+            continue;
+        }
+        let kind = match j.role {
+            Role::AnimalLeg(k) => ["hips", "stifles", "hocks", "fetlocks", "hooves"][k.min(4) as usize],
+            Role::Blade(_) => "blades",
+            Role::Steer => "steering",
+            Role::Suspension => "suspension",
+            Role::PistonRod => "stroke",
+            Role::PistonBase => continue,
+            _ => "",
+        };
+        let sel = Sel::Kind(std::mem::discriminant(&j.role), hash(word(&j.part)));
+        // Animal legs' joints by their number, all legs together.
+        let sel = match j.role {
+            Role::AnimalLeg(k) => Sel::Is(Role::AnimalLeg(k)),
+            _ => sel,
+        };
+        if !out.iter().any(|g| g.1 == sel) {
+            let label = match j.role {
+                Role::AnimalLeg(_) => format!("legs, {kind}"),
+                _ if kind.is_empty() => word(&j.part).to_string(),
+                _ => format!("{} {kind}", word(&j.part)),
+            };
+            out.push((label, sel));
+        }
+    }
+    if drive {
+        out.push(("drive forward and back".into(), Sel::Drive));
+    }
+    out
+}
+
 /// What a range of motion holds, for its panel: each part's name and its
 /// frames (first, last).
 #[derive(Clone, Debug, Default)]
@@ -306,31 +410,61 @@ pub struct RomReport {
     pub frames: usize,
 }
 
-type Key = Vec<[f32; 3]>;
+/// Per joint: degrees about X, Y and Z, and a slide (or a tread link's run
+/// round its loop).
+type Key = Vec<[f32; 4]>;
 
-/// A joint's limits, or a right angle either way without them.
+/// A joint's limits, or a right angle either way without them (a wheel, a
+/// rotor and a gear still spin).
 fn limits_of(j: &JointInfo) -> Limits {
-    j.limits.unwrap_or(Limits {
-        min: [-90.0; 3],
-        max: [90.0; 3],
+    j.limits.unwrap_or_else(|| {
+        let mut l = Limits::new([-90.0, 90.0], [-90.0, 90.0], [-90.0, 90.0]);
+        l.spin = matches!(j.role, Role::Wheel | Role::Rotor | Role::Gear);
+        l
     })
 }
 
 fn key_of(rig: &[JointInfo], moves: &[Move], amount: f32) -> Key {
-    let mut k: Key = vec![[0.0; 3]; rig.len()];
+    let mut k: Key = vec![[0.0; 4]; rig.len()];
+    // How far one turn of the largest wheel goes.
+    let reach = rig
+        .iter()
+        .filter(|j| matches!(j.role, Role::Wheel | Role::TreadLink(_)))
+        .map(|j| j.radius)
+        .fold(0.0f32, f32::max)
+        * std::f32::consts::TAU;
     for m in moves {
         for (i, j) in rig.iter().enumerate() {
             if !j.deform || j.role.is_twist() || !m.sel.takes(j) || m.side.is_some_and(|s| s != j.side) {
                 continue;
             }
             // The right side's twist and swing are mirrored: the same
-            // fraction turns it the other way, as the mirror image.
-            let f = if j.side == Side::Right && m.axis != Z {
+            // fraction turns it the other way, as the mirror image. Not a
+            // wheel's steering: both wheels turn the same way.
+            let f = if j.side == Side::Right && m.axis != Z && m.axis != SLIDE && j.role != Role::Steer {
                 -m.f
             } else {
                 m.f
-            };
-            k[i][m.axis] = limits_of(j).at(m.axis, f * amount);
+            } * amount;
+            let l = limits_of(j);
+            if m.sel == Sel::Drive {
+                // Forward: a wheel's top toward the front, a tread's top run
+                // forward (its links run back along it as `s` grows).
+                let d = reach * m.f * amount;
+                match j.role {
+                    Role::Wheel => {
+                        let turn = (d / j.radius.max(1e-6)).to_degrees();
+                        k[i][X] = if j.side == Side::Right { -turn } else { turn };
+                    }
+                    _ => k[i][SLIDE] = -d,
+                }
+            } else if m.axis == SLIDE {
+                k[i][SLIDE] = l.slide_at(f);
+            } else if m.axis == X && l.spin {
+                k[i][X] = 360.0 * f;
+            } else {
+                k[i][m.axis] = l.at(m.axis, f);
+            }
         }
     }
     k
@@ -341,7 +475,7 @@ pub fn range_of_motion(sk: &AnimData, s: &RomSettings) -> Option<(AnimData, RomR
     let rig = sk.rig.as_deref().filter(|r| r.joints.len() == sk.joints.len())?;
     let infos = &rig.joints;
     let n = sk.joints.len();
-    let rest = vec![[0.0f32; 3]; n];
+    let rest = vec![[0.0f32; 4]; n];
     let step = s.frames.max(1) as usize;
     // Key poses, each with the part it belongs to.
     let mut keys: Vec<(Key, String)> = vec![(rest.clone(), String::new())];
@@ -363,9 +497,69 @@ pub fn range_of_motion(sk: &AnimData, s: &RomSettings) -> Option<(AnimData, RomR
                 }
             }
         }
+        for (name, sel) in mech_groups(infos) {
+            let joints: Vec<&JointInfo> = infos.iter().filter(|j| j.deform && sel.takes(j)).collect();
+            let mut axes: Vec<(usize, &str)> = vec![];
+            if sel == Sel::Drive {
+                axes.push((X, ""));
+            } else {
+                // A body rolls and pitches; a hinge turns; steering and a
+                // blade's pitch need no word.
+                let words = match joints.first().map(|j| j.role) {
+                    Some(Role::Body) => ["roll", "yaw", "pitch"],
+                    Some(Role::Hinge) => ["", "", ""],
+                    Some(Role::Steer | Role::Blade(_)) => ["", "", ""],
+                    _ => ["twist", "swing", "bend"],
+                };
+                for (axis, what) in [(X, words[0]), (Y, words[1]), (Z, words[2])] {
+                    if joints.iter().any(|j| {
+                        let l = limits_of(j);
+                        l.min[axis] != 0.0 || l.max[axis] != 0.0
+                    }) {
+                        axes.push((axis, what));
+                    }
+                }
+                if joints.iter().any(|j| limits_of(j).slide != [0.0; 2]) {
+                    axes.push((SLIDE, ""));
+                }
+            }
+            for (axis, what) in axes {
+                let spin = axis == X && sel != Sel::Drive && joints.iter().all(|j| limits_of(j).spin);
+                let label = match (what, spin) {
+                    (_, true) => format!("{name}, a turn each way"),
+                    ("", _) => name.clone(),
+                    (w, false) => format!("{name} {w}"),
+                };
+                for f in [1.0, 0.0, -1.0, 0.0] {
+                    keys.push((key_of(infos, &[mv(sel, axis, f)], s.amount), label.clone()));
+                }
+            }
+        }
     }
     if s.poses {
-        for (name, moves) in poses() {
+        let steer = Sel::AnyKind(std::mem::discriminant(&Role::Steer));
+        let fold = |f: f32| {
+            (1..4u8)
+                .map(|k| mv(Sel::Is(Role::AnimalLeg(k)), Z, -f))
+                .collect::<Vec<_>>()
+        };
+        let curl = |f: f32| vec![mv(Sel::AnyKind(std::mem::discriminant(&Role::Chain(0))), Z, f)];
+        let machine: Vec<(&str, Vec<Move>)> = vec![
+            ("drive, turning left", vec![mv(Sel::Drive, X, 1.5), mv(steer, X, 1.0)]),
+            ("drive, turning right", vec![mv(Sel::Drive, X, 1.5), mv(steer, X, -1.0)]),
+            (
+                "every part to its maximum",
+                [X, Y, Z, SLIDE].map(|a| mv(Sel::Mech, a, 1.0)).to_vec(),
+            ),
+            (
+                "every part to its minimum",
+                [X, Y, Z, SLIDE].map(|a| mv(Sel::Mech, a, -1.0)).to_vec(),
+            ),
+            ("legs folded", fold(0.8)),
+            ("curled one way", curl(1.0)),
+            ("curled the other way", curl(-1.0)),
+        ];
+        for (name, moves) in poses().into_iter().chain(machine) {
             let k = key_of(infos, &moves, s.amount);
             if k == rest {
                 continue;
@@ -419,17 +613,45 @@ pub fn range_of_motion(sk: &AnimData, s: &RomSettings) -> Option<(AnimData, RomR
         // Ease in and out.
         let t = t * t * (3.0 - 2.0 * t);
         let (a, b) = (&keys[k].0, &keys[k + 1].0);
-        let angle = |j: usize| -> [f32; 3] { [0, 1, 2].map(|x| a[j][x] + (b[j][x] - a[j][x]) * t) };
+        let mut at: Vec<[f32; 4]> = (0..n)
+            .map(|j| [0, 1, 2, 3].map(|x| a[j][x] + (b[j][x] - a[j][x]) * t))
+            .collect();
+        // Gears meshing: each turns with the one it meshes with.
+        for j in 0..n {
+            if let Some((leader, ratio)) = infos[j].follow {
+                at[j][X] = at[leader][X] * ratio;
+            }
+        }
         for j in 0..n {
             let rest = sk.joints[j].rest;
-            let mut deg = angle(j);
+            let c = infos[j].canon;
+            if let Some(path) = &infos[j].tread {
+                // Round its loop: placed there, in what it hangs from.
+                let (p, along) = path.at(path.start + at[j][SLIDE]);
+                let fr = path.rear - path.front;
+                let tt = ((p - path.front).dot(fr) / fr.length_squared().max(1e-12)).clamp(0.0, 1.0);
+                let outward = (p - (path.front + fr * tt)).normalize_or(Vec3::Y);
+                let y = (outward - along * outward.dot(along)).normalize_or(along.any_orthonormal_vector());
+                let canon = glam::Quat::from_mat3(&glam::Mat3::from_cols(along, y, along.cross(y)));
+                let w = glam::Mat4::from_rotation_translation((canon * c.inverse()).normalize(), p);
+                let up = sk.joints[j].parent.map(|q| world[q]).unwrap_or(glam::Mat4::IDENTITY);
+                let (_, r, tr) = (up.inverse() * w).to_scale_rotation_translation();
+                let mut x = rest;
+                x.rotation = r.normalize();
+                x.translation = tr;
+                tracks[j].push(x);
+                continue;
+            }
+            let mut deg = [at[j][X], at[j][Y], at[j][Z]];
             if let Some((bone, frac)) = twist_of[j] {
-                deg = [-angle(bone)[0] * (1.0 - frac), 0.0, 0.0];
+                deg = [-at[bone][X] * (1.0 - frac), 0.0, 0.0];
             }
             let r = infos[j].order.quat(deg.map(f32::to_radians));
-            let c = infos[j].canon;
             let mut x = rest;
             x.rotation = (rest.rotation * c * r * c.inverse()).normalize();
+            if at[j][SLIDE] != 0.0 {
+                x.translation = rest.translation + rest.rotation * (c * Vec3::X) * at[j][SLIDE];
+            }
             tracks[j].push(x);
         }
     }
@@ -511,6 +733,115 @@ mod tests {
                 }
             }
             assert!(bent, "{preset:?}: the knee never bent");
+        }
+    }
+
+    /// A machine: wheels roll forward on both sides and steer the same way,
+    /// a meshing gear turns the other way by the ratio of the radii, a
+    /// tread's links stay on their loop, a suspension slides within its
+    /// travel.
+    #[test]
+    fn a_machine_moves_as_its_parts_do() {
+        use crate::core::rig::guides::add_part;
+        use crate::core::rig::{Component, MechParams, PartInfo};
+        let p = |component: Component, side: Side, index: u32, attach: Option<&str>, steer: bool| PartInfo {
+            component,
+            side,
+            index,
+            attach: attach.map(Into::into),
+            segments: 1,
+            twists: 0,
+            fingers: vec![],
+            metacarpals: false,
+            label: String::new(),
+            mech: MechParams {
+                steer,
+                ..MechParams::of(component)
+            },
+        };
+        let mut g = None;
+        for part in [
+            p(Component::Body, Side::Centre, 0, None, false),
+            p(Component::Wheel, Side::Left, 0, None, true),
+            p(Component::Wheel, Side::Right, 0, None, true),
+            p(Component::Gear, Side::Centre, 0, None, false),
+            p(Component::Gear, Side::Centre, 1, Some("gear_C0_centre"), false),
+            p(Component::Tread, Side::Left, 0, None, false),
+        ] {
+            g = Some(add_part(g.as_ref(), &part, None, None, &[], false, &[]));
+        }
+        let sk = build(&g.unwrap(), &BuildSettings::default()).unwrap();
+        let rig = sk.rig.as_deref().unwrap();
+        let find = |r: Role, part: &str| rig.joints.iter().position(|j| j.role == r && j.part == part).unwrap();
+        let (wl, wr) = (find(Role::Wheel, "wheel_L0"), find(Role::Wheel, "wheel_R0"));
+        let (sl, sr) = (find(Role::Steer, "wheel_L0"), find(Role::Steer, "wheel_R0"));
+        // A quarter turn of drive and full steering, as keys.
+        let k = key_of(
+            &rig.joints,
+            &[
+                mv(Sel::Drive, X, 0.25),
+                mv(Sel::AnyKind(std::mem::discriminant(&Role::Steer)), X, 1.0),
+            ],
+            1.0,
+        );
+        // A quarter turn of the largest (the tread's wheels, 0.4), by each
+        // wheel's own radius.
+        let quarter = 90.0 * 0.4 / rig.joints[wl].radius;
+        assert!(
+            (k[wl][X] - quarter).abs() < 1e-3 && (k[wr][X] + quarter).abs() < 1e-3,
+            "{:?} {:?}",
+            k[wl],
+            k[wr]
+        );
+        assert_eq!(k[sl][X], k[sr][X]);
+        let (rom, report) = range_of_motion(&sk, &RomSettings::default()).unwrap();
+        let rest = sk.world_pose(0);
+        let at = |name: &str| {
+            report
+                .parts
+                .iter()
+                .find(|p| p.0 == name)
+                .unwrap_or_else(|| panic!("no {name}: {:?}", report.parts))
+        };
+        // Driving forward: each wheel's top goes toward the front.
+        let drive = at("drive forward and back");
+        let f = (drive.1 - rom.start_frame) as usize + 2;
+        let w = rom.world_pose(f);
+        for wheel in [wl, wr] {
+            let top = rest[wheel].w_axis.truncate() + glam::Vec3::Y * rig.joints[wheel].radius;
+            let moved = (w[wheel] * rest[wheel].inverse()).transform_point3(top);
+            assert!(moved.z > top.z + 1e-3, "{}: {} {}", sk.joints[wheel].name, top, moved);
+        }
+        // Gears: the second turns the other way, as much (same radius).
+        let (ga, gb) = (find(Role::Gear, "gear_C0"), find(Role::Gear, "gear_C1"));
+        let turn = |pose: &[glam::Mat4], j: usize| {
+            let q = (pose[j] * rest[j].inverse()).to_scale_rotation_translation().1;
+            let (axis, angle) = q.to_axis_angle();
+            let a = angle * axis.dot(glam::Vec3::Y).signum();
+            (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+        };
+        let gear = at("gear, a turn each way");
+        let w = rom.world_pose((gear.1 - rom.start_frame) as usize + 3);
+        assert!(turn(&w, ga).abs() > 0.1);
+        assert!(
+            (turn(&w, ga) + turn(&w, gb)).abs() < 1e-3,
+            "{} {}",
+            turn(&w, ga),
+            turn(&w, gb)
+        );
+        // Tread links on their loop at every frame, as the hull carries it.
+        let path = rig.joints.iter().find_map(|j| j.tread).unwrap();
+        let body = find(Role::Body, "body_C0");
+        for f in (0..rom.frames).step_by(7) {
+            let w = rom.world_pose(f);
+            let hull = (w[body] * rest[body].inverse()).inverse();
+            for (j, info) in rig.joints.iter().enumerate().filter(|(_, j)| j.tread.is_some()) {
+                let q = hull.transform_point3(w[j].w_axis.truncate());
+                let fr = path.rear - path.front;
+                let t = ((q - path.front).dot(fr) / fr.length_squared()).clamp(0.0, 1.0);
+                let off = q.distance(path.front + fr * t);
+                assert!((off - path.radius).abs() < 1e-3, "frame {f} {}: {off}", info.part);
+            }
         }
     }
 }

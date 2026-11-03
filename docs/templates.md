@@ -121,6 +121,10 @@ it is opened, or until Show all geometry is ticked.
 | Template | Shows |
 |---|---|
 | Rig: full human | The example character's mesh (its own skeleton not used) given guides for a whole human by autofit, packed in the Full Human compound; a skeleton for Unreal; Hard Bind; Range of Motion (2,097 frames, the scene's range); Delta Mush; Bake Weights; Skin playing the range of motion with the baked weights. See [Rigging](rigging.md) |
+| Rig: human leg, Rig: human arm and hand, Rig: spine and neck | The same chain with only some components: a spine and the left leg; a spine, the left arm and the left hand; a spine, the neck and the head |
+| Rig: car (DeLorean) | The DeLorean's body and four wheels fitted to the model's own primitives (suspension on all four, the fronts steering), each of its 43 primitives bound whole to a joint by Rigid Bind, moved with its materials by Rigid Skin through the range of motion |
+| Rig: tractor (mini car kit) | The mini car kit's tractor: a body, four wheels of two sizes (each turned by its own radius in the drive), its shovel on a hinge fitted along the shovel's back edge |
+| Rig: aeroplane, Rig: helicopter, Rig: tank, Rig: gears and a piston, Rig: robot arm, Rig: quadruped, Rig: tentacle | Rigs placed by hand, seen on Rig Proxy's shapes, moved by Rigid Skin through their range of motion. See [Rigging](rigging.md#templates) |
 
 ## Example files
 
