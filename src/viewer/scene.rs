@@ -290,8 +290,9 @@ fn corners_in(m: Mat4, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
 
 /// Geometry made from a `MeshData`, kept while the mesh lives, so a scene
 /// rebuilt for a moved playhead or a reopened prim does not rebuild it.
+/// Also how many it has made, for the timings.
 #[derive(Default)]
-pub struct GeometryCache(HashMap<(usize, Kind), (Arc<MeshData>, Arc<Geometry>)>);
+pub struct GeometryCache(HashMap<(usize, Kind), (Arc<MeshData>, Arc<Geometry>)>, usize);
 
 /// The mesh Edit Poly is working on, made drawable once and kept while it stays
 /// the same: picking polygons on a big model does not build it, or send it to
@@ -317,6 +318,7 @@ impl GeometryCache {
         match self.0.get(&key) {
             Some((m, g)) if Arc::ptr_eq(m, md) => g.clone(),
             _ => {
+                self.1 += 1;
                 let g = Arc::new(Geometry::of(md, kind));
                 self.0.insert(key, (md.clone(), g.clone()));
                 g
@@ -806,6 +808,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 }
             }
             drop(grouping);
+            let made_before = cache.1;
+            let mut drawable = crate::timings::span("viewer: drawable geometry");
             for (key, md, instances, material) in groups {
                 let geometry = cache.get(&md, key.kind, &mut used);
                 s.meshes.push(MeshDraw {
@@ -816,6 +820,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     material,
                 });
             }
+            drawable.note(format!("{} made again, the rest kept", cache.1 - made_before));
+            drop(drawable);
             for (geometry, instances) in [(unit_box(), boxes), (unit_axes(), axes)] {
                 if !instances.is_empty() {
                     s.meshes.push(MeshDraw {

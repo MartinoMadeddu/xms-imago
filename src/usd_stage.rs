@@ -264,7 +264,11 @@ fn scene_of(
     // made on every core: each is independent of the others.
     let made: Vec<Option<(Arc<Geo>, Arc<MeshData>)>> = {
         use rayon::prelude::*;
-        let _t = crate::timings::span(format!("usd: geometry of {} prims, in parallel", jobs.len()));
+        let mut timed = crate::timings::span(format!("usd: geometry of {} prims, in parallel", jobs.len()));
+        if crate::timings::on() {
+            let kept = still.map_or(0, |s| jobs.iter().filter(|j| s.contains_key(*j)).count());
+            timed.note(format!("{} made, {kept} kept as they do not change", jobs.len() - kept));
+        }
         jobs.par_iter()
             .map(|src| match still.and_then(|s| s.get(src)) {
                 Some(made) => Some(made.clone()),
