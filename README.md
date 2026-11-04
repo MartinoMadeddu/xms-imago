@@ -133,7 +133,9 @@ selection](docs/xms_edit_poly.png)
   opens on its own in usdview or rray
 - **Time samples:** an animated stage plays on the timeline (a time code is a
   frame) through the whole graph, and Write USD writes the scene's range, what
-  changes from frame to frame as `timeSamples`
+  changes from frame to frame as `timeSamples`. A frame where only transforms
+  and geometry move remakes just those prims, a deforming mesh's points
+  written into the GPU buffers it already has
 - **Alembic:** Load USD opens `.abc` files as USD layers, as `usdAbc` makes
   them, and a `.usda` can sublayer or reference one: meshes, subdivision
   surfaces, curves, points, cameras, transforms, face sets, instances and
@@ -167,7 +169,7 @@ selection](docs/xms_edit_poly.png)
   (which RenderSettings prim, which camera, Render, Stop) with husk, kick or
   your own command line (⚙, with tokens), the image coming in as it renders;
   every layer (AOV) and channel of an EXR, exposure, gamma, view and display,
-  zoom and the float values under the pointer (see
+  zoom (fitted, or 1:1 with H) and the float values under the pointer (see
   [Rendering](docs/render.md#image-viewer))
 - **Colour managed:** OpenColorIO (the pure-Rust `ocio` crate) with `$OCIO`'s
   config, or Imago's own built in (ACEScg working space; ACES 1.0 SDR Video,

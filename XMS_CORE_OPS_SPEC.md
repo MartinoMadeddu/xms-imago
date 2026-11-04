@@ -1,7 +1,8 @@
 # XMS Core Operator Specification
 
-**Status:** Draft v0.5 (03/11/2026), checked against `main` at 341aff0 with
-Edit Primitive's curves and the Primitive Inspector's edited values
+**Status:** Draft v0.6 (04/11/2026), checked against `main` at 341aff0 with
+Edit Primitive's curves, the Primitive Inspector's edited values, colour
+management, faster loading and playback, and the Image Viewer's 1:1
 **Scope:** The minimum operator set needed to load, modify, author and render
 OpenUSD scenes. **Principle:** One operator per USD concept (prims, properties,
 composition arcs, collections, render prims). Operators edit a USD scene; they
@@ -141,7 +142,9 @@ and **Status**.
   with the axis and unit transform where the file's differ from the layer's).
   Every time sample is read: the timeline plays the file's animation through
   the graph. Alembic (`.abc`) opens as a USD layer, as `usdAbc` makes it. The
-  file's `renderSettingsPrimPath` is read. Not yet: `open` as its own mode,
+  file's `renderSettingsPrimPath` is read. A big stage is read boxes first,
+  each value read once; a frame of a stage where only transforms and geometry
+  move is made from those prims alone. Not yet: `open` as its own mode,
   population mask, payload control, layer offsets.
 
 ### 2.2 Write USD (Save / Export Layer)
@@ -638,6 +641,13 @@ render prims added or changed. A render prim that comes from a file is changed
 with an `over`; relationships on it are appended (`append rel`) since Imago does
 not read the file's targets.
 
+Colour is managed with OpenColorIO (`docs/colour.md`): `$OCIO`'s config, else
+Imago's own (a subset of ACES CG v2.2.0), ACEScg the working and rendering
+space. The scene's colours stay USD's linear Rec.709. The Viewer (File >
+Settings > Viewer) and the Image Viewer (its top bar) each show it through a
+View and a Display. Not yet: texture colour spaces (`sourceColorSpace`), looks,
+exposure.
+
 ### 11.1 Render Settings
 In Imago: **Render Commons** (what is rendered) and **Render Settings** (how a
 renderer renders it).
@@ -733,7 +743,10 @@ In Imago: **Render Variables**.
   Stop (ending what it started), its progress in the panel and its output in a
   Console tab. The **Image Viewer** pane renders the scene the view flag shows
   without either operator: its RenderSettings and camera menus, Render and Stop,
-  husk run on a temporary layer, the image read again as husk saves it. Not yet:
+  husk run on a temporary layer, the image read again as husk saves it, shown
+  through its View and Display (OpenColorIO, ACES 1.0 SDR on Rec.1886 by
+  default, from ACEScg or the colour space chosen), fitted or at 1:1 (H).
+  Not yet:
   rendering inside Imago (rray), denoise, farm submission, animated layers.
 
 ---

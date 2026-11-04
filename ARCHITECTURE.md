@@ -51,6 +51,12 @@ file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) 
   of the tree and the placements below them (`StageTree::world`), the
   deforming prims' geometry made again on every core; else the whole stage is
   walked (`Timed::walked`). `XMS_CHECK_PLAYBACK=1` compares the two.
+- **Read once, boxes first:** a stage is read in two passes over one open
+  stage, the boxes pass then the full pass (`docs/usd.md`). The full pass takes
+  from the boxes pass what it read (`xms_usd::to_scene::Read`: each prim's
+  transform, reset, visibility and purpose, and the points read for a box when
+  the prim has no extent and its points don't change over time) instead of
+  reading them from the stage again.
 - **Alembic** (`.abc`) opens as a USD layer: `crates/xms-alembic` reads it,
   `xms-usd`'s `alembic` module makes it a layer format of `openusd`, as
   `usdAbc` does.
@@ -354,8 +360,8 @@ copying.
   one OpenColorIO config for the program (`Colour::get`: `$OCIO`'s, else
   `imago.ocio`, embedded, ACEScg its working and rendering space), the scene's
   colours in USD's linear Rec.709 (found in the config by name or alias, else
-  `scene_linear`), turned into the working space by the view's transform. The Viewer's picture is
-  `Rgba16Float`, linear; its blit runs the chosen view's transform as WGSL
+  `scene_linear`), turned into the working space by the view's transform. The
+  Viewer's picture is `Rgba16Float`, linear; its blit runs the chosen view's transform as WGSL
   (`Colour::shader`: OpenColorIO's shader text before `blit.wgsl`, its
   uniforms and LUTs in bind group 1, made again when the view changes,
   `viewer::gpu::display`; `display_fallback.wgsl`, sRGB's curve, when it cannot
@@ -379,9 +385,18 @@ copying.
   they arrive, so they follow upstream nodes.
 - **Purposes:** guide/proxy/render toggles. Render geometry gives way to its
   asset's proxy when proxies are shown.
-- **Instancing:** a mesh with more than 64 copies is one entity with a GPU
-  instance buffer of matrices and colours, uploaded once per change. Fewer
-  copies are drawn as entities with full materials.
+- **Instancing:** prims sharing geometry and material are one draw, its
+  copies (matrices and colours) packed with every other draw's into a few
+  shared instance buffers each frame (`instances`: buffer, offset, copies).
+- **Playback cost** (`src/viewer/scene.rs`, `gpu.rs`): prims are grouped into
+  draws, and draws matched to the GPU meshes they had, by key in a `HashMap`
+  (`group_of`), not by searching. New drawable geometry is made on every core
+  (`GeometryCache::make`). A deforming mesh whose triangles are unchanged and
+  which is one part has its points and normals written into last frame's GPU
+  buffers (`slots`). A mesh's drawable surface is made with one list of the
+  faces around each point (`render_buffers`). `XMS_TIMINGS=1` prints each step
+  of a load or frame from 20 ms, `XMS_TIMINGS=all` from 1 ms, with how many
+  prims' geometry was made again.
 - **Curves and points:** curves are evaluated to polylines at draw time (their
   control points are kept); points are drawn as crosses sized by width.
 - **Redraws on demand:** input, a change, playback, background jobs. An idle
