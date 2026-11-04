@@ -61,6 +61,20 @@ delivered. Then:
   description, data passing through. A saved graph is how a new node is asked
   for.
 
+## The Viewer first
+
+The person working in the Viewer comes first. Taking hold of a thing in the
+Viewer is almost always easier than typing a number for it (Simon).
+
+- What can be manipulated in the Viewer is manipulated there. Every parameter a
+  handle can stand for has one; only what no handle can stand for stays a field
+  alone.
+- What a node shows in the Viewer is its main output.
+- With several outputs, the most useful comes first.
+- A node with data coming in never shows nothing.
+- A compound shows what it does: its outputs are clear, and what it puts in the
+  Viewer is what the compound is for.
+
 ## One geometry model
 
 - Packed primitives, the nodes and ICE share one geometry: `Geo`, a topology and
@@ -173,10 +187,9 @@ delivered. Then:
   only.
 - Nothing is lost without asking: closing, New, or opening a file or template as
   new over unsaved changes asks to save first.
-- What is placed can be taken hold of in the Viewer: a node that moves something
-  (Transform, Camera, Edit Poly's operations) shows handles there, and a drag
-  writes into its parameters, the same handles and the same keys everywhere.
-  Clicking what is drawn selects it.
+- What is placed can be taken hold of in the Viewer (see The Viewer first): a
+  drag writes into the node's parameters, the same handles and the same keys
+  everywhere. Clicking what is drawn selects it.
 - Every number can move in time. Any number of any operator can be keyed, found
   by its place in the parameters, so an operator written tomorrow is animatable
   without code of its own. A keyed number shown in Parameters or moved by a
@@ -1080,3 +1093,5 @@ which shows everything Y up in metres, writes the transform that does it.
 - 04/11/2026: Loading a stage reads each value once (Martino): the full pass takes from the boxes pass every prim's transform, visibility and purpose, and the points it read for a box, instead of reading them from the stage again. (Martino)
 - 04/11/2026: The Image Viewer shows an image at 1:1, one image pixel per screen pixel, with H or the 1:1 button, and its zoom reads in screen pixels, so 100% is 1:1 on a high-density screen too (Martino). (Martino)
 - 04/11/2026: The reference documents say how a stage loads and plays as fast as it does, and how colour is managed, where each part is described (Martino). (Martino)
+- 03/11/2026: Export Movie is the Viewer's picture, not a render (Simon): the timeline's frames drawn again at the movie's size, through the camera looked through or the Viewer's own and through its View and Display, read back and encoded by ffmpeg (H.264 or H.265 in an MP4), the playhead given back after. ffmpeg is run, not linked, as any other program would: no codec is built into Imago, and the encoders are the ones every studio already has. Called Export Movie, not playblast or flipbook, after what it makes.
+- 03/11/2026: The Viewer first (Simon): what can be manipulated in the Viewer is, with a handle for every parameter one can stand for; a node's Viewer picture is its main output, the most useful output first; a node with data coming in never shows nothing; a compound shows what it is for.

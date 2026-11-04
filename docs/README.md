@@ -2,7 +2,7 @@
 
 - [Interface](interface.md): dockable panes, saved layout, theme, primitive
   inspector, the file browser (sequences, UDIM), wires and selection in every
-  graph, data type colours
+  graph, data type colours, Export Movie (the Viewer as an MP4)
 - [Undo](undo.md): what is undone, steps, branches, the History pane
 - [Templates and example files](templates.md): ready-made graphs for every area
   of the program

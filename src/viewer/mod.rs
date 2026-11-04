@@ -13,6 +13,7 @@ pub(crate) mod camera;
 mod edit;
 mod gizmo;
 mod gpu;
+pub mod movie;
 mod pick;
 mod scene;
 
@@ -82,6 +83,8 @@ pub struct Viewer {
     /// The Viewer's own camera from before it looked through one: back to it
     /// when Perspective is chosen again.
     saved: Option<camera::Camera>,
+    /// A movie being exported.
+    movie: Option<movie::Job>,
 }
 
 impl Viewer {
@@ -92,6 +95,28 @@ impl Viewer {
         self.follow_look_through();
         self.navigate(ui.ctx(), rect, &input.nav, input.playback);
         self.frame_keys(ui.ctx(), rect, &input);
+
+        // Export Movie: the playhead on the movie's next frame, before the
+        // scene is built for it. Not while textures are still loading.
+        let ppp = ui.ctx().pixels_per_point();
+        let pane = [
+            (rect.width() * ppp).round().max(1.0) as u32,
+            (rect.height() * ppp).round().max(1.0) as u32,
+        ];
+        if self.movie.is_none() {
+            let film = self.looking().map(|(_, _, c)| c.gate_aspect());
+            self.movie = movie::Job::start(input.graph, input.playback, pane, film);
+        }
+        let mut capture = None;
+        if let Some(job) = &mut self.movie {
+            let ready = crate::viewport::textures::pending() == 0;
+            match job.step(input.playback, ready) {
+                None => self.movie = None,
+                Some(movie::Step::Frame(c)) => capture = Some(c),
+                Some(movie::Step::Wait) => {}
+            }
+            ui.ctx().request_repaint();
+        }
 
         // The scene again only when what it is made from changed.
         let key = (
@@ -164,12 +189,17 @@ impl Viewer {
             self.pick_prims(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
         }
 
-        let ppp = ui.ctx().pixels_per_point();
-        let size = [
-            (rect.width() * ppp).round().max(1.0) as u32,
-            (rect.height() * ppp).round().max(1.0) as u32,
-        ];
+        let size = pane;
+        // The movie's frame through the same camera, at its own aspect.
+        if let Some(c) = &mut capture {
+            let a = c.size[0] as f32 / c.size[1].max(1) as f32;
+            c.view_proj = match &looking {
+                Some((_, world, cam)) => cam.view_proj(*world, a),
+                None => self.camera.view_proj(a),
+            };
+        }
         let frame = gpu::Frame {
+            capture,
             view_proj,
             eye,
             size,

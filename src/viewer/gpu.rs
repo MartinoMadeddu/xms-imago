@@ -22,6 +22,8 @@ const PICTURE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Textures' format: sRGB bytes, read back as linear.
 const MAP: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// Export Movie's frames: the display's colours as bytes, not encoded again.
+const MOVIE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const MESH_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 8 => Float32x2];
 const INSTANCE_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
@@ -47,6 +49,8 @@ pub struct Frame {
     pub overlay: super::edit::Overlay,
     /// The display and view the picture is shown in.
     pub display: crate::colour::View,
+    /// Export Movie: this frame drawn again at the movie's size and read back.
+    pub capture: Option<super::movie::Capture>,
 }
 
 /// Every buffer stays under this size: wgpu's guaranteed maximum is 256 MB, and
@@ -176,6 +180,10 @@ pub struct ViewerGpu {
     materials: Vec<wgpu::BindGroup>,
     plain: wgpu::BindGroup,
     target: Option<Target>,
+    /// Export Movie: the picture at the movie's size, the display pass into
+    /// bytes, and the bytes read back.
+    movie: Option<(Target, wgpu::Texture)>,
+    movie_display: Option<Display>,
     meshes: Vec<GpuMesh>,
     draws: Vec<Draw>,
     /// Every draw's copies, packed into as few buffers as fit: a scene of
@@ -527,6 +535,8 @@ impl ViewerGpu {
             materials: vec![],
             plain,
             target: None,
+            movie: None,
+            movie_display: None,
             meshes: vec![],
             draws: vec![],
             instance_buffers: vec![],
@@ -541,6 +551,12 @@ impl ViewerGpu {
         if self.target.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
+        self.target = Some(self.make_target(device, size));
+    }
+
+    /// Textures to draw a picture this size into: multisampled colour and
+    /// depth, and the picture they resolve to.
+    fn make_target(&self, device: &wgpu::Device, size: [u32; 2]) -> Target {
         let extent = wgpu::Extent3d {
             width: size[0],
             height: size[1],
@@ -587,13 +603,140 @@ impl ViewerGpu {
                 },
             ],
         });
-        self.target = Some(Target {
+        Target {
             size,
             colour,
             resolve,
             depth,
             blit,
+        }
+    }
+
+    /// The view's matrix, eye and size in pixels, for the next draw.
+    fn write_view(&self, queue: &wgpu::Queue, view_proj: glam::Mat4, eye: glam::Vec3, size: [u32; 2]) {
+        let mut view = [0f32; 24];
+        view[..16].copy_from_slice(&view_proj.to_cols_array());
+        view[16..19].copy_from_slice(&eye.to_array());
+        view[20] = size[0] as f32;
+        view[21] = size[1] as f32;
+        queue.write_buffer(&self.view_buffer, 0, bytemuck::cast_slice(&view));
+    }
+
+    /// Export Movie: the picture drawn at the movie's size, through the
+    /// display transform the Viewer shows it in, into bytes read back and
+    /// handed to ffmpeg. Waits for the GPU: a movie is made frame by frame.
+    fn capture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        c: &super::movie::Capture,
+        eye: glam::Vec3,
+        clear: [f32; 3],
+    ) {
+        let size = [c.size[0].max(1), c.size[1].max(1)];
+        let extent = wgpu::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        };
+        if self.movie.as_ref().is_none_or(|(t, _)| t.size != size) {
+            let target = self.make_target(device, size);
+            let bytes = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("viewer movie frame"),
+                size: extent,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: MOVIE,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            self.movie = Some((target, bytes));
+        }
+        if self.movie_display.as_ref().is_none_or(|d| d.view != self.display.view) {
+            self.movie_display = Some(display(
+                device,
+                queue,
+                &self.blit_layout,
+                MOVIE,
+                1,
+                &self.display.view,
+            ));
+        }
+        let (Some((t, bytes)), Some(shown)) = (&self.movie, &self.movie_display) else {
+            return;
+        };
+        self.write_view(queue, c.view_proj, eye, size);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("viewer movie"),
         });
+        self.render(&mut encoder, t, clear);
+        {
+            let view = bytes.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("viewer movie display"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&shown.pipeline);
+            pass.set_bind_group(0, &t.blit, &[]);
+            pass.set_bind_group(1, &shown.group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        let row = size[0] * 4;
+        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("viewer movie frame"),
+            size: padded as u64 * size[1] as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            bytes.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(size[1]),
+                },
+            },
+            extent,
+        );
+        let index = queue.submit([encoder.finish()]);
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r.is_ok());
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: Some(index),
+            timeout: None,
+        });
+        if rx.recv() != Ok(true) {
+            return;
+        }
+        let pixels = {
+            let Ok(data) = slice.get_mapped_range() else { return };
+            let mut pixels = Vec::with_capacity((row * size[1]) as usize);
+            for r in data.chunks(padded as usize) {
+                pixels.extend_from_slice(&r[..row as usize]);
+            }
+            pixels
+        };
+        buffer.unmap();
+        c.done(pixels);
     }
 
     /// The scene's meshes and lines into GPU buffers. Meshes already there (the
@@ -749,8 +892,7 @@ impl ViewerGpu {
         self.generation = scene.generation;
     }
 
-    fn render(&self, encoder: &mut wgpu::CommandEncoder, clear: [f32; 3]) {
-        let Some(t) = &self.target else { return };
+    fn render(&self, encoder: &mut wgpu::CommandEncoder, t: &Target, clear: [f32; 3]) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("viewer"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1165,12 +1307,6 @@ impl CallbackTrait for ViewerPaint {
         if gpu.generation != f.scene.generation {
             gpu.upload(device, queue, &f.scene);
         }
-        let mut view = [0f32; 24];
-        view[..16].copy_from_slice(&f.view_proj.to_cols_array());
-        view[16..19].copy_from_slice(&f.eye.to_array());
-        view[20] = f.size[0] as f32;
-        view[21] = f.size[1] as f32;
-        queue.write_buffer(&gpu.view_buffer, 0, bytemuck::cast_slice(&view));
         gpu.frame_lines = [
             line_buffer(device, &f.overlay.depth),
             line_buffer(device, &f.overlay.top),
@@ -1185,7 +1321,13 @@ impl CallbackTrait for ViewerPaint {
                 (f.overlay.points.len() / POINT_FLOATS) as u32,
             )
         });
-        gpu.render(encoder, f.clear);
+        if let Some(c) = f.capture.as_ref().filter(|c| c.wanted()) {
+            gpu.capture(device, queue, c, f.eye, f.clear);
+        }
+        gpu.write_view(queue, f.view_proj, f.eye, f.size);
+        if let Some(t) = &gpu.target {
+            gpu.render(encoder, t, f.clear);
+        }
         vec![]
     }
 

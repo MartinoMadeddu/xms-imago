@@ -630,6 +630,41 @@ Perspective goes back to the Viewer's own camera, where it was. Orbiting,
 panning, zooming or framing while looking through a camera leaves it, the view
 staying where it is (see [USD](usd.md#cameras)).
 
+## Export Movie
+
+The Movie menu at the top of the Viewer, after the camera menu, writes the
+timeline's frames as seen in the Viewer to an MP4: the clip's range when the
+timeline shows a clip of more than one frame, else the scene's range, at that
+rate.
+
+| Setting | Choices |
+|---|---|
+| Codec | H.264 (libx264), H.265 (libx265, tagged `hvc1` so QuickTime and Apple's players play it) |
+| Size | Viewer size (the pane in pixels), or 1280, 1920 or 3840 wide. A width's height is the gate's aspect when looking through a camera, else 16:9 |
+| Quality | High, Medium, Small file (constant rate factor 16, 21, 27 for H.264; 18, 24, 30 for H.265) |
+
+![The Movie menu over the helicopter rig](xms_export_movie.png)
+
+Export Movie… asks where to write it (`.mp4` is added). Each frame is drawn
+again at the movie's size, through the camera looked through (the whole gate)
+or the Viewer's own, and through the Viewer's View and Display (see
+[Colour](colour.md#viewer)), read back and handed to ffmpeg; the playhead steps
+through the range and goes back where it was. While it runs the menu shows the
+frames written, with Stop (the frames so far are kept). The status line says
+where it went, or what ffmpeg said. Settings are kept for the next time
+(`movie.txt` in the config folder).
+
+What is drawn is what the Viewer draws: the display mode, the grid, the
+skeleton and the handles of a selected operator. The file is tagged Rec. 709 at
+video levels, 4:2:0, so sizes are rounded down to even numbers.
+
+- **ffmpeg** must be installed and on the PATH (`sudo apt install ffmpeg`,
+  `brew install ffmpeg`, or ffmpeg.org on Windows), built with libx264 and
+  libx265, as the usual builds are
+- The Viewer pane must be shown while the movie is made: frames are drawn with
+  it. A frame waits for textures still loading
+- No sound, no burn-in (frame number, camera name)
+
 ## Manipulators
 
 A selected Transform, Camera or Edit Primitive node has handles in the Viewer, the same ones

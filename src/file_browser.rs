@@ -56,6 +56,8 @@ pub enum BrowseTarget {
     SaveDefinition(NodeId),
     /// An ICE compound instance's definition (in the ICE graph), likewise.
     SaveIceDefinition(crate::types::IceGraphId, NodeId),
+    /// Export Movie: the Viewer's animation as an MP4.
+    ExportMovie,
 }
 
 struct Request {

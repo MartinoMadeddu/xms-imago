@@ -97,3 +97,26 @@ pub fn resolve_source(graph: &NodeGraphState) -> TimelineState {
         from_selection,
     })
 }
+
+/// The frames the timeline plays, as playhead times, and their rate (numerator
+/// and denominator): the clip's, else the scene's range. A clip of one frame
+/// is a pose: the scene's range.
+pub fn frames(graph: &NodeGraphState) -> (Vec<f64>, (u32, u32)) {
+    match resolve_source(graph) {
+        TimelineState::Source(s) if s.clip.end_frame() > s.clip.start_frame => {
+            let c = &s.clip;
+            (
+                (c.start_frame..=c.end_frame()).map(|f| c.tc_seconds(f)).collect(),
+                (c.rate.num, c.rate.den),
+            )
+        }
+        _ => {
+            let sc = graph.scene;
+            let end = sc.end.max(sc.start + 1);
+            (
+                (sc.start..=end).map(|f| sc.seconds(f as f64)).collect(),
+                (sc.fps_num, sc.fps_den),
+            )
+        }
+    }
+}

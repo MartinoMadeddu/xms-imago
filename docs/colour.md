@@ -46,6 +46,8 @@ Viewer, which also says which config is used, so its top bar stays clear.
 Changing the display keeps the view when the display has it. The transform runs on the GPU: OpenColorIO's own shader
 for the view, written as WGSL, LUTs and all. Its overlays (the grid, the
 handles, selection) go through it too. Each pane's choice is remembered.
+Export Movie writes the Viewer's frames through the same View and Display (see
+[Interface](interface.md#export-movie)).
 
 ## Image Viewer
 

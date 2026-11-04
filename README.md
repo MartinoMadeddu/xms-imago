@@ -343,6 +343,9 @@ steps kept as a branch](docs/xms_history.png)
   edges and polygons. A or H frames everything
 - **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer
   controls, from a menu
+- **Export Movie:** the Movie menu on the Viewer writes the timeline's frames as
+  seen in the Viewer, or through the camera looked through, to an MP4 (H.264 or
+  H.265) by ffmpeg; see [docs/interface.md](docs/interface.md#export-movie)
 - **Remembered:** the layout lock, theme and navigation style come back at the
   next start; the layout itself opens as the default
 - **Copy and paste nodes:** Ctrl+C and Ctrl+V (Cmd on macOS), with their wires
@@ -462,6 +465,9 @@ page](https://github.com/MartinoMadeddu/xms-imago/releases). See
 On Ubuntu or Debian, first:
 
     sudo apt install build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0
+
+Export Movie needs [ffmpeg](https://ffmpeg.org) on the PATH (`sudo apt install
+ffmpeg`).
 
 ## Documentation
 

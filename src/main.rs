@@ -138,6 +138,11 @@ pub(crate) fn draw_ui(
         }
     }
 
+    // What became of a movie being exported.
+    if let Some(m) = viewer::movie::take_message() {
+        graph_file.message = m;
+    }
+
     // Path chosen in the file browser
     if let Some((target, path)) = browser.take_result() {
         let text = path.to_string_lossy().to_string();
@@ -233,6 +238,10 @@ pub(crate) fn draw_ui(
                         _ => format!("No material read from {}. {}", path.display(), got.notes.join(". ")),
                     },
                 };
+            }
+            // Export Movie: made from the next frame, in the Viewer.
+            BrowseTarget::ExportMovie => {
+                viewer::movie::request(viewer::movie::with_extension(&path), viewer::movie::Settings::load());
             }
             // A compound's definition written as an .icd file.
             BrowseTarget::SaveDefinition(op) => {
@@ -749,6 +758,44 @@ pub(crate) fn draw_ui(
                                 if ui.radio(looking.as_deref() == Some(c.as_str()), c.as_str()).clicked() { viewer::camera::look_through(Some(c)); ui.close(); }
                             }
                         }).response.on_hover_text("Look through a camera of the scene, or the Viewer's own (Perspective). Navigating leaves the camera, where it was");
+                        // Export Movie: the timeline's range as an MP4, through
+                        // the camera looked through.
+                        match viewer::movie::progress() {
+                            Some((done, all)) => {
+                                ui.label(egui::RichText::new(format!("Movie {done}/{all}")).small());
+                                if ui.button("Stop").on_hover_text("Stop the movie: the frames so far are kept").clicked() {
+                                    viewer::movie::stop();
+                                }
+                            }
+                            None => {
+                                let mut m = viewer::movie::Settings::load();
+                                let before = m;
+                                crate::menus::menu(ui, "Movie ⏷", |ui| {
+                                    ui.weak("Codec");
+                                    for c in viewer::movie::Codec::ALL {
+                                        ui.radio_value(&mut m.codec, c, c.label());
+                                    }
+                                    ui.separator();
+                                    ui.weak("Size");
+                                    for z in viewer::movie::Size::ALL {
+                                        ui.radio_value(&mut m.size, z, z.label());
+                                    }
+                                    ui.separator();
+                                    ui.weak("Quality");
+                                    for q in viewer::movie::Quality::ALL {
+                                        ui.radio_value(&mut m.quality, q, q.label());
+                                    }
+                                    ui.separator();
+                                    if ui.button("Export Movie…").clicked() {
+                                        browser.open(BrowseTarget::ExportMovie, BrowseMode::Save, "Export movie", &["mp4"], "movie.mp4");
+                                        ui.close();
+                                    }
+                                }).response.on_hover_text("Export Movie: the timeline's frames as seen in the Viewer, as an MP4 (H.264 or H.265), by ffmpeg");
+                                if m != before {
+                                    m.save();
+                                }
+                            }
+                        }
                         let loading = viewport::textures::pending();
                         if loading > 0 {
                             ui.label(egui::RichText::new(format!("loading {loading}")).small());
