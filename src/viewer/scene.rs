@@ -228,23 +228,29 @@ pub fn draw_modes(
     let all = total;
     // Geometry chosen in the explorer stays geometry. What may be boxed, a
     // prototype's meshes as one.
-    let mut units: Vec<(Option<(&str, u32)>, Vec<usize>, u64)> = vec![];
+    let mut units: Vec<(Vec<usize>, u64)> = vec![];
+    let mut unit_of: HashMap<(&str, u32), usize> = HashMap::new();
     for i in (0..prims.len()).filter(|&i| modes[i] == DrawMode::Default && chosen[i].is_none()) {
         let proto = prims[i]
             .instanced_by
             .as_ref()
             .map(|by| (by.instancer.as_str(), by.index));
-        match units.iter_mut().find(|u| proto.is_some() && u.0 == proto) {
-            Some(u) => {
-                u.1.push(i);
-                u.2 += cost(&prims[i]);
+        let at = match proto {
+            Some(k) => *unit_of.entry(k).or_insert_with(|| {
+                units.push((vec![], 0));
+                units.len() - 1
+            }),
+            None => {
+                units.push((vec![], 0));
+                units.len() - 1
             }
-            None => units.push((proto, vec![i], cost(&prims[i]))),
-        }
+        };
+        units[at].0.push(i);
+        units[at].1 += cost(&prims[i]);
     }
-    units.sort_by_key(|u| std::cmp::Reverse(u.2));
+    units.sort_by_key(|u| std::cmp::Reverse(u.1));
     let mut boxed = 0usize;
-    for (_, members, weight) in units {
+    for (members, weight) in units {
         if total <= budget {
             break;
         }
@@ -546,6 +552,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 }
             }
             // Purposes the Scene Explorer's toggles leave out are not drawn.
+            let filtered = crate::timings::span("viewer: which prims are drawn");
             let prims: Vec<Prim> = prims
                 .into_iter()
                 // Its purpose, or the one it inherits from a prim above it.
@@ -561,6 +568,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 // prim is not drawn.
                 .filter(|p| p.is_geometry())
                 .collect();
+            drop(filtered);
             // Closed prims of a composed stage: the box around what is below.
             let prims = if prims.iter().any(|p| p.stage.is_some()) {
                 let (shown, boxes) = {
@@ -617,7 +625,11 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 prims
             };
             // How each is drawn: geometry, its box or its origin.
-            let (modes, notice) = draw_modes(&prims, input.hierarchy, TRIANGLE_BUDGET);
+            let (modes, notice) = {
+                let _t = crate::timings::span("viewer: how each prim is drawn");
+                draw_modes(&prims, input.hierarchy, TRIANGLE_BUDGET)
+            };
+            let grouping = crate::timings::span(format!("viewer: {} prims into draws", prims.len()));
             s.notice = notice;
             let standin_ink = {
                 let c = ink(crate::theme::c(215, 215, 215));
@@ -628,7 +640,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             // one mesh share it. In Textured mode a primitive takes its
             // material: colour and opacity, colour and emissive textures,
             // cut out by the colour texture's alpha where it says so.
-            #[derive(PartialEq)]
+            #[derive(Clone, Copy, PartialEq, Eq, Hash)]
             struct Key {
                 mesh: usize,
                 kind: Kind,
@@ -636,6 +648,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 blend: bool,
             }
             let mut groups: Vec<(Key, Arc<MeshData>, Vec<f32>, Option<usize>)> = vec![];
+            // Where each key's group is: thousands of prims find theirs at once.
+            let mut group_of: HashMap<Key, usize> = HashMap::new();
             let mut looks: Vec<(usize, usize)> = vec![];
             // A box around `lo`..`hi`, or axes at the origin sized to it.
             let standin = |draw: crate::types::DrawMode, lo: Vec3, hi: Vec3| {
@@ -704,13 +718,10 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                         look: look_key,
                         blend,
                     };
-                    let at = match groups.iter().position(|g| g.0 == key) {
-                        Some(i) => i,
-                        None => {
-                            groups.push((key, p.mesh.clone(), vec![], material));
-                            groups.len() - 1
-                        }
-                    };
+                    let at = *group_of.entry(key).or_insert_with(|| {
+                        groups.push((key, p.mesh.clone(), vec![], material));
+                        groups.len() - 1
+                    });
                     for m in places {
                         push_instance_with(&mut groups[at].2, m, colour, flags);
                     }
@@ -794,6 +805,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     push_instance_with(out, &(*m * back), standin_ink, [0.0; 4]);
                 }
             }
+            drop(grouping);
             for (key, md, instances, material) in groups {
                 let geometry = cache.get(&md, key.kind, &mut used);
                 s.meshes.push(MeshDraw {

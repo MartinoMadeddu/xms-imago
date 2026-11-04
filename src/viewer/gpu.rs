@@ -588,6 +588,7 @@ impl ViewerGpu {
     /// The scene's meshes and lines into GPU buffers. Meshes already there (the
     /// same geometry) are kept.
     fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene) {
+        let _t = crate::timings::span(format!("viewer: send {} draws to the GPU", scene.meshes.len()));
         // Textures: the ones already on the GPU are kept, new ones uploaded
         // with their smaller copies, unused ones let go.
         let mut textures: HashMap<PathBuf, (Arc<Decoded>, wgpu::TextureView)> = HashMap::new();
@@ -635,18 +636,24 @@ impl ViewerGpu {
             })
             .collect();
 
+        // Meshes by their geometry: a scene of thousands finds each at once.
         let mut meshes: Vec<GpuMesh> = vec![];
-        let mut old: Vec<GpuMesh> = std::mem::take(&mut self.meshes);
+        let mut index: HashMap<*const Geometry, usize> = HashMap::new();
+        let mut old: HashMap<*const Geometry, GpuMesh> = std::mem::take(&mut self.meshes)
+            .into_iter()
+            .map(|m| (Arc::as_ptr(&m.geometry), m))
+            .collect();
         self.draws.clear();
         for d in &scene.meshes {
             if d.geometry.indices.is_empty() || d.instances.is_empty() {
                 continue;
             }
-            let mesh = match meshes.iter().position(|m| Arc::ptr_eq(&m.geometry, &d.geometry)) {
-                Some(i) => i,
+            let key = Arc::as_ptr(&d.geometry);
+            let mesh = match index.get(&key) {
+                Some(&i) => i,
                 None => {
-                    let gm = match old.iter().position(|m| Arc::ptr_eq(&m.geometry, &d.geometry)) {
-                        Some(i) => old.swap_remove(i),
+                    let gm = match old.remove(&key) {
+                        Some(m) => m,
                         None => GpuMesh {
                             geometry: d.geometry.clone(),
                             parts: parts(&d.geometry, if d.edges { 2 } else { 3 })
@@ -670,6 +677,7 @@ impl ViewerGpu {
                         },
                     };
                     meshes.push(gm);
+                    index.insert(key, meshes.len() - 1);
                     meshes.len() - 1
                 }
             };
