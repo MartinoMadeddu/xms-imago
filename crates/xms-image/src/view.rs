@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use crate::image::{Image, Layer, Look, Show};
+use crate::image::{Image, Layer, Look, Show, Transform};
 
 /// An image kept: what it was, and the name it is listed by.
 pub struct Snap {
@@ -32,15 +32,17 @@ pub struct ImageView {
     pub layer: String,
     pub show: Show,
     pub look: Look,
+    /// The display transform the program gives, in place of sRGB's curve.
+    pub display: Option<Transform>,
     /// Screen pixels per image pixel, when not fitted.
     zoom: f32,
     /// The frame's centre from the canvas's, in screen pixels.
     pan: egui::Vec2,
     fit: bool,
     texture: Option<egui::TextureHandle>,
-    /// What the texture holds: the image, layer, show and look it was made
-    /// from.
-    made: Option<(usize, String, Show, [u32; 3])>,
+    /// What the texture holds: the image, layer, show, look and display
+    /// transform it was made from.
+    made: Option<(usize, String, Show, [u32; 3], Option<u64>)>,
     /// Images kept, oldest first.
     pub snaps: Vec<Snap>,
     /// The snapshot shown, by index; `None`: the active image.
@@ -57,6 +59,7 @@ impl Default for ImageView {
             layer: "RGBA".into(),
             show: Show::Colour,
             look: Look::default(),
+            display: None,
             zoom: 1.0,
             pan: egui::Vec2::ZERO,
             fit: true,
@@ -210,9 +213,12 @@ impl ImageView {
                 .max_decimals(2)
                 .prefix("Gamma "),
         );
-        ui.checkbox(&mut self.look.srgb, "sRGB")
-            .on_hover_text("Renders are linear: sRGB's transfer shows them as they are meant to be seen");
-        if ui.button("Reset").on_hover_text("Exposure 0, gamma 1, sRGB").clicked() {
+        // With a display transform, it does what sRGB's curve does.
+        if self.display.is_none() {
+            ui.checkbox(&mut self.look.srgb, "sRGB")
+                .on_hover_text("Renders are linear: sRGB's transfer shows them as they are meant to be seen");
+        }
+        if ui.button("Reset").on_hover_text("Exposure 0, gamma 1").clicked() {
             self.look = Look::default();
         }
         if ui
@@ -331,9 +337,10 @@ impl ImageView {
                 self.look.gamma.to_bits(),
                 self.look.srgb as u32,
             ],
+            self.display.as_ref().map(|t| t.id),
         );
         if self.made.as_ref() != Some(&key) || self.texture.is_none() {
-            let pixels = image.display(&layer, self.show, &self.look);
+            let pixels = image.display_through(&layer, self.show, &self.look, self.display.as_ref());
             let colour = egui::ColorImage::from_rgba_unmultiplied([image.width.max(1), image.height.max(1)], &pixels);
             match &mut self.texture {
                 Some(t) => t.set(colour, egui::TextureOptions::NEAREST),

@@ -1,0 +1,250 @@
+ocio_profile_version: 2.4
+
+environment:
+  {}
+search_path: ""
+strictparsing: true
+luma: [0.2126, 0.7152, 0.0722]
+name: xms-imago-v1
+description: |
+  XMS | Imago's own config, used when $OCIO names none. A part of the ACES CG
+  config (cg-config-v2.2.0_aces-v1.3_ocio-v2.4, BSD-3-Clause, the Academy
+  Software Foundation): its colour spaces, displays and views as they are
+  there, with Linear Rec.709 (sRGB) as the scene-linear space (USD's default
+  colour space) and Un-tone-mapped as each display's first view. It reads no
+  files.
+
+roles:
+  aces_interchange: ACES2065-1
+  cie_xyz_d65_interchange: CIE XYZ-D65 - Display-referred
+  color_picking: sRGB Encoded Rec.709 (sRGB)
+  color_timing: ACEScct
+  compositing_log: ACEScct
+  data: Raw
+  default: Linear Rec.709 (sRGB)
+  matte_paint: sRGB Encoded Rec.709 (sRGB)
+  rendering: Linear Rec.709 (sRGB)
+  scene_linear: Linear Rec.709 (sRGB)
+  texture_paint: sRGB Encoded Rec.709 (sRGB)
+
+file_rules:
+  - !<Rule> {name: Default, colorspace: default}
+
+shared_views:
+  - !<View> {name: Un-tone-mapped, view_transform: Un-tone-mapped, display_colorspace: <USE_DISPLAY_NAME>}
+  - !<View> {name: ACES 1.0 - SDR Video, view_transform: ACES 1.0 - SDR Video, display_colorspace: <USE_DISPLAY_NAME>}
+
+displays:
+  sRGB - Display:
+    - !<Views> [Un-tone-mapped, ACES 1.0 - SDR Video]
+    - !<View> {name: Raw, colorspace: Raw}
+  Display P3 - Display:
+    - !<Views> [Un-tone-mapped, ACES 1.0 - SDR Video]
+    - !<View> {name: Raw, colorspace: Raw}
+
+active_displays: [sRGB - Display, Display P3 - Display]
+active_views: [Un-tone-mapped, ACES 1.0 - SDR Video, Raw]
+inactive_colorspaces: [CIE XYZ-D65 - Display-referred]
+
+default_view_transform: Un-tone-mapped
+
+view_transforms:
+  - !<ViewTransform>
+    name: ACES 1.0 - SDR Video
+    description: |
+      Component of ACES Output Transforms for SDR D65 video
+
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.RGBmonitor_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.DisplayP3_dim.a1.0.0
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.Rec709_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.Rec2020_100nits_dim.a1.0.3
+
+      AMF Components
+      --------------
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.RGBmonitor_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.DisplayP3_dim.a1.0.0
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.Rec709_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.Rec2020_100nits_dim.a1.0.3
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-VIDEO_1.0}
+
+  - !<ViewTransform>
+    name: Un-tone-mapped
+    from_scene_reference: !<BuiltinTransform> {style: UTILITY - ACES-AP0_to_CIE-XYZ-D65_BFD}
+
+display_colorspaces:
+  - !<ColorSpace>
+    name: CIE XYZ-D65 - Display-referred
+    aliases: [cie_xyz_d65_display, lin_ciexyzd65_display]
+    family: ""
+    equalitygroup: ""
+    bitdepth: 32f
+    description: The "CIE XYZ (D65)" display connection colorspace.
+    isdata: false
+    encoding: display-linear
+    allocation: uniform
+
+  - !<ColorSpace>
+    name: sRGB - Display
+    aliases: [srgb_display]
+    family: Display
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert CIE XYZ (D65 white) to sRGB (piecewise EOTF)
+
+      AMF Components
+      --------------
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.RGBmonitor_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.RGBmonitor_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.RGBmonitor_D60sim_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.RGBmonitor_D60sim_100nits_dim.a1.0.3
+    isdata: false
+    categories: [file-io]
+    encoding: sdr-video
+    allocation: uniform
+    from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_sRGB}
+
+  - !<ColorSpace>
+    name: Display P3 - Display
+    aliases: [displayp3_display]
+    family: Display
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert CIE XYZ (D65 white) to Apple Display P3
+
+      AMF Components
+      --------------
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.DisplayP3_dim.a1.0.0
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.DisplayP3_dim.a1.0.0
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.DisplayP3_D60sim_dim.a1.0.0
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.DisplayP3_D60sim_dim.a1.0.0
+    isdata: false
+    categories: [file-io]
+    encoding: sdr-video
+    allocation: uniform
+    from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_DisplayP3}
+
+colorspaces:
+  - !<ColorSpace>
+    name: ACES2065-1
+    aliases: [aces2065_1, aces, ACES - ACES2065-1, lin_ap0, lin_ap0_scene]
+    family: ACES
+    equalitygroup: ""
+    bitdepth: 32f
+    description: The "Academy Color Encoding System" reference colorspace.
+    isdata: false
+    categories: [file-io, texture]
+    encoding: scene-linear
+    allocation: uniform
+
+  - !<ColorSpace>
+    name: ACEScct
+    aliases: [ACES - ACEScct, acescct_ap1]
+    family: ACES
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert ACEScct to ACES2065-1
+
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ACEScsc.Academy.ACEScct_to_ACES.a1.0.3
+
+      AMF Components
+      --------------
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ACEScsc.Academy.ACES_to_ACEScct.a1.0.3
+    isdata: false
+    categories: [file-io, working-space]
+    encoding: log
+    allocation: uniform
+    to_scene_reference: !<BuiltinTransform> {style: ACEScct_to_ACES2065-1}
+
+  - !<ColorSpace>
+    name: ACEScg
+    aliases: [ACES - ACEScg, lin_ap1, lin_ap1_scene]
+    family: ACES
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert ACEScg to ACES2065-1
+
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ACEScsc.Academy.ACEScg_to_ACES.a1.0.3
+
+      AMF Components
+      --------------
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ACEScsc.Academy.ACES_to_ACEScg.a1.0.3
+    isdata: false
+    categories: [file-io, working-space, texture]
+    encoding: scene-linear
+    allocation: uniform
+    to_scene_reference: !<BuiltinTransform> {style: ACEScg_to_ACES2065-1}
+
+  - !<ColorSpace>
+    name: Linear Rec.709 (sRGB)
+    aliases: [lin_rec709_srgb, Utility - Linear - Rec.709, lin_rec709, lin_rec709_scene, lin_srgb, Utility - Linear - sRGB]
+    family: Utility
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert ACES2065-1 to linear Rec.709 primaries, D65 white point
+
+      CLFtransformID: urn:aswf:ocio:transformId:1.0:OCIO:Utility:AP0_to_Linear_Rec709:1.0
+    isdata: false
+    categories: [file-io, working-space, texture]
+    encoding: scene-linear
+    allocation: uniform
+    from_scene_reference: !<GroupTransform>
+      name: AP0 to Linear Rec.709 (sRGB)
+      children:
+        - !<MatrixTransform> {matrix: [2.52168618674388, -1.13413098823972, -0.387555198504164, 0, -0.276479914229922, 1.37271908766826, -0.096239173438334, 0, -0.0153780649660342, -0.152975335867399, 1.16835340083343, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: Linear P3-D65
+    aliases: [lin_p3d65, Utility - Linear - P3-D65, lin_displayp3, lin_p3d65_scene, Linear Display P3]
+    family: Utility
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert ACES2065-1 to linear P3 primaries, D65 white point
+
+      CLFtransformID: urn:aswf:ocio:transformId:1.0:OCIO:Utility:AP0_to_Linear_P3-D65:1.0
+    isdata: false
+    categories: [file-io, working-space, texture]
+    encoding: scene-linear
+    allocation: uniform
+    from_scene_reference: !<GroupTransform>
+      name: AP0 to Linear P3-D65
+      children:
+        - !<MatrixTransform> {matrix: [2.02490528596679, -0.689069761034766, -0.335835524932019, 0, -0.183597032256178, 1.28950620775902, -0.105909175502841, 0, 0.00905856112234766, -0.0592796840575522, 1.0502211229352, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: sRGB Encoded Rec.709 (sRGB)
+    aliases: [srgb_encoded_rec709_srgb, Utility - sRGB - Texture, srgb_texture, srgb_rec709_scene, Input - Generic - sRGB - Texture, sRGB - Texture, srgb_tx]
+    family: Utility
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert ACES2065-1 to sRGB
+
+      CLFtransformID: urn:aswf:ocio:transformId:1.0:OCIO:Utility:AP0_to_sRGB-Encoded-Rec709:1.0
+    isdata: false
+    categories: [file-io, texture]
+    encoding: sdr-video
+    allocation: uniform
+    from_scene_reference: !<GroupTransform>
+      name: AP0 to sRGB Encoded Rec.709 (sRGB)
+      children:
+        - !<MatrixTransform> {matrix: [2.52168618674388, -1.13413098823972, -0.387555198504164, 0, -0.276479914229922, 1.37271908766826, -0.096239173438334, 0, -0.0153780649660342, -0.152975335867399, 1.16835340083343, 0, 0, 0, 0, 1]}
+        - !<ExponentWithLinearTransform> {gamma: 2.4, offset: 0.055, direction: inverse}
+
+  - !<ColorSpace>
+    name: Raw
+    aliases: [Utility - Raw, none]
+    family: Utility
+    equalitygroup: ""
+    bitdepth: 32f
+    description: The utility "Raw" colorspace.
+    isdata: true
+    categories: [file-io, texture]
+    encoding: data
+    allocation: uniform
+

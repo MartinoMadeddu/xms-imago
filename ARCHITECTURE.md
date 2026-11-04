@@ -345,6 +345,18 @@ copying.
 
 ## 7. Viewer
 
+- **Colour managed** (`crates/xms-colour`, `src/colour.rs`, `docs/colour.md`):
+  one OpenColorIO config for the program (`Colour::get`: `$OCIO`'s, else
+  `imago.ocio`, embedded), the scene in USD's linear Rec.709 (found in the
+  config by name or alias, else `scene_linear`). The Viewer's picture is
+  `Rgba16Float`, linear; its blit runs the chosen view's transform as WGSL
+  (`Colour::shader`: OpenColorIO's shader text before `blit.wgsl`, its
+  uniforms and LUTs in bind group 1, made again when the view changes,
+  `viewer::gpu::display`; `display_fallback.wgsl`, sRGB's curve, when it cannot
+  be made). The Image Viewer's picture goes through the same view on the CPU
+  (`Colour::cpu`, from the image's colour space) as an `xms_image::Transform`.
+  Each pane's display and view is remembered (`colour::view`, `set_view`).
+
 - **One scene, at the view flag.** `NodeGraphState::evaluate_scene` gives the
   scene at the view flag: the viewed output (`view_output`) of the viewed
   operator. There is no Output node; one operator always has the flag
@@ -496,7 +508,8 @@ Three layers.
 | `src/core/sequences.rs` | File sequences and UDIM tiles: the files a `<UDIM>` path stands for, a folder's files with sequences as one entry (the file browser); the Viewer's textures lay UDIM tiles out in one image (`viewport::textures`) and scale each material's UVs to it (`viewer::gpu::map_place`) |
 | `src/graph_ports.rs` | What every graph does the same way with ports, wires and selection: a port picked to unplug (`Picked`), the marquee and the picked-port ring |
 | `crates/xms-ice` | the ICE engine: graph, compiler, batched executor |
-| `crates/xms-image` | Images: `Image` (float channels, grouped into layers by name; shown through a `Look`: exposure, gamma, sRGB; pure std), `read` (every layer and channel of an OpenEXR file with the `exr` crate; PNG, JPEG, TIFF, TGA, HDR as linear RGBA), `ImageView` (egui: layer and channel menus, look, zoom, pan, the values under the pointer). Knows nothing of Imago's scene |
+| `crates/xms-colour`, `src/colour.rs` | Colour management: the OpenColorIO config (`$OCIO`'s, else `imago.ocio`), its displays, views and spaces, a view's transform for the CPU (`Cpu`) and as WGSL with its resources (`Shader`); in the app, each pane's display and view, and the colour menu |
+| `crates/xms-image` | Images: `Image` (float channels, grouped into layers by name; shown through a `Look`: exposure, gamma, sRGB, or a display `Transform` the program gives; pure std), `read` (every layer and channel of an OpenEXR file with the `exr` crate; PNG, JPEG, TIFF, TGA, HDR as linear RGBA), `ImageView` (egui: layer and channel menus, look, zoom, pan, the values under the pointer). Knows nothing of Imago's scene |
 | `src/image_viewer.rs` | The Image Viewer pane: its RenderSettings and camera menus (`render::settings_list`, `render::cameras`), Render and Stop (the scene written to a temporary layer, its command line run on it through `core::command`: a preset (`VIEWER_PRESETS`, husk or kick) or the user's, its own tokens in `Tokens::more`, `command::without_empty` leaving out an option whose token stands for nothing; husk's `--snapshot` saves read again as they are written), and the view |
 | `src/core/properties.rs` | Properties: values and their types, Object and Property contexts, the properties Imago knows and how each is written, opinions on prims without geometry, inheritance (visibility, purpose, Object values) |
 | `src/core/render.rs`, `assets/renderers/` | Rendering as UsdRender has it: render prims (`RenderPrim`), the Render Commons, Render Settings and Render Variables operators' work, finding the RenderSettings prim, renderer definitions (Karma, Arnold as JSON; more from the renderers folder). Their panels: `src/properties/render.rs` |

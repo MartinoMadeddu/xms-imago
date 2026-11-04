@@ -1,5 +1,6 @@
 mod app;
 mod batch;
+mod colour;
 mod compounds;
 mod core;
 mod curve_editor;
@@ -723,6 +724,7 @@ pub(crate) fn draw_ui(
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
                         }).response.on_hover_text("How meshes are drawn");
+                        crate::colour::menu(ui, crate::colour::Pane::Viewer);
                         // Through a camera of the scene, or the Viewer's own.
                         let looking = viewer::camera::looking_through();
                         let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());

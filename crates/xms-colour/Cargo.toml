@@ -1,0 +1,9 @@
+[package]
+name = "xms-colour"
+version.workspace = true
+edition = "2021"
+description = "XMS | Imago's colour management: an OpenColorIO config ($OCIO, else Imago's own), its displays and views, and their transforms for the CPU and as WGSL"
+
+[dependencies]
+# OpenColorIO in pure Rust: configs, processors, WGSL shaders.
+ocio = "0.3"

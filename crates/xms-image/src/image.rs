@@ -109,7 +109,34 @@ impl Default for Look {
     }
 }
 
+/// A display transform the program gives (OpenColorIO's): linear RGBA to what
+/// the display is sent, in place. `id` tells one from another, so a change
+/// makes the picture again.
+#[derive(Clone)]
+pub struct Transform {
+    pub id: u64,
+    pub apply: std::sync::Arc<dyn Fn(&mut [[f32; 4]]) + Send + Sync>,
+}
+
+impl std::fmt::Debug for Transform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Transform({})", self.id)
+    }
+}
+
 impl Look {
+    /// A value a display transform gave, as a byte: gamma, then clamped.
+    pub fn display_byte(&self, v: f32) -> u8 {
+        if !v.is_finite() {
+            return 0;
+        }
+        let mut x = v.max(0.0);
+        if (self.gamma - 1.0).abs() > 1e-6 && self.gamma > 0.0 {
+            x = x.powf(1.0 / self.gamma);
+        }
+        (x.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+    }
+
     /// A linear value as a byte on screen.
     pub fn byte(&self, v: f32) -> u8 {
         if !v.is_finite() {
@@ -229,47 +256,38 @@ impl Image {
 
     /// A layer as it is shown: 8-bit RGBA, rows from the top, opaque.
     pub fn display(&self, layer: &Layer, show: Show, look: &Look) -> Vec<u8> {
+        self.display_through(layer, show, look, None)
+    }
+
+    /// As `display`, its colours through `transform` in place of sRGB's
+    /// curve: the exposure before it, the gamma after. Alpha is shown as it
+    /// is.
+    pub fn display_through(&self, layer: &Layer, show: Show, look: &Look, transform: Option<&Transform>) -> Vec<u8> {
         let n = self.width * self.height;
+        if let Some(t) = transform.filter(|_| show != Show::Alpha) {
+            let gain = look.exposure.exp2();
+            let mut px: Vec<[f32; 4]> = (0..n)
+                .map(|p| {
+                    let [r, g, b] = self.shown_rgb(layer, show, p);
+                    [r * gain, g * gain, b * gain, 1.0]
+                })
+                .collect();
+            (t.apply)(&mut px);
+            return px
+                .iter()
+                .flat_map(|c| {
+                    [
+                        look.display_byte(c[0]),
+                        look.display_byte(c[1]),
+                        look.display_byte(c[2]),
+                        255,
+                    ]
+                })
+                .collect();
+        }
         let mut out = vec![0u8; n * 4];
-        let [r, g, b, a] = layer.rgba;
-        let grey = layer.colours() == 1;
-        let lum = |p: usize| {
-            let (x, y, z) = (
-                self.at(r, p),
-                if grey { self.at(r, p) } else { self.at(g, p) },
-                if grey { self.at(r, p) } else { self.at(b, p) },
-            );
-            0.2126 * x + 0.7152 * y + 0.0722 * z
-        };
         for p in 0..n {
-            let rgb = match show {
-                Show::Colour if grey => {
-                    let v = self.at(r.or(g).or(b), p);
-                    [v, v, v]
-                }
-                Show::Colour => [self.at(r, p), self.at(g, p), self.at(b, p)],
-                Show::Red => {
-                    let v = self.at(r, p);
-                    [v, v, v]
-                }
-                Show::Green => {
-                    let v = self.at(g, p);
-                    [v, v, v]
-                }
-                Show::Blue => {
-                    let v = self.at(b, p);
-                    [v, v, v]
-                }
-                // No alpha: opaque.
-                Show::Alpha => {
-                    let v = if a.is_some() { self.at(a, p) } else { 1.0 };
-                    [v, v, v]
-                }
-                Show::Luminance => {
-                    let v = lum(p);
-                    [v, v, v]
-                }
-            };
+            let rgb = self.shown_rgb(layer, show, p);
             // Alpha is shown as it is: it is not light.
             let byte = |v: f32| {
                 if show == Show::Alpha {
@@ -284,6 +302,31 @@ impl Image {
             out[p * 4 + 3] = 255;
         }
         out
+    }
+
+    /// What a pixel shows of a layer, as RGB: its colour, one channel as
+    /// grey, its alpha (1 without), or its luminance.
+    fn shown_rgb(&self, layer: &Layer, show: Show, p: usize) -> [f32; 3] {
+        let [r, g, b, a] = layer.rgba;
+        let grey = layer.colours() == 1;
+        let one = |v: f32| [v, v, v];
+        match show {
+            Show::Colour if grey => one(self.at(r.or(g).or(b), p)),
+            Show::Colour => [self.at(r, p), self.at(g, p), self.at(b, p)],
+            Show::Red => one(self.at(r, p)),
+            Show::Green => one(self.at(g, p)),
+            Show::Blue => one(self.at(b, p)),
+            Show::Alpha => one(if a.is_some() { self.at(a, p) } else { 1.0 }),
+            Show::Luminance => {
+                let (x, y, z) = if grey {
+                    let v = self.at(r, p);
+                    (v, v, v)
+                } else {
+                    (self.at(r, p), self.at(g, p), self.at(b, p))
+                };
+                one(0.2126 * x + 0.7152 * y + 0.0722 * z)
+            }
+        }
     }
 
     /// Every channel of a layer at a pixel: name and value. Empty outside it.
@@ -303,6 +346,35 @@ impl Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A display transform replaces sRGB's curve: the exposure before it,
+    /// the gamma after; alpha is shown as it is.
+    #[test]
+    fn a_display_transform_shows_the_colours() {
+        let img = Image::filled(1, 1, &["R", "G", "B", "A"], 0.25);
+        let l = &img.layers()[0];
+        let halve = Transform {
+            id: 1,
+            apply: std::sync::Arc::new(|px: &mut [[f32; 4]]| {
+                for p in px {
+                    p[0] *= 0.5;
+                    p[1] *= 0.5;
+                    p[2] *= 0.5;
+                }
+            }),
+        };
+        let look = Look {
+            exposure: 1.0,
+            ..Look::default()
+        };
+        // 0.25, one stop up, halved: 0.25.
+        assert_eq!(img.display_through(l, Show::Colour, &look, Some(&halve))[0], 64);
+        assert_eq!(
+            img.display_through(l, Show::Alpha, &look, Some(&halve))[0],
+            64,
+            "alpha as it is"
+        );
+    }
 
     #[test]
     fn channels_are_grouped_into_layers() {

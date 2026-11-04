@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.95"
 
 [workspace]
-members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx", "crates/xms-geo", "crates/xms-ice", "crates/xms-image", "crates/xms-alembic"]
+members = [".", "crates/ragdoll", "crates/xms-scene", "crates/xms-usd", "crates/xms-matx", "crates/xms-geo", "crates/xms-ice", "crates/xms-image", "crates/xms-alembic", "crates/xms-colour"]
 resolver = "2"
 
 
@@ -23,6 +23,8 @@ xms-geo   = { path = "crates/xms-geo" }
 xms-ice   = { path = "crates/xms-ice" }
 # Images: renders as layers of float channels, OpenEXR read whole, and their view.
 xms-image = { path = "crates/xms-image" }
+# Colour management: OpenColorIO, $OCIO's config or Imago's own.
+xms-colour = { path = "crates/xms-colour" }
 
 glam = { version = "0.27", features = ["serde"] }
 egui = "0.36"

@@ -176,6 +176,7 @@ impl Viewer {
             clear: scene::linear(crate::theme::viewport_bg()),
             scene: self.scene.clone(),
             overlay,
+            display: crate::colour::view(crate::colour::Pane::Viewer),
         };
         ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
             rect,

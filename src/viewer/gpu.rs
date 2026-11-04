@@ -1,6 +1,7 @@
 //! The Viewer on wgpu: its picture is drawn into a texture of its own (with
 //! depth and 4x multisampling) before egui draws the interface, then laid into
-//! the Viewer's rectangle with egui's paint callback.
+//! the Viewer's rectangle with egui's paint callback, through the display
+//! transform of the view chosen (`xms_colour`).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,8 +16,11 @@ use crate::viewport::textures::Decoded;
 
 /// Samples of the Viewer's own picture.
 const SAMPLES: u32 = 4;
-/// The picture's format: sRGB, so blending happens in linear light.
-const PICTURE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// The picture's format: half floats, so it keeps light brighter than 1 for
+/// the display transform, and blending happens in linear light.
+const PICTURE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// Textures' format: sRGB bytes, read back as linear.
+const MAP: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 const MESH_ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 8 => Float32x2];
@@ -41,6 +45,8 @@ pub struct Frame {
     pub scene: Arc<Scene>,
     /// Lines of this frame only (Edit Poly's wireframe and manipulator).
     pub overlay: super::edit::Overlay,
+    /// The display and view the picture is shown in.
+    pub display: crate::colour::View,
 }
 
 /// Every buffer stays under this size: wgpu's guaranteed maximum is 256 MB, and
@@ -153,8 +159,10 @@ pub struct ViewerGpu {
     points: wgpu::RenderPipeline,
     point_buffer: Option<(wgpu::Buffer, u32)>,
     frame_lines: [Vec<(wgpu::Buffer, u32)>; 2],
-    blit: wgpu::RenderPipeline,
+    display: Display,
     blit_layout: wgpu::BindGroupLayout,
+    egui_format: wgpu::TextureFormat,
+    egui_samples: u32,
     sampler: wgpu::Sampler,
     /// Textures by file, kept while a material uses them.
     material_layout: wgpu::BindGroupLayout,
@@ -184,10 +192,6 @@ impl ViewerGpu {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("viewer"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders.wgsl").into()),
-        });
-        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("viewer blit"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
         });
 
         let view_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -440,46 +444,14 @@ impl ViewerGpu {
                 },
             ],
         });
-        let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("viewer blit"),
-            bind_group_layouts: &[Some(&blit_layout)],
-            immediate_size: 0,
-        });
-        // egui's target is usually not sRGB: the picture is encoded on the way.
-        let fs = if egui_format.is_srgb() {
-            "fs_blit_linear"
-        } else {
-            "fs_blit_encode"
-        };
-        let blit = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("viewer blit"),
-            layout: Some(&blit_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_shader,
-                entry_point: Some("vs_blit"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_shader,
-                entry_point: Some(fs),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: egui_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: egui_samples.max(1),
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        });
+        let display = display(
+            device,
+            queue,
+            &blit_layout,
+            egui_format,
+            egui_samples,
+            &crate::colour::view(crate::colour::Pane::Viewer),
+        );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("viewer blit"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -511,7 +483,7 @@ impl ViewerGpu {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: PICTURE,
+                    format: MAP,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 },
@@ -534,8 +506,10 @@ impl ViewerGpu {
             frame_lines: [vec![], vec![]],
             points,
             point_buffer: None,
-            blit,
+            display,
             blit_layout,
+            egui_format,
+            egui_samples,
             sampler,
             material_layout,
             map_sampler,
@@ -882,7 +856,7 @@ fn upload_texture(device: &wgpu::Device, queue: &wgpu::Queue, d: &Decoded) -> Op
         mip_level_count: levels,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: PICTURE,
+        format: MAP,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -917,6 +891,187 @@ fn upload_texture(device: &wgpu::Device, queue: &wgpu::Queue, d: &Decoded) -> Op
     Some(texture.create_view(&wgpu::TextureViewDescriptor::default()))
 }
 
+/// The pass laying the picture into egui's, for one display and view: the
+/// view's transform as WGSL before `blit.wgsl`, its uniforms and LUTs in bind
+/// group 1.
+struct Display {
+    view: crate::colour::View,
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+}
+
+/// The Viewer's display pass for `view`. A view whose transform cannot be made
+/// is shown through sRGB's curve, and the reason printed.
+fn display(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    blit_layout: &wgpu::BindGroupLayout,
+    egui_format: wgpu::TextureFormat,
+    egui_samples: u32,
+    view: &crate::colour::View,
+) -> Display {
+    let shader = crate::colour::Colour::get()
+        .shader(view, "imago_display", 1)
+        .unwrap_or_else(|e| {
+            eprintln!("Viewer colour: {e}; shown through sRGB's curve");
+            xms_colour::Shader {
+                text: include_str!("display_fallback.wgsl").into(),
+                function: "imago_display".into(),
+                group: 1,
+                uniforms: None,
+                textures: vec![],
+            }
+        });
+    let mut entries: Vec<wgpu::BindGroupLayoutEntry> = vec![];
+    let mut buffers: Vec<(u32, wgpu::Buffer)> = vec![];
+    if let Some((binding, bytes)) = &shader.uniforms {
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: *binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: wgpu::BufferSize::new(bytes.len() as u64),
+            },
+            count: None,
+        });
+        buffers.push((
+            *binding,
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("viewer display uniforms"),
+                contents: bytes,
+                usage: wgpu::BufferUsages::UNIFORM,
+            }),
+        ));
+    }
+    let dimension = |d: u32| match d {
+        1 => (wgpu::TextureDimension::D1, wgpu::TextureViewDimension::D1),
+        2 => (wgpu::TextureDimension::D2, wgpu::TextureViewDimension::D2),
+        _ => (wgpu::TextureDimension::D3, wgpu::TextureViewDimension::D3),
+    };
+    let mut views: Vec<(u32, wgpu::TextureView)> = vec![];
+    for t in &shader.textures {
+        let (dim, view_dim) = dimension(t.dimensions);
+        // Read with textureLoad alone: no filtering needed.
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: t.binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: view_dim,
+                multisampled: false,
+            },
+            count: None,
+        });
+        let size = wgpu::Extent3d {
+            width: t.size[0],
+            height: t.size[1],
+            depth_or_array_layers: t.size[2],
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("viewer display LUT"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: dim,
+            format: if t.rgba {
+                wgpu::TextureFormat::Rgba32Float
+            } else {
+                wgpu::TextureFormat::R32Float
+            },
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            texture.as_image_copy(),
+            &t.bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(t.bytes_per_row),
+                rows_per_image: Some(t.size[1]),
+            },
+            size,
+        );
+        views.push((
+            t.binding,
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(view_dim),
+                ..Default::default()
+            }),
+        ));
+    }
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("viewer display"),
+        entries: &entries,
+    });
+    let mut resources: Vec<wgpu::BindGroupEntry> = buffers
+        .iter()
+        .map(|(binding, b)| wgpu::BindGroupEntry {
+            binding: *binding,
+            resource: b.as_entire_binding(),
+        })
+        .collect();
+    resources.extend(views.iter().map(|(binding, v)| wgpu::BindGroupEntry {
+        binding: *binding,
+        resource: wgpu::BindingResource::TextureView(v),
+    }));
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("viewer display"),
+        layout: &layout,
+        entries: &resources,
+    });
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("viewer blit"),
+        source: wgpu::ShaderSource::Wgsl(format!("{}\n{}", shader.text, include_str!("blit.wgsl")).into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("viewer blit"),
+        bind_group_layouts: &[Some(blit_layout), Some(&layout)],
+        immediate_size: 0,
+    });
+    // An sRGB target encodes what it is given: the display's colours are
+    // decoded for it.
+    let fs = if egui_format.is_srgb() {
+        "fs_blit_srgb"
+    } else {
+        "fs_blit"
+    };
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("viewer blit"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs_blit"),
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some(fs),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: egui_format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: egui_samples.max(1),
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview_mask: None,
+        cache: None,
+    });
+    Display {
+        view: view.clone(),
+        pipeline,
+        group,
+    }
+}
+
 /// The Viewer's paint callback: draws the picture before egui's pass, and lays
 /// it into the Viewer's rectangle during it.
 pub struct ViewerPaint(pub Frame);
@@ -935,6 +1090,16 @@ impl CallbackTrait for ViewerPaint {
         };
         let f = &self.0;
         gpu.ensure_target(device, [f.size[0].max(1), f.size[1].max(1)]);
+        if gpu.display.view != f.display {
+            gpu.display = display(
+                device,
+                queue,
+                &gpu.blit_layout,
+                gpu.egui_format,
+                gpu.egui_samples,
+                &f.display,
+            );
+        }
         if gpu.generation != f.scene.generation {
             gpu.upload(device, queue, &f.scene);
         }
@@ -972,8 +1137,9 @@ impl CallbackTrait for ViewerPaint {
             return;
         };
         let Some(t) = &gpu.target else { return };
-        pass.set_pipeline(&gpu.blit);
+        pass.set_pipeline(&gpu.display.pipeline);
         pass.set_bind_group(0, &t.blit, &[]);
+        pass.set_bind_group(1, &gpu.display.group, &[]);
         pass.draw(0..3, 0..1);
     }
 }

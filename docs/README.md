@@ -20,6 +20,8 @@
 - [Rendering](render.md): Render Commons, Render Settings (Karma, Arnold,
   Custom, renderer definition files, AOVs), Render Variables, as UsdRender prims
   Write USD writes
+- [Colour](colour.md): OpenColorIO, `$OCIO`'s config or Imago's own, the
+  Viewer's and the Image Viewer's displays and views
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and
   how edits are found. For anyone writing a node
 - [Viewer navigation](navigation.md): the seven navigation styles, framing keys

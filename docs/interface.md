@@ -608,6 +608,13 @@ Fields that choose things by name take patterns instead of exact names:
 
 Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
 
+## Colour
+
+The colour menu at the top of the Viewer, after the display mode, chooses the
+display and view the scene is shown in (OpenColorIO's; see
+[Colour](colour.md)). The Image Viewer has its own, with the image's colour
+space beside it.
+
 ## Looking through a camera
 
 The 🎥 menu at the top of the Viewer, next to the display mode, lists the cameras

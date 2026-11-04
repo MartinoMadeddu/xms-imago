@@ -166,8 +166,13 @@ selection](docs/xms_edit_poly.png)
 - **Image Viewer pane:** render the scene the view flag shows from its top bar
   (which RenderSettings prim, which camera, Render, Stop) with husk, kick or
   your own command line (⚙, with tokens), the image coming in as it renders;
-  every layer (AOV) and channel of an EXR, exposure, gamma, sRGB, zoom and the
-  float values under the pointer (see [Rendering](docs/render.md#image-viewer))
+  every layer (AOV) and channel of an EXR, exposure, gamma, its colour space
+  and view, zoom and the float values under the pointer (see
+  [Rendering](docs/render.md#image-viewer))
+- **Colour managed:** OpenColorIO (the pure-Rust `ocio` crate) with `$OCIO`'s
+  config, or Imago's own built in (sRGB and Display P3; Un-tone-mapped, ACES
+  1.0 SDR Video, Raw): the Viewer's view runs on the GPU as OpenColorIO's own
+  shader (see [Colour](docs/colour.md))
 - **Rendering, as USD has it:** Render Commons makes the RenderSettings prim
   (camera, resolution, pixel aspect, conform, overscan, motion blur, depth of
   field, purposes) and its RenderProduct; Render Settings puts a renderer's

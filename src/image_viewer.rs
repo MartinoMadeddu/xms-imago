@@ -58,6 +58,11 @@ pub struct ImageViewerState {
     show_log: bool,
     /// The ⚙ window is open.
     show_settings: bool,
+    /// The colour space the image is in, from the config's. Empty: the
+    /// scene's (USD's linear Rec.709); a render may be in another (ACEScg).
+    pub input: String,
+    /// The space, display and view the image's transform was made for.
+    shown_in: Option<(String, crate::colour::View)>,
     /// A file to open, typed in the ⚙ window.
     open_path: String,
 }
@@ -386,8 +391,20 @@ pub fn draw(
         });
     });
     settings_window(ui.ctx(), st, graph, chosen.as_ref());
-    // The view's own controls, then the image
-    ui.horizontal(|ui| st.view.controls(ui));
+    // The image through the display transform of the view chosen.
+    let v = crate::colour::view(crate::colour::Pane::ImageViewer);
+    let now = (st.input.clone(), v);
+    if st.shown_in.as_ref() != Some(&now) {
+        st.view.display = display_transform(&now.0, &now.1);
+        st.shown_in = Some(now);
+    }
+    // The view's own controls, the image's space and the view, then the image
+    ui.horizontal(|ui| {
+        st.view.controls(ui);
+        ui.separator();
+        input_menu(ui, &mut st.input);
+        crate::colour::menu(ui, crate::colour::Pane::ImageViewer);
+    });
     ui.separator();
     // The image, the snapshots bar under it, the log under that.
     let w = ui.available_width();
@@ -589,6 +606,59 @@ fn poll(st: &mut ImageViewerState) {
             }
         }
         _ => {}
+    }
+}
+
+/// The menu of the colour space the image is in: the scene's, or one of the
+/// config's.
+fn input_menu(ui: &mut egui::Ui, input: &mut String) {
+    let colour = crate::colour::Colour::get();
+    let label = format!(
+        "{} ⏷",
+        if input.is_empty() {
+            colour.scene.as_str()
+        } else {
+            input.as_str()
+        }
+    );
+    crate::menus::menu(ui, label, |ui| {
+        if ui
+            .radio(input.is_empty(), format!("The scene's ({})", colour.scene))
+            .clicked()
+        {
+            input.clear();
+            ui.close();
+        }
+        ui.separator();
+        for space in colour.spaces() {
+            if ui.radio(*input == space, space.as_str()).clicked() {
+                *input = space;
+                ui.close();
+            }
+        }
+    })
+    .response
+    .on_hover_text("The colour space the image is in: the scene's, or the one its renderer renders in (ACEScg with an ACES config)");
+}
+
+/// The image's display transform from colour space `from` (empty: the
+/// scene's) to a display and view: `None` when the config cannot make it
+/// (then sRGB's curve shows it), with the reason printed.
+fn display_transform(from: &str, v: &crate::colour::View) -> Option<xms_image::Transform> {
+    use std::hash::{Hash, Hasher};
+    match crate::colour::Colour::get().cpu(from, v) {
+        Ok(cpu) => {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (from, v).hash(&mut h);
+            Some(xms_image::Transform {
+                id: h.finish(),
+                apply: std::sync::Arc::new(move |px: &mut [[f32; 4]]| cpu.apply(px)),
+            })
+        }
+        Err(e) => {
+            eprintln!("Image Viewer colour: {e}; shown through sRGB's curve");
+            None
+        }
     }
 }
 
