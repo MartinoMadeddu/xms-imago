@@ -356,8 +356,10 @@ copying.
   `viewer::gpu::display`; `display_fallback.wgsl`, sRGB's curve, when it cannot
   be made). The Image Viewer's picture goes through the same view on the CPU
   (`Colour::cpu`, from the rendering space or the space chosen) as an
-  `xms_image::Transform`. Each pane has View and Display menus
-  (`colour::menus`); its choice is remembered (`colour::view`, `set_view`).
+  `xms_image::Transform`. Each pane's View and Display menus
+  (`colour::menus`: the Viewer's in File > Settings, `settings`, the Image
+  Viewer's in its top bar); its choice is remembered (`colour::view`,
+  `set_view`), the Image Viewer's default ACES 1.0 SDR on Rec.1886.
 
 - **One scene, at the view flag.** `NodeGraphState::evaluate_scene` gives the
   scene at the view flag: the viewed output (`view_output`) of the viewed
@@ -510,6 +512,7 @@ Three layers.
 | `src/core/sequences.rs` | File sequences and UDIM tiles: the files a `<UDIM>` path stands for, a folder's files with sequences as one entry (the file browser); the Viewer's textures lay UDIM tiles out in one image (`viewport::textures`) and scale each material's UVs to it (`viewer::gpu::map_place`) |
 | `src/graph_ports.rs` | What every graph does the same way with ports, wires and selection: a port picked to unplug (`Picked`), the marquee and the picked-port ring |
 | `crates/xms-ice` | the ICE engine: graph, compiler, batched executor |
+| `src/settings.rs` | File > Settings: one window, a page per part of the program (`Page`: Viewer, its colour), each setting kept where its part keeps it |
 | `crates/xms-colour`, `src/colour.rs` | Colour management: the OpenColorIO config (`$OCIO`'s, else `imago.ocio`), its displays, views and spaces, a view's transform for the CPU (`Cpu`) and as WGSL with its resources (`Shader`); in the app, each pane's display and view, and the colour menu |
 | `crates/xms-image` | Images: `Image` (float channels, grouped into layers by name; shown through a `Look`: exposure, gamma, sRGB, or a display `Transform` the program gives; pure std), `read` (every layer and channel of an OpenEXR file with the `exr` crate; PNG, JPEG, TIFF, TGA, HDR as linear RGBA), `ImageView` (egui: layer and channel menus, look, zoom, pan, the values under the pointer). Knows nothing of Imago's scene |
 | `src/image_viewer.rs` | The Image Viewer pane: its RenderSettings and camera menus (`render::settings_list`, `render::cameras`), Render and Stop (the scene written to a temporary layer, its command line run on it through `core::command`: a preset (`VIEWER_PRESETS`, husk or kick) or the user's, its own tokens in `Tokens::more`, `command::without_empty` leaving out an option whose token stands for nothing; husk's `--snapshot` saves read again as they are written), and the view |

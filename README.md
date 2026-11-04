@@ -171,8 +171,9 @@ selection](docs/xms_edit_poly.png)
   [Rendering](docs/render.md#image-viewer))
 - **Colour managed:** OpenColorIO (the pure-Rust `ocio` crate) with `$OCIO`'s
   config, or Imago's own built in (ACEScg working space; ACES 1.0 SDR Video,
-  Un-tone-mapped and Raw views on sRGB, Rec.1886 and Display P3): View and
-  Display menus, the Viewer's view run on the GPU as OpenColorIO's own shader
+  Un-tone-mapped and Raw views on sRGB, Rec.1886 and Display P3): the Viewer's
+  View and Display in File > Settings, the Image Viewer's in its top bar, the
+  Viewer's view run on the GPU as OpenColorIO's own shader
   (see [Colour](docs/colour.md))
 - **Rendering, as USD has it:** Render Commons makes the RenderSettings prim
   (camera, resolution, pixel aspect, conform, overscan, motion blur, depth of

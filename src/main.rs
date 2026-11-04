@@ -32,6 +32,7 @@ mod recent;
 #[cfg(test)]
 mod regress;
 mod scene_explorer;
+mod settings;
 mod strands;
 mod templates;
 mod theme;
@@ -442,12 +443,15 @@ pub(crate) fn draw_ui(
         });
     theme::editor(ctx);
     variables::window(ctx, &mut graph.variables);
+    settings::window(ctx);
     // What saves, replaces or closes the graph is done on the root scene
     // graph: out of any compound first.
-    if command
-        .as_ref()
-        .is_some_and(|c| !matches!(c, FileCommand::ClearRecent | FileCommand::Variables))
-        && inside.is_inside()
+    if command.as_ref().is_some_and(|c| {
+        !matches!(
+            c,
+            FileCommand::ClearRecent | FileCommand::Variables | FileCommand::Settings(_)
+        )
+    }) && inside.is_inside()
     {
         if let Some(m) = inside_compound::leave_all(&mut *graph, &mut *subnets, &mut *history, &mut *nav, &mut *inside)
         {
@@ -499,6 +503,7 @@ pub(crate) fn draw_ui(
                 "",
             ),
             FileCommand::Variables => variables::open(ctx),
+            FileCommand::Settings(page) => settings::open(ctx, page),
             FileCommand::Quit => save_first.quit = true,
         }
     }
@@ -724,7 +729,6 @@ pub(crate) fn draw_ui(
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
                         }).response.on_hover_text("How meshes are drawn");
-                        crate::colour::menus(ui, crate::colour::Pane::Viewer);
                         // Through a camera of the scene, or the Viewer's own.
                         let looking = viewer::camera::looking_through();
                         let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());
@@ -1646,6 +1650,8 @@ enum FileCommand {
     ImportUsd,
     ImportMtlx,
     Variables,
+    /// File > Settings, at a page.
+    Settings(settings::Page),
     Quit,
 }
 
@@ -1722,6 +1728,14 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
             c = Some(FileCommand::Variables);
             ui.close();
         }
+        crate::menus::menu(ui, "Settings", |ui| {
+            for page in settings::Page::ALL {
+                if ui.button(format!("{}...", page.label())).clicked() {
+                    c = Some(FileCommand::Settings(page));
+                    ui.close();
+                }
+            }
+        });
         ui.separator();
         crate::menus::menu(ui, "Import", |ui| {
             if ui

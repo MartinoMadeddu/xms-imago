@@ -20,7 +20,7 @@ The menus, from the left, as in other programs:
 
 | Menu | Holds |
 |---|---|
-| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q), and at the bottom Templates: the ready-made graphs, by author, then by area. See [Files](#files) and [Templates](templates.md) |
+| File | New (Ctrl+N), Open... (Ctrl+O), Open Recent, Save (Ctrl+S), Save As... (Ctrl+Shift+S), Variables..., Settings (Viewer...: see [Settings](#settings)), Import (Graph..., FBX..., USD..., MaterialX...), Quit (Ctrl+Q), and at the bottom Templates: the ready-made graphs, by author, then by area. See [Files](#files) and [Templates](templates.md) |
 | Edit | Undo, Redo, Copy, Paste, Delete, Select All, for the operators of the root scene graph |
 | Window | The panes (tick to show), Dock floating panes, Reset layout, Layout (xms_main_layout, xms_2split_layout, xms_4split_layout, Save current as default, Forget saved default), Save layout..., Load layout..., Theme |
 
@@ -608,12 +608,18 @@ Fields that choose things by name take patterns instead of exact names:
 
 Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
 
-## Colour
+## Settings
 
-The View and Display menus at the top of the Viewer, after the display mode,
-choose how the scene is shown (OpenColorIO's; see [Colour](colour.md)). The
-Image Viewer has its own pair; the colour space of its images is in its ⚙
-settings.
+File > Settings opens one window for Imago's settings, a page for each part of
+the program listed on its left; File > Settings > Viewer... opens it at the
+Viewer's page. Each setting is remembered where its part keeps it.
+
+| Page | Holds |
+|---|---|
+| Viewer | **Colour**: the View and Display the scene is shown in (OpenColorIO's; see [Colour](colour.md)), and which config they come from |
+
+The Image Viewer has its own View and Display menus in its top bar; the colour
+space of its images is in its ⚙ settings.
 
 ## Looking through a camera
 

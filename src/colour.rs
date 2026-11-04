@@ -21,6 +21,19 @@ impl Pane {
             Pane::ImageViewer => "image_viewer",
         }
     }
+
+    /// What it shows until one is chosen: the Image Viewer a render as on a
+    /// reference monitor, Rec.1886 (when the config has that display), the
+    /// Viewer the config's default.
+    fn default_view(self) -> View {
+        match self {
+            Pane::Viewer => View::default(),
+            Pane::ImageViewer => View {
+                display: "Rec.1886 Rec.709 - Display".into(),
+                view: "ACES 1.0 - SDR Video".into(),
+            },
+        }
+    }
 }
 
 static CHOSEN: Mutex<Option<BTreeMap<Pane, View>>> = Mutex::new(None);
@@ -57,8 +70,8 @@ fn write(chosen: &BTreeMap<Pane, View>) -> String {
         .collect()
 }
 
-/// The display and view a pane shows: the one chosen, if the config has it,
-/// else the config's default.
+/// The display and view a pane shows: the one chosen, else the pane's own
+/// default, else the config's (when the config has neither).
 pub fn view(pane: Pane) -> View {
     let mut chosen = CHOSEN.lock().unwrap_or_else(|e| e.into_inner());
     let chosen = chosen.get_or_insert_with(|| {
@@ -67,7 +80,8 @@ pub fn view(pane: Pane) -> View {
             .map(|t| read(&t))
             .unwrap_or_default()
     });
-    Colour::get().valid(&chosen.get(&pane).cloned().unwrap_or_default())
+    let v = chosen.get(&pane).cloned().unwrap_or_else(|| pane.default_view());
+    Colour::get().valid(&v)
 }
 
 /// Choose a pane's display and view, and remember it.
@@ -83,44 +97,53 @@ pub fn set_view(pane: Pane, v: View) {
     }
 }
 
-/// The pane's two colour menus, View then Display, as Houdini and Nuke have
-/// them; which config they come from in their tooltips, and a warning mark
-/// when `$OCIO`'s config was not used.
-pub fn menus(ui: &mut egui::Ui, pane: Pane) {
+/// Where the config came from, for a tooltip or a settings page.
+pub fn about() -> String {
     let colour = Colour::get();
-    let now = view(pane);
     let from = match &colour.source {
         xms_colour::Source::Env(path) => format!("$OCIO: {path}"),
         xms_colour::Source::Imago => "Imago's own (set $OCIO for another)".into(),
     };
-    let about = format!(
-        "Config: {} ({from}). The scene's colours (USD's, {}) go through the working space to the display",
+    format!(
+        "Config: {} ({from}). The scene's colours (USD's, {}) go through the working space ({}) to the display",
         colour.name(),
-        colour.scene
-    );
-    crate::menus::menu(ui, format!("{} ⏷", now.view), |ui| {
-        for v in colour.views(&now.display) {
-            if ui.radio(now.view == v, v.as_str()).clicked() {
-                set_view(pane, colour.on_display(&now.display, &v));
-                ui.close();
+        colour.scene,
+        colour.rendering()
+    )
+}
+
+/// A pane's two colour menus, View then Display, as Houdini and Nuke have
+/// them, and a warning mark when `$OCIO`'s config was not used.
+pub fn menus(ui: &mut egui::Ui, pane: Pane) {
+    let colour = Colour::get();
+    let now = view(pane);
+    let about = about();
+    let id = |what: &str| egui::Id::new(("colour", pane.key(), what));
+    egui::ComboBox::from_id_salt(id("view"))
+        .selected_text(&now.view)
+        .show_ui(ui, |ui| {
+            for v in colour.views(&now.display) {
+                if ui.selectable_label(now.view == v, v.as_str()).clicked() {
+                    set_view(pane, colour.on_display(&now.display, &v));
+                }
             }
-        }
-    })
-    .response
-    .on_hover_text(format!("View: how the scene's light is shown (OpenColorIO). {about}"));
-    crate::menus::menu(ui, format!("{} ⏷", now.display), |ui| {
-        for d in colour.displays() {
-            if ui.radio(now.display == d, d.as_str()).clicked() {
+        })
+        .response
+        .on_hover_text(format!("View: how the scene's light is shown (OpenColorIO). {about}"));
+    egui::ComboBox::from_id_salt(id("display"))
+        .selected_text(&now.display)
+        .show_ui(ui, |ui| {
+            for d in colour.displays() {
                 // The same view, if the display has it.
-                set_view(pane, colour.on_display(&d, &now.view));
-                ui.close();
+                if ui.selectable_label(now.display == d, d.as_str()).clicked() {
+                    set_view(pane, colour.on_display(&d, &now.view));
+                }
             }
-        }
-    })
-    .response
-    .on_hover_text(format!(
-        "Display: the screen it is shown on (sRGB for most monitors). {about}"
-    ));
+        })
+        .response
+        .on_hover_text(format!(
+            "Display: the screen it is shown on (sRGB for most monitors). {about}"
+        ));
     if let Some(p) = &colour.problem {
         crate::properties::form::status_label(ui, crate::properties::form::Status::Bad, "OCIO").on_hover_text(p);
     }
@@ -129,6 +152,23 @@ pub fn menus(ui: &mut egui::Ui, pane: Pane) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Until one is chosen, the Image Viewer shows ACES 1.0 SDR on Rec.1886,
+    /// the Viewer the config's default (ACES 1.0 SDR on sRGB in Imago's).
+    #[test]
+    fn each_pane_has_its_default() {
+        let c = Colour::load(None);
+        let image = c.valid(&Pane::ImageViewer.default_view());
+        assert_eq!(
+            (image.display.as_str(), image.view.as_str()),
+            ("Rec.1886 Rec.709 - Display", "ACES 1.0 - SDR Video")
+        );
+        let viewer = c.valid(&Pane::Viewer.default_view());
+        assert_eq!(
+            (viewer.display.as_str(), viewer.view.as_str()),
+            ("sRGB - Display", "ACES 1.0 - SDR Video")
+        );
+    }
 
     #[test]
     fn the_choices_are_read_back_as_written() {

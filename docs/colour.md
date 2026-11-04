@@ -22,7 +22,8 @@ Imago manages colour with OpenColorIO, through the pure-Rust `ocio` crate
     P3-D65, sRGB Encoded Rec.709 (sRGB) and Raw.
 
 When `$OCIO` names a config that does not load, Imago's own is used, and an
-**OCIO** mark beside the colour menus says why. The config is read once, when
+**OCIO** mark beside the colour menus (File > Settings > Viewer, the Image
+Viewer's top bar) says why. The config is read once, when
 Imago starts.
 
 ## The scene's colour space
@@ -39,16 +40,19 @@ one has its `scene_linear` role taken instead, and the OCIO mark says so.
 ## Viewer
 
 The Viewer draws the scene in linear light, in half floats, so light brighter
-than 1 is kept. Two menus in its top bar, as Houdini and Nuke have them:
-**View** (ACES 1.0 - SDR Video, Un-tone-mapped, Raw) and **Display** (sRGB,
-Rec.1886 Rec.709, Display P3). Changing the display keeps the view when the
-display has it. Their tooltips say which config is used. The transform runs on the GPU: OpenColorIO's own shader
+than 1 is kept. Its **View** (ACES 1.0 - SDR Video, Un-tone-mapped, Raw) and
+**Display** (sRGB, Rec.1886 Rec.709, Display P3) are in File > Settings >
+Viewer, which also says which config is used, so its top bar stays clear.
+Changing the display keeps the view when the display has it. The transform runs on the GPU: OpenColorIO's own shader
 for the view, written as WGSL, LUTs and all. Its overlays (the grid, the
 handles, selection) go through it too. Each pane's choice is remembered.
 
 ## Image Viewer
 
-The same View and Display menus. An image goes through the transform on the
+View and Display menus in its top bar, as Houdini's and Nuke's image viewers
+have them: ACES 1.0 - SDR Video on Rec.1886 Rec.709 - Display until others
+are chosen (the config's own default when it has no Rec.1886 display). An
+image goes through the transform on the
 CPU from its colour space: the config's **rendering space** (ACEScg), what
 renders are in, or another of the config's spaces chosen in the ⚙ settings
 (Image colour space), for an image that is not a render. Exposure is applied
