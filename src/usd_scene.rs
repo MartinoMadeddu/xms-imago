@@ -1249,9 +1249,12 @@ pub fn at_frame(scene: &Arc<UsdScene>, frame: f64) -> Arc<UsdScene> {
         return s;
     }
     let mut s = timed.at(frame);
-    // As the stage first read: where its textures are, the file as given.
+    // As the stage first read: where its textures are, the file as given (a
+    // tree shared with it already is).
     s.base_dir = scene.base_dir.clone();
-    Arc::make_mut(&mut s.tree).source = scene.tree.source.clone();
+    if s.tree.source != scene.tree.source {
+        Arc::make_mut(&mut s.tree).source = scene.tree.source.clone();
+    }
     s.timed = scene.timed.clone();
     let s = Arc::new(s);
     if let Ok(mut f) = timed.frames.lock() {
@@ -1480,6 +1483,11 @@ def Mesh "still" {{
         let (a, b) = (mesh(&base, "/still"), mesh(&later, "/still"));
         assert!(Arc::ptr_eq(a.geo.as_ref().unwrap(), b.geo.as_ref().unwrap()), "shared");
         assert_eq!(later.tree.source, base.tree.source);
+        // Made from what moves alone, it is what the whole stage walked gives.
+        let timed = base.timed.as_ref().unwrap();
+        for f in [1.0, 3.0, 5.5, 10.0] {
+            assert_eq!(timed.check(f), (true, None), "frame {f}");
+        }
         // A stage that does not change is itself at every frame.
         let flat = Arc::new(load(&write("flat.usda", "#usda 1.0\ndef Xform \"x\" {}\n")).unwrap());
         assert!(flat.timed.is_none() && Arc::ptr_eq(&at_frame(&flat, 7.0), &flat));

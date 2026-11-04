@@ -45,7 +45,7 @@ baked into the points, so what is written back matches the file.
 | Cameras | Primitives with no geometry: projection, focal length, aperture and offsets, clipping range, f-stop, focus distance, where they are. Moved by Transform, looked through in the Viewer |
 | Lights | Primitives with no geometry: every UsdLux type (Dome, Rect, Sphere, Disk, Cylinder, Distant), with its values (intensity, exposure, colour, temperature, size, texture, shaping), where it is and which way it faces. Moved by Transform, listed in the Primitive Inspector (see [Lights](#lights)) |
 | Skeletons | Listed by name |
-| Time samples | Every sample of the stage, over its time range: a time code is a frame, so the timeline plays the file's animation (transforms, visibility, points and primvars, point instancers, cameras' lenses, lights' values) through the whole graph. A stage that changes over time cooks again at each frame, its still geometry shared; one that does not costs nothing more |
+| Time samples | Every sample of the stage, over its time range: a time code is a frame, so the timeline plays the file's animation (transforms, visibility, points and primvars, point instancers, cameras' lenses, lights' values) through the whole graph. A stage that changes over time cooks again at each frame, its still geometry shared; one that does not costs nothing more. When only transforms and geometry move (no point instancers), a frame is the stage as first read with the moving prims made again; anything else, and the whole stage is walked |
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked
 beside itself so its textures are files the Viewer can read.

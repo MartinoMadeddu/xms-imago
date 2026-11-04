@@ -76,7 +76,7 @@ pub fn read_phased(layer: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) ->
             eprintln!("[xms]     {w}");
         }
     }
-    let (mut scene, made) = scene_of(&translated, layer, false, convert, None, None);
+    let (mut scene, made, sources) = scene_of(&translated, layer, false, convert, None, None);
     // A stage that changes over time keeps its translation, to be shown at
     // any frame (`Timed::at`), and the geometry that does not change.
     if animated(&translated.scene) {
@@ -84,11 +84,13 @@ pub fn read_phased(layer: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) ->
             .into_iter()
             .filter(|(p, _)| translated.scene.get(p).is_some_and(|q| !deforms(&q.kind)))
             .collect();
+        let quick = Quick::plan(&translated.scene, &scene, sources);
         scene.timed = Some(Arc::new(Timed {
             translated,
             layer: layer.to_path_buf(),
             convert,
             still,
+            quick,
             frames: Default::default(),
         }));
     }
@@ -105,6 +107,9 @@ pub struct Timed {
     /// The geometry of the prims whose geometry does not change, by the prim
     /// the scene layer holds it at.
     still: HashMap<rs::Path, (Arc<Geo>, Arc<MeshData>)>,
+    /// What moves, when only transforms and geometry do: each frame is the
+    /// stage as first read with those made again, not the whole stage walked.
+    quick: Option<Quick>,
     /// The stage at the frames last asked for, by the frame's bits
     /// (`usd_scene::at_frame`).
     pub(crate) frames: std::sync::Mutex<Vec<(u64, Arc<UsdScene>)>>,
@@ -116,8 +121,33 @@ impl Timed {
         self.translated.scene.time().time
     }
 
-    /// The stage at time code `t`.
+    /// The stage at time code `t`: what moves made again over the stage as
+    /// first read when it can be (`Quick`), else the whole stage walked.
+    /// `XMS_CHECK_PLAYBACK=1` makes both and prints where they differ.
     pub fn at(&self, t: f64) -> UsdScene {
+        let Some(quick) = self.quick.as_ref().and_then(|q| q.at(&self.translated.scene, t)) else {
+            return self.walked(t);
+        };
+        if std::env::var("XMS_CHECK_PLAYBACK").is_ok_and(|v| v == "1") {
+            if let Some(why) = differ(&quick, &self.walked(t)) {
+                eprintln!("[xms] playback check at {t}: {why}");
+            }
+        }
+        quick
+    }
+
+    /// Whether a frame is made from what moves (`Quick`), and where that
+    /// differs from the whole stage walked at `t` (for tests).
+    #[cfg(test)]
+    pub(crate) fn check(&self, t: f64) -> (bool, Option<String>) {
+        match self.quick.as_ref().and_then(|q| q.at(&self.translated.scene, t)) {
+            Some(quick) => (true, differ(&quick, &self.walked(t))),
+            None => (false, None),
+        }
+    }
+
+    /// The stage at time code `t`, the whole of it walked.
+    fn walked(&self, t: f64) -> UsdScene {
         scene_of(
             &self.translated,
             &self.layer,
@@ -128,6 +158,180 @@ impl Timed {
         )
         .0
     }
+}
+
+/// What changes over time in a stage whose transforms and geometry alone move:
+/// the stage as first read, and which of its prims to make again at another
+/// frame. `None` (the whole stage is walked at each frame) when anything else
+/// changes, or the stage has point instancers or drawn prims the hierarchy
+/// does not list.
+struct Quick {
+    base: UsdScene,
+    /// Each of the hierarchy's prims' source prim, by its place in the tree.
+    nodes: Vec<rs::Path>,
+    /// The prims whose transform changes, by their place in the tree.
+    moving: Vec<usize>,
+    /// The prims whose geometry changes, and the meshes showing each.
+    deforming: Vec<(rs::Path, Vec<usize>)>,
+}
+
+impl Quick {
+    fn plan(sc: &rs::Scene, scene: &UsdScene, sources: Sources) -> Option<Quick> {
+        if !scene.instancers.is_empty() {
+            return None;
+        }
+        // Anything else that changes: walked whole.
+        let other = sc.prims().any(|p| {
+            p.visible.is_animated()
+                || match &p.kind {
+                    rs::PrimKind::Instancer(_) => true,
+                    rs::PrimKind::Camera(c) => {
+                        c.focal_length.is_animated() || c.f_stop.is_animated() || c.focus_distance.is_animated()
+                    }
+                    rs::PrimKind::Light(l) => {
+                        l.intensity.is_animated() || l.exposure.is_animated() || l.color.is_animated()
+                    }
+                    _ => false,
+                }
+        });
+        if other || sources.meshes.len() != scene.meshes.len() || sources.nodes.len() != scene.tree.nodes.len() {
+            return None;
+        }
+        let moving: Vec<usize> = (0..sources.nodes.len())
+            .filter(|&i| sc.get(&sources.nodes[i]).is_some_and(|p| p.local_xform.is_animated()))
+            .collect();
+        // A moving prim moves what is below it: every drawn prim found in the
+        // hierarchy.
+        let listed = |path: &str| scene.tree.node(path).is_some();
+        if !moving.is_empty()
+            && !(scene.meshes.iter().all(|m| listed(&m.path))
+                && scene.cameras.iter().all(|c| listed(&c.path))
+                && scene.lights.iter().all(|l| listed(&l.path)))
+        {
+            return None;
+        }
+        let mut deforming: Vec<(rs::Path, Vec<usize>)> = vec![];
+        let mut of: HashMap<rs::Path, usize> = HashMap::new();
+        for (i, src) in sources.meshes.iter().enumerate() {
+            if !sc.get(src).is_some_and(|p| deforms(&p.kind)) {
+                continue;
+            }
+            let at = *of.entry(src.clone()).or_insert_with(|| {
+                deforming.push((src.clone(), vec![]));
+                deforming.len() - 1
+            });
+            deforming[at].1.push(i);
+        }
+        Some(Quick {
+            base: UsdScene {
+                timed: None,
+                ..scene.clone()
+            },
+            nodes: sources.nodes,
+            moving,
+            deforming,
+        })
+    }
+
+    /// The stage at time code `t`; `None` when a prim's geometry cannot be
+    /// made then (walked whole instead, which leaves it out and says so).
+    fn at(&self, sc: &rs::Scene, t: f64) -> Option<UsdScene> {
+        let mut s = self.base.clone();
+        if !self.moving.is_empty() {
+            let tree = Arc::make_mut(&mut s.tree);
+            for &i in &self.moving {
+                tree.nodes[i].local = mat(&sc.get(&self.nodes[i])?.local_xform_at(t));
+            }
+            let moved: HashSet<String> = self.moving.iter().map(|&i| tree.nodes[i].path.clone()).collect();
+            let below = |path: &str| {
+                let mut at = path;
+                loop {
+                    if moved.contains(at) {
+                        return true;
+                    }
+                    match at.rfind('/') {
+                        Some(k) if k > 0 => at = &at[..k],
+                        _ => return false,
+                    }
+                }
+            };
+            let tree = s.tree.clone();
+            let place = |path: &str| Placement::One(tree.world(path, false).as_mat4());
+            for m in s.meshes.iter_mut().filter(|m| below(&m.path)) {
+                m.place = place(&m.path);
+            }
+            for c in s.cameras.iter_mut().filter(|c| below(&c.path)) {
+                c.place = place(&c.path);
+            }
+            for l in s.lights.iter_mut().filter(|l| below(&l.path)) {
+                l.place = place(&l.path);
+            }
+        }
+        let made: Vec<Option<(Arc<Geo>, Arc<MeshData>)>> = {
+            use rayon::prelude::*;
+            let _t = crate::timings::span(format!(
+                "usd: {} moving prims made again, the rest of the stage kept",
+                self.deforming.len()
+            ));
+            self.deforming
+                .par_iter()
+                .map(|(src, _)| sc.get(src).and_then(|p| geometry(&p.kind, t)).map(shared))
+                .collect()
+        };
+        for ((_, meshes), m) in self.deforming.iter().zip(made) {
+            let (geo, view) = m?;
+            for &i in meshes {
+                s.meshes[i].geo = Some(geo.clone());
+                s.meshes[i].mesh = view.clone();
+            }
+        }
+        Some(s)
+    }
+}
+
+/// Where two stages made at the same frame differ, for `XMS_CHECK_PLAYBACK`:
+/// their drawn prims, placements and points, and their hierarchy's
+/// transforms.
+fn differ(a: &UsdScene, b: &UsdScene) -> Option<String> {
+    if a.meshes.len() != b.meshes.len() {
+        return Some(format!("{} meshes against {}", a.meshes.len(), b.meshes.len()));
+    }
+    for (x, y) in a.meshes.iter().zip(&b.meshes) {
+        if x.path != y.path {
+            return Some(format!("{} where {} is", x.path, y.path));
+        }
+        let (px, py) = (x.place.matrices(), y.place.matrices());
+        if px.len() != py.len() || px.iter().zip(py).any(|(m, n)| !m.abs_diff_eq(*n, 1e-4)) {
+            return Some(format!("{} is placed elsewhere", x.path));
+        }
+        if x.mesh.vertices != y.mesh.vertices {
+            return Some(format!("{}'s points differ", x.path));
+        }
+    }
+    for (x, y) in a.tree.nodes.iter().zip(&b.tree.nodes) {
+        if x.path != y.path || !x.local.abs_diff_eq(y.local, 1e-9) {
+            return Some(format!("{}'s transform differs", x.path));
+        }
+    }
+    let places = |s: &UsdScene| -> Vec<Mat4> {
+        s.cameras
+            .iter()
+            .flat_map(|c| c.place.matrices().to_vec())
+            .chain(s.lights.iter().flat_map(|l| l.place.matrices().to_vec()))
+            .collect()
+    };
+    let (ca, cb) = (places(a), places(b));
+    if ca.len() != cb.len() || ca.iter().zip(&cb).any(|(m, n)| !m.abs_diff_eq(*n, 1e-4)) {
+        return Some("a camera or light is placed elsewhere".into());
+    }
+    None
+}
+
+/// Where each mesh and each prim of the hierarchy a walk made comes from in
+/// the scene layer, by their places in the stage made.
+struct Sources {
+    meshes: Vec<rs::Path>,
+    nodes: Vec<rs::Path>,
 }
 
 impl std::fmt::Debug for Timed {
@@ -191,7 +395,7 @@ fn scene_of(
     convert: bool,
     at: Option<f64>,
     still: Option<&HashMap<rs::Path, (Arc<Geo>, Arc<MeshData>)>>,
-) -> (UsdScene, Made) {
+) -> (UsdScene, Made, Sources) {
     let _walk = crate::timings::span(if boxes {
         "usd: boxes to geometry"
     } else {
@@ -230,6 +434,7 @@ fn scene_of(
         root,
         scene: &mut scene,
         nodes: vec![],
+        node_src: vec![],
         counts: Counts::default(),
         jobs: vec![],
         job_of: HashMap::new(),
@@ -254,6 +459,7 @@ fn scene_of(
     }
     let Walk {
         nodes,
+        node_src,
         mut counts,
         jobs,
         pending,
@@ -281,6 +487,10 @@ fn scene_of(
         .zip(&made)
         .filter_map(|(src, m)| m.clone().map(|m| (src.clone(), m)))
         .collect();
+    let mut mesh_src: Vec<rs::Path> = vec![rs::Path::root(); scene.meshes.len()];
+    for (mesh, job) in &pending {
+        mesh_src[*mesh] = jobs[*job].clone();
+    }
     let mut invalid: HashSet<String> = HashSet::new();
     for (mesh, job) in pending {
         match &made[job] {
@@ -295,6 +505,9 @@ fn scene_of(
     }
     if !invalid.is_empty() {
         counts.invalid += invalid.len();
+        let keep: Vec<bool> = scene.meshes.iter().map(|m| !invalid.contains(&m.path)).collect();
+        let mut k = keep.iter();
+        mesh_src.retain(|_| *k.next().unwrap_or(&true));
         scene.meshes.retain(|m| !invalid.contains(&m.path));
         for i in &mut scene.instancers {
             i.members.retain(|(path, ..)| !invalid.contains(path));
@@ -334,7 +547,14 @@ fn scene_of(
             .notes
             .insert(0, "Shown as boxes while the geometry is read".into());
         scene.reading = true;
-        return (scene, made_by);
+        return (
+            scene,
+            made_by,
+            Sources {
+                meshes: mesh_src,
+                nodes: node_src,
+            },
+        );
     }
     // The translator's own notes, minus timings and empty reports.
     scene.notes.extend(
@@ -346,7 +566,14 @@ fn scene_of(
             })
             .cloned(),
     );
-    (scene, made_by)
+    (
+        scene,
+        made_by,
+        Sources {
+            meshes: mesh_src,
+            nodes: node_src,
+        },
+    )
 }
 
 /// What the stage holds that is not turned into packed primitives yet.
@@ -394,6 +621,8 @@ struct Walk<'a> {
     root: DMat4,
     scene: &'a mut UsdScene,
     nodes: Vec<StageNode>,
+    /// Each node's source prim in the scene layer.
+    node_src: Vec<rs::Path>,
     counts: Counts,
     /// The prims whose geometry is to be made, each once (by its path in the
     /// scene layer, so an instanced mesh is shared by every copy), after the
@@ -440,6 +669,7 @@ impl Walk<'_> {
         let purpose = purpose_of(sc, src, &prim.purpose, purpose);
         let name = shown.rsplit('/').next().unwrap_or("").to_string();
         let local = mat(&prim.local_xform_at(t));
+        self.node_src.push(src.clone());
         self.nodes.push(StageNode {
             path: shown.clone(),
             name,

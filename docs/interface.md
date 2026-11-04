@@ -896,7 +896,9 @@ breakdown: meshes, curves, attribute decoding), making its geometry on every
 core, the Scene Explorer, the inspector, and the Viewer's scene (cooking the
 graph, which prims are drawn, the boxes of closed prims, how each is drawn,
 grouping them into draws, sending them to the GPU). `XMS_TIMINGS=all` prints
-every step from 1 ms, to see where a frame's time goes while playing.
+every step from 1 ms, to see where a frame's time goes while playing. `XMS_CHECK_PLAYBACK=1` makes each frame of
+an animated stage twice, from what moves and with the whole stage walked, and
+prints where they differ (nothing, when all is well).
 
 ## When the graph is cooked
 

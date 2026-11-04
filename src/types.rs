@@ -1478,25 +1478,46 @@ impl MeshData {
                 n
             })
             .collect();
-        let mut around: Vec<Vec<u32>> = vec![vec![]; self.vertices.len()];
+        let unit: Vec<Vec3> = face_n.iter().map(|n| n.normalize_or_zero()).collect();
+        // The faces around each point, in face order, as one list: point i's
+        // are `around[start[i]..start[i + 1]]` (one allocation, however many
+        // points: a deforming mesh is made again every frame).
+        let n = self.vertices.len();
+        let mut start = vec![0usize; n + 1];
+        for poly in &self.polys {
+            for &i in poly {
+                start[i as usize + 1] += 1;
+            }
+        }
+        for i in 0..n {
+            start[i + 1] += start[i];
+        }
+        let mut around = vec![0u32; start[n]];
+        let mut fill = start.clone();
         for (p, poly) in self.polys.iter().enumerate() {
-            for i in poly {
-                around[*i as usize].push(p as u32);
+            for &i in poly {
+                around[fill[i as usize]] = p as u32;
+                fill[i as usize] += 1;
             }
         }
         let limit = 40f32.to_radians().cos();
-        let (mut pos, mut nrm, mut idx) = (vec![], vec![], vec![]);
+        let corners = start[n];
+        let (mut pos, mut nrm, mut idx) = (
+            Vec::with_capacity(corners),
+            Vec::with_capacity(corners),
+            Vec::with_capacity(corners * 3),
+        );
         for (p, poly) in self.polys.iter().enumerate() {
-            let own = face_n[p].normalize_or_zero();
+            let own = unit[p];
             let base = pos.len() as u32;
-            for i in poly {
+            for &i in poly {
                 // Area-weighted average over the neighbours within the angle limit.
-                let n: Vec3 = around[*i as usize]
+                let n: Vec3 = around[start[i as usize]..start[i as usize + 1]]
                     .iter()
+                    .filter(|q| unit[**q as usize].dot(own) >= limit)
                     .map(|q| face_n[*q as usize])
-                    .filter(|q| q.normalize_or_zero().dot(own) >= limit)
                     .sum();
-                pos.push(self.vertices[*i as usize]);
+                pos.push(self.vertices[i as usize]);
                 nrm.push(if n.length_squared() > 0.0 {
                     n.normalize().to_array()
                 } else {

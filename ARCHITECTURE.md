@@ -45,7 +45,12 @@ file ──openusd (composition)──> xms-usd ──> xms-scene (scene layer) 
   Explorer, viewport boxes and writing.
 - **Time samples:** a stage is read with every sample over its time range; one
   that changes over time cooks again at each frame
-  (`usd_scene::cooking_at`), its still geometry shared.
+  (`usd_scene::cooking_at`), its still geometry shared. When only transforms
+  and geometry move and it has no point instancers, `usd_stage::Quick` makes a
+  frame from the stage as first read: the moving prims' transforms in a copy
+  of the tree and the placements below them (`StageTree::world`), the
+  deforming prims' geometry made again on every core; else the whole stage is
+  walked (`Timed::walked`). `XMS_CHECK_PLAYBACK=1` compares the two.
 - **Alembic** (`.abc`) opens as a USD layer: `crates/xms-alembic` reads it,
   `xms-usd`'s `alembic` module makes it a layer format of `openusd`, as
   `usdAbc` does.
