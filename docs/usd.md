@@ -63,8 +63,11 @@ the program stays in use while it loads:
    the stage and the program is in use again; Transform, Prune and Set Attribute
    already work on it.
 2. **The whole stage.** Every mesh array, primvar, material, binding and
-   authored value, the geometry made on every core. When it is done it replaces
-   the boxes, and everything downstream is cooked again.
+   authored value, the geometry made on every core. What the boxes pass read is
+   taken as it is, not read again: every prim's transform, visibility and
+   purpose, and the points it read for a box where a prim authors no extent
+   (when they do not change over time). When it is done it replaces the boxes,
+   and everything downstream is cooked again.
 
 Until the second pass is done, the Load USD node's parameters say *Shown as
 boxes; reading the geometry…*, an opened prim shows its box, the Primitive

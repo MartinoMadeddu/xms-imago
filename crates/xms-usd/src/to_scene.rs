@@ -59,6 +59,21 @@ struct Profile {
     convert: std::time::Duration,
     /// Curve / points primvars not captured: name → prims
     skipped: std::collections::BTreeMap<String, usize>,
+    /// What the full pass took from the boxes pass instead of reading again:
+    /// prims (transform, visibility, purpose), point arrays.
+    reused: (usize, usize),
+}
+
+/// What the boxes pass read that the full pass needs too, by the prim's path
+/// on the stage: the full pass takes it instead of reading it again. Both
+/// passes read the same stage at the same time and window.
+#[derive(Default)]
+struct Read {
+    /// Local transform and reset, visibility, purpose.
+    prims: crate::HashMap<String, (Sampled<Mat4d>, bool, Sampled<bool>, rs::Purpose)>,
+    /// Points read for a box where the prim authors no extent: the mesh's own
+    /// when they do not change over time.
+    points: crate::HashMap<String, Vec<[f32; 3]>>,
 }
 
 impl Default for SceneOptions {
@@ -90,7 +105,8 @@ pub fn translate(path: &FsPath, opts: SceneOptions) -> Result<Translated, String
 }
 
 /// Open the stage once and translate it twice: as boxes first (handed to
-/// `boxes` as soon as they are made), then in full. For a big stage read in the
+/// `boxes` as soon as they are made), then in full, taking what the boxes pass
+/// read (`Read`) rather than reading it again. For a big stage read in the
 /// background: what it looks like is shown long before all of it is read.
 pub fn translate_phased(
     path: &FsPath,
@@ -100,29 +116,48 @@ pub fn translate_phased(
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
     crate::register_formats();
     let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
-    if let Ok(first) = translate_stage(
+    // The full pass takes what the boxes pass read.
+    let read = match translate_reading(
         &stage,
         path,
         SceneOptions {
             boxes_only: true,
             ..opts.clone()
         },
+        Read::default(),
     ) {
-        boxes(first);
-    }
-    translate_stage(
+        Ok((first, read)) => {
+            boxes(first);
+            read
+        }
+        Err(_) => Read::default(),
+    };
+    translate_reading(
         &stage,
         path,
         SceneOptions {
             boxes_only: false,
             ..opts
         },
+        read,
     )
+    .map(|(t, _)| t)
 }
 
 /// Translate an already-open stage (`path` is its root layer, for `.mtlx`
 /// references).
 pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Result<Translated, String> {
+    translate_reading(stage, path, opts, Read::default()).map(|(t, _)| t)
+}
+
+/// `translate_stage`, given what an earlier pass read (`prior`); a boxes pass
+/// also gives back what it read, for the full pass.
+fn translate_reading(
+    stage: &Stage,
+    path: &FsPath,
+    opts: SceneOptions,
+    prior: Read,
+) -> Result<(Translated, Read), String> {
     let t0 = Instant::now();
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
     let z_up = stage
@@ -173,6 +208,8 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         proxy_active: 0,
         curve_primvars: opts.curve_primvars.clone(),
         profile: std::cell::RefCell::new(Profile::default()),
+        prior: std::cell::RefCell::new(prior),
+        read: std::cell::RefCell::new(Read::default()),
     };
     tr.scene.info = rs::StageInfo {
         z_up,
@@ -235,6 +272,7 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
         mut scene,
         mut warnings,
         profile,
+        read,
         ..
     } = tr;
     // Where the time went
@@ -253,6 +291,12 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
             p.decode.as_secs_f64(),
             p.convert.as_secs_f64()
         );
+        if p.reused != (0, 0) {
+            note.push_str(&format!(
+                " · from the boxes pass: {} prims' transforms, visibility and purpose, {} point arrays",
+                p.reused.0, p.reused.1
+            ));
+        }
         if !p.skipped.is_empty() {
             let names: Vec<&str> = p.skipped.keys().map(String::as_str).take(12).collect();
             let more = p.skipped.len().saturating_sub(names.len());
@@ -270,15 +314,22 @@ pub fn translate_stage(stage: &Stage, path: &FsPath, opts: SceneOptions) -> Resu
     }
     // The translation itself isn't a change to sync incrementally
     let _ = scene.take_changes();
-    Ok(Translated {
-        scene,
-        warnings,
-        seconds: t0.elapsed().as_secs_f64(),
-    })
+    Ok((
+        Translated {
+            scene,
+            warnings,
+            seconds: t0.elapsed().as_secs_f64(),
+        },
+        read.into_inner(),
+    ))
 }
 
 struct Translator<'s> {
     stage: &'s Stage,
+    /// What an earlier pass read, taken as it is needed.
+    prior: std::cell::RefCell<Read>,
+    /// What this pass read, kept for a later one (a boxes pass's).
+    read: std::cell::RefCell<Read>,
     time: Option<f64>,
     window: (f64, f64),
     import_curves: bool,
@@ -823,18 +874,38 @@ impl<'s> Translator<'s> {
         if matches!(p.kind, PrimKind::Gprim(_)) {
             p.primvars = self.primvars(prim, &[]);
         }
-        let (xf, reset) = self.local_xform(prim);
+        // As the boxes pass read them, else read now.
+        let key = prim.path().to_string();
+        let known = self.prior.borrow_mut().prims.remove(&key);
+        let (xf, reset, visible, purpose) = match known {
+            Some(k) => {
+                self.profile.borrow_mut().reused.0 += 1;
+                k
+            }
+            None => {
+                let (xf, reset) = self.local_xform(prim);
+                let visible = self
+                    .sampled(prim, "visibility", |v| tok(&v).map(|t| t != "invisible"))
+                    .unwrap_or_default();
+                let purpose = match self.token_of(prim, "purpose").as_deref() {
+                    Some("render") => rs::Purpose::Render,
+                    Some("proxy") => rs::Purpose::Proxy,
+                    Some("guide") => rs::Purpose::Guide,
+                    _ => rs::Purpose::Default,
+                };
+                (xf, reset, visible, purpose)
+            }
+        };
+        if self.boxes_only {
+            self.read
+                .borrow_mut()
+                .prims
+                .insert(key, (xf.clone(), reset, visible.clone(), purpose));
+        }
         p.local_xform = xf;
         p.reset_xform_stack = reset;
-        p.visible = self
-            .sampled(prim, "visibility", |v| tok(&v).map(|t| t != "invisible"))
-            .unwrap_or_default();
-        p.purpose = match self.token_of(prim, "purpose").as_deref() {
-            Some("render") => rs::Purpose::Render,
-            Some("proxy") => rs::Purpose::Proxy,
-            Some("guide") => rs::Purpose::Guide,
-            _ => rs::Purpose::Default,
-        };
+        p.visible = visible;
+        p.purpose = purpose;
         if !self.boxes_only {
             p.material_binding = binding(prim).and_then(|b| self.target_path(&b));
             p.opaque = ["primvars:rray:opaque", "rray:opaque", "primvars:arnold:opaque"]
@@ -972,12 +1043,15 @@ impl<'s> Translator<'s> {
         let from_points = || {
             let points = self.value(prim, "points").and_then(vec3_array)?;
             let first = *points.first()?;
-            Some(points.iter().fold((first, first), |(lo, hi), p| {
+            let bounds = points.iter().fold((first, first), |(lo, hi), p| {
                 (
                     [lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])],
                     [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])],
                 )
-            }))
+            });
+            // Kept: the full pass reads the same points for the mesh.
+            self.read.borrow_mut().points.insert(prim.path().to_string(), points);
+            Some(bounds)
         };
         let (lo, hi) = self
             .value(prim, "extent")
@@ -1002,7 +1076,16 @@ impl<'s> Translator<'s> {
     }
 
     fn mesh(&self, prim: &Prim) -> Option<rs::Mesh> {
-        let points = self.sampled(prim, "points", vec3_array)?;
+        // Points the boxes pass read, when they do not change over time (one
+        // value, read as `sampled` reads it); else read now.
+        let known = self.prior.borrow_mut().points.remove(&prim.path().to_string());
+        let points = match known {
+            Some(p) if self.sample_times(&prim.attribute("points")).len() <= 1 => {
+                self.profile.borrow_mut().reused.1 += 1;
+                Sampled::from_samples(vec![(self.time.unwrap_or(0.0), p)])
+            }
+            _ => self.sampled(prim, "points", vec3_array)?,
+        };
         let counts = self
             .value(prim, "faceVertexCounts")
             .and_then(int_array)
@@ -1518,5 +1601,85 @@ impl<'s> Translator<'s> {
             pixel_aspect_ratio: self.value(prim, "pixelAspectRatio").and_then(scalar).map(|v| v as f32),
             attributes,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The full pass of `translate_phased` takes from the boxes pass what it
+    /// read, and gives what a single full translation gives: the same
+    /// transforms, visibility, purposes and points, animated or not, with an
+    /// extent authored or not.
+    #[test]
+    fn the_full_pass_reusing_the_boxes_pass_is_a_full_translation() {
+        let dir = std::env::temp_dir().join("xms_usd_phased_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("phased.usda");
+        let quad = "int[] faceVertexCounts = [4]\n        int[] faceVertexIndices = [0, 1, 2, 3]";
+        std::fs::write(
+            &path,
+            format!(
+                r#"#usda 1.0
+(
+    startTimeCode = 1
+    endTimeCode = 10
+)
+def Xform "mover" {{
+    double3 xformOp:translate.timeSamples = {{ 1: (0, 0, 0), 10: (0, 9, 0) }}
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+    def Mesh "no_extent" {{
+        {quad}
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        uniform token purpose = "proxy"
+    }}
+}}
+def Mesh "wave" {{
+    {quad}
+    point3f[] points.timeSamples = {{
+        1: [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+        10: [(0, 0, 9), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+    }}
+    token visibility.timeSamples = {{ 1: "inherited", 5: "invisible" }}
+}}
+def Mesh "with_extent" {{
+    {quad}
+    point3f[] points = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
+    float3[] extent = [(0, 0, 0), (2, 2, 0)]
+}}
+"#
+            ),
+        )
+        .unwrap();
+        let opts = SceneOptions {
+            all_samples: true,
+            ..Default::default()
+        };
+        let mut boxes_seen = false;
+        let phased = translate_phased(&path, opts.clone(), |_| boxes_seen = true).unwrap();
+        let single = translate(&path, opts).unwrap();
+        assert!(boxes_seen);
+        assert!(
+            phased.warnings.iter().any(|w| w.contains("from the boxes pass")),
+            "{:?}",
+            phased.warnings
+        );
+        let mut n = 0;
+        for a in single.scene.prims() {
+            let b = phased
+                .scene
+                .get(&a.path)
+                .unwrap_or_else(|| panic!("{} missing", a.path.as_str()));
+            assert_eq!(a.local_xform, b.local_xform, "{}", a.path.as_str());
+            assert_eq!(a.reset_xform_stack, b.reset_xform_stack);
+            assert_eq!(a.visible, b.visible, "{}", a.path.as_str());
+            assert_eq!(a.purpose, b.purpose, "{}", a.path.as_str());
+            if let (PrimKind::Mesh(x), PrimKind::Mesh(y)) = (&a.kind, &b.kind) {
+                assert_eq!(x.points, y.points, "{}", a.path.as_str());
+                n += 1;
+            }
+        }
+        assert_eq!(n, 3);
     }
 }
