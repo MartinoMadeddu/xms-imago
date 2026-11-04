@@ -347,15 +347,17 @@ copying.
 
 - **Colour managed** (`crates/xms-colour`, `src/colour.rs`, `docs/colour.md`):
   one OpenColorIO config for the program (`Colour::get`: `$OCIO`'s, else
-  `imago.ocio`, embedded), the scene in USD's linear Rec.709 (found in the
-  config by name or alias, else `scene_linear`). The Viewer's picture is
+  `imago.ocio`, embedded, ACEScg its working and rendering space), the scene's
+  colours in USD's linear Rec.709 (found in the config by name or alias, else
+  `scene_linear`), turned into the working space by the view's transform. The Viewer's picture is
   `Rgba16Float`, linear; its blit runs the chosen view's transform as WGSL
   (`Colour::shader`: OpenColorIO's shader text before `blit.wgsl`, its
   uniforms and LUTs in bind group 1, made again when the view changes,
   `viewer::gpu::display`; `display_fallback.wgsl`, sRGB's curve, when it cannot
   be made). The Image Viewer's picture goes through the same view on the CPU
-  (`Colour::cpu`, from the image's colour space) as an `xms_image::Transform`.
-  Each pane's display and view is remembered (`colour::view`, `set_view`).
+  (`Colour::cpu`, from the rendering space or the space chosen) as an
+  `xms_image::Transform`. Each pane has View and Display menus
+  (`colour::menus`); its choice is remembered (`colour::view`, `set_view`).
 
 - **One scene, at the view flag.** `NodeGraphState::evaluate_scene` gives the
   scene at the view flag: the viewed output (`view_output`) of the viewed

@@ -11,38 +11,47 @@ Imago manages colour with OpenColorIO, through the pure-Rust `ocio` crate
 - **Imago's own** otherwise, built into the program, so nothing has to be set
   up: `crates/xms-colour/imago.ocio`. It is a part of the ACES CG config
   (cg-config v2.2.0, ACES 1.3, OCIO 2.4) and reads no files:
-  - displays **sRGB - Display** and **Display P3 - Display**;
-  - views **Un-tone-mapped** (first: what the Viewer showed before colour
-    management), **ACES 1.0 - SDR Video** and **Raw**;
+  - **ACEScg** the working space (`scene_linear`, `rendering`), as Houdini's
+    and Karma's ACES pipeline has it;
+  - displays **sRGB - Display** (the default: most monitors), **Rec.1886
+    Rec.709 - Display** (gamma 2.4, broadcast reference monitors) and
+    **Display P3 - Display**;
+  - views **ACES 1.0 - SDR Video** (the default), **Un-tone-mapped** and
+    **Raw**;
   - colour spaces ACES2065-1, ACEScg, ACEScct, Linear Rec.709 (sRGB), Linear
-    P3-D65, sRGB Encoded Rec.709 (sRGB) and Raw, with Linear Rec.709 (sRGB) as
-    `scene_linear`.
+    P3-D65, sRGB Encoded Rec.709 (sRGB) and Raw.
 
-When `$OCIO` names a config that does not load, Imago's own is used and the
-colour menus say why. The config is read once, when Imago starts.
+When `$OCIO` names a config that does not load, Imago's own is used, and an
+**OCIO** mark beside the colour menus says why. The config is read once, when
+Imago starts.
 
 ## The scene's colour space
 
-The scene is in USD's default colour space, linear Rec.709: materials' colours,
-`displayColor`, lights, and textures once read (sRGB textures are decoded to
-linear). Imago finds that space in the config by its name or an alias
+The scene's colours are in USD's default colour space, linear Rec.709:
+materials' colours, `displayColor`, lights, and textures once read (sRGB
+textures are decoded to linear), as USD files author them. They are kept as
+they are and turned into the working space (ACEScg) on the way to the display,
+one matrix in the view's transform: taking them as ACEScg would saturate every
+colour. Imago finds linear Rec.709 in the config by its name or an alias
 (`lin_rec709_scene`, `Linear Rec.709 (sRGB)`, `lin_rec709`…); a config without
-one has its `scene_linear` role taken instead, and the colour menus say so.
+one has its `scene_linear` role taken instead, and the OCIO mark says so.
 
 ## Viewer
 
 The Viewer draws the scene in linear light, in half floats, so light brighter
-than 1 is kept; the view chosen in its top bar's colour menu turns it into what
-the display is sent. The menu lists each display's views, the config in use
-and the scene's space. The transform runs on the GPU: OpenColorIO's own shader
+than 1 is kept. Two menus in its top bar, as Houdini and Nuke have them:
+**View** (ACES 1.0 - SDR Video, Un-tone-mapped, Raw) and **Display** (sRGB,
+Rec.1886 Rec.709, Display P3). Changing the display keeps the view when the
+display has it. Their tooltips say which config is used. The transform runs on the GPU: OpenColorIO's own shader
 for the view, written as WGSL, LUTs and all. Its overlays (the grid, the
 handles, selection) go through it too. Each pane's choice is remembered.
 
 ## Image Viewer
 
-An image goes through the same transforms on the CPU, from its own colour
-space: **the scene's** by default, or any of the config's from the menu next to
-the view's (a render from an ACES pipeline is in ACEScg). Exposure is applied
+The same View and Display menus. An image goes through the transform on the
+CPU from its colour space: the config's **rendering space** (ACEScg), what
+renders are in, or another of the config's spaces chosen in the ⚙ settings
+(Image colour space), for an image that is not a render. Exposure is applied
 before the transform, gamma after; the sRGB switch is not needed and is not
 shown. Alpha is shown as it is.
 

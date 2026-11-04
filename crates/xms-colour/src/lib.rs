@@ -5,8 +5,10 @@
 //! for the Viewer (`Colour::shader`).
 //!
 //! The scene's colour space is USD's default, linear Rec.709: the config's
-//! space of that name or alias, else its `scene_linear` role. An image can be
-//! in any of the config's spaces (a render in ACEScg).
+//! space of that name or alias, else its `scene_linear` role; its colours are
+//! turned into the working space on the way to the display. A render is in the
+//! config's rendering space (ACEScg in Imago's), and an image can be in any of
+//! its spaces.
 
 use std::sync::{Arc, OnceLock};
 
@@ -163,6 +165,29 @@ impl Colour {
         }
     }
 
+    /// The space renders are in: the `rendering` role, else `scene_linear`.
+    pub fn rendering(&self) -> String {
+        let r = self.config.role_color_space("rendering");
+        if r.is_empty() {
+            self.config.role_color_space("scene_linear").to_string()
+        } else {
+            r.to_string()
+        }
+    }
+
+    /// A display's view `view` if it has one, else its default.
+    pub fn on_display(&self, display: &str, view: &str) -> View {
+        let view = if self.config.has_view(display, view) {
+            view.to_string()
+        } else {
+            self.config.default_view(display)
+        };
+        View {
+            display: display.to_string(),
+            view,
+        }
+    }
+
     /// Its colour spaces, in order.
     pub fn spaces(&self) -> Vec<String> {
         (0..self.config.num_color_spaces())
@@ -247,40 +272,45 @@ mod tests {
         [p[0][0], p[0][1], p[0][2]]
     }
 
-    /// Imago's config: two displays, Un-tone-mapped first, the scene in
-    /// linear Rec.709; middle grey through sRGB's curve, and ACES's tone
-    /// scale bringing a bright red down below 1.
+    /// Imago's config: three displays, ACES first, ACEScg the working and
+    /// rendering space, the scene in linear Rec.709; middle grey through
+    /// sRGB's curve untone-mapped, ACES's tone scale bringing a bright red
+    /// down below 1.
     #[test]
-    fn imagos_config_shows_the_scene_in_srgb() {
+    fn imagos_config_shows_the_scene_in_aces() {
         let c = Colour::load(None);
         assert_eq!((c.source.clone(), c.problem.clone()), (Source::Imago, None));
         assert_eq!(c.scene, "Linear Rec.709 (sRGB)");
-        assert_eq!(c.displays(), ["sRGB - Display", "Display P3 - Display"]);
+        assert_eq!(c.rendering(), "ACEScg");
         assert_eq!(
-            c.views("sRGB - Display"),
-            ["Un-tone-mapped", "ACES 1.0 - SDR Video", "Raw"]
+            c.displays(),
+            ["sRGB - Display", "Rec.1886 Rec.709 - Display", "Display P3 - Display"]
+        );
+        assert_eq!(
+            c.views("Rec.1886 Rec.709 - Display"),
+            ["ACES 1.0 - SDR Video", "Un-tone-mapped", "Raw"]
         );
         let v = c.default_view();
-        assert_eq!(v.view, "Un-tone-mapped");
-        let grey = shown(&c, &v, [0.18; 3]);
-        assert!((grey[0] - 0.4614).abs() < 1e-3, "{grey:?}");
-        let aces = View {
-            view: "ACES 1.0 - SDR Video".into(),
-            ..v.clone()
-        };
-        let hot = shown(&c, &aces, [4.0, 1.0, 0.2]);
+        assert_eq!(
+            (v.display.as_str(), v.view.as_str()),
+            ("sRGB - Display", "ACES 1.0 - SDR Video")
+        );
+        let hot = shown(&c, &v, [4.0, 1.0, 0.2]);
         assert!(hot.iter().all(|x| *x > 0.0 && *x < 1.0), "{hot:?}");
-        let raw = View {
-            view: "Raw".into(),
-            ..v
-        };
+        let plain = c.on_display("sRGB - Display", "Un-tone-mapped");
+        let grey = shown(&c, &plain, [0.18; 3]);
+        assert!((grey[0] - 0.4614).abs() < 1e-3, "{grey:?}");
+        let raw = c.on_display("sRGB - Display", "Raw");
         assert_eq!(shown(&c, &raw, [4.0, 1.0, 0.2]), [4.0, 1.0, 0.2]);
+        // A display without the view: its default.
+        assert_eq!(
+            c.on_display("Display P3 - Display", "Nope").view,
+            "ACES 1.0 - SDR Video"
+        );
         // ACEScg's green is more saturated than Rec.709's: shown from ACEScg,
         // a pure green leaves sRGB's gamut.
-        assert!(c.spaces().contains(&"ACEScg".to_string()));
         let mut p = [[0.0, 1.0, 0.0, 1.0]];
-        let v = c.default_view();
-        c.cpu("ACEScg", &v).unwrap().apply(&mut p);
+        c.cpu("ACEScg", &plain).unwrap().apply(&mut p);
         assert!(p[0][0] < 0.0 && p[0][1] > 1.0, "{p:?}");
     }
 

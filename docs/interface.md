@@ -610,10 +610,10 @@ Used by Prune Joints, Fix Pose and the Find field of Rename Joints.
 
 ## Colour
 
-The colour menu at the top of the Viewer, after the display mode, chooses the
-display and view the scene is shown in (OpenColorIO's; see
-[Colour](colour.md)). The Image Viewer has its own, with the image's colour
-space beside it.
+The View and Display menus at the top of the Viewer, after the display mode,
+choose how the scene is shown (OpenColorIO's; see [Colour](colour.md)). The
+Image Viewer has its own pair; the colour space of its images is in its ⚙
+settings.
 
 ## Looking through a camera
 

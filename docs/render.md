@@ -296,9 +296,9 @@ Viewer renders the scene the view flag shows.
   named parts are layers too.
 - **RGB, R, G, B, A, L**: the colour, one channel, alpha, or luminance. A layer
   of one channel is grey.
-- **Exposure** (stops), **Gamma**, **Reset**; the image's colour space (the
-  scene's, or one of the config's: ACEScg for a render from an ACES pipeline)
-  and the display's view, through OpenColorIO (see [Colour](colour.md)).
+- **Exposure** (stops), **Gamma**, **Reset**; **View** and **Display**,
+  through OpenColorIO (see [Colour](colour.md)). The image is taken as in the
+  rendering space (ACEScg); another space is chosen in ⚙.
 - The wheel zooms about the pointer, a drag pans, a double-click, F or **Fit**
   fits the frame. The frame (display window) is outlined when the pixels go
   beyond it (overscan). The bottom corner shows the pixel under the pointer and

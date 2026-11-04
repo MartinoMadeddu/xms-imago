@@ -59,7 +59,7 @@ pub struct ImageViewerState {
     /// The ⚙ window is open.
     show_settings: bool,
     /// The colour space the image is in, from the config's. Empty: the
-    /// scene's (USD's linear Rec.709); a render may be in another (ACEScg).
+    /// config's rendering space (ACEScg in Imago's), what renders are in.
     pub input: String,
     /// The space, display and view the image's transform was made for.
     shown_in: Option<(String, crate::colour::View)>,
@@ -398,12 +398,11 @@ pub fn draw(
         st.view.display = display_transform(&now.0, &now.1);
         st.shown_in = Some(now);
     }
-    // The view's own controls, the image's space and the view, then the image
+    // The view's own controls, the view and display, then the image
     ui.horizontal(|ui| {
         st.view.controls(ui);
         ui.separator();
-        input_menu(ui, &mut st.input);
-        crate::colour::menu(ui, crate::colour::Pane::ImageViewer);
+        crate::colour::menus(ui, crate::colour::Pane::ImageViewer);
     });
     ui.separator();
     // The image, the snapshots bar under it, the log under that.
@@ -426,7 +425,7 @@ fn settings_window(
     chosen: Option<&SettingsInfo>,
 ) {
     let mut open = st.show_settings;
-    let w = egui::Window::new("Image Viewer: render command").id(egui::Id::new("image_viewer_settings_window"));
+    let w = egui::Window::new("Image Viewer: settings").id(egui::Id::new("image_viewer_settings_window"));
     let w = if open {
         crate::menus::at_pointer(ctx, w, "image_viewer_settings")
     } else {
@@ -463,6 +462,11 @@ fn settings_window(
                 ui.add(egui::Label::new(egui::RichText::new(shown).monospace().small().color(crate::properties::form::ink::DIM())).wrap());
             }
             ui.label(egui::RichText::new("On macOS a program started from the Dock does not see your shell's PATH: give the renderer's full path (…/Houdini.framework/Versions/Current/Resources/bin/husk, …/Arnold/bin/kick)").small());
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Image colour space");
+                input_menu(ui, &mut st.input);
+            });
             ui.separator();
             ui.label("Open an image");
             ui.horizontal(|ui| {
@@ -609,21 +613,18 @@ fn poll(st: &mut ImageViewerState) {
     }
 }
 
-/// The menu of the colour space the image is in: the scene's, or one of the
-/// config's.
+/// The menu of the colour space the image is in: the config's rendering
+/// space, or another of its spaces (an 8-bit sRGB image).
 fn input_menu(ui: &mut egui::Ui, input: &mut String) {
     let colour = crate::colour::Colour::get();
-    let label = format!(
-        "{} ⏷",
-        if input.is_empty() {
-            colour.scene.as_str()
-        } else {
-            input.as_str()
-        }
-    );
+    let label = if input.is_empty() {
+        format!("Rendering: {} ⏷", colour.rendering())
+    } else {
+        format!("{input} ⏷")
+    };
     crate::menus::menu(ui, label, |ui| {
         if ui
-            .radio(input.is_empty(), format!("The scene's ({})", colour.scene))
+            .radio(input.is_empty(), format!("The rendering space ({})", colour.rendering()))
             .clicked()
         {
             input.clear();
@@ -638,15 +639,21 @@ fn input_menu(ui: &mut egui::Ui, input: &mut String) {
         }
     })
     .response
-    .on_hover_text("The colour space the image is in: the scene's, or the one its renderer renders in (ACEScg with an ACES config)");
+    .on_hover_text("The colour space the images are in: the config's rendering space, what renders are in (ACEScg), or another for an image that is not a render (an 8-bit sRGB image)");
 }
 
 /// The image's display transform from colour space `from` (empty: the
-/// scene's) to a display and view: `None` when the config cannot make it
-/// (then sRGB's curve shows it), with the reason printed.
+/// rendering space) to a display and view: `None` when the config cannot make
+/// it (then sRGB's curve shows it), with the reason printed.
 fn display_transform(from: &str, v: &crate::colour::View) -> Option<xms_image::Transform> {
     use std::hash::{Hash, Hasher};
-    match crate::colour::Colour::get().cpu(from, v) {
+    let colour = crate::colour::Colour::get();
+    let space = if from.is_empty() {
+        colour.rendering()
+    } else {
+        from.to_string()
+    };
+    match colour.cpu(&space, v) {
         Ok(cpu) => {
             let mut h = std::collections::hash_map::DefaultHasher::new();
             (from, v).hash(&mut h);

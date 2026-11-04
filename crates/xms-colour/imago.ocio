@@ -10,9 +10,7 @@ description: |
   XMS | Imago's own config, used when $OCIO names none. A part of the ACES CG
   config (cg-config-v2.2.0_aces-v1.3_ocio-v2.4, BSD-3-Clause, the Academy
   Software Foundation): its colour spaces, displays and views as they are
-  there, with Linear Rec.709 (sRGB) as the scene-linear space (USD's default
-  colour space) and Un-tone-mapped as each display's first view. It reads no
-  files.
+  there, ACEScg the working space. It reads no files.
 
 roles:
   aces_interchange: ACES2065-1
@@ -21,29 +19,32 @@ roles:
   color_timing: ACEScct
   compositing_log: ACEScct
   data: Raw
-  default: Linear Rec.709 (sRGB)
+  default: ACEScg
   matte_paint: sRGB Encoded Rec.709 (sRGB)
-  rendering: Linear Rec.709 (sRGB)
-  scene_linear: Linear Rec.709 (sRGB)
+  rendering: ACEScg
+  scene_linear: ACEScg
   texture_paint: sRGB Encoded Rec.709 (sRGB)
 
 file_rules:
   - !<Rule> {name: Default, colorspace: default}
 
 shared_views:
-  - !<View> {name: Un-tone-mapped, view_transform: Un-tone-mapped, display_colorspace: <USE_DISPLAY_NAME>}
   - !<View> {name: ACES 1.0 - SDR Video, view_transform: ACES 1.0 - SDR Video, display_colorspace: <USE_DISPLAY_NAME>}
+  - !<View> {name: Un-tone-mapped, view_transform: Un-tone-mapped, display_colorspace: <USE_DISPLAY_NAME>}
 
 displays:
   sRGB - Display:
-    - !<Views> [Un-tone-mapped, ACES 1.0 - SDR Video]
+    - !<Views> [ACES 1.0 - SDR Video, Un-tone-mapped]
+    - !<View> {name: Raw, colorspace: Raw}
+  Rec.1886 Rec.709 - Display:
+    - !<Views> [ACES 1.0 - SDR Video, Un-tone-mapped]
     - !<View> {name: Raw, colorspace: Raw}
   Display P3 - Display:
-    - !<Views> [Un-tone-mapped, ACES 1.0 - SDR Video]
+    - !<Views> [ACES 1.0 - SDR Video, Un-tone-mapped]
     - !<View> {name: Raw, colorspace: Raw}
 
-active_displays: [sRGB - Display, Display P3 - Display]
-active_views: [Un-tone-mapped, ACES 1.0 - SDR Video, Raw]
+active_displays: [sRGB - Display, Rec.1886 Rec.709 - Display, Display P3 - Display]
+active_views: [ACES 1.0 - SDR Video, Un-tone-mapped, Raw]
 inactive_colorspaces: [CIE XYZ-D65 - Display-referred]
 
 default_view_transform: Un-tone-mapped
@@ -103,6 +104,27 @@ display_colorspaces:
     encoding: sdr-video
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_sRGB}
+
+  - !<ColorSpace>
+    name: Rec.1886 Rec.709 - Display
+    aliases: [rec1886_rec709_display]
+    family: Display
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Convert CIE XYZ (D65 white) to Rec.1886/Rec.709 (HD video)
+
+      AMF Components
+      --------------
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.Rec709_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.Rec709_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:ODT.Academy.Rec709_D60sim_100nits_dim.a1.0.3
+      ACEStransformID: urn:ampas:aces:transformId:v1.5:InvODT.Academy.Rec709_D60sim_100nits_dim.a1.0.3
+    isdata: false
+    categories: [file-io]
+    encoding: sdr-video
+    allocation: uniform
+    from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_REC.1886-REC.709}
 
   - !<ColorSpace>
     name: Display P3 - Display

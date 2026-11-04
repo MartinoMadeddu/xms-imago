@@ -83,41 +83,47 @@ pub fn set_view(pane: Pane, v: View) {
     }
 }
 
-/// The menu choosing a pane's display and view: each display's views, and
-/// which config they come from.
-pub fn menu(ui: &mut egui::Ui, pane: Pane) {
+/// The pane's two colour menus, View then Display, as Houdini and Nuke have
+/// them; which config they come from in their tooltips, and a warning mark
+/// when `$OCIO`'s config was not used.
+pub fn menus(ui: &mut egui::Ui, pane: Pane) {
     let colour = Colour::get();
     let now = view(pane);
+    let from = match &colour.source {
+        xms_colour::Source::Env(path) => format!("$OCIO: {path}"),
+        xms_colour::Source::Imago => "Imago's own (set $OCIO for another)".into(),
+    };
+    let about = format!(
+        "Config: {} ({from}). The scene's colours (USD's, {}) go through the working space to the display",
+        colour.name(),
+        colour.scene
+    );
     crate::menus::menu(ui, format!("{} ⏷", now.view), |ui| {
-        for display in colour.displays() {
-            ui.label(egui::RichText::new(&display).small().weak());
-            for v in colour.views(&display) {
-                let this = View {
-                    display: display.clone(),
-                    view: v.clone(),
-                };
-                if ui.radio(now == this, v.as_str()).clicked() {
-                    set_view(pane, this);
-                    ui.close();
-                }
+        for v in colour.views(&now.display) {
+            if ui.radio(now.view == v, v.as_str()).clicked() {
+                set_view(pane, colour.on_display(&now.display, &v));
+                ui.close();
             }
         }
-        ui.separator();
-        let from = match &colour.source {
-            xms_colour::Source::Env(path) => format!("$OCIO: {path}"),
-            xms_colour::Source::Imago => "Imago's own (set $OCIO for another)".into(),
-        };
-        ui.weak(format!("Config: {} ({from})", colour.name()));
-        ui.weak(format!("The scene is in {}", colour.scene));
-        if let Some(p) = &colour.problem {
-            crate::properties::form::status_label(ui, crate::properties::form::Status::Bad, p);
+    })
+    .response
+    .on_hover_text(format!("View: how the scene's light is shown (OpenColorIO). {about}"));
+    crate::menus::menu(ui, format!("{} ⏷", now.display), |ui| {
+        for d in colour.displays() {
+            if ui.radio(now.display == d, d.as_str()).clicked() {
+                // The same view, if the display has it.
+                set_view(pane, colour.on_display(&d, &now.view));
+                ui.close();
+            }
         }
     })
     .response
     .on_hover_text(format!(
-        "How the scene's colours are shown: {} on {} (OpenColorIO)",
-        now.view, now.display
+        "Display: the screen it is shown on (sRGB for most monitors). {about}"
     ));
+    if let Some(p) = &colour.problem {
+        crate::properties::form::status_label(ui, crate::properties::form::Status::Bad, "OCIO").on_hover_text(p);
+    }
 }
 
 #[cfg(test)]
