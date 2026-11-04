@@ -181,6 +181,10 @@ pub struct ViewerGpu {
     /// Every draw's copies, packed into as few buffers as fit: a scene of
     /// thousands of prims makes a handful of buffers a frame, not one each.
     instance_buffers: Vec<wgpu::Buffer>,
+    /// The geometry each of the scene's meshes had when last sent, by its
+    /// place in the scene: a deforming mesh's next frame is written into the
+    /// same buffers.
+    slots: Vec<usize>,
     line_buffer: Vec<(wgpu::Buffer, u32)>,
     generation: u64,
 }
@@ -526,6 +530,7 @@ impl ViewerGpu {
             meshes: vec![],
             draws: vec![],
             instance_buffers: vec![],
+            slots: vec![],
             line_buffer: vec![],
             generation: u64::MAX,
         }
@@ -644,26 +649,45 @@ impl ViewerGpu {
 
         // Meshes by their geometry: a scene of thousands finds each at once.
         let mut meshes: Vec<GpuMesh> = vec![];
-        let mut index: HashMap<*const Geometry, usize> = HashMap::new();
-        let mut old: HashMap<*const Geometry, GpuMesh> = std::mem::take(&mut self.meshes)
+        let ptr = |g: &Arc<Geometry>| Arc::as_ptr(g) as usize;
+        let mut index: HashMap<usize, usize> = HashMap::new();
+        let mut old: HashMap<usize, GpuMesh> = std::mem::take(&mut self.meshes)
             .into_iter()
-            .map(|m| (Arc::as_ptr(&m.geometry), m))
+            .map(|m| (ptr(&m.geometry), m))
             .collect();
+        let was = std::mem::take(&mut self.slots);
         self.draws.clear();
         // Floats of copies a buffer holds; each draw's put after the last's.
         let per = (BUFFER_BYTES / (INSTANCE_FLOATS * 4)).max(1) * INSTANCE_FLOATS;
         let mut packs: Vec<Vec<f32>> = vec![vec![]];
-        for d in &scene.meshes {
+        for (slot, d) in scene.meshes.iter().enumerate() {
+            self.slots.push(ptr(&d.geometry));
             if d.geometry.indices.is_empty() || d.instances.is_empty() {
                 continue;
             }
-            let key = Arc::as_ptr(&d.geometry);
+            let key = ptr(&d.geometry);
             let mesh = match index.get(&key) {
                 Some(&i) => i,
                 None => {
-                    let gm = match old.remove(&key) {
-                        Some(m) => m,
-                        None => GpuMesh {
+                    // Its own, else what was in its place last time when only
+                    // its points and normals moved (a deforming mesh), its
+                    // vertices written into the same buffer.
+                    let moved = was.get(slot).and_then(|prev| {
+                        let m = old.get(prev)?;
+                        let same = m.parts.len() == 1
+                            && m.geometry.vertices.len() == d.geometry.vertices.len()
+                            && m.geometry.indices == d.geometry.indices;
+                        same.then_some(*prev)
+                    });
+                    let gm = match (old.remove(&key), moved) {
+                        (Some(m), _) => m,
+                        (None, Some(prev)) => {
+                            let mut m = old.remove(&prev).expect("found above");
+                            queue.write_buffer(&m.parts[0].0, 0, bytemuck::cast_slice(&d.geometry.vertices));
+                            m.geometry = d.geometry.clone();
+                            m
+                        }
+                        (None, None) => GpuMesh {
                             geometry: d.geometry.clone(),
                             parts: parts(&d.geometry, if d.edges { 2 } else { 3 })
                                 .into_iter()
@@ -672,7 +696,7 @@ impl ViewerGpu {
                                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                             label: Some("viewer vertices"),
                                             contents: bytemuck::cast_slice(&v),
-                                            usage: wgpu::BufferUsages::VERTEX,
+                                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                                         }),
                                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                             label: Some("viewer indices"),

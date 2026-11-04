@@ -325,6 +325,30 @@ impl GeometryCache {
             }
         }
     }
+    /// Make the geometry of those it does not have yet, in parallel: `get`
+    /// then finds it.
+    fn make<'a>(&mut self, wanted: impl Iterator<Item = (&'a Arc<MeshData>, Kind)>) {
+        use rayon::prelude::*;
+        let mut new: Vec<(&Arc<MeshData>, Kind)> = wanted
+            .filter(|(md, kind)| {
+                !self
+                    .0
+                    .get(&(Arc::as_ptr(md) as usize, *kind))
+                    .is_some_and(|(m, _)| Arc::ptr_eq(m, md))
+            })
+            .collect();
+        new.sort_by_key(|(md, kind)| (Arc::as_ptr(md) as usize, *kind as u8));
+        new.dedup_by_key(|(md, kind)| (Arc::as_ptr(md) as usize, *kind as u8));
+        let made: Vec<Arc<Geometry>> = new
+            .par_iter()
+            .map(|(md, kind)| Arc::new(Geometry::of(md, *kind)))
+            .collect();
+        self.1 += made.len();
+        for ((md, kind), g) in new.into_iter().zip(made) {
+            self.0.insert((Arc::as_ptr(md) as usize, kind), (md.clone(), g));
+        }
+    }
+
     fn keep(&mut self, used: &[(usize, Kind)]) {
         let used: std::collections::HashSet<_> = used.iter().copied().collect();
         self.0.retain(|k, _| used.contains(k));
@@ -810,6 +834,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             drop(grouping);
             let made_before = cache.1;
             let mut drawable = crate::timings::span("viewer: drawable geometry");
+            // What is new (a deforming mesh, at each frame) made on every core.
+            cache.make(groups.iter().map(|g| (&g.1, g.0.kind)));
             for (key, md, instances, material) in groups {
                 let geometry = cache.get(&md, key.kind, &mut used);
                 s.meshes.push(MeshDraw {
