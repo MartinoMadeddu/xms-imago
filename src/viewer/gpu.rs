@@ -66,7 +66,9 @@ struct GpuMesh {
 /// A mesh drawn at its copies: one instance buffer per chunk of copies.
 struct Draw {
     mesh: usize,
-    instances: Vec<(wgpu::Buffer, u32)>,
+    /// Its copies: which of the shared instance buffers, from which byte, how
+    /// many.
+    instances: Vec<(usize, u64, u32)>,
     blend: bool,
     edges: bool,
     material: Option<usize>,
@@ -176,6 +178,9 @@ pub struct ViewerGpu {
     target: Option<Target>,
     meshes: Vec<GpuMesh>,
     draws: Vec<Draw>,
+    /// Every draw's copies, packed into as few buffers as fit: a scene of
+    /// thousands of prims makes a handful of buffers a frame, not one each.
+    instance_buffers: Vec<wgpu::Buffer>,
     line_buffer: Vec<(wgpu::Buffer, u32)>,
     generation: u64,
 }
@@ -520,6 +525,7 @@ impl ViewerGpu {
             target: None,
             meshes: vec![],
             draws: vec![],
+            instance_buffers: vec![],
             line_buffer: vec![],
             generation: u64::MAX,
         }
@@ -644,6 +650,9 @@ impl ViewerGpu {
             .map(|m| (Arc::as_ptr(&m.geometry), m))
             .collect();
         self.draws.clear();
+        // Floats of copies a buffer holds; each draw's put after the last's.
+        let per = (BUFFER_BYTES / (INSTANCE_FLOATS * 4)).max(1) * INSTANCE_FLOATS;
+        let mut packs: Vec<Vec<f32>> = vec![vec![]];
         for d in &scene.meshes {
             if d.geometry.indices.is_empty() || d.instances.is_empty() {
                 continue;
@@ -681,7 +690,16 @@ impl ViewerGpu {
                     meshes.len() - 1
                 }
             };
-            let instances = chunked(device, "viewer instances", &d.instances, INSTANCE_FLOATS);
+            let mut instances = vec![];
+            for c in d.instances.chunks(per) {
+                if packs.last().is_some_and(|p| p.len() + c.len() > per) {
+                    packs.push(vec![]);
+                }
+                let at = packs.len() - 1;
+                let offset = (packs[at].len() * 4) as u64;
+                packs[at].extend_from_slice(c);
+                instances.push((at, offset, (c.len() / INSTANCE_FLOATS) as u32));
+            }
             self.draws.push(Draw {
                 mesh,
                 instances,
@@ -691,6 +709,17 @@ impl ViewerGpu {
             });
         }
         self.meshes = meshes;
+        self.instance_buffers = packs
+            .iter()
+            .filter(|p| !p.is_empty())
+            .map(|p| {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("viewer instances"),
+                    contents: bytemuck::cast_slice(p),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
+            })
+            .collect();
         self.line_buffer = line_buffer(device, &scene.lines);
         self.top_buffer = line_buffer(device, &scene.top);
         self.generation = scene.generation;
@@ -772,9 +801,10 @@ impl ViewerGpu {
         for (vertices, indices, count) in &m.parts {
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-            for (instances, copies) in &d.instances {
-                pass.set_vertex_buffer(1, instances.slice(..));
-                pass.draw_indexed(0..*count, 0, 0..*copies);
+            for &(buffer, offset, copies) in &d.instances {
+                let bytes = copies as u64 * (INSTANCE_FLOATS * 4) as u64;
+                pass.set_vertex_buffer(1, self.instance_buffers[buffer].slice(offset..offset + bytes));
+                pass.draw_indexed(0..*count, 0, 0..copies);
             }
         }
     }

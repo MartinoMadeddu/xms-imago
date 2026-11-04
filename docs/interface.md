@@ -894,7 +894,9 @@ opening the stage (openusd reading and composing its layers) and making its
 boxes, translating the boxes and then the whole stage (xms-usd, with its own
 breakdown: meshes, curves, attribute decoding), making its geometry on every
 core, the Scene Explorer, the inspector, and the Viewer's scene (cooking the
-graph, the boxes of closed prims).
+graph, which prims are drawn, the boxes of closed prims, how each is drawn,
+grouping them into draws, sending them to the GPU). `XMS_TIMINGS=all` prints
+every step from 1 ms, to see where a frame's time goes while playing.
 
 ## When the graph is cooked
 

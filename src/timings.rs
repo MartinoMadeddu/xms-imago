@@ -7,7 +7,8 @@
 //! ```
 //! prints `[xms] usd: open and compose: 1234 ms` when `_t` goes out of scope.
 //! Steps under 20 ms are not printed, so what runs every frame stays quiet
-//! until it is slow.
+//! until it is slow; `XMS_TIMINGS=all` prints every step from 1 ms, to see
+//! where a frame's time goes.
 
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -48,9 +49,21 @@ impl Span {
     }
 }
 
+/// The shortest step printed, in ms: 1 with `XMS_TIMINGS=all`, else 20.
+fn shortest() -> u128 {
+    static MS: OnceLock<u128> = OnceLock::new();
+    *MS.get_or_init(|| {
+        if std::env::var("XMS_TIMINGS").is_ok_and(|v| v == "all") {
+            1
+        } else {
+            20
+        }
+    })
+}
+
 impl Drop for Span {
     fn drop(&mut self) {
-        if let Some(start) = self.start.filter(|s| s.elapsed().as_millis() >= 20) {
+        if let Some(start) = self.start.filter(|s| s.elapsed().as_millis() >= shortest()) {
             eprintln!("[xms] {}: {:.0} ms", self.label, start.elapsed().as_secs_f64() * 1000.0);
         }
     }
