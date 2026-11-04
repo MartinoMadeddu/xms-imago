@@ -300,7 +300,9 @@ Viewer renders the scene the view flag shows.
   through OpenColorIO (see [Colour](colour.md)). The image is taken as in the
   rendering space (ACEScg); another space is chosen in ⚙.
 - The wheel zooms about the pointer, a drag pans, a double-click, F or **Fit**
-  fits the frame. The frame (display window) is outlined when the pixels go
+  fits the frame, and H or **1:1** shows it at 100%: one image pixel per screen
+  pixel (on a Retina screen too), centred. The zoom at the top right is that
+  ratio. The frame (display window) is outlined when the pixels go
   beyond it (overscan). The bottom corner shows the pixel under the pointer and
   every channel of the layer there, as floats.
 

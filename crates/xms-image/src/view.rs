@@ -34,11 +34,13 @@ pub struct ImageView {
     pub look: Look,
     /// The display transform the program gives, in place of sRGB's curve.
     pub display: Option<Transform>,
-    /// Screen pixels per image pixel, when not fitted.
+    /// Screen points per image pixel, when not fitted.
     zoom: f32,
     /// The frame's centre from the canvas's, in screen pixels.
     pan: egui::Vec2,
     fit: bool,
+    /// Asked for 1:1 (the button, or H): one image pixel per screen pixel.
+    actual: bool,
     texture: Option<egui::TextureHandle>,
     /// What the texture holds: the image, layer, show, look and display
     /// transform it was made from.
@@ -63,6 +65,7 @@ impl Default for ImageView {
             zoom: 1.0,
             pan: egui::Vec2::ZERO,
             fit: true,
+            actual: false,
             texture: None,
             made: None,
             snaps: vec![],
@@ -228,6 +231,13 @@ impl ImageView {
         {
             self.fit = true;
         }
+        if ui
+            .button("1:1")
+            .on_hover_text("One image pixel per screen pixel, centred (H)")
+            .clicked()
+        {
+            self.actual = true;
+        }
     }
 
     /// The snapshots bar: which image is shown (the menu, the slider, − and +:
@@ -365,9 +375,23 @@ impl ImageView {
             self.zoom = fitted.max(1e-3);
             self.pan = egui::Vec2::ZERO;
         }
+        // 1:1 is one image pixel per physical pixel: on a high-density screen
+        // a point is several.
+        let ppp = ui.ctx().pixels_per_point();
+        if std::mem::take(&mut self.actual) {
+            self.zoom = 1.0 / ppp;
+            self.pan = egui::Vec2::ZERO;
+            self.fit = false;
+        }
 
-        // Zoom about the pointer; pan by dragging; fit by double-click or F.
+        // Zoom about the pointer; pan by dragging; fit by double-click or F,
+        // 1:1 by H.
         if resp.hovered() {
+            if ui.input(|i| i.key_pressed(egui::Key::H)) && !ui.ctx().egui_wants_keyboard_input() {
+                self.zoom = 1.0 / ppp;
+                self.pan = egui::Vec2::ZERO;
+                self.fit = false;
+            }
             let (scroll, pinch, f) =
                 ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta(), i.key_pressed(egui::Key::F)));
             let factor = (scroll * 0.0015).exp() * pinch;
@@ -440,7 +464,8 @@ impl ImageView {
             &painter,
             rect.right_top() + egui::vec2(-8.0, 8.0),
             egui::Align2::RIGHT_TOP,
-            format!("{:.0}%", s * 100.0),
+            // Image pixels to screen pixels: 100% at 1:1.
+            format!("{:.0}%", s * ppp * 100.0),
         );
 
         // The pixel under the pointer, and its values.
