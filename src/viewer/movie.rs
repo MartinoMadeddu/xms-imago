@@ -164,7 +164,9 @@ impl Settings {
         if let Ok(mut g) = CHOSEN.lock() {
             *g = Some(self);
         }
-        let Some(file) = crate::file_browser::config_path("movie.txt") else { return };
+        let Some(file) = crate::file_browser::config_path("movie.txt") else {
+            return;
+        };
         if let Some(parent) = file.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

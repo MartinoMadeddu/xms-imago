@@ -379,7 +379,9 @@ impl Layout {
     /// once. Not while it shares its place with other tabs, nor floating.
     pub fn fit_timeline(&mut self, need: f32, margin: f32) {
         let tree = &mut self.dock[egui_dock::SurfaceIndex::main()];
-        let Some((node, _)) = tree.find_tab(&Pane::Timeline) else { return };
+        let Some((node, _)) = tree.find_tab(&Pane::Timeline) else {
+            return;
+        };
         let (rect, viewport) = match &tree[node] {
             egui_dock::Node::Leaf(l) if l.tabs.len() == 1 => (l.rect, l.viewport),
             _ => return,

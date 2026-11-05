@@ -158,6 +158,10 @@ pub fn frames(graph: &NodeGraphState, view: Option<(f64, f64)>) -> (Vec<f64>, (u
         }
     };
     let Some((a, b)) = view else { return (times, rate) };
-    let inside: Vec<f64> = times.iter().copied().filter(|t| *t >= a - 1e-6 && *t <= b + 1e-6).collect();
+    let inside: Vec<f64> = times
+        .iter()
+        .copied()
+        .filter(|t| *t >= a - 1e-6 && *t <= b + 1e-6)
+        .collect();
     (if inside.len() > 1 { inside } else { times }, rate)
 }

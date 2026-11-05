@@ -166,7 +166,6 @@ fn key_menu(resp: &egui::Response, graph: &mut NodeGraphState) {
     });
 }
 
-
 /// Height of the range slider along the bottom.
 const RANGE_H: f32 = 20.0;
 /// Where the timeline says how tall it needs to be, and where its pane's top
@@ -553,7 +552,14 @@ fn ruler(painter: &egui::Painter, s: &Span, ax: &Axis, pb: &Playback, view: (i64
 
 /// Clicking or dragging on the track moves the playhead; the playhead and its
 /// frame drawn over everything.
-fn scrub_and_playhead(painter: &egui::Painter, s: &Span, resp: &egui::Response, ax: &Axis, pb: &mut Playback, dragging_key: bool) {
+fn scrub_and_playhead(
+    painter: &egui::Painter,
+    s: &Span,
+    resp: &egui::Response,
+    ax: &Axis,
+    pb: &mut Playback,
+    dragging_key: bool,
+) {
     if !dragging_key
         && (resp.dragged_by(egui::PointerButton::Primary)
             || resp.clicked()
@@ -571,14 +577,22 @@ fn scrub_and_playhead(painter: &egui::Painter, s: &Span, resp: &egui::Response, 
         [egui::pos2(px, rect.min.y), egui::pos2(px, rect.max.y)],
         egui::Stroke::new(2.0_f32, xsi::PLAYHEAD()),
     );
-    let galley = painter.layout_no_wrap(ax.label(pb, frame), egui::FontId::proportional(10.0), egui::Color32::BLACK);
+    let galley = painter.layout_no_wrap(
+        ax.label(pb, frame),
+        egui::FontId::proportional(10.0),
+        egui::Color32::BLACK,
+    );
     let w = galley.size().x + 8.0;
     let tag = egui::Rect::from_min_size(
         egui::pos2((px + 2.0).min(rect.max.x - w), rect.max.y - 16.0),
         egui::vec2(w, 14.0),
     );
     painter.rect_filled(tag, 2.0, xsi::PLAYHEAD());
-    painter.galley(egui::pos2(tag.min.x + 4.0, tag.min.y + 1.0), galley, egui::Color32::BLACK);
+    painter.galley(
+        egui::pos2(tag.min.x + 4.0, tag.min.y + 1.0),
+        galley,
+        egui::Color32::BLACK,
+    );
 }
 
 /// What a drag on the range slider moves.
@@ -721,7 +735,9 @@ fn slider(ui: &egui::Ui, rect: egui::Rect, resp: &egui::Response, pb: &mut Playb
         [egui::pos2(p, rect.min.y), egui::pos2(p, rect.max.y)],
         egui::Stroke::new(1.5_f32, xsi::PLAYHEAD()),
     );
-    if pointer.is_some_and(|p| rect.contains(p) && matches!(near(p), Some(RangeDrag::In | RangeDrag::Out))) || drag.is_some() {
+    if pointer.is_some_and(|p| rect.contains(p) && matches!(near(p), Some(RangeDrag::In | RangeDrag::Out)))
+        || drag.is_some()
+    {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
 }
@@ -837,7 +853,12 @@ fn draw_scene(
         );
         if r.width() > 0.0 {
             painter.rect_filled(r, 2.0, xsi::CLIP_BAR());
-            painter.rect_stroke(r, 2.0, egui::Stroke::new(1.0, xsi::CLIP_EDGE()), egui::StrokeKind::Middle);
+            painter.rect_stroke(
+                r,
+                2.0,
+                egui::Stroke::new(1.0, xsi::CLIP_EDGE()),
+                egui::StrokeKind::Middle,
+            );
         }
     }
     ruler(&painter, &s, &ax, pb, view);

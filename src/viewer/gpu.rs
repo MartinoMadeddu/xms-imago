@@ -654,14 +654,7 @@ impl ViewerGpu {
             self.movie = Some((target, bytes));
         }
         if self.movie_display.as_ref().is_none_or(|d| d.view != self.display.view) {
-            self.movie_display = Some(display(
-                device,
-                queue,
-                &self.blit_layout,
-                MOVIE,
-                1,
-                &self.display.view,
-            ));
+            self.movie_display = Some(display(device, queue, &self.blit_layout, MOVIE, 1, &self.display.view));
         }
         let (Some((t, bytes)), Some(shown)) = (&self.movie, &self.movie_display) else {
             return;

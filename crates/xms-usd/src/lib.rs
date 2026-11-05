@@ -24,8 +24,8 @@ use rustc_hash::FxHashMap as HashMap;
 
 use nalgebra::{Matrix4, Rotation3, Vector3};
 use openusd::gf;
-use openusd::vt::{Value, ValueKind};
 use openusd::usd::Prim;
+use openusd::vt::{Value, ValueKind};
 
 mod alembic;
 mod curves;
