@@ -36,7 +36,7 @@ the left with the Image Viewer as a tab behind it (see
 Primitive Inspector behind; then the Node Graph, with the UV Editor and the
 Curve Editor as tabs behind it (see [UV](uv.md), [Keys](keys.md)); then
 Parameters over History, with the Operator Stack behind it (see
-[Undo](undo.md)). The Timeline runs along the bottom. A layout saved before the
+[Undo](undo.md)). The Timeline runs along the bottom, as tall as its rows and no taller (see [Timeline](mocap.md#timeline)). A layout saved before the
 History pane, the Curve Editor or the Image Viewer existed does not have them:
 tick them in the Window menu, or "Reset layout" for the default.
 

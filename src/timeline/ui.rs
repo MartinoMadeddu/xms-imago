@@ -38,7 +38,7 @@ mod xsi {
     }
 }
 
-const TRACK_H: f32 = 40.0;
+const TRACK_H: f32 = 46.0;
 const TRACK_PAD: f32 = 12.0;
 
 /// Frame range of `other` in frames of `clip`'s rate, matched by timecode.
@@ -169,6 +169,14 @@ fn key_menu(resp: &egui::Response, graph: &mut NodeGraphState) {
 
 /// Height of the range slider along the bottom.
 const RANGE_H: f32 = 20.0;
+/// Where the timeline says how much taller its pane is than it needs.
+const SPARE: &str = "timeline_spare";
+
+/// How many points taller the timeline's pane was than its rows and the
+/// track's least height need, as last drawn.
+pub fn spare(ctx: &egui::Context) -> Option<f32> {
+    ctx.data(|d| d.get_temp::<f32>(egui::Id::new(SPARE)))
+}
 
 /// Advances playback and draws the panel. `dt` is the frame's delta time.
 /// `keys` is false while a text field has keyboard focus.
@@ -470,7 +478,11 @@ impl Span {
 
 /// The track: what is left of the pane above the range slider.
 fn track(ui: &mut egui::Ui) -> (egui::Rect, egui::Response) {
-    let h = (ui.available_height() - RANGE_H - ui.spacing().item_spacing.y).max(TRACK_H);
+    let room = ui.available_height() - RANGE_H - ui.spacing().item_spacing.y;
+    // What the pane has beyond the track's least, or lacks: the layout takes
+    // it back, or gives it.
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(SPARE), room - TRACK_H));
+    let h = room.max(TRACK_H);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), egui::Sense::click_and_drag());
     ui.painter().rect_filled(rect, 3.0, xsi::TRACK_BG());
     (rect, resp)

@@ -21,8 +21,11 @@ bottom](xms_timeline.png)
 | Frame | The playhead's frame, typed or dragged, and its timecode |
 | Frames, Timecode | The ruler and the playhead's tag in frames or in timecode |
 | Speed | Real time at the rate of what is shown (the default); 6 to 60 fps whatever the rate; Every frame, one frame each time the interface is drawn, however long it takes |
-| Track | Fills the pane. Click or drag to move the playhead; the selected operator's keys are red ticks on it |
+| Track | Click or drag to move the playhead; the selected operator's keys are red ticks on it |
 | Range slider | Along the bottom: the first frame, view in, the slider, view out, the last frame. Drag a handle to set view in or out, the middle to move both; type them in the fields either side. Double-click the slider or press ↔ for the whole range |
+
+The Timeline's pane, docked above or below other panes, keeps to the height
+its rows need, whatever the size of the window: no empty space under them.
 
 View in and out are what the track shows and what plays and loops; Export
 Movie writes them too. With a clip, the first and last frame are the clip's

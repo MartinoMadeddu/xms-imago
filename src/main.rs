@@ -623,6 +623,10 @@ pub(crate) fn draw_ui(
     if let Some(pane) = toggle_float {
         layout.toggle_float(pane);
     }
+    // The Timeline's pane is as tall as its rows, no taller.
+    if let Some(spare) = timeline::ui::spare(ctx) {
+        layout.fit_timeline(spare);
+    }
 
     // Docking along a whole edge of the window
     // The dock area only offers places beside single panes. While a tab is
