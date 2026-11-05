@@ -77,6 +77,7 @@ jobs:
       - name: Tests
         id: tests
         continue-on-error: true
+        timeout-minutes: 60
         run: cargo test --release 2>&1 | tee report/test.log
 
       - name: Report

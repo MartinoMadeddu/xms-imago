@@ -3808,12 +3808,41 @@ mod tests {
         assert!(x.iter().all(|v| (v - x[0]).abs() < 0.5), "{x:?}");
     }
 
+    /// Fails the run, naming what it was on, when the test holding the
+    /// returned mark stays on one thing for `limit`, rather than letting it
+    /// hang. Written past the test's captured output, so a run that never
+    /// ends still says where it stopped. Ends with the mark.
+    fn watchdog(limit: std::time::Duration) -> std::sync::Arc<std::sync::Mutex<(String, std::time::Instant)>> {
+        let mark = std::sync::Arc::new(std::sync::Mutex::new((String::new(), std::time::Instant::now())));
+        let watched = std::sync::Arc::downgrade(&mark);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let Some(mark) = watched.upgrade() else { return };
+            let Ok((what, since)) = mark.lock().map(|m| m.clone()) else {
+                return;
+            };
+            if since.elapsed() > limit {
+                use std::io::Write;
+                let _ = writeln!(std::io::stderr(), "stuck for {}s on {what}", limit.as_secs());
+                std::process::exit(101);
+            }
+        });
+        mark
+    }
+
     #[test]
     fn every_template_builds_something_to_look_at() {
         // The file-based templates need the examples folder of the repository.
         assert!(examples::dir().is_some(), "examples folder not found");
+        let mark = watchdog(std::time::Duration::from_secs(600));
+        let on = |what: String| {
+            if let Ok(mut m) = mark.lock() {
+                *m = (what, std::time::Instant::now());
+            }
+        };
 
         for t in TEMPLATES {
+            on(format!("template {}", t.name));
             assert!(
                 MENU.iter().any(|(by, groups)| *by == t.by && groups.contains(&t.group)),
                 "{}",
@@ -3873,6 +3902,7 @@ mod tests {
                 ) {
                     continue;
                 }
+                on(format!("template {}, operator {}", t.name, n.name));
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1))
                     .map(|o| {
@@ -3886,6 +3916,7 @@ mod tests {
                 assert!(clip || mesh > 0, "{}: node {} gives nothing", t.name, n.name);
             }
             // The scene at the view flag is something to look at.
+            on(format!("template {}, the viewed operator", t.name));
             let v = g.view_flag.unwrap();
             let scene = g
                 .eval_node_out(v, g.viewed_output(), &mut std::collections::HashMap::new(), &eval)

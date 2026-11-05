@@ -73,6 +73,7 @@ jobs:
 
       - name: Test
         if: matrix.name == 'linux-x86_64'
+        timeout-minutes: 60
         run: cargo test --release --target ${{ matrix.target }}
 
       - name: Build
