@@ -2,7 +2,7 @@
 //! Markdown, to open in a browser from the disk: no server, nothing fetched.
 //! The Markdown stays the source; the pages are made again from it.
 //!
-//! The pages: the README as the Overview, the User Guide in the order
+//! The pages: `docs/overview.md` as the Overview, the User Guide in the order
 //! `docs/README.md` lists its pages, and a Reference of the operators,
 //! vocabulary, architecture and design philosophy. Each page has the guide's
 //! contents on its left, its own headings on its right and a search over every
@@ -51,8 +51,13 @@ pub struct Built {
 /// The pages, in the order of the contents: the Overview, the User Guide as
 /// `docs/README.md` lists it, then the Reference.
 fn pages(root: &Path) -> Vec<Page> {
+    // docs/overview.md, else the README.
+    let overview = ["docs/overview.md", "README.md"]
+        .into_iter()
+        .find(|f| root.join(f).is_file())
+        .unwrap_or("README.md");
     let mut out = vec![Page {
-        source: "README.md".into(),
+        source: overview.into(),
         file: "index.html".into(),
         title: "Overview".into(),
         part: "",
@@ -143,8 +148,8 @@ struct Links<'a> {
     images: HashSet<String>,
     anchors: Vec<(String, String, String)>,
     /// From the pages up to the repository's root, when they are in it
-    /// (`docs/html`, also in a release): images are linked where they are,
-    /// not copied.
+    /// (`docs/html`, also in a release): images in `docs/` (which a release
+    /// has) are linked where they are; others are copied beside the pages.
     up: Option<String>,
 }
 
@@ -325,7 +330,7 @@ fn link(
         problems.push(format!("{page}: {dest} is not in the repository"));
     }
     if image {
-        if let Some(up) = &links.up {
+        if let Some(up) = links.up.as_ref().filter(|_| path.starts_with("docs/")) {
             return format!("{up}{path}");
         }
         links.images.insert(path.clone());

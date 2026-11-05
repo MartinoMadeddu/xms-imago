@@ -112,6 +112,7 @@ article h2 { font-size: 28px; margin: 44px 0 12px; padding-bottom: 6px; border-b
 article h3 { font-size: 21px; margin: 32px 0 8px; }
 article h4 { font-size: 17px; margin: 24px 0 6px; }
 article img { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+article img[src$="icon.png"] { width: 128px; border: 0; }
 article code {
   font: 0.88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--code); padding: 0.1em 0.35em; border-radius: 4px;

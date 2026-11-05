@@ -479,10 +479,11 @@ ICE, MaterialX, compounds, rendering, colour, geometry, Viewer navigation,
 animation and mocap, keys and the Curve Editor, Body Collide, rigging, builds
 and releases.
 
-The same pages, and the reference (operators, vocabulary, architecture, design
-philosophy), are HTML pages to read in a browser, with a search over them all:
-**Help > Documentation** in Imago, or `docs/html/index.html` in a release.
-From the source tree, `cargo run -p xms-docs` makes them in `docs/html`.
+The same pages, after a short overview ([docs/overview.md](docs/overview.md)),
+and the reference (operators, vocabulary, architecture, design philosophy), are
+HTML pages to read in a browser, with a search over them all: **Help >
+Documentation** in Imago, or `docs/html/index.html` in a release. From the
+source tree, `cargo run -p xms-docs` makes them in `docs/html`.
 
 ## Contributing
 
