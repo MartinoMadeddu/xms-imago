@@ -74,11 +74,15 @@ jobs:
       - name: Download example files
         run: cargo test --release download_example_files -- --ignored --nocapture 2>&1 | tail -30
 
+      # The program's tests, ICE's and the documentation's (every link and
+      # image found). bash named explicitly runs with pipefail, so a failure
+      # passes through tee.
       - name: Tests
         id: tests
         continue-on-error: true
         timeout-minutes: 60
-        run: cargo test --release 2>&1 | tee report/test.log
+        shell: bash
+        run: cargo test --release --no-fail-fast -p xms-imago -p xms-ice -p xms-docs 2>&1 | tee report/test.log
 
       - name: Report
         if: always()

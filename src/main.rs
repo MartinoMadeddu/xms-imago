@@ -4,6 +4,7 @@ mod colour;
 mod compounds;
 mod core;
 mod curve_editor;
+mod docs;
 mod downloads;
 mod edits;
 mod eframe_app;
@@ -417,6 +418,7 @@ pub(crate) fn draw_ui(
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
                     crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked, &mut graph_file.message));
+                    crate::menus::menu(ui, "Help", |ui| help_menu(ui, &mut graph_file.message));
                 });
                 let menus_end = ui.cursor().min.x;
                 let mut lock_start = bar.right();
@@ -1970,6 +1972,21 @@ fn layout_menu(ui: &mut egui::Ui, layout: &mut Layout, locked: bool, message: &m
 }
 
 /// Panes, layout and theme.
+/// Help: the documentation, in the browser.
+fn help_menu(ui: &mut egui::Ui, message: &mut String) {
+    ui.set_min_width(200.0);
+    if ui
+        .button("Documentation")
+        .on_hover_text("Imago's documentation in your browser: the user guide and the reference, with a search")
+        .clicked()
+    {
+        if let Err(e) = crate::docs::open() {
+            *message = e;
+        }
+        ui.close();
+    }
+}
+
 fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser, locked: bool, message: &mut String) {
     ui.set_min_width(200.0);
     for pane in Pane::ALL {

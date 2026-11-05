@@ -1,5 +1,7 @@
 /target
 _site/
+# The documentation's HTML, made from the Markdown (cargo run -p xms-docs)
+/docs/html/
 /crates/*/target
 /crates/*/Cargo.lock
 /examples/ragdoll/*.fbx

@@ -1,0 +1,8 @@
+[package]
+name = "xms-docs"
+version.workspace = true
+edition = "2021"
+description = "XMS | Imago's documentation as HTML pages to open in a browser, made from the repository's Markdown"
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

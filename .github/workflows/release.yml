@@ -98,6 +98,11 @@ jobs:
           echo "Newest glibc symbol: $newest"
           test "$(printf '%s\nGLIBC_2.28\n' "$newest" | sort -V | tail -1)" = "GLIBC_2.28"
 
+      # The documentation's HTML, made from the Markdown into docs/html, so
+      # the package has it to open in a browser (Help > Documentation).
+      - name: Documentation
+        run: cargo run --release -p xms-docs
+
       - name: Package (Linux, macOS)
         if: runner.os != 'Windows'
         run: |

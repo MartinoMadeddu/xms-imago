@@ -831,7 +831,7 @@ scene there again, and so does a selected prim leaving the scene (moving the
 view flag, or a Prune). Selecting a row does not select an operator. For a
 stage, opening and closing prims also decides what the Viewer draws as geometry
 and what as boxes, and the guide, proxy and render toggles in the header choose
-which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-Viewer).
+which purposes are drawn. See [USD](usd.md#the-scene-explorer-and-the-viewer).
 Only the rows in view are laid out, so a stage of tens of thousands of prims
 scrolls as easily as a cube.
 

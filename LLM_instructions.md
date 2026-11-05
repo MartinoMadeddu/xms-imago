@@ -186,7 +186,9 @@ such a file:
   similar), CMU mocap (BVH only, not read by the program).
 - **Documentation with every change.** `README.md` and the pages in `docs/` that
   describe what changed are updated in the same change. The website (`site/`)
-  only when something on it is wrong.
+  only when something on it is wrong. A new page goes in `docs/README.md`'s
+  list, which is the HTML documentation's order (`cargo test -p xms-docs`
+  checks every link and image leads somewhere).
 - **A screenshot when something visible changed**, in `docs/`, taken from the
   running program.
 - **Say what was tested and what was not.** A claim in the docs is measured

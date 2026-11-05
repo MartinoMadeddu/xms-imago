@@ -42,6 +42,12 @@ the operators it has and plans in
 [XMS_CORE_OPS_SPEC.md](../XMS_CORE_OPS_SPEC.md). How to work on it with an AI
 assistant is in [LLM_instructions.md](../LLM_instructions.md).
 
+**Help > Documentation** opens these pages and the reference as HTML in your
+browser, made from these files (`cargo run -p xms-docs` makes them in
+`docs/html`). A link here to another page is to its `.md` file, and to a
+heading by its anchor as GitHub writes it (`usd.md#big-stages-boxes-first`), so
+it works on GitHub and in the HTML alike.
+
 These pages describe
 [MartinoMadeddu/xms-imago](https://github.com/MartinoMadeddu/xms-imago). They
 are updated with every change.

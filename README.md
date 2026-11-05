@@ -475,8 +475,14 @@ ffmpeg`).
 ## Documentation
 
 [docs/](docs/README.md): interface, undo, templates, Edit Poly, UV, USD,
-geometry, Viewer navigation, animation and mocap, keys and the Curve Editor,
-Body Collide, rigging, builds and releases.
+ICE, MaterialX, compounds, rendering, colour, geometry, Viewer navigation,
+animation and mocap, keys and the Curve Editor, Body Collide, rigging, builds
+and releases.
+
+The same pages, and the reference (operators, vocabulary, architecture, design
+philosophy), are HTML pages to read in a browser, with a search over them all:
+**Help > Documentation** in Imago, or `docs/html/index.html` in a release.
+From the source tree, `cargo run -p xms-docs` makes them in `docs/html`.
 
 ## Contributing
 
