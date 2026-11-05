@@ -624,8 +624,9 @@ pub(crate) fn draw_ui(
         layout.toggle_float(pane);
     }
     // The Timeline's pane is as tall as its rows, no taller.
-    if let Some(spare) = timeline::ui::spare(ctx) {
-        layout.fit_timeline(spare);
+    if let Some(need) = timeline::ui::need(ctx) {
+        let m = theme::dock_style(&ctx.global_style()).tab.tab_body.inner_margin;
+        layout.fit_timeline(need, (m.top + m.bottom) as f32);
     }
 
     // Docking along a whole edge of the window

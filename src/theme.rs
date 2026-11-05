@@ -202,6 +202,9 @@ pub fn tabs_1995() -> bool {
 pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     let mut style = egui_dock::Style::from_egui(style);
     style.tab_bar.fill_tab_bar = true;
+    // How short a pane may be dragged: egui_dock's 175 points kept the
+    // Timeline far taller than its rows.
+    style.separator.extra = 80.0;
     // Tab titles: readable when idle, brightest on the tab in front.
     style.tab.inactive.text_color = c(223, 223, 223);
     style.tab.hovered.text_color = c(250, 250, 250);

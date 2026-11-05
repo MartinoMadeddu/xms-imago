@@ -373,20 +373,24 @@ impl Layout {
     }
 
     /// The Timeline, docked above or below other panes, is kept to the height
-    /// its rows need: `spare` points taller than that (as it last drew) is
-    /// taken off its pane, and given back if it is short. Not while it shares
-    /// its place with other tabs, nor floating.
-    pub fn fit_timeline(&mut self, spare: f32) {
+    /// it needs: `need` points of its own (see `timeline::ui::need`) and
+    /// `margin`, its body's top and bottom margins, under its tab bar. An
+    /// absolute height, not a correction of the last one, so it settles at
+    /// once. Not while it shares its place with other tabs, nor floating.
+    pub fn fit_timeline(&mut self, need: f32, margin: f32) {
         let tree = &mut self.dock[egui_dock::SurfaceIndex::main()];
         let Some((node, _)) = tree.find_tab(&Pane::Timeline) else { return };
-        let rect = match &tree[node] {
-            egui_dock::Node::Leaf(l) if l.tabs.len() == 1 => l.rect,
+        let (rect, viewport) = match &tree[node] {
+            egui_dock::Node::Leaf(l) if l.tabs.len() == 1 => (l.rect, l.viewport),
             _ => return,
         };
-        if !rect.is_finite() || spare.abs() < 1.5 {
+        if !rect.is_finite() || !viewport.is_finite() {
             return;
         }
-        let want = rect.height() - spare;
+        let want = (rect.height() - viewport.height()) + need + margin;
+        if (rect.height() - want).abs() < 1.5 {
+            return;
+        }
         let mut at = node;
         while let Some(p) = at.parent() {
             if let egui_dock::Node::Vertical(split) = &mut tree[p] {

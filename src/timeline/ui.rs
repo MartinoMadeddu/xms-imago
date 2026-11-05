@@ -169,13 +169,16 @@ fn key_menu(resp: &egui::Response, graph: &mut NodeGraphState) {
 
 /// Height of the range slider along the bottom.
 const RANGE_H: f32 = 20.0;
-/// Where the timeline says how much taller its pane is than it needs.
-const SPARE: &str = "timeline_spare";
+/// Where the timeline says how tall it needs to be, and where its pane's top
+/// is while it is drawn.
+const NEED: &str = "timeline_need";
+const TOP: &str = "timeline_top";
 
-/// How many points taller the timeline's pane was than its rows and the
-/// track's least height need, as last drawn.
-pub fn spare(ctx: &egui::Context) -> Option<f32> {
-    ctx.data(|d| d.get_temp::<f32>(egui::Id::new(SPARE)))
+/// The height the timeline needs: its rows, the track at its least and its
+/// margins. The same whatever the pane's size, so the layout can keep the
+/// pane to it without chasing itself.
+pub fn need(ctx: &egui::Context) -> Option<f32> {
+    ctx.data(|d| d.get_temp::<f32>(egui::Id::new(NEED)))
 }
 
 /// Advances playback and draws the panel. `dt` is the frame's delta time.
@@ -190,6 +193,8 @@ pub fn draw_timeline(
     // False when the navigation style uses Space itself.
     space_plays: bool,
 ) {
+    let top = ui.max_rect().top();
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(TOP), top));
     egui::Frame::NONE
         .fill(xsi::PANEL_BG())
         .inner_margin(6.0)
@@ -478,10 +483,13 @@ impl Span {
 
 /// The track: what is left of the pane above the range slider.
 fn track(ui: &mut egui::Ui) -> (egui::Rect, egui::Response) {
-    let room = ui.available_height() - RANGE_H - ui.spacing().item_spacing.y;
-    // What the pane has beyond the track's least, or lacks: the layout takes
-    // it back, or gives it.
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(SPARE), room - TRACK_H));
+    let gap = ui.spacing().item_spacing.y;
+    let room = ui.available_height() - RANGE_H - gap;
+    // The rows above, the track at its least, the slider, the margin.
+    if let Some(top) = ui.ctx().data(|d| d.get_temp::<f32>(egui::Id::new(TOP))) {
+        let need = (ui.cursor().top() - top) + TRACK_H + gap + RANGE_H + 6.0;
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(NEED), need));
+    }
     let h = room.max(TRACK_H);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), egui::Sense::click_and_drag());
     ui.painter().rect_filled(rect, 3.0, xsi::TRACK_BG());
