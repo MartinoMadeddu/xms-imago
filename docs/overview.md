@@ -6,9 +6,10 @@ XMS | Imago is a node-based 3D application written in Rust. A scene is one
 graph of operators on USD, and nothing is baked: change any node and
 everything after it follows.
 
-Martino Madeddu made it, with Simon Legrand, to have a small, fast program that
-works the way Houdini, Katana and Gaffer do, procedural and live from the first
-node to the render, with USD as its scene from end to end.
+Developed to have a fast, easy to build application that can run on all main
+OSs, non destructive procedural workflow with USD scene at its core with
+advanced crossdata manipulation access via the Integrated Creation Engine (ICE)
+and fast mocap processing tools.
 
 ## Structure
 

@@ -414,6 +414,7 @@ fn frame(pages: &[Page], at: usize, made: &Made, titles: &[String]) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <link rel="stylesheet" href="style.css">
+<script>try {{ var t = localStorage.getItem("imago-docs-theme"); if (t) document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
 </head>
 <body>
 <header class="top">
@@ -423,6 +424,7 @@ fn frame(pages: &[Page], at: usize, made: &Made, titles: &[String]) -> String {
     <input id="search" type="search" placeholder="Search (press /)" autocomplete="off" aria-label="Search the documentation">
     <div id="results" hidden></div>
   </div>
+  <button class="theme" type="button" aria-label="Night mode" title="Night mode">&#9790;</button>
 </header>
 <div class="layout">
   <nav class="side" aria-label="Contents">{nav}</nav>
@@ -550,6 +552,11 @@ pub fn build(root: &Path, out: &Path) -> std::io::Result<Built> {
     for font in [
         "michroma-latin-400-normal.woff2",
         "archivo-narrow-latin-700-normal.woff2",
+        // Anisette, for the name at the top, when a licensed copy is there:
+        // it cannot be shipped, so the pages fall back to an installed one,
+        // then to Michroma.
+        "anisette.woff2",
+        "anisette.otf",
     ] {
         if fonts.join(font).is_file() {
             std::fs::create_dir_all(out.join("fonts"))?;

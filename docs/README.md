@@ -46,7 +46,10 @@ assistant is in [LLM_instructions.md](../LLM_instructions.md).
 browser, [overview.md](overview.md) first, made from these files (`cargo run -p xms-docs` makes them in
 `docs/html`). A link here to another page is to its `.md` file, and to a
 heading by its anchor as GitHub writes it (`usd.md#big-stages-boxes-first`), so
-it works on GitHub and in the HTML alike.
+it works on GitHub and in the HTML alike. The name at the top is in Anisette
+when it is installed, or put in `site/fonts` as `anisette.woff2` or
+`anisette.otf` (it is not shipped: its licence does not allow it), else in
+Michroma.
 
 These pages describe
 [MartinoMadeddu/xms-imago](https://github.com/MartinoMadeddu/xms-imago). They
