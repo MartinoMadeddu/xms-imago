@@ -338,7 +338,6 @@ fn build_rec(
     cb: Aabb,
     depth: u32,
     max_depth: &AtomicU32,
-    parallel: bool,
 ) -> BuildNode {
     let n = recs.len();
     if n <= SMALL {
@@ -358,23 +357,10 @@ fn build_rec(
         }
     });
     let (l, r) = recs.split_at_mut(sp.mid);
-    let mut left = || build_rec(l, start, sp.left.0, sp.left.1, depth + 1, max_depth, parallel);
-    let mut right = || {
-        build_rec(
-            r,
-            start + sp.mid as u32,
-            sp.right.0,
-            sp.right.1,
-            depth + 1,
-            max_depth,
-            parallel,
-        )
-    };
-    let (left, right) = if parallel {
-        rayon::join(left, right)
-    } else {
-        (left(), right())
-    };
+    let (left, right) = rayon::join(
+        || build_rec(l, start, sp.left.0, sp.left.1, depth + 1, max_depth),
+        || build_rec(r, start + sp.mid as u32, sp.right.0, sp.right.1, depth + 1, max_depth),
+    );
     BuildNode::Inner {
         bounds,
         children: Box::new([left, right]),
@@ -387,15 +373,6 @@ const STACK: usize = 64;
 impl Bvh {
     /// Built over boxes, primitive `i` being `boxes[i]`. `None` for none.
     pub fn build(boxes: &[Aabb]) -> Option<Bvh> {
-        Bvh::build_with(boxes, true)
-    }
-
-    /// As `build`, its large subtrees built in parallel or not. Not in
-    /// parallel when the caller holds something other rayon tasks may wait
-    /// for (a `OnceLock` being filled): a thread waiting in `rayon::join`
-    /// runs other tasks meanwhile, and one of them asking for the same lock
-    /// on the same thread never returns.
-    pub fn build_with(boxes: &[Aabb], parallel: bool) -> Option<Bvh> {
         if boxes.is_empty() {
             return None;
         }
@@ -411,7 +388,7 @@ impl Bvh {
             .collect();
         let (bounds, cb) = slice_bounds(&recs);
         let max_depth = AtomicU32::new(0);
-        let tree = build_rec(&mut recs, 0, bounds, cb, 0, &max_depth, parallel);
+        let tree = build_rec(&mut recs, 0, bounds, cb, 0, &max_depth);
         let order: Vec<u32> = recs.iter().map(|r| r.idx).collect();
         // Flattened: children side by side; small subtrees spliced in.
         let mut nodes: Vec<Node> = Vec::with_capacity(boxes.len() / 2 + 2);

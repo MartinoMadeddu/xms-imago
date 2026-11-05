@@ -398,37 +398,41 @@ impl Surface {
     }
 
     /// Its faces as the triangles they are searched on, and their BVH, made
-    /// once. Made on this thread alone when it is one of rayon's: the graph's
-    /// batches run as rayon tasks and ask for it, and a thread filling the
-    /// lock that waited on rayon would run another batch meanwhile, which
-    /// asks for the same lock on the same thread and never returns (the
-    /// rigid hair template hung so, now and then).
+    /// once, in parallel. Made by `searchable` before the work searching it is
+    /// split into rayon tasks, never by one of them: a task filling the lock
+    /// waits on rayon and runs another task meanwhile, which asks for the same
+    /// lock on the same thread and never returns.
     fn index(&self) -> &(Vec<Tri>, Option<Bvh>) {
         self.index.get_or_init(|| {
-            let parallel = rayon::current_thread_index().is_none();
-            let of = |(k, m): (usize, &Mesh)| {
-                let mut out = vec![];
-                let mut parts = vec![];
-                for f in 0..m.faces() as u32 {
-                    m.triangles(f, &mut parts);
-                    out.extend(parts.iter().map(|&(part, p)| Tri {
-                        mesh: k as u32,
-                        face: f,
-                        part,
-                        p,
-                    }));
-                }
-                out
-            };
-            let tris: Vec<Tri> = if parallel {
-                self.meshes.par_iter().enumerate().flat_map_iter(of).collect()
-            } else {
-                self.meshes.iter().enumerate().flat_map(of).collect()
-            };
+            let tris: Vec<Tri> = self
+                .meshes
+                .par_iter()
+                .enumerate()
+                .flat_map_iter(|(k, m)| {
+                    let mut out = vec![];
+                    let mut parts = vec![];
+                    for f in 0..m.faces() as u32 {
+                        m.triangles(f, &mut parts);
+                        out.extend(parts.iter().map(|&(part, p)| Tri {
+                            mesh: k as u32,
+                            face: f,
+                            part,
+                            p,
+                        }));
+                    }
+                    out
+                })
+                .collect();
             let boxes: Vec<Aabb> = tris.iter().map(|t| Aabb::around(&t.p)).collect();
-            let bvh = Bvh::build_with(&boxes, parallel);
+            let bvh = Bvh::build(&boxes);
             (tris, bvh)
         })
+    }
+
+    /// Itself with its search index made, for searching from rayon tasks.
+    pub fn searchable(&self) -> &Surface {
+        self.index();
+        self
     }
 
     /// The sample nearest `p` within `radius` (0 or less: anywhere), and how

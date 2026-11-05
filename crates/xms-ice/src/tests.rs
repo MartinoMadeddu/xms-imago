@@ -1844,6 +1844,90 @@ fn closest_point_on_a_reference_mesh() {
     assert!((points(&moved)[0][1] - -3.0).abs() < 1e-5, "{:?}", points(&moved)[0]);
 }
 
+/// Closest Point on a surface big enough that its search index is built in
+/// parallel, from many batches, the graph run again and again on eight of
+/// rayon's threads: a batch that built the index would wait on rayon, run
+/// another batch meanwhile and wait for the same index on the same thread,
+/// never returning. The index is made before the batches; the test fails
+/// (rather than hanging) when a run takes too long.
+#[test]
+fn a_big_surface_searched_from_many_batches_never_hangs() {
+    let n = 120;
+    let mut ps = vec![];
+    for j in 0..=n {
+        for i in 0..=n {
+            ps.push([i as f32, 0.0, j as f32]);
+        }
+    }
+    let mut corners = vec![];
+    for j in 0..n {
+        for i in 0..n {
+            let a = j * (n + 1) + i;
+            corners.extend([a, a + 1, a + n + 2, a + n + 1]);
+        }
+    }
+    let floor = Geo::from_polygons(ps, vec![4; (n * n) as usize], corners);
+    let refs = vec![Reference {
+        paths: vec!["/floor".into()],
+        meshes: vec![super::RefMesh {
+            path: "/floor".into(),
+            world: glam::Mat4::IDENTITY,
+            geo: super::RefGeo::ready(Arc::new(floor)),
+        }],
+    }];
+    let geo = Geo::from_points(
+        (0..40_000)
+            .map(|i| [(i % 200) as f32 * 0.6, 1.0, (i / 200) as f32 * 0.6])
+            .collect(),
+    );
+    let mut g = Graph::default();
+    let paths = g.add(
+        Op::GetReference {
+            input: 1,
+            paths: Some(vec!["/floor".into()]),
+        },
+        vec![],
+    );
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(
+        Op::ClosestPoint,
+        vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))],
+    );
+    let at = g.add(
+        Op::GetDataAt {
+            name: "P".into(),
+            context: None,
+        },
+        closest_at(near),
+    );
+    let set = g.add(Op::set("P"), vec![wire(at)]);
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        vec![wire(set)],
+    );
+    let plan = super::compile_with(&g, &geo, &refs).unwrap();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap();
+        pool.install(|| {
+            for _ in 0..300 {
+                let out = run(&plan, &geo, &no_params(), &refs).geo;
+                assert!(points(&out).iter().all(|q| q[1].abs() < 1e-5));
+            }
+        });
+        let _ = done.send(());
+    });
+    let ran = finished.recv_timeout(std::time::Duration::from_secs(120));
+    assert_ne!(
+        ran,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+        "searching from many batches hung"
+    );
+    assert_eq!(ran, Ok(()), "a run went wrong");
+}
+
 /// Within a radius only: beyond it, a sample of nothing (P reads zero) at the
 /// radius; the UVs there blended from the corners.
 #[test]

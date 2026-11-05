@@ -1202,7 +1202,8 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 radius,
             } => {
                 let (found, far): (Vec<Loc>, Vec<f32>) = {
-                    let s = env.surface(surface, regs, uniform);
+                    // Made before the batches when they search it.
+                    let s = env.surface(surface, regs, uniform).searchable();
                     let o: &[Vec3] = match &regs[origin] {
                         Reg::Vec3(v) => v,
                         _ => &[],
@@ -2038,6 +2039,13 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
                 .chunks_mut(BATCH)
                 .zip(&mut tasks)
                 .for_each(|(c, t)| t.push(Slice::Mat4(c))),
+        }
+    }
+    // The surfaces the batches search, made searchable here, in parallel, not
+    // by a batch (`Surface::index`).
+    for ins in &plan.batch.code {
+        if let Ins::Closest { surface, .. } = *ins {
+            env.surface(surface, &[], false).searchable();
         }
     }
     let env = &env;
