@@ -7,14 +7,16 @@
 pub enum Page {
     #[default]
     Viewer,
+    Interface,
 }
 
 impl Page {
-    pub const ALL: [Page; 1] = [Page::Viewer];
+    pub const ALL: [Page; 2] = [Page::Viewer, Page::Interface];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::Viewer => "Viewer",
+            Page::Interface => "Interface",
         }
     }
 }
@@ -50,6 +52,7 @@ pub fn window(ctx: &egui::Context) {
                 ui.separator();
                 ui.vertical(|ui| match page {
                     Page::Viewer => viewer(ui),
+                    Page::Interface => crate::ui_scale::settings(ui),
                 });
             });
         });

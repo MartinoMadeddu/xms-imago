@@ -344,6 +344,8 @@ steps kept as a branch](docs/xms_history.png)
   edges and polygons. A or H frames everything
 - **Your navigation:** Maya, Houdini, XSI, Blender, Max, Modo or Unreal Viewer
   controls, from a menu
+- **Your size:** the whole interface drawn smaller on a short screen, or at a
+  size of your own (File > Settings > Interface, Ctrl+= and Ctrl+-)
 - **Export Movie:** the Movie menu on the Viewer writes the timeline's frames as
   seen in the Viewer, or through the camera looked through, to an MP4 (H.264 or
   H.265) by ffmpeg; see [docs/interface.md](docs/interface.md#export-movie)

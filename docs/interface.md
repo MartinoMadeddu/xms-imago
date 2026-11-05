@@ -617,6 +617,7 @@ Viewer's page. Each setting is remembered where its part keeps it.
 | Page | Holds |
 |---|---|
 | Viewer | **Colour**: the View and Display the scene is shown in (OpenColorIO's; see [Colour](colour.md)), and which config they come from |
+| Interface | **Size**: how big text, buttons, fields and every pane's controls are drawn (see [Interface size](#interface-size)) |
 
 The Image Viewer has its own View and Display menus in its top bar; the colour
 space of its images is in its ⚙ settings.
@@ -702,6 +703,33 @@ With the cursor over the Viewer:
 |---|---|
 | F, G, Z, . | The selected node. With an Edit Poly node selected and vertices, edges or polygons selected in it, those components |
 | A, H | Everything shown |
+
+## Interface size
+
+Everything in the interface (text, buttons, fields, sliders, tabs, the node
+graph's nodes, the panes' own controls) is drawn at one size, set in File >
+Settings > Interface. The Viewer's picture keeps the screen's own pixels.
+
+| Size | What it is |
+|---|---|
+| Auto (the default) | From the screen's height in the system's own points: 80% under 1000, 90% under 1400, 100% above. A laptop shows about as much as a 4K monitor does |
+| A size of your own | 60% to 160%, on the slider, typed (`85%`), or with the keys below |
+
+| To | Press |
+|---|---|
+| Make it bigger | Ctrl+= (Cmd+= on macOS) |
+| Make it smaller | Ctrl+- (Cmd+-) |
+| Go back to Auto | Ctrl+0 (Cmd+0) |
+
+![File > Settings > Interface: Auto, 90% on a screen 1080 pixels tall](xms_interface_size.png)
+
+The size is kept (`interface.txt` in the config folder). The system's own
+scaling (200% on a 4K screen, say) comes first; the size is on top of it.
+
+The widgets are drawn small and flat: text at 12 points (small text 10,
+headings 15), buttons and fields 18 points high with 3-point corners, sliders
+a thin rail with a round handle, scroll bars that float over what they scroll
+and widen under the pointer, a 22-point tab bar.
 
 ## Theme
 

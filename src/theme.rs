@@ -202,6 +202,8 @@ pub fn tabs_1995() -> bool {
 pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     let mut style = egui_dock::Style::from_egui(style);
     style.tab_bar.fill_tab_bar = true;
+    // A slimmer tab bar.
+    style.tab_bar.height = 22.0;
     // How short a pane may be dragged: egui_dock's 175 points kept the
     // Timeline far taller than its rows.
     style.separator.extra = 80.0;
@@ -544,18 +546,53 @@ pub fn apply(ctx: &egui::Context) {
     text.color_transfer_function = egui::epaint::FontColorTransferFunction::Gamma(text_gamma(&s));
     text.font_hinting = false;
     text.subpixel_binning = false;
-    // Text sizes of egui 0.28, which the panes are laid out for (0.33 made
-    // body text 13 and code 13).
+    // Sleek and dense, as the tools it sits beside: text a little under
+    // egui's (13), small text still readable, headings a step up, not two.
+    // The whole is sized again by the interface's size (`ui_scale`).
     use egui::{FontFamily, FontId, TextStyle};
-    style
-        .text_styles
-        .insert(TextStyle::Body, FontId::new(12.5, FontFamily::Proportional));
-    style
-        .text_styles
-        .insert(TextStyle::Button, FontId::new(12.5, FontFamily::Proportional));
-    style
-        .text_styles
-        .insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
+    for (t, size, family) in [
+        (TextStyle::Small, 10.0, FontFamily::Proportional),
+        (TextStyle::Body, 12.0, FontFamily::Proportional),
+        (TextStyle::Button, 12.0, FontFamily::Proportional),
+        (TextStyle::Heading, 15.0, FontFamily::Proportional),
+        (TextStyle::Monospace, 11.5, FontFamily::Monospace),
+    ] {
+        style.text_styles.insert(t, FontId::new(size, family));
+    }
+    let sp = &mut style.spacing;
+    sp.item_spacing = egui::vec2(6.0, 3.0);
+    sp.button_padding = egui::vec2(6.0, 1.0);
+    sp.interact_size = egui::vec2(36.0, 18.0);
+    sp.icon_width = 12.0;
+    sp.icon_width_inner = 6.0;
+    sp.icon_spacing = 4.0;
+    sp.indent = 16.0;
+    // Sliders: a thin rail and a round handle.
+    sp.slider_rail_height = 4.0;
+    sp.slider_width = 110.0;
+    sp.combo_width = 90.0;
+    sp.menu_margin = egui::Margin::same(4);
+    sp.window_margin = egui::Margin::same(8);
+    // Scroll bars that float over the content, thin until the pointer is
+    // near: no gutter taken from every pane.
+    sp.scroll = egui::style::ScrollStyle::floating();
+    style.visuals.handle_shape = egui::style::HandleShape::Circle;
+    // Softer corners: fields and buttons 3, menus and windows 6.
+    let r = egui::CornerRadius::same(3);
+    for w in [
+        &mut style.visuals.widgets.noninteractive,
+        &mut style.visuals.widgets.inactive,
+        &mut style.visuals.widgets.hovered,
+        &mut style.visuals.widgets.active,
+        &mut style.visuals.widgets.open,
+    ] {
+        w.corner_radius = r;
+        // No widget grows when hovered or pressed: it only lights.
+        w.expansion = 0.0;
+    }
+    style.visuals.menu_corner_radius = egui::CornerRadius::same(6);
+    style.visuals.window_corner_radius = egui::CornerRadius::same(6);
+    style.visuals.slider_trailing_fill = true;
 
     // egui keeps a style for the system's light mode and one for its dark
     // mode, and follows the system: both are the scheme's, so the system's

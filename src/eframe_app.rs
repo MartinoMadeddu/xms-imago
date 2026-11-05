@@ -30,6 +30,8 @@ pub struct ImagoApp {
 impl ImagoApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::init(&cc.egui_ctx);
+        // Ctrl+= and Ctrl+- set the interface's size, kept (`ui_scale`).
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         // Render folders an Imago that crashed left behind.
         crate::image_viewer::clean_up_left_behind();
         if let Some(render_state) = cc.wgpu_render_state.as_ref() {
@@ -59,6 +61,7 @@ impl eframe::App for ImagoApp {
         let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.25);
         self.last_frame = now;
         let ctx = ui.ctx().clone();
+        crate::ui_scale::frame(&ctx);
 
         // The interface, undo, what changed, questions before closing, then
         // what the panes show.

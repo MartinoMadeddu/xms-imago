@@ -40,6 +40,7 @@ mod timeline;
 mod timings;
 mod type_colours;
 mod types;
+mod ui_scale;
 mod usd_loader;
 mod usd_scene;
 mod usd_stage;
