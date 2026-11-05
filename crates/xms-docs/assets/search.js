@@ -92,6 +92,26 @@
     else if (!ev.target.closest(".side")) document.body.classList.remove("open");
   });
 
+  // Night mode: the switch turns the other way from what shows now, and is
+  // remembered for every page.
+  var theme = document.querySelector(".theme"), root = document.documentElement;
+  function night() {
+    var chosen = root.dataset.theme;
+    return chosen ? chosen === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function label() {
+    theme.innerHTML = night() ? "&#9788;" : "&#9790;";
+    theme.title = theme.ariaLabel = night() ? "Day mode" : "Night mode";
+  }
+  if (theme) {
+    label();
+    theme.addEventListener("click", function () {
+      root.dataset.theme = night() ? "light" : "dark";
+      try { localStorage.setItem("imago-docs-theme", root.dataset.theme); } catch (e) {}
+      label();
+    });
+  }
+
   // The page's own entry kept in view in the contents.
   var side = document.querySelector(".side"), here = document.querySelector(".side a.here");
   if (side && here) side.scrollTop = here.offsetTop - side.clientHeight / 2;

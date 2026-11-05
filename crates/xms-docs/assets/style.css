@@ -1,6 +1,8 @@
 /* XMS | Imago documentation: one column of reading, the contents on the left,
-   the page's headings on the right. Light or dark as the system is. */
+   the page's headings on the right. Light or dark as the system is, or as the
+   switch at the top chose. */
 
+@font-face { font-family: "Anisette"; src: local("Anisette Std"), local("AnisetteStd-Regular"), local("Anisette"), url("fonts/anisette.woff2") format("woff2"), url("fonts/anisette.otf") format("opentype"); font-display: swap; }
 @font-face { font-family: "Michroma"; src: url("fonts/michroma-latin-400-normal.woff2") format("woff2"); font-display: swap; }
 @font-face { font-family: "Archivo Narrow"; font-weight: 700; src: url("fonts/archivo-narrow-latin-700-normal.woff2") format("woff2"); font-display: swap; }
 
@@ -17,8 +19,9 @@
   --hit: #fff4c2;
   --top: 52px;
 }
+/* Night: as the system is, unless the switch at the top chose (data-theme). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #15171a;
     --side: #1b1e22;
     --ink: #e3e6ea;
@@ -30,6 +33,18 @@
     --bar-ink: #e8eaed;
     --hit: #3b3420;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a;
+  --side: #1b1e22;
+  --ink: #e3e6ea;
+  --soft: #9aa3ad;
+  --line: #30353b;
+  --accent: #4fd2ec;
+  --code: #23272c;
+  --bar: #0d0e10;
+  --bar-ink: #e8eaed;
+  --hit: #3b3420;
 }
 
 * { box-sizing: border-box; }
@@ -53,10 +68,15 @@ a:hover { text-decoration: underline; }
 }
 .brand { display: flex; align-items: baseline; gap: 10px; color: var(--bar-ink); white-space: nowrap; }
 .brand:hover { text-decoration: none; }
-.mark { font-family: "Michroma", system-ui, sans-serif; font-size: 15px; letter-spacing: 0.04em; }
+.mark { font-family: "Anisette", "Michroma", system-ui, sans-serif; font-size: 15px; letter-spacing: 0.04em; }
 .sub { font-size: 13px; color: #9aa3ad; }
 .menu { display: none; background: none; border: 0; color: var(--bar-ink); font-size: 20px; cursor: pointer; padding: 4px; }
 .find { position: relative; margin-left: auto; width: min(360px, 45vw); }
+.theme {
+  flex: none; width: 32px; height: 32px; border: 1px solid #3a3f46; border-radius: 6px;
+  background: #22262b; color: var(--bar-ink); font-size: 16px; line-height: 1; cursor: pointer;
+}
+.theme:hover { border-color: var(--accent); }
 #search {
   width: 100%; height: 32px; padding: 0 10px;
   border: 1px solid #3a3f46; border-radius: 6px;
