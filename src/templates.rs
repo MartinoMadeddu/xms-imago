@@ -3936,6 +3936,43 @@ mod tests {
         }
     }
 
+    /// The rigid hair template cooked again and again on eight of rayon's
+    /// threads, where it used to hang now and then: a thread filling a
+    /// surface's search index waited in `rayon::join`, ran another batch
+    /// meanwhile, and that batch waited for the same index on the same
+    /// thread. Fails by the watchdog rather than hanging.
+    #[test]
+    fn the_rigid_hair_template_cooks_without_hanging() {
+        let mark = watchdog(std::time::Duration::from_secs(120));
+        let t = TEMPLATES
+            .iter()
+            .find(|t| t.name == "Bind rigid hair deform by skin")
+            .unwrap();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap();
+        pool.install(|| {
+            for k in 0..40 {
+                if let Ok(mut m) = mark.lock() {
+                    *m = (format!("cook {k}"), std::time::Instant::now());
+                }
+                let mut g = NodeGraphState::default();
+                let mut store = IceGraphStore::default();
+                (t.build)(&mut g, &mut store);
+                let eval = |sid: IceGraphId,
+                            mesh: &crate::core::geo::Geo,
+                            template: &[crate::ice::Reference]|
+                 -> crate::core::geo::Geo {
+                    store
+                        .get(sid)
+                        .map(|sg| sg.evaluate(mesh, template))
+                        .unwrap_or_else(|| mesh.clone())
+                };
+                let v = g.view_flag.unwrap();
+                let out = g.eval_node_out(v, 0, &mut std::collections::HashMap::new(), &eval);
+                assert!(out.is_some(), "cook {k}");
+            }
+        });
+    }
+
     #[test]
     fn uv_templates_give_layouts_in_the_unit_square() {
         for name in ["Unwrap the sea mine", "Edit UV islands"] {
