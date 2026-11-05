@@ -634,8 +634,8 @@ staying where it is (see [USD](usd.md#cameras)).
 
 The Movie menu at the top of the Viewer, after the camera menu, writes the
 timeline's frames as seen in the Viewer to an MP4: the clip's range when the
-timeline shows a clip of more than one frame, else the scene's range, at that
-rate.
+timeline shows a clip of more than one frame, else the scene's range, within
+the timeline's view in and out when they are set, at that rate.
 
 | Setting | Choices |
 |---|---|

@@ -18,6 +18,38 @@ pub enum RulerUnit {
     Timecode,
 }
 
+/// How fast the playhead moves while playing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Speed {
+    /// The rate of what is shown: the clip's, else the scene's.
+    Rate,
+    /// This many of its frames a second, whatever its rate.
+    Fps(f64),
+    /// One frame each time the interface is drawn, however long it takes: every
+    /// frame is seen.
+    EveryFrame,
+}
+
+impl Speed {
+    pub const FPS: [f64; 9] = [6.0, 12.0, 15.0, 24.0, 25.0, 30.0, 48.0, 50.0, 60.0];
+    pub fn label(self, rate: f64) -> String {
+        match self {
+            Speed::Rate => format!("Real time ({} fps)", fps_text(rate)),
+            Speed::Fps(f) => format!("{} fps", fps_text(f)),
+            Speed::EveryFrame => "Every frame".into(),
+        }
+    }
+}
+
+/// 24, 23.976, 29.97: a rate as it is written.
+pub fn fps_text(f: f64) -> String {
+    if (f - f.round()).abs() < 1e-6 {
+        format!("{}", f.round() as i64)
+    } else {
+        format!("{:.3}", f).trim_end_matches('0').to_string()
+    }
+}
+
 pub struct Playback {
     /// Playhead on the timecode axis, in seconds (see `frame_to_tc_seconds`).
     /// Not a frame number, so it stays on the same timecode when the selection
@@ -28,6 +60,10 @@ pub struct Playback {
     pub playing: bool,
     pub looping: bool,
     pub ruler: RulerUnit,
+    /// The frames seen and played (view in and out), as playhead times: the
+    /// whole range when None.
+    pub view: Option<(f64, f64)>,
+    pub speed: Speed,
 }
 
 impl Default for Playback {
@@ -38,6 +74,8 @@ impl Default for Playback {
             playing: false,
             looping: true,
             ruler: RulerUnit::Frames,
+            view: None,
+            speed: Speed::Rate,
         }
     }
 }
@@ -99,10 +137,10 @@ pub fn resolve_source(graph: &NodeGraphState) -> TimelineState {
 }
 
 /// The frames the timeline plays, as playhead times, and their rate (numerator
-/// and denominator): the clip's, else the scene's range. A clip of one frame
-/// is a pose: the scene's range.
-pub fn frames(graph: &NodeGraphState) -> (Vec<f64>, (u32, u32)) {
-    match resolve_source(graph) {
+/// and denominator): the clip's, else the scene's range, within the view in
+/// and out when they are set. A clip of one frame is a pose: the scene's range.
+pub fn frames(graph: &NodeGraphState, view: Option<(f64, f64)>) -> (Vec<f64>, (u32, u32)) {
+    let (times, rate): (Vec<f64>, (u32, u32)) = match resolve_source(graph) {
         TimelineState::Source(s) if s.clip.end_frame() > s.clip.start_frame => {
             let c = &s.clip;
             (
@@ -118,5 +156,8 @@ pub fn frames(graph: &NodeGraphState) -> (Vec<f64>, (u32, u32)) {
                 (sc.fps_num, sc.fps_den),
             )
         }
-    }
+    };
+    let Some((a, b)) = view else { return (times, rate) };
+    let inside: Vec<f64> = times.iter().copied().filter(|t| *t >= a - 1e-6 && *t <= b + 1e-6).collect();
+    (if inside.len() > 1 { inside } else { times }, rate)
 }

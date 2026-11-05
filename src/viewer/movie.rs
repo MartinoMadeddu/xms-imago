@@ -396,7 +396,7 @@ impl Job {
             s.stop = false;
             s.request.take()
         })?;
-        let (times, rate) = crate::timeline::frames(graph);
+        let (times, rate) = crate::timeline::frames(graph, playback.view);
         let size = settings.size.pixels(viewer, aspect);
         match Writer::start(size, rate, settings, &path) {
             Err(e) => {

@@ -53,9 +53,10 @@ Inside a compound the same menu promotes a number to the compound's parameters
 ## The timeline
 
 When the selected operator does not give a clip, the timeline shows the scene's
-range: its first and last frame and its rate, set in the timeline's header and
-saved with the graph (1 to 120 at 24 fps in a new graph). Keys are set on its
-frames.
+range: its first and last frame and its rate, set at the ends of the
+timeline's range slider and saved with the graph (1 to 120 at 24 fps in a new
+graph). Keys are set on its frames. How fast it plays is the speed at the top
+of the timeline (see [Timeline](mocap.md#timeline)).
 
 ![The timeline with the keys of Bounce](xms_timeline_keys.png)
 

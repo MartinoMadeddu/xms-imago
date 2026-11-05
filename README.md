@@ -209,7 +209,8 @@ Load a folder of FBX takes, split the characters, fix the pose, skin a proxy and
 write the files your engine wants, in one graph that runs over the whole folder.
 
 - **Real frame rates and timecode:** rational rates, drop-frame, and a timeline
-  that takes its range from whichever node is selected
+  that takes its range from whichever node is selected, with view in and out on
+  a range slider, frames or timecode, and a playback speed of its own
 - **Clip nodes:** rename joints, trim, retime, set timecode
 - **Clip tools:** mirror, smooth, in place, blend, loop, retarget, time warp,
   prune joints, floor
@@ -507,7 +508,6 @@ then runs the program.
 - Rigging: control rigs, relations driven outside the range of motion (a gear
   driving a wheel, a piston aimed at a moving part), dragging guide locators in the Viewer, autofit
   tried on bodies other than the example character's
-- Timeline zoom and pan
 - Curve cleanup
 - The program icon inside the file itself (Windows Explorer, macOS dock). The
   window and task bar icon is set on X11 and Windows

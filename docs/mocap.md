@@ -9,7 +9,25 @@ including drop-frame.
 When the selected node gives a clip, the timeline takes range, rate and timecode
 from that clip. Otherwise it shows the scene's own range and rate, saved with
 the graph, and the keys of the selected operator (see [Keys](keys.md)). Space
-plays, Left and Right step a frame, Home and End jump to the ends.
+plays, Left and Right step a frame, Home and End jump to view in and out.
+
+![The timeline: transport, frame and timecode, the ruler's unit and the
+playback speed along the top; the track; the range slider along the
+bottom](xms_timeline.png)
+
+| Part | What it does |
+|---|---|
+| Transport | First frame, previous key, previous frame, play, next frame, next key, last frame; Loop |
+| Frame | The playhead's frame, typed or dragged, and its timecode |
+| Frames, Timecode | The ruler and the playhead's tag in frames or in timecode |
+| Speed | Real time at the rate of what is shown (the default); 6 to 60 fps whatever the rate; Every frame, one frame each time the interface is drawn, however long it takes |
+| Track | Fills the pane. Click or drag to move the playhead; the selected operator's keys are red ticks on it |
+| Range slider | Along the bottom: the first frame, view in, the slider, view out, the last frame. Drag a handle to set view in or out, the middle to move both; type them in the fields either side. Double-click the slider or press ↔ for the whole range |
+
+View in and out are what the track shows and what plays and loops; Export
+Movie writes them too. With a clip, the first and last frame are the clip's
+(and the clip entering the node, behind it); without one, the scene's, set in
+the fields at the ends with the scene's rate beside them.
 
 ## Nodes
 
@@ -191,7 +209,7 @@ saved with it.
 
 ## Not done yet
 
-- Timeline zoom and pan, curve cleanup.
+- Curve cleanup.
 - Reach follows the source's hands and feet; it does not find contacts or lock a
   foot that slides in the source.
 - Retarget and Reach make the whole clip when they cook, not one frame at a time

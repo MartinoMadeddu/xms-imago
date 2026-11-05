@@ -410,7 +410,7 @@ copying.
   `track_revision_frame`, `save_first_frame`, `refresh_*`) the eframe app calls
   each frame.
 - **Export Movie:** `viewer::movie` steps the playhead through the timeline's
-  frames (`timeline::frames`), one per interface frame; the paint callback draws
+  frames within view in and out (`timeline::frames`), one per interface frame; the paint callback draws
   each again into a target of the movie's size and through the display
   transform into bytes (`ViewerGpu::capture`), reads them back and hands them to
   ffmpeg, run as a program on a thread of its own (raw RGBA in, H.264 or H.265
