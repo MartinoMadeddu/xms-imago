@@ -51,6 +51,36 @@ Built on:
   [image](https://github.com/image-rs/image) for PNG, JPEG, OpenEXR and more.
 - Houdini's husk, to render with Karma.
 
+## Get it
+
+- **Website:** [martinomadeddu.github.io/xms-imago](https://martinomadeddu.github.io/xms-imago/)
+- **Download:** binaries for Linux, macOS and Windows, built from every change
+  to `main`, on the [Releases
+  page](https://github.com/MartinoMadeddu/xms-imago/releases) (see
+  [Builds and releases](docs/releases.md)).
+- **Documentation:** [docs/](docs/README.md), or **Help > Documentation** in
+  Imago.
+
+## How to build
+
+With [Rust](https://rustup.rs) 1.95 or newer (`rustup update` brings it):
+
+```
+git clone https://github.com/MartinoMadeddu/xms-imago
+cd xms-imago
+cargo run --release
+```
+
+On Ubuntu or Debian, first:
+
+```
+sudo apt install build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0
+```
+
+Export Movie needs [ffmpeg](https://ffmpeg.org) on the PATH. `cargo test
+--release` runs the tests, and `cargo run -p xms-docs` makes the HTML
+documentation in `docs/html`.
+
 ## Credits
 
 XMS | Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu):
