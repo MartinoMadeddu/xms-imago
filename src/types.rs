@@ -159,11 +159,21 @@ pub enum NodeType {
     },
     /// Variants of the stages coming in: `choices` chooses them (Select),
     /// composing the stage again. See `core::variant`.
+    /// Create: a variant set `set` on the prim at `location`, a variant per
+    /// input after the scene (named by `names`), `selected` shown.
     Variant {
         #[serde(default)]
         mode: crate::core::variant::VariantMode,
         #[serde(default)]
         choices: Vec<crate::core::variant::Choice>,
+        #[serde(default)]
+        location: String,
+        #[serde(default)]
+        set: String,
+        #[serde(default)]
+        names: Vec<String>,
+        #[serde(default)]
+        selected: String,
     },
     /// A UsdPreviewSurface material with fixed inputs, named by the operator.
     /// Material Binding puts it in the scene. See `core::material`.
@@ -863,6 +873,18 @@ impl NodeType {
     pub fn materialx() -> Self {
         NodeType::MaterialX {
             graph: crate::materialx::new_graph(),
+        }
+    }
+
+    /// A Variant, in `mode`, with nothing chosen or made yet.
+    pub fn variant(mode: crate::core::variant::VariantMode) -> Self {
+        NodeType::Variant {
+            mode,
+            choices: vec![],
+            location: String::new(),
+            set: String::new(),
+            names: vec![],
+            selected: String::new(),
         }
     }
 
@@ -3076,6 +3098,13 @@ impl SceneHierarchy {
                 }
 
                 EvalResult::Named(prims) => {
+                    // Variant sets made in Imago (Variant, Create).
+                    for m in crate::core::variant::made_sets(&prims) {
+                        self.variant_prims
+                            .entry(m.0.location.clone())
+                            .or_default()
+                            .push(m.0.listed());
+                    }
                     let group_id = self.next_id();
                     self.objects.push(SceneObject {
                         id: group_id,

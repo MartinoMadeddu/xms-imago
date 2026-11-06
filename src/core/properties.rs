@@ -360,11 +360,14 @@ pub struct Opinions {
     /// Its own transform, relative to its parent, set by Edit Primitive
     /// (column-major): written as its `xformOp:transform`.
     pub transform: Option<[f64; 16]>,
+    /// A variant set made on it (Variant, Create), with every variant: written
+    /// as its `variantSet`.
+    pub variant_set: Option<crate::core::variant::MadeSet>,
 }
 
 impl Opinions {
     pub fn is_empty(&self) -> bool {
-        self.primvars.is_empty() && self.props.is_empty() && self.transform.is_none()
+        self.primvars.is_empty() && self.props.is_empty() && self.transform.is_none() && self.variant_set.is_none()
     }
 
     /// `other` over these: its values win.
@@ -375,6 +378,9 @@ impl Opinions {
             .extend(other.props.iter().map(|(k, v)| (k.clone(), v.clone())));
         if other.transform.is_some() {
             self.transform = other.transform;
+        }
+        if other.variant_set.is_some() {
+            self.variant_set = other.variant_set.clone();
         }
     }
 }

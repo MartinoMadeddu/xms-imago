@@ -1,6 +1,7 @@
-//! Variant's parameters: its Mode and, in Select, its choices, each a prim, one
-//! of its variant sets and the variant chosen, picked from what the stages
-//! coming in have (`core::variant`).
+//! Variant's parameters: its Mode; in Select, its choices, each a prim, one of
+//! its variant sets and the variant chosen, picked from what the scene coming
+//! in has; in Create, the prim the set is made on, its name, its variants (one
+//! per input after the scene) and the one shown (`core::variant`).
 
 use crate::core::variant::{notes, variant_prims, Choice, VariantMode};
 use crate::node_graph::NodeGraphState;
@@ -13,6 +14,8 @@ use super::form::{group, group_with, Status};
 #[derive(Default)]
 pub struct VariantIn {
     pub sets: Vec<(String, Vec<xms_scene::VariantSet>)>,
+    /// The scene's paths, for picking where a set is made.
+    pub paths: Vec<String>,
     pub notes: Vec<String>,
     /// Whether anything comes in.
     pub wired: bool,
@@ -32,29 +35,45 @@ pub fn variant_in(graph: &NodeGraphState, id: NodeId) -> VariantIn {
         .and_then(|i| i.connected_output)
         .and_then(|(src, out)| graph.eval_node_out(src, out, &mut Default::default(), &pass));
     let Some(EvalResult::Named(prims)) = scene else {
-        return VariantIn::default();
+        return VariantIn {
+            notes: notes(id),
+            ..Default::default()
+        };
     };
     VariantIn {
         sets: variant_prims(&prims),
+        paths: crate::node_graph::scene_paths(&prims),
         notes: notes(id),
         wired: true,
     }
 }
 
-pub fn rows(ui: &mut egui::Ui, mode: &mut VariantMode, choices: &mut Vec<Choice>, found: &VariantIn) {
+/// Its parameters; whether its inputs changed (Mode, a variant's name).
+#[allow(clippy::too_many_arguments)]
+pub fn rows(
+    ui: &mut egui::Ui,
+    mode: &mut VariantMode,
+    choices: &mut Vec<Choice>,
+    location: &mut String,
+    set: &mut String,
+    names: &mut Vec<String>,
+    selected: &mut String,
+    found: &VariantIn,
+) -> bool {
+    let mut resync = false;
     group(
         ui,
         "Variant",
-        Some("Select: choose variants of the variant sets the stages coming in have. The stage is composed again with them; what was done above is carried over where it still fits. Write USD writes the choices"),
+        Some("Select: choose variants of the variant sets the scene coming in has. A stage is composed again with them; what was done above is carried over where it still fits. Create: make a variant set on a prim, a variant per input after the scene. Write USD writes both"),
         |f| {
-            f.choice(
+            resync |= f.choice(
                 "Mode",
-                Some("Select: choose variants a stage has. Create: make a variant set, its variants from the inputs"),
+                Some("Select: choose variants the scene has. Create: make a variant set, its variants from the inputs"),
                 mode,
                 &[(VariantMode::Select, "Select"), (VariantMode::Create, "Create")],
             );
             if *mode == VariantMode::Create {
-                f.status(Status::Info, "Create is not made yet: the scene passes through");
+                // Create's rows follow.
             } else if !found.wired {
                 f.status(Status::Info, "Nothing comes in");
             } else if found.sets.is_empty() {
@@ -65,8 +84,8 @@ pub fn rows(ui: &mut egui::Ui, mode: &mut VariantMode, choices: &mut Vec<Choice>
             }
         },
     );
-    if *mode != VariantMode::Select {
-        return;
+    if *mode == VariantMode::Create {
+        return resync | create_rows(ui, location, set, names, selected, found);
     }
     let mut remove = None;
     for (k, c) in choices.iter_mut().enumerate() {
@@ -146,4 +165,51 @@ pub fn rows(ui: &mut egui::Ui, mode: &mut VariantMode, choices: &mut Vec<Choice>
             choices.push(Choice::default());
         }
     });
+    resync
+}
+
+/// Create's parameters: where the set is made, its name, its variants' names
+/// and the one shown. Whether a name changed (the inputs are named by them).
+fn create_rows(
+    ui: &mut egui::Ui,
+    location: &mut String,
+    set: &mut String,
+    names: &mut Vec<String>,
+    selected: &mut String,
+    found: &VariantIn,
+) -> bool {
+    let mut resync = false;
+    group(
+        ui,
+        "Variant Set",
+        Some("A variant set on a prim: each input after the scene is a variant, what it has below the prim. The scene goes on with the variant shown; Write USD writes every variant"),
+        |f| {
+            super::render::path_pick(
+                f,
+                "Primitive Location",
+                "The prim the variant set is on: a prim of the scene (Pick), or a new path, made as an Xform. Each variant's prims are below it",
+                location,
+                "/asset",
+                &found.paths,
+            );
+            f.text("Variant Set", Some("The variant set's name"), set, "shape");
+            // A name per input after the scene, as the sockets show them.
+            let count = names.len().max(1);
+            while names.len() < count {
+                let k = names.len() + 1;
+                names.push(format!("variant{k}"));
+            }
+            for (k, name) in names.iter_mut().enumerate() {
+                resync |= f
+                    .text(&format!("Variant {}", k + 1), Some("This input's variant: its name"), name, "variant")
+                    .changed();
+            }
+            let options: Vec<(String, &str)> = names.iter().map(|n| (n.clone(), n.as_str())).collect();
+            if !names.iter().any(|n| n == selected) {
+                *selected = names[0].clone();
+            }
+            f.dropdown("Shown", Some("The variant the scene goes on with, and the file selects"), selected, &options);
+        },
+    );
+    resync
 }

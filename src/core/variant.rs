@@ -15,6 +15,15 @@
 //! - prims the variant brings are added, unless the path was pruned above.
 //!
 //! Write USD writes the choices as `variants` on `over`s (`StageTree::variants`).
+//!
+//! Create makes a variant set: on the prim at its Primitive Location, one
+//! variant per input after the scene, each holding what that input has below
+//! the location (prims made in Imago). The scene goes on with the selected
+//! variant's prims; every prim of it carries the whole set (`MadeSet`, in
+//! `Prim::above` at the location), so Write USD writes the `variantSet` with
+//! all its variants, and Select can choose another of them. A variant whose
+//! input has nothing below the location makes no prims, so when it is shown
+//! nothing carries the set.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -39,6 +48,178 @@ pub struct Choice {
     pub prim: String,
     pub set: String,
     pub variant: String,
+}
+
+/// A variant set Create made: on the prim at `location`, the variants by name
+/// with their prims (at their paths in the scene), the one `selected`.
+#[derive(Debug)]
+pub struct Made {
+    pub location: String,
+    pub set: String,
+    pub selected: String,
+    pub variants: Vec<(String, Vec<Prim>)>,
+}
+
+/// A made variant set, shared by the prims of its selected variant: equal when
+/// it is the same one.
+#[derive(Clone, Debug)]
+pub struct MadeSet(pub Arc<Made>);
+
+impl PartialEq for MadeSet {
+    fn eq(&self, other: &MadeSet) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Made {
+    /// As a stage's variant set is listed.
+    pub fn listed(&self) -> xms_scene::VariantSet {
+        xms_scene::VariantSet {
+            name: self.set.clone(),
+            variants: self.variants.iter().map(|(n, _)| n.clone()).collect(),
+            selection: self.selected.clone(),
+        }
+    }
+}
+
+/// The made variant set a prim is in: one on a prim above it.
+pub fn made_set_of(p: &Prim) -> Option<MadeSet> {
+    p.above.iter().find_map(|(at, o)| {
+        let m = o.variant_set.as_ref()?;
+        let below = p.path.strip_prefix(at.as_str()).is_some_and(|r| r.starts_with('/'));
+        below.then(|| m.clone())
+    })
+}
+
+/// The variant sets made in the scene (Create), by the prim holding each.
+pub fn made_sets(prims: &[Prim]) -> Vec<MadeSet> {
+    let mut out: Vec<MadeSet> = vec![];
+    for p in prims {
+        for o in p.above.values() {
+            if let Some(m) = &o.variant_set {
+                if !out.contains(m) {
+                    out.push(m.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What a Create's inputs give: the variant set `set` on the prim at
+/// `location`, a variant per input in `variants` (named by `names`, else
+/// `variant1`, `variant2`…), each holding the prims made in Imago below the
+/// location; the scene with `selected`'s (the first, when no variant is
+/// called that).
+pub fn create(
+    scene: Option<&EvalResult>,
+    variants: &[Option<EvalResult>],
+    location: &str,
+    set: &str,
+    names: &[String],
+    selected: &str,
+) -> Selected {
+    let mut prims = match scene {
+        Some(EvalResult::Named(p)) => p.clone(),
+        _ => vec![],
+    };
+    let mut notes = vec![];
+    let location = crate::types::prim_location(location, "");
+    let set = set.trim();
+    if location.is_empty() || set.is_empty() {
+        notes.push("Name the Primitive Location and the Variant Set".into());
+        return Selected {
+            result: EvalResult::Named(prims),
+            notes,
+        };
+    }
+    let below = |p: &str| p.strip_prefix(location.as_str()).is_some_and(|r| r.starts_with('/'));
+    let mut made = Made {
+        location: location.clone(),
+        set: set.to_string(),
+        selected: String::new(),
+        variants: vec![],
+    };
+    for (k, input) in variants.iter().enumerate() {
+        let Some(input) = input else { continue };
+        let name = names
+            .get(k)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("variant{}", k + 1));
+        let EvalResult::Named(content) = input else {
+            notes.push(format!("{name}: primitives only, at paths below {location}"));
+            continue;
+        };
+        let mut kept = vec![];
+        for p in content {
+            if p.stage.is_some() {
+                notes.push(format!(
+                    "{name}: {} is a stage's; only prims made in Imago go in a variant yet",
+                    p.path
+                ));
+            } else if below(&p.path) {
+                kept.push(p.clone());
+            } else {
+                notes.push(format!("{name}: {} is not below {location}", p.path));
+            }
+        }
+        made.variants.push((name, kept));
+    }
+    if made.variants.is_empty() {
+        notes.push("Wire a variant into the inputs after the scene".into());
+        return Selected {
+            result: EvalResult::Named(prims),
+            notes,
+        };
+    }
+    made.selected = made
+        .variants
+        .iter()
+        .find(|(n, _)| n == selected)
+        .unwrap_or(&made.variants[0])
+        .0
+        .clone();
+    // What the scene has below the location gives way to the variant.
+    prims.retain(|p| p.stage.is_some() || !below(&p.path));
+    prims.extend(shown(&MadeSet(Arc::new(made))));
+    Selected {
+        result: EvalResult::Named(prims),
+        notes,
+    }
+}
+
+/// The selected variant's prims of a made set, each carrying the set.
+fn shown(m: &MadeSet) -> Vec<Prim> {
+    let Some((_, prims)) = m.0.variants.iter().find(|(n, _)| *n == m.0.selected) else {
+        return vec![];
+    };
+    prims
+        .iter()
+        .map(|p| {
+            let mut p = p.clone();
+            Arc::make_mut(&mut p.above)
+                .entry(m.0.location.clone())
+                .or_default()
+                .variant_set = Some(m.clone());
+            p
+        })
+        .collect()
+}
+
+/// The scene with variant `variant` of the made set `m` shown in place of the
+/// one selected.
+fn reselected(mut prims: Vec<Prim>, m: &MadeSet, variant: &str) -> Vec<Prim> {
+    prims.retain(|p| !p.above.values().any(|o| o.variant_set.as_ref() == Some(m)));
+    let made = Made {
+        location: m.0.location.clone(),
+        set: m.0.set.clone(),
+        selected: variant.to_string(),
+        variants: m.0.variants.clone(),
+    };
+    prims.extend(shown(&MadeSet(Arc::new(made))));
+    prims
 }
 
 /// The scene with the variants chosen, and what could not be done or carried
@@ -71,10 +252,11 @@ pub fn notes(id: NodeId) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The variant sets of the prims coming in, by path, for choosing from.
+/// The variant sets of the prims coming in, by path, for choosing from: the
+/// stages' and those made in Imago (Create).
 pub fn variant_prims(prims: &[Prim]) -> Vec<(String, Vec<xms_scene::VariantSet>)> {
     let mut seen: HashSet<*const StageTree> = HashSet::new();
-    let mut out = vec![];
+    let mut out: Vec<(String, Vec<xms_scene::VariantSet>)> = vec![];
     for t in prims.iter().filter_map(|p| p.stage.as_ref()) {
         if seen.insert(Arc::as_ptr(t)) {
             out.extend(
@@ -83,6 +265,12 @@ pub fn variant_prims(prims: &[Prim]) -> Vec<(String, Vec<xms_scene::VariantSet>)
                     .filter(|n| !n.variants.is_empty())
                     .map(|n| (n.path.clone(), n.variants.clone())),
             );
+        }
+    }
+    for m in made_sets(prims) {
+        match out.iter_mut().find(|(p, _)| *p == m.0.location) {
+            Some((_, sets)) => sets.push(m.0.listed()),
+            None => out.push((m.0.location.clone(), vec![m.0.listed()])),
         }
     }
     out
@@ -97,12 +285,27 @@ pub fn select(input: &EvalResult, choices: &[Choice]) -> Selected {
         };
     };
     let mut notes = vec![];
+    let mut prims = prims.clone();
     // Each stage asked, with its choices by the prim's path in the file, and
     // the prims (scene paths) whose variants change.
     let mut stages: Vec<(Arc<StageTree>, Variants, Vec<String>)> = vec![];
     for c in choices {
         let path = crate::types::prim_location(&c.prim, "");
         if path.is_empty() || c.set.trim().is_empty() || c.variant.trim().is_empty() {
+            continue;
+        }
+        // A set made in Imago (Create): its other variant shown.
+        if let Some(m) = made_sets(&prims)
+            .into_iter()
+            .find(|m| m.0.location == path && m.0.set == c.set)
+        {
+            if m.0.variants.iter().any(|(n, _)| *n == c.variant) {
+                if m.0.selected != c.variant {
+                    prims = reselected(prims, &m, &c.variant);
+                }
+            } else {
+                notes.push(format!("{path} has no variant {} in a set {}", c.variant, c.set));
+            }
             continue;
         }
         let Some(tree) = prims
@@ -135,7 +338,6 @@ pub fn select(input: &EvalResult, choices: &[Choice]) -> Selected {
         switched.push(path);
     }
 
-    let mut prims = prims.clone();
     for (old, chosen, switched) in stages {
         if chosen == old.variants {
             continue;
@@ -454,6 +656,84 @@ def Xform \"car\" (
         assert!(text.contains(r#"variants = { string "paint" = "blue" }"#), "{text}");
         let back = crate::usd_scene::load(&out).unwrap();
         assert!(back.meshes.iter().any(|m| m.path == "/car/stripe"));
+    }
+
+    /// The "Variant set: cube or sphere" template's scene: the ground, and
+    /// /asset's shape set with the cube shown.
+    fn made() -> Vec<Prim> {
+        let t = crate::templates::TEMPLATES
+            .iter()
+            .find(|t| t.name == "Variant set: cube or sphere")
+            .unwrap();
+        let mut g = crate::node_graph::NodeGraphState::default();
+        (t.build)(&mut g, &mut Default::default());
+        let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+        let Some((_, _, EvalResult::Named(prims))) = g.evaluate_scene(&pass) else {
+            panic!()
+        };
+        prims
+    }
+
+    #[test]
+    fn create_shows_the_variant_selected_and_lists_the_set() {
+        let prims = made();
+        assert!(at(&prims, "/set/ground").is_some());
+        assert!(at(&prims, "/asset/cube").is_some());
+        assert!(at(&prims, "/asset/sphere").is_none());
+        let sets = variant_prims(&prims);
+        assert_eq!(sets.len(), 1);
+        assert_eq!(sets[0].0, "/asset");
+        assert_eq!(sets[0].1[0].name, "shape");
+        assert_eq!(sets[0].1[0].selection, "cube");
+        assert_eq!(sets[0].1[0].variants, vec!["cube".to_string(), "sphere".to_string()]);
+    }
+
+    /// Select chooses another variant of a made set: its prims in place of
+    /// the cube's, the set selecting it.
+    #[test]
+    fn select_chooses_a_variant_of_a_made_set() {
+        let sphere = vec![Choice {
+            prim: "/asset".into(),
+            set: "shape".into(),
+            variant: "sphere".into(),
+        }];
+        let out = select(&EvalResult::Named(made()), &sphere);
+        assert!(out.notes.is_empty(), "{:?}", out.notes);
+        let EvalResult::Named(after) = out.result else { panic!() };
+        assert!(at(&after, "/asset/cube").is_none());
+        assert!(at(&after, "/set/ground").is_some());
+        let s = at(&after, "/asset/sphere").unwrap();
+        assert_eq!(made_set_of(s).unwrap().0.selected, "sphere");
+    }
+
+    /// Write USD writes the set on /asset with both variants; read back, the
+    /// file shows the cube, and choosing the sphere gives the sphere.
+    #[test]
+    fn write_usd_writes_a_made_set_with_every_variant() {
+        let out = std::env::temp_dir().join("xms_variant_test/made.usda");
+        std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+        crate::usd_write::write_override(&made(), &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in [
+            "def Xform \"asset\"",
+            "prepend variantSets = \"shape\"",
+            "variants = { string \"shape\" = \"cube\" }",
+            "variantSet \"shape\" = {",
+            "\"cube\" {",
+            "\"sphere\" {",
+        ] {
+            assert!(text.contains(line), "{line} in\n{text}");
+        }
+        let path = out.to_string_lossy();
+        let back = loaded(&path);
+        assert!(at(&back, "/asset/cube").is_some() && at(&back, "/asset/sphere").is_none());
+        assert_eq!(variant_prims(&back)[0].1[0].variants.len(), 2);
+        let mut v = Variants::new();
+        v.entry("/asset".into())
+            .or_default()
+            .insert("shape".into(), "sphere".into());
+        let sphere = crate::node_graph::nodes::load_stage(&path, false, &v, LoadMode::Sublayer, "", "").unwrap();
+        assert!(at(&sphere, "/asset/sphere").is_some() && at(&sphere, "/asset/cube").is_none());
     }
 
     #[test]

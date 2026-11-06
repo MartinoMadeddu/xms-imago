@@ -53,6 +53,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "4,900 pines and stones from one PointInstancer, drawn by GPU instancing. The Transform after it moves the placements, not the shared meshes" },
     Template { by: MARTINO, group: "USD stages", name: "Native instances: a hall of tables", build: hall,
         hint: "64 instanceable references to one table: five meshes, shared by every table" },
+    Template { by: MARTINO, group: "USD stages", name: "Variant set: cube or sphere", build: variant_shapes,
+        hint: "A variant set made in Imago: /asset's shape set, a cube and a sphere, one per input of a Variant in Create. Change Shown, or right-click /asset in the Scene Explorer for Variant Select" },
     Template { by: MARTINO, group: "USD stages", name: "Purposes: street lamps", build: lamps,
         hint: "Lamps with render, proxy and guide geometry. Switch them with the render, proxy and guide toggles of the Scene Explorer" },
     Template { by: MARTINO, group: "ICE", name: "ICE graph: spherify", build: spherify,
@@ -1281,6 +1283,72 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     }
     finish(g, merge, front);
     "Cameras: Front, a 35 mm lens on a full-frame gate, and Top, orthographic, 8 m across. Choose one in the Viewer's camera menu (🎥 Perspective) or press Look through on the operator; navigating leaves it.".into()
+}
+
+/// A variant set made in Imago: on /asset, `shape`, its variants a cube and a
+/// sphere (Variant in Create), over a ground grid.
+fn variant_shapes(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::variant::VariantMode;
+    crate::graph_io::clear(g);
+    let ground = g.add_node(
+        "Ground".into(),
+        NodeType::CreateGrid {
+            rows: 10,
+            cols: 10,
+            size: 6.0,
+            location: "/set/ground".into(),
+        },
+        p(40.0, 20.0),
+    );
+    let cube = g.add_node(
+        "Cube".into(),
+        NodeType::CreateCube {
+            size: 1.0,
+            location: "/asset/cube".into(),
+        },
+        p(260.0, 20.0),
+    );
+    let sphere = g.add_node(
+        "Sphere".into(),
+        NodeType::CreateSphere {
+            radius: 0.5,
+            segments: 32,
+            location: "/asset/sphere".into(),
+        },
+        p(480.0, 20.0),
+    );
+    // Each sits on the ground.
+    let mut lifted = vec![];
+    for (id, x) in [(cube, 260.0), (sphere, 480.0)] {
+        let lift = g.add_node(
+            "Lift".into(),
+            NodeType::Transform {
+                translation: Vec3::new(0.0, 0.5, 0.0),
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+            },
+            p(x, 110.0),
+        );
+        g.add_connection(id, 0, lift, 0);
+        lifted.push(lift);
+    }
+    let variant = g.add_node(
+        "Variant".into(),
+        NodeType::Variant {
+            mode: VariantMode::Create,
+            choices: vec![],
+            location: "/asset".into(),
+            set: "shape".into(),
+            names: vec!["cube".into(), "sphere".into()],
+            selected: "cube".into(),
+        },
+        p(260.0, 220.0),
+    );
+    g.add_connection(ground, 0, variant, 0);
+    g.add_connection(lifted[0], 0, variant, 1);
+    g.add_connection(lifted[1], 0, variant, 2);
+    finish(g, variant, variant);
+    "Variant set: /asset has the set shape, its variants cube and sphere, one per input after the ground. Change Shown on the Variant, or right-click /asset in the Scene Explorer (Variant Select). Write USD writes the set with both variants.".into()
 }
 
 /// The Cameras scene, edited after it is made: Edit Primitive on

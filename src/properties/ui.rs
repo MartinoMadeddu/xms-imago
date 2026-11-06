@@ -890,7 +890,14 @@ pub fn draw_properties(
         NodeType::Reparent { parent, mode, keep_world } => {
             super::reparent::rows(ui, parent, mode, keep_world, &reparent_in, located)
         }
-        NodeType::Variant { mode, choices } => super::variant::rows(ui, mode, choices, &variant_in),
+        NodeType::Variant {
+            mode,
+            choices,
+            location,
+            set,
+            names,
+            selected,
+        } => resync |= super::variant::rows(ui, mode, choices, location, set, names, selected, &variant_in),
         NodeType::Material { surface } => material_rows(ui, surface, &node.name, io, sel_id),
         NodeType::MaterialX { graph } => crate::materialx::params::operator(ui, sel_id, &node.name, graph, io),
         NodeType::MaterialBinding { library, inputs, .. } => {

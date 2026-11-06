@@ -15,7 +15,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
 | Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light, RenderSettings): its form shows their values, and what is changed overrides them |
 | Reparent | Moves prims under another prim, its Parent, with what is below them: those its Prims Location tab names, or the whole scene |
-| Variant | Chooses variants of the stages' variant sets (Select): the stage is composed again with them, what was done above carried over |
+| Variant | Chooses variants of the scene's variant sets (Select): a stage is composed again with them, what was done above carried over. Makes a variant set on a prim, a variant per input (Create) |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -290,8 +290,25 @@ choice, so going back is instant. Of the prims coming in:
 
 Write USD writes the choices as `variants` on an `over` of each prim, and the
 layer composes as Imago showed it. Put a Variant before a Reparent of the same
-stage: after one, it says so and leaves the stage as it is. Making a variant set
-(Create) comes next.
+stage: after one, it says so and leaves the stage as it is.
+
+**Variant**, in Create, makes a variant set: its **Primitive Location** is the
+prim it is on (a prim of the scene, or a new path, made as an Xform), its
+**Variant Set** its name. Each input after the scene is a variant, named in the
+panel: what that input has below the location. The scene goes on with the one
+**Shown**; what it had below the location gives way to it. Select and the Scene
+Explorer's Variant Select choose among the variants as they do a stage's.
+
+Write USD writes the set on its prim, `variantSets`, the selection and every
+variant, so the file switches as Imago does. The shown variant is written as it
+is at the end of the graph, edits after the Variant included; the others as
+they came in. A variant's prims are those made in Imago (shapes, meshes made by
+operators); a stage's prims in a variant come later, as do edits made inside a
+variant to what a stage has. A variant with nothing below the location makes no
+prims: shown, nothing carries the set, so Write USD does not write it.
+
+The template **Variant set: cube or sphere** (Martino ▸ USD stages) makes
+`/asset`'s set `shape` from a cube and a sphere.
 
 ## Shapes are primitives
 

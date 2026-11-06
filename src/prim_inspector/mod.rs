@@ -296,6 +296,8 @@ pub fn scene_properties(
             .and_then(|group| set_by(graph, view, group, name, SetContext::Property).map(|(id, _)| id))
     };
 
+    // The variant sets Create made, on the prims holding them.
+    let made_sets = crate::core::variant::made_sets(prims);
     let mut rows = vec![];
     for path in &listed {
         let node = node_of(path);
@@ -346,8 +348,18 @@ pub fn scene_properties(
         };
         row("type", ty, made_here());
         // Its variant sets: the variant selected, then every one it has; the
-        // Variant that chose it, else the file.
-        for set in node.map(|(n, _)| n.variants.as_slice()).unwrap_or_default() {
+        // Variant that chose or made it, else the file.
+        let made_here_sets: Vec<xms_scene::VariantSet> = made_sets
+            .iter()
+            .filter(|m| m.0.location == *path)
+            .map(|m| m.0.listed())
+            .collect();
+        for set in node
+            .map(|(n, _)| n.variants.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .chain(&made_here_sets)
+        {
             let selected = if set.selection.is_empty() {
                 "none"
             } else {
@@ -658,7 +670,7 @@ fn render_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, _path: &st
 }
 
 /// The Variant nearest upstream of `view` choosing a variant of the set `set`
-/// of the prim at `path`: its id and name.
+/// of the prim at `path`, or making it: its id and name.
 fn variant_of(
     graph: &crate::node_graph::NodeGraphState,
     view: NodeId,
@@ -667,9 +679,20 @@ fn variant_of(
 ) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
     upstream(graph, view, |n| match &n.node_type {
-        NodeType::Variant { choices, .. } => choices
-            .iter()
-            .any(|c| c.set == set && crate::types::prim_location(&c.prim, "") == path),
+        NodeType::Variant {
+            mode,
+            choices,
+            location,
+            set: made,
+            ..
+        } => match mode {
+            crate::core::variant::VariantMode::Select => choices
+                .iter()
+                .any(|c| c.set == set && crate::types::prim_location(&c.prim, "") == path),
+            crate::core::variant::VariantMode::Create => {
+                made.trim() == set && crate::types::prim_location(location, "") == path
+            }
+        },
         _ => false,
     })
     .map(|n| (n.id, n.name.clone()))

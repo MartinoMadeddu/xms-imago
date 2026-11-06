@@ -577,8 +577,27 @@ impl NodeGraphState {
             | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
             | NodeType::EditPrimitive { .. }
-            | NodeType::Reparent { .. }
-            | NodeType::Variant { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            | NodeType::Reparent { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            // Create: the scene, then a variant per input, one kept free.
+            NodeType::Variant { mode, names, .. } => (
+                std::iter::once(i("Scene"))
+                    .chain(
+                        (1..=match mode {
+                            crate::core::variant::VariantMode::Select => 0,
+                            crate::core::variant::VariantMode::Create => names.len().max(1),
+                        })
+                            .map(|k| InputSocket {
+                                name: names
+                                    .get(k - 1)
+                                    .filter(|n| !n.trim().is_empty())
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("variant{k}")),
+                                connected_output: None,
+                            }),
+                    )
+                    .collect(),
+                vec![o("Scene")],
+            ),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. }
@@ -843,14 +862,7 @@ impl NodeGraphState {
                 .find(|n| n.id == view)
                 .map(|n| n.position + egui::vec2(0.0, 110.0))
                 .unwrap_or_default();
-            let id = self.add_node(
-                "Variant".into(),
-                NodeType::Variant {
-                    mode: VariantMode::Select,
-                    choices: vec![],
-                },
-                at,
-            );
+            let id = self.add_node("Variant".into(), NodeType::variant(VariantMode::Select), at);
             self.add_connection(view, output, id, 0);
             id
         };
@@ -1570,6 +1582,33 @@ impl NodeGraphState {
             inputs
                 .first()
                 .map(|r| crate::core::reparent::reparent(r, &node.locations, parent, *mode, *keep_world))
+        } else if let NodeType::Variant {
+            mode: crate::core::variant::VariantMode::Create,
+            location,
+            set,
+            names,
+            selected,
+            ..
+        } = node_type
+        {
+            // Each input by its number: the scene, then one variant each.
+            let mut ports: Vec<Option<EvalResult>> = vec![];
+            for s in &node.inputs {
+                ports.push(
+                    s.connected_output
+                        .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet)),
+                );
+            }
+            let made = crate::core::variant::create(
+                ports.first().and_then(|r| r.as_ref()),
+                ports.get(1..).unwrap_or_default(),
+                location,
+                set,
+                names,
+                selected,
+            );
+            crate::core::variant::noted(node.id, made.notes);
+            Some(made.result)
         } else if let NodeType::Variant { choices, .. } = node_type {
             // The stage composed again at the frame cooked, when it changes
             // over time.
@@ -1754,6 +1793,17 @@ impl NodeGraphState {
             NodeType::Merge { inputs, .. } | NodeType::MergeAnimation { inputs, .. } if full => *inputs = n + 1,
             // The geometry, then its references: one more reference.
             NodeType::Ice { references, .. } if full => *references = n,
+            // Create's variants: one more.
+            NodeType::Variant {
+                mode: crate::core::variant::VariantMode::Create,
+                names,
+                ..
+            } if full && n > 1 => {
+                while names.len() < n as usize {
+                    let k = names.len() + 1;
+                    names.push(format!("variant{k}"));
+                }
+            }
             _ => return,
         }
         self.sync_sockets(id);

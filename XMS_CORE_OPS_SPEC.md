@@ -316,7 +316,7 @@ already in the scene.
 | **Load / Unload Payload** | Control payload population | list; load rule |
 | **Inherit** | Add inherit arc to a class | class path |
 | **Specialize** | Add specialize arc | source path |
-| **Variant Set** | Define a variant set and its variants | set name; variant names; per-variant edits (sub-network) |
+| **Variant Set** | Define a variant set and its variants | set name; variant names; per-variant edits (sub-network). **Done** for new prims: the Variant operator's Create mode (5.1) |
 | **Variant Select** | Choose a variant | set name; variant name. **Done**: the Variant operator's Select mode (5.1) |
 
 > **Open question:** do list-edit operations (prepend/append/delete/explicit)
@@ -326,7 +326,7 @@ already in the scene.
 
 ### 5.1 Variant
 
-One operator, its **Mode** Select or Create. **Select: Done.**
+One operator, its **Mode** Select or Create. **Done.**
 
 - A stage's variant sets are read as it loads, names and selections only
   (`StageNode::variants`); the Scene Explorer marks the prims that have them,
@@ -339,7 +339,14 @@ One operator, its **Mode** Select or Create. **Select: Done.**
   material, purpose and set values, and say what reshaped geometry was lost;
   prims it brings are added unless pruned above.
 - Write USD writes the choices as `variants` on `over`s.
-- **Create: Not yet.** Its inputs as the variants of a new set on a prim.
+- Create makes a set on the prim at its Primitive Location (an Xform when no
+  stage has it), a variant per input after the scene, each what its input
+  made in Imago below the location; the scene goes on with the one shown. The
+  set travels with the shown prims (`Opinions::variant_set`), so Select and the
+  Scene Explorer choose among its variants, and Write USD writes `variantSets`,
+  the selection and every variant.
+- Not yet: a stage's prims in a variant, and edits inside a variant to what a
+  stage has.
 
 ---
 
@@ -796,7 +803,7 @@ Enough for a complete load, edit, bind, render loop:
 | 5 | Set Attribute (Object, Property) | Partial (no time samples or arrays) |
 | 6 | Prune | Done |
 | 7 | Reference | Partial (Load USD's Reference and Payload modes) |
-| 8 | Variant Select | Done (Variant, Select: the stage composed again, edits above carried over; Create next) |
+| 8 | Variant Select | Done (Variant, Select: the stage composed again, edits above carried over; Create: a set made from its inputs, new prims) |
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
 | 10 | Light | Partial (Light operator, every type; files' lights read, moved and edited with Edit Primitive; drawn and picked in the Viewer; no lighting yet) |
 | 11 | Camera | Partial (Camera operator, file cameras edited with Edit Primitive, looked through in the Viewer) |
