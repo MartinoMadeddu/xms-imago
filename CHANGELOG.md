@@ -8,6 +8,16 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-06
+
+- Downloads, their folders and the program are named with the version
+  (`xms-0.2.1-linux-x86_64.tar.gz`, `xms-0.2.1`), and builds of `main` with
+  their number too (`xms-0.2.1-build160-…`), so versions sit side by side.
+- A release is published only when every platform built.
+- Imago shows its version and build beside its name (click to copy it, for a
+  bug report), and writes it into saved graphs.
+- The website's download buttons fetch the latest release's files.
+
 ## [0.2.0] - 2026-11-06
 
 The first versioned release: everything up to now, in short.
