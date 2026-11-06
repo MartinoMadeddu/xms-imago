@@ -855,8 +855,8 @@ def Xform \"car\" (
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
             "variantSet \"model\" = {",
-            "prepend references = @car.usda@</car>",
-            "prepend references = @car.usda@</ground>",
+            "prepend references = @./car.usda@</car>",
+            "prepend references = @./car.usda@</ground>",
         ] {
             assert!(text.contains(line), "{line} in\n{text}");
         }
