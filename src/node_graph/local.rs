@@ -197,6 +197,12 @@ impl NodeGraphState {
                 r = union(r, Some((*start as f64, (*end).max(*start) as f64)));
                 r = union(r, input(0));
             }
+            // A sequence's frames, as they are on disk.
+            NodeType::LoadImage { path, .. } => {
+                if let Some((a, b)) = crate::core::image_file::sequence_range(path) {
+                    r = union(r, Some((a as f64, b as f64)));
+                }
+            }
             NodeType::MergeAnimation { align, .. } => {
                 let ranges: Vec<Option<Range>> = (0..node.inputs.len()).map(input).collect();
                 for (s, rr) in shifts(*align, &ranges).iter().zip(&ranges) {

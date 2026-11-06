@@ -327,10 +327,17 @@ as RGBA. Its output is an **Image**, in the rendering space (ACEScg).
   Viewer shows a viewed scene: the same layers, channels, exposure and pixel
   values as a render. A render, or a file opened from ⚙, takes over until the
   graph or the frame changes.
-- **Sequences:** `####` in the file name is the frame, padded to as many digits
-  (`plate.####.exr` at frame 12 reads `plate.0012.exr`), as is `$F4`; variables
-  are put in (`$GDIR/plates/plate.####.exr`). The frame follows the timeline.
-  Its Parameters show the file of the frame shown and its size.
+- **Sequences:** `$F4` in the file name is the frame in four digits
+  (`plate.$F4.exr` at frame 12 reads `plate.0012.exr`); `$F`, `$F2` to `$F9`
+  likewise, and `####` too. **Picking one frame of a sequence** in the file
+  browser takes the whole sequence: `plate.0012.exr` becomes `plate.$F4.exr`
+  when other frames are beside it (a numbered file on its own stays as it is).
+  Variables are put in (`$GDIR/plates/plate.$F4.exr`), and the frame follows
+  the timeline.
+- **Its frames:** its Parameters show the file of the frame shown, its size,
+  and the sequence's frames on disk ("frames 1001 to 1100"), with **Use as
+  Scene Range** to set the timeline to them, as Load USD does for an animated
+  stage. Selected, its frames show on the timeline as a clip's do.
 - **Colour space, as in Nuke:** the space the file's pixels are in, chosen from
   the colour config. They are brought into the rendering space (ACEScg) as the
   file is read, once, and the Image Viewer shows them through its view like any

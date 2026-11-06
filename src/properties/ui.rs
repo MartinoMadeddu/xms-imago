@@ -666,7 +666,7 @@ pub fn draw_properties(
 
         // Files
         NodeType::LoadImage { path, colour } => {
-            group(ui, "File", Some("An image, or one of a sequence: #### is the frame, padded to as many digits (plate.####.exr), as is $F4. Variables are put in: $GDIR/plates/plate.####.exr"), |f| {
+            group(ui, "File", Some("An image, or one of a sequence: $F4 is the frame in four digits ($F, $F2 to $F9 likewise; #### too). Picking one frame of a sequence takes the whole sequence. Variables are put in: $GDIR/plates/plate.$F4.exr"), |f| {
                 path_row(f, path, "/path/to/plate.####.exr", io, sel_id, BrowseMode::File, "Open image", &["exr", "png", "jpg", "jpeg", "tif", "tiff", "tga", "hdr"]);
                 // The file of the frame shown, and whether it is there.
                 let frame = crate::core::vars::globals().frame;
@@ -678,6 +678,20 @@ pub fn draw_properties(
                     match crate::core::image_file::read(&file, &crate::core::image_file::colour_space(colour, &file)) {
                         Ok(img) => f.status(Status::Ok, format!("{} × {}, {} channels", img.width, img.height, img.channels.len())),
                         Err(e) => f.status(Status::Bad, e),
+                    }
+                }
+                // A sequence: its frames on disk, and the timeline set to them.
+                if let Some((a, b)) = crate::core::image_file::sequence_range(path) {
+                    f.value("Sequence", format!("frames {a} to {b}"));
+                    let fps = crate::core::vars::globals().fps;
+                    let range = crate::node_graph::SceneRange::from_stage(a as f64, b as f64, if fps > 0.0 { fps } else { 24.0 });
+                    let set = f.buttons("", None, |ui| {
+                        ui.button("Use as Scene Range")
+                            .on_hover_text(format!("Make the scene's frames {a} to {b}, at its rate"))
+                            .clicked()
+                    });
+                    if set {
+                        io.action = Some(PanelAction::SceneRange(range));
                     }
                 }
             });

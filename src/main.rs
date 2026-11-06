@@ -152,8 +152,9 @@ pub(crate) fn draw_ui(
             BrowseTarget::Node(id) => {
                 if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) {
                     match &mut node.node_type {
+                        // One frame of a sequence picked: the sequence ($F4).
+                        NodeType::LoadImage { path, .. } => *path = crate::core::image_file::as_sequence(&text),
                         NodeType::LoadUsd { path, .. }
-                        | NodeType::LoadImage { path, .. }
                         | NodeType::WriteUsd { path, .. }
                         | NodeType::LoadFbx { path, .. }
                         | NodeType::LoadFbxMesh { path } => *path = text,

@@ -35,6 +35,112 @@ pub fn path_at(typed: &str, frame: i64) -> String {
     out
 }
 
+/// A frame token in a path: `$F`, `$F2` to `$F9`, `${F}`, `${F4}`, or a run of
+/// `#`. Its start and length in `text`, and the frame's padding.
+fn frame_token(text: &str) -> Option<(usize, usize, usize)> {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'#' => {
+                let n = b[i..].iter().take_while(|c| **c == b'#').count();
+                return Some((i, n, n));
+            }
+            b'$' if b.get(i + 1) == Some(&b'{') => {
+                let close = text[i..].find('}').map(|k| i + k);
+                if let Some(close) = close {
+                    let name = &text[i + 2..close];
+                    if let Some(w) = padding(name) { return Some((i, close + 1 - i, w)); }
+                }
+            }
+            b'$' => {
+                let n = b[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == b'_').count();
+                if let Some(w) = padding(&text[i + 1..i + 1 + n]) { return Some((i, n + 1, w)); }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `F` (no padding) or `F1` to `F9`: the padding; anything else, not a frame.
+fn padding(name: &str) -> Option<usize> {
+    match name.strip_prefix('F')? {
+        "" => Some(1),
+        d if d.len() == 1 => d.parse().ok().filter(|w| (1..=9).contains(w)),
+        _ => None,
+    }
+}
+
+/// A file picked from a sequence, as the sequence: the last run of digits in
+/// its name becomes `$F4` (as many digits as it has; `$F` for one), when
+/// another file of the folder differs from it only there. `####` from the file
+/// browser's collapsed sequences becomes `$F4` too. Anything else as it is.
+pub fn as_sequence(path: &str) -> String {
+    if let Some((at, len, width)) = frame_token(path) {
+        let token = if width == 1 { "$F".to_string() } else { format!("$F{width}") };
+        return format!("{}{token}{}", &path[..at], &path[at + len..]);
+    }
+    let p = Path::new(path);
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name().and_then(|n| n.to_str())) else { return path.to_string() };
+    // The last run of digits in the name, before its extension.
+    let stem_end = name.rfind('.').unwrap_or(name.len());
+    let Some(last) = name[..stem_end].rfind(|c: char| c.is_ascii_digit()) else { return path.to_string() };
+    let first = name[..=last].rfind(|c: char| !c.is_ascii_digit()).map_or(0, |k| k + 1);
+    let (head, digits, tail) = (&name[..first], &name[first..=last], &name[last + 1..]);
+    let sibling = std::fs::read_dir(dir).into_iter().flatten().flatten().any(|e| {
+        let other = e.file_name().to_string_lossy().into_owned();
+        other != name
+            && other.starts_with(head)
+            && other.ends_with(tail)
+            && other.len() > head.len() + tail.len()
+            && other[head.len()..other.len() - tail.len()].bytes().all(|c| c.is_ascii_digit())
+    });
+    if !sibling {
+        return path.to_string();
+    }
+    let token = if digits.len() == 1 { "$F".to_string() } else { format!("$F{}", digits.len()) };
+    dir.join(format!("{head}{token}{tail}")).to_string_lossy().into_owned()
+}
+
+/// The frames a sequence's files are there for, first and last: `typed` with
+/// a frame token (`$F4`, `####`), its other variables put in. `None` for a
+/// single file, or none found.
+pub fn sequence_range(typed: &str) -> Option<(i64, i64)> {
+    let typed = typed.trim();
+    let (at, len, _) = frame_token(typed)?;
+    let head = crate::core::vars::expand(&typed[..at], &[]);
+    let tail = crate::core::vars::expand(&typed[at + len..], &[]);
+    let head_path = Path::new(&head);
+    let (dir, prefix) = if head.ends_with(std::path::MAIN_SEPARATOR) || head.ends_with('/') {
+        (head_path.to_path_buf(), String::new())
+    } else {
+        (head_path.parent()?.to_path_buf(), head_path.file_name()?.to_string_lossy().into_owned())
+    };
+    // Asked every frame (the panel, the timeline): the folder is listed again
+    // only when it changed.
+    type Listed = Vec<((std::path::PathBuf, String, String), Option<SystemTime>, Option<(i64, i64)>)>;
+    static LISTED: Mutex<Listed> = Mutex::new(Vec::new());
+    let changed = std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+    let key = (dir.clone(), prefix.clone(), tail.clone());
+    if let Some((_, _, range)) = LISTED.lock().ok()?.iter().find(|(k, t, _)| *k == key && *t == changed) {
+        return *range;
+    }
+    let frames: Vec<i64> = std::fs::read_dir(&dir).ok()?.flatten().filter_map(|e| {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let middle = name.strip_prefix(prefix.as_str())?.strip_suffix(tail.as_str())?;
+        (!middle.is_empty() && middle.bytes().all(|c| c.is_ascii_digit() || c == b'-')).then(|| middle.parse().ok()).flatten()
+    }).collect();
+    let range = frames.iter().min().zip(frames.iter().max()).map(|(a, b)| (*a, *b));
+    if let Ok(mut listed) = LISTED.lock() {
+        listed.retain(|(k, _, _)| *k != key);
+        if listed.len() >= 32 { listed.remove(0); }
+        listed.push((key, changed, range));
+    }
+    range
+}
+
 /// What is kept: the newest read last, up to `KEEP_BYTES` of pixels; by file,
 /// its time, and the space it was read from.
 type Kept = Vec<((String, Option<SystemTime>, String), Arc<Image>)>;
@@ -125,6 +231,30 @@ mod tests {
         assert_eq!(path_at("/p/plate.$F4.exr", 12), "/p/plate.0012.exr");
         assert_eq!(path_at("/p/plate.####.exr", -3), "/p/plate.-0003.exr");
         assert_eq!(path_at(" /p/still.png ", 12), "/p/still.png");
+    }
+
+    #[test]
+    fn a_picked_frame_becomes_its_sequence_and_the_range_is_found() {
+        let dir = std::env::temp_dir().join("xms_image_seq_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in [3, 4, 5, 12] {
+            std::fs::write(dir.join(format!("plate_v2.{f:04}.exr")), b"x").unwrap();
+        }
+        std::fs::write(dir.join("still_01.png"), b"x").unwrap();
+        let d = dir.to_string_lossy();
+        // A frame picked: the sequence, with $F4 for its four digits.
+        let seq = as_sequence(&format!("{d}/plate_v2.0004.exr"));
+        assert_eq!(seq, format!("{d}/plate_v2.$F4.exr"));
+        assert_eq!(sequence_range(&seq), Some((3, 12)));
+        assert_eq!(sequence_range(&format!("{d}/plate_v2.####.exr")), Some((3, 12)));
+        // The file browser's collapsed sequence.
+        assert_eq!(as_sequence("/a/b.####.exr"), "/a/b.$F4.exr");
+        // A numbered file on its own stays as it is, and has no range.
+        assert_eq!(as_sequence(&format!("{d}/still_01.png")), format!("{d}/still_01.png"));
+        assert_eq!(sequence_range(&format!("{d}/still_01.png")), None);
+        // $FSTART is not a frame token.
+        assert_eq!(frame_token("/a/$FSTART/b.exr"), None);
     }
 
     #[test]
