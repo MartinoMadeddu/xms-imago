@@ -11,9 +11,15 @@ OSs, non destructive procedural workflow with USD scene at its core with
 advanced crossdata manipulation access via the Integrated Creation Engine (ICE)
 and fast mocap processing tools.
 
-![XMS | Imago in the Light theme: the DeLorean in the Viewer, its stage in the
-Scene Explorer, the Load USD operator in the Node Graph and its
-Parameters](docs/xms_theme_light.png)
+![XMS | Imago with a shot of Blender Studio's Project Gold: the forest seen
+through the shot's camera in the Viewer, its stage in the Scene Explorer, and
+Load USD, Prune Primitives, Reparent, Set Variable, Render Commons and Render
+Settings in the Node Graph](docs/xms_front.png)
+
+The scene is from [Project Gold](https://studio.blender.org/projects/gold/), by
+Blender Studio; its production files come with the [Stylized Rendering with
+Brushstrokes](https://studio.blender.org/training/stylized-rendering-with-brushstrokes/)
+workshop.
 
 ## Structure
 
