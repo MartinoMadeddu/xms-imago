@@ -561,8 +561,15 @@ mod tests {
     }
 
     /// A car whose paint is a variant set: red has a body, blue a bigger body
-    /// and a stripe. Its wheel and the ground are outside the set.
+    /// and a stripe. Its wheel and the ground are outside the set. Written
+    /// once for every test: tests run at the same time, and one writing the
+    /// file while another reads it gave the reader half a file.
     fn car() -> String {
+        static WRITTEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        WRITTEN.get_or_init(write_car).clone()
+    }
+
+    fn write_car() -> String {
         let dir = std::env::temp_dir().join("xms_variant_test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("car.usda");

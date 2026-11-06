@@ -1,10 +1,15 @@
-# Builds XMS for Linux, macOS and Windows on every push to main and
-# publishes the binaries as a GitHub release.
+# Builds XMS for Linux, macOS and Windows and publishes the binaries:
+# - on every push to main, as a pre-release "Build N" of the version in
+#   Cargo.toml (the version does not change with a push);
+# - on a pushed tag v<version> (v0.2.0), as the release "Imago 0.2.0", marked
+#   latest, with that version's section of CHANGELOG.md as its notes. The tag
+#   has to match the version in Cargo.toml. See docs/releases.md.
 name: Build and release
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
 
@@ -17,6 +22,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The build's number, compiled in: Imago shows "0.2.0 · build 155 (a1b2c3d)"
+  # (the commit is GitHub's GITHUB_SHA).
+  XMS_BUILD: ${{ github.run_number }}
 
 jobs:
   build:
@@ -40,6 +48,15 @@ jobs:
             target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
+
+      # A release's tag is its version: v0.2.0 for version = "0.2.0".
+      - name: The tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "Cargo.toml: $version, tag: $GITHUB_REF_NAME"
+          test "v$version" = "$GITHUB_REF_NAME"
 
       - name: Linux packages
         if: runner.os == 'Linux'
@@ -140,6 +157,9 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      # For CHANGELOG.md, a release's notes.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -152,9 +172,27 @@ jobs:
         run: |
           ls -la dist
           test -n "$(ls dist)"
-          tag="build-${{ github.run_number }}"
-          gh release create "$tag" dist/* \
-            --target "${{ github.sha }}" \
-            --title "Build ${{ github.run_number }}" \
-            --notes "Automatic build of ${{ github.sha }}. ${{ github.event.head_commit.message }}" \
-            --latest
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # A release: named for its version, its notes the changelog's
+            # section for it (GitHub's list of changes when there is none).
+            version="${GITHUB_REF_NAME#v}"
+            awk -v v="$version" '
+              $0 ~ "^## \\[?" v "\\]?([ ]|$)" { on = 1; next }
+              on && /^## / { exit }
+              on' CHANGELOG.md > notes.md || true
+            if [ -s notes.md ]; then notes=(--notes-file notes.md); else notes=(--generate-notes); fi
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --verify-tag \
+              --title "Imago $version" \
+              "${notes[@]}" \
+              --latest
+          else
+            # A build of main: a pre-release, never "latest", so the latest
+            # release (and the website's download buttons) stay on a version.
+            tag="build-${{ github.run_number }}"
+            gh release create "$tag" dist/* \
+              --target "${{ github.sha }}" \
+              --title "Build ${{ github.run_number }}" \
+              --notes "Automatic build of ${{ github.sha }}. ${{ github.event.head_commit.message }}" \
+              --prerelease
+          fi

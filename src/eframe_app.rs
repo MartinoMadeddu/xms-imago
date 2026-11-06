@@ -164,7 +164,7 @@ impl eframe::App for ImagoApp {
 /// Open the window and run the program until it closes.
 pub fn run() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("XMS | Imago")
+        .with_title(format!("XMS | Imago {}", env!("CARGO_PKG_VERSION")))
         .with_app_id("xms-imago")
         .with_inner_size([1600.0, 1000.0])
         .with_maximized(true);

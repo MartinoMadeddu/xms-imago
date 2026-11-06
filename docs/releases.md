@@ -1,9 +1,50 @@
 # Builds and releases
 
-Every push to `main` that changes code is built by GitHub Actions for Linux,
-macOS and Windows, and published on the [Releases
-page](https://github.com/MartinoMadeddu/xms-imago/releases) as "Build N".
-Changes to documentation alone do not trigger a build.
+Two kinds of download, both on the [Releases
+page](https://github.com/MartinoMadeddu/xms-imago/releases), both built by
+GitHub Actions for Linux, macOS and Windows:
+
+- **Builds:** every push to `main` that changes code is built and published as
+  a pre-release, "Build N". A push never changes the version: build 154 and
+  build 155 are both builds of the version `Cargo.toml` says, with what was
+  pushed in between. Changes to documentation alone do not trigger a build.
+- **Releases:** when a set of work is done, a version is released by hand, as
+  below: "Imago 0.3.0", marked latest. The website's download buttons fetch
+  the latest release, not the newest build.
+
+Imago shows which it is beside its name, top left: `0.2.0 · build 155
+(a1b2c3d)` for a build from GitHub (click it to copy it, for a bug report),
+`0.2.0 (local)` when built on your own machine. A saved graph records it too
+(`saved_with`).
+
+## Versions
+
+One version for the whole program: the root `Cargo.toml`'s
+`[workspace.package] version`, which every crate takes (`version.workspace =
+true`). Before 1.0 it reads `0.MINOR.PATCH`:
+
+- **MINOR** (0.2 to 0.3): a milestone, or a change older Imagos cannot read.
+- **PATCH** (0.2.0 to 0.2.1): fixes only.
+
+A file's own layout has its own number, apart from the program's (a graph's
+`version`, a compound's `format_version`), changed only when the layout does.
+
+## Making a release
+
+1. In `CHANGELOG.md`, move what is under **Unreleased** under a new heading,
+   `## [0.3.0] - <date>`.
+2. Set `version = "0.3.0"` in the root `Cargo.toml`'s `[workspace.package]`,
+   and run `cargo build` once so `Cargo.lock` follows.
+3. Commit, tag and push:
+
+       git commit -am "Imago 0.3.0"
+       git tag -a v0.3.0 -m "Imago 0.3.0"
+       git push && git push origin v0.3.0
+
+The tag builds the release, named "Imago 0.3.0", with the changelog's section
+as its notes. A tag that does not match the version in `Cargo.toml` fails the
+build, so nothing is published under a wrong number. `git config --global
+push.followTags true` makes a plain `git push` send the tag too.
 
 | File | Platform |
 |---|---|

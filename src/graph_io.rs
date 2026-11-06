@@ -47,7 +47,12 @@ struct SavedNode {
 
 #[derive(Serialize, Deserialize)]
 struct SavedGraph {
+    /// The file's layout, for reading older files (not Imago's version).
     version: u32,
+    /// The Imago that wrote it (`crate::version`), to tell later which build
+    /// a file came from. Files written before it have none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    saved_with: String,
     nodes: Vec<SavedNode>,
     /// from node, from output, to node, to input
     connections: Vec<[usize; 4]>,
@@ -127,6 +132,7 @@ pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
     let saved = SavedGraph {
         trees: saved_trees(&all, subnets),
         version: 1,
+        saved_with: crate::version(),
         nodes: graph
             .nodes
             .iter()
@@ -525,6 +531,7 @@ pub fn paste(
     // Nodes from an older version are brought up to date as a file is.
     let mut saved = SavedGraph {
         version: 1,
+        saved_with: crate::version(),
         nodes,
         connections,
         view_flag: None,

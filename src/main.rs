@@ -408,6 +408,14 @@ pub(crate) fn draw_ui(
                 draw_logo(ui);
                 ui.add_space(2.0);
                 ui.add(egui::Label::new(egui::RichText::new("XMS | Imago").size(12.0).color(theme::c(165, 165, 165))).selectable(false));
+                // Which build this is, for bug reports: copied by a click.
+                let build = version();
+                if ui.add(egui::Label::new(egui::RichText::new(&build).size(10.0).color(theme::c(130, 130, 130))).sense(egui::Sense::click()))
+                    .on_hover_text("This build of Imago: click to copy it, for a bug report")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(format!("XMS | Imago {build}"));
+                }
                 ui.add_space(10.0);
                 top_bar_divider(ui);
                 ui.add_space(4.0);
@@ -1658,6 +1666,18 @@ pub(crate) struct GraphFile {
 /// Imago's graph files: `.xms` (JSON inside); `.json` graphs saved before still
 /// open.
 const GRAPH_FILES: &[&str] = &["xms", "json"];
+
+/// Which build this is: the version, and on the build machines the build's
+/// number and commit (`0.2.0 · build 155 (a1b2c3d)`); built anywhere else,
+/// `0.2.0 (local)`. `XMS_BUILD` and `GITHUB_SHA` are set by the release
+/// workflow when it compiles.
+pub(crate) fn version() -> String {
+    let v = env!("CARGO_PKG_VERSION");
+    match (option_env!("XMS_BUILD"), option_env!("GITHUB_SHA")) {
+        (Some(n), Some(sha)) => format!("{v} · build {n} ({})", &sha[..sha.len().min(7)]),
+        _ => format!("{v} (local)"),
+    }
+}
 
 fn file_name(path: &std::path::Path) -> String {
     path.file_name()

@@ -1,6 +1,7 @@
 [package]
 name = "xms-imago"
-version = "0.1.5"
+# Every crate takes the workspace's version, below: one number for Imago.
+version.workspace = true
 edition = "2021"
 # egui 0.36 and egui_dock 0.21 need Rust 1.95.
 rust-version = "1.95"
@@ -11,7 +12,9 @@ resolver = "2"
 
 
 [workspace.package]
-version = "0.1.0"
+# Imago's version. Changed by hand for a release, then tagged (v0.2.0); see
+# docs/releases.md. Pushes to main are builds of this version, numbered.
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]

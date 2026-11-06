@@ -344,5 +344,14 @@ Load USD brings a file in as USD would: sublayered, at its own paths, or its
 default prim referenced or payloaded at a Primitive Location. What Imago shows
 and what Write USD writes are the same composition: a reference is written as a
 reference, so the layer stays a layout over its assets, not a copy of them.
-Where USD would not convert a file's axes and unit through a reference, Imago,
-which shows everything Y up in metres, writes the transform that does it.
+Where USD would not convert a file's axes and unit through a reference, and a
+Load USD turns its stage to Y-up metres (stages are otherwise read as authored),
+Imago writes the transform that does it.
+
+## A push is a build, a tag is a release
+
+Imago has one version, set by hand. Pushing to `main` never changes it: every
+push is a build of that version, numbered, for testers. A release is a decision,
+a tag `v<version>` on a commit whose `Cargo.toml` says that version, with its
+notes in `CHANGELOG.md`. Imago always says which build it is, so a report can
+name it.
