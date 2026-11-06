@@ -142,6 +142,34 @@ What this needs:
 - For the assistant: a workspace that runs commands and reaches GitHub (check 2
   and 4 above). Pushing from the workspace is not needed; the person pushes.
 
+### Builds, versions and releases
+
+- **A push to `main` is a build, never a version.** GitHub builds every push
+  for Linux, macOS and Windows and publishes it as a pre-release, "Build N", of
+  the version `Cargo.toml` already says. Nothing in a patch changes the version.
+- **One version for the whole program:** `[workspace.package] version` in the
+  root `Cargo.toml`. Every crate takes it (`version.workspace = true`), new
+  crates included; never give a crate a version of its own.
+- **A release is the person's decision, made by hand.** Never bump the version,
+  write a tag or push one unless asked. When asked to prepare a release: move
+  `CHANGELOG.md`'s **Unreleased** under `## [x.y.z] - <date>`, set the version,
+  run `cargo build` so `Cargo.lock` follows, and hand it over as a patch like any
+  other. After that patch's push is green on GitHub, the person tags it:
+
+      git switch main && git pull && \
+      git tag -a vX.Y.Z -m "Imago X.Y.Z" && \
+      git push origin vX.Y.Z
+
+  The tag builds the release "Imago X.Y.Z", marked latest, with the changelog's
+  section as its notes; a tag that does not match `Cargo.toml` fails the build.
+- **Versions before 1.0:** `0.MINOR.PATCH`; MINOR for a milestone or a change
+  older Imagos cannot read, PATCH for fixes only. A file's layout has its own
+  number (a graph's `version`, a compound's `format_version`), changed only when
+  the layout does.
+- **The changelog:** a change worth announcing to users adds a line under
+  **Unreleased** in `CHANGELOG.md`, beside its dated line in `LOGS.md`.
+- Details: [docs/releases.md](docs/releases.md).
+
 ### Placeholder nodes: how a new node is asked for
 
 A graph file (JSON) may hold `Placeholder` nodes. Each stands for a node that

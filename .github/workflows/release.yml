@@ -153,8 +153,9 @@ jobs:
   release:
     name: Release
     needs: build
-    # Publish whatever built, even if one platform failed.
-    if: ${{ !cancelled() }}
+    # A build of main publishes whatever built, even if one platform failed;
+    # a release only when every platform built.
+    if: ${{ !cancelled() && (github.ref_type != 'tag' || needs.build.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       # For CHANGELOG.md, a release's notes.

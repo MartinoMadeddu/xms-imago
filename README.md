@@ -65,10 +65,11 @@ Built on:
 ## Get it
 
 - **Website:** [martinomadeddu.github.io/xms-imago](https://martinomadeddu.github.io/xms-imago/)
-- **Download:** binaries for Linux, macOS and Windows, built from every change
-  to `main`, on the [Releases
-  page](https://github.com/MartinoMadeddu/xms-imago/releases) (see
-  [Builds and releases](docs/releases.md)).
+- **Download:** binaries for Linux, macOS and Windows on the [Releases
+  page](https://github.com/MartinoMadeddu/xms-imago/releases): the latest
+  release (a version, for example 0.2.0), or the newest build of `main` (a
+  pre-release, "Build N"). See [Builds and releases](docs/releases.md) and the
+  [changelog](CHANGELOG.md).
 - **Documentation:** [docs/](docs/README.md), or **Help > Documentation** in
   Imago.
 
