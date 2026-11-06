@@ -153,6 +153,7 @@ pub(crate) fn draw_ui(
                 if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) {
                     match &mut node.node_type {
                         NodeType::LoadUsd { path, .. }
+                        | NodeType::LoadImage { path, .. }
                         | NodeType::WriteUsd { path, .. }
                         | NodeType::LoadFbx { path, .. }
                         | NodeType::LoadFbxMesh { path } => *path = text,
@@ -2839,6 +2840,7 @@ fn not_prims(r: Option<types::EvalResult>) -> String {
             "The input is a material, not primitives: plug it into Material Binding".to_string()
         }
         Some(types::EvalResult::Named(_)) => String::new(),
+        Some(types::EvalResult::Image(_)) => "The input is an image, not primitives".to_string(),
         Some(_) => "The input is a clip, not primitives".to_string(),
         None => "The input did not cook".to_string(),
     }

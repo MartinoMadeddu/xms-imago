@@ -355,3 +355,11 @@ push is a build of that version, numbered, for testers. A release is a decision,
 a tag `v<version>` on a commit whose `Cargo.toml` says that version, with its
 notes in `CHANGELOG.md`. Imago always says which build it is, so a report can
 name it.
+
+## Images are viewed like scenes
+
+An operator can give an image as much as a scene. The view flag says what is
+looked at: a scene goes to the Viewer, an image to the Image Viewer, with the
+same layers, exposure and pixel values as a render. Image operators will join
+the same graph through the same Image port, as Gaffer treats 2D and 3D alike.
+

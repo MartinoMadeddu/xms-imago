@@ -105,7 +105,7 @@ pub fn scene_summary(scene: &EvalResult, paths: &[String]) -> Summary {
             .map(|(p, _)| of(&p.mesh))
             .fold(Summary::default(), add),
         EvalResult::Single(m) => of(m),
-        EvalResult::Anim(_) | EvalResult::Material(_) => Summary::default(),
+        EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(_) => Summary::default(),
     }
 }
 

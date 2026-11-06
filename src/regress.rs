@@ -164,6 +164,7 @@ pub fn measure(g: &NodeGraphState, store: &IceGraphStore) -> Snapshot {
             s.kind = "material".into();
             s.materials = 1;
         }
+        Some(EvalResult::Image(_)) => s.kind = "image".into(),
     }
     s
 }

@@ -1002,7 +1002,7 @@ fn ghosts(
                     }
                 }
             }
-            Some(EvalResult::Material(_)) | None => {}
+            Some(EvalResult::Material(_)) | Some(EvalResult::Image(_)) | None => {}
             Some(other) => draw(&Arc::new(other.into_mesh()), &[Mat4::IDENTITY]),
         }
     }

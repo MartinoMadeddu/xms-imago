@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Load Image:** an image or a sequence (`plate.####.exr`) into the graph; viewed, the Image Viewer shows it, every layer of an EXR, in its colour space.
+
 ## [0.2.1] - 2026-11-06
 
 - Downloads, their folders and the program are named with the version

@@ -46,6 +46,8 @@ pub mod uv;
 pub mod variant;
 /// Variables in paths and command lines: `$GDIR`, `$F4`…
 pub mod vars;
+/// Image files for Load Image: sequences, reading, colour spaces.
+pub mod image_file;
 pub mod xform;
 /// The geometry model of packed primitives, the nodes and ICE: typed attribute
 /// columns per context.

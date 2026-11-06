@@ -665,6 +665,39 @@ pub fn draw_properties(
         }),
 
         // Files
+        NodeType::LoadImage { path, colour } => {
+            group(ui, "File", Some("An image, or one of a sequence: #### is the frame, padded to as many digits (plate.####.exr), as is $F4. Variables are put in: $GDIR/plates/plate.####.exr"), |f| {
+                path_row(f, path, "/path/to/plate.####.exr", io, sel_id, BrowseMode::File, "Open image", &["exr", "png", "jpg", "jpeg", "tif", "tiff", "tga", "hdr"]);
+                // The file of the frame shown, and whether it is there.
+                let frame = crate::core::vars::globals().frame;
+                let file = crate::core::image_file::path_at(path, frame);
+                if path.trim().is_empty() {
+                    f.status(Status::Info, "No file set");
+                } else {
+                    if file != path.trim() { f.status(Status::Info, format!("→ {file}")); }
+                    match crate::core::image_file::read(&file) {
+                        Ok(img) => f.status(Status::Ok, format!("{} × {}, {} channels", img.width, img.height, img.channels.len())),
+                        Err(e) => f.status(Status::Bad, e),
+                    }
+                }
+            });
+            group(ui, "Colour", Some("The colour space the pixels are in, from the colour config. Automatic: an EXR or HDR in the rendering space, other files as sRGB"), |f| {
+                let auto = crate::core::image_file::colour_space("", path);
+                let shown = if colour.is_empty() {
+                    format!("Automatic ({})", if auto.is_empty() { crate::colour::Colour::get().rendering() } else { auto })
+                } else {
+                    colour.clone()
+                };
+                f.row("Colour space", None, |ui| {
+                    egui::ComboBox::from_id_salt(("load_image_colour", sel_id)).selected_text(shown).show_ui(ui, |ui| {
+                        if ui.selectable_label(colour.is_empty(), "Automatic").clicked() { colour.clear(); }
+                        for space in crate::colour::Colour::get().spaces() {
+                            if ui.selectable_label(*colour == space, space.as_str()).clicked() { *colour = space; }
+                        }
+                    })
+                });
+            });
+        }
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd", "abc"]);

@@ -88,6 +88,15 @@ pub enum NodeType {
         #[serde(default)]
         light: crate::core::light::Light,
     },
+    /// An image file, or one of a sequence (`plate.####.exr`, `$F4`): its
+    /// pixels, every layer of an EXR. What the Image Viewer shows when it is
+    /// viewed. `colour`: the colour space it is in, from the config; empty, by
+    /// the file (an EXR or HDR in the rendering space, others as sRGB).
+    LoadImage {
+        path: String,
+        #[serde(default)]
+        colour: String,
+    },
     /// A USD file. `mode`: sublayered at its own paths, or one prim of it
     /// (`prim`, else its default prim) referenced or payloaded at `location`
     /// (`/root` by default). Graphs saved before the modes sublayer.
@@ -954,6 +963,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Camera { .. } => "🎥",
         NodeType::Light { .. } => "💡",
         NodeType::LoadUsd { .. } => "📂",
+        NodeType::LoadImage { .. } => "🖼",
         NodeType::WriteUsd { .. } => "📤",
         NodeType::PickPrims { .. } => "👆",
         NodeType::PrunePrims { .. } => "🚫",
@@ -1035,6 +1045,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Camera { .. } => "Camera",
         NodeType::Light { light, .. } => light.label(),
         NodeType::LoadUsd { .. } => "Load USD",
+        NodeType::LoadImage { .. } => "Load Image",
         NodeType::WriteUsd { .. } => "Write USD",
         NodeType::PickPrims { .. } => "Pick Primitives",
         NodeType::PrunePrims { .. } => "Prune Primitives",
@@ -1987,6 +1998,8 @@ pub enum EvalResult {
     Anim(std::sync::Arc<crate::core::anim::AnimData>),
     /// A material, for Material Binding to put in the scene. Shared.
     Material(std::sync::Arc<crate::core::material::Material>),
+    /// An image (Load Image), for the Image Viewer. Shared.
+    Image(std::sync::Arc<xms_image::Image>),
 }
 
 impl EvalResult {
@@ -1994,7 +2007,7 @@ impl EvalResult {
         match self {
             EvalResult::Single(m) => m,
             EvalResult::Named(prims) => merge_world(&prims.iter().collect::<Vec<_>>()),
-            EvalResult::Anim(_) | EvalResult::Material(_) => MeshData::default(),
+            EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(_) => MeshData::default(),
         }
     }
 
@@ -2005,7 +2018,7 @@ impl EvalResult {
         match self {
             EvalResult::Single(m) => vec![m],
             EvalResult::Named(prims) => prims.iter().map(|p| p.world().into_owned()).collect(),
-            EvalResult::Anim(_) | EvalResult::Material(_) => vec![],
+            EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(_) => vec![],
         }
     }
 
@@ -3042,6 +3055,23 @@ impl SceneHierarchy {
                         stage_path: None,
                         path: None,
                         type_name: "Material".into(),
+                    });
+                }
+
+                // An image on its own: one row, its size.
+                EvalResult::Image(img) => {
+                    let id = self.next_id();
+                    self.objects.push(SceneObject {
+                        id,
+                        name: format!("{node_name}: {} × {}", img.width, img.height),
+                        icon: "🖼",
+                        depth: 0,
+                        has_children: false,
+                        expanded: true,
+                        key: node_key,
+                        stage_path: None,
+                        path: None,
+                        type_name: "Image".into(),
                     });
                 }
 

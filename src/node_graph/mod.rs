@@ -183,6 +183,7 @@ fn approx_bytes(r: &EvalResult) -> usize {
                 + a.skin.as_ref().map(|s| s.positions.len() * 64).unwrap_or(0)
         }
         EvalResult::Material(_) => 1024,
+        EvalResult::Image(img) => img.channels.iter().map(|c| c.values.len() * 4).sum::<usize>() + 256,
     }
 }
 
@@ -570,6 +571,7 @@ impl NodeGraphState {
             | NodeType::CreateGrid { .. }
             | NodeType::LoadUsd { .. } => (vec![], vec![o("Scene")]),
             NodeType::LoadFbxMesh { .. } => (vec![], vec![o("Mesh")]),
+            NodeType::LoadImage { .. } => (vec![], vec![o("Image")]),
             NodeType::LoadFbx { .. } => (vec![], vec![o("Clip"), o("Geometry"), o("Rest")]),
             NodeType::PickPrims { .. }
             | NodeType::PrunePrims { .. }
@@ -1332,6 +1334,11 @@ impl NodeGraphState {
             NodeType::LoadFbx { path, .. } | NodeType::LoadFbxMesh { path } => {
                 let path = crate::core::vars::expand(path.trim(), &[]);
                 (file_stamp(&path), &path).hash(&mut h)
+            }
+            // The file of this frame: a sequence cooks again at each frame.
+            NodeType::LoadImage { path, colour } => {
+                let path = crate::core::image_file::path_at(path, self.frame().round() as i64);
+                (file_stamp(&path), &path, colour).hash(&mut h)
             }
             // A stage read in the background gives more when its boxes,
             // then the whole of it, are read.

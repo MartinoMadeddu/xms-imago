@@ -317,6 +317,29 @@ They are kept while the program runs, with how much memory they take.
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.
 
+### Images from the graph: Load Image
+
+**Load Image** (File) reads an image, or a sequence, into the graph: every layer
+and channel of an EXR (AOVs grouped by name), and PNG, JPEG, TIFF, TGA and HDR
+as linear RGBA. Its output is an **Image**.
+
+- **When it is viewed** (its view flag), the Image Viewer shows its image, as the
+  Viewer shows a viewed scene: the same layers, channels, exposure and pixel
+  values as a render. A render, or a file opened from ⚙, takes over until the
+  graph or the frame changes.
+- **Sequences:** `####` in the file name is the frame, padded to as many digits
+  (`plate.####.exr` at frame 12 reads `plate.0012.exr`), as is `$F4`; variables
+  are put in (`$GDIR/plates/plate.####.exr`). The frame follows the timeline.
+  Its Parameters show the file of the frame shown and its size.
+- **Colour space:** chosen from the colour config; **Automatic** takes an EXR or
+  HDR as in the rendering space and anything else as sRGB.
+- **Quick:** images read are kept (up to about a gigabyte), so scrubbing back over
+  frames already seen does not read them again; a file changed on disk is read
+  again.
+
+Image operators (compare, crop, exposure, over) come later; the Image port is
+their start.
+
 ## In the scene
 
 The render prims are primitives with no geometry, as cameras and materials are:

@@ -65,6 +65,12 @@ pub struct ImageViewerState {
     shown_in: Option<(String, crate::colour::View)>,
     /// A file to open, typed in the ⚙ window.
     open_path: String,
+    /// What the viewed operator's image was looked for at: the graph's
+    /// revision and the frame.
+    graph_key: Option<(u64, u64)>,
+    /// The viewed operator's image (Load Image), while it gives one: shown in
+    /// place of renders, in its own colour space.
+    graph_image: Option<(Arc<xms_image::Image>, String)>,
 }
 
 /// The command lines the ⚙ menu fills in: name, line, what it does. Custom is
@@ -261,6 +267,32 @@ pub fn draw(
         .or(settings.first())
         .cloned();
 
+    // The viewed operator's image, when it gives one: shown as the Viewer
+    // shows a scene, again when the graph changes or the frame moves.
+    let key = (revision, graph.frame().to_bits());
+    if st.graph_key != Some(key) {
+        st.graph_key = Some(key);
+        let viewed = graph.view_flag.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
+        st.graph_image = match viewed.map(|n| (&n.name, &n.node_type)) {
+            Some((name, crate::types::NodeType::LoadImage { path, colour })) => {
+                let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                match graph.evaluate_for_viewport_packed(&pass) {
+                    Some(EvalResult::Image(img)) => {
+                        let file = crate::core::image_file::path_at(path, graph.frame().round() as i64);
+                        let shown = st.graph_image.as_ref().is_some_and(|(i, _)| Arc::ptr_eq(i, &img));
+                        if !shown {
+                            let title = Path::new(&file).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone());
+                            st.view.set(img.clone(), title);
+                        }
+                        Some((img, crate::core::image_file::colour_space(colour, &file)))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+    }
+
     // What has been read comes into the view.
     let done = st.reading.lock().ok().and_then(|mut s| s.take());
     if let Some((result, title, written)) = done {
@@ -268,6 +300,8 @@ pub fn draw(
         let running = command::snapshot(RUN_KEY, 0).is_some_and(|s| s.state == State::Running);
         match result {
             Ok(img) => {
+                // A render or an opened file now shows, not the operator's image.
+                st.graph_image = None;
                 st.view.set(Arc::new(img), title);
                 if let Some(r) = &mut st.run {
                     r.seen = written;
@@ -393,7 +427,9 @@ pub fn draw(
     settings_window(ui.ctx(), st, graph, chosen.as_ref());
     // The image through the display transform of the view chosen.
     let v = crate::colour::view(crate::colour::Pane::ImageViewer);
-    let now = (st.input.clone(), v);
+    // An operator's image is in its own colour space; renders in the one chosen.
+    let input = st.graph_image.as_ref().map(|(_, space)| space.clone()).unwrap_or_else(|| st.input.clone());
+    let now = (input, v);
     if st.shown_in.as_ref() != Some(&now) {
         st.view.display = display_transform(&now.0, &now.1);
         st.shown_in = Some(now);

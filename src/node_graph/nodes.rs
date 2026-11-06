@@ -383,6 +383,11 @@ pub fn evaluate_node_type(
         NodeType::WriteFbx { .. } => inputs.first().cloned(),
         // Writes when asked, from the properties panel: passes its input on.
         NodeType::WriteUsd { .. } => inputs.first().cloned(),
+        // The file of the frame cooked.
+        NodeType::LoadImage { path, .. } => {
+            let frame = crate::usd_scene::cook_frame().unwrap_or(1.0).round() as i64;
+            crate::core::image_file::read(&crate::core::image_file::path_at(path, frame)).ok().map(EvalResult::Image)
+        }
 
         // Mocap tools
         NodeType::MirrorClip => anim_op(node_type, inputs, |a| a.mirrored()),
@@ -889,7 +894,7 @@ fn prims_of(r: &EvalResult) -> EvalResult {
     match r {
         EvalResult::Named(p) => EvalResult::Named(p.clone()),
         EvalResult::Single(m) => EvalResult::Named(vec![Prim::new("/mesh".into(), m.clone())]),
-        EvalResult::Anim(_) | EvalResult::Material(_) => EvalResult::Named(vec![]),
+        EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(_) => EvalResult::Named(vec![]),
     }
 }
 

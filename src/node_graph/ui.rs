@@ -1457,6 +1457,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("📂", "File", vec![
             (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
             (NodeType::write_usd(""), "What the scene graph changed in its USD stages, as an override layer"),
+            (NodeType::LoadImage { path: String::new(), colour: String::new() }, "An image, or a sequence (plate.####.exr): viewed, the Image Viewer shows it. Every layer of an EXR"),
             (NodeType::LoadFbx { path: String::new(), take: 0 }, "Everything in an FBX file: the clip, every mesh with its weights and materials, the rest skeleton"),
             (NodeType::LoadFbxDir { dir: String::new(), index: 0, take: 0 }, "One FBX of a folder at a time; Write FBX can run over all of them"),
             (NodeType::WriteFbx { path: crate::types::DEFAULT_WRITE_PATH.into(), mesh: false }, "Write the clip as FBX, with the skeleton it came in with"),
@@ -1910,6 +1911,7 @@ pub fn output_info(r: &Option<crate::types::EvalResult>) -> Vec<String> {
             out
         }
         Some(EvalResult::Material(m)) => vec![format!("Material {}", m.name)],
+        Some(EvalResult::Image(img)) => vec![format!("Image {} × {}, {} channels", img.width, img.height, img.channels.len())],
     }
 }
 
