@@ -95,8 +95,8 @@ documentation in `docs/html`.
 ## Credits
 
 XMS | Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu)
-and developed by [Simon Legrand](https://github.com/srlegrand) and Martino
-Madeddu.
+and developed by [Simon Legrand](https://github.com/srlegrand) and [Martino
+Madeddu](https://github.com/MartinoMadeddu).
 
 The example files' authors and licences are in
 [examples/CREDITS.md](examples/CREDITS.md).
