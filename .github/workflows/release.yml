@@ -58,6 +58,17 @@ jobs:
           echo "Cargo.toml: $version, tag: $GITHUB_REF_NAME"
           test "v$version" = "$GITHUB_REF_NAME"
 
+      # What the download and the program are called, so versions and builds
+      # sit side by side: xms-0.2.0 for a release, xms-0.2.0-build155 for a
+      # build of main. The archive and its folder add the platform.
+      - name: Name
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then name="xms-$version"; else name="xms-$version-build$GITHUB_RUN_NUMBER"; fi
+          echo "XMS_NAME=$name" >> "$GITHUB_ENV"
+          echo "$name"
+
       - name: Linux packages
         if: runner.os == 'Linux'
         run: |
@@ -123,31 +134,33 @@ jobs:
       - name: Package (Linux, macOS)
         if: runner.os != 'Windows'
         run: |
-          mkdir xms-${{ matrix.name }}
-          cp target/${{ matrix.target }}/release/xms-imago xms-${{ matrix.name }}/xms
-          cp README.md xms-${{ matrix.name }}/
-          cp -r docs examples xms-${{ matrix.name }}/
-          cp -r assets/compounds xms-${{ matrix.name }}/compounds
-          tar czf xms-${{ matrix.name }}.tar.gz xms-${{ matrix.name }}
+          dir="$XMS_NAME-${{ matrix.name }}"
+          mkdir "$dir"
+          cp target/${{ matrix.target }}/release/xms-imago "$dir/$XMS_NAME"
+          cp README.md "$dir/"
+          cp -r docs examples "$dir/"
+          cp -r assets/compounds "$dir/compounds"
+          tar czf "$dir.tar.gz" "$dir"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory xms-${{ matrix.name }}
-          Copy-Item target/${{ matrix.target }}/release/xms-imago.exe xms-${{ matrix.name }}/xms.exe
-          Copy-Item README.md xms-${{ matrix.name }}/
-          Copy-Item -Recurse docs xms-${{ matrix.name }}/
-          Copy-Item -Recurse examples xms-${{ matrix.name }}/
-          Copy-Item -Recurse assets/compounds xms-${{ matrix.name }}/compounds
-          Compress-Archive -Path xms-${{ matrix.name }} -DestinationPath xms-${{ matrix.name }}.zip
+          $dir = "$env:XMS_NAME-${{ matrix.name }}"
+          New-Item -ItemType Directory $dir
+          Copy-Item target/${{ matrix.target }}/release/xms-imago.exe "$dir/$env:XMS_NAME.exe"
+          Copy-Item README.md "$dir/"
+          Copy-Item -Recurse docs "$dir/"
+          Copy-Item -Recurse examples "$dir/"
+          Copy-Item -Recurse assets/compounds "$dir/compounds"
+          Compress-Archive -Path $dir -DestinationPath "$dir.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: xms-${{ matrix.name }}
           path: |
-            xms-${{ matrix.name }}.tar.gz
-            xms-${{ matrix.name }}.zip
+            ${{ env.XMS_NAME }}-${{ matrix.name }}.tar.gz
+            ${{ env.XMS_NAME }}-${{ matrix.name }}.zip
           if-no-files-found: error
 
   release:

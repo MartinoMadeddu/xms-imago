@@ -48,12 +48,19 @@ push.followTags true` makes a plain `git push` send the tag too.
 
 | File | Platform |
 |---|---|
-| `xms-linux-x86_64.tar.gz` | Linux, 64-bit Intel or AMD |
-| `xms-windows-x86_64.zip` | Windows, 64-bit |
-| `xms-macos-arm64.tar.gz` | macOS, Apple silicon |
-| `xms-macos-x86_64.tar.gz` | macOS, Intel |
+| `xms-0.2.0-linux-x86_64.tar.gz` | Linux, 64-bit Intel or AMD |
+| `xms-0.2.0-windows-x86_64.zip` | Windows, 64-bit |
+| `xms-0.2.0-macos-arm64.tar.gz` | macOS, Apple silicon |
+| `xms-0.2.0-macos-x86_64.tar.gz` | macOS, Intel |
 
-Each archive holds the program (`xms`, or `xms.exe`; Cargo builds it as
+Every name carries the version, and a build of `main` its number too:
+`xms-0.2.0-build155-linux-x86_64.tar.gz`. So does the folder inside and the
+program in it (`xms-0.2.0`, `xms-0.2.0-build155`, `.exe` on Windows), so
+several versions and builds can be unpacked side by side. Builds are listed on
+the Releases page with the releases, newest first, marked Pre-release; the
+page's Latest is always a release.
+
+Each archive holds the program (`xms-0.2.0`, or `xms-0.2.0.exe`; Cargo builds it as
 `xms-imago`), the README, this documentation, the `examples` folder and the
 `compounds` folder (the compound definitions Imago ships, from
 `assets/compounds`). Keep both next to the program: the templates that load
@@ -65,7 +72,8 @@ there (see [compounds](compounds.md)).
   libXcursor, libXi, libxkbcommon) and a Vulkan or OpenGL driver, which desktop
   installs have; they are loaded when the program starts.
 - macOS: the program is not signed. On first run, right-click it and choose
-  Open, or run `xattr -d com.apple.quarantine xms`.
+  Open, or run `xattr -d com.apple.quarantine xms-0.2.0` (the program's name
+  in the folder).
 - Windows: SmartScreen may warn about an unsigned program.
 
 The workflow is `.github/workflows/release.yml`. It can also be started by hand
