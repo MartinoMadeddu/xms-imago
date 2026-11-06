@@ -17,8 +17,10 @@ delivered. Then:
   or to update it.
 - When the person makes a decision about how the program should work, offer to
   add it here.
-- With every change, update `README.md` and the pages in `docs/` that describe
-  what changed. The website (`site/`) only when something on it is wrong.
+- With every change, update the pages in `docs/` that describe what changed.
+  The README is the front page: what Imago is, one picture, its structure, how
+  to get and build it, credits; everything else goes in `docs/`. The website
+  (`site/`) only when something on it is wrong.
 - With every change, add a dated line to `LOGS.md` saying what changed, ending
   with who made it.
 - Before every change, read what Martino has pushed since the last one, and add

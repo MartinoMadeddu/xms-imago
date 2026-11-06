@@ -765,3 +765,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 06/11/2026: The Interface page opens with a screenshot of the window in the Light theme, each part named with an arrow; the Theme section shows the window in Light and Dark, the new Dark grab replacing the old one in the README and on the website too; in the HTML documentation a picture opens at full size when clicked. (Martino)
 - 06/11/2026: The README is the short overview the documentation opens with (what Imago is, why, its structure, crates and libraries, and the credits), docs/overview.md folded into it; the long README kept as docs/readme_backup.md. (Martino)
 - 06/11/2026: The README has Get it (the website, the Releases page, the documentation) and How to build. (Martino)
+- 06/11/2026: The README shows Imago in the Light theme after the About, its Credits read as one line, and the instructions say it is the front page, kept short: features, how-tos and screenshots go in docs/. (Martino)

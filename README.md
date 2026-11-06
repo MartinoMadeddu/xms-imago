@@ -11,6 +11,10 @@ OSs, non destructive procedural workflow with USD scene at its core with
 advanced crossdata manipulation access via the Integrated Creation Engine (ICE)
 and fast mocap processing tools.
 
+![XMS | Imago in the Light theme: the DeLorean in the Viewer, its stage in the
+Scene Explorer, the Load USD operator in the Node Graph and its
+Parameters](docs/xms_theme_light.png)
+
 ## Structure
 
 One program, a few crates of its own, and open libraries under them.
@@ -83,13 +87,9 @@ documentation in `docs/html`.
 
 ## Credits
 
-XMS | Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu):
-the node graph, the Viewer, the ICE graphs, the USD loader and composed stages,
-GPU instancing and the look of the interface.
-
-Additional development by [Simon Legrand](https://github.com/srlegrand):
-polygon modelling, UV, USD at production size, motion capture, Body Collide,
-the dockable interface and the website.
+XMS | Imago was created by [Martino Madeddu](https://github.com/MartinoMadeddu)
+and developed by [Simon Legrand](https://github.com/srlegrand) and Martino
+Madeddu.
 
 The example files' authors and licences are in
 [examples/CREDITS.md](examples/CREDITS.md).
