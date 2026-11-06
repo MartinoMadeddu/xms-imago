@@ -8,7 +8,10 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-- **Load Image:** an image or a sequence (`plate.####.exr`) into the graph, brought from its colour space into ACEScg as Nuke's Read does; viewed, the Image Viewer shows it through its view, every layer of an EXR. Picking one frame of a sequence takes the sequence (`plate.$F4.exr`); Use as Scene Range sets the timeline to its frames.
+## [0.2.2] - 2026-11-06
+
+- **Load Image:** an image or a sequence (`plate.$F4.exr`) into the graph, brought from its colour space into ACEScg as Nuke's Read does; viewed, the Image Viewer shows it through its view, every layer of an EXR. Picking one frame of a sequence takes the sequence; Use as Scene Range sets the timeline to its frames.
+- **Image colour as in Nuke:** image files are read as stored, so 8-bit images are no longer decoded twice.
 
 ## [0.2.1] - 2026-11-06
 

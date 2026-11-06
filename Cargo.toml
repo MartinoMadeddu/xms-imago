@@ -14,7 +14,7 @@ resolver = "2"
 [workspace.package]
 # Imago's version. Changed by hand for a release, then tagged (v0.2.0); see
 # docs/releases.md. Pushes to main are builds of this version, numbered.
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [dependencies]
