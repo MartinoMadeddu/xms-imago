@@ -42,6 +42,8 @@ pub mod set_attribute;
 /// Skin weights kept on the geometry by joint name; Capture and Skin.
 pub mod skin;
 pub mod uv;
+/// Variant: choosing variants of a stage's variant sets, by composing it again.
+pub mod variant;
 /// Variables in paths and command lines: `$GDIR`, `$F4`…
 pub mod vars;
 pub mod xform;

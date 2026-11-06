@@ -73,26 +73,9 @@ pub fn evaluate_node_type(
             if path.is_empty() {
                 return None;
             }
-            // Packed primitives: one per mesh prim, shared with the cached stage.
             // `$GDIR/usd/street.usda`: its variables put in.
-            // At the frame being cooked, when the stage changes over time.
-            let at = |s: Arc<crate::usd_scene::UsdScene>| match crate::usd_scene::cook_frame() {
-                Some(f) => crate::usd_scene::at_frame(&s, f),
-                None => s,
-            };
-            match crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert).map(at) {
-                // Nothing to show: no geometry, instancer, camera or light.
-                Ok(scene)
-                    if scene.meshes.is_empty()
-                        && scene.instancers.is_empty()
-                        && scene.cameras.is_empty()
-                        && scene.lights.is_empty() =>
-                {
-                    None
-                }
-                Ok(scene) => stage_prims(&scene, *mode, location, prim).map(EvalResult::Named),
-                Err(_) => None,
-            }
+            let path = crate::core::vars::expand(path.trim(), &[]);
+            load_stage(&path, *convert, &Default::default(), *mode, location, prim).map(EvalResult::Named)
         }
 
         NodeType::PickPrims { pattern } => inputs.first().map(|r| match r {
@@ -161,6 +144,8 @@ pub fn evaluate_node_type(
         NodeType::EditPrimitive { .. } => inputs.first().cloned(),
         // Cooked by the graph, with its locations (`core::reparent`).
         NodeType::Reparent { .. } => inputs.first().cloned(),
+        // Cooked by `NodeGraphState::cook` (`core::variant`).
+        NodeType::Variant { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.
         NodeType::SetAttribute { rows } => inputs
             .first()
@@ -691,6 +676,30 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
         },
         ..strong.clone()
     }
+}
+
+/// The primitives of the stage at `path`, read as Load USD reads it (see
+/// `stage_prims`), with `variants` chosen over the file's (Variant), at the
+/// frame being cooked when the stage changes over time. One per mesh prim,
+/// shared with the cached stage. `None` with nothing to show: no geometry,
+/// instancer, camera or light.
+pub fn load_stage(
+    path: &str,
+    convert: bool,
+    variants: &crate::usd_scene::Variants,
+    mode: crate::usd_scene::LoadMode,
+    location: &str,
+    prim: &str,
+) -> Option<Vec<Prim>> {
+    let scene = crate::usd_scene::load_cached_with(path, convert, variants).ok()?;
+    let scene = match crate::usd_scene::cook_frame() {
+        Some(f) => crate::usd_scene::at_frame(&scene, f),
+        None => scene,
+    };
+    if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() {
+        return None;
+    }
+    stage_prims(&scene, mode, location, prim)
 }
 
 /// A loaded stage as primitives, as Load USD gives them: sublayered at the

@@ -577,7 +577,8 @@ impl NodeGraphState {
             | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
             | NodeType::EditPrimitive { .. }
-            | NodeType::Reparent { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            | NodeType::Reparent { .. }
+            | NodeType::Variant { .. } => (vec![i("Scene")], vec![o("Scene")]),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
             NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. }
@@ -808,6 +809,56 @@ impl NodeGraphState {
         };
         if let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) {
             n.locations = paths.to_vec();
+        }
+        self.view_flag = Some(id);
+        self.view_output = 0;
+        self.selected_node = Some(id);
+        self.selected_nodes = vec![id];
+        Some(id)
+    }
+
+    /// Choose a variant (Variant Select, a Scene Explorer row's right-click):
+    /// the viewed operator takes it when it is a Variant in Select, its choice
+    /// of that prim's set replaced; else a Variant choosing it is added after
+    /// the viewed operator, viewed and selected. Its id.
+    pub fn choose_variant(&mut self, choice: crate::core::variant::Choice) -> Option<NodeId> {
+        use crate::core::variant::VariantMode;
+        let view = self.view_flag?;
+        let output = self.view_output;
+        let reuse = self.nodes.iter().find(|n| n.id == view).is_some_and(|n| {
+            matches!(
+                &n.node_type,
+                NodeType::Variant {
+                    mode: VariantMode::Select,
+                    ..
+                }
+            )
+        });
+        let id = if reuse {
+            view
+        } else {
+            let at = self
+                .nodes
+                .iter()
+                .find(|n| n.id == view)
+                .map(|n| n.position + egui::vec2(0.0, 110.0))
+                .unwrap_or_default();
+            let id = self.add_node(
+                "Variant".into(),
+                NodeType::Variant {
+                    mode: VariantMode::Select,
+                    choices: vec![],
+                },
+                at,
+            );
+            self.add_connection(view, output, id, 0);
+            id
+        };
+        if let Some(NodeType::Variant { choices, .. }) =
+            self.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type)
+        {
+            choices.retain(|c| !(c.prim == choice.prim && c.set == choice.set));
+            choices.push(choice);
         }
         self.view_flag = Some(id);
         self.view_output = 0;
@@ -1289,6 +1340,8 @@ impl NodeGraphState {
                 file.hash(&mut h);
             }
             NodeType::Ragdoll { .. } => crate::ragdoll::generation().hash(&mut h),
+            // The stage it composes again is read in the background too.
+            NodeType::Variant { .. } => crate::usd_scene::generation().hash(&mut h),
             // The mesh skinned at the playhead.
             NodeType::DeltaMush { .. } | NodeType::RigidSkin => self.frame().to_bits().hash(&mut h),
             // A material is named by its operator.
@@ -1517,6 +1570,18 @@ impl NodeGraphState {
             inputs
                 .first()
                 .map(|r| crate::core::reparent::reparent(r, &node.locations, parent, *mode, *keep_world))
+        } else if let NodeType::Variant { choices, .. } = node_type {
+            // The stage composed again at the frame cooked, when it changes
+            // over time.
+            let frame = self.node_frame(node);
+            let first = inputs.first();
+            crate::usd_scene::cooking_at(frame, || {
+                first.map(|r| {
+                    let s = crate::core::variant::select(r, choices);
+                    crate::core::variant::noted(node.id, s.notes);
+                    s.result
+                })
+            })
         } else if crate::core::locations::takes_locations(node_type) && crate::core::locations::is_set(&node.locations)
         {
             // The operator works on the primitives its Prims Location tab

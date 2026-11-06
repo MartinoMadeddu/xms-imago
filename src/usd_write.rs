@@ -252,6 +252,17 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
             ));
             report.referenced += 1;
         }
+        // Variant: the variants chosen, on the prims holding the sets.
+        for (file, sets) in &tree.variants {
+            let at = match &tree.arc {
+                Some(a) => a.place(file),
+                None => Some(file.clone()),
+            };
+            if let Some(at) = at {
+                root.at(&at).meta.push(crate::usd_scene::variants_metadata(sets));
+                report.changed += 1;
+            }
+        }
         let nodes: BTreeMap<&str, &StageNode> = tree.nodes.iter().map(|n| (n.path.as_str(), n)).collect();
         let set = edit_set(prims, tree);
         let by_path: BTreeMap<&str, &Prim> = prims

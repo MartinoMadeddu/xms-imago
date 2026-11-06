@@ -767,3 +767,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 06/11/2026: The README has Get it (the website, the Releases page, the documentation) and How to build. (Martino)
 - 06/11/2026: The README shows Imago in the Light theme after the About, its Credits read as one line, and the instructions say it is the front page, kept short: features, how-tos and screenshots go in docs/. (Martino)
 - 06/11/2026: The README shows shot 03_035_A of Blender Studio's Spring in Imago, credited (CC BY 4.0), with links to the USD Working Group's Sample Assets and the download. (Martino)
+- 06/11/2026: Variant operator, Select mode: a stage's variant sets are read as it loads (names only) and shown in the Scene Explorer and Properties tab; choosing a variant composes the stage again with a session layer and carries over what was done above; Write USD writes the choices; right-click a prim for Variant Select. (Martino)

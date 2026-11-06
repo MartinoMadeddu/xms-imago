@@ -317,12 +317,29 @@ already in the scene.
 | **Inherit** | Add inherit arc to a class | class path |
 | **Specialize** | Add specialize arc | source path |
 | **Variant Set** | Define a variant set and its variants | set name; variant names; per-variant edits (sub-network) |
-| **Variant Select** | Choose a variant | set name; variant name |
+| **Variant Select** | Choose a variant | set name; variant name. **Done**: the Variant operator's Select mode (5.1) |
 
 > **Open question:** do list-edit operations (prepend/append/delete/explicit)
 > need to be exposed on every arc operator, or only in an advanced tab? (A third
 > tab next to Parameters and Prims Location would fit the Parameters pane as it
 > is.)
+
+### 5.1 Variant
+
+One operator, its **Mode** Select or Create. **Select: Done.**
+
+- A stage's variant sets are read as it loads, names and selections only
+  (`StageNode::variants`); the Scene Explorer marks the prims that have them,
+  and the Properties tab lists them.
+- Select's choices are rows of prim, variant set and variant, from dropdowns;
+  a Scene Explorer row's right-click (Variant Select) adds one.
+- The stage is composed again with the choices in a session layer, cached by
+  choice. Prims outside the switched prim, or inside it but left unchanged,
+  pass through with their edits; prims the variant changed keep placement,
+  material, purpose and set values, and say what reshaped geometry was lost;
+  prims it brings are added unless pruned above.
+- Write USD writes the choices as `variants` on `over`s.
+- **Create: Not yet.** Its inputs as the variants of a new set on a prim.
 
 ---
 
@@ -779,7 +796,7 @@ Enough for a complete load, edit, bind, render loop:
 | 5 | Set Attribute (Object, Property) | Partial (no time samples or arrays) |
 | 6 | Prune | Done |
 | 7 | Reference | Partial (Load USD's Reference and Payload modes) |
-| 8 | Variant Select | Not yet (read only) |
+| 8 | Variant Select | Done (Variant, Select: the stage composed again, edits above carried over; Create next) |
 | 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
 | 10 | Light | Partial (Light operator, every type; files' lights read, moved and edited with Edit Primitive; drawn and picked in the Viewer; no lighting yet) |
 | 11 | Camera | Partial (Camera operator, file cameras edited with Edit Primitive, looked through in the Viewer) |

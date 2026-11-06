@@ -41,6 +41,9 @@ pub struct SceneOptions {
     /// them when it states none), not those of the shutter alone: a stage to
     /// be shown at any frame from one translation.
     pub all_samples: bool,
+    /// A layer composed over the stage, strongest (its session layer): the
+    /// variants chosen in Imago.
+    pub session_layer: Option<String>,
 }
 
 /// The default curve-primvar prefix.
@@ -85,8 +88,18 @@ impl Default for SceneOptions {
             curve_primvars: Some(CURVE_PRIMVAR_PREFIX.to_string()),
             boxes_only: false,
             all_samples: false,
+            session_layer: None,
         }
     }
+}
+
+/// The stage at `path`, with `opts`' session layer over it when it has one.
+fn open(path: &str, opts: &SceneOptions) -> Result<Stage, String> {
+    let stage = match &opts.session_layer {
+        Some(session) => Stage::builder().session_layer(session.as_str()).open(path),
+        None => Stage::open(path),
+    };
+    stage.map_err(|e| format!("Failed to open stage: {e}"))
 }
 
 /// A translated stage.
@@ -100,7 +113,7 @@ pub struct Translated {
 pub fn translate(path: &FsPath, opts: SceneOptions) -> Result<Translated, String> {
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
     crate::register_formats();
-    let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
+    let stage = open(path_str, &opts)?;
     translate_stage(&stage, path, opts)
 }
 
@@ -115,7 +128,7 @@ pub fn translate_phased(
 ) -> Result<Translated, String> {
     let path_str = path.to_str().ok_or("Non-UTF-8 path")?;
     crate::register_formats();
-    let stage = Stage::open(path_str).map_err(|e| format!("Failed to open stage: {e}"))?;
+    let stage = open(path_str, &opts)?;
     // The full pass takes what the boxes pass read.
     let read = match translate_reading(
         &stage,
@@ -913,6 +926,7 @@ impl<'s> Translator<'s> {
                 .find_map(|n| self.value(prim, n).and_then(scalar))
                 .map(|v| v != 0.0);
             p.authored = self.authored(prim);
+            p.variants = variant_sets(prim);
         }
         self.scene.insert(p);
         if descend {
@@ -1604,6 +1618,24 @@ impl<'s> Translator<'s> {
     }
 }
 
+/// A prim's variant sets as composed: each set's variants and the one
+/// selected. Only names are read; the variants not selected are not composed.
+fn variant_sets(prim: &Prim) -> Vec<rs::VariantSet> {
+    let sets = prim.variant_sets();
+    sets.names()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| {
+            let set = sets.get(name.clone());
+            rs::VariantSet {
+                variants: set.names().unwrap_or_default(),
+                selection: set.selection().ok().flatten().unwrap_or_default(),
+                name,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1681,5 +1713,58 @@ def Mesh "with_extent" {{
             }
         }
         assert_eq!(n, 3);
+    }
+
+    /// A prim's variant sets are listed with their variants and selection;
+    /// a session layer choosing another variant composes that one.
+    #[test]
+    fn variant_sets_are_listed_and_a_session_layer_chooses() {
+        let dir = std::env::temp_dir().join("xms_usd_variant_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("car.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+def Xform "car" (
+    prepend variantSets = "paint"
+    variants = { string paint = "red" }
+)
+{
+    variantSet "paint" = {
+        "red" { def Xform "red_body" {} }
+        "blue" { def Xform "blue_body" {} }
+    }
+}
+"#,
+        )
+        .unwrap();
+        let session = dir.join("session.usda");
+        std::fs::write(
+            &session,
+            "#usda 1.0\nover \"car\" (\n    variants = { string \"paint\" = \"blue\" }\n)\n{\n}\n",
+        )
+        .unwrap();
+        let car = Path::new("/car").unwrap();
+        let read = |session: Option<String>| {
+            translate(
+                &path,
+                SceneOptions {
+                    session_layer: session,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .scene
+        };
+        let plain = read(None);
+        let sets = &plain.get(&car).unwrap().variants;
+        assert_eq!(sets.len(), 1);
+        assert_eq!((sets[0].name.as_str(), sets[0].selection.as_str()), ("paint", "red"));
+        assert_eq!(sets[0].variants, vec!["blue".to_string(), "red".to_string()]);
+        assert!(plain.get(&Path::new("/car/red_body").unwrap()).is_some());
+        let blue = read(Some(session.to_string_lossy().into_owned()));
+        assert_eq!(blue.get(&car).unwrap().variants[0].selection, "blue");
+        assert!(blue.get(&Path::new("/car/blue_body").unwrap()).is_some());
+        assert!(blue.get(&Path::new("/car/red_body").unwrap()).is_none());
     }
 }

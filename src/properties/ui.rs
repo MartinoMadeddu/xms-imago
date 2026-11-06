@@ -523,6 +523,7 @@ pub fn draw_properties(
     // What an Edit Primitive's prims are: the form of its type, their values.
     let edit_in = super::edit_primitive::edit_in(graph, sel_id);
     let reparent_in = super::reparent::reparent_in(graph, sel_id);
+    let variant_in = super::variant::variant_in(graph, sel_id);
 
     let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sel_id) else {
         return;
@@ -889,6 +890,7 @@ pub fn draw_properties(
         NodeType::Reparent { parent, mode, keep_world } => {
             super::reparent::rows(ui, parent, mode, keep_world, &reparent_in, located)
         }
+        NodeType::Variant { mode, choices } => super::variant::rows(ui, mode, choices, &variant_in),
         NodeType::Material { surface } => material_rows(ui, surface, &node.name, io, sel_id),
         NodeType::MaterialX { graph } => crate::materialx::params::operator(ui, sel_id, &node.name, graph, io),
         NodeType::MaterialBinding { library, inputs, .. } => {

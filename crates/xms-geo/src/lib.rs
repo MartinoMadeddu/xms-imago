@@ -136,7 +136,7 @@ pub enum Kind {
 }
 
 /// A typed, shared column of values.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Column {
     Bool(Arc<Vec<bool>>),
     Int(Arc<Vec<i32>>),
@@ -254,7 +254,7 @@ pub enum Role {
 /// primvars, where shared values such as UVs on a seam are stored once). With
 /// indices, the attribute has one index per element of its context; without,
 /// one value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Attr {
     pub column: Column,
     pub indices: Option<Arc<Vec<u32>>>,
@@ -322,7 +322,7 @@ pub enum Subdiv {
 }
 
 /// What the points make up.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Topology {
     #[default]
     Points,
@@ -414,8 +414,9 @@ impl Topology {
 
 // Geo
 
-/// A topology and its attributes, per context.
-#[derive(Clone, Debug, Default)]
+/// A topology and its attributes, per context. Equal: the same values,
+/// wherever they are held (`same`, on a column, is the same array).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Geo {
     pub topology: Topology,
     attrs: [BTreeMap<Arc<str>, Attr>; 4],

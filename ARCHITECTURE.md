@@ -34,6 +34,10 @@ file ──openusd──> xms-usd ──> xms-scene ──usd_stage──> primi
   only transforms and geometry move, `usd_stage::Quick` remakes only those
   prims; otherwise the stage is walked again.
 - A big stage is read boxes first, then in full, each value read once.
+- Variant sets are listed as a stage loads, names only. Choosing a variant
+  (Variant) composes the stage again with the choice in a session layer, cached
+  by choice, and swaps in only the prims it changed, carrying over what was done
+  to them above (`core::variant`).
 - Alembic opens as a USD layer (`crates/xms-alembic`).
 
 ## 3. Geometry: `Geo`

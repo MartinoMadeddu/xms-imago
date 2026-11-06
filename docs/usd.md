@@ -15,6 +15,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
 | Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light, RenderSettings): its form shows their values, and what is changed overrides them |
 | Reparent | Moves prims under another prim, its Parent, with what is below them: those its Prims Location tab names, or the whole scene |
+| Variant | Chooses variants of the stages' variant sets (Select): the stage is composed again with them, what was done above carried over |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
 
@@ -263,6 +264,34 @@ binding from inside it to a material outside it is written again on the prim,
 since a reference drops targets outside the prim it brings in; other
 relationships to prims outside it (a light's linking, a skeleton's binding)
 are not carried yet. A prim Imago made is written whole where it now is.
+
+## Variants
+
+A stage's variant sets are listed as it loads, names only: the variants not
+selected are not read. A prim with variant sets says `variants` in the Scene
+Explorer, and its Properties tab has a `variant:<set>` row, the variant
+selected first, then every one it has.
+
+**Variant**, in Select, chooses: each of its choices is a prim, one of its
+variant sets and a variant, picked from what the stages coming in have. Right-
+click a prim in the Scene Explorer, **Variant Select ▸ set ▸ variant**, to add
+one after the viewed operator (the viewed Variant takes it, when it is one).
+
+The stage is composed again with the choices in a session layer, kept by
+choice, so going back is instant. Of the prims coming in:
+
+| Prim | After the choice |
+|---|---|
+| Outside the prim whose variant changed | As it came, with everything done above |
+| Inside it, left as it was by the variant | As it came, with everything done above |
+| Inside it, changed by the variant | The new one, with its placement, material, purpose, Set Attribute and Edit Primitive values carried over; what reshaped the old geometry (Edit Poly, UV, ICE) is not, and the panel says so |
+| Brought by the variant | Added, unless its path was pruned above |
+| Not in the variant chosen | Gone; the panel says when something was done to it |
+
+Write USD writes the choices as `variants` on an `over` of each prim, and the
+layer composes as Imago showed it. Put a Variant before a Reparent of the same
+stage: after one, it says so and leaves the stage as it is. Making a variant set
+(Create) comes next.
 
 ## Shapes are primitives
 

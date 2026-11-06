@@ -91,6 +91,8 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             let mut clicked: Option<(Option<String>, bool, bool)> = None;
             // Prims to edit: Edit Selected on a row's right-click.
             let mut edit: Option<Vec<String>> = None;
+            // A variant chosen on a row's right-click.
+            let mut chosen: Option<crate::core::variant::Choice> = None;
             let selected_now = hierarchy.selected_prim_paths();
             // The rows above a selected prim (clicked in the Viewer, say),
             // marked without opening them.
@@ -172,10 +174,30 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         // below it (not an instance: its instancer's row).
                         if let Some(path) = obj.path.as_ref().filter(|p| crate::core::instancing::instance_path(p).is_none()) {
                             let set_here = hierarchy.draw_mode_set(path);
+                            let sets = hierarchy.variant_sets(path);
                             row_resp.context_menu(|ui| {
                                 if ui.button("Edit Selected").on_hover_text("An Edit Primitive naming it, after the viewed operator: its form shows the prim's values (Enter does it too)").clicked() {
                                     edit = Some(if is_sel { selected_now.clone() } else { vec![path.clone()] });
                                     ui.close();
+                                }
+                                // Its variant sets: a Variant choosing one.
+                                if !sets.is_empty() {
+                                    ui.menu_button("Variant Select", |ui| {
+                                        for set in sets {
+                                            ui.menu_button(set.name.as_str(), |ui| {
+                                                for v in &set.variants {
+                                                    if ui.selectable_label(*v == set.selection, v.as_str()).clicked() {
+                                                        chosen = Some(crate::core::variant::Choice {
+                                                            prim: path.clone(),
+                                                            set: set.name.clone(),
+                                                            variant: v.clone(),
+                                                        });
+                                                        ui.close();
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    });
                                 }
                                 ui.separator();
                                 ui.label(egui::RichText::new("Draw in the Viewer as").small());
@@ -275,11 +297,15 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         // Type, in a column at the right, before the
                         // geometry square.
                         let type_right = row_rect.max.x - 24.0;
-                        // A draw mode chosen here shows before the type.
-                        let type_text = match obj.path.as_deref().and_then(|p| hierarchy.draw_mode_set(p)) {
+                        // A draw mode chosen here shows before the type, and
+                        // before that whether the prim has variant sets.
+                        let mut type_text = match obj.path.as_deref().and_then(|p| hierarchy.draw_mode_set(p)) {
                             Some(m) => format!("{} · {}", m.label(), obj.type_name),
                             None => obj.type_name.clone(),
                         };
+                        if obj.path.as_deref().is_some_and(|p| !hierarchy.variant_sets(p).is_empty()) {
+                            type_text = format!("variants · {type_text}");
+                        }
                         let type_left = if type_text.is_empty() { type_right } else {
                             painter.text(egui::pos2(type_right, mid_y), egui::Align2::RIGHT_CENTER, &type_text,
                                 egui::FontId::proportional(10.5), xsi::TYPE_LABEL()).min.x
@@ -329,6 +355,9 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             }
             if edit.is_some() {
                 hierarchy.edit_request = edit;
+            }
+            if chosen.is_some() {
+                hierarchy.variant_request = chosen;
             }
             // A click on the geometry square is not a click on the row.
             // What is being dragged, under the pointer, over every pane: the
