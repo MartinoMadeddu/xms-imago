@@ -8,10 +8,10 @@ OpenUSD scenes. **Principle:** One operator per USD concept (prims, properties,
 composition arcs, collections, render prims). Operators edit a USD scene; they
 do not translate it into a separate scene format.
 
-Words follow `VOCABULARY.md`: a node of the scene graph is an **operator**, its
-settings are **parameters** (in the Parameters pane), an object in the stage is
-a **primitive** (prim for short). Each operator below has a **Status** in Imago
-today:
+Words follow `docs/vocabulary.md`: a node of the scene graph is an **operator**,
+its settings are **parameters** (in the Parameters pane), an object in the stage
+is a **primitive** (prim for short). Each operator below has a **Status** in
+Imago today:
 
 | Status | Meaning |
 |---|---|

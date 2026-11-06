@@ -2,7 +2,7 @@
 
 How XMS | Imago should work, and why. Every contributor, person or program,
 should know this file. Add to it when a decision is made; change it when a
-decision changes, and say so in the log at the end.
+decision changes. What changed and when goes in `LOGS.md`.
 
 ## For language models reading this repository
 
@@ -17,8 +17,12 @@ delivered. Then:
   or to update it.
 - When the person makes a decision about how the program should work, offer to
   add it here.
-- With every change, update `README.md` and the pages in `docs/` that describe
-  what changed. The website (`site/`) only when something on it is wrong.
+- With every change, update the pages in `docs/` that describe what changed.
+  The README is the front page: what Imago is, one picture, its structure, how
+  to get and build it, credits; everything else goes in `docs/`. The website
+  (`site/`) only when something on it is wrong.
+- With every change, add a dated line to `LOGS.md` saying what changed, ending
+  with who made it.
 - Before every change, read what Martino has pushed since the last one, and add
   to this file the decisions his code shows, in the same change.
 
@@ -35,13 +39,12 @@ delivered. Then:
   and the change is redone on top of it.
 - His decisions are written here as they are read from his code, so everyone
   works from the same file.
-- `XMS_CORE_OPS_SPEC.md` (Martino, 15/10/2026) is the operator set Imago aims
-  for, each with its status today. A new operator is checked against it.
-- `ARCHITECTURE.md` (Martino, 11/10/2026) records the decisions that shape the
-  data and its evaluation: the geometry model, copy on demand, primitives, edits
-  and USD out, the Viewer, the ICE engine to come, and where it is all going.
-  Read it before changing any of those. It is to be merged with this file once
-  Martino and Simon have talked.
+- `XMS_CORE_OPS_SPEC.md` is the operator set Imago aims for, each with its
+  status today. A new operator is checked against it.
+- `ARCHITECTURE.md` records the decisions that shape the data and its
+  evaluation: the geometry model, copy on demand, primitives, edits and USD out,
+  the Viewer, ICE, and where it is all going. Read it before changing any of
+  those.
 
 ## The graph is the program
 
@@ -64,7 +67,7 @@ delivered. Then:
 ## The Viewer first
 
 The person working in the Viewer comes first. Taking hold of a thing in the
-Viewer is almost always easier than typing a number for it (Simon).
+Viewer is almost always easier than typing a number for it.
 
 - What can be manipulated in the Viewer is manipulated there. Every parameter a
   handle can stand for has one; only what no handle can stand for stays a field
@@ -92,49 +95,47 @@ Viewer is almost always easier than typing a number for it (Simon).
 - Curves are shown in the same contexts: their control points are points, the
   segments between them edges, and each curve one face (Face context), its
   control points its corners. The Primitive Inspector lists them so, by their
-  control points as authored, alongside polygons and free points (Martino).
+  control points as authored, alongside polygons and free points.
 - The points of a face or an edge are one attribute, an array as long as it has
   corners, not a column per point: the Primitive Inspector shows them in one
-  cell, `ptIndices = [0, 3, 2, 1]` (Martino).
+  cell, `ptIndices = [0, 3, 2, 1]`.
 - A corner's number is counted across the whole mesh, as USD counts faceVarying
   values and as arrays are indexed, so an ICE graph or a deformer writes
   `values[corner]` with no lookup. Its place within its face is a value beside
-  it, `localCornerIndex`, with `faceIndex`; a face gives `firstCorner`
-  (Martino).
+  it, `localCornerIndex`, with `faceIndex`; a face gives `firstCorner`.
 - No Output node: the view flag says what the scene is. One operator always has
   it; on an operator with several outputs, clicking it again moves on to the
-  next output (Martino).
+  next output.
 - Each operator says which primitives it works on, in its Prims Location tab:
   paths that take everything below them, with wildcards. An empty list means
   everything. The list stays with its operator and does not reach the ones after
-  it. Pick Primitives stays for older graphs (Martino).
+  it. Pick Primitives stays for older graphs.
 - The Scene Explorer is the scene's own tree at the view flag, not a list per
   operator. The Primitive Inspector shows that scene: the prim or group picked
   in the explorer, or all of it. Selecting in the explorer does not select an
-  operator (Martino).
+  operator.
 - The scene is always USD: everything an operator makes is a primitive at a
   path. Shapes have a Primitive Location (`/cube` by default, any path typed,
-  parents as Xforms), written as a `def` and the layer's `defaultPrim`
-  (Martino).
+  parents as Xforms), written as a `def` and the layer's `defaultPrim`.
 - A point instancer is a points primitive: one point per instance, its arrays as
   Point attributes. What is listed and inspected grows with the geometry there
   is, not with the copies drawn: instanced geometry is listed once, with its
-  copies counted (Martino).
+  copies counted.
 - Set Attribute is the one operator that sets values on prims: rows of one value
   each, Object (a constant primvar) or Property (the prim's attribute or
   metadata), on any prim, a group, a camera or a light as well as a mesh. Its
   locations name prims, not what is below them. The scene graph writes one value
-  per prim; values per point, face or corner are ICE's (Martino).
+  per prim; values per point, face or corner are ICE's.
 - Merge goes by the data coming into its first input: primitives are merged as
   primitives, a plain mesh or a clip into one mesh. A Mode overrides it. On the
-  same path the second input is stronger, as an `over` (Martino).
+  same path the second input is stronger, as an `over`.
 - Scattering and copying to points belong to ICE graphs: the Scatter Points and
   Copy to Points operators are gone, and old graphs open with Placeholders in
-  their place (Martino).
+  their place.
 - A corner is listed with the point it belongs to, `ptIndex` (several corners
   share a point), not with its own number again: the spreadsheet's row number is
   the corner. Corners are those of the polygons, as `Geo` stores them, not of
-  the triangles drawn (Martino).
+  the triangles drawn.
 
 ## Nothing typed that can be picked
 
@@ -147,7 +148,7 @@ Viewer is almost always easier than typing a number for it (Simon).
 
 ## The same words for the same things
 
-- `VOCABULARY.md` (Martino, 12/10/2026) is the list of words: primitive (an
+- `docs/vocabulary.md` is the list of words: primitive (an
   object in the stage, "packed" dropped), scene graph (the network of operators;
   the Scene Explorer shows the stage's hierarchy), ICE graph, operator,
   parameters, attributes, the contexts Object, Point, Face, Corner, shapes for
@@ -163,12 +164,12 @@ Viewer is almost always easier than typing a number for it (Simon).
   scheme.
 - Text looks the same on every screen: as clean at 1x (Full HD) as on a
   high-density display. It is not hinted, sits on whole pixels, and its weight
-  is a setting of the scheme, matched to how the Bevy shell drew it (Martino).
+  is a setting of the scheme, matched to how the Bevy shell drew it.
 - A menu stays open while it is used (check boxes, filter fields); a command
   closes it, as does a click outside.
 - What is selected is one colour everywhere (rows, nodes), and stays visible at
   any zoom. The tab in front is the lightest; the tabs behind are darker than
-  the panel (Martino).
+  the panel.
 - Nodes are coloured by their add-menu category; the ICE node has its own teal,
   after Softimage's ICETree.
 - Imago keeps its own way of working. Softimage XSI and other programs are
@@ -278,15 +279,15 @@ Viewer is almost always easier than typing a number for it (Simon).
 - An operator's result is kept until the operator or something above it changes.
   Selecting, redrawing, playing and scrubbing cook nothing again; a change cooks
   only what is below it. What only the Viewer shows (the polygons being picked
-  in Edit Poly) is not part of a result (Simon).
+  in Edit Poly) is not part of a result.
 - An operator that is heavy to cook does it once per change, on every core where
   its frames do not depend on each other. Body Collide solves only when Solve is
-  pressed or Write FBX asks (Simon).
+  pressed or Write FBX asks.
 
 ## One shell
 
 - The program runs in an eframe window: the interface in egui, the Viewer's 3D
-  view in wgpu (`src/viewer/`). Bevy is gone (Martino, branch
+  view in wgpu (`src/viewer/`). Bevy is gone (branch
   `core/uiframework`). The program's state is one struct, `AppState` (`app.rs`),
   owned by the app: new state goes there. Code outside `eframe_app.rs` and
   `viewer/` does not depend on the window or the GPU.
@@ -345,762 +346,3 @@ and what Write USD writes are the same composition: a reference is written as a
 reference, so the layer stays a layout over its assets, not a copy of them.
 Where USD would not convert a file's axes and unit through a reference, Imago,
 which shows everything Y up in metres, writes the transform that does it.
-
-## Log
-
-- 10/10/2026: file created, from the decisions taken so far.
-- 10/10/2026: `claude_project_instructions.md` added: checks an AI assistant
-  runs before working here, and how changes are delivered.
-- 10/10/2026: the delivery loop (patch on top of `main`, "Download all", one
-  block of commands) written into the instruction files.
-- 10/10/2026: one instruction file for AI assistants, `LLM_instructions.md`, in
-  place of `claude_project_instructions.md`, `CLAUDE.md`, `AGENTS.md` and
-  `.github/copilot-instructions.md`.
-- 10/10/2026: "Martino's project" added: other work builds on his and does not
-  overwrite it; his new code is read before every change and its decisions
-  written here.
-- 10/10/2026: from Martino's commits of 09/10/2026 and 10/10/2026 (composed
-  stages, `Geo`, local-space prims, edits as opinions, Write USD, ICE editor,
-  theme): "One geometry model" added, and points added to "The graph is the
-  program", "The same words for the same things", "Files go out as they came in"
-  and "Heavy data stays light".
-- 10/10/2026: copy and paste between sessions, and adding a file or template to
-  the scene open instead of opening it (Simon).
-- 10/10/2026: in the delivery loop, push before `cargo run`, so a program left
-  open does not hold a change back from Martino.
-- 10/10/2026: from a talk between Martino and Simon: each feature brings its
-  template and demo files, with a download offered for models too big to
-  package; Imago keeps its own paradigm, XSI is a reference; a button style
-  setting proposed.
-- 10/10/2026: loading a template or opening a file asks to save unsaved changes
-  first, as closing does (Simon).
-- 10/10/2026: the + buttons removed: opening a file or template asks whether to
-  add or open as new; opening as new still asks to save first (Simon).
-- 11/10/2026: read from Martino's commits: `ARCHITECTURE.md` added (pointed to
-  under "Martino's project"); nodes coloured by add-menu category, the ICE node
-  teal.
-- 12/10/2026: Load FBX reads everything a file holds; skin weights by joint
-  name, after KineFX; characters taken in their bind pose; one human solver
-  shared by Body Collide, Reach and Human Limits (Simon).
-- 12/10/2026: the Placeholder node, for asking for a node in the graph itself;
-  Write FBX solves Body Collide upstream for each file it writes (Simon).
-- 12/10/2026: read from Martino's commits: `VOCABULARY.md` and the vocabulary
-  applied across the program and docs; pointed to under "The same words for the
-  same things", and this file brought into it.
-- 12/10/2026: "Like any other program" added: a menu bar at the top left, and
-  questions before losing changes or writing over a file (Simon). FBX only for
-  meshes and characters, the `.xmsclip` and `.xmsmesh` formats removed; the rest
-  pose is the skeleton, so a Transform carries through Retarget (Simon).
-- 13/10/2026: from Martino's eframe rework, stage 0: "One shell, being replaced"
-  added; Bevy kept to the shell files. The Gaffer credit removed and the
-  contexts named Object, Point, Face, Corner, as Martino decided (11/10 and
-  12/10/2026).
-- 13/10/2026: eframe rework, stage 0b: the program's state gathered into
-  `AppState`, which Bevy holds as one resource; the template-opens-solved test
-  removed (a known mismatch with the shipped solve, Martino).
-- 13/10/2026: eframe rework, stage 1: the interface and the per-frame state work
-  are plain functions; an eframe shell runs them (`XMS_SHELL=eframe`), Bevy
-  still the default until the Viewer is drawn with wgpu.
-- 13/10/2026: eframe rework, stage 2a: the Viewer's 3D view on wgpu in the
-  eframe shell (grid, shaded, wireframe, hidden line, boxes, curves and points,
-  instancing, navigation); textures, overlays and picking to follow.
-- 13/10/2026: Viewer on wgpu: reversed, infinite depth as Bevy had, so the grid
-  stays behind models; polygon edges drawn as instanced lines at every copy, so
-  Wireframe and Hidden Line work on instancers too.
-- 13/10/2026: eframe rework, stage 2b: Textured mode on wgpu (colour and
-  emissive textures with their mip chains, opacity, cut-out), on instanced
-  copies too; F/G/Z/. and A/H framing and the origin label in the eframe Viewer.
-- 13/10/2026: eframe rework, stage 3: Edit Poly's picking, box selection,
-  Q/W/E/R manipulators and Delete in the wgpu Viewer, with its wireframe and
-  selection overlay; clip skeletons drawn over everything. The eframe shell now
-  does everything the Bevy one does.
-- 13/10/2026: eframe rework done: Bevy removed (its systems, `shell.rs`, the old
-  viewport drawing, the dependencies); eframe is the only shell. `NamedMesh`
-  renamed `Prim`, the `Subnet*` types `IceGraph*`, the ICE node `NodeType::Ice`
-  (graphs saved with `Subnet` still load).
-- 13/10/2026: curves in the Primitive Inspector: control points as points,
-  segments as edges, one face per curve (Martino).
-- 13/10/2026: a face's or an edge's points are one array attribute, `indices`,
-  in the Primitive Inspector (Martino).
-- 13/10/2026: the Corner tab lists polygon corners with `ptIndex`, the point
-  each belongs to (Martino).
-- 14/10/2026: egui and eframe 0.36, egui_dock 0.21, wgpu 30. Text as clean at 1x
-  as under Bevy; menus stay open while used (Martino).
-- 14/10/2026: the scheme is egui's style for the system's light and dark modes
-  alike (Imago started white otherwise); text unhinted, its weight a setting of
-  the scheme (Martino).
-- 14/10/2026: text weight 50 in Light, 80 in Dark and ADHD; one selection blue,
-  also around selected nodes, at least 3 pixels wide at any zoom; in Light, tabs
-  behind darker than the panel (Martino).
-- 14/10/2026: in Light, the box dragged to select (nodes, Edit Poly components)
-  in the selection blue (Martino).
-- 14/10/2026: shapes are primitives at a Primitive Location, written to USD as
-  `def`s under Xforms with a `defaultPrim`; Merge merges primitives when its
-  first input is primitives (Auto, Primitives, Flatten), the second input
-  stronger on the same path; Scatter Points and Copy to Points removed for ICE
-  (Martino).
-- 14/10/2026: the Corner tab gives each corner's `faceIndex` and
-  `localCornerIndex`, the Face tab each polygon's `firstCorner`; corners stay
-  numbered across the mesh, as in USD (Martino).
-- 14/10/2026: the points of an edge or a face are `ptIndices` in the Primitive
-  Inspector, not `indices`: what they index is in the name, as in `ptIndex`
-  (Martino).
-- 14/10/2026: results kept between evaluations, keyed by parameters and what is
-  wired in; Edit Poly keyed by its operations only; Retarget and Reach on every
-  core (Simon).
-- 14/10/2026: the Scene Explorer lists the scene at the view flag as its tree,
-  with no row per operator; the Primitive Inspector shows the row selected
-  there, or the whole scene at the view flag (Martino).
-- 14/10/2026: the Output node removed; one operator always has the view flag,
-  which picks the output too; the Operator Stack starts at the viewed operator;
-  graphs with Output open with the view on what was wired into it (Martino).
-- 14/10/2026: the diagram of a primitive's parts (`docs/imago_geo_parts_v3`)
-  shown in the README, ARCHITECTURE and VOCABULARY, its labels brought to
-  `ptIndices` (Martino).
-- 14/10/2026: Primitive Locations in a Prims Location tab on Transform, Edit
-  Poly and Prune: paths with `*`, `?` and `**`, a count per row, filled from the
-  Scene Explorer by + Add Location or by dragging prims onto the operator
-  (Martino).
-- 14/10/2026: several rows selected in the Scene Explorer (Ctrl/Cmd, Shift),
-  dragged onto operators together and shown together in the Primitive Inspector;
-  Primitive Location fields grey, in the code font (Martino).
-- 15/10/2026: `XMS_CORE_OPS_SPEC.md` (v0.3) added at the root, pointed to under
-  "Martino's project": the operator set Imago aims for, with Set Attribute
-  (Object and Property rows) the one operator that sets values on primitives.
-  "The graph is the program" in fewer words, and the principles without the
-  names of other programs (Martino).
-- 15/10/2026: Set Attribute, on branch `core/usd-scene`: Object and Property
-  rows, the common Properties offered with their values, on the prims its Prims
-  Location tab names (any prim of a stage); values on prims without geometry
-  kept as opinions in the stage tree; Write USD writes them all (Martino).
-- 15/10/2026: Set Attribute on the Xforms Imago makes above a shape
-  (`/root/asset/geo`), and what is set on a group inherited below it in Imago as
-  in USD: visibility, active, purpose, Object values (Martino).
-- 15/10/2026: a Properties tab in the Primitive Inspector: the selected prims
-  themselves (groups, cameras and lights too), Name, Value and From, From saying
-  whether a value comes from the file, Imago, a Set Attribute operator or a
-  group above (Martino).
-- 15/10/2026: Go to Operator on a Properties row: the operator a value comes
-  from (the Load USD of the file, the shape that made the prim, the Set
-  Attribute that set it, on the prim or on the group above) is selected
-  (Martino).
-- 15/10/2026: what a file authors beyond geometry is read and listed: `kind`,
-  `instanceable`, single-valued attributes, from openusd through the scene layer
-  to the stage tree. Purpose follows USD: the nearest prim that has one wins,
-  whether the file authors it or Set Attribute set it; only visibility and
-  purpose are inherited among Properties (Martino).
-- 15/10/2026: point instancers read as points primitives (one point per
-  instance, `orient`, `scale`, `protoIndex`, `id`); the Primitive Inspector
-  lists instanced geometry once, in its own space, with its copies counted
-  (Martino).
-- 15/10/2026: a point instancer's points are the source of its copies: what
-  moves them moves the copies, and Write USD writes its arrays (`positions`,
-  `orientations`, `scales`, `protoIndices`, `ids`). The Scene Explorer lists an
-  instancer once (Martino).
-- 15/10/2026: the Scene Explorer shows each prim's type in a column at the
-  right; the Primitive Inspector's scroll bar is dragged (Martino).
-- 15/10/2026: the Material operator, on branch `core/usd-scene`: a
-  UsdPreviewSurface with fixed inputs and a texture file per input, named by the
-  operator, drawn on a sphere when viewed; its output a material for Material
-  Binding, which puts it under `/materials` (Martino).
-- 15/10/2026: Material Binding: materials on numbered inputs on its left, put
-  under its Material Library Location as Material prims; each Prims Location row
-  binds the input of its number or a chosen one, the later row winning; written
-  as `def Material`s under Scopes and `material:binding` (Martino).
-- 15/10/2026: a Material's output on its right, material sockets purple;
-  Material Binding's rows on a Bindings tab, its Material column listing the
-  materials wired in and Location, a material of the scene by its path on a line
-  under the row (Martino).
-- 15/10/2026: Merge takes any number of inputs, one always free, as Material
-  Binding; the Material output in the middle of its right side; the "Material
-  bindings" template, from Martino's graph (Martino).
-- 16/10/2026: Load USD modes, on branch `core/usd-scene`: Sublayer, Reference
-  and Payload; the file's default prim (or a named one) at a Primitive Location,
-  `/root` by default, its paths rebased; Write USD writes the reference or
-  payload on that prim with the axis and unit transform where needed (Martino).
-- 16/10/2026: cameras: a camera is a primitive with no geometry holding a
-  UsdGeomCamera's values; Load USD gives a file's, the Camera operator makes
-  one, Transform moves them, Write USD writes them; the Viewer draws them and
-  looks through one from its 🎥 menu, the whole gate shown; navigating leaves the
-  camera where it was (Martino).
-- 16/10/2026: the camera's name larger, at the top of the gate; Filmback Presets
-  a drop-down, with the ALEXA Mini 16:9, Mini Open Gate and Mini LF Open Gate
-  filmbacks (Martino).
-- 16/10/2026: the Camera operator has a colour of its own, dark grey, as the ICE
-  node has teal: cameras are not shapes (Martino).
-- 16/10/2026: nested point instancers (in another instancer's prototype) drawn
-  through the outer one at each of its copies, down to four deep, following its
-  points; Moana's corals and grass come in whole (Martino).
-- 16/10/2026: an instancer's prototypes are listed where the hierarchy has them,
-  also inside native instances, so the Scene Explorer no longer lists part of a
-  stage twice; drawn prims the hierarchy does not have are reported in "Not read
-  in full" (Martino).
-- 16/10/2026: a prim of the scene (an instancer whose prototypes are not drawn,
-  a camera) is always listed in its stage's tree, with the groups above it:
-  Moana's island is listed once (Martino).
-- 16/10/2026: `core/props.rs` split in two, named for what each is:
-  `core/properties.rs` (values, the properties Imago knows, opinions,
-  inheritance), read by the Viewer, Load and Write USD and the Primitive
-  Inspector, and `core/set_attribute.rs`, the operator (Martino).
-- 16/10/2026: Delete and Backspace delete the selected nodes only when no text
-  is being typed and the pointer is over the graph itself: typing a file name in
-  the file browser no longer deletes the Write USD or Write FBX node (Martino).
-- 16/10/2026: on branch `core/gui-work`: the Parameters pane's values dark grey
-  with light, almost white text (fields, drop-downs, checkboxes, the buttons
-  beside them), labels and titles as the theme has them (Martino).
-- 16/10/2026: on `core/gui-work`: dark fields only where you type (text and
-  number fields, through `ui.field(..)`); buttons, drop-downs and checkboxes
-  back to the theme's look (Martino).
-- 16/10/2026: on `core/gui-work`: dark fields are a choice, off by default:
-  "Dark fields" in the colour editor (saved in `theme.json`, kept across presets
-  and Reset), `DARK_FIELD_BG=1` or `0` to override it for a run. Off, the
-  Parameters pane looks as before (Martino).
-- 16/10/2026: on `core/materialx`: shading graphs are MaterialX graphs: a
-  MaterialX operator with a graph kind of its own, of MaterialX's nodes read
-  from its libraries (vendored in `crates/xms-matx`, MaterialX 1.39); the
-  Material operator stays as the quick UsdPreviewSurface; compounds come after,
-  at the scene-graph level (Martino).
-- 16/10/2026: on `core/materialx`: the MaterialX operator: its graph inside it
-  (saved as its `.mtlx` document), edited as the ICE graph is, connecting
-  picking the nodes' definitions, parameters from the library, written by Write
-  USD as a MaterialX network, shown in the Viewer by its surface shader
-  (Martino).
-- 16/10/2026: on `core/materialx`: a node with a graph inside (ICE, MaterialX)
-  sits on a dark grey plate with squarer corners and an arrow, so it reads as
-  one you can go into; the add menu opens with a search line; in a MaterialX
-  graph wires are selected and deleted, maths are a neutral grey, the material
-  dark grey, a node's colour never follows its types (Martino).
-- 16/10/2026: on `core/materialx`: the plate under nodes with a graph inside
-  replaced by a light grey band as wide as the selection's, the selection going
-  around it; the arrow kept (Martino).
-- 16/10/2026: on `core/materialx`: MaterialX read from anywhere: `.mtlx` files
-  imported (node graphs laid out flat, fileprefix and includes followed, tested
-  on every MaterialX example) and written; a stage's material made into a
-  MaterialX operator with → MaterialX; the UsdPreviewSurface family written as
-  USD has it (Martino).
-- 16/10/2026: on `core/materialx`: the add menus' search, in the scene graph and
-  in MaterialX graphs alike: ↓ and ↑ move a highlight through what is found,
-  Enter adds it (Martino).
-- 17/10/2026: ICE refactor, stage 1 (Martino, branch `core/ice-refactor`): the
-  engine as a library (`src/ice/engine/`): graph, compiler, batched parallel
-  executor. A graph reads only the attribute columns it uses and writes new
-  columns only for the attributes it sets; values that do not vary per element
-  are computed once; parameters change without compiling again.
-- 17/10/2026: the geometry model and the ICE engine are crates: `crates/xms-geo`
-  (`Geo`, depending on nothing) and `crates/xms-ice` (on `xms-geo` only), both
-  fully optimised in development builds. The app reaches the model as
-  `core::geo` and converts it with `GeoMesh`. The engine stays free of the app:
-  no interface or node-editor code goes into it (Martino).
-- 17/10/2026: ICE refactor, stage 2 (Martino): the ICE operator runs on the
-  engine. ICE graphs end in an ICE Tree (ordered Execute ports, a context); Get
-  Data and Set Data read and write attributes by name; inputs hold their own
-  values; errors show on the node. The old engine is gone, and old ICE graphs
-  are not converted (Martino: the old ICE is not kept). Scatter and copy to
-  points come back as structural nodes.
-- 17/10/2026: on `core/ice-refactor`: the ICE operator takes Primitive
-  Locations; ICE ports and wires coloured by the types the last run found; nodes
-  named after what they are; the ICE graph's add menu with the search and arrow
-  keys of every graph; editing in an ICE graph cooks only when what it computes
-  changes (Martino).
-- 17/10/2026: on `core/ice-refactor`: Get Data reads across contexts (its
-  Context: Auto, Point, Face, Corner, Object; Several: Average, Sum, Min, Max),
-  in the engine, with the topology's maps made once per run; Get Data lists the
-  attributes of the geometry coming in. Get Array Data next (Martino).
-- 17/10/2026: on `core/ice-refactor`: Get Data reads what the topology gives
-  under the Primitive Inspector's names (a face's `corners`, `firstCorner`, `N`,
-  `area`; a corner's `ptIndex`, `faceIndex`, `localCornerIndex`), made when run;
-  putting a node down that reaches nothing no longer cooks; port types and the
-  Attributes list are worked out by the editor from the last run's geometry, the
-  list only when opened (Martino: placing a Get Data lagged on the DeLorean).
-- 17/10/2026: on `core/ice-refactor`: Set Data has a Context too (Auto, Point,
-  Face, Corner, Object) and Several, writing into another context the way Get
-  Data reads across; a name is held in one context; boolean attributes reach the
-  primvars as 0 and 1 (Martino). What the topology gives stays derived, not
-  stored: it is the topology, and a stored copy would go stale when the topology
-  changes; a graph that wants it kept writes it with Set Data.
-- 17/10/2026: on `core/ice-refactor`: a placed primitive keeps its primvars
-  where it is drawn (`place_mesh` dropped them), so attributes ICE writes on a
-  placed prim (the DeLorean's) show in the Primitive Inspector; corner values
-  turn with a mirrored polygon (Martino: Set Data `foo` did not show).
-- 18/10/2026: Templates moved to the bottom of the File menu, under the usual
-  commands, with its categorised submenu (Simon).
-- 18/10/2026: openly licensed example files: four Novasci clips (CC0) and the
-  USD Working Group's teapot and mini car kit in the repository; the other 17
-  clips, the carbon frame bike and the elephant (CC BY-SA 4.0) fetched on demand
-  by a dialog that names the source, the licence and the size (Simon: "ask if we
-  want to download it").
-- 18/10/2026: the templates as the regression suite, with a baseline in
-  `tests/regression/templates.json`, run by a GitHub workflow after every build
-  with a report of what to fix (Simon).
-- 18/10/2026: the regression suite skips the templates whose example files are
-  fetched on demand when they are not there (the release build's tests ran
-  without them and failed); the release workflow fetches them first, as the test
-  workflow does.
-- 18/10/2026: the top bar laid out so the program's name, the menus and the
-  file's name read apart: what is clickable looks it (Simon: "everything is in
-  the same font and looks clickable").
-- 18/10/2026: handles in the Viewer for the selected Transform and Camera nodes,
-  on Edit Poly's manipulator maths; clicking a primitive selects it in the Scene
-  Explorer (Simon: "viewer gizmos for everything that should have one"). The
-  Shapes and lift templates had their rotations written in degrees where radians
-  were read: fixed.
-- 18/10/2026: the Viewer draws curves and points as one instanced line mesh per
-  primitive (held once however many copies), and splits any mesh or list of
-  copies into buffers under 128 MB, so a big groom or mesh no longer crashes it.
-  A texture larger than the GPU takes starts from its first smaller copy that
-  fits.
-- 18/10/2026: the Primitive Inspector opens on Properties each session and makes
-  the geometry only for a geometry tab (counts from the primitives as they are
-  until then); a stage's primitives keep their attributes in their geometry, the
-  mesh view made lean (`to_mesh_lean`), the rows made when asked;
-  `XMS_TIMINGS=1` times the steps of a load (Martino: Moana takes over a minute
-  to show as boxes).
-- 18/10/2026: the Viewer's box of each mesh and each point instancer is measured
-  once and remembered; the remembered boxes are swept for meshes that are gone
-  only when they have doubled (sweeping on every insert made Moana's first frame
-  quadratic, 19 s). `XMS_TIMINGS` splits opening the stage (openusd) from
-  translating it (xms-usd).
-- 18/10/2026: a stage's geometry is made after its walk, once per source prim
-  and on every core (Moana: 240,000 meshes), instead of prim by prim as the walk
-  meets them.
-- 18/10/2026: a USD stage is read in the background in two passes over one open
-  stage: boxes first (each mesh, curves or points as the box of its `extent`, or
-  of its points when it has none), then the whole stage, which replaces them and
-  cooks everything downstream again. The program stays in use meanwhile; Write
-  USD waits until it is done (Martino: "rare that within the first 2 minutes you
-  need the meshes").
-- 18/10/2026: the program waits while a stage's first pass (prims, properties,
-  boxes) is read, as a load always did, with no panel of its own; it is in use
-  again once the boxes show, the geometry following in the background (Martino).
-- 18/10/2026: read Martino's commits of 18/10/2026 (USD read in two passes, lean
-  meshes, buffers under 128 MB, boxes remembered); his log lines are his. Node
-  graph: freeze and ghost flags on the title (ghost, not template: a template is
-  a ready-made graph), middle button held on a node for its information, cook
-  time per node; only the left button moves nodes (Simon: the node graph
-  "Houdini-like").
-- 18/10/2026: keys on any number of any operator, by its path in the saved
-  parameters; the scene range on the timeline, saved with the graph; the Graph
-  Editor (tangent types, break and unify, weighted handles, infinity, insert,
-  copy, paste, snap); S keys the selected operator; a keyed number edited in
-  Parameters or with a handle is keyed at the playhead (Simon: "animatable
-  parameters... a curve editor copying Maya's").
-- 18/10/2026: Local Animation (keys on the operator before it, on local frames
-  from Start to End), time ranges carried through the graph (a Merge shows the
-  widest), Merge Animation (first, last, middle, frame to frame, stretch,
-  shrink, match rate) (Simon: "local animation... inherited through the flow").
-- 19/10/2026: one set of data type colours for every graph (`type_colours`):
-  float teal-green (Houdini VOPs'), integer and boolean blue, vector yellow,
-  vector 4 / quaternion / rotation dark yellow, colour orange, matrix light
-  purple (lighter than materials' purple), string desaturated orange-pink
-  (Houdini VOPs'), material and shader purple, closures pink, execute and
-  unknown dark grey (Martino).
-- 19/10/2026: float and string colours taken from Houdini VOPs (picked off
-  Martino's screenshot): float 85, 210, 197; string 204, 178, 153 (OpInput's).
-- 19/10/2026: the ICE graph's root is ICE Execution Ports (its type), named
-  ICEExectPorts, drawn dark grey as MaterialX's material, where a graph ends; a
-  root named ICE Tree is renamed when read (Martino).
-- 19/10/2026: one way to work with wires and selection in every graph
-  (`graph_ports`): click a port with wires, then the empty canvas, to unplug it;
-  box select and Shift+click in ICE and MaterialX graphs, the selection moved
-  and deleted together; a wire selected and deleted in ICE graphs as in
-  MaterialX's; the string colour a little more saturated, nearer Houdini's
-  (Martino).
-- 19/10/2026: wires unplugged or moved in one motion in every graph: dragging
-  from an input picks its wire up, its end following the pointer, into another
-  input or, let go of over the canvas, nowhere; Ctrl+drag from an output picks
-  up all its wires, a plain drag from an output still drawing a new one, since
-  an output feeds any number of inputs; a dragged wire let go of over no input
-  is gone (Martino).
-- 19/10/2026: in the scene graph, a wire is picked up from an input found by
-  where the press was (the node's title under the socket took the drag and moved
-  the node) (Martino).
-- 19/10/2026: Pass Through, an organising operator: one input handed on
-  unchanged; narrower, square-cornered and without an icon, so it reads as
-  layout rather than as a step (Martino).
-- 19/10/2026: a node's name is one word: a space typed becomes an underscore,
-  and names made by the menu, templates or older files have theirs made
-  underscores; scene and ICE graphs (Martino: the name is the operator's name in
-  the graph).
-- 19/10/2026: UDIM textures: a `<UDIM>`/`<udim>` path reads its tiles, laid out
-  in one image as in UV space, the Viewer scaling each material's UVs to it;
-  OpenEXR, TIFF, TGA and HDR read, float images encoded from linear light; the
-  file browser collapses sequences into one entry and, with UDIM on, UDIM tiles
-  into their `<UDIM>` path (`core::sequences`) (Martino).
-- 19/10/2026: README, docs index, UV, USD, ops spec and vocabulary brought up to
-  date with the day's work: UDIM tiles and image formats, the file browser's
-  sequences, wires and selection in every graph, data type colours, one-word
-  node names.
-- 20/10/2026: rendering as USD has it, three operators: RenderScene Settings
-  (what is rendered: the RenderSettings prim, named by the layer, and a
-  RenderProduct), Render Settings (a renderer's settings from a JSON definition,
-  Karma and Arnold to start, or Custom with settings named under the renderer's
-  namespace, `rray:spp`; its standard AOVs ticked as RenderVars) and Render
-  Variables (RenderVars row by row). Render Settings finds the RenderSettings
-  prim in the scene rather than through a wire: named, else first, else a file's
-  (an `over`), else made. Filtering and bit depth stay per RenderVar or the
-  renderer's (Martino: "familiarity, people are used to have the renderer
-  settings in render settings").
-- 20/10/2026: Render Settings' Renderer is a drop-down; a Custom renderer's
-  settings are written only once it has a name, the rows kept as the name is
-  typed; Arnold's clamp Max Value starts at 10 (Martino).
-- 20/10/2026: Render Command runs a command line on the system (husk on the
-  layer the Write USD above writes, `$USD`): only when Run is pressed, never on
-  cook, since cooking happens all the time; in the background with Stop ending
-  everything it started, its output and progress in its panel. Named for
-  rendering; a general Shell Command can come later (Martino). The image
-  streamed into the Viewer comes later.
-- 20/10/2026: Render Command's output in a Console tab beside its Parameters,
-  black as a terminal, opened by Run; a Console pane of its own can come later
-  (Martino). Every RenderVar carries `driver:parameters:aov:name`, its name in
-  the image: husk reports a RenderVar without one (Martino's husk run).
-- 20/10/2026: `driver:parameters:aov:name` is written as a `string`, as Houdini
-  writes it: husk did not find it as a `token` (Martino's husk run).
-- 20/10/2026: Render Command makes the folders the products write into before
-  running (Make Output Folders, on): husk rendered but could not write into a
-  `render/` that did not exist (Martino).
-- 20/10/2026: Karma's AOVs taken from what Houdini 20.5 writes (Martino's
-  flattened stage): the beauty is the LPE `C.*[LO]`, not raw `C`; every
-  RenderVar carries its format, `multiSampled`, `clearValue` and `karma:filter`;
-  P is `ray:hitP`, UV the `st` primvar. A renderer definition can give
-  RenderVars these (`format`, `multiSampled`, `extras`, `var_defaults`).
-- 20/10/2026: Karma's settings taken from Houdini 20.5's RenderSettings prim
-  (Martino's stage): the ray limits are `karma:object:` floats, not
-  `karma:global:`; convergence is `convergence_mode` (`Variance`); 128 path
-  traced samples; pixel filter, bucket order, light sampling, ray bias added.
-  The first husk render from Imago wrote its image (Martino).
-- 20/10/2026: the Image Viewer, a pane of its own on a crate of its own
-  (`xms-image`), knowing nothing of the scene, so rray can render into it later:
-  every layer and channel of an EXR, exposure, gamma, the values under the
-  pointer. Its top bar renders the scene the view flag shows (RenderSettings and
-  camera menus, Render, Stop) through the Render Command machinery, hidden: a
-  temporary layer, husk, snapshots read as they come; no Write USD or Render
-  Command in the graph (Martino). The Viewer is the 3D scene; the Image Viewer,
-  images (the vocabulary had one pane for both).
-- 20/10/2026: the Image Viewer keeps snapshots, as Houdini's render view: Snap
-  keeps the active image, a menu, slider and − + go back and forth, each renamed
-  or let go; rendering again shows the active render (Martino). In `xms-image`,
-  so any image source has them.
-- 20/10/2026: the Active Render is last on the Image Viewer's slider, the newest
-  snapshot beside it; the temporary layers and renders are deleted when Imago
-  closes, and those an Imago that crashed left behind when one starts (Martino).
-- 21/10/2026: status lines (found, written, failed) dark green and dark red on
-  light groups, light ones on dark groups, chosen by the group's luminance, so
-  they read in every theme; the Image Viewer and MaterialX parameters use the
-  same (Martino: too bright to read).
-- 21/10/2026: Dark fields on in the Light preset, off in Dark and ADHD; choosing
-  a preset takes its setting, Reset keeps it (Martino).
-- 21/10/2026: a System Commands category in the add menu, Render Command in it,
-  its nodes black with green text as a 90s terminal; the Camera node mid grey,
-  lighter than before (Martino).
-- 21/10/2026: the Camera node's text dark, as the other nodes' (Martino).
-- 21/10/2026: lights, as UsdLux has them: primitives with no geometry, a file's
-  read with every value, and one Light operator with a Type (Dome, Rect, Point,
-  Sphere, Disk, Cylinder, Distant), the add menu listing an entry per type, each
-  the same operator set to it (Martino). Its parameters come from
-  `assets/usdlux.json`, written from OpenUSD's schemas (USD has no node library
-  for lights, as MaterialX has for shaders: its schemas are the definitions). A
-  point light is a sphere light treated as a point, as in USD. Shapes in the
-  Viewer next, then lighting.
-- 21/10/2026: lights drawn in the Viewer as their shapes, in their colour: a
-  dome's sphere (at most 12 m, its guide radius being a kilometre), a rect and a
-  disk with the way they emit, a point's star, a sphere, a cylinder, a distant
-  light's parallel arrows; picked by their lines, as cameras now are by their
-  pyramid; a light's texture fields browse for the file (Martino).
-- 21/10/2026: the dome drawn as a dome, half a sphere over a ground circle with
-  the compass's points, 1 m across on a new Light operator; the XMS part of the
-  Templates menu, Lighting & Rendering, with Martino's DeLorean render scene,
-  lit by a sky made for the examples (Martino).
-- 21/10/2026: the Image Viewer's command line is yours to change, in ⚙, with
-  presets husk, kick and Custom and tokens ($USD, $IMAGE, $F, $SETTINGS,
-  $CAMERA, $DELEGATE), an option whose token stands for nothing left out; Render
-  Command gains a kick preset, and a one-frame preset turns Run Per Frame on
-  (Martino).
-- 21/10/2026: RenderScene Settings renamed Render Commons (RenderCommons as a
-  node, like RenderSettings and RenderCommand), graphs saved with the old name
-  still opening; the Image Viewer's ⚙ a floating window, its preset menu closing
-  the ⚙ menu before (Martino).
-- 21/10/2026: the ICE operator is named ICreationEngine (menu, node and
-  parameters), and the ICE graph's root Execution Ports (node ExecutionPorts);
-  their types stay `NodeType::Ice` and `IceGraphNodeType::Root`, and a root
-  saved as ICEExectPorts is renamed when read (Martino).
-- 21/10/2026: husk wrote its snapshots as `_part` files beside the image, which
-  the Image Viewer did not read, so only the finished frame came in: the husk
-  line gains `--snapshot-suffix ""`, and the viewer reads the image or its
-  `_part`, whichever is newer (Martino).
-- 22/10/2026: ICE step 1 toward scattering and instancing (Martino): rotations
-  (a `Quat` type, made from axis and angle or Euler angles, applied to vectors;
-  `quatf` attributes read as rotations), Random Value (per element, or an array
-  of a count, stable for a seed), and arrays in a graph's one-value part (an
-  Object graph), worked on element by element, with Array Size, Select in Array,
-  Sum and Average.
-- 22/10/2026: ICE step 2 toward scattering and instancing: Scatter on Surface
-  (an array of locations on the polygons, by area or by a weight attribute,
-  stable for a seed; in Object graphs) and Get Data at Location (any attribute
-  blended at the locations, `P` and `N` included); an int meeting a float is a
-  float. Every value type, rotations included, can be chosen for an input's own
-  value.
-- 22/10/2026: ICE step 3 toward scattering and instancing: the ICE operator's
-  extra inputs are general, numbered Reference inputs, one kept free (Martino:
-  not "Prototypes": other ICE tools will gather other data through them); Get
-  Reference lists the paths of the primitives on one, by pattern. Arrays have
-  their own colour on ports and wires; hovering a port names what flows there.
-- 22/10/2026: ICE step 4: the Instancer (an Execute in Object graphs) makes
-  instances of reference prims at scattered locations, up along the surface,
-  turned and scaled at random; the ICE operator gives them as prims under the
-  primitive, one per prototype prim, drawn at every instance (sharing its
-  geometry). Get Reference lists prims by rows as Primitive Locations do, picked
-  from the reference input's hierarchy (Martino). The operator's first input is
-  called Scene.
-- 22/10/2026: ICE instancing as USD has it (Martino): Scatter on Surface gives
-  Positions, Normals and Surface Samples (a surface sample, not a USD type, read
-  by Get Data at Samples; "location" is Imago's word for a prim path); Random
-  Orientation makes the orientations, up along the normals and turned at random;
-  the Instancer's inputs are a PointInstancer's attributes (positions,
-  prototypes, proto indices, orientations, scales) and its Path is chosen,
-  beside the primitive when relative (USD has no prims under a mesh); it makes a
-  point instancer as a file's is kept (a points prim, its prototypes under it in
-  Prototypes), which Write USD writes as a `PointInstancer`. Scattering is made
-  in parallel. Per-face scattering waits.
-- 22/10/2026: Concatenate Arrays rather than Add joining arrays (Add stays
-  element by element: positions plus offsets must not silently become a longer
-  array); Random Value and Random Orientation take a Seed input, unwired the
-  element's own number, so they work per point and per face as well as in Object
-  graphs; `ptIndex` per point and `faceIndex` per face are read like any
-  attribute (Martino).
-- 22/10/2026: the Viewer's draw modes, as USD's `model:drawMode` has them
-  (geometry, bounding box, origin): authored (Set Attribute, an ICE Instancer's
-  Draw Mode on its prototypes) or chosen for the Viewer alone with a right-click
-  in the Scene Explorer; a triangle budget of 20 million a frame, past which the
-  heaviest are drawn as their boxes, one draw for every copy, and the Viewer
-  says so. Instances are not prims: a point instancer's row gives their count
-  and, opened, lists them, built only then; an instance is picked and outlined
-  by its path, `/forest/trees[12]`. The Scene Explorer lists prims made in Imago
-  as the tree of their paths (a point instancer was listed twice, once as a
-  group of its prototypes) (Martino).
-- 22/10/2026: Get Array Data: a list per element (a face's ptIndices, its
-  points' P, a point's faceIndices), worked on item by item by maths and made
-  one by the array nodes, held as offsets and items in a batch, so graphs
-  without lists pay nothing; in an Object graph, every value as the graph's
-  array. A Count takes an array's length (Scatter's positions into Random
-  Value's Count), rather than Random Orientation getting its Positions back: an
-  input that is ignored in every context but one would mislead. Geometry nodes
-  (Scatter on Surface, the Instancer) orange (Martino).
-- 22/10/2026: the Instancer's path is its Primitive Location, as every
-  operator's is, `/root/instancer` to start with; the node shows the instancer's
-  name, not the whole path; Geometry nodes a darker, quieter orange (Martino).
-- 22/10/2026: ICE's value nodes (constants, maths, random, arrays) take
-  MaterialX's cyan-green, so one kind of node has one colour in both graphs;
-  Compose builds vectors and rotations from their parts, one node with a Makes
-  menu rather than a node per shape (Martino).
-- 22/10/2026: Decompose beside Compose, one node each with a menu of shapes,
-  rather than a node per shape (Houdini's floattovec, vectofloat…) or one
-  Convert doing both ways (its ports would change at both ends); Rotation to
-  Axis and Angle among them. A node can have several outputs in general: lowered
-  once, every output kept (Martino).
-- 22/10/2026: the ICE: instancing template, Martino's: cubes, spheres and the
-  DeLorean scattered on a grid with every new node (Scatter's three outputs,
-  Random Orientation, a Count from an array, Concatenate Arrays, the Instancer);
-  Compose before Decompose in the menu (Martino).
-- 22/10/2026: the triangle budget counts curves and points too, by the line
-  segments they are drawn with (a groom costs as a heavy mesh does); a made
-  instancer's Prototypes start closed in the Scene Explorer (Martino).
-- 22/10/2026: graph files keep every ICE node's graph (a `trees` list beside the
-  nodes, the shape copy and paste already used); a file from before opens with
-  empty ICE graphs, as it did. A change inside an ICE graph now counts as
-  unsaved. The format stays JSON: readable, diffable, and versioned by serde's
-  defaults (Martino).
-- 22/10/2026: a point instancer's prototype drawn as a box (or origin) is one
-  box per instance, around all its prims, not one per prim; the budget boxes a
-  prototype's prims together (Martino).
-- 23/10/2026: USD stages are read as authored, as USD composes them and every
-  renderer reads them: no unit or up-axis conversion by default (Martino:
-  Solaris, Gaffer and Katana do not convert either; converting made Imago show
-  what Karma did not). Load USD has a **Y-up metres** option, off by default;
-  turning it on or off reads the stage again; the conversion stays in the
-  placement, and Write USD carries it over as before.
-- 23/10/2026: scene-graph ports are named for what passes through them: every
-  operator that makes or works on a scene (shapes, Load USD, Prune, Pick,
-  Unpack, Set Attribute, Transform, Merge, Edit Poly, the UV operators,
-  ICreationEngine, Write USD) takes a **Scene** and gives a **Scene**, as the
-  lights, render and Material Binding operators already did. FBX, clip and mocap
-  operators keep their names (Martino).
-- 23/10/2026: variables (Martino): `$` for both kinds, an operator's own first
-  (`$OPNAME`, `$USD`…), then the graph's (`$GNAME` the graph's name, `$GDIR` its
-  folder, `$JOB`, the frames), then the environment; one expander (`core::vars`)
-  for paths and command lines. Text passed on to a renderer (Render Settings'
-  Output Image) is never expanded by Imago. Scene data per prim (`@name`…) and
-  variables in ICE graphs come later. Graphs are saved as `.xms`; `.json` graphs
-  still open.
-- 23/10/2026: File > Variables: the graph's own variables and `$JOB`, saved in
-  its `.xms` and in the history as any change; a value can hold variables (read
-  up to eight deep, so one naming itself stops), after the built-ins and before
-  the environment. Variables work in FBX, texture and MaterialX file paths too,
-  put in when read and when written to USD (renderers read `$JOB` as it is).
-  Typing `$` in a field lists what it can take, with their values. ICE reads
-  none yet (Martino).
-- 23/10/2026: `$OPNAME` works wherever an operator's text is read (while it
-  cooks, while its panel is drawn, while what it writes is written), not only in
-  a Render Command's line. Variables also go into every Primitive Location, Set
-  Attribute's names and text, the render operators' text (Output Image keeps
-  `$F`, `$F4`, `$T` for the renderer) and a Render Command's folder and
-  environment. File > Variables is one table, Variable, Result, Description, the
-  graph's own then the built-in ones; a variable of the graph's has a
-  description (Martino). `$JOB`'s row sits with the graph's own, above +
-  Variable, since it is typed there (Martino).
-- 23/10/2026: ICE spatial queries (Martino): Closest Point on Surface (Geometry
-  from Get Reference, an Origin, a Radius; Surface Samples and Distance out) on
-  a reference input's meshes, taken from the world into the space of the
-  primitive the graph runs on; Get Data at Samples reads a reference mesh's
-  attributes there, moved by their role; Get Array Data at Samples gives the
-  lists of each sample's face. The BVH is rray's binned-SAH builder with a point
-  query, in `xms-ice`'s `spatial`; built once per run, on first use. A kd-tree
-  waits for closest points on points.
-- 23/10/2026: Get Data and Get Array Data take a Samples input: unwired they
-  read per element as before, wired they read at those samples (the engine's Get
-  Data at Samples and Get Array Data at Samples, kept as its own ops); their
-  Context picks which elements at the sample. One node to learn per kind of read
-  (Martino). Graphs saved with the separate nodes open as these. Copy and paste
-  works in ICE graphs, and Cmd+V works at all: egui gives it as a Paste event,
-  not a V key.
-- 23/10/2026: ICE matrices and frames (Martino): a Matrix type (4×4, USD's
-  `matrix4d`, axes and origin as its columns) with Compose and Decompose Matrix,
-  Multiply, Invert and Transpose Matrix, Transform Point and Transform Vector,
-  read and written as attributes; Distance between positions; `triP` and `bary`
-  read at any surface sample. Separate nodes first, to show a binding deformer
-  can be built by hand; a Surface Frame operator can come later.
-- 23/10/2026: attribute transfer without a node of its own (Martino): Get Data
-  and Get Array Data take a Geometry input beside Samples; samples and Geometry
-  read the samples' faces and weights on that prim (rest samples on the animated
-  mesh), Geometry alone reads its attribute element by element (the same
-  topology, checked). The BVH of a surface is made only when it is searched, so
-  reading from a prim costs no tree.
-- 23/10/2026: matrix ports and wires take the materials' purple (the light
-  purple was hard to see on the grey); ICE arrays take the closures'
-  pink-magenta (no ICE graph carries a closure; silver read as a selected wire),
-  so they no longer read as matrices (Martino).
-- 23/10/2026: two ICE templates show the spatial nodes (Martino): a shrink-wrap
-  (Closest Point on Surface onto a squashed sphere) and a binding deformer built
-  node by node (a frame from each sample's triangle on a rest grid, the same
-  frame on a waving copy), so the network can be read.
-- 25/10/2026: variables in two kinds, told apart by how they are written
-  (Martino): `$NAME` built in, the same for every operator (`$GNAME`, `$GDIR`,
-  `$JOB`, `$OPNAME`, the frames, the graph's own from File > Variables, the
-  environment), and `{name}` an operator's own, lower case (Render Command's
-  `{usd}`, the Image Viewer's `{image}`, Write FBX's `{file}`, as Write FBX
-  already wrote them). One expander for both; `{x}` that is no operator's is
-  left alone (JSON, `find -exec {}`); `$USD` and the like from older graphs
-  still read. Typing `{` in an operator's line lists its own, `$` the built-ins.
-- 25/10/2026: `{name}` comes down the wires (Martino): an operator publishes its
-  variables on its output (Write USD `{usd}`, Render Commons `{settings}` and
-  `{camera}`, Render Settings `{renderer}` and `{delegate}`, Camera `{camera}`,
-  and **Set Variable**, rows of its own), and every operator below reads them;
-  the nearest wins, the first input first; read from parameters, never by
-  cooking. A Render Command's `{usd}` is what comes down, not a search for the
-  Write USD above. The other direction, context variables set below that change
-  how what is above cooks (Katana's graph state, Gaffer's context: shots,
-  variants, wedges, a time warp), is wanted for multi-shot lighting and comes
-  later; `$NAME` is where it would fit.
-- 25/10/2026: what comes down the wires is shown in a **Graph Variables** tab
-  every operator has, beside Parameters and Prims Location, not in a group under
-  its parameters: the same place on every node, empty when nothing comes
-  (Martino).
-- 25/10/2026: the Parameters pane's tabs are drawn as index-card tabs
-  (`form::tabs`), old-school bevel and all, the open one raised over the others
-  and joined to its page, blue along its top: they read as tabs, not buttons.
-  Only those tabs; the panes' own tabs and the rest of the interface stay as
-  they are (Martino).
-- 25/10/2026: by default the Parameters pane's tabs look like the panes' tabs,
-  from the same style (`theme::dock_style`), for one look across the interface,
-  but each as wide as its title, short as 1995's, not sharing the width
-  (Martino); the index-card tabs are the colour editor's **1995 tabs** switch,
-  off by default, a switch like Dark fields: not a colour, kept by Reset and by
-  choosing a preset (Martino).
-- 26/10/2026: rules for code and comments in `LLM_instructions.md`:
-  documentation required, files ordered by importance, no divider comments,
-  comments describe the code as it stands, no planning stages in code,
-  `TODO(perf)` and `TODO(rayon)` for work left for later, rustfmt at 120 columns
-  (`rustfmt.toml`) and prose wrapped at 80 (Martino).
-- 26/10/2026: on `core/code-refactor`: the code formatted by rustfmt (120
-  columns, `rustfmt.toml`), which the GitHub workflow now checks; Markdown and
-  doc comments wrapped at 80 columns; divider comments made plain comments
-  (Martino).
-- 26/10/2026: lights are made at `/lights/$OPNAME` by default, named after their
-  operator whatever their type; the Graph Editor is the Curve Editor, as "graph"
-  is the scene graph or an ICE graph (Martino).
-- 26/10/2026: the view flag's eye drawn larger, filling its square, in one
-  saturated blue in every theme so it stands out on the title; the empty circle
-  unchanged (Martino).
-- 26/10/2026: the Linux release is linked against glibc 2.28 with cargo-zigbuild, so it runs on Rocky Linux 8 and RHEL 8 (Simon); the build fails if it needs a newer glibc. One patch per reply, everything not yet on main folded into it (Simon).
-- 27/10/2026: layouts (Martino): Window > Layout holds the three Imago comes with, named by their files (xms_main_layout, xms_2split_layout, xms_4split_layout, in `assets/layouts`), and Save current as default. Imago always opens in the default layout (the one saved as default, else xms_main_layout), its tabs in front as saved, and File > New goes back to it: the layout and the tabs in front when Imago closed are not kept, only the lock. Opening a graph leaves the layout as it is; choosing a layout keeps the lock.
-- 27/10/2026: compounds (Martino, `docs/compounds.md`): one system for the scene graph and ICE graphs, a definition's context saying which; definitions are `.icd` files found in a library (`$JOB/compounds`, the user's, `XMS_COMPOUNDS`, then the shipped ones), the first of a name winning; instances locked by default. Promotion and references are one link, kept on the target operator beside its keys and applied where keys are, so a link adds nothing to the history. A missing definition keeps its instance, ports and values, drawn as missing. Inside a compound `$OPNAME` stays each operator's own; the instance gives `{instance}`. Shipped compounds are files beside the program, as Houdini's digital assets and Gaffer's resources are, so they can be read and copied into a project; renderer definitions and layouts stay built in. The word is **Promote**; reading across ICE contexts is **Resample** (was Several), and `reduce` in saved ICE graphs still reads.
-- 27/10/2026: scene compound instances (Martino, `docs/compounds.md`): Make Compound packs a selection into an editable Compound operator, the crossing wires its ports (a Compound Input and Compound Output operator inside for each). Going inside puts the instance's graph in the program's place, the outer graph, its ICE graphs and history set aside, so every pane works on the inside as on any graph, and undo inside is the inside's; leaving an editable instance keeps the graph as its definition and is one step outside. A locked inside is read-only: a change is put back. An instance cooks a copy of its definition's graph sharing the outer cook cache, so equal instances cook once. Saving, opening or closing goes back out first.
-- 27/10/2026: compounds (Martino): right-click and Tab open the add menu over operators too (a right-clicked operator is selected); Make Compound is an action among Organise's operators, found by search; inside a locked compound the graph is at half strength; Revert to Latest Definition drops an instance's own copy for the library's. References and promotion (step 3): a reference is kept on the operator that follows, beside its keys, and applied where keys are, so nothing is written to the graph and the cook key follows the source; typing over it makes the number its own. Promote is on the Keys list's right-click menu until every row knows its path; promotions made inside are the definition's when an editable compound is left.
-- 27/10/2026: Tab opens the add menu again (egui's own Tab focus is let go); a locked compound's graph has a dark layer over it with a line saying so. Every number's row in the parameters has the references and Promote menu (Martino): rather than every row being told its path, a right-clicked row's number becomes a probe value while the parameters are drawn, found by path in the operator's parameters and put back before anything cooks, so every row drawn by the form's number widgets has it, old and new.
-- 27/10/2026: every number field and slider of an operator's parameters goes through `form::number` and `form::slider`, so each has the references and Promote menu; a row showing its number another way (Transform's rotation in degrees) is found by what its probe changed, and a right-click never moves a slider. Make Compound, and the library's compounds, are found by the add menu's search like the operators, ↓, ↑ and Enter included (Martino).
-- 27/10/2026: references stay joined (Martino): a value typed, dragged or moved with a handle over a number that follows goes to the number at the end of its chain (keyed there when that one is keyed), so both change and the reference stays; Remove Reference is the only way to take it away. Loops are refused number by number, so two numbers of one operator can follow each other one way. A reference reads the number at the end of its chain once (it used to work out its source's whole parameters, references and all, which grew exponentially with references on one operator and stalled the program). A probed row is always put back, found or not. Numbers that follow are drawn on desaturated orange, in their rows and in the Keys list: an operator with references has its rows found by the same probe, one a quiet frame, kept until it or its references change.
-- 27/10/2026: a reference between two numbers of one operator goes both ways (Martino): editing the number followed was put back, since what the operator showed was worked out with the edit already in it, so the number following it looked changed too and sent the old value back. What was shown is now worked out with the operator's own parameters in place.
-- 27/10/2026: right-clicking Merge's Inputs stalled the program (Martino): the probe value standing in for the number set off what a change to it does, and the Merge made 7,777,777 inputs before the value was put back. A probed row's change sets nothing off now (`form::probe_put`).
-- 27/10/2026: typed values take effect on Enter or on leaving the field, not as they are typed (Martino), as in Houdini, Maya, Katana and Nuke: a value cooks once and is one undo step, and a half-typed number never reaches what follows it (references, promoted parameters). Number fields and sliders' boxes use egui's `update_while_editing(false)`; text fields go through `form::typed`, which keeps the text being typed aside until then. Dragging and sliding stay live, and search lines follow each letter. The Parameters pane's fields are salted by the operator shown, so a value typed when another operator is selected is not put in its field.
-- 27/10/2026: ICE compounds (Martino, compounds step 5): Make Compound in an ICE graph packs nodes into a Compound node, its ports Compound Input and Compound Output nodes inside; an ICE compound's input ports hold values as any ICE input does, which is what it offers to set (Softimage's exposed ports), rather than promoted parameters. The engine never sees a compound: each is flattened into the graph it is in before it runs, compounds inside compounds first, a definition inside itself refused. Going inside keeps the outer graph with the inside, and what runs, saves and hashes is the outer graph with the inside folded back in, so edits inside show at once and nothing is lost if the graph is saved while inside. The Parameter node is a value its ICE operator sets by name (`NodeType::Ice::params`), so a scene compound can promote it like any number.
-- 27/10/2026: the Ramp parameter (compounds step 6) waits until something needs it (Martino); ICE compounds were finished first. Inside an editable ICE compound, Promote Input on a node's right-click menu makes an input a port. A graph that breaks keeps the way to the node that broke (`IceGraph::broke`: the compound, then the node inside), so the compound is ringed outside and the node inside. Each ICE operator keeps a value for every Parameter node of its graph (`keep_params`, when the graphs change), so they can be promoted and referenced as soon as they exist.
-- 27/10/2026: ICE and compounds, smoothed (Martino): Promote Input is on an ICE node's right-click menu and on an input's rows in its parameters, greyed out with how to get there outside an editable compound. Scene compounds (and their Compound Input and Output) are the Dark theme's node grey in every theme (`theme::raised_in`). A compound's definition Name takes variables when entered, `$OPNAME` its own name. The ICE and MaterialX canvases follow the theme (`theme::canvas`): light grey in Light, as before, the scene graph's dark in the dark themes, their fine grid kept.
-- 27/10/2026: promotion everywhere one can go inside (Martino): in an ICE graph, Promote Input makes a port inside an ICE compound and, at the top of the ICE operator's graph, a parameter of the operator (a Parameter node wired in), which the scene graph can then promote or reference. Inside a scene compound the promoted numbers are drawn orange, as references are: they follow the compound's parameter. A promoted value reaches an inner compound's promoted parameter even when the inner instance has saved no value for it (`compounds::put` makes a missing key of a map), so promotion works however deep. Inside a locked scene compound its ICE graphs are locked too: the inside is compared with how it was entered every frame, ICE graphs included, and the ICE canvas is darkened with Promote Input greyed out.
-- 27/10/2026: every setting promotable (Martino): text rows are probed as number rows are (`form::PROBE_TEXT`), so paths and names get the right-click menu and promote into scene compounds. An ICE node's settings (a seed, an Instancer's Primitive Location, a name) promote to the graph's `parameters`: the ICE operator's at the top of its graph, the compound's inside one, set on each instance; their values are put in the settings before the graph runs, so a promoted setting follows its parameter as a reference does, drawn orange. A promoted seed replaces the node's seed rather than multiplying it: a seed is hashed, so any other seed is already another look, and a product would be 0 for the default seed and collide (2 × 3 = 3 × 2); nodes that should differ each get a seed of their own. Switches and lists wait.
-- 29/10/2026: promotion fixes (Martino): an ICE node's Seed (and Get Reference's Input, and Integer and 4D values) went through a plain number field the right-click probe did not see; every one goes through `form::number` now. A text row probed is found by the probe text anywhere in what the row makes of it (a location makes it a path), and its menu carries its text, so a text value an operator keeps only once set (an ICE operator's promoted Primitive Location, a compound's promoted value) promotes as text, its default the text shown, rather than as a number.
-- 29/10/2026: promotion made solid (Martino): a probed row puts the whole operator back (its name and Prims Location too), not only its parameters, so a row of the operator's own that is not a parameter can never keep the probe (an ICE operator was renamed `xmsprobe7777777` by finding its rows, and its promotion, made by that name, then pointed at nothing). A node's name, a port's, a Parameter node's are never probed. Promotions inside a compound follow the operator when it is renamed, as an ICE graph's do. An operator's own parameter (an ICE operator's, a compound's) is promoted under its own name.
-- 29/10/2026: lists, groups, switches and choices promoted (Martino): a row of a list of text (Primitive Locations, Get Reference's paths) promotes the whole list, a parameter of its own type (`ParameterType::List`), and a scene operator's Prims Location tab promotes whole (`compounds::LOCATIONS`): a location list is one thing to set, not rows to link one by one. Switches and choices are probed as numbers and text are, found by what changed; a choice keeps its options (`ParameterType::Choice`, `Parameter::choices`). A group's title right-clicked has Promote Group and Remove Group Promotion: every row of the group is found, then each is promoted on its own, into a group of the same name, so a group is a batch of ordinary promotions and nothing new to keep in step.
-- 29/10/2026: Promote Group fixed (Martino): while a group's rows are found, each operator is put back after every probe as a right-click's is (`form::seeking`), so a found text row no longer kept the probe text and a number its probe-time value; an ICE operator's parameter it keeps only once set promotes with the parameter's default and options (`keys_ui::kept_default`), so a choice at its default promotes too. A list's add button is probed as one of its rows (`form::probe_list`), so an empty Primitive Locations list is found and promotes whole.
-- 29/10/2026: one way to promote (Martino): a row promoted on its own goes in a group named after the group it is in (`form::row_group`), as Promote Group puts it, in ICE and in scene compounds, so promoting row by row or by group ends the same. A switch or choice of an ICE operator kept only once set is found by its key appearing (`changed_at` compares maps of other keys), so Promote Group takes it too.
-- 29/10/2026: an ICE operator's choice promoted with its group (Martino): an ICE operator's values map is left out of its parameters while empty (every value at the graph's default), so a choice probed there was found as the whole map; a key on one side alone is now followed down to the value in it.
-- 29/10/2026: spare parameters (Martino): any operator can be given parameters of its own (+ Spare Parameter), to be referenced and promoted. They are the promoted parameters' kind (`compounds::Parameter`, a value kept only once it is not the default) on the operator, found by `spare/<name>` wherever a parameter's path is read or set, so references, promotion and probing take them with no system of their own. And a rule for every window and row: where there are a few set options to pick from, they are a drop-down (or side-by-side buttons), never typed.
-- 29/10/2026: popups where you are (Martino): a popup window opens just left of the pointer, its top right corner there, on the frame it opens (`menus::at_pointer`), not in the window's corner; the dialogs that stop to ask and the file browser stay in the middle, as nothing is pointed at for them. Spare parameters gain Dropdown, a choice always shown as a drop-down.
-- 29/10/2026: ICE nodes named apart (Martino): a node added to an ICE graph takes `name2`, `name3`… when its name is taken, as its settings are promoted by name; two Get Reference nodes of one name were why their Primitive Locations would not promote (refused, and Promote Group said nothing). A node of a graph from before that shares its name is renamed when one of its settings is promoted.
-- 29/10/2026: references of every kind (Martino): a reference follows any value of its own kind (`links::same_kind`), not only a number: text, switches, choices, vectors, text lists, the Prims Location rows, spare parameters. It is applied by putting the source's value at the target's path (`compounds::put`, as promotion does), one link at a time and kept only when the operator can still hold it, so a choice never takes text that is none of its options. Values kept beside an operator's parameters (spare parameters, the Prims Location tab) are set from their source once a frame, both ways, as the parameters' are when edited.
-- 29/10/2026: time samples (Martino): a stage is read once with every time sample (`xms_usd::SceneOptions::all_samples`), and shown at any frame by making the stage at that time code from its translation (`usd_stage::Timed::at`), its still geometry shared; a time code is a frame. Load USD cooks again at each frame only when its stage changes over time. Write USD writes a range: each frame cooked and written as a layer of its own, then the frames put together, a value the same at every frame written once and the others as `timeSamples`. A prim edited at any frame is written at every frame, so what the file animates is never seen through in between. Override layers stay the way a scene is handed on: a renderer reads the references, sublayers and samples.
-- 29/10/2026: Alembic, read by our own crate (Martino): `xms-alembic` reads `.abc` files in pure Rust, depending on nothing, written from the Alembic library's source (with `ogawa-rs` as a second reference, not a dependency). It knows Alembic only (objects, properties, samples, the AbcGeom schemas, values as written); turning that into USD is `xms-usd`'s, as an `openusd` layer format in Imago's fork of `openusd`, so an `.abc` opens, sublayers and references as USD has it, as `usdAbc` makes it in USD. It is tested on files other programs wrote (OpenUSD's `usdAbc` test files).
-- 29/10/2026: Imago's fork of openusd (Martino): `xms-usd` uses `MartinoMadeddu/openusd`, branch `xms`, which is openusd 0.8.0 with one change: a program can register file formats beyond usda, usdc and usdz (`sdf::LayerRegistry::register_format`), looked up after the built-in ones, as C++ registers `SdfFileFormat` plugins. It is kept small so it can be offered upstream.
-- 29/10/2026: openusd 0.8 (Martino): `xms-usd` moved from openusd 0.7 to 0.8, where values are `vt::Value` (was `sdf::Value`), matrices `gf::Mat4d`, and an attribute's samples in a range `time_samples_in`; nothing Imago does with USD changed.
-- 29/10/2026: Alembic files open as USD (Martino): `xms-usd`'s `alembic` module is an `openusd` layer format, registered before a stage opens, that turns what `xms-alembic` reads into a layer as `usdAbc` does (a transform and its one shape one prim, instance sources as instanceable root `over`s that their instances reference, seconds as time codes at the file's frame rate), so Load USD opens an `.abc` and a `.usda` sublayers or references one as any layer. It is checked against `usdAbc`'s own test baselines. The translation skips a root `over` no layer defines, as USD's traversal does.
-- 29/10/2026: A template on Alembic caches (Martino): "ICE: binding deformer on Alembic" binds 1,000 spheres (266,000 points) to a pig's head at rest and carries them with its animation, three `.abc` files from Houdini in `examples/alembic`, so a real cache is part of what the templates' tests run. Its Bind graph is the binding deformer's, made by one function for both templates (`bind_subnet`), its reference paths given.
-- 29/10/2026: Closest Point on Surface searches curves (Martino): a reference input's curves are searched as their segments, a sample on one being its two points and their weights and its face the curve, so everything that reads samples reads curves too. Hair is carried by its guides with nodes ICE already had: each hair's root stored per curve, the guide nearest it found once for the whole hair (each point bound to its own nearest guide would kink the hairs that cross from one guide to another, a third of them in Martino's groom), and point k carried by the guide's point k, moved and turned with it ("ICE: hair carried by guides on Alembic"). Checked here against a direct computation on the groom's caches.
-- 30/10/2026: A place on a surface is a Polygon and a Param UV, as in Houdini (Martino), named in Imago's words: not Houdini's primitive, since in Imago a primitive is a prim, and Polygon rather than Face, which is to become Polygon too: Closest Point on Surface and Scatter on Surface give each place as a Polygon (a face's or a curve's number, across the Geometry's prims in order) and its Param UV by Houdini's rules (barycentric on a triangle, bilinear on a quad, a fan around the middle of a larger polygon, by segment on a curve), and Get Data and Get Array Data read at a Polygon and Param UV wired in. One search for polygons and curves, one kind of place, no type of its own: an int and a 2D vector, so a binding is stored as attributes once (Capture) and read every frame without searching (Deform), Houdini's capture and deform. `triP` and `bary` are now the corners a place is made from, however many (three, four, n, two). `curveu` is made from the topology on curves (by length). Older graphs open with their Samples wires turned into Polygon and Param UV wires.
-- 30/10/2026: An ICE operator's result is kept as any operator's, its graph part of its key (the graph's own content and the compounds in it), so a capture on rest meshes cooks once and is not frozen by hand; a freeze node at the end of an ICE graph was not added: it would be a second way to keep a result, and one that goes stale when the rest mesh changes. A graph run with another key than the one known keeps nothing, so an edit is never hidden by an older result. (Martino)
-- 30/10/2026: The binding templates are three, named for what they do (Martino): Bind simple point deformer (the spheres on the pig's head; the hand-built one on a waving grid is gone, its explanation moved here), Bind simple hair deform by guides, and Bind rigid hair deform by skin, done per curve wherever the value is the same for every point of a hair (Martino): RootBind stores, once, the place nearest the hair's root on the head at rest and the inverse of the frame there (`bindInverse`); Carry, every frame, makes the curve's move from rest as one matrix (the frame on the animated head by `bindInverse`, `carry`); Deform puts each point through its curve's `carry`. No per-point capture and no `bindLocal`: a hair's points share their root's frame, so building it per point did the same work thirteen times. (Martino)
-- 30/10/2026: Rigging, first step (Simon): a regeneratable rig, as mGear's: guide locators per component placed on the mesh, the joints built from them, the weights made from the joints, each a step of its own (Rig Guide, Build Skeleton, Hard Bind, Envelope, Range of Motion, Delta Mush, Bake Weights), so changing a guide builds everything after it again. The deform rig comes first; the guides keep what a control rig will need (each locator's role, the poles, the heel, the ends, the limits), so one can be built on them later without placing anything again. Autofit is on by default and every locator can be moved after it. Choosing a target (Unreal, HumanIK, Maya) sets the names, axes, rotation order and root joint, and each of those can then be changed on its own. The Maya target follows mGear's naming rule but is called Maya: it is the target, not the tool. Every joint has a canonical frame (X to the child, Y to the pole) in which its limits and the range of motion are written, so they hold on any target. Joints have realistic limits, which can be turned off. The weights go hard bind (0 or 1, grown along the surface, not through space), envelopes (where regions meet, moved by hand), a range of motion from the limits (each joint alone, then whole-body poses), a delta mush of the hard skin over it, and smooth weights baked from that mush, the technique Simon asked for. Human components (spine, neck and head, arm, hand, leg) and a Full Human compound first; mechanical and animal components follow.
-- 30/10/2026: Rigging, machines and animals (Simon): nine more components (animal leg, chain, body, hinge, rotor, piston, wheel, gear, tread) and thirteen templates in all, one for every kind of rig discussed and a few more (a tractor, a robot arm, a tentacle), the DeLorean among them as the car. A machine is rigged as a human is, guides then a skeleton then a range of motion, but its pieces are rigid: Rigid Bind gives each primitive whole to a joint and Rigid Skin moves it by its placement, so a production model keeps its geometry, materials and textures and costs one matrix per piece a frame. Machine parts are fitted to the primitives they name, by their bounds, rather than autofitted from a body. Mechanical relations (a wheel's spin over its radius, a meshing gear's ratio, a tread's links round their loop) are the range of motion's, written once and shared by every machine; driving them on any clip is a control rig's work, left for later. Rig Proxy gives a skeleton without a mesh shapes to be seen on, so a rig can be tried before there is a model. A wheel's steering is the one right-side motion that is not mirrored: both wheels turn the same way.
-- 02/11/2026: Intrinsics are one list, named `intrinsic:…` (Martino): what a primitive has from its topology and points, read only, kept in `xms_geo::intrinsics` with its context, type, the prims that have it and what it is, so ICE, the Primitive Inspector and the docs read the same names and the same values. The prefix keeps an intrinsic from ever being taken for a stored attribute, or hidden by one; Set Data refuses it, and USD never gets one written. Imago's names stay its own (camelCase, Point, Face, Corner, Object), USD's only where USD is read or written. The Object has intrinsics too (counts, bounds, transform; its type and path in the Inspector until ICE reads tokens); curves have their length. Graphs saved before read the old names as the new ones. (Martino)
-- 02/11/2026: The Primitive Inspector shows the intrinsics from the same list ICE reads, by the same names (Martino): stored attributes first, then `intrinsic:…` with their headings coloured apart, and a Show dropdown for All, Stored or Intrinsics. Its tabs are Imago's contexts, USD's interpolations only in their tooltips. A curve's control points are its corners here too, as ICE counts them; the Object tab has the path, type, counts, bounds and transform of each primitive. (Martino)
-- 02/11/2026: Edit Primitive edits the prims already in the scene as what they are (Martino): one operator, its Type set from the first prim named, its form that type's (the Camera's and Light's as their operators have them, the Xform section on every type) with the prim's values. Only a value changed is an override, applied, keyed and written; the rest follows the prim, so the file's changes and animation still come through. Per-parameter override states belong to Edit Primitive alone, not to every operator as in Solaris: the other operators' parameters are simply their values. Materials stay with Material Binding. (Martino)
-- 02/11/2026: Edit Primitive is one key away (Martino): Enter over the Scene Explorer's selection or a selected Properties row, or right-click Edit Selected, adds one naming those prims after the viewed operator, viewed and selected; one that overrides nothing yet is reused rather than stacked. (Martino)
-- 02/11/2026: Edit Primitive has the Viewer's handles, on its first prim, in that prim's parents' space, a drag overriding only the part dragged; and a group of a file it moves is written as the group's own transform (`Opinions::transform` in the stage tree), the prims below keeping theirs, so the file's hierarchy is what the layer edits. (Martino)
-- 02/11/2026: A prim selected in the Viewer is selected in the Scene Explorer without opening its parents (Martino): the rows above a selected prim are marked in a lighter grey, so where it is shows without the tree being unfolded. (Martino)
-- 03/11/2026: The Scene Explorer is the scene's one tree (Martino): prims of several stages, or of a stage and Imago, that share a path are one row, what each has below it under it, as USD composes them; not one tree per loader. (Martino)
-- 03/11/2026: Which RenderSettings is rendered is decided in one place (Martino): Render Commons' Primitive Location, a new prim or one of a file's (then written as an over with its values, and named); without a Render Commons, the one the loaded file names, which Write USD names again in its layer. Render Settings and Render Variables follow it, with no location of their own. Keeping a file's settings and changing a few is Edit Primitive's, not a mode of Render Commons: per-parameter overrides stay Edit Primitive's alone. The Scene Explorer marks the one rendered. (Martino)
-- 03/11/2026: Edit Primitive has a RenderSettings type (Martino): Render Commons' values by their USD names, a file's prim showing what it authors, written as an over of the overrides alone. Keeping a stage's render settings and changing a few is done there, not by a mode of Render Commons. (Martino)
-- 03/11/2026: Reparent moves prims under another as USD has it written (Martino): a file's prim is a reference to it at its new path, deactivated at its old one, so the file stays as it is and what comes after sees the new paths; a prim Imago made is written whole there. Keep World Position is on by default. (Martino)
-- 03/11/2026: Keying with S is a tap of S alone (Martino): S held with Cmd or Ctrl, before or after it, is saving, and a mouse button down while S is held is navigating; neither keys. (Martino)
-- 03/11/2026: Edit Primitive's Curves type has the curves' Type, Basis and Wrap, by USD's tokens (Martino): what the Viewer draws and Write USD writes follow them. (Martino)
-- 03/11/2026: The Primitive Inspector lists what a prim is as it is now (Martino): a camera's lens, a light's values and curves' type, basis and wrap once each, from the Edit Primitive overriding them when one does, not as the file authored them. (Martino)
-- 03/11/2026: XMS_CORE_OPS_SPEC (v0.5) and ARCHITECTURE brought up to date with compounds, time samples, Alembic, intrinsics, Edit Primitive, Reparent, the Scene Explorer's one tree and the RenderSettings rendered (Martino). (Martino)
-- 03/11/2026: VOCABULARY lists each concept, its name and why, without the names it replaced (Martino). (Martino)
-- 04/11/2026: Colour is managed by OpenColorIO, through the pure-Rust `ocio` crate (Martino): `$OCIO`'s config when it names one, else Imago's own, built in, so nothing needs setting up. Imago's is a part of the ACES CG config, with Un-tone-mapped first so the Viewer looks as it did until ACES is chosen. The scene stays in USD's default colour space, linear Rec.709; the Viewer runs OpenColorIO's own shader for the view on the GPU, the Image Viewer the same transform on the CPU from the image's own space. (Martino)
-- 04/11/2026: Colour is shown with two menus, View then Display, as Houdini, Gaffer and Nuke have them (Martino). ACEScg is Imago's working and rendering space: renders are read as ACEScg; the scene's colours stay as USD authors them (linear Rec.709) and are turned into ACEScg on the way to the display, not taken as ACEScg. ACES 1.0 - SDR Video is the default view, sRGB the default display (Rec.1886 and Display P3 offered). (Martino)
-- 04/11/2026: Imago's settings have a home, File > Settings, one window with a page per part of the program (Martino). The Viewer's colour (View, Display) is its first page, so the Viewer's top bar stays clear; the Image Viewer keeps its View and Display in its top bar, as image viewers do, with ACES 1.0 SDR on Rec.1886 its default. (Martino)
-- 04/11/2026: The Viewer finds each prim's draw, and each draw's GPU mesh, by key rather than by searching the list (Martino): a stage of thousands of prims no longer costs the square of their number every frame it plays. (Martino)
-- 04/11/2026: The Viewer packs every draw's copies into a few shared buffers each frame, not one buffer per prim (Martino), so a stage of thousands of prims sends a handful of buffers to the GPU as it plays. (Martino)
-- 04/11/2026: A deforming mesh costs the Viewer only what moved (Martino): its drawable geometry is made on every core, and its points and normals are written into the GPU buffers it had the frame before, its triangles kept. (Martino)
-- 04/11/2026: Playing a stage costs what moves in it (Martino): when only transforms and geometry change, a frame is the stage as first read with those prims made again, not the whole stage walked; anything else falls back to the walk, and the two can be compared as it plays. A mesh's drawable surface is made with one list of the faces around each point, not one per point, giving the same triangles and normals. (Martino)
-- 04/11/2026: Loading a stage reads each value once (Martino): the full pass takes from the boxes pass every prim's transform, visibility and purpose, and the points it read for a box, instead of reading them from the stage again. (Martino)
-- 04/11/2026: The Image Viewer shows an image at 1:1, one image pixel per screen pixel, with H or the 1:1 button, and its zoom reads in screen pixels, so 100% is 1:1 on a high-density screen too (Martino). (Martino)
-- 04/11/2026: The reference documents say how a stage loads and plays as fast as it does, and how colour is managed, where each part is described (Martino). (Martino)
-- 03/11/2026: Export Movie is the Viewer's picture, not a render (Simon): the timeline's frames drawn again at the movie's size, through the camera looked through or the Viewer's own and through its View and Display, read back and encoded by ffmpeg (H.264 or H.265 in an MP4), the playhead given back after. ffmpeg is run, not linked, as any other program would: no codec is built into Imago, and the encoders are the ones every studio already has. Called Export Movie, not playblast or flipbook, after what it makes.
-- 03/11/2026: The Viewer first (Simon): what can be manipulated in the Viewer is, with a handle for every parameter one can stand for; a node's Viewer picture is its main output, the most useful output first; a node with data coming in never shows nothing; a compound shows what it is for.
-- 05/11/2026: A test that stops making progress fails, naming the template and operator it was on, instead of hanging the run for hours; CI's test steps stop after an hour (Martino). (Martino)
-- 05/11/2026: The timeline fills its pane, with the controls animators expect (Simon): view in and out on a range slider along the bottom, as Maya's and Houdini's, the track showing and playing only them (Export Movie writes them too); frames or timecode for any range; a playback speed apart from the rate (real time, a rate of its own, every frame). The scene's range and rate sit at the slider's ends, the clip's when a clip is shown.
-- 05/11/2026: The Timeline's pane is as tall as its rows, no taller (Simon): docked above or below other panes it keeps to that height whatever the window's size, and the room goes to the panes above. Its height is worked out from its rows, not corrected from the last frame's, so it settles at once; a pane may be dragged down to 80 points (egui_dock's 175 kept the Timeline tall).
-- 05/11/2026: The interface has one size, the screen's by default (Simon): egui's zoom over everything laid out in points, Auto from the screen's height in the system's points (80% under 1000, 90% under 1400, else 100%) so a laptop is not crowded by controls drawn for a 4K monitor, or a size of the user's in File > Settings > Interface and with Ctrl+= / Ctrl+- / Ctrl+0, as browsers have it. Widgets are drawn sleek and flat, as the tools Imago sits beside: 12-point text, 18-point controls, 3-point corners, thin slider rails with round handles, floating scroll bars, a 22-point tab bar. Nothing they do changed.
-- 05/11/2026: Nothing filled once (a `OnceLock`) waits on rayon from inside a rayon task (Simon): a thread waiting in `rayon::join` runs other tasks meanwhile, and one asking for the same lock on that thread never returns. A surface's search index is so built on its one thread when first asked for by an ICE batch, in parallel otherwise. The rigid hair template hung now and then this way, the watchdog catching it on CI; a test now cooks it forty times on eight threads.
-- 05/11/2026: A surface's search index is made before the work searching it is split, in parallel, never by a rayon task (Martino): Closest Point on Surface's surfaces are made searchable before an ICE graph's batches start (and before a large uniform search), so the index keeps all cores and no batch can wait on a lock its own thread is filling. A test searches a 28,800-triangle surface from ten batches 300 times on eight threads: it hangs without this, and runs in seconds with it. (Martino)
-- 05/11/2026: The documentation is also HTML pages to read in a browser, as OpenMoonRay's and Gaffer's are (Martino): made from the Markdown, which stays the one source, by xms-docs (the README as the Overview, the User Guide in docs/README.md's order, the reference after), opened from Help > Documentation and shipped in every release. One plain column of reading, the contents on the left, the page's headings on the right, a search over every section; nothing fetched, so it opens from the disk. Its test fails on a link or image that leads nowhere. (Martino)
-- 05/11/2026: The documentation's Overview is a short page of its own, as OpenMoonRay's About page is (Martino): docs/overview.md, the icon, why Imago was made in two lines, and its structure, crates and libraries as a few bullets; the README stays the long introduction on GitHub. (Martino)
-- 05/11/2026: The documentation's name at the top is in Anisette (Martino), from a licensed copy installed or put in site/fonts (it cannot be shipped), else Michroma; a switch beside the search turns night mode on or off, remembered for every page. (Martino)

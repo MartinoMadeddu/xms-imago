@@ -2,7 +2,7 @@
 //! Markdown, to open in a browser from the disk: no server, nothing fetched.
 //! The Markdown stays the source; the pages are made again from it.
 //!
-//! The pages: `docs/overview.md` as the Overview, the User Guide in the order
+//! The pages: the README as the Overview, the User Guide in the order
 //! `docs/README.md` lists its pages, and a Reference of the operators,
 //! vocabulary, architecture and design philosophy. Each page has the guide's
 //! contents on its left, its own headings on its right and a search over every
@@ -22,7 +22,7 @@ const REPOSITORY: &str = "https://github.com/MartinoMadeddu/xms-imago/blob/main/
 /// The Reference pages: the Markdown file and its page.
 const REFERENCE: [(&str, &str); 4] = [
     ("XMS_CORE_OPS_SPEC.md", "operators.html"),
-    ("VOCABULARY.md", "vocabulary.html"),
+    ("docs/vocabulary.md", "vocabulary.html"),
     ("ARCHITECTURE.md", "architecture.html"),
     ("DESIGN_PHILOSOPHY.md", "design-philosophy.html"),
 ];
@@ -51,13 +51,8 @@ pub struct Built {
 /// The pages, in the order of the contents: the Overview, the User Guide as
 /// `docs/README.md` lists it, then the Reference.
 fn pages(root: &Path) -> Vec<Page> {
-    // docs/overview.md, else the README.
-    let overview = ["docs/overview.md", "README.md"]
-        .into_iter()
-        .find(|f| root.join(f).is_file())
-        .unwrap_or("README.md");
     let mut out = vec![Page {
-        source: overview.into(),
+        source: "README.md".into(),
         file: "index.html".into(),
         title: "Overview".into(),
         part: "",
@@ -199,6 +194,7 @@ fn make(root: &Path, page: &Page, md: &str, links: &mut Links, problems: &mut Ve
     let mut out: Vec<Event> = Vec::with_capacity(events.len());
     let mut section = 0;
     let mut in_heading = false;
+    let mut links_open = 0;
     for event in events {
         match event {
             Event::Start(Tag::Heading {
@@ -229,6 +225,7 @@ fn make(root: &Path, page: &Page, md: &str, links: &mut Links, problems: &mut Ve
                 id,
             }) => {
                 let dest = link(root, folder, &page.file, &dest_url, links, problems, false);
+                links_open += 1;
                 out.push(Event::Start(Tag::Link {
                     link_type,
                     dest_url: dest.into(),
@@ -243,12 +240,29 @@ fn make(root: &Path, page: &Page, md: &str, links: &mut Links, problems: &mut Ve
                 id,
             }) => {
                 let dest = link(root, folder, &page.file, &dest_url, links, problems, true);
+                // A picture opens at full size when clicked, unless it is a
+                // link already.
+                if links_open == 0 {
+                    out.push(Event::Html(
+                        format!("<a class=\"full\" href=\"{}\">", escape(&dest)).into(),
+                    ));
+                }
                 out.push(Event::Start(Tag::Image {
                     link_type,
                     dest_url: dest.into(),
                     title,
                     id,
                 }));
+            }
+            Event::End(TagEnd::Link) => {
+                links_open -= 1;
+                out.push(Event::End(TagEnd::Link));
+            }
+            Event::End(TagEnd::Image) => {
+                out.push(Event::End(TagEnd::Image));
+                if links_open == 0 {
+                    out.push(Event::Html("</a>".into()));
+                }
             }
             Event::Start(Tag::Table(a)) => {
                 out.push(Event::Html("<div class=\"table\">".into()));
@@ -619,5 +633,10 @@ mod tests {
         assert!(usd.contains("id=\"big-stages-boxes-first\""));
         assert!(usd.contains("<code>"), "code spans stay code");
         assert!(!usd.contains(".md\""), "links between the pages are to the pages");
+        let interface = std::fs::read_to_string(out.join("interface.html")).unwrap();
+        assert!(
+            interface.contains("<a class=\"full\" href="),
+            "a picture opens at full size"
+        );
     }
 }

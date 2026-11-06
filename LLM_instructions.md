@@ -7,8 +7,9 @@ same way.
 
 If you are an AI assistant: read this file and `DESIGN_PHILOSOPHY.md` before
 working here, run the checks below and report them to the person, and follow
-both. With every change, update `README.md` and the pages in `docs/` that
-describe what changed.
+both. With every change, update the pages in `docs/` that describe what
+changed; `README.md` is the front page and changes only for what is very
+relevant there.
 
 ## For AI assistants: run these checks first
 
@@ -27,7 +28,7 @@ where you run, say so instead of guessing.
    offer it.
 
 3. **The program builds and its tests pass.** Clone the repository, install what
-   the README's "Build from source" lists (on Ubuntu or Debian:
+   the README's "How to build" lists (on Ubuntu or Debian:
    `build-essential pkg-config libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0`,
    plus `libwayland-dev libxkbcommon-dev` for a full build), then run
    `cargo test`. The first build takes a long time. Report how many tests
@@ -77,16 +78,16 @@ person running only one block of commands:
      models and functions are used and extended, not replaced. A change that
      would rewrite something of his is named and asked about first.
    - It adds to `DESIGN_PHILOSOPHY.md` the decisions his new code shows, in the
-     same patch, with a line in its log.
-   - It uses the words in `VOCABULARY.md`.
+     same patch, and a dated line to `LOGS.md` for every change.
+   - It uses the words in `docs/vocabulary.md`.
    - It fetches `main` again just before making the patch. If anything new came
      in, it rebases onto it first.
 
    It builds, runs `cargo test` (with `XMS_EXAMPLES` set to the examples folder,
    so the regression suite finds the files), runs the program to look at the
    result (a screenshot under a virtual display: `xvfb-run` with
-   `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `README.md` and
-   `docs/`.
+   `WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1`), and updates `docs/` (the
+   README only for what belongs on the front page).
 3. **The assistant makes one patch** of everything since `origin/main`:
    `git diff --binary origin/main > xms-<what>-<suffix>.patch`. The suffix is
    new every time (date and time, `DDMMYYYY-HHMM`): a file sent again under a
@@ -184,13 +185,20 @@ such a file:
   fetches it when a graph names it. Searched so far: the Novasci Free Motion
   Pack (CC0, Mixamo skeleton), the USD Working Group assets (CC BY-SA 4.0 and
   similar), CMU mocap (BVH only, not read by the program).
-- **Documentation with every change.** `README.md` and the pages in `docs/` that
-  describe what changed are updated in the same change. The website (`site/`)
-  only when something on it is wrong. A new page goes in `docs/README.md`'s
-  list, which is the HTML documentation's order (`cargo test -p xms-docs`
-  checks every link and image leads somewhere).
-- **A screenshot when something visible changed**, in `docs/`, taken from the
-  running program.
+- **Documentation with every change.** The pages in `docs/` that describe what
+  changed are updated in the same change, and a dated line added to `LOGS.md`
+  (what changed, ending with who made it, as `(Martino)`).
+- **The README is the front page, kept short:** what Imago is and why, one
+  picture, its structure, how to get and build it, credits. It is also the HTML
+  documentation's Overview. Features, how-tos and screenshots go in `docs/`,
+  not here; the README changes only when one of those parts does (a new crate,
+  a new requirement to build).
+  `DESIGN_PHILOSOPHY.md` holds only how the program should work and why. The
+  website (`site/`) only when something on it is wrong. A new page goes in
+  `docs/README.md`'s list, which is the HTML documentation's order (`cargo test
+  -p xms-docs` checks every link and image leads somewhere).
+- **A screenshot when something visible changed**, in `docs/` and on the page
+  about it, taken from the running program.
 - **Say what was tested and what was not.** A claim in the docs is measured
   where it can be.
 - **Files under 100 MB.** GitHub refuses larger ones. A patch sent in the chat
