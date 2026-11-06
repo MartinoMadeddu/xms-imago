@@ -4,7 +4,8 @@
 //!   their names, and how a layer is shown (exposure, gamma, sRGB, or a
 //!   display transform the program gives). Pure std.
 //! - `read`: images read from files: every layer and channel of an OpenEXR
-//!   file, and PNG, JPEG, TIFF, TGA, HDR as linear RGBA.
+//!   file, and PNG, JPEG, TIFF, TGA, HDR as RGBA, their values as stored (the
+//!   colour space they are in is the caller's to apply).
 //! - `view`: an egui view of one: layer and channel menus, exposure and gamma,
 //!   zoom and pan, the values under the pointer.
 //!

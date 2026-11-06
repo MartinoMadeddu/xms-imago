@@ -69,8 +69,9 @@ pub struct ImageViewerState {
     /// revision and the frame.
     graph_key: Option<(u64, u64)>,
     /// The viewed operator's image (Load Image), while it gives one: shown in
-    /// place of renders, in its own colour space.
-    graph_image: Option<(Arc<xms_image::Image>, String)>,
+    /// place of renders. It is in the scene's colour space, as Load Image
+    /// brings it there.
+    graph_image: Option<Arc<xms_image::Image>>,
 }
 
 /// The command lines the ⚙ menu fills in: name, line, what it does. Custom is
@@ -274,17 +275,17 @@ pub fn draw(
         st.graph_key = Some(key);
         let viewed = graph.view_flag.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
         st.graph_image = match viewed.map(|n| (&n.name, &n.node_type)) {
-            Some((name, crate::types::NodeType::LoadImage { path, colour })) => {
+            Some((name, crate::types::NodeType::LoadImage { path, .. })) => {
                 let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
                 match graph.evaluate_for_viewport_packed(&pass) {
                     Some(EvalResult::Image(img)) => {
                         let file = crate::core::image_file::path_at(path, graph.frame().round() as i64);
-                        let shown = st.graph_image.as_ref().is_some_and(|(i, _)| Arc::ptr_eq(i, &img));
+                        let shown = st.graph_image.as_ref().is_some_and(|i| Arc::ptr_eq(i, &img));
                         if !shown {
                             let title = Path::new(&file).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone());
                             st.view.set(img.clone(), title);
                         }
-                        Some((img, crate::core::image_file::colour_space(colour, &file)))
+                        Some(img)
                     }
                     _ => None,
                 }
@@ -427,8 +428,9 @@ pub fn draw(
     settings_window(ui.ctx(), st, graph, chosen.as_ref());
     // The image through the display transform of the view chosen.
     let v = crate::colour::view(crate::colour::Pane::ImageViewer);
-    // An operator's image is in its own colour space; renders in the one chosen.
-    let input = st.graph_image.as_ref().map(|(_, space)| space.clone()).unwrap_or_else(|| st.input.clone());
+    // An operator's image is in the scene's colour space already; renders and
+    // opened files in the one chosen.
+    let input = if st.graph_image.is_some() { String::new() } else { st.input.clone() };
     let now = (input, v);
     if st.shown_in.as_ref() != Some(&now) {
         st.view.display = display_transform(&now.0, &now.1);
@@ -511,6 +513,9 @@ fn settings_window(
                     let p = PathBuf::from(st.open_path.trim());
                     let title = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                     st.message.clear();
+                    // Its values are as stored: shown from the space its kind
+                    // is usually in (an 8-bit file sRGB), changeable in the menu.
+                    st.input = crate::core::image_file::colour_space("", st.open_path.trim());
                     st.read(p, title, None);
                 }
             });

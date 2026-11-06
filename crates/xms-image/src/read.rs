@@ -1,5 +1,9 @@
 //! Images read from files: OpenEXR with every layer and channel, and the
-//! formats the `image` crate reads (PNG, JPEG, TIFF, TGA, HDR), as linear RGBA.
+//! formats the `image` crate reads (PNG, JPEG, TIFF, TGA, HDR), as RGBA.
+//!
+//! Values are as the file stores them (0 to 1 for 8- and 16-bit files): what
+//! colour space they are in, and turning them into another, is the reader's
+//! to say (a colour config), as a Nuke Read node's colour space is.
 
 use std::path::Path;
 
@@ -15,7 +19,7 @@ pub fn read(path: &Path) -> Result<Image, String> {
     if ext == "exr" {
         read_exr(path)
     } else {
-        read_other(path, ext == "hdr")
+        read_other(path)
     }
 }
 
@@ -89,22 +93,14 @@ fn read_exr(path: &Path) -> Result<Image, String> {
     })
 }
 
-/// Another format, as linear RGBA: 8- and 16-bit images are taken as sRGB, HDR
-/// as linear.
-fn read_other(path: &Path, linear: bool) -> Result<Image, String> {
+/// Another format, as RGBA: its values as stored, 8- and 16-bit ones from 0
+/// to 1, an HDR's as they are. Nothing is decoded: an sRGB file's values are
+/// sRGB values until a colour space turns them into linear ones.
+fn read_other(path: &Path) -> Result<Image, String> {
     let img = ::image::open(path)
         .map_err(|e| format!("{}: {e}", path.display()))?
         .to_rgba32f();
     let (width, height) = (img.width() as usize, img.height() as usize);
-    let decode = |v: f32| {
-        if linear {
-            v
-        } else if v <= 0.04045 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    };
     let mut channels: Vec<Channel> = ["R", "G", "B", "A"]
         .iter()
         .map(|n| Channel {
@@ -113,10 +109,9 @@ fn read_other(path: &Path, linear: bool) -> Result<Image, String> {
         })
         .collect();
     for p in img.pixels() {
-        for k in 0..3 {
-            channels[k].values.push(decode(p.0[k]));
+        for (k, c) in channels.iter_mut().enumerate() {
+            c.values.push(p.0[k]);
         }
-        channels[3].values.push(p.0[3]);
     }
     Ok(Image {
         width,

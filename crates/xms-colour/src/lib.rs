@@ -204,6 +204,20 @@ impl Colour {
             .map_err(|e| format!("{from} to {} / {}: {e}", v.display, v.view))
     }
 
+    /// From colour space `from` to `to` (either empty: the scene's), for the
+    /// CPU: an image read in its own space brought into the scene's, as a Nuke
+    /// Read node does. A display space (`sRGB - Display`) comes through the
+    /// config's view transform, undone, so it shows as it did.
+    pub fn convert(&self, from: &str, to: &str) -> Result<Cpu, String> {
+        let scene = |s: &str| if s.is_empty() { self.scene.clone() } else { s.to_string() };
+        let (from, to) = (scene(from), scene(to));
+        let p = self
+            .config
+            .get_processor(&from, &to)
+            .map_err(|e| format!("{from} to {to}: {e}"))?;
+        Ok(Cpu(Arc::new(p.default_cpu_processor())))
+    }
+
     /// Colour in space `from` (empty: the scene's) as `v` shows it, for the
     /// CPU.
     pub fn cpu(&self, from: &str, v: &View) -> Result<Cpu, String> {

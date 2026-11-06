@@ -8,7 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-- **Load Image:** an image or a sequence (`plate.####.exr`) into the graph; viewed, the Image Viewer shows it, every layer of an EXR, in its colour space.
+- **Load Image:** an image or a sequence (`plate.####.exr`) into the graph, brought from its colour space into ACEScg as Nuke's Read does; viewed, the Image Viewer shows it through its view, every layer of an EXR.
 
 ## [0.2.1] - 2026-11-06
 

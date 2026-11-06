@@ -675,13 +675,13 @@ pub fn draw_properties(
                     f.status(Status::Info, "No file set");
                 } else {
                     if file != path.trim() { f.status(Status::Info, format!("→ {file}")); }
-                    match crate::core::image_file::read(&file) {
+                    match crate::core::image_file::read(&file, &crate::core::image_file::colour_space(colour, &file)) {
                         Ok(img) => f.status(Status::Ok, format!("{} × {}, {} channels", img.width, img.height, img.channels.len())),
                         Err(e) => f.status(Status::Bad, e),
                     }
                 }
             });
-            group(ui, "Colour", Some("The colour space the pixels are in, from the colour config. Automatic: an EXR or HDR in the rendering space, other files as sRGB"), |f| {
+            group(ui, "Colour", Some("The colour space the file's pixels are in, from the colour config: they are brought into the rendering space (ACEScg) as they are read, as a Nuke Read node does, and the Image Viewer shows them through its view. Automatic: an EXR or HDR already in the rendering space, other files as sRGB. A display space (sRGB - Display) undoes the view, so a picture made for a screen shows as it was"), |f| {
                 let auto = crate::core::image_file::colour_space("", path);
                 let shown = if colour.is_empty() {
                     format!("Automatic ({})", if auto.is_empty() { crate::colour::Colour::get().rendering() } else { auto })

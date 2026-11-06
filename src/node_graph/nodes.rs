@@ -384,9 +384,12 @@ pub fn evaluate_node_type(
         // Writes when asked, from the properties panel: passes its input on.
         NodeType::WriteUsd { .. } => inputs.first().cloned(),
         // The file of the frame cooked.
-        NodeType::LoadImage { path, .. } => {
+        // The file of the frame cooked, in the scene's colour space.
+        NodeType::LoadImage { path, colour } => {
             let frame = crate::usd_scene::cook_frame().unwrap_or(1.0).round() as i64;
-            crate::core::image_file::read(&crate::core::image_file::path_at(path, frame)).ok().map(EvalResult::Image)
+            let file = crate::core::image_file::path_at(path, frame);
+            let space = crate::core::image_file::colour_space(colour, &file);
+            crate::core::image_file::read(&file, &space).ok().map(EvalResult::Image)
         }
 
         // Mocap tools

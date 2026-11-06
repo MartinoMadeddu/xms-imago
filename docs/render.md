@@ -321,7 +321,7 @@ between two images.
 
 **Load Image** (File) reads an image, or a sequence, into the graph: every layer
 and channel of an EXR (AOVs grouped by name), and PNG, JPEG, TIFF, TGA and HDR
-as linear RGBA. Its output is an **Image**.
+as RGBA. Its output is an **Image**, in the rendering space (ACEScg).
 
 - **When it is viewed** (its view flag), the Image Viewer shows its image, as the
   Viewer shows a viewed scene: the same layers, channels, exposure and pixel
@@ -331,8 +331,15 @@ as linear RGBA. Its output is an **Image**.
   (`plate.####.exr` at frame 12 reads `plate.0012.exr`), as is `$F4`; variables
   are put in (`$GDIR/plates/plate.####.exr`). The frame follows the timeline.
   Its Parameters show the file of the frame shown and its size.
-- **Colour space:** chosen from the colour config; **Automatic** takes an EXR or
-  HDR as in the rendering space and anything else as sRGB.
+- **Colour space, as in Nuke:** the space the file's pixels are in, chosen from
+  the colour config. They are brought into the rendering space (ACEScg) as the
+  file is read, once, and the Image Viewer shows them through its view like any
+  render. **Automatic** takes an EXR or HDR as already in the rendering space,
+  anything else as sRGB (the config's sRGB texture space). For a picture made
+  for a screen (a screenshot, a JPEG of a render) choose the **display** space
+  it was made for (`sRGB - Display`): that undoes the view transform, so through
+  the same view it looks as it did. Only colour is converted (`R`, `G`, `B`),
+  never an EXR's data layers.
 - **Quick:** images read are kept (up to about a gigabyte), so scrubbing back over
   frames already seen does not read them again; a file changed on disk is read
   again.
