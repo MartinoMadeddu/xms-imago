@@ -82,6 +82,18 @@ pub struct WriteReport {
     pub frames: usize,
 }
 
+impl WriteReport {
+    /// Counted with `r`, its notes said with `prefix`.
+    fn add(&mut self, r: WriteReport, prefix: &str) {
+        self.changed += r.changed;
+        self.deactivated += r.deactivated;
+        self.added += r.added;
+        self.referenced += r.referenced;
+        self.skipped
+            .extend(r.skipped.into_iter().map(|s| format!("{prefix}{s}")));
+    }
+}
+
 /// Write the override layer for these primitives to `out`.
 pub fn write_override(prims: &[Prim], out: &Path) -> Result<WriteReport, String> {
     if let Some(dir) = out.parent() {
@@ -206,6 +218,33 @@ fn widened(mut e: PrimEdit, u: &PrimEdit, p: &Prim) -> PrimEdit {
 /// frame; with `wide`, each prim edited at any frame written as if edited at
 /// this one too.
 fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, WriteReport) {
+    specs_in(prims, out, wide, None)
+}
+
+/// What a variant's prims are written against: the layer's axes and unit, and
+/// the stages outside the variant.
+struct Outside<'a> {
+    layer_root: Mat4,
+    trees: &'a [Arc<StageTree>],
+}
+
+/// `specs`, of the layer itself, or (`outside`) of a variant's prims, written
+/// at their paths in the scene.
+fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outside>) -> (Spec, Header, WriteReport) {
+    // The variant sets Create made, each with the prims of its variant shown:
+    // written as the set, its variants inside it, not as prims of their own.
+    let mut variant_sets: Vec<(crate::core::variant::MadeSet, Vec<&Prim>)> = vec![];
+    let mut prims: Vec<Prim> = vec![];
+    for p in all {
+        match crate::core::variant::made_set_of(p) {
+            Some(m) => match variant_sets.iter_mut().find(|(s, _)| *s == m) {
+                Some((_, shown)) => shown.push(p),
+                None => variant_sets.push((m, vec![p])),
+            },
+            None => prims.push(p.clone()),
+        }
+    }
+    let prims = prims.as_slice();
     // Each stage once.
     let trees = trees_of(prims);
     let mut root = Spec::default();
@@ -216,7 +255,17 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
     // The layer's axes and unit: those of the first sublayered stage, since
     // stage metadata only comes from the root layer; Imago's (Y up, metres)
     // when there is none.
-    let layer_root = sublayered.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY);
+    let layer_root = match outside {
+        Some(o) => o.layer_root,
+        None => sublayered.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY),
+    };
+    // The stages a prim's parent can be in: this layer's, and those outside a
+    // variant.
+    let all_trees: Vec<Arc<StageTree>> = trees
+        .iter()
+        .chain(outside.map(|o| o.trees).unwrap_or_default())
+        .cloned()
+        .collect();
     // A prim a file has (not one Reparent made above what it moved).
     let in_file = |t: &StageTree, path: &str| t.node(path).is_some() && !t.made.contains(path);
     let in_a_sublayer = |path: &str| sublayered.iter().any(|t| in_file(t, path));
@@ -340,7 +389,7 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
     // Xforms, except where a stage already has a prim on that path; those
     // with materials alone below them (the Material Library Location) are
     // Scopes.
-    let in_a_stage = |path: &str| trees.iter().any(|t| in_file(t, path));
+    let in_a_stage = |path: &str| all_trees.iter().any(|t| in_file(t, path));
     // Values set on those Xforms, carried by each primitive below them.
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
     // A prim's transform is relative to its parent: where a stage has it (it
@@ -349,27 +398,14 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
         crate::core::properties::parents(path)
             .pop()
             .and_then(|a| {
-                let t = trees.iter().find(|t| t.node(&a).is_some())?;
+                let t = all_trees.iter().find(|t| t.node(&a).is_some())?;
                 Some((layer_root.as_dmat4() * t.root.as_dmat4().inverse() * t.world(&a, true)).as_mat4())
             })
             .unwrap_or(layer_root)
     };
-    // The variant sets Create made, each with the prims of its variant shown:
-    // written as the set, not as prims of their own.
-    let mut variant_sets: Vec<(crate::core::variant::MadeSet, Vec<&Prim>)> = vec![];
     let mut made: Vec<&Prim> = prims.iter().filter(|p| p.stage.is_none()).collect();
     made.sort_by_key(|p| p.shading.is_some() || p.render.is_some());
     for p in made {
-        if let Some(m) = crate::core::variant::made_set_of(p) {
-            match variant_sets.iter_mut().find(|(s, _)| *s == m) {
-                Some((_, shown)) => shown.push(p),
-                None => variant_sets.push((m, vec![p])),
-            }
-            for (path, o) in p.above.iter() {
-                above.entry(path.clone()).or_default().merge(o);
-            }
-            continue;
-        }
         if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
             report.skipped.push(format!(
                 "{}: not a primitive path",
@@ -404,8 +440,23 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
             above.entry(path.clone()).or_default().merge(o);
         }
     }
+    let inside = Outside {
+        layer_root,
+        trees: &all_trees,
+    };
     for (m, shown) in &variant_sets {
-        report.added += variant_set(&mut root, &m.0, shown, &in_a_stage, &frame_of);
+        report.add(variant_set(&mut root, &m.0, shown, out, wide, &inside, &in_a_stage), "");
+        // Values set on the prim holding the set, and above it.
+        for p in shown {
+            for (path, o) in p.above.iter() {
+                let inside = path
+                    .strip_prefix(m.0.location.as_str())
+                    .is_some_and(|r| r.starts_with('/'));
+                if !inside {
+                    above.entry(path.clone()).or_default().merge(o);
+                }
+            }
+        }
     }
     for (path, o) in &above {
         opinions(root.at(path), o, false);
@@ -415,6 +466,7 @@ fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, Writ
     // The prim a reference to this layer gets when it names none: the first
     // stage's first root prim, else the first prim made here (Imago does not
     // read the stage's own defaultPrim yet).
+    let prims = all;
     let default_prim = sublayered
         .iter()
         .flat_map(|t| t.nodes.iter())
@@ -732,16 +784,18 @@ fn arc_prim(
 }
 
 /// A variant set Create made, on its prim (an Xform where no stage has it):
-/// the set, its selection and each variant's prims below the prim; the shown
-/// variant's as they are now (`shown`, edited after the Variant too). How many
-/// prims it writes.
+/// the set, its selection and each variant, what it has below the prim: prims
+/// made in Imago as new, stages by their arcs, with what was done to them. The
+/// shown variant as it is now (`shown`, edited after the Variant too).
 fn variant_set(
     root: &mut Spec,
     m: &crate::core::variant::Made,
     shown: &[&Prim],
+    out: &Path,
+    wide: Option<&Wide>,
+    outside: &Outside,
     in_a_stage: &dyn Fn(&str) -> bool,
-    frame_of: &dyn Fn(&str) -> Mat4,
-) -> usize {
+) -> WriteReport {
     for path in crate::core::properties::parents(&m.location)
         .into_iter()
         .chain([m.location.clone()])
@@ -751,39 +805,36 @@ fn variant_set(
             spec.def = Some("Xform");
         }
     }
+    let mut report = WriteReport::default();
+    let mut variants = vec![];
+    for (name, stored) in &m.variants {
+        let prims: Vec<Prim> = if *name == m.selected {
+            shown
+                .iter()
+                .map(|p| crate::core::variant::out_of_set(p, &m.location))
+                .collect()
+        } else {
+            stored
+                .iter()
+                .map(|p| crate::core::variant::out_of_set(p, &m.location))
+                .collect()
+        };
+        let (mut inner, _, r) = specs_in(&prims, out, wide, Some(outside));
+        report.add(r, &format!("{name}: "));
+        let v = Spec {
+            children: std::mem::take(&mut inner.at(&m.location).children),
+            ..Default::default()
+        };
+        variants.push((name.clone(), v));
+    }
     let spec = root.at(&m.location);
     spec.meta
         .push(format!("prepend variantSets = {}", crate::usd_scene::quoted(&m.set)));
     spec.meta.push(crate::usd_scene::variants_metadata(
         &[(m.set.clone(), m.selected.clone())].into_iter().collect(),
     ));
-    let mut written = 0;
-    let mut variants = vec![];
-    for (name, stored) in &m.variants {
-        let prims: Vec<&Prim> = if *name == m.selected {
-            shown.to_vec()
-        } else {
-            stored.iter().collect()
-        };
-        let mut v = Spec::default();
-        for p in prims {
-            let Some(rel) = p.path.strip_prefix(m.location.as_str()) else {
-                continue;
-            };
-            let segments: Vec<&str> = rel.split('/').filter(|s| !s.is_empty()).collect();
-            for n in 1..segments.len() {
-                let parent = v.at(&segments[..n].join("/"));
-                if parent.def.is_none() {
-                    parent.def = Some("Xform");
-                }
-            }
-            new_prim(v.at(rel), p, frame_of(&p.path));
-            written += 1;
-        }
-        variants.push((name.clone(), v));
-    }
     spec.variant_sets.push((m.set.clone(), variants));
-    written
+    report
 }
 
 /// Why a prim cannot carry opinions, if it cannot.

@@ -316,7 +316,8 @@ pub fn scene_properties(
             });
         };
         let prim = prims.iter().find(|p| &p.path == path);
-        let imago_xform = made.contains(path);
+        // The prim holding a made variant set is an Xform Imago makes.
+        let imago_xform = made.contains(path) || made_sets.iter().any(|m| m.0.location == *path);
         if prim.is_none() && node.is_none() && !imago_xform {
             continue;
         }

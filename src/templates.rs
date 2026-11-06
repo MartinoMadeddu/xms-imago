@@ -55,6 +55,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "64 instanceable references to one table: five meshes, shared by every table" },
     Template { by: MARTINO, group: "USD stages", name: "Variant set: cube or sphere", build: variant_shapes,
         hint: "A variant set made in Imago: /asset's shape set, a cube and a sphere, one per input of a Variant in Create. Change Shown, or right-click /asset in the Scene Explorer for Variant Select" },
+    Template { by: MARTINO, group: "USD stages", name: "Variant set: teapot or vehicle", build: variant_stages,
+        hint: "A variant set made from two stages: /asset's model set, the teapot or the car kit's vehicle, each a Load USD referenced below /asset. The vehicle has its own wheels set: Variant Select chooses in both" },
     Template { by: MARTINO, group: "USD stages", name: "Purposes: street lamps", build: lamps,
         hint: "Lamps with render, proxy and guide geometry. Switch them with the render, proxy and guide toggles of the Scene Explorer" },
     Template { by: MARTINO, group: "ICE", name: "ICE graph: spherify", build: spherify,
@@ -1349,6 +1351,48 @@ fn variant_shapes(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
     g.add_connection(lifted[1], 0, variant, 2);
     finish(g, variant, variant);
     "Variant set: /asset has the set shape, its variants cube and sphere, one per input after the ground. Change Shown on the Variant, or right-click /asset in the Scene Explorer (Variant Select). Write USD writes the set with both variants.".into()
+}
+
+/// A variant set made from stages: on /asset, `model`, its variants the teapot
+/// and the car kit's vehicle, each referenced below /asset (Variant in Create).
+fn variant_stages(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
+    use crate::core::variant::VariantMode;
+    use crate::usd_scene::LoadMode;
+    crate::graph_io::clear(g);
+    let mut loads = vec![];
+    for (name, file, at, x) in [
+        ("Teapot", examples::TEAPOT_USD, "/asset/teapot", 40.0),
+        ("Vehicle", examples::CAR_KIT_USD, "/asset/vehicle", 300.0),
+    ] {
+        let id = g.add_node(
+            name.into(),
+            NodeType::LoadUsd {
+                path: examples::path(file),
+                mode: LoadMode::Reference,
+                location: at.into(),
+                prim: String::new(),
+                convert: false,
+            },
+            p(x, 20.0),
+        );
+        loads.push(id);
+    }
+    let variant = g.add_node(
+        "Variant".into(),
+        NodeType::Variant {
+            mode: VariantMode::Create,
+            choices: vec![],
+            location: "/asset".into(),
+            set: "model".into(),
+            names: vec!["teapot".into(), "vehicle".into()],
+            selected: "teapot".into(),
+        },
+        p(170.0, 130.0),
+    );
+    g.add_connection(loads[0], 0, variant, 1);
+    g.add_connection(loads[1], 0, variant, 2);
+    finish(g, variant, variant);
+    format!("Variant set from stages: /asset has the set model, its variants the teapot and the car kit's vehicle, each a Load USD referencing its file below /asset. Change Shown, or right-click /asset in the Scene Explorer (Variant Select); the vehicle's own wheels set is chosen the same way. Write USD writes the set, each variant a reference to its file. {BOXES}{}", missing_examples())
 }
 
 /// The Cameras scene, edited after it is made: Edit Primitive on

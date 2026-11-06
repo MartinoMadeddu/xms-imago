@@ -295,20 +295,26 @@ stage: after one, it says so and leaves the stage as it is.
 **Variant**, in Create, makes a variant set: its **Primitive Location** is the
 prim it is on (a prim of the scene, or a new path, made as an Xform), its
 **Variant Set** its name. Each input after the scene is a variant, named in the
-panel: what that input has below the location. The scene goes on with the one
+panel: what that input has below the location, made in Imago (shapes, meshes
+made by operators) or a stage: a Load USD in Reference or Payload mode, its
+Primitive Location below the Variant's (`/asset/car` for `/asset`). A stage
+goes in whole, at its own paths, so it is one in the Scene Explorer: its own
+variant sets can be chosen too. The scene goes on with the one
 **Shown**; what it had below the location gives way to it. Select and the Scene
 Explorer's Variant Select choose among the variants as they do a stage's.
 
 Write USD writes the set on its prim, `variantSets`, the selection and every
-variant, so the file switches as Imago does. The shown variant is written as it
-is at the end of the graph, edits after the Variant included; the others as
-they came in. A variant's prims are those made in Imago (shapes, meshes made by
-operators); a stage's prims in a variant come later, as do edits made inside a
-variant to what a stage has. A variant with nothing below the location makes no
-prims: shown, nothing carries the set, so Write USD does not write it.
+variant, so the file switches as Imago does: inside each variant, its prims
+made in Imago as `def`s, its stages as their `references` or `payload`, with
+what was done to them as `over`s. The shown variant is written as it is at the
+end of the graph, edits after the Variant included; the others as they came
+in. A sublayered stage cannot go in a variant (its paths are the file's), and a
+variant with nothing below the location makes no prims: shown, nothing carries
+the set, so Write USD does not write it.
 
-The template **Variant set: cube or sphere** (Martino ▸ USD stages) makes
-`/asset`'s set `shape` from a cube and a sphere.
+The templates **Variant set: cube or sphere** and **Variant set: teapot or
+vehicle** (Martino ▸ USD stages) make `/asset`'s set from a cube and a sphere,
+and from the teapot and the car kit's vehicle.
 
 ## Shapes are primitives
 

@@ -18,7 +18,8 @@
 //!
 //! Create makes a variant set: on the prim at its Primitive Location, one
 //! variant per input after the scene, each holding what that input has below
-//! the location (prims made in Imago). The scene goes on with the selected
+//! the location: prims made in Imago, and stages referenced or payloaded there
+//! (Load USD's Primitive Location below it). The scene goes on with the selected
 //! variant's prims; every prim of it carries the whole set (`MadeSet`, in
 //! `Prim::above` at the location), so Write USD writes the `variantSet` with
 //! all its variants, and Select can choose another of them. A variant whose
@@ -108,9 +109,9 @@ pub fn made_sets(prims: &[Prim]) -> Vec<MadeSet> {
 
 /// What a Create's inputs give: the variant set `set` on the prim at
 /// `location`, a variant per input in `variants` (named by `names`, else
-/// `variant1`, `variant2`…), each holding the prims made in Imago below the
-/// location; the scene with `selected`'s (the first, when no variant is
-/// called that).
+/// `variant1`, `variant2`…), each holding the prims below the location made in
+/// Imago or of a stage referenced or payloaded below it; the scene with
+/// `selected`'s (the first, when no variant is called that).
 pub fn create(
     scene: Option<&EvalResult>,
     variants: &[Option<EvalResult>],
@@ -153,13 +154,25 @@ pub fn create(
             continue;
         };
         let mut kept = vec![];
+        // Each stage said once.
+        let mut said: Vec<*const StageTree> = vec![];
         for p in content {
-            if p.stage.is_some() {
-                notes.push(format!(
-                    "{name}: {} is a stage's; only prims made in Imago go in a variant yet",
-                    p.path
-                ));
-            } else if below(&p.path) {
+            let fits = match p.stage.as_ref() {
+                None => below(&p.path),
+                // The whole stage goes in, as its arc.
+                Some(t) if t.arc.as_ref().is_some_and(|a| below(&a.at)) => true,
+                Some(t) => {
+                    if !said.contains(&Arc::as_ptr(t)) {
+                        said.push(Arc::as_ptr(t));
+                        notes.push(format!(
+                            "{name}: {} goes in a variant as a Reference or Payload with its Primitive Location below {location}",
+                            t.source.display()
+                        ));
+                    }
+                    continue;
+                }
+            };
+            if fits {
                 kept.push(p.clone());
             } else {
                 notes.push(format!("{name}: {} is not below {location}", p.path));
@@ -181,8 +194,12 @@ pub fn create(
         .unwrap_or(&made.variants[0])
         .0
         .clone();
-    // What the scene has below the location gives way to the variant.
-    prims.retain(|p| p.stage.is_some() || !below(&p.path));
+    // What the scene has below the location gives way to the variant: its
+    // prims made in Imago, and the stages referenced or payloaded there.
+    prims.retain(|p| match p.stage.as_ref() {
+        None => !below(&p.path),
+        Some(t) => !t.arc.as_ref().is_some_and(|a| below(&a.at)),
+    });
     prims.extend(shown(&MadeSet(Arc::new(made))));
     Selected {
         result: EvalResult::Named(prims),
@@ -195,17 +212,31 @@ fn shown(m: &MadeSet) -> Vec<Prim> {
     let Some((_, prims)) = m.0.variants.iter().find(|(n, _)| *n == m.0.selected) else {
         return vec![];
     };
-    prims
-        .iter()
-        .map(|p| {
-            let mut p = p.clone();
-            Arc::make_mut(&mut p.above)
-                .entry(m.0.location.clone())
-                .or_default()
-                .variant_set = Some(m.clone());
-            p
-        })
-        .collect()
+    prims.iter().map(|p| in_set(p.clone(), m)).collect()
+}
+
+/// A prim of a variant shown of the made set `m`: carrying it.
+fn in_set(mut p: Prim, m: &MadeSet) -> Prim {
+    if made_set_of(&p).as_ref() != Some(m) {
+        Arc::make_mut(&mut p.above)
+            .entry(m.0.location.clone())
+            .or_default()
+            .variant_set = Some(m.clone());
+    }
+    p
+}
+
+/// A prim of a variant as written inside it: out of the set at `location`.
+pub fn out_of_set(p: &Prim, location: &str) -> Prim {
+    let mut p = p.clone();
+    let above = Arc::make_mut(&mut p.above);
+    if let Some(o) = above.get_mut(location) {
+        o.variant_set = None;
+        if o.is_empty() {
+            above.remove(location);
+        }
+    }
+    p
 }
 
 /// The scene with variant `variant` of the made set `m` shown in place of the
@@ -398,9 +429,20 @@ fn swapped(
     let removed: HashSet<String> = crate::edits::edit_set(&prims, old).removed.into_iter().collect();
     let order: Vec<String> = fresh.iter().map(|p| p.path.clone()).collect();
     let mut fresh: HashMap<String, Prim> = fresh.into_iter().map(|p| (p.path.clone(), p)).collect();
-    let on = |p: Prim| Prim {
-        stage: Some(tree.clone()),
-        ..p
+    // A stage in a variant shown of a made set: what it brings is in the set.
+    let set = prims
+        .iter()
+        .filter(|p| p.stage.as_ref().is_some_and(|t| Arc::ptr_eq(t, old)))
+        .find_map(made_set_of);
+    let on = |p: Prim| {
+        let p = Prim {
+            stage: Some(tree.clone()),
+            ..p
+        };
+        match &set {
+            Some(m) => in_set(p, m),
+            None => p,
+        }
     };
     let mut out = vec![];
     for p in prims {
@@ -734,6 +776,99 @@ def Xform \"car\" (
             .insert("shape".into(), "sphere".into());
         let sphere = crate::node_graph::nodes::load_stage(&path, false, &v, LoadMode::Sublayer, "", "").unwrap();
         assert!(at(&sphere, "/asset/sphere").is_some() && at(&sphere, "/asset/cube").is_none());
+    }
+
+    /// The car file's prim `prim` referenced at `at`.
+    fn referenced(prim: &str, at: &str) -> Option<EvalResult> {
+        crate::node_graph::nodes::load_stage(&car(), false, &Variants::new(), LoadMode::Reference, at, prim)
+            .map(EvalResult::Named)
+    }
+
+    /// /asset's set `model`: the car or the ground, each referenced below it.
+    fn of_stages() -> Selected {
+        create(
+            None,
+            &[referenced("/car", "/asset/car"), referenced("/ground", "/asset/ground")],
+            "/asset",
+            "model",
+            &["car".into(), "ground".into()],
+            "car",
+        )
+    }
+
+    /// Stages go in a variant whole, by their arcs; Select chooses both among
+    /// the made set's variants and in a stage's own sets inside one, and what
+    /// that stage brings stays in the made set.
+    #[test]
+    fn stages_are_variants_too() {
+        let out = of_stages();
+        assert!(out.notes.is_empty(), "{:?}", out.notes);
+        let EvalResult::Named(prims) = out.result else { panic!() };
+        assert!(at(&prims, "/asset/car/body").is_some() && at(&prims, "/asset/ground").is_none());
+        let sets = variant_prims(&prims);
+        assert!(sets.iter().any(|(p, s)| p == "/asset" && s[0].name == "model"));
+        assert!(sets.iter().any(|(p, s)| p == "/asset/car" && s[0].name == "paint"));
+        let blue = vec![Choice {
+            prim: "/asset/car".into(),
+            set: "paint".into(),
+            variant: "blue".into(),
+        }];
+        let EvalResult::Named(blue) = select(&EvalResult::Named(prims.clone()), &blue).result else {
+            panic!()
+        };
+        let stripe = at(&blue, "/asset/car/stripe").unwrap();
+        assert_eq!(made_set_of(stripe).unwrap().0.set, "model");
+        let ground = vec![Choice {
+            prim: "/asset".into(),
+            set: "model".into(),
+            variant: "ground".into(),
+        }];
+        let EvalResult::Named(ground) = select(&EvalResult::Named(prims), &ground).result else {
+            panic!()
+        };
+        assert!(at(&ground, "/asset/ground").is_some() && at(&ground, "/asset/car/body").is_none());
+        // A stage at its own paths cannot go in.
+        let sublayered = create(
+            None,
+            &[Some(EvalResult::Named(loaded(&car())))],
+            "/asset",
+            "model",
+            &[],
+            "",
+        );
+        assert!(
+            sublayered.notes.iter().any(|n| n.contains("Reference or Payload")),
+            "{:?}",
+            sublayered.notes
+        );
+    }
+
+    /// Write USD writes each variant's stage as its reference inside the
+    /// variant; read back, the file switches between them.
+    #[test]
+    fn write_usd_writes_stages_in_a_variant_as_references() {
+        let EvalResult::Named(prims) = of_stages().result else {
+            panic!()
+        };
+        let out = std::env::temp_dir().join("xms_variant_test/stages.usda");
+        crate::usd_write::write_override(&prims, &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in [
+            "variantSet \"model\" = {",
+            "prepend references = @car.usda@</car>",
+            "prepend references = @car.usda@</ground>",
+        ] {
+            assert!(text.contains(line), "{line} in\n{text}");
+        }
+        let path = out.to_string_lossy();
+        let back = loaded(&path);
+        assert!(at(&back, "/asset/car/body").is_some() && at(&back, "/asset/ground").is_none());
+        let mut v = Variants::new();
+        v.entry("/asset".into())
+            .or_default()
+            .insert("model".into(), "ground".into());
+        let ground = crate::node_graph::nodes::load_stage(&path, false, &v, LoadMode::Sublayer, "", "").unwrap();
+        assert!(at(&ground, "/asset/ground").is_some() && at(&ground, "/asset/car/body").is_none());
     }
 
     #[test]
