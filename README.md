@@ -489,8 +489,9 @@ source tree, `cargo run -p xms-docs` makes them in `docs/html`.
 
 XMS | Imago is Martino Madeddu's project: other work builds on his and does not
 overwrite it. Read [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) first: how the
-program should work and why. Add to it when a decision is made, and update the
-README and the pages in `docs/` with every change. The operators Imago has and
+program should work and why. Add to it when a decision is made; with every
+change, update the README and the pages in `docs/`, and add a dated line to
+[LOGS.md](LOGS.md). The operators Imago has and
 plans are in [XMS_CORE_OPS_SPEC.md](XMS_CORE_OPS_SPEC.md).
 
 Working with an AI assistant: [LLM_instructions.md](LLM_instructions.md) lists

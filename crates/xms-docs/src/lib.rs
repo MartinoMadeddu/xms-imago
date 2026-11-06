@@ -22,7 +22,7 @@ const REPOSITORY: &str = "https://github.com/MartinoMadeddu/xms-imago/blob/main/
 /// The Reference pages: the Markdown file and its page.
 const REFERENCE: [(&str, &str); 4] = [
     ("XMS_CORE_OPS_SPEC.md", "operators.html"),
-    ("VOCABULARY.md", "vocabulary.html"),
+    ("docs/vocabulary.md", "vocabulary.html"),
     ("ARCHITECTURE.md", "architecture.html"),
     ("DESIGN_PHILOSOPHY.md", "design-philosophy.html"),
 ];

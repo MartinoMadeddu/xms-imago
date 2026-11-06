@@ -45,7 +45,7 @@ have **parameters**.
 | What the Viewer shows when it looks through a camera | **looking through** a camera (the Viewer's 🎥 menu); **Perspective** is the Viewer's own camera | As usdview, Maya, Houdini. A camera's **filmback** (its gate: `horizontalAperture`, `verticalAperture`), picked from **Filmback Presets**. |
 | How Load USD brings its file in | **Sublayer**, **Reference**, **Payload** (Load USD's Mode) | USD's own words. Reference and Payload put the file's default prim at a Primitive Location. |
 | Where Material Binding puts the materials plugged into it | **Material Library Location** (a parameter, `/materials` by default) | A Primitive Location for materials: each goes under it by its operator's name. |
-| How a Get Data reading another context makes the values an element touches one | **Resample** (resampling): Average, Sum, Min, Max (Get Data's and Set Data's parameter) | Reading or writing across contexts resamples, from points to faces, faces to points (Martino). Graphs saved with `reduce` still read. A face touches several points. Arrays (Get Array Data) will keep them as a list. |
+| How a Get Data reading another context makes the values an element touches one | **Resample** (resampling): Average, Sum, Min, Max (Get Data's and Set Data's parameter) | Reading or writing across contexts resamples, from points to faces, faces to points. Graphs saved with `reduce` still read. A face touches several points. Arrays (Get Array Data) will keep them as a list. |
 | What a primitive has from its topology and points rather than stored | **intrinsic**, every one named `intrinsic:…` (`intrinsic:ptIndex`, `intrinsic:corners`, `intrinsic:area`, `intrinsic:pointCount`…) | One list (`xms_geo::intrinsics`), one name wherever it is shown or read: ICE, the Primitive Inspector, the docs. Read only. Point, Face, Corner and Object are Imago's contexts; USD's interpolations (vertex, uniform, faceVarying, constant) are named only where USD is read or written. |
 | The colour a port and its wires get from what they carry | **data type colour** (`type_colours::DataType`) | One table for every graph: see docs/interface.md, Data type colours. |
 | The operator making a light | **Light**, with a **Type**: Dome, Rect, Point, Sphere, Disk, Cylinder, Distant | UsdLux's types by their schema names; the add menu lists one entry per type, all the one operator. A **point light** is a sphere light treated as a point, as USD has it. |
@@ -59,8 +59,8 @@ have **parameters**.
 | Files numbered alike, listed as one | **sequence** (`shot.####.exr`) | One word, shown in the file browser with Collapse sequences. |
 | An ICE graph's end node | **Execution Ports** (the node named ExecutionPorts) | Softimage's ICETree: one root with ordered Execute ports. Named for what it is. The geometry is not wired in: Get Data reads its attributes, Set Data writes them. |
 | A place on a mesh's surface (or a curve) in an ICE graph | **Polygon** and **Param UV** | Closest Point on Surface's and Scatter on Surface's outputs, read by Get Data and Get Array Data wired to them. The Polygon is a face's or curve's number, the Param UV Houdini's parametric coordinates on it. Not "Primitive": in Imago a primitive is a prim (a USD stage object), and Face is to be called Polygon too. Not "location": a location is a prim path. |
-| A piece of graph packaged as one reusable operator (scene graph) or node (ICE graph) | **compound**; what it is made from, its **definition** (an `.icd` file); one placed in a graph, an **instance** | Softimage's word, for both graphs. A definition records its **context**: Scene or ICE. "Definition" is also MaterialX's word for a `nodedef`: the context tells them apart. See [compounds](docs/compounds.md). |
-| Giving an inner parameter or port to a compound's interface | **Promote** (Promote…, a **promoted** parameter or port) | The word artists know from Houdini and Katana (Martino). Not reading across contexts: that is **Resample**. |
+| A piece of graph packaged as one reusable operator (scene graph) or node (ICE graph) | **compound**; what it is made from, its **definition** (an `.icd` file); one placed in a graph, an **instance** | Softimage's word, for both graphs. A definition records its **context**: Scene or ICE. "Definition" is also MaterialX's word for a `nodedef`: the context tells them apart. See [compounds](compounds.md). |
+| Giving an inner parameter or port to a compound's interface | **Promote** (Promote…, a **promoted** parameter or port) | The word artists know from Houdini and Katana. Not reading across contexts: that is **Resample**. |
 | A parameter following another | **reference** (Copy as Reference, Paste as Reference, Remove Reference) | The same link as promotion: a target follows a source. |
 | A compound instance that follows its definition, or has its own copy | **locked** (the default), **editable** (after **Make Editable**) |  |
 | A value an ICE operator gives its graph by name | **Parameter** (an ICE node); its values the ICE operator's **Parameters** | Set in the ICE operator's parameters, so a scene compound can promote it. |
@@ -86,7 +86,7 @@ have **parameters**.
 | Corner | polygon corner | `faceVarying` |
 
 ![The parts of a primitive, with Imago's words for
-them](docs/imago_geo_parts_v3.png)
+them](imago_geo_parts_v3.png)
 
 The Primitive Inspector has a tab for each, and one for **Edge**, which is not a
 context: an edge is two points that follow each other around a face, worked out

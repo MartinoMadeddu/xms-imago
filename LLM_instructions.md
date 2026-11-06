@@ -77,8 +77,8 @@ person running only one block of commands:
      models and functions are used and extended, not replaced. A change that
      would rewrite something of his is named and asked about first.
    - It adds to `DESIGN_PHILOSOPHY.md` the decisions his new code shows, in the
-     same patch, with a line in its log.
-   - It uses the words in `VOCABULARY.md`.
+     same patch, and a dated line to `LOGS.md` for every change.
+   - It uses the words in `docs/vocabulary.md`.
    - It fetches `main` again just before making the patch. If anything new came
      in, it rebases onto it first.
 
@@ -185,10 +185,12 @@ such a file:
   Pack (CC0, Mixamo skeleton), the USD Working Group assets (CC BY-SA 4.0 and
   similar), CMU mocap (BVH only, not read by the program).
 - **Documentation with every change.** `README.md` and the pages in `docs/` that
-  describe what changed are updated in the same change. The website (`site/`)
-  only when something on it is wrong. A new page goes in `docs/README.md`'s
-  list, which is the HTML documentation's order (`cargo test -p xms-docs`
-  checks every link and image leads somewhere).
+  describe what changed are updated in the same change, and a dated line added
+  to `LOGS.md` (what changed, ending with who made it, as `(Martino)`).
+  `DESIGN_PHILOSOPHY.md` holds only how the program should work and why. The
+  website (`site/`) only when something on it is wrong. A new page goes in
+  `docs/README.md`'s list, which is the HTML documentation's order (`cargo test
+  -p xms-docs` checks every link and image leads somewhere).
 - **A screenshot when something visible changed**, in `docs/`, taken from the
   running program.
 - **Say what was tested and what was not.** A claim in the docs is measured

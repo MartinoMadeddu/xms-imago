@@ -21,3 +21,5 @@ _site/
 !/examples/mocap/novasci/Celebrate1.fbx
 !/examples/mocap/novasci/GoAwayAngry.fbx
 *.part
+# git's own file, committed once by mistake
+/FETCH_HEAD

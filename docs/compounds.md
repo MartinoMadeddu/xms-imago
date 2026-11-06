@@ -154,7 +154,7 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
    Editable** copies the definition into the instance, for that instance only.
 4. **Promotion and references are one mechanism:** a target parameter follows a
    source. Both are on the parameter's right-click menu.
-5. **Words** (`VOCABULARY.md`): compound, definition, instance, **Promote**
+5. **Words** (`docs/vocabulary.md`): compound, definition, instance, **Promote**
    (promoted parameters and ports), reference, locked and editable. Reading
    across ICE contexts is **Resample**, not Promote.
 
@@ -420,7 +420,7 @@ the length):
 
 ## Rules
 
-- `LLM_instructions.md`, `VOCABULARY.md`, `ARCHITECTURE.md`.
-- Tests, a line in `DESIGN_PHILOSOPHY.md`'s log and these docs with every step.
+- `LLM_instructions.md`, `docs/vocabulary.md`, `ARCHITECTURE.md`.
+- Tests, a line in `LOGS.md` and these docs with every step.
 - Operators that make or work on a scene take a `Scene` and give a `Scene`.
 - Graphs and `.icd` files stay readable JSON, stable across versions.
