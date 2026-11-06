@@ -199,6 +199,7 @@ fn make(root: &Path, page: &Page, md: &str, links: &mut Links, problems: &mut Ve
     let mut out: Vec<Event> = Vec::with_capacity(events.len());
     let mut section = 0;
     let mut in_heading = false;
+    let mut links_open = 0;
     for event in events {
         match event {
             Event::Start(Tag::Heading {
@@ -229,6 +230,7 @@ fn make(root: &Path, page: &Page, md: &str, links: &mut Links, problems: &mut Ve
                 id,
             }) => {
                 let dest = link(root, folder, &page.file, &dest_url, links, problems, false);
+                links_open += 1;
                 out.push(Event::Start(Tag::Link {
                     link_type,
                     dest_url: dest.into(),
@@ -243,12 +245,29 @@ fn make(root: &Path, page: &Page, md: &str, links: &mut Links, problems: &mut Ve
                 id,
             }) => {
                 let dest = link(root, folder, &page.file, &dest_url, links, problems, true);
+                // A picture opens at full size when clicked, unless it is a
+                // link already.
+                if links_open == 0 {
+                    out.push(Event::Html(
+                        format!("<a class=\"full\" href=\"{}\">", escape(&dest)).into(),
+                    ));
+                }
                 out.push(Event::Start(Tag::Image {
                     link_type,
                     dest_url: dest.into(),
                     title,
                     id,
                 }));
+            }
+            Event::End(TagEnd::Link) => {
+                links_open -= 1;
+                out.push(Event::End(TagEnd::Link));
+            }
+            Event::End(TagEnd::Image) => {
+                out.push(Event::End(TagEnd::Image));
+                if links_open == 0 {
+                    out.push(Event::Html("</a>".into()));
+                }
             }
             Event::Start(Tag::Table(a)) => {
                 out.push(Event::Html("<div class=\"table\">".into()));
@@ -619,5 +638,10 @@ mod tests {
         assert!(usd.contains("id=\"big-stages-boxes-first\""));
         assert!(usd.contains("<code>"), "code spans stay code");
         assert!(!usd.contains(".md\""), "links between the pages are to the pages");
+        let interface = std::fs::read_to_string(out.join("interface.html")).unwrap();
+        assert!(
+            interface.contains("<a class=\"full\" href="),
+            "a picture opens at full size"
+        );
     }
 }

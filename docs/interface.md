@@ -1,9 +1,14 @@
 # Interface
 
-![The top bar: the wordmark, the menus with Window under the mouse, the graph's
-file with unsaved changes, the padlock](xms_menu_bar.png)
+![Imago's window in the Light theme, each part named: the menus, the graph's
+file and the layout lock along the top; the Viewer, Image Viewer, Node Graph, UV
+Editor, Curve Editor and Parameters; the Primitive Inspector, Scene Explorer,
+Operator Stack and History; the Timeline along the bottom](xms_interface.png)
 
 ## Top bar
+
+![The top bar: the wordmark, the menus with Window under the mouse, the graph's
+file with unsaved changes, the padlock](xms_menu_bar.png)
 
 The logo, the menus, the graph's file name (a dot before it while unsaved;
 hover for the path) and the layout padlock.
@@ -222,6 +227,10 @@ Window > Theme: **Light** (the default), **Dark** and **ADHD** (dark blue,
 orange for what is selected). **Edit colours...** sets a scheme's six colours,
 its text weight, **Dark fields** (typed fields dark in every theme) and **1995
 tabs**; it is saved as you edit.
+
+![The Light theme](xms_theme_light.png)
+
+![The Dark theme](xms_theme_dark.png)
 
 ## Scene Explorer
 
