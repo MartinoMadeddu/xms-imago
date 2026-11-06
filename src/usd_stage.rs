@@ -34,19 +34,27 @@ use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdLight, UsdMaterial, U
 /// unpacked beforehand, so its textures are files on disk).
 #[cfg(test)]
 pub fn read(layer: &Path) -> Result<UsdScene, String> {
-    read_phased(layer, false, |_| {})
+    read_phased(layer, false, None, |_| {})
 }
 
 /// Read a composed stage in two passes over one open stage: `boxes` is given
 /// the stage as boxes first (each mesh, curves or points as the box of its
 /// extent, no materials or authored values), then the whole of it is read and
 /// returned. `convert`: turned to Y-up and metres (see `scene_of`).
-pub fn read_phased(layer: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
+/// `session`: a layer composed over the stage, strongest (the variants chosen
+/// in Imago).
+pub fn read_phased(
+    layer: &Path,
+    convert: bool,
+    session: Option<&Path>,
+    boxes: impl FnOnce(UsdScene),
+) -> Result<UsdScene, String> {
     let start = std::time::Instant::now();
     let mut first = 0.0;
     // Every time sample, so the stage can be shown at any frame.
     let opts = xms_usd::SceneOptions {
         all_samples: true,
+        session_layer: session.map(|s| s.to_string_lossy().into_owned()),
         ..Default::default()
     };
     let translated = xms_usd::translate_phased(layer, opts, |b| {
@@ -681,6 +689,7 @@ impl Walk<'_> {
             proxy: under_instance,
             prototype: self.listing > 0,
             authored: authored(prim),
+            variants: prim.variants.clone(),
         });
 
         let world = if prim.reset_xform_stack {

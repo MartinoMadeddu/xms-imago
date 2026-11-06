@@ -139,6 +139,9 @@ pub struct StageNode {
     /// `instanceable`, `purpose` when authored here (not inherited),
     /// `doubleSided`, custom attributes. Single values only.
     pub authored: Vec<(String, crate::core::properties::Value)>,
+    /// Its variant sets: each set's variants and the one selected, read when
+    /// the stage loads; the other variants are composed only when chosen.
+    pub variants: Vec<xms_scene::VariantSet>,
 }
 
 /// The stage hierarchy, depth first (parents before their children). Shared by
@@ -174,6 +177,82 @@ pub struct StageTree {
     /// Prims Reparent put above what it moved where the file has none (its
     /// Parent and the prims above that): Xforms, written as `def`s.
     pub made: std::collections::BTreeSet<String>,
+    /// Read turned to Y-up and metres (Load USD's Y-up metres).
+    pub convert: bool,
+    /// The variants chosen in Imago (Variant), by the prim's path in the file:
+    /// composed in a session layer over the file's own choices, and written
+    /// by Write USD as `variants` on `over`s.
+    pub variants: Variants,
+}
+
+/// Variants chosen, by a prim's path in the file, then by variant set.
+pub type Variants = std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>;
+
+/// A layer choosing `variants`: an `over` on each prim with its
+/// `variants = { … }`, nested as the prims are. Empty for none.
+pub fn variants_layer(variants: &Variants) -> String {
+    let mut out = String::from("#usda 1.0\n");
+    // The prims, parents first, each opened once.
+    let mut open: Vec<String> = vec![];
+    for (path, sets) in variants {
+        let names: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let common = open.iter().zip(&names).take_while(|(a, b)| a.as_str() == **b).count();
+        while open.len() > common {
+            open.pop();
+            out.push_str(&format!("{}}}\n", "    ".repeat(open.len())));
+        }
+        for (k, name) in names.iter().enumerate().skip(common) {
+            let pad = "    ".repeat(k);
+            if k + 1 == names.len() {
+                out.push_str(&format!(
+                    "{pad}over {} (\n{pad}    {}\n{pad})\n{pad}{{\n",
+                    quoted(name),
+                    variants_metadata(sets)
+                ));
+            } else {
+                out.push_str(&format!("{pad}over {}\n{pad}{{\n", quoted(name)));
+            }
+            open.push(name.to_string());
+        }
+    }
+    while !open.is_empty() {
+        open.pop();
+        out.push_str(&format!("{}}}\n", "    ".repeat(open.len())));
+    }
+    out
+}
+
+/// A prim's variant selections as `.usda` metadata.
+pub fn variants_metadata(sets: &std::collections::BTreeMap<String, String>) -> String {
+    let chosen: Vec<String> = sets
+        .iter()
+        .map(|(set, v)| format!("string {} = {}", quoted(set), quoted(v)))
+        .collect();
+    format!("variants = {{ {} }}", chosen.join("; "))
+}
+
+/// A string as `.usda` writes it.
+pub fn quoted(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The session layer choosing `variants`, written beside the program's other
+/// temporary files once per choice. `None` for none.
+fn session_layer(variants: &Variants) -> Result<Option<std::path::PathBuf>, String> {
+    if variants.is_empty() {
+        return Ok(None);
+    }
+    use std::hash::{Hash, Hasher};
+    let text = variants_layer(variants);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    let dir = std::env::temp_dir().join("xms_variants");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let file = dir.join(format!("{:016x}.usda", h.finish()));
+    if !file.exists() {
+        std::fs::write(&file, text).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    Ok(Some(file))
 }
 
 /// A prim of the file Reparent moved: `file` is its path in the file, `from`
@@ -278,6 +357,8 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
         up_axis: tree.up_axis.clone(),
         meters_per_unit: tree.meters_per_unit,
         render_settings: tree.render_settings.as_deref().and_then(|p| arc.place(p)),
+        convert: tree.convert,
+        variants: tree.variants.clone(),
         ..Default::default()
     }
 }
@@ -1087,13 +1168,19 @@ fn open(path: &Path) -> Result<Layer, String> {
 /// Read a USD file as authored. Not cached: see `load_cached`.
 #[cfg(test)]
 pub fn load(path: &Path) -> Result<UsdScene, String> {
-    load_phased(path, false, |_| {})
+    load_phased(path, false, &Variants::new(), |_| {})
 }
 
 /// Read a USD file, giving `boxes` the stage drawn as boxes as soon as that
 /// much is read (see `usd_stage::read_phased`). `convert`: turned to Y-up and
-/// metres.
-fn load_phased(path: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Result<UsdScene, String> {
+/// metres. `variants`: the variants chosen in Imago, composed in a session
+/// layer over the file's.
+fn load_phased(
+    path: &Path,
+    convert: bool,
+    variants: &Variants,
+    boxes: impl FnOnce(UsdScene),
+) -> Result<UsdScene, String> {
     let mut _t = crate::timings::span(format!("usd: load {}", path.display()));
     if !path.exists() {
         return Err(format!("{} not found", path.display()));
@@ -1110,9 +1197,18 @@ fn load_phased(path: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Resu
         path.to_path_buf()
     };
     let base_dir = layer.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let composed = crate::usd_stage::read_phased(&layer, convert, |mut first| {
+    let session = session_layer(variants)?;
+    // The file as given (a .usdz, not the folder it was unpacked into): what
+    // an override layer sublayers; how it was read, for reading it again.
+    let as_read = |tree: &mut Arc<StageTree>| {
+        let tree = std::sync::Arc::make_mut(tree);
+        tree.source = path.to_path_buf();
+        tree.convert = convert;
+        tree.variants = variants.clone();
+    };
+    let composed = crate::usd_stage::read_phased(&layer, convert, session.as_deref(), |mut first| {
         first.base_dir = base_dir.clone();
-        std::sync::Arc::make_mut(&mut first.tree).source = path.to_path_buf();
+        as_read(&mut first.tree);
         boxes(first);
     });
     let mut scene = match composed {
@@ -1137,9 +1233,7 @@ fn load_phased(path: &Path, convert: bool, boxes: impl FnOnce(UsdScene)) -> Resu
         }
     };
     scene.base_dir = base_dir;
-    // The file as given (a .usdz, not the folder it was unpacked into):
-    // what an override layer sublayers.
-    std::sync::Arc::make_mut(&mut scene.tree).source = path.to_path_buf();
+    as_read(&mut scene.tree);
     _t.note(format!(
         "{} meshes, {} instancers",
         scene.meshes.len(),
@@ -1210,12 +1304,12 @@ enum Known {
     Done(Result<Arc<UsdScene>, String>),
 }
 
-/// A file, when it was last changed, whether it is turned to Y-up and metres,
-/// and what is known of it.
+/// A file, when it was last changed, how it is read (turned to Y-up and
+/// metres; the variants chosen), and what is known of it.
 type Cached = (
     std::path::PathBuf,
     Option<std::time::SystemTime>,
-    bool,
+    (bool, Variants),
     Arc<Mutex<Known>>,
 );
 static CACHE: Mutex<Vec<Cached>> = Mutex::new(Vec::new());
@@ -1272,7 +1366,7 @@ pub fn animated(path: &str, convert: bool) -> bool {
     let Ok(cache) = CACHE.lock() else { return false };
     cache
         .iter()
-        .filter(|(p, _, c, _)| p == path && *c == convert)
+        .filter(|(p, _, (c, _), _)| p == path && *c == convert)
         .any(|(_, _, _, k)| {
             k.lock()
                 .is_ok_and(|k| matches!(&*k, Known::Done(Ok(s)) if s.timed.is_some()))
@@ -1317,7 +1411,7 @@ pub fn reading(path: &str, convert: bool) -> Option<&'static str> {
         .lock()
         .ok()?
         .iter()
-        .find(|(p, _, c, _)| *p == path && *c == convert)
+        .find(|(p, _, (c, v), _)| *p == path && *c == convert && v.is_empty())
         .map(|(_, _, _, k)| k.clone())?;
     let known = known.lock().ok()?;
     match *known {
@@ -1344,16 +1438,21 @@ pub fn any_reading() -> bool {
 /// once. `convert`: turned to Y-up and metres, a read of its own (turning the
 /// conversion on or off reads the file again).
 pub fn load_cached(path: &str, convert: bool) -> Result<Arc<UsdScene>, String> {
+    load_cached_with(path, convert, &Variants::new())
+}
+
+/// `load_cached`, with the variants chosen in Imago (`variants`, by the
+/// prim's path in the file) composed over the file's own choices, in a
+/// session layer: a choice of its own, cached as one.
+pub fn load_cached_with(path: &str, convert: bool, variants: &Variants) -> Result<Arc<UsdScene>, String> {
     let path = std::path::PathBuf::from(path);
     let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    let way = (convert, variants.clone());
     let known = {
         let Ok(mut cache) = CACHE.lock() else {
             return Err("The stage cache is unavailable".into());
         };
-        match cache
-            .iter()
-            .find(|(p, s, c, _)| *p == path && *s == stamp && *c == convert)
-        {
+        match cache.iter().find(|(p, s, w, _)| *p == path && *s == stamp && *w == way) {
             Some((_, _, _, known)) => known.clone(),
             None => {
                 let known = Arc::new(Mutex::new(Known::Reading));
@@ -1363,8 +1462,8 @@ pub fn load_cached(path: &str, convert: bool) -> Result<Arc<UsdScene>, String> {
                 if cache.len() >= 6 {
                     cache.remove(0);
                 }
-                cache.push((path.clone(), stamp, convert, known.clone()));
-                read_in_background(path, convert, known.clone());
+                cache.push((path.clone(), stamp, way.clone(), known.clone()));
+                read_in_background(path, way, known.clone());
                 known
             }
         }
@@ -1385,9 +1484,9 @@ pub fn load_cached(path: &str, convert: bool) -> Result<Arc<UsdScene>, String> {
 }
 
 #[cfg(not(test))]
-fn read_in_background(path: std::path::PathBuf, convert: bool, known: Arc<Mutex<Known>>) {
+fn read_in_background(path: std::path::PathBuf, (convert, variants): (bool, Variants), known: Arc<Mutex<Known>>) {
     std::thread::spawn(move || {
-        let full = load_phased(&path, convert, |boxes| {
+        let full = load_phased(&path, convert, &variants, |boxes| {
             if let Ok(mut k) = known.lock() {
                 if matches!(*k, Known::Reading) {
                     *k = Known::Boxes(Arc::new(boxes));
@@ -1403,8 +1502,8 @@ fn read_in_background(path: std::path::PathBuf, convert: bool, known: Arc<Mutex<
 }
 
 #[cfg(test)]
-fn read_in_background(path: std::path::PathBuf, convert: bool, known: Arc<Mutex<Known>>) {
-    let full = load_phased(&path, convert, |_| {}).map(Arc::new);
+fn read_in_background(path: std::path::PathBuf, (convert, variants): (bool, Variants), known: Arc<Mutex<Known>>) {
+    let full = load_phased(&path, convert, &variants, |_| {}).map(Arc::new);
     if let Ok(mut k) = known.lock() {
         *k = Known::Done(full);
     }
@@ -1589,7 +1688,7 @@ def Mesh "m" {{
         assert!((hi - Vec3::new(100.0, 0.0, 200.0)).length() < 1e-4, "{hi}");
         assert_eq!(scene.tree.root, glam::Mat4::IDENTITY);
         // Turned: 200 centimetres up Z is two metres up Y.
-        let scene = load_phased(&path, true, |_| {}).unwrap();
+        let scene = load_phased(&path, true, &Variants::new(), |_| {}).unwrap();
         assert!(scene.converted);
         let (_, hi) = bounds(&world(&scene.meshes[0]));
         assert!((hi - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-4, "{hi}");
@@ -2156,5 +2255,16 @@ def Xform "car" {
             .nodes
             .iter()
             .any(|n| n.path == "/car/front/tyre" && n.depth == 3));
+        // The variant set is listed on the prim holding it, names only.
+        let front = scene.tree.node("/car/front").unwrap();
+        assert_eq!(
+            front.variants,
+            vec![xms_scene::VariantSet {
+                name: "size".into(),
+                variants: vec!["big".into(), "small".into()],
+                selection: "big".into(),
+            }]
+        );
+        assert!(scene.tree.node("/car").unwrap().variants.is_empty());
     }
 }

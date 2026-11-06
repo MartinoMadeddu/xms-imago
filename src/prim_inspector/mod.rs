@@ -296,6 +296,8 @@ pub fn scene_properties(
             .and_then(|group| set_by(graph, view, group, name, SetContext::Property).map(|(id, _)| id))
     };
 
+    // The variant sets Create made, on the prims holding them.
+    let made_sets = crate::core::variant::made_sets(prims);
     let mut rows = vec![];
     for path in &listed {
         let node = node_of(path);
@@ -314,7 +316,8 @@ pub fn scene_properties(
             });
         };
         let prim = prims.iter().find(|p| &p.path == path);
-        let imago_xform = made.contains(path);
+        // The prim holding a made variant set is an Xform Imago makes.
+        let imago_xform = made.contains(path) || made_sets.iter().any(|m| m.0.location == *path);
         if prim.is_none() && node.is_none() && !imago_xform {
             continue;
         }
@@ -345,6 +348,33 @@ pub fn scene_properties(
             (None, None) => "Xform".into(),
         };
         row("type", ty, made_here());
+        // Its variant sets: the variant selected, then every one it has; the
+        // Variant that chose or made it, else the file.
+        let made_here_sets: Vec<xms_scene::VariantSet> = made_sets
+            .iter()
+            .filter(|m| m.0.location == *path)
+            .map(|m| m.0.listed())
+            .collect();
+        for set in node
+            .map(|(n, _)| n.variants.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .chain(&made_here_sets)
+        {
+            let selected = if set.selection.is_empty() {
+                "none"
+            } else {
+                set.selection.as_str()
+            };
+            let from = variant_of(graph, view, path, &set.name)
+                .map(|(id, n)| (n, Some(id)))
+                .unwrap_or_else(made_here);
+            row(
+                &format!("variant:{}", set.name),
+                format!("{selected} ({})", set.variants.join(", ")),
+                from,
+            );
+        }
         // A material Material Binding put in the scene: its surface's inputs,
         // from the Material operator that made it.
         if let Some(m) = prim.and_then(|p| p.shading.as_ref()) {
@@ -636,6 +666,35 @@ fn render_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, _path: &st
             n.node_type,
             NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }
         )
+    })
+    .map(|n| (n.id, n.name.clone()))
+}
+
+/// The Variant nearest upstream of `view` choosing a variant of the set `set`
+/// of the prim at `path`, or making it: its id and name.
+fn variant_of(
+    graph: &crate::node_graph::NodeGraphState,
+    view: NodeId,
+    path: &str,
+    set: &str,
+) -> Option<(NodeId, String)> {
+    use crate::types::NodeType;
+    upstream(graph, view, |n| match &n.node_type {
+        NodeType::Variant {
+            mode,
+            choices,
+            location,
+            set: made,
+            ..
+        } => match mode {
+            crate::core::variant::VariantMode::Select => choices
+                .iter()
+                .any(|c| c.set == set && crate::types::prim_location(&c.prim, "") == path),
+            crate::core::variant::VariantMode::Create => {
+                made.trim() == set && crate::types::prim_location(location, "") == path
+            }
+        },
+        _ => false,
     })
     .map(|n| (n.id, n.name.clone()))
 }

@@ -5,3 +5,4 @@ pub mod render;
 pub mod reparent;
 pub mod rig;
 pub mod ui;
+pub mod variant;

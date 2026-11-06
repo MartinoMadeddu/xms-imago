@@ -157,6 +157,24 @@ pub enum NodeType {
         #[serde(default = "yes")]
         keep_world: bool,
     },
+    /// Variants of the stages coming in: `choices` chooses them (Select),
+    /// composing the stage again. See `core::variant`.
+    /// Create: a variant set `set` on the prim at `location`, a variant per
+    /// input after the scene (named by `names`), `selected` shown.
+    Variant {
+        #[serde(default)]
+        mode: crate::core::variant::VariantMode,
+        #[serde(default)]
+        choices: Vec<crate::core::variant::Choice>,
+        #[serde(default)]
+        location: String,
+        #[serde(default)]
+        set: String,
+        #[serde(default)]
+        names: Vec<String>,
+        #[serde(default)]
+        selected: String,
+    },
     /// A UsdPreviewSurface material with fixed inputs, named by the operator.
     /// Material Binding puts it in the scene. See `core::material`.
     Material {
@@ -858,6 +876,18 @@ impl NodeType {
         }
     }
 
+    /// A Variant, in `mode`, with nothing chosen or made yet.
+    pub fn variant(mode: crate::core::variant::VariantMode) -> Self {
+        NodeType::Variant {
+            mode,
+            choices: vec![],
+            location: String::new(),
+            set: String::new(),
+            names: vec![],
+            selected: String::new(),
+        }
+    }
+
     /// Nodes that create animation data with no input.
     pub fn is_anim_generator(&self) -> bool {
         matches!(
@@ -930,6 +960,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::SetAttribute { .. } => "🏷",
         NodeType::EditPrimitive { .. } => "✏",
         NodeType::Reparent { .. } => "↳",
+        NodeType::Variant { .. } => "🔀",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
         NodeType::MaterialBinding { .. } => "🔗",
@@ -1010,6 +1041,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::SetAttribute { .. } => "Set Attribute",
         NodeType::EditPrimitive { .. } => "Edit Primitive",
         NodeType::Reparent { .. } => "Reparent",
+        NodeType::Variant { .. } => "Variant",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",
         NodeType::MaterialBinding { .. } => "Material Binding",
@@ -2426,6 +2458,12 @@ pub struct SceneHierarchy {
     /// Prims to edit, asked for with Enter or Edit Selected (right-click): an
     /// Edit Primitive naming them is added after the viewed operator.
     pub edit_request: Option<Vec<String>>,
+    /// The variant sets of the prims of a composed stage that have some, by
+    /// path: their rows say so, and their right-click chooses.
+    variant_prims: std::collections::HashMap<String, Vec<xms_scene::VariantSet>>,
+    /// A variant chosen with a right-click: a Variant choosing it is added
+    /// after the viewed operator (or the viewed Variant takes it).
+    pub variant_request: Option<crate::core::variant::Choice>,
 }
 
 /// How the Viewer draws geometry, as USD's `model:drawMode` has it: as it is,
@@ -2539,6 +2577,11 @@ impl SceneHierarchy {
             }
         }
         self.display_revision += 1;
+    }
+
+    /// The variant sets of the prim at `path`; none for most prims.
+    pub fn variant_sets(&self, path: &str) -> &[xms_scene::VariantSet] {
+        self.variant_prims.get(path).map(|v| v.as_slice()).unwrap_or_default()
     }
 
     /// The draw mode chosen on this very row, if any.
@@ -2658,6 +2701,9 @@ impl SceneHierarchy {
             listed.insert(n.path.clone());
             let id = self.next_id();
             let expanded = self.is_expanded(&n.path);
+            if !n.variants.is_empty() {
+                self.variant_prims.insert(n.path.clone(), n.variants.clone());
+            }
             self.objects.push(SceneObject {
                 id,
                 name: n.name.clone(),
@@ -2960,6 +3006,7 @@ impl SceneHierarchy {
     /// the UI handles hiding them.
     pub fn rebuild(&mut self, entries: Vec<(NodeId, String, EvalResult)>) {
         self.objects.clear();
+        self.variant_prims.clear();
 
         for (node_id, node_name, result) in entries {
             let node_key = format!("node:{}", node_id.0);
@@ -3051,6 +3098,13 @@ impl SceneHierarchy {
                 }
 
                 EvalResult::Named(prims) => {
+                    // Variant sets made in Imago (Variant, Create).
+                    for m in crate::core::variant::made_sets(&prims) {
+                        self.variant_prims
+                            .entry(m.0.location.clone())
+                            .or_default()
+                            .push(m.0.listed());
+                    }
                     let group_id = self.next_id();
                     self.objects.push(SceneObject {
                         id: group_id,

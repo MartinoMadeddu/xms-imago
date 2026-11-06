@@ -1473,6 +1473,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::SetAttribute { rows: vec![] }, "Set values on prims: a primvar for rendering, or a property such as visibility, purpose, kind or active"),
             (NodeType::EditPrimitive { kind: Default::default(), edits: Default::default() }, "Edit prims already in the scene as what they are: a camera's lens, a light's values, any prim's transform. Its form shows the prim's values; what you change overrides them"),
             (NodeType::Reparent { parent: String::new(), mode: Default::default(), keep_world: true }, "Move prims under another prim, with what is below them: those named, or the whole scene"),
+            (NodeType::variant(Default::default()), "Choose variants of the stages' variant sets (Select), or make a variant set, its variants from the inputs (Create)"),
             (NodeType::UnpackPrims, "Merge primitives into one mesh"),
         ]),
         ("🎨", "Materials", vec![

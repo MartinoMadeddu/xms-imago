@@ -397,6 +397,18 @@ pub struct Prim {
     /// `inputs:intensity`, `userProperties:*`). Arrays, primvars, transforms
     /// and relationships are not listed here.
     pub authored: Vec<(String, ShaderValue)>,
+    /// Its variant sets, as the stage composed them: names and selections
+    /// only, the variants not chosen are not read.
+    pub variants: Vec<VariantSet>,
+}
+
+/// A variant set of a prim: its variants, and the one selected (empty when
+/// none is).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VariantSet {
+    pub name: String,
+    pub variants: Vec<String>,
+    pub selection: String,
 }
 
 impl Prim {
@@ -413,6 +425,7 @@ impl Prim {
             opaque: None,
             primvars: Vec::new(),
             authored: Vec::new(),
+            variants: Vec::new(),
         }
     }
 

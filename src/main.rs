@@ -1215,6 +1215,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                 if let Some(paths) = self.hierarchy.edit_request.take() {
                     self.graph.edit_primitives(&paths);
                 }
+                // Variant Select on a row's right-click.
+                if let Some(choice) = self.hierarchy.variant_request.take() {
+                    self.graph.choose_variant(choice);
+                }
             }
 
             Pane::CurveEditor => {
