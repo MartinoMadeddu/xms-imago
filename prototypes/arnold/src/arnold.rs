@@ -23,6 +23,18 @@ pub const RENDERING: c_int = 3;
 pub const RESTARTING: c_int = 2;
 pub const FINISHED: c_int = 4;
 pub const FAILED: c_int = 5;
+/// `AtRenderErrorCode`, in its order: why a render did not start.
+pub const ERRORS: [&str; 9] = [
+    "success",
+    "aborted",
+    "no camera: the layer has none, or its Render Settings name none",
+    "a bad camera",
+    "the scene did not validate",
+    "a bad render region",
+    "interrupted",
+    "no outputs: the layer's Render Settings and Products give Arnold no image to make",
+    "an error",
+];
 
 macro_rules! api {
     ($($name:ident: fn($($arg:ty),*) $(-> $ret:ty)?;)*) => {

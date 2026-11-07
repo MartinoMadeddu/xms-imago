@@ -187,11 +187,13 @@ fn run(a: &Args) -> Result<(), String> {
             std::ptr::null_mut(),
         );
         let started = Instant::now();
-        println!(
-            "\n{} render started (code {code}{})",
-            at(t0),
-            if code == 0 { ", success" } else { ", an error" }
-        );
+        let why = arnold::ERRORS.get(code as usize).copied().unwrap_or("an error");
+        if code != 0 {
+            return Err(format!(
+                "the render did not start: {why}. Use a layer made to render: Render Commons, a camera and a light, written by Write USD (the DeLorean render template's, say)"
+            ));
+        }
+        println!("\n{} render started", at(t0));
         let mut written: Vec<Option<SystemTime>> = drivers.iter().map(|(f, _)| modified(f)).collect();
         let mut status = -1;
         let mut edited: Option<Instant> = None;
