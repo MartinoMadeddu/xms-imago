@@ -359,8 +359,31 @@ they are in.
   frames already seen does not read them again; a file changed on disk is read
   again.
 
-Image operators (compare, crop, exposure, over) come later; the Image port is
-their start.
+### Image operators
+
+Under **Image** in the add menu. Each takes an image and gives one, viewed in the
+Image Viewer like Load Image. They work in the **rendering space (ACEScg)**,
+**alpha premultiplied**, as Nuke and Gaffer do: an image coming in another space
+(an 8-bit file read as sRGB) is brought into it first, once, and taken as having
+straight alpha, so it is premultiplied then. Their pixels and frame are kept
+apart, so images of different sizes and places line up by their frames.
+
+| Operator | What it does |
+|---|---|
+| **Image Merge** | B (its first input) with each A laid over it in turn (A, A2…, one input kept free): Over, Under, Plus, Minus, Multiply, Screen, Max, Min, Difference, In, Out, Atop, Mask, Stencil; a Mix; the result's pixels every input's, B's or A's. The beauty is merged, other channels are B's |
+| **Colour Correct** | Exposure, contrast about a pivot (0.18), saturation, gamma, gain and offset (per channel), clamps, in that order; the beauty, and other layers by name |
+| **Shuffle** | Red, green, blue and alpha each from any channel (`R`, `diffuse.r`), from the second input (`2:R`), or a number; into the beauty or a layer of their own (`Into layer`) |
+| **Delete Channels** | Channels deleted, or only some kept, by name (`depth.* P.?`) |
+| **Constant** | A flat colour of a size |
+| **Crop** | The pixels inside a box of the frame; optionally the frame too |
+| **Reformat** | A new size, the picture fitted, filled or stretched; Box (good for shrinking), Bilinear or Cubic |
+| **Transform 2D** | Moved, turned and scaled about a pivot, in frame pixels |
+| **Blur** | Gaussian or box, across and down |
+| **Premultiply, Unpremultiply** | The colour multiplied or divided by alpha |
+| **Write Image** | Its image written when its **Write** is pressed: EXR with every channel as floats, or PNG, JPEG, TIFF, TGA as 8-bit with straight alpha; in a colour space (Automatic: EXR in the rendering space, others sRGB); a frame, the scene's range or its own (`$F4` in the name). Its image passes through |
+
+They work on the CPU, rows on every core; the Image Viewer shows their result on
+the GPU.
 
 ## In the scene
 

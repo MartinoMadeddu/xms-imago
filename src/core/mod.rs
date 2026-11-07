@@ -48,6 +48,8 @@ pub mod variant;
 pub mod vars;
 /// Image files for Load Image: sequences, reading, colour spaces.
 pub mod image_file;
+/// Image operators' work: merge, colour correct, shuffle, crop, resize, blur.
+pub mod image_ops;
 pub mod xform;
 /// The geometry model of packed primitives, the nodes and ICE: typed attribute
 /// columns per context.

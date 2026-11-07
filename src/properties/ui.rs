@@ -40,6 +40,8 @@ pub enum PanelAction {
     Write { targets: Vec<NodeId>, all_files: bool },
     /// Run this Write USD node.
     WriteUsd(NodeId),
+    /// Run this Write Image node.
+    WriteImage(NodeId),
     /// Run this Render Command: write the layer above it first if it says so,
     /// then start its command lines.
     RunCommand(NodeId),
@@ -665,6 +667,132 @@ pub fn draw_properties(
         }),
 
         // Files
+        NodeType::ImageMerge { op, mix, bounds, .. } => {
+            group(ui, "Merge", Some("B (the first input) with each A laid over it in turn (A, then A2…), alpha premultiplied, in the rendering space. The beauty is merged; other channels are B's"), |f| {
+                use crate::core::image_ops::{Bounds, MergeOp};
+                let ops: Vec<(MergeOp, String)> = MergeOp::ALL.iter().map(|o| (*o, format!("{o:?}"))).collect();
+                let named: Vec<(MergeOp, &str)> = ops.iter().map(|(o, n)| (*o, n.as_str())).collect();
+                f.dropdown("Operation", Some("Over: A over B. Under: B over A. Plus, Minus, Multiply, Screen, Max, Min, Difference: channel by channel. In, Out: A inside or outside B's alpha. Atop: A over B, only inside B. Mask, Stencil: B inside or outside A's alpha"), op, &named);
+                f.row("Mix", Some("0: B as it was; 1: the merge"), |ui| form::number(ui, None, mix, |d| d.speed(0.01).range(0.0..=1.0)));
+                f.choice("Bounds", Some("Which pixels the result has: every input's, B's or A's"), bounds, &[(Bounds::Union, "Union"), (Bounds::B, "B"), (Bounds::A, "A")]);
+            });
+        }
+        NodeType::ColourCorrect { grade, layers } => {
+            group(ui, "Colour Correct", Some("In this order, in the rendering space: exposure, contrast about the pivot, saturation, gamma, gain, offset, then the clamps"), |f| {
+                f.row("Exposure", Some("Stops: each one doubles"), |ui| form::number(ui, None, &mut grade.exposure, |d| d.speed(0.05)));
+                f.row("Contrast", None, |ui| form::number(ui, None, &mut grade.contrast, |d| d.speed(0.01).range(0.0..=10.0)));
+                f.row("Pivot", Some("The value contrast leaves where it is: 0.18, middle grey"), |ui| form::number(ui, None, &mut grade.pivot, |d| d.speed(0.005).range(0.001..=10.0)));
+                f.row("Saturation", Some("0 grey, 1 as it is"), |ui| form::number(ui, None, &mut grade.saturation, |d| d.speed(0.01).range(0.0..=10.0)));
+                f.row("Gamma", None, |ui| form::number(ui, None, &mut grade.gamma, |d| d.speed(0.01).range(0.01..=10.0)));
+                numbers(f, "Gain", Some("Red, green, blue: multiplied"), &mut grade.gain, 0.01);
+                numbers(f, "Offset", Some("Red, green, blue: added"), &mut grade.offset, 0.005);
+                f.toggle("Clamp black", Some("Nothing below 0"), &mut grade.clamp_black);
+                f.toggle("Clamp white", Some("Nothing above 1"), &mut grade.clamp_white);
+                f.text("Layers", Some("Other layers corrected too, by name: * any run of characters, ? one (diffuse* spec?); empty, the beauty only"), layers, "");
+            });
+        }
+        NodeType::Shuffle { sources, to } => {
+            group(ui, "Channels", Some("Each of red, green, blue and alpha from a channel of the image (R, diffuse.r), of the second input (2:R), or a number (0, 1); empty, left as it is. Swapping works (R from G, G from R)"), |f| {
+                for (label, source) in ["Red", "Green", "Blue", "Alpha"].iter().zip(sources.iter_mut()) {
+                    f.text(label, None, source, "");
+                }
+                f.text("Into layer", Some("Where they go: empty, the beauty (R, G, B, A); a name, that layer (name.r, .g, .b, .a), the beauty left as it is"), to, "");
+            });
+        }
+        NodeType::DeleteChannels { pattern, keep } => {
+            group(ui, "Channels", Some("By name: * any run of characters, ? one; several apart by spaces (depth.* P.?)"), |f| {
+                f.text("Channels", None, pattern, "");
+                f.choice("", None, keep, &[(false, "Delete them"), (true, "Keep only them")]);
+            });
+        }
+        NodeType::Constant { colour, width, height } => {
+            group(ui, "Constant", Some("A flat colour, in the rendering space, alpha premultiplied"), |f| {
+                numbers(f, "Colour", Some("Red, green, blue, alpha"), colour, 0.01);
+                f.row("Size", None, |ui| {
+                    form::number(ui, None, width, |d| d.speed(1).range(1..=16384));
+                    form::number(ui, None, height, |d| d.speed(1).range(1..=16384))
+                });
+            });
+        }
+        NodeType::Crop { x, y, width, height, frame } => {
+            group(ui, "Box", Some("In frame pixels, from the top left"), |f| {
+                f.row("Corner", None, |ui| {
+                    form::number(ui, None, x, |d| d.speed(1));
+                    form::number(ui, None, y, |d| d.speed(1))
+                });
+                f.row("Size", None, |ui| {
+                    form::number(ui, None, width, |d| d.speed(1).range(1..=65536));
+                    form::number(ui, None, height, |d| d.speed(1).range(1..=65536))
+                });
+                f.toggle("Set the frame", Some("The frame becomes the box too; off, the frame stays and only pixels outside the box go"), frame);
+            });
+        }
+        NodeType::Reformat { width, height, fit, filter } => {
+            use crate::core::image_ops::{Filter, Fit};
+            group(ui, "Size", None, |f| {
+                f.row("Size", None, |ui| {
+                    form::number(ui, None, width, |d| d.speed(1).range(1..=65536));
+                    form::number(ui, None, height, |d| d.speed(1).range(1..=65536))
+                });
+                f.choice("Fit", Some("Fit: all of it inside, its shape kept. Fill: the size filled, what is beyond cut. Distort: stretched"), fit, &[(Fit::Fit, "Fit"), (Fit::Fill, "Fill"), (Fit::Distort, "Distort")]);
+                f.choice("Filter", Some("Box: the pixels covered, averaged (good for shrinking). Bilinear: soft. Cubic: sharp"), filter, &[(Filter::Box, "Box"), (Filter::Bilinear, "Bilinear"), (Filter::Cubic, "Cubic")]);
+            });
+        }
+        NodeType::Transform2D { translate, rotate, scale, pivot, filter } => {
+            use crate::core::image_ops::Filter;
+            group(ui, "Transform", Some("In frame pixels: x right, y up; turned anticlockwise, in degrees, about the pivot"), |f| {
+                numbers(f, "Translate", None, translate, 1.0);
+                f.row("Rotate", None, |ui| form::number(ui, None, rotate, |d| d.speed(0.5)));
+                numbers(f, "Scale", None, scale, 0.01);
+                numbers(f, "Pivot", Some("From the frame's top left, in pixels"), pivot, 1.0);
+                f.choice("Filter", None, filter, &[(Filter::Box, "Box"), (Filter::Bilinear, "Bilinear"), (Filter::Cubic, "Cubic")]);
+            });
+        }
+        NodeType::Blur { size, gaussian } => {
+            group(ui, "Blur", Some("Every channel, by a width in pixels across and down"), |f| {
+                numbers(f, "Size", None, size, 0.25);
+                f.choice("Filter", None, gaussian, &[(true, "Gaussian"), (false, "Box")]);
+            });
+        }
+        NodeType::Premultiply { undo } => {
+            group(ui, "Alpha", Some("The beauty's colour multiplied by its alpha, or divided by it (where alpha is above 0)"), |f| {
+                f.choice("", None, undo, &[(false, "Premultiply"), (true, "Unpremultiply")]);
+            });
+        }
+        NodeType::WriteImage { path, colour, frames, start, end } => {
+            group(ui, "File", Some("$F4 in the name is the frame (####, $F, $F2 to $F9 too). EXR keeps every channel as floats; PNG, JPEG, TIFF and TGA the beauty as 8-bit, alpha straight. Variables are put in: $GDIR/comp/$GNAME.$F4.exr"), |f| {
+                path_row(f, path, "/path/to/comp.$F4.exr", io, sel_id, BrowseMode::Save, "Write image", &["exr", "png", "jpg", "tif", "tga"]);
+                let file = crate::core::image_file::path_at(path, crate::core::vars::globals().frame);
+                if !path.trim().is_empty() && file != path.trim() { f.status(Status::Info, format!("→ {file}")); }
+            });
+            group(ui, "Colour", Some("The colour space it is written in. Automatic: an EXR in the rendering space, other files as sRGB"), |f| {
+                colour_space_row(f, colour, path, egui::Id::new(("write_image_colour", sel_id)));
+            });
+            group(ui, "Frames", None, |f| {
+                use crate::types::WriteFrames;
+                f.choice("Frames", None, frames, &[(WriteFrames::Scene, "Scene Range"), (WriteFrames::Current, "Current Frame"), (WriteFrames::Custom, "Custom")]);
+                match frames {
+                    WriteFrames::Scene => f.value("Range", format!("{} to {}", graph.scene.start, graph.scene.end)),
+                    WriteFrames::Current => {}
+                    WriteFrames::Custom => {
+                        f.row("Start", None, |ui| form::number(ui, None, start, |d| d.speed(1)));
+                        f.row("End", None, |ui| form::number(ui, None, end, |d| d.speed(1)));
+                    }
+                }
+            });
+            group(ui, "Write", None, |f| {
+                f.buttons("Image", None, |ui| {
+                    if ui.add_enabled(!path.trim().is_empty(), egui::Button::new("Write")).clicked() {
+                        io.action = Some(PanelAction::WriteImage(sel_id));
+                    }
+                });
+                match crate::core::image_ops::last(sel_id) {
+                    None => {}
+                    Some(Err(e)) => f.status(Status::Bad, e),
+                    Some(Ok(done)) => f.status(Status::Ok, done),
+                }
+            });
+        }
         NodeType::LoadImage { path, colour } => {
             group(ui, "File", Some("An image, or one of a sequence: $F4 is the frame in four digits ($F, $F2 to $F9 likewise; #### too). Picking one frame of a sequence takes the whole sequence. Variables are put in: $GDIR/plates/plate.$F4.exr"), |f| {
                 path_row(f, path, "/path/to/plate.####.exr", io, sel_id, BrowseMode::File, "Open image", &["exr", "png", "jpg", "jpeg", "tif", "tiff", "tga", "hdr"]);
@@ -696,20 +824,7 @@ pub fn draw_properties(
                 }
             });
             group(ui, "Colour", Some("The colour space the file's pixels are in, from the colour config: they are brought into the rendering space (ACEScg) as they are read, as a Nuke Read node does, and the Image Viewer shows them through its view. Automatic: an EXR or HDR already in the rendering space, other files as sRGB. A display space (sRGB - Display) undoes the view, so a picture made for a screen shows as it was"), |f| {
-                let auto = crate::core::image_file::colour_space("", path);
-                let shown = if colour.is_empty() {
-                    format!("Automatic ({})", if auto.is_empty() { crate::colour::Colour::get().rendering() } else { auto })
-                } else {
-                    colour.clone()
-                };
-                f.row("Colour space", None, |ui| {
-                    egui::ComboBox::from_id_salt(("load_image_colour", sel_id)).selected_text(shown).show_ui(ui, |ui| {
-                        if ui.selectable_label(colour.is_empty(), "Automatic").clicked() { colour.clear(); }
-                        for space in crate::colour::Colour::get().spaces() {
-                            if ui.selectable_label(*colour == space, space.as_str()).clicked() { *colour = space; }
-                        }
-                    })
-                });
+                colour_space_row(f, colour, path, egui::Id::new(("load_image_colour", sel_id)));
             });
         }
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
@@ -3574,6 +3689,34 @@ fn path_status(f: &mut Rows, typed: &str) {
     } else {
         f.status(Status::Bad, "Not found");
     }
+}
+
+/// A colour space from the config, or Automatic (empty): by the file `path`,
+/// an EXR or HDR in the rendering space, other files sRGB.
+fn colour_space_row(f: &mut Rows, colour: &mut String, path: &str, id: egui::Id) {
+    let auto = crate::core::image_file::colour_space("", path);
+    let shown = if colour.is_empty() {
+        format!("Automatic ({})", if auto.is_empty() { crate::colour::Colour::get().rendering() } else { auto })
+    } else {
+        colour.clone()
+    };
+    f.row("Colour space", None, |ui| {
+        egui::ComboBox::from_id_salt(id).selected_text(shown).show_ui(ui, |ui| {
+            if ui.selectable_label(colour.is_empty(), "Automatic").clicked() { colour.clear(); }
+            for space in crate::colour::Colour::get().spaces() {
+                if ui.selectable_label(*colour == space, space.as_str()).clicked() { *colour = space; }
+            }
+        })
+    });
+}
+
+/// Numbers in a row, one field each.
+fn numbers(f: &mut Rows, label: &str, hint: Option<&str>, values: &mut [f32], speed: f64) {
+    f.row(label, hint, |ui| {
+        for v in values.iter_mut() {
+            form::number(ui, None, v, |d| d.speed(speed));
+        }
+    });
 }
 
 /// A unit's usual name, for a stage's metersPerUnit.

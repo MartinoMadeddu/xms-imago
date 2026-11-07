@@ -274,14 +274,20 @@ pub fn draw(
         st.graph_key = Some(key);
         let viewed = graph.view_flag.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
         st.graph_image = match viewed.map(|n| (&n.name, &n.node_type)) {
-            Some((name, crate::types::NodeType::LoadImage { path, .. })) => {
+            Some((name, t)) if t.gives_image() => {
                 let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
                 match graph.evaluate_for_viewport_packed(&pass) {
                     Some(EvalResult::Image(img, space)) => {
-                        let file = crate::core::image_file::path_at(path, graph.frame().round() as i64);
                         let shown = st.graph_image.as_ref().is_some_and(|(i, _)| Arc::ptr_eq(i, &img));
                         if !shown {
-                            let title = Path::new(&file).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone());
+                            // A file's name, else the operator's.
+                            let title = match t {
+                                crate::types::NodeType::LoadImage { path, .. } => {
+                                    let file = crate::core::image_file::path_at(path, graph.frame().round() as i64);
+                                    Path::new(&file).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone())
+                                }
+                                _ => name.clone(),
+                            };
                             st.view.set(img.clone(), title);
                         }
                         Some((img, space))

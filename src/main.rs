@@ -156,6 +156,7 @@ pub(crate) fn draw_ui(
                         // One frame of a sequence picked: the sequence ($F4).
                         NodeType::LoadImage { path, .. } => *path = crate::core::image_file::as_sequence(&text),
                         NodeType::LoadUsd { path, .. }
+                        | NodeType::WriteImage { path, .. }
                         | NodeType::WriteUsd { path, .. }
                         | NodeType::LoadFbx { path, .. }
                         | NodeType::LoadFbxMesh { path } => *path = text,
@@ -2123,6 +2124,12 @@ fn existing_outputs(graph: &NodeGraphState, action: &PanelAction) -> Vec<String>
             })
             .into_iter()
             .collect(),
+        PanelAction::WriteImage(id) => graph
+            .nodes
+            .iter()
+            .find(|n| n.id == *id)
+            .map(|n| image_frames(graph, n).into_iter().map(|(_, p)| p).filter(|p| std::path::Path::new(p).is_file()).collect())
+            .unwrap_or_default(),
         // Rendering writes its layer again, as asked: no question.
         PanelAction::RunCommand(_) | PanelAction::SceneRange(_) => vec![],
     }
@@ -2132,6 +2139,7 @@ fn run_action(graph: &NodeGraphState, subnets: &IceGraphStore, batch: &BatchStat
     match action {
         PanelAction::Write { targets, all_files } => batch::start(batch, graph, targets, all_files),
         PanelAction::WriteUsd(id) => write_usd(graph, subnets, id),
+        PanelAction::WriteImage(id) => write_image(graph, subnets, id),
         PanelAction::RunCommand(id) => run_command(graph, subnets, id),
         // Set on the graph where the panel asks (`Pane::Parameters`).
         PanelAction::SceneRange(_) => {}
@@ -2830,6 +2838,56 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         usd_write::write_frames(&cooked, layer, graph.scene.fps())
     })();
     usd_write::remember(id, result);
+}
+
+/// The frames a Write Image writes, and the file of each: the scene's, the one
+/// shown, or its own range; `$F4` (or `####`) in the name is the frame.
+fn image_frames(graph: &NodeGraphState, node: &crate::node_graph::GraphNode) -> Vec<(i64, String)> {
+    let NodeType::WriteImage { path, frames, start, end, .. } = &node.node_type else { return vec![] };
+    let at: Vec<i64> = match frames {
+        types::WriteFrames::Current => vec![graph.frame().round() as i64],
+        types::WriteFrames::Scene => (graph.scene.start..=graph.scene.end).collect(),
+        types::WriteFrames::Custom => (*start..=*end).collect(),
+    };
+    at.into_iter().map(|f| (f, crate::core::image_file::path_at(path, f))).collect()
+}
+
+/// Write Image: its input at each of its frames, in the colour space asked
+/// (alpha made straight for an 8-bit file), to its file.
+fn write_image(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId) {
+    let Some(node) = graph.nodes.iter().find(|n| n.id == id) else { return };
+    let NodeType::WriteImage { path, colour, .. } = &node.node_type else { return };
+    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
+        subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+    };
+    let result = (|| {
+        if path.trim().is_empty() {
+            return Err("No file set".to_string());
+        }
+        let (src, out) = node.inputs.first().and_then(|i| i.connected_output).ok_or("Nothing connected")?;
+        let frames = image_frames(graph, node);
+        if frames.is_empty() {
+            return Err("No frames to write: the range ends before it starts".to_string());
+        }
+        for (f, file) in &frames {
+            let r = graph.with_time(graph.scene.seconds(*f as f64), || {
+                graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval)
+            });
+            let Some(types::EvalResult::Image(img, space)) = r else {
+                return Err(format!("Frame {f}: no image comes in"));
+            };
+            let img = crate::core::image_ops::working(&img, &space)?;
+            let target = crate::core::image_file::colour_space(colour, file);
+            let straight = !file.to_ascii_lowercase().ends_with(".exr");
+            let img = crate::core::image_ops::to_space(&img, &target, straight)?;
+            xms_image::write(&img, std::path::Path::new(file))?;
+        }
+        Ok(match frames.as_slice() {
+            [(_, one)] => format!("Written: {one}"),
+            many => format!("Written: {} frames, {} to {}", many.len(), many[0].1, many[many.len() - 1].1),
+        })
+    })();
+    crate::core::image_ops::remember(id, result);
 }
 
 /// Why what arrives at a Write USD is not primitives to write.

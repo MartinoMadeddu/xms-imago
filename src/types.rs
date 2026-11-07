@@ -97,6 +97,103 @@ pub enum NodeType {
         #[serde(default)]
         colour: String,
     },
+    /// Image operators (`core::image_ops`): images in, an image out, in the
+    /// rendering space, alpha premultiplied.
+    ///
+    /// B, then each A laid over it (`inputs`: how many, B and the As, one
+    /// kept free).
+    ImageMerge {
+        #[serde(default = "two_inputs")]
+        inputs: u32,
+        #[serde(default)]
+        op: crate::core::image_ops::MergeOp,
+        #[serde(default = "one_f32")]
+        mix: f32,
+        #[serde(default)]
+        bounds: crate::core::image_ops::Bounds,
+    },
+    /// Exposure, contrast, saturation, gamma, gain and offset; the beauty, and
+    /// layers matching `layers`.
+    ColourCorrect {
+        #[serde(default)]
+        grade: crate::core::image_ops::Grade,
+        #[serde(default)]
+        layers: String,
+    },
+    /// Red, green, blue and alpha each from a channel of the image (`R`,
+    /// `diffuse.r`), of the second input (`2:R`), or 0 or 1; written into the
+    /// beauty or the layer `to`.
+    Shuffle {
+        #[serde(default)]
+        sources: [String; 4],
+        #[serde(default)]
+        to: String,
+    },
+    /// Channels matching `pattern` deleted, or (`keep`) only those kept.
+    DeleteChannels {
+        #[serde(default)]
+        pattern: String,
+        #[serde(default)]
+        keep: bool,
+    },
+    /// A flat colour, `width` by `height`.
+    Constant {
+        colour: [f32; 4],
+        width: u32,
+        height: u32,
+    },
+    /// The pixels inside a box of the frame; with `frame`, the frame the box.
+    Crop {
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        #[serde(default = "true_bool")]
+        frame: bool,
+    },
+    /// A new frame size, the picture fitted, filled or stretched.
+    Reformat {
+        width: u32,
+        height: u32,
+        #[serde(default)]
+        fit: crate::core::image_ops::Fit,
+        #[serde(default)]
+        filter: crate::core::image_ops::Filter,
+    },
+    /// Moved, turned (degrees) and scaled about a pivot, in frame pixels.
+    Transform2D {
+        translate: [f32; 2],
+        rotate: f32,
+        scale: [f32; 2],
+        pivot: [f32; 2],
+        #[serde(default)]
+        filter: crate::core::image_ops::Filter,
+    },
+    /// Blurred by `size` pixels across and down.
+    Blur {
+        size: [f32; 2],
+        #[serde(default = "true_bool")]
+        gaussian: bool,
+    },
+    /// The beauty's colour multiplied by its alpha, or (`undo`) divided.
+    Premultiply {
+        #[serde(default)]
+        undo: bool,
+    },
+    /// Write its image to a file, a frame or a range (`$F4` in the name), in
+    /// colour space `colour` (empty: by the file, EXR in the rendering space,
+    /// others sRGB). Its image passes through.
+    WriteImage {
+        path: String,
+        #[serde(default)]
+        colour: String,
+        #[serde(default)]
+        frames: WriteFrames,
+        #[serde(default = "one_i64")]
+        start: i64,
+        #[serde(default = "one_i64")]
+        end: i64,
+    },
     /// A USD file. `mode`: sublayered at its own paths, or one prim of it
     /// (`prim`, else its default prim) referenced or payloaded at `location`
     /// (`/root` by default). Graphs saved before the modes sublayer.
@@ -714,6 +811,10 @@ pub enum WriteFrames {
     Custom,
 }
 
+fn true_bool() -> bool {
+    true
+}
+
 fn one_i64() -> i64 {
     1
 }
@@ -898,6 +999,26 @@ impl NodeType {
     }
 
     /// Nodes that create animation data with no input.
+    /// Whether it gives an image (Load Image, the image operators): what the
+    /// Image Viewer shows when it is viewed.
+    pub fn gives_image(&self) -> bool {
+        matches!(
+            self,
+            NodeType::LoadImage { .. }
+                | NodeType::ImageMerge { .. }
+                | NodeType::ColourCorrect { .. }
+                | NodeType::Shuffle { .. }
+                | NodeType::DeleteChannels { .. }
+                | NodeType::Constant { .. }
+                | NodeType::Crop { .. }
+                | NodeType::Reformat { .. }
+                | NodeType::Transform2D { .. }
+                | NodeType::Blur { .. }
+                | NodeType::Premultiply { .. }
+                | NodeType::WriteImage { .. }
+        )
+    }
+
     pub fn is_anim_generator(&self) -> bool {
         matches!(
             self,
@@ -964,6 +1085,17 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Light { .. } => "💡",
         NodeType::LoadUsd { .. } => "📂",
         NodeType::LoadImage { .. } => "🖼",
+        NodeType::ImageMerge { .. } => "⧉",
+        NodeType::ColourCorrect { .. } => "🎚",
+        NodeType::Shuffle { .. } => "⇄",
+        NodeType::DeleteChannels { .. } => "✂",
+        NodeType::Constant { .. } => "■",
+        NodeType::Crop { .. } => "⬚",
+        NodeType::Reformat { .. } => "⤢",
+        NodeType::Transform2D { .. } => "↻",
+        NodeType::Blur { .. } => "≋",
+        NodeType::Premultiply { .. } => "✕",
+        NodeType::WriteImage { .. } => "💾",
         NodeType::WriteUsd { .. } => "📤",
         NodeType::PickPrims { .. } => "👆",
         NodeType::PrunePrims { .. } => "🚫",
@@ -1046,6 +1178,18 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Light { light, .. } => light.label(),
         NodeType::LoadUsd { .. } => "Load USD",
         NodeType::LoadImage { .. } => "Load Image",
+        NodeType::ImageMerge { .. } => "Image Merge",
+        NodeType::ColourCorrect { .. } => "Colour Correct",
+        NodeType::Shuffle { .. } => "Shuffle",
+        NodeType::DeleteChannels { .. } => "Delete Channels",
+        NodeType::Constant { .. } => "Constant",
+        NodeType::Crop { .. } => "Crop",
+        NodeType::Reformat { .. } => "Reformat",
+        NodeType::Transform2D { .. } => "Transform 2D",
+        NodeType::Blur { .. } => "Blur",
+        NodeType::Premultiply { undo: false } => "Premultiply",
+        NodeType::Premultiply { undo: true } => "Unpremultiply",
+        NodeType::WriteImage { .. } => "Write Image",
         NodeType::WriteUsd { .. } => "Write USD",
         NodeType::PickPrims { .. } => "Pick Primitives",
         NodeType::PrunePrims { .. } => "Prune Primitives",

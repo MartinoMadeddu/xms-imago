@@ -1323,7 +1323,7 @@ fn draw_node(
 }
 
 /// The palette node bodies take, by add-menu category.
-const CATEGORY_COLOURS: [(&str, [u8; 3]); 10] = [
+const CATEGORY_COLOURS: [(&str, [u8; 3]); 11] = [
     // The pastel palette at 80%, one colour per category.
     ("Create", [0xAE, 0xC0, 0x96]),     // light green   (#DAF0BB)
     ("Modify", [0x96, 0xA2, 0xC0]),     // light blue    (#BCCAF0)
@@ -1335,6 +1335,7 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 10] = [
     ("Materials", [0xC0, 0x96, 0xA8]),  // rose          (#F0BCD2)
     ("Render", [0x96, 0xBA, 0xC0]),     // light cyan    (#BBE8F0)
     ("Lights", [0xC0, 0xB8, 0x78]),     // pale yellow   (#F0E696)
+    ("Image", [0xC0, 0xA8, 0x8A]),      // apricot       (#F0D2AC)
 ];
 
 /// The ICE node's own colour, whatever its category: the teal of Softimage's
@@ -1461,6 +1462,20 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::LoadFbx { path: String::new(), take: 0 }, "Everything in an FBX file: the clip, every mesh with its weights and materials, the rest skeleton"),
             (NodeType::LoadFbxDir { dir: String::new(), index: 0, take: 0 }, "One FBX of a folder at a time; Write FBX can run over all of them"),
             (NodeType::WriteFbx { path: crate::types::DEFAULT_WRITE_PATH.into(), mesh: false }, "Write the clip as FBX, with the skeleton it came in with"),
+        ]),
+        ("🖼", "Image", vec![
+            (NodeType::ImageMerge { inputs: 2, op: Default::default(), mix: 1.0, bounds: Default::default() }, "B with each A laid over it: Over, Plus, Multiply, Screen, In, Out…, alpha premultiplied"),
+            (NodeType::ColourCorrect { grade: Default::default(), layers: String::new() }, "Exposure, contrast, saturation, gamma, gain and offset, in the rendering space"),
+            (NodeType::Shuffle { sources: ["R".into(), "G".into(), "B".into(), "A".into()], to: String::new() }, "Red, green, blue and alpha from any channel, of this image or a second; or into a layer of their own"),
+            (NodeType::DeleteChannels { pattern: String::new(), keep: false }, "Channels deleted, or only some kept, by name"),
+            (NodeType::Constant { colour: [0.18, 0.18, 0.18, 1.0], width: 1920, height: 1080 }, "A flat colour of a size"),
+            (NodeType::Crop { x: 0, y: 0, width: 1920, height: 1080, frame: true }, "The pixels inside a box"),
+            (NodeType::Reformat { width: 1920, height: 1080, fit: Default::default(), filter: Default::default() }, "A new size: fitted, filled or stretched"),
+            (NodeType::Transform2D { translate: [0.0; 2], rotate: 0.0, scale: [1.0; 2], pivot: [960.0, 540.0], filter: Default::default() }, "Moved, turned and scaled about a pivot"),
+            (NodeType::Blur { size: [4.0; 2], gaussian: true }, "Blurred, Gaussian or box"),
+            (NodeType::Premultiply { undo: false }, "Colour multiplied by alpha"),
+            (NodeType::Premultiply { undo: true }, "Colour divided by alpha"),
+            (NodeType::WriteImage { path: String::new(), colour: String::new(), frames: Default::default(), start: 1, end: 1 }, "Its image written: EXR with every channel, or PNG, JPEG, TIFF; a frame or a range"),
         ]),
         ("🔨", "Modify", vec![
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),

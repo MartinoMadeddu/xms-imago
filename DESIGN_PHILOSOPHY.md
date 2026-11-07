@@ -365,4 +365,8 @@ the same graph through the same Image port, as Gaffer treats 2D and 3D alike.
 Pixels stay as stored, on the GPU, with the colour space they are in; how they
 look (space, view, exposure, channel) is a shader over them, so changing it
 costs nothing however big the image. Renderers' pixels will arrive the same way.
+Image operators compute in the rendering space with alpha premultiplied, as Nuke
+and Gaffer do; an image is brought into that space once, where it comes in. An
+image merge is its own operator (Image Merge), not the scene's Merge: ports say
+what flows through them.
 

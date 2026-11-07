@@ -384,6 +384,19 @@ pub fn evaluate_node_type(
         // Writes when asked, from the properties panel: passes its input on.
         NodeType::WriteUsd { .. } => inputs.first().cloned(),
         // The file of the frame cooked.
+        // Image operators: their inputs in the rendering space, their image in
+        // it too.
+        t @ (NodeType::ImageMerge { .. }
+        | NodeType::ColourCorrect { .. }
+        | NodeType::Shuffle { .. }
+        | NodeType::DeleteChannels { .. }
+        | NodeType::Constant { .. }
+        | NodeType::Crop { .. }
+        | NodeType::Reformat { .. }
+        | NodeType::Transform2D { .. }
+        | NodeType::Blur { .. }
+        | NodeType::Premultiply { .. }
+        | NodeType::WriteImage { .. }) => image_operator(t, inputs).map(|img| EvalResult::Image(img, String::new())),
         // The file of the frame cooked, as stored, with the colour space it
         // is in: choosing another space reads nothing again.
         NodeType::LoadImage { path, colour } => {
@@ -1835,4 +1848,74 @@ fn instanced(
         }
     }
     out
+}
+
+/// An image operator's image (`core::image_ops`) from its inputs: each image
+/// that comes in brought into the rendering space first.
+fn image_operator(t: &NodeType, inputs: &[EvalResult]) -> Option<Arc<crate::core::image_ops::Image>> {
+    use crate::core::image_ops as ops;
+    let images: Vec<Arc<xms_image::Image>> = inputs
+        .iter()
+        .filter_map(|r| match r {
+            EvalResult::Image(img, space) => ops::working(img, space).ok(),
+            _ => None,
+        })
+        .collect();
+    let first = images.first();
+    // It writes when asked (its Write button); its image passes through.
+    if let NodeType::WriteImage { .. } = t {
+        return first.cloned();
+    }
+    Some(Arc::new(match t {
+        NodeType::Constant { colour, width, height } => ops::constant(*colour, *width as usize, *height as usize),
+        NodeType::ImageMerge { op, mix, bounds, .. } => ops::merge(&images, *op, *mix, *bounds)?,
+        NodeType::ColourCorrect { grade, layers } => ops::colour_correct(first?, grade, layers),
+        NodeType::Shuffle { sources, to } => {
+            // The second image, wired into "Second" (inputs come compacted).
+            let second = (inputs.len() > 1).then(|| images.get(1)).flatten();
+            ops::shuffle(first?, second.map(|i| i.as_ref()), sources, to)
+        }
+        NodeType::DeleteChannels { pattern, keep } => ops::delete_channels(first?, pattern, *keep),
+        NodeType::Crop { x, y, width, height, frame } => ops::crop(first?, (*x, *y, *width as usize, *height as usize), *frame),
+        NodeType::Reformat { width, height, fit, filter } => ops::reformat(first?, *width as usize, *height as usize, *fit, *filter),
+        NodeType::Transform2D { translate, rotate, scale, pivot, filter } => ops::transform(first?, *translate, *rotate, *scale, *pivot, *filter),
+        NodeType::Blur { size, gaussian } => ops::blur(first?, *size, *gaussian),
+        NodeType::Premultiply { undo } => ops::premultiply(first?, *undo),
+        _ => return None,
+    }))
+}
+
+
+#[cfg(test)]
+mod image_operator_tests {
+    use super::*;
+    use crate::core::image_ops as ops;
+
+    fn flat(c: [f32; 4]) -> EvalResult {
+        EvalResult::Image(Arc::new(ops::constant(c, 2, 2)), String::new())
+    }
+
+    fn red(r: &EvalResult) -> f32 {
+        let EvalResult::Image(img, _) = r else { panic!("an image") };
+        img.channels.iter().find(|c| c.name == "R").unwrap().values[0]
+    }
+
+    #[test]
+    fn image_operators_cook_from_their_inputs() {
+        let cc = NodeType::ColourCorrect { grade: ops::Grade { exposure: 1.0, ..Default::default() }, layers: String::new() };
+        let pass = |_: IceGraphId, g: &crate::core::geo::Geo, _: &[crate::ice::Reference]| g.clone();
+        let out = evaluate_node_type(&cc, &[flat([0.25, 0.0, 0.0, 1.0])], &pass, 0).unwrap();
+        assert_eq!(red(&out), 0.5);
+        let merge = NodeType::ImageMerge { inputs: 2, op: ops::MergeOp::Plus, mix: 1.0, bounds: ops::Bounds::Union };
+        let out = evaluate_node_type(&merge, &[flat([0.25, 0.0, 0.0, 1.0]), flat([0.5, 0.0, 0.0, 1.0])], &pass, 0).unwrap();
+        assert_eq!(red(&out), 0.75);
+        // Nothing wired in: nothing out.
+        assert!(evaluate_node_type(&cc, &[], &pass, 0).is_none());
+        // Write Image passes its image through, the same pixels.
+        let write = NodeType::WriteImage { path: String::new(), colour: String::new(), frames: Default::default(), start: 1, end: 1 };
+        let input = flat([0.3, 0.0, 0.0, 1.0]);
+        let out = evaluate_node_type(&write, std::slice::from_ref(&input), &pass, 0).unwrap();
+        let (EvalResult::Image(a, _), EvalResult::Image(b, _)) = (&input, &out) else { panic!() };
+        assert!(Arc::ptr_eq(a, b));
+    }
 }

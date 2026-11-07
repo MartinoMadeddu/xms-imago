@@ -571,7 +571,26 @@ impl NodeGraphState {
             | NodeType::CreateGrid { .. }
             | NodeType::LoadUsd { .. } => (vec![], vec![o("Scene")]),
             NodeType::LoadFbxMesh { .. } => (vec![], vec![o("Mesh")]),
-            NodeType::LoadImage { .. } => (vec![], vec![o("Image")]),
+            NodeType::LoadImage { .. } | NodeType::Constant { .. } => (vec![], vec![o("Image")]),
+            // B, then the images laid over it: A, A2, A3…, one kept free.
+            NodeType::ImageMerge { inputs, .. } => (
+                (0..(*inputs).max(2) as usize)
+                    .map(|k| InputSocket {
+                        name: match k { 0 => "B".into(), 1 => "A".into(), k => format!("A{k}") },
+                        connected_output: None,
+                    })
+                    .collect(),
+                vec![o("Image")],
+            ),
+            NodeType::Shuffle { .. } => (vec![i("Image"), i("Second")], vec![o("Image")]),
+            NodeType::ColourCorrect { .. }
+            | NodeType::DeleteChannels { .. }
+            | NodeType::Crop { .. }
+            | NodeType::Reformat { .. }
+            | NodeType::Transform2D { .. }
+            | NodeType::Blur { .. }
+            | NodeType::Premultiply { .. }
+            | NodeType::WriteImage { .. } => (vec![i("Image")], vec![o("Image")]),
             NodeType::LoadFbx { .. } => (vec![], vec![o("Clip"), o("Geometry"), o("Rest")]),
             NodeType::PickPrims { .. }
             | NodeType::PrunePrims { .. }
@@ -1797,7 +1816,7 @@ impl NodeGraphState {
         match &mut node.node_type {
             // Its inputs after the scene are materials.
             NodeType::MaterialBinding { inputs, .. } if full && n > 1 => *inputs = n,
-            NodeType::Merge { inputs, .. } | NodeType::MergeAnimation { inputs, .. } if full => *inputs = n + 1,
+            NodeType::Merge { inputs, .. } | NodeType::MergeAnimation { inputs, .. } | NodeType::ImageMerge { inputs, .. } if full => *inputs = n + 1,
             // The geometry, then its references: one more reference.
             NodeType::Ice { references, .. } if full => *references = n,
             // Create's variants: one more.
