@@ -108,6 +108,7 @@ fn run(a: &Args) -> Result<(), String> {
     unsafe {
         (ai.AiBegin)(arnold::SESSION_INTERACTIVE);
         let universe = (ai.AiUniverse)();
+        (ai.AiMsgSetConsoleFlags)(universe, arnold::LOG);
         let options = (ai.AiUniverseGetOptions)(universe);
         if !a.licence {
             (ai.AiNodeSetBool)(options, ai.string("skip_license_check"), true);
@@ -150,6 +151,19 @@ fn run(a: &Args) -> Result<(), String> {
             .into_iter()
             .map(|(_, _, d)| (ai.str_param(d, "filename"), d))
             .filter(|(f, _)| !f.is_empty())
+            .map(|(f, d)| {
+                // The layer leaves the frame's tokens for the renderer, as
+                // husk fills them in; Arnold does not, so they are put in
+                // here, and the folder made.
+                let file = with_frame(&f, a.frame);
+                if file != f {
+                    (ai.AiNodeSetStr)(d, ai.string("filename"), ai.string(&file));
+                }
+                if let Some(dir) = Path::new(&file).parent().filter(|d| !d.as_os_str().is_empty()) {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                (file, d)
+            })
             .collect();
         println!("\nimages written:");
         for (file, _) in &drivers {
@@ -263,6 +277,29 @@ fn run(a: &Args) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// `file` with the frame's tokens put in: `$F` the frame, `$F4` padded to 4.
+fn with_frame(file: &str, frame: f32) -> String {
+    let frame = frame.round() as i64;
+    let mut out = String::new();
+    let mut rest = file;
+    while let Some(k) = rest.find("$F") {
+        out.push_str(&rest[..k]);
+        rest = &rest[k + 2..];
+        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+        let pad: usize = rest[..digits].parse().unwrap_or(0);
+        out.push_str(&format!("{frame:0pad$}"));
+        rest = &rest[digits..];
+    }
+    out + rest
+}
+
+#[test]
+fn frame_tokens_are_put_in() {
+    assert_eq!(with_frame("render/beauty.$F4.exr", 1.0), "render/beauty.0001.exr");
+    assert_eq!(with_frame("a.$F.exr", 12.0), "a.12.exr");
+    assert_eq!(with_frame("plain.exr", 3.0), "plain.exr");
 }
 
 /// When the file was last written, if it exists.

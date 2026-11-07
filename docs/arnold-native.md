@@ -38,7 +38,8 @@ This is the first backend of a **renderer interface** that rray will fit next.
 ### 1. Load: through USD
 
 1. Imago writes the layer as it does for renders today: the scene, Render
-   Settings, products and MaterialX materials.
+   Settings, products and MaterialX materials. The products' frame tokens
+   (`$F4`), left for husk to fill in, are put in by Imago: Arnold does not.
 2. Imago starts Arnold in process (`libai` from the SDK at `ARNOLD_PATH`),
    checking its version: Arnold 7 or later (render sessions).
 3. Arnold loads the layer with `AiSceneLoad` (its USD scene format), which
@@ -144,7 +145,8 @@ export ARNOLD_PATH=/path/to/Arnold-7.x-sdk
 
 The layer is one Write USD wrote (the DeLorean render template's, for one).
 Its images are written where its Render Products say, relative paths from
-the folder it is run in. It prints the nodes Arnold made and their names, the
+the folder it is run in, the frame's tokens (`$F4`) put in and the folder
+made. It prints the nodes Arnold made and their names, the
 images and when each was written, and the edit and how long it took to show.
 `--frame`, `--edit-after`, `--seconds` and `--licence` are in `--help`.
 

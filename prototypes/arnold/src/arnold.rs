@@ -17,6 +17,8 @@ pub const RENDER_MODE_CAMERA: c_int = 0;
 pub const NODE_LIGHT: u32 = 0x0004;
 pub const NODE_DRIVER: u32 = 0x0040;
 pub const NODE_ALL: u32 = 0xFFFF;
+/// Info, warnings, errors and progress (`AI_LOG_*`).
+pub const LOG: c_int = 0x0001 | 0x0002 | 0x0004 | 0x0080;
 /// `AtRenderStatus`, in its order.
 pub const STATUS: [&str; 6] = ["not started", "paused", "restarting", "rendering", "finished", "failed"];
 pub const RENDERING: c_int = 3;
@@ -82,6 +84,8 @@ api! {
     AiNodeSetFlt: fn(Ptr, AtString, f32);
     AiNodeSetBool: fn(Ptr, AtString, bool);
     AiNodeGetStr: fn(Ptr, AtString) -> AtString;
+    AiNodeSetStr: fn(Ptr, AtString, AtString);
+    AiMsgSetConsoleFlags: fn(Ptr, c_int);
     AiParamValueMap: fn() -> Ptr;
     AiParamValueMapSetFlt: fn(Ptr, AtString, f32);
     AiParamValueMapDestroy: fn(Ptr);
