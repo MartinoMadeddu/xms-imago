@@ -1998,8 +1998,12 @@ pub enum EvalResult {
     Anim(std::sync::Arc<crate::core::anim::AnimData>),
     /// A material, for Material Binding to put in the scene. Shared.
     Material(std::sync::Arc<crate::core::material::Material>),
-    /// An image (Load Image), for the Image Viewer. Shared.
-    Image(std::sync::Arc<xms_image::Image>),
+    /// An image (Load Image), for the Image Viewer: its pixels as stored, and
+    /// the colour space they are in (empty: the rendering space). Changing the
+    /// space changes how they are read, never the pixels: the Image Viewer
+    /// turns them into its view in one go, and image operators will bring them
+    /// into the rendering space where they compute. Shared.
+    Image(std::sync::Arc<xms_image::Image>, String),
 }
 
 impl EvalResult {
@@ -2007,7 +2011,7 @@ impl EvalResult {
         match self {
             EvalResult::Single(m) => m,
             EvalResult::Named(prims) => merge_world(&prims.iter().collect::<Vec<_>>()),
-            EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(_) => MeshData::default(),
+            EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(..) => MeshData::default(),
         }
     }
 
@@ -2018,7 +2022,7 @@ impl EvalResult {
         match self {
             EvalResult::Single(m) => vec![m],
             EvalResult::Named(prims) => prims.iter().map(|p| p.world().into_owned()).collect(),
-            EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(_) => vec![],
+            EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(..) => vec![],
         }
     }
 
@@ -3059,7 +3063,7 @@ impl SceneHierarchy {
                 }
 
                 // An image on its own: one row, its size.
-                EvalResult::Image(img) => {
+                EvalResult::Image(img, _) => {
                     let id = self.next_id();
                     self.objects.push(SceneObject {
                         id,

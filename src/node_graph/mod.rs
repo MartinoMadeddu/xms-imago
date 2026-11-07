@@ -183,7 +183,7 @@ fn approx_bytes(r: &EvalResult) -> usize {
                 + a.skin.as_ref().map(|s| s.positions.len() * 64).unwrap_or(0)
         }
         EvalResult::Material(_) => 1024,
-        EvalResult::Image(img) => img.channels.iter().map(|c| c.values.len() * 4).sum::<usize>() + 256,
+        EvalResult::Image(img, _) => img.channels.iter().map(|c| c.values.len() * 4).sum::<usize>() + 256,
     }
 }
 

@@ -675,7 +675,7 @@ pub fn draw_properties(
                     f.status(Status::Info, "No file set");
                 } else {
                     if file != path.trim() { f.status(Status::Info, format!("→ {file}")); }
-                    match crate::core::image_file::read(&file, &crate::core::image_file::colour_space(colour, &file)) {
+                    match crate::core::image_file::read(&file) {
                         Ok(img) => f.status(Status::Ok, format!("{} × {}, {} channels", img.width, img.height, img.channels.len())),
                         Err(e) => f.status(Status::Bad, e),
                     }

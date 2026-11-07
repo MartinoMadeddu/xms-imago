@@ -1911,7 +1911,7 @@ pub fn output_info(r: &Option<crate::types::EvalResult>) -> Vec<String> {
             out
         }
         Some(EvalResult::Material(m)) => vec![format!("Material {}", m.name)],
-        Some(EvalResult::Image(img)) => vec![format!("Image {} × {}, {} channels", img.width, img.height, img.channels.len())],
+        Some(EvalResult::Image(img, space)) => vec![format!("Image {} × {}, {} channels, {}", img.width, img.height, img.channels.len(), if space.is_empty() { "rendering space" } else { space.as_str() })],
     }
 }
 

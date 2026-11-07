@@ -272,7 +272,15 @@ impl Image {
                     [r * gain, g * gain, b * gain, 1.0]
                 })
                 .collect();
-            (t.apply)(&mut px);
+            // Through the transform on every core: a 4K frame is millions of
+            // pixels, and a change of colour space or view should show at once.
+            let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+            let chunk = px.len().div_ceil(threads).max(1 << 14);
+            std::thread::scope(|s| {
+                for part in px.chunks_mut(chunk) {
+                    s.spawn(|| (t.apply)(part));
+                }
+            });
             return px
                 .iter()
                 .flat_map(|c| {

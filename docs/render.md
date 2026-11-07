@@ -321,7 +321,8 @@ between two images.
 
 **Load Image** (File) reads an image, or a sequence, into the graph: every layer
 and channel of an EXR (AOVs grouped by name), and PNG, JPEG, TIFF, TGA and HDR
-as RGBA. Its output is an **Image**, in the rendering space (ACEScg).
+as RGBA. Its output is an **Image**: its pixels as stored, with the colour space
+they are in.
 
 - **When it is viewed** (its view flag), the Image Viewer shows its image, as the
   Viewer shows a viewed scene: the same layers, channels, exposure and pixel
@@ -339,9 +340,10 @@ as RGBA. Its output is an **Image**, in the rendering space (ACEScg).
   Scene Range** to set the timeline to them, as Load USD does for an animated
   stage. Selected, its frames show on the timeline as a clip's do.
 - **Colour space, as in Nuke:** the space the file's pixels are in, chosen from
-  the colour config. They are brought into the rendering space (ACEScg) as the
-  file is read, once, and the Image Viewer shows them through its view like any
-  render. **Automatic** takes an EXR or HDR as already in the rendering space,
+  the colour config. The Image Viewer turns them from that space through its
+  view in one go, so changing the space (here, or the Image Viewer's for a
+  render) is immediate: nothing is read again, only what is shown is remade,
+  on every core. **Automatic** takes an EXR or HDR as in the rendering space,
   anything else as sRGB (the config's sRGB texture space). For a picture made
   for a screen (a screenshot, a JPEG of a render) choose the **display** space
   it was made for (`sRGB - Display`): that undoes the view transform, so through

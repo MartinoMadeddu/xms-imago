@@ -2841,7 +2841,7 @@ fn not_prims(r: Option<types::EvalResult>) -> String {
             "The input is a material, not primitives: plug it into Material Binding".to_string()
         }
         Some(types::EvalResult::Named(_)) => String::new(),
-        Some(types::EvalResult::Image(_)) => "The input is an image, not primitives".to_string(),
+        Some(types::EvalResult::Image(..)) => "The input is an image, not primitives".to_string(),
         Some(_) => "The input is a clip, not primitives".to_string(),
         None => "The input did not cook".to_string(),
     }
