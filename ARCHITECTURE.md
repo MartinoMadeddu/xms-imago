@@ -156,8 +156,10 @@ Principles:
 1. The Viewer drawing straight from `Geo`, retiring the `MeshData` view.
 2. The rest of the ICE engine: arrays, merge modes on writes elsewhere, a
    Snippet node compiling to the same instructions, simulation.
-3. rray as render delegate, consuming the scene layer and its edits; `xms-scene`
-   and rray's merge.
+3. Rendering inside Imago through one renderer interface (load a layer, render
+   progressively, edit by prim path, reload, stop): Arnold first, loading
+   `libai` at run time (`docs/arnold-native.md`), then rray; `xms-scene` and
+   rray's merge.
 4. Write USD: de-instancing, flattening, instancer edits.
 
 ## Module map

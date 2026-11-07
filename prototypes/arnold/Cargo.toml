@@ -1,0 +1,9 @@
+# Step 1 of docs/arnold-native.md: Arnold driven from Rust, outside Imago. Its
+# own workspace, so Imago's build and CI never see it.
+[package]
+name = "arnold-prototype"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]

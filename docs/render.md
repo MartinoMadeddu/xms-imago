@@ -456,7 +456,10 @@ kick): the renderer reads the RenderSettings prim the layer names.
 ## Not done yet
 
 - Rendering inside Imago (the Viewer's Render mode, rray as its render
-  delegate), and the image streamed into the Viewer while husk renders
+  delegate), and the image streamed into the Viewer while husk renders. The
+  plan, starting with Arnold driven live in Imago's process, is
+  `docs/arnold-native.md`; its first step, a prototype outside Imago, is
+  `prototypes/arnold`
 - Several Render Commands queued, or sent to a farm
 - A file's products and RenderVars read as relationships
 - A camera or resolution per product
