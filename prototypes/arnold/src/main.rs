@@ -88,6 +88,17 @@ fn at(t0: Instant) -> String {
 
 fn run(a: &Args) -> Result<(), String> {
     let sdk = std::env::var_os("ARNOLD_PATH").ok_or("ARNOLD_PATH is not set: the Arnold SDK's folder")?;
+    // Arnold's USD reader finds MaterialX's node definitions (ND_standard_surface…)
+    // through this variable; without it, every MaterialX material is its
+    // fallback. Imago's own copy of the libraries, unless one is set.
+    let mtlx = "PXR_MTLX_STDLIB_SEARCH_PATHS";
+    if std::env::var_os(mtlx).is_none() {
+        let libraries = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/xms-matx/libraries");
+        if let Ok(dir) = libraries.canonicalize() {
+            std::env::set_var(mtlx, dir);
+        }
+    }
+    println!("{mtlx}={}", std::env::var(mtlx).unwrap_or_default());
     let ai = Api::load(Path::new(&sdk))?;
     let version = ai.version();
     println!("Arnold {version}");

@@ -150,6 +150,22 @@ made. It prints the nodes Arnold made and their names, the
 images and when each was written, and the edit and how long it took to show.
 `--frame`, `--edit-after`, `--seconds` and `--licence` are in `--help`.
 
+**Found so far** (Arnold 7.5.0.0, macOS arm64):
+- The binding works: `libai` opened at run time, every function found.
+- Arnold loads Imago's layers with `AiSceneLoad` in a fraction of a second:
+  camera, meshes, Render Products, AOVs and their filters, resolution.
+- Its nodes are named by prim path (`/root/statue/statue`,
+  `/root/shotCamera`, `/Render/Products/beauty`); the others are Arnold's
+  own (`options`, `root`, `_fallbackShader`).
+- Progressive passes run from -4 AA samples up, each after a "fast scene
+  update" of the few nodes that changed, not a reload.
+- The EXR is written through each pass, not only at its end: the Image Viewer
+  is to read it once a pass is done, not when the file changes.
+- The products' frame tokens (`$F4`) are not Arnold's to put in.
+- MaterialX materials need MaterialX's libraries on
+  `PXR_MTLX_STDLIB_SEARCH_PATHS` (Imago has them, `crates/xms-matx/libraries`):
+  without them every material is Arnold's fallback.
+
 ### Step 2: the renderer interface and the Arnold backend in Imago
 
 - The interface (load, render, edit by path, reload, stop, pixels), with the
