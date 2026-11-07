@@ -8,6 +8,12 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-07
+
+- **Image operators:** Image Merge (B with each A over it: Over, Plus, Multiply, Screen, In, Out and more), Colour Correct, Shuffle, Delete Channels, Constant, Crop, Reformat, Transform 2D, Blur, Premultiply and Unpremultiply, and Write Image (EXR with every channel, or PNG, JPEG, TIFF; a frame or a range). They work in ACEScg with premultiplied alpha.
+- **Image Viewer on the GPU:** a change of colour space, view, exposure or channel shows at once, at any image size.
+- **Colour:** changing an image's colour space reads nothing again; Raw goes through the view chosen, and the Display menu is greyed while the Raw view is on.
+
 ## [0.2.2] - 2026-11-06
 
 - **Load Image:** an image or a sequence (`plate.$F4.exr`) into the graph, brought from its colour space into ACEScg as Nuke's Read does; viewed, the Image Viewer shows it through its view, every layer of an EXR. Picking one frame of a sequence takes the sequence; Use as Scene Range sets the timeline to its frames.
