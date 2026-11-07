@@ -345,7 +345,11 @@ they are in.
   uploaded once, as floats, and the transform is OpenColorIO's shader, so
   changing the space (here, or the Image Viewer's for a render), the view,
   the exposure or the channel shown is immediate at any size of image. An image
-  too big for the GPU's largest texture is shown through the CPU instead. **Automatic** takes an EXR or HDR as in the rendering space,
+  too big for the GPU's largest texture is shown through the CPU instead.
+- **Raw:** the Image Viewer always applies its view. An image (or a render) set
+  to **Raw** is taken as in the rendering space and shown through the view
+  chosen, so an 8-bit file read Raw through an sRGB view gets the curve twice;
+  to see values exactly as stored, choose the **Raw view** as well. **Automatic** takes an EXR or HDR as in the rendering space,
   anything else as sRGB (the config's sRGB texture space). For a picture made
   for a screen (a screenshot, a JPEG of a render) choose the **display** space
   it was made for (`sRGB - Display`): that undoes the view transform, so through

@@ -198,7 +198,12 @@ impl Colour {
     /// From colour space `from` (empty: the scene's) to `v`.
     fn processor(&self, from: &str, v: &View) -> Result<ocio::Processor, String> {
         let v = self.valid(v);
-        let from = if from.is_empty() { self.scene.as_str() } else { from };
+        // Raw is data: OpenColorIO would pass it through untouched, view and
+        // all. A viewer always applies its view, so raw values are shown as if
+        // in the scene's space, through the view chosen; to see them as they
+        // are, choose the Raw view too.
+        let raw = from.eq_ignore_ascii_case("raw") || from.ends_with("- Raw");
+        let from = if from.is_empty() || raw { self.scene.as_str() } else { from };
         self.config
             .get_display_view_processor(from, &v.display, &v.view)
             .map_err(|e| format!("{from} to {} / {}: {e}", v.display, v.view))
@@ -330,6 +335,23 @@ mod tests {
 
     /// A view the config does not have is its default; `$OCIO` naming a
     /// file that is not there gives Imago's config, and says so.
+    /// Raw input goes through the view as the scene's colour would: a viewer
+    /// always applies its view. Only the Raw view shows values as they are.
+    #[test]
+    fn raw_input_still_goes_through_the_view() {
+        let c = Colour::load(None);
+        let srgb = c.on_display("sRGB - Display", "Un-tone-mapped");
+        let through = |from: &str, v: &View| {
+            let mut p = [[0.18f32, 0.18, 0.18, 1.0]];
+            c.cpu(from, v).unwrap().apply(&mut p);
+            p[0][0]
+        };
+        assert!((through("Raw", &srgb) - through("", &srgb)).abs() < 1e-6, "raw is shown as the scene's colour");
+        assert!((through("Raw", &srgb) - 0.18).abs() > 0.1, "with the view's curve, not as it is");
+        let raw_view = c.on_display("sRGB - Display", "Raw");
+        assert!((through("Raw", &raw_view) - 0.18).abs() < 1e-4, "the Raw view shows it as it is");
+    }
+
     #[test]
     fn what_is_missing_falls_back() {
         let c = Colour::load(Some("/nowhere/config.ocio"));
