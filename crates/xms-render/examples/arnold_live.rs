@@ -1,0 +1,101 @@
+//! The Arnold backend by hand (CI has no Arnold): a layer Imago wrote, rendered
+//! live, with edits sent as Imago will send them.
+//!
+//! ```text
+//! ARNOLD_PATH=/path/to/Arnold-7.x-SDK cargo run --release -p xms-render --example arnold_live -- \
+//!     scene.usda --light /lights/key [--move /root/statue/statue]
+//! ```
+//!
+//! It loads the layer, edits the light's intensity during the first passes,
+//! again once the render has finished (a restart after the end), moves a
+//! shape if asked, and asks for a change Arnold cannot make live (a reload).
+
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use xms_render::arnold::{Arnold, Config};
+use xms_render::{Change, Edit, Event, Live, Renderer, Value};
+
+fn main() {
+    let mut args = std::env::args().skip(1);
+    let mut layer = None;
+    let (mut light, mut moved) = (None, None);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--light" => light = args.next(),
+            "--move" => moved = args.next(),
+            _ => layer = Some(PathBuf::from(a)),
+        }
+    }
+    let Some(layer) = layer else {
+        eprintln!("arnold_live scene.usda --light /lights/key [--move /path/to/a/shape]");
+        std::process::exit(2);
+    };
+    let light = light.unwrap_or_else(|| "/lights/key".into());
+    let t0 = Instant::now();
+    let log = |events: Vec<Event>| {
+        for e in events {
+            println!("{:7.2}s {e:?}", t0.elapsed().as_secs_f64());
+        }
+    };
+    let materialx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../xms-matx/libraries");
+    let live = Live::start(move || {
+        let config = Config {
+            materialx: materialx.canonicalize().ok(),
+            ..Config::from_env()?
+        };
+        Ok(Box::new(Arnold::new(config)?) as Box<dyn Renderer>)
+    });
+    let minute = Duration::from_secs(60);
+    let pass = |e: &Event| matches!(e, Event::Pass { .. } | Event::Failed(_));
+    let finished = |e: &Event| matches!(e, Event::Finished | Event::Failed(_));
+    let intensity = |x: f32| Edit {
+        path: light.clone(),
+        change: Change::Attributes(vec![("inputs:intensity".into(), Value::Float(x))]),
+    };
+
+    println!("load {}", layer.display());
+    live.load(&layer, 1.0);
+    log(live.wait(minute, pass));
+
+    println!("\nedit while it renders: {light} intensity 4");
+    live.edit(vec![intensity(4.0)], &layer);
+    log(live.wait(minute, finished));
+
+    println!("\nedit after it finished: {light} intensity 0.5");
+    live.edit(vec![intensity(0.5)], &layer);
+    log(live.wait(minute, finished));
+
+    if let Some(path) = moved {
+        println!("\nmove {path}: its world matrix a translation of 0.05 in z");
+        let mut m = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        m[3][2] = 0.05;
+        live.edit(
+            vec![Edit {
+                path,
+                change: Change::Transform(m),
+            }],
+            &layer,
+        );
+        log(live.wait(minute, finished));
+    }
+
+    println!("\na change Arnold cannot make live: a reload");
+    live.edit(
+        vec![Edit {
+            path: "/root".into(),
+            change: Change::Structure,
+        }],
+        &layer,
+    );
+    log(live.wait(minute, finished));
+    println!(
+        "\ndone in {:.2}s. Send this whole output back.",
+        t0.elapsed().as_secs_f64()
+    );
+}

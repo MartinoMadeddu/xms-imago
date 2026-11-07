@@ -185,4 +185,5 @@ Principles:
 | `crates/xms-image` | images as layers of float channels, OpenEXR |
 | `crates/xms-colour` | OpenColorIO config, views and transforms |
 | `crates/xms-docs` | the HTML documentation from the Markdown |
+| `crates/xms-render` | the renderer interface, run live on a thread; the Arnold backend, `libai` opened at run time |
 | `crates/ragdoll` | collision cleanup for motion capture |

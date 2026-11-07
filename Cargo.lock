@@ -4482,6 +4482,10 @@ name = "xms-matx"
 version = "0.2.3"
 
 [[package]]
+name = "xms-render"
+version = "0.2.3"
+
+[[package]]
 name = "xms-scene"
 version = "0.2.3"
 

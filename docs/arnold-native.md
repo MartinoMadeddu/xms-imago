@@ -164,17 +164,51 @@ images and when each was written, and the edit and how long it took to show.
 - The products' frame tokens (`$F4`) are not Arnold's to put in.
 - MaterialX materials need MaterialX's libraries on
   `PXR_MTLX_STDLIB_SEARCH_PATHS` (Imago has them, `crates/xms-matx/libraries`):
-  without them every material is Arnold's fallback.
+  without them every material is Arnold's fallback. With them, a material's
+  shaders are nodes named by their prim paths (`standard_surface`, and `osl`
+  nodes for the rest of its network).
+- A light's intensity changed while it renders shows in the next pass, about
+  0.03 s after: Arnold updates only the nodes changed, no reload.
+- Pausing (`AiRenderInterrupt`, blocking) waits for the pass running to end.
+- Arnold makes `.tx` files of the textures as it first meets them, which can
+  hold the first passes for many seconds; once made, they stay beside the
+  textures. Whether Live makes them or uses only those made is to decide.
+- A point instancer was read as its prototype only: whether its copies render
+  is still to see.
 
 ### Step 2: the renderer interface and the Arnold backend in Imago
 
-- The interface (load, render, edit by path, reload, stop, pixels), with the
-  live-or-reload rule per kind of edit.
-- The Arnold backend: the binding grown from the prototype's (only the
-  functions used), `libai` found through `ARNOLD_PATH` in the renderer
-  definitions.
-- **Tests:** CI has no Arnold, so they run against a stand-in renderer
-  implementing the interface. Arnold itself is tested by hand.
+`crates/xms-render`, the standard library only:
+
+- **The interface:** `Renderer` (load, render, live, edit, poll, stop), and
+  `Change`, each change by kind: a transform, a light's or shader's
+  attributes, the Render Settings', visibility, points, or structure (always a
+  reload).
+- **`Live`:** a renderer on a thread of its own. It takes edits with the
+  layer as it is with them, applies them live when the renderer can, else
+  loads that layer; edits that come in together are one (a slider dragged).
+  Its `Event`s: loaded, each pass done (its images whole, to read), finished,
+  edits applied, failures.
+- **The Arnold backend** (`arnold`): the prototype's binding, grown. Lights'
+  attributes go to the parameters Arnold's reader sets from them (intensity,
+  exposure, colour, diffuse, specular, normalize), shaders' to the
+  parameters of the same name, Render Settings' `arnold:global:` attributes
+  and resolution to the options; each only where the node has that
+  parameter, of that type. A shape with motion blur keys, points of another
+  count, an attribute not mapped, a prim with no node: a reload. Relative
+  image paths are from the layer's folder.
+- **Tests:** CI has no Arnold: `Live` is tested against a stand-in renderer,
+  and the mapping on its own. Arnold by hand:
+
+```
+ARNOLD_PATH=/path/to/Arnold-7.x-SDK cargo run --release -p xms-render \
+    --example arnold_live -- scene.usda --light /lights/key --move /a/shape
+```
+
+  It edits the light while the render runs and again once it has finished,
+  moves the shape, and asks for a reload, printing each event.
+- Still to do in this step: `ARNOLD_PATH` from the renderer definitions
+  (with Step 3, where Imago starts it).
 
 ### Step 3: Live in the Image Viewer
 

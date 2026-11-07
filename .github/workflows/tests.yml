@@ -82,7 +82,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 60
         shell: bash
-        run: cargo test --release --no-fail-fast -p xms-imago -p xms-ice -p xms-docs 2>&1 | tee report/test.log
+        run: cargo test --release --no-fail-fast -p xms-imago -p xms-ice -p xms-docs -p xms-render 2>&1 | tee report/test.log
 
       - name: Report
         if: always()
