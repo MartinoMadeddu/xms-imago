@@ -130,20 +130,26 @@ pub fn menus(ui: &mut egui::Ui, pane: Pane) {
         })
         .response
         .on_hover_text(format!("View: how the scene's light is shown (OpenColorIO). {about}"));
-    egui::ComboBox::from_id_salt(id("display"))
-        .selected_text(&now.display)
-        .show_ui(ui, |ui| {
-            for d in colour.displays() {
-                // The same view, if the display has it.
-                if ui.selectable_label(now.display == d, d.as_str()).clicked() {
-                    set_view(pane, colour.on_display(&d, &now.view));
+    // The Raw view shows values as they are: no display is applied, so the
+    // display's menu is greyed while it is chosen.
+    let raw = now.view.eq_ignore_ascii_case("raw");
+    ui.add_enabled_ui(!raw, |ui| {
+        egui::ComboBox::from_id_salt(id("display"))
+            .selected_text(&now.display)
+            .show_ui(ui, |ui| {
+                for d in colour.displays() {
+                    // The same view, if the display has it.
+                    if ui.selectable_label(now.display == d, d.as_str()).clicked() {
+                        set_view(pane, colour.on_display(&d, &now.view));
+                    }
                 }
-            }
-        })
-        .response
-        .on_hover_text(format!(
-            "Display: the screen it is shown on (sRGB for most monitors). {about}"
-        ));
+            })
+            .response
+            .on_hover_text(format!(
+                "Display: the screen it is shown on (sRGB for most monitors). {about}"
+            ))
+            .on_disabled_hover_text("The Raw view shows values as stored: no display is applied");
+    });
     if let Some(p) = &colour.problem {
         crate::properties::form::status_label(ui, crate::properties::form::Status::Bad, "OCIO").on_hover_text(p);
     }
