@@ -18,4 +18,4 @@ pub mod view;
 
 pub use crate::image::{Channel, Image, Layer, Look, Show, Transform};
 pub use read::read;
-pub use view::ImageView;
+pub use view::{GpuDraw, ImageView};

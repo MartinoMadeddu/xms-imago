@@ -36,6 +36,7 @@ impl ImagoApp {
         crate::image_viewer::clean_up_left_behind();
         if let Some(render_state) = cc.wgpu_render_state.as_ref() {
             crate::viewer::install(render_state, EGUI_SAMPLES as u32);
+            crate::image_gpu::install(render_state, EGUI_SAMPLES as u32);
         }
         // A slightly wider feathering than egui's own: softer edges on
         // wires, outlines and frames. Text keeps egui's own weight.

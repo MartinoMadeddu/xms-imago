@@ -12,7 +12,7 @@
 pub(crate) mod camera;
 mod edit;
 mod gizmo;
-mod gpu;
+pub(crate) mod gpu;
 pub mod movie;
 mod pick;
 mod scene;

@@ -224,11 +224,11 @@ impl Colour {
         Ok(Cpu(Arc::new(self.processor(from, v)?.default_cpu_processor())))
     }
 
-    /// The scene's colour as `v` shows it, as WGSL: `function`, its resources
-    /// in bind group `group` from binding 0.
-    pub fn shader(&self, v: &View, function: &str, group: u32) -> Result<Shader, String> {
+    /// Colour in space `from` (empty: the scene's) as `v` shows it, as WGSL:
+    /// `function`, its resources in bind group `group` from binding 0.
+    pub fn shader(&self, from: &str, v: &View, function: &str, group: u32) -> Result<Shader, String> {
         let gpu = self
-            .processor("", v)?
+            .processor(from, v)?
             .default_gpu_processor()
             .map_err(|e| e.to_string())?;
         let mut desc = GpuShaderDesc::new();
@@ -353,7 +353,7 @@ mod tests {
                     display: d.clone(),
                     view,
                 };
-                let s = c.shader(&v, "imago_display", 1).unwrap();
+                let s = c.shader("", &v, "imago_display", 1).unwrap();
                 assert!(
                     s.text.contains("fn imago_display(inPixel: vec4<f32>) -> vec4<f32>"),
                     "{v:?}"
@@ -375,6 +375,6 @@ mod tests {
         );
         assert_eq!(c.scene, "Linear Rec.709 (sRGB)");
         assert_eq!(c.default_view().view, "ACES 1.0 - SDR Video");
-        assert!(c.shader(&c.default_view(), "imago_display", 1).is_ok());
+        assert!(c.shader("", &c.default_view(), "imago_display", 1).is_ok());
     }
 }

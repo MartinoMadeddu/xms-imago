@@ -432,10 +432,13 @@ pub fn draw(
     // remakes what is shown, from the pixels already in memory.
     let input = st.graph_image.as_ref().map(|(_, space)| space.clone()).unwrap_or_else(|| st.input.clone());
     let now = (input, v);
-    if st.shown_in.as_ref() != Some(&now) {
+    // On the GPU the transform is a shader (`image_gpu`); the view's own CPU
+    // transform is made only for an image the GPU cannot take.
+    let gpu = st.view.shown().is_some_and(|(img, _)| crate::image_gpu::fits(&img));
+    if !gpu && (st.shown_in.as_ref() != Some(&now) || st.view.display.is_none()) {
         st.view.display = display_transform(&now.0, &now.1);
-        st.shown_in = Some(now);
     }
+    st.shown_in = Some(now);
     // The view's own controls, the view and display, then the image
     ui.horizontal(|ui| {
         st.view.controls(ui);
@@ -447,7 +450,24 @@ pub fn draw(
     let w = ui.available_width();
     let below = 34.0 + if st.show_log { 210.0 } else { 0.0 };
     let h = (ui.available_height() - below).max(80.0);
-    ui.allocate_ui(egui::vec2(w, h), |ui| st.view.canvas(ui));
+    // The image on the GPU (the colour transform a shader: a change of space
+    // or view shows at once), else the view's own CPU path.
+    let (from, view) = st.shown_in.clone().unwrap_or_default();
+    let draw = move |painter: &egui::Painter, rect: egui::Rect, image: &Arc<xms_image::Image>, layer: &xms_image::Layer, show: xms_image::Show, look: &xms_image::Look| {
+        // Over the canvas (always on screen), the image placed in it.
+        let canvas = painter.clip_rect();
+        let place = [
+            (rect.min.x - canvas.min.x) / canvas.width(),
+            (rect.min.y - canvas.min.y) / canvas.height(),
+            rect.width() / canvas.width(),
+            rect.height() / canvas.height(),
+        ];
+        painter.add(eframe::egui_wgpu::Callback::new_paint_callback(
+            canvas,
+            crate::image_gpu::ImagePaint { image: image.clone(), layer: layer.clone(), show, look: *look, from: from.clone(), view: view.clone(), place },
+        ));
+    };
+    ui.allocate_ui(egui::vec2(w, h), |ui| st.view.canvas(ui, gpu.then_some(&draw as &xms_image::GpuDraw)));
     ui.horizontal(|ui| st.view.snapshots(ui));
     if st.show_log {
         crate::properties::render::console(ui, "image_viewer_log", run.as_ref(), 150.0, "Nothing yet: press Render");

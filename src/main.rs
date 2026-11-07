@@ -18,6 +18,7 @@ mod graph_ports;
 mod history;
 mod ice;
 /// The Image Viewer pane: renders and images.
+mod image_gpu;
 mod image_viewer;
 mod inside_compound;
 mod keys_ui;

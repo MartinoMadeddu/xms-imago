@@ -1097,20 +1097,14 @@ struct Display {
     group: wgpu::BindGroup,
 }
 
-/// The Viewer's display pass for `view`. A view whose transform cannot be made
-/// is shown through sRGB's curve, and the reason printed.
-fn display(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    blit_layout: &wgpu::BindGroupLayout,
-    egui_format: wgpu::TextureFormat,
-    egui_samples: u32,
-    view: &crate::colour::View,
-) -> Display {
-    let shader = crate::colour::Colour::get()
-        .shader(view, "imago_display", 1)
+/// The display transform `from` colour space (empty: the scene's) to `view`, as
+/// WGSL with its uniforms and LUTs in bind group 1: OpenColorIO's, or sRGB's
+/// curve when it cannot be made (the reason printed, for `who`).
+pub(crate) fn colour_shader(from: &str, view: &crate::colour::View, who: &str) -> xms_colour::Shader {
+    crate::colour::Colour::get()
+        .shader(from, view, "imago_display", 1)
         .unwrap_or_else(|e| {
-            eprintln!("Viewer colour: {e}; shown through sRGB's curve");
+            eprintln!("{who} colour: {e}; shown through sRGB's curve");
             xms_colour::Shader {
                 text: include_str!("display_fallback.wgsl").into(),
                 function: "imago_display".into(),
@@ -1118,7 +1112,16 @@ fn display(
                 uniforms: None,
                 textures: vec![],
             }
-        });
+        })
+}
+
+/// A display transform's uniforms and LUTs on the GPU: its bind group and the
+/// group's layout (group 1 of the shaders that call `imago_display`).
+pub(crate) fn colour_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    shader: &xms_colour::Shader,
+) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
     let mut entries: Vec<wgpu::BindGroupLayoutEntry> = vec![];
     let mut buffers: Vec<(u32, wgpu::Buffer)> = vec![];
     if let Some((binding, bytes)) = &shader.uniforms {
@@ -1135,7 +1138,7 @@ fn display(
         buffers.push((
             *binding,
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("viewer display uniforms"),
+                label: Some("display uniforms"),
                 contents: bytes,
                 usage: wgpu::BufferUsages::UNIFORM,
             }),
@@ -1166,7 +1169,7 @@ fn display(
             depth_or_array_layers: t.size[2],
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("viewer display LUT"),
+            label: Some("display LUT"),
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -1198,7 +1201,7 @@ fn display(
         ));
     }
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("viewer display"),
+        label: Some("display"),
         entries: &entries,
     });
     let mut resources: Vec<wgpu::BindGroupEntry> = buffers
@@ -1213,10 +1216,25 @@ fn display(
         resource: wgpu::BindingResource::TextureView(v),
     }));
     let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("viewer display"),
+        label: Some("display"),
         layout: &layout,
         entries: &resources,
     });
+    (layout, group)
+}
+
+/// The Viewer's display pass for `view`. A view whose transform cannot be made
+/// is shown through sRGB's curve, and the reason printed.
+fn display(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    blit_layout: &wgpu::BindGroupLayout,
+    egui_format: wgpu::TextureFormat,
+    egui_samples: u32,
+    view: &crate::colour::View,
+) -> Display {
+    let shader = colour_shader("", view, "Viewer");
+    let (layout, group) = colour_group(device, queue, &shader);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("viewer blit"),
         source: wgpu::ShaderSource::Wgsl(format!("{}\n{}", shader.text, include_str!("blit.wgsl")).into()),

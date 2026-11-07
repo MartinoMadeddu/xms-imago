@@ -362,4 +362,7 @@ An operator can give an image as much as a scene. The view flag says what is
 looked at: a scene goes to the Viewer, an image to the Image Viewer, with the
 same layers, exposure and pixel values as a render. Image operators will join
 the same graph through the same Image port, as Gaffer treats 2D and 3D alike.
+Pixels stay as stored, on the GPU, with the colour space they are in; how they
+look (space, view, exposure, channel) is a shader over them, so changing it
+costs nothing however big the image. Renderers' pixels will arrive the same way.
 

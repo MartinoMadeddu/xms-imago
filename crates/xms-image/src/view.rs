@@ -23,6 +23,10 @@ pub struct Snap {
     pub name: String,
 }
 
+/// Draws an image into a rectangle of the canvas, in place of the view's own
+/// texture: the image, its layer, what of it and its look.
+pub type GpuDraw<'a> = dyn Fn(&egui::Painter, egui::Rect, &Arc<Image>, &Layer, Show, &Look) + 'a;
+
 /// What a view shows, and how.
 pub struct ImageView {
     image: Option<Arc<Image>>,
@@ -323,7 +327,10 @@ impl ImageView {
 
     /// The image in the space left, with zoom, pan and the values under the
     /// pointer.
-    pub fn canvas(&mut self, ui: &mut egui::Ui) {
+    /// `gpu`: draws the image itself into the rectangle given (the program's
+    /// GPU path, the colour transform a shader there); without it, the view
+    /// makes a texture of its own on the CPU.
+    pub fn canvas(&mut self, ui: &mut egui::Ui, gpu: Option<&GpuDraw>) {
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, egui::Color32::from_gray(38));
@@ -349,7 +356,7 @@ impl ImageView {
             ],
             self.display.as_ref().map(|t| t.id),
         );
-        if self.made.as_ref() != Some(&key) || self.texture.is_none() {
+        if gpu.is_none() && (self.made.as_ref() != Some(&key) || self.texture.is_none()) {
             let pixels = image.display_through(&layer, self.show, &self.look, self.display.as_ref());
             let colour = egui::ColorImage::from_rgba_unmultiplied([image.width.max(1), image.height.max(1)], &pixels);
             match &mut self.texture {
@@ -421,7 +428,9 @@ impl ImageView {
         let frame_min = rect.center() + self.pan - egui::vec2(fw as f32, fh as f32) * s * 0.5;
         let image_min = frame_min + egui::vec2((image.origin.0 - fx) as f32, (image.origin.1 - fy) as f32) * s;
         let image_rect = egui::Rect::from_min_size(image_min, egui::vec2(image.width as f32, image.height as f32) * s);
-        if let Some(t) = &self.texture {
+        if let Some(draw) = gpu {
+            draw(&painter, image_rect, &image, &layer, self.show, &self.look);
+        } else if let Some(t) = &self.texture {
             painter.image(
                 t.id(),
                 image_rect,

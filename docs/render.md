@@ -341,9 +341,11 @@ they are in.
   stage. Selected, its frames show on the timeline as a clip's do.
 - **Colour space, as in Nuke:** the space the file's pixels are in, chosen from
   the colour config. The Image Viewer turns them from that space through its
-  view in one go, so changing the space (here, or the Image Viewer's for a
-  render) is immediate: nothing is read again, only what is shown is remade,
-  on every core. **Automatic** takes an EXR or HDR as in the rendering space,
+  view in one go, on the GPU as Gaffer and Houdini's COPs do: the image is
+  uploaded once, as floats, and the transform is OpenColorIO's shader, so
+  changing the space (here, or the Image Viewer's for a render), the view,
+  the exposure or the channel shown is immediate at any size of image. An image
+  too big for the GPU's largest texture is shown through the CPU instead. **Automatic** takes an EXR or HDR as in the rendering space,
   anything else as sRGB (the config's sRGB texture space). For a picture made
   for a screen (a screenshot, a JPEG of a render) choose the **display** space
   it was made for (`sRGB - Display`): that undoes the view transform, so through
