@@ -164,7 +164,7 @@ impl Arnold {
         }
     }
 
-    /// The first output (the beauty) to Imago's driver too: in memory, bucket
+    /// Every output (each AOV, once) to Imago's driver too: in memory, bucket
     /// by bucket, beside the products' files.
     fn pixels_out(&self, options: Ptr) {
         let ai = &self.ai;
@@ -176,17 +176,24 @@ impl Arnold {
             }
             let n = (ai.AiArrayGetNumElements)(outputs);
             let lines: Vec<String> = (0..n).map(|i| ffi::text((ai.AiArrayGetStr)(outputs, i).0)).collect();
-            let Some(line) = lines.first().and_then(|l| pixels_line(l)) else {
+            let mut ours: Vec<String> = vec![];
+            for line in lines.iter().filter_map(|l| pixels_line(l)) {
+                let aov = |l: &str| l.split_whitespace().next().map(str::to_string);
+                if !ours.iter().any(|o| aov(o) == aov(&line)) {
+                    ours.push(line);
+                }
+            }
+            if ours.is_empty() {
                 return;
-            };
+            }
             (ai.AiNode)(
                 self.universe,
                 ai.string(&driver_name()),
                 ai.string(PIXELS_NODE),
                 std::ptr::null_mut(),
             );
-            let all = (ai.AiArrayAllocate)(n + 1, 1, ffi::TYPE_STRING);
-            for (i, l) in lines.iter().chain([&line]).enumerate() {
+            let all = (ai.AiArrayAllocate)(n + ours.len() as u32, 1, ffi::TYPE_STRING);
+            for (i, l) in lines.iter().chain(&ours).enumerate() {
                 (ai.AiArraySetStr)(all, i as u32, ai.string(l));
             }
             (ai.AiNodeSetArray)(options, ai.string("outputs"), all);
@@ -262,11 +269,11 @@ fn driver_name() -> String {
 }
 
 /// An output line (`AOV type filter driver`, maybe a layer after) sent to
-/// Imago's driver as RGBA.
+/// Imago's driver, of the same type.
 fn pixels_line(line: &str) -> Option<String> {
     let words: Vec<&str> = line.split_whitespace().collect();
     match words[..] {
-        [aov, _, filter, _, ..] => Some(format!("{aov} RGBA {filter} {PIXELS_NODE}")),
+        [aov, ty, filter, _, ..] => Some(format!("{aov} {ty} {filter} {PIXELS_NODE}")),
         _ => None,
     }
 }
@@ -505,10 +512,14 @@ mod tests {
     }
 
     #[test]
-    fn the_beauty_goes_to_imagos_driver_too() {
+    fn each_aov_goes_to_imagos_driver_too() {
         assert_eq!(
             pixels_line("RGBA RGBA /Render/Products/Vars/RGBA/filter /Render/Products/beauty").as_deref(),
             Some("RGBA RGBA /Render/Products/Vars/RGBA/filter /__xms_imago_pixels")
+        );
+        assert_eq!(
+            pixels_line("Z FLOAT /Render/Products/Vars/Z/filter /Render/Products/beauty layer").as_deref(),
+            Some("Z FLOAT /Render/Products/Vars/Z/filter /__xms_imago_pixels")
         );
         assert_eq!(pixels_line("RGBA RGBA"), None);
     }

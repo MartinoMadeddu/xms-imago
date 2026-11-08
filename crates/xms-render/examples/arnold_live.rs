@@ -59,8 +59,9 @@ fn main() {
                     // The image in memory, bucket by bucket (Imago's driver).
                     let f = live.pixels().frame();
                     let lit = f.rgba.iter().filter(|p| p[0] + p[1] + p[2] > 0.0).count();
+                    let layers: Vec<String> = live.pixels().layers().iter().map(|l| l.name.clone()).collect();
                     println!(
-                        "         pixels in memory: {}x{}, {lit} lit, {} buckets in",
+                        "         pixels in memory: {}x{}, {lit} lit, {} buckets in; layers {layers:?}",
                         f.width,
                         f.height,
                         live.pixels().generation()

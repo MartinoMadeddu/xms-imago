@@ -98,19 +98,33 @@ const LIVE_DRAW: std::time::Duration = std::time::Duration::from_millis(33);
 /// path) is brought up to date.
 const LIVE_IMAGE: std::time::Duration = std::time::Duration::from_millis(250);
 
-/// A live render's image, in memory, as the view shows images: its channels.
-fn image_of(frame: &xms_render::Frame) -> xms_image::Image {
-    let (w, h) = (frame.width, frame.height);
-    let channel = |name: &str, k: usize| xms_image::Channel {
-        name: name.into(),
-        values: frame.rgba.iter().map(|p| p[k]).collect(),
-    };
+/// A render's images in memory, as the view shows images: an AOV each, its
+/// channels named as in an EXR (`R`… for the beauty, `diffuse.R`…, `Z`).
+fn image_of(layers: &[xms_render::Layer]) -> xms_image::Image {
+    let (w, h) = layers
+        .first()
+        .map(|l| (l.frame.width, l.frame.height))
+        .unwrap_or_default();
+    let mut channels = vec![];
+    for l in layers.iter().filter(|l| (l.frame.width, l.frame.height) == (w, h)) {
+        for (k, c) in ["R", "G", "B", "A"].iter().enumerate().take(l.channels) {
+            let name = match (l.name.as_str(), l.channels) {
+                ("RGBA", _) => c.to_string(),
+                (n, 1) => n.to_string(),
+                (n, _) => format!("{n}.{c}"),
+            };
+            channels.push(xms_image::Channel {
+                name,
+                values: l.frame.rgba.iter().map(|p| p[k]).collect(),
+            });
+        }
+    }
     xms_image::Image {
         width: w,
         height: h,
         origin: (0, 0),
         frame: (0, 0, w, h),
-        channels: vec![channel("R", 0), channel("G", 1), channel("B", 2), channel("A", 3)],
+        channels,
     }
 }
 
@@ -367,7 +381,7 @@ pub fn draw(
     poll(st);
     // In Imago: the graph's changes sent (IPR); the image, in memory, shown as
     // its buckets come in.
-    let mut live_frame = None;
+    let mut live_layers = None;
     if let Some(live) = &mut st.live {
         let key = (revision, graph.frame().to_bits());
         if let Some(why) = live.update(key, graph.frame(), || scene(graph, subnets)) {
@@ -375,15 +389,15 @@ pub fn draw(
         }
         // At once when it is done: what a snapshot keeps.
         if live.done() || st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_IMAGE) {
-            live_frame = live.frame();
+            live_layers = live.layers();
         }
     }
-    if let Some(frame) = live_frame {
+    if let Some(layers) = live_layers {
         st.live_shown = Some(std::time::Instant::now());
         st.showing_live = true;
         st.graph_image = None;
         st.view.set(
-            Arc::new(image_of(&frame)),
+            Arc::new(image_of(&layers)),
             format!("Imago   frame {}", graph.frame().round() as i64),
         );
     }

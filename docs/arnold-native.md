@@ -262,9 +262,11 @@ gives it, and `crate::live::Session::pixels` the frame when buckets came in.
   functions, in the order `ai_node_entry.h` and `ai_drivers.h` declare them.
   It takes RGB and RGBA; each bucket, on the render thread that did it
   (`DriverProcessBucket`), goes into the image where it is in the frame.
-- **Attached at each load:** a node of it, `/__xms_imago_pixels`, and the
-  first output line (the beauty) again, to it as RGBA, added to the options'
-  `outputs`. The products' drivers still write their files.
+- **Attached at each load:** a node of it, `/__xms_imago_pixels`, and every
+  output line again (each AOV once, of its own type), to it, added to the
+  options' `outputs`; it takes several outputs (`AiDriverInitialize`), RGBA,
+  RGB, vectors, floats and integers, each a layer of `Pixels` (one channel
+  held grey). The products' drivers still write their files.
 - **On screen, only what changed:** `Pixels` keeps the bounds of what came
   in since it was last taken (`take`); the Image Viewer keeps its live
   texture and writes only that region into it each frame

@@ -206,16 +206,16 @@ impl ImageGpu {
         self.upload(device, queue, key, (image.width, image.height), &pixels);
     }
 
-    /// A live render's texture: made again for another render or size, else
-    /// written only where buckets came in.
-    fn ensure_live(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, live: &Arc<xms_render::Pixels>) {
-        let key = (Arc::as_ptr(live) as usize, "live".to_string());
+    /// A live render's texture, of the layer shown: made again for another
+    /// render, layer or size, else written only where buckets came in.
+    fn ensure_live(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, live: &Arc<xms_render::Pixels>, layer: &str) {
+        let key = (Arc::as_ptr(live) as usize, format!("live {layer}"));
         let size = self
             .uploaded
             .as_ref()
             .filter(|u| u.key == key)
             .map(|u| u.texture.size());
-        let Some(region) = live.take(size.is_none()) else {
+        let Some(region) = live.take(layer, size.is_none()) else {
             return;
         };
         let (w, h) = region.frame;
@@ -223,7 +223,7 @@ impl ImageGpu {
             let all = if (region.width, region.height) == (w, h) {
                 region
             } else {
-                live.take(true).unwrap_or(region)
+                live.take(layer, true).unwrap_or(region)
             };
             self.upload(device, queue, key, (w, h), bytemuck::cast_slice(&all.rgba));
             return;
@@ -327,7 +327,7 @@ impl CallbackTrait for ImagePaint {
         };
         gpu.ensure_display(device, queue, &self.from, &self.view);
         match &self.live {
-            Some(live) => gpu.ensure_live(device, queue, live),
+            Some(live) => gpu.ensure_live(device, queue, live, &self.layer.name),
             None => gpu.ensure_image(device, queue, &self.image, &self.layer),
         }
         if let Some(u) = &gpu.uploaded {

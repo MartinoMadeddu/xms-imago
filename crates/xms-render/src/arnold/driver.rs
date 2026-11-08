@@ -113,15 +113,26 @@ unsafe extern "C" fn plugin_cleanup(_: Ptr) {}
 unsafe extern "C" fn parameters(_: Ptr, _: Ptr) {}
 unsafe extern "C" fn initialize(_: Ptr, node: Ptr) {
     if let Some(c) = CALLS.get() {
-        // SAFETY: Arnold's call, on the node it is initialising; one output.
-        unsafe { (c.driver_initialize)(node, false) };
+        // SAFETY: Arnold's call, on the node it is initialising: every AOV.
+        unsafe { (c.driver_initialize)(node, true) };
     }
 }
 unsafe extern "C" fn update(_: Ptr, _: Ptr) {}
 unsafe extern "C" fn finish(_: Ptr) {}
 
 unsafe extern "C" fn supports_pixel_type(_: Ptr, ty: u8) -> bool {
-    matches!(ty, ffi::TYPE_RGBA | ffi::TYPE_RGB)
+    channels(ty).is_some()
+}
+
+/// How many channels an output of this type is held as.
+fn channels(ty: u8) -> Option<usize> {
+    Some(match ty {
+        ffi::TYPE_RGBA => 4,
+        ffi::TYPE_RGB | ffi::TYPE_VECTOR => 3,
+        ffi::TYPE_VECTOR2 => 2,
+        ffi::TYPE_FLOAT | ffi::TYPE_INT | ffi::TYPE_UINT => 1,
+        _ => return None,
+    })
 }
 
 /// A display: no file extension.
@@ -145,32 +156,56 @@ unsafe extern "C" fn needs_bucket(_: Ptr, _: c_int, _: c_int, _: c_int, _: c_int
 }
 unsafe extern "C" fn prepare_bucket(_: Ptr, _: c_int, _: c_int, _: c_int, _: c_int, _: u16) {}
 
-/// A bucket done, on the render thread that did it: its first output's pixels
-/// into the image.
+/// A bucket done, on the render thread that did it: each output's pixels (an
+/// AOV each) into its layer, one channel held grey.
 unsafe extern "C" fn process_bucket(_: Ptr, outputs: Ptr, _: Ptr, x: c_int, y: c_int, w: c_int, h: c_int, _: u16) {
     let (Some(p), Some(c)) = (pixels(), CALLS.get()) else {
         return;
     };
-    let mut name = AtString::default();
-    let mut ty: c_int = 0;
-    let mut data: *const c_void = std::ptr::null();
-    // SAFETY: Arnold's iterator over this bucket's outputs.
-    if !unsafe { (c.output_next)(outputs, &mut name, &mut ty, &mut data) } || data.is_null() {
-        return;
-    }
     let (w, h) = (w.max(0) as usize, h.max(0) as usize);
-    // SAFETY: a bucket of `w * h` pixels of the type said, Arnold's to keep.
-    unsafe {
-        match ty as u8 {
-            ffi::TYPE_RGBA => {
-                let px = std::slice::from_raw_parts(data as *const [f32; 4], w * h);
-                p.bucket(x, y, w, h, |i| px[i]);
+    let n = w * h;
+    let at = (x, y, w, h);
+    loop {
+        let mut name = AtString::default();
+        let mut ty: c_int = 0;
+        let mut data: *const c_void = std::ptr::null();
+        // SAFETY: Arnold's iterator over this bucket's outputs.
+        if !unsafe { (c.output_next)(outputs, &mut name, &mut ty, &mut data) } {
+            return;
+        }
+        let ty = ty as u8;
+        let Some(k) = channels(ty).filter(|_| !data.is_null()) else {
+            continue;
+        };
+        let name = ffi::text(name.0);
+        // SAFETY: a bucket of `n` pixels of the type said, Arnold's to keep.
+        unsafe {
+            match ty {
+                ffi::TYPE_RGBA => {
+                    let px = std::slice::from_raw_parts(data as *const [f32; 4], n);
+                    p.bucket(&name, k, at, |i| px[i]);
+                }
+                ffi::TYPE_RGB | ffi::TYPE_VECTOR => {
+                    let px = std::slice::from_raw_parts(data as *const [f32; 3], n);
+                    p.bucket(&name, k, at, |i| [px[i][0], px[i][1], px[i][2], 1.0]);
+                }
+                ffi::TYPE_VECTOR2 => {
+                    let px = std::slice::from_raw_parts(data as *const [f32; 2], n);
+                    p.bucket(&name, k, at, |i| [px[i][0], px[i][1], 0.0, 1.0]);
+                }
+                ffi::TYPE_FLOAT => {
+                    let px = std::slice::from_raw_parts(data as *const f32, n);
+                    p.bucket(&name, k, at, |i| [px[i], px[i], px[i], 1.0]);
+                }
+                ffi::TYPE_INT => {
+                    let px = std::slice::from_raw_parts(data as *const i32, n);
+                    p.bucket(&name, k, at, |i| [px[i] as f32, px[i] as f32, px[i] as f32, 1.0]);
+                }
+                _ => {
+                    let px = std::slice::from_raw_parts(data as *const u32, n);
+                    p.bucket(&name, k, at, |i| [px[i] as f32, px[i] as f32, px[i] as f32, 1.0]);
+                }
             }
-            ffi::TYPE_RGB => {
-                let px = std::slice::from_raw_parts(data as *const [f32; 3], w * h);
-                p.bucket(x, y, w, h, |i| [px[i][0], px[i][1], px[i][2], 1.0]);
-            }
-            _ => {}
         }
     }
 }

@@ -169,16 +169,16 @@ impl Session {
         self.live.pixels()
     }
 
-    /// The image as it renders, in memory, when buckets came in since it was
-    /// last taken: its beauty, refining pass by pass.
-    pub fn frame(&mut self) -> Option<xms_render::Frame> {
+    /// The images as they render, in memory, when buckets came in since they
+    /// were last taken: an AOV each, the beauty first, refining pass by pass.
+    pub fn layers(&mut self) -> Option<Vec<xms_render::Layer>> {
         let pixels = self.live.pixels();
         let now = pixels.generation();
         if now == self.taken {
             return None;
         }
         self.taken = now;
-        Some(pixels.frame()).filter(|f| f.width > 0 && f.height > 0)
+        Some(pixels.layers()).filter(|l| l.first().is_some_and(|l| l.frame.width > 0 && l.frame.height > 0))
     }
 
     /// How it is doing, in a few words.

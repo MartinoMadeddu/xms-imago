@@ -31,11 +31,13 @@ pub const NODE_DRIVER: u32 = 0x0040;
 // Parameter types (`AI_TYPE_*`).
 pub const TYPE_BYTE: u8 = 0x00;
 pub const TYPE_INT: u8 = 0x01;
+pub const TYPE_UINT: u8 = 0x02;
 pub const TYPE_BOOLEAN: u8 = 0x03;
 pub const TYPE_FLOAT: u8 = 0x04;
 pub const TYPE_RGB: u8 = 0x05;
 pub const TYPE_RGBA: u8 = 0x06;
 pub const TYPE_VECTOR: u8 = 0x07;
+pub const TYPE_VECTOR2: u8 = 0x09;
 pub const TYPE_STRING: u8 = 0x0A;
 pub const TYPE_NONE: u8 = 0xFF;
 // `AtRenderStatus`.

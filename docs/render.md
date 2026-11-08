@@ -334,9 +334,10 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
   settings and resolution. Anything else (a prim added or removed, topology,
   a material's network, a camera's lens, another frame) writes the layer
   again and loads it.
-- Imago's own display driver in Arnold takes each bucket as it is done, into
-  memory, beside the products' files (still written as they say); only the
-  part of the image that changed goes to the screen. The first pass can be
+- Imago's own display driver in Arnold takes each bucket as it is done, every
+  AOV of it, into memory, beside the products' files (still written as they
+  say): the Layer menu has them all, as an EXR's. Only the part of the layer
+  shown that changed goes to the screen. The first pass can be
   long in coming while Arnold makes `.tx` files of new textures, once (they
   stay beside the textures).
 - Each AOV's format in the file, half or float, is its RenderVar's
