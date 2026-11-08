@@ -47,6 +47,18 @@ pub enum Change {
     /// Anything else (a prim added or removed, topology, a new material
     /// network, another frame): the layer is loaded again.
     Structure,
+    /// The render's own view, in place of the layer's camera: the Viewer's.
+    View(View),
+}
+
+/// A view to render through, the Viewer's: its camera's placement in the
+/// layer's space (rows, translation last, looking down -Z), its horizontal
+/// field of view in degrees, and the image's size in pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View {
+    pub matrix: [[f32; 4]; 4],
+    pub fov: f32,
+    pub size: [u32; 2],
 }
 
 /// A change to the prim at `path` (the Render Settings' for `Settings`).
@@ -140,19 +152,25 @@ struct Buffer {
     layers: Vec<Held>,
 }
 
+/// How many read only what changed (`Pixels::take`), each its own: the Image
+/// Viewer (0), the Viewer (1).
+pub const READERS: usize = 2;
+
 struct Held {
     layer: Layer,
-    /// What changed since it was last taken: `x0, y0, x1, y1`, `x1` and `y1`
-    /// past it.
-    changed: Option<[usize; 4]>,
+    /// What changed since each reader last took it: `x0, y0, x1, y1`, `x1`
+    /// and `y1` past it.
+    changed: [Option<[usize; 4]>; READERS],
 }
 
 impl Held {
     fn changed(&mut self, x0: usize, y0: usize, x1: usize, y1: usize) {
-        self.changed = Some(match self.changed {
-            Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
-            None => [x0, y0, x1, y1],
-        });
+        for c in &mut self.changed {
+            *c = Some(match *c {
+                Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
+                None => [x0, y0, x1, y1],
+            });
+        }
     }
 }
 
@@ -178,15 +196,15 @@ impl Pixels {
         self.layers().into_iter().next().map(|l| l.frame).unwrap_or_default()
     }
 
-    /// What changed of the layer `name` since it was last taken (all of it,
-    /// `all`), and nothing changed since: for one reader only, as a texture
-    /// is kept up to date.
-    pub fn take(&self, name: &str, all: bool) -> Option<Region> {
+    /// What changed of the layer `name` since `reader` last took it (all of
+    /// it, `all`), and nothing changed since for that reader: as a texture is
+    /// kept up to date.
+    pub fn take(&self, name: &str, reader: usize, all: bool) -> Option<Region> {
         let mut b = self.buffer.lock().ok()?;
         let held = b.layers.iter_mut().find(|h| h.layer.name == name)?;
+        let changed = held.changed.get_mut(reader)?.take();
         let f = &held.layer.frame;
         let (w, h) = (f.width, f.height);
-        let changed = held.changed.take();
         let [x0, y0, x1, y1] = if all { Some([0, 0, w, h]) } else { changed }?;
         if x1 <= x0 || y1 <= y0 {
             return None;
@@ -243,7 +261,7 @@ impl Pixels {
                                 rgba: vec![[0.0; 4]; w * h],
                             },
                         },
-                        changed: Some([0, 0, w, h]),
+                        changed: [Some([0, 0, w, h]); READERS],
                     });
                     b.layers.last_mut().expect("just pushed")
                 }
@@ -333,18 +351,20 @@ mod tests {
         pixels.open(0, 0, 8, 4);
         pixels.bucket("RGBA", 4, (2, 1, 2, 2), |_| [1.0; 4]);
         // A new layer: all of it.
-        assert_eq!(pixels.take("RGBA", false).map(|r| (r.width, r.height)), Some((8, 4)));
-        assert_eq!(pixels.take("RGBA", false), None);
+        assert_eq!(pixels.take("RGBA", 0, false).map(|r| (r.width, r.height)), Some((8, 4)));
+        assert_eq!(pixels.take("RGBA", 0, false), None);
         pixels.bucket("RGBA", 4, (2, 1, 2, 2), |_| [1.0; 4]);
         pixels.bucket("RGBA", 4, (5, 0, 1, 1), |_| [2.0; 4]);
-        let r = pixels.take("RGBA", false).unwrap();
+        let r = pixels.take("RGBA", 0, false).unwrap();
         // The two buckets' bounds, as rows.
         assert_eq!((r.x, r.y, r.width, r.height, r.frame), (2, 0, 4, 3, (8, 4)));
         assert_eq!(r.rgba[3], [2.0; 4]);
         assert_eq!(r.rgba[4], [1.0; 4]);
-        assert_eq!(pixels.take("RGBA", false), None);
-        assert_eq!(pixels.take("RGBA", true).map(|r| r.rgba.len()), Some(32));
-        assert_eq!(pixels.take("diffuse", true), None);
+        assert_eq!(pixels.take("RGBA", 0, false), None);
+        assert_eq!(pixels.take("RGBA", 0, true).map(|r| r.rgba.len()), Some(32));
+        assert_eq!(pixels.take("diffuse", 0, true), None);
+        // Each reader its own: the Viewer has not taken any.
+        assert_eq!(pixels.take("RGBA", 1, false).map(|r| (r.width, r.height)), Some((8, 4)));
     }
 
     #[test]

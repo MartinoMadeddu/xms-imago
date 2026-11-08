@@ -759,6 +759,12 @@ pub(crate) fn draw_ui(
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
                         }).response.on_hover_text("How meshes are drawn");
+                        // Drawn, or rendered live with Arnold through the view.
+                        let rendered = crate::live::in_viewer();
+                        crate::menus::menu(ui, format!("{} ⏷", if rendered { "Arnold" } else { "Imago" }), |ui| {
+                            if ui.radio(!rendered, "Imago").on_hover_text("The scene drawn, as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }
+                            if ui.radio(rendered, "Arnold").on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").clicked() { crate::live::set_in_viewer(true); ui.close(); }
+                        }).response.on_hover_text("Draw the scene, or render it with Arnold");
                         // Through a camera of the scene, or the Viewer's own.
                         let looking = viewer::camera::looking_through();
                         let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());

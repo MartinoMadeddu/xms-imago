@@ -81,8 +81,6 @@ pub struct ImageViewerState {
     /// samples, bucket by bucket. On (the default): in passes, sent each
     /// change. A renderer that cannot render in Imago runs the command line.
     ipr_off: bool,
-    /// The live render, once one is started.
-    live: Option<crate::live::Session>,
     /// The last render was live: its status is shown.
     last_live: bool,
     /// When the live image last came into the view, and whether it is what it
@@ -215,17 +213,7 @@ impl ImageViewerState {
 
 /// The scene the view flag shows, as primitives.
 fn scene(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<Vec<crate::types::Prim>> {
-    let eval =
-        |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
-            subnets
-                .get(sid)
-                .map(|sg| sg.evaluate(mesh, template))
-                .unwrap_or_else(|| mesh.clone())
-        };
-    match graph.evaluate_scene(&eval)?.2 {
-        EvalResult::Named(prims) => Some(prims),
-        _ => None,
-    }
+    crate::live::scene(graph, subnets)
 }
 
 /// What the Image Viewer's render folders are called, before the program's id.
@@ -233,7 +221,7 @@ const RENDER_DIR: &str = "xms-imago-render-";
 
 /// Where the Image Viewer's renders go: a folder of this program's own, deleted
 /// when it closes (`clean_up`).
-fn render_dir() -> PathBuf {
+pub(crate) fn render_dir() -> PathBuf {
     std::env::temp_dir().join(format!("{RENDER_DIR}{}", std::process::id()))
 }
 
@@ -374,23 +362,25 @@ pub fn draw(
                 }
             }
             // A snapshot read while it was being written: the next one will do.
-            Err(_) if running || st.live.as_ref().is_some_and(|l| l.rendering()) => {}
+            Err(_) if running || crate::live::with(|l| l.as_ref().is_some_and(|l| l.rendering())) => {}
             Err(e) => st.message = e,
         }
     }
     poll(st);
     // In Imago: the graph's changes sent (IPR); the image, in memory, shown as
     // its buckets come in.
-    let mut live_layers = None;
-    if let Some(live) = &mut st.live {
+    let due = st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_IMAGE);
+    let (live_layers, why) = crate::live::with(|live| {
+        let Some(live) = live else { return (None, None) };
         let key = (revision, graph.frame().to_bits());
-        if let Some(why) = live.update(key, graph.frame(), || scene(graph, subnets)) {
-            st.message = why;
-        }
+        let why = live.update(key, graph.frame(), || scene(graph, subnets));
         // At once when it is done: what a snapshot keeps.
-        if live.done() || st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_IMAGE) {
-            live_layers = live.layers();
-        }
+        // The Viewer's render is the Viewer's to show.
+        let shown = !live.in_viewer() && (live.done() || due);
+        (shown.then(|| live.layers()).flatten(), why)
+    });
+    if let Some(why) = why {
+        st.message = why;
     }
     if let Some(layers) = live_layers {
         st.live_shown = Some(std::time::Instant::now());
@@ -401,7 +391,7 @@ pub fn draw(
             format!("Imago   frame {}", graph.frame().round() as i64),
         );
     }
-    let live_rendering = st.live.as_ref().is_some_and(|l| l.rendering());
+    let live_rendering = crate::live::with(|l| l.as_ref().is_some_and(|l| l.rendering()));
 
     let run = command::snapshot(RUN_KEY, 400);
     let running = run.as_ref().is_some_and(|r| r.state == State::Running) || live_rendering;
@@ -479,8 +469,8 @@ pub fn draw(
             .on_disabled_hover_text("In Imago with a renderer whose definition says how (Arnold); this one runs the command line in ⚙");
         if ipr == st.ipr_off {
             st.ipr_off = !ipr;
-            if let (false, Some(l)) = (ipr, &mut st.live) {
-                l.stop();
+            if !ipr {
+                crate::live::with(|l| l.as_mut().map(|l| l.stop()));
             }
         }
         let can = chosen.is_some() && !running;
@@ -506,13 +496,22 @@ pub fn draw(
             }
         }
         if ui.add_enabled(running, egui::Button::new("⏹ Stop")).clicked() {
-            match &mut st.live {
-                Some(l) if l.rendering() => l.stop(),
-                _ => command::stop(RUN_KEY),
+            // The Viewer's render too: it would start again.
+            crate::live::set_in_viewer(false);
+            let stopped = crate::live::with(|l| match l.as_mut().filter(|l| l.rendering()) {
+                Some(l) => {
+                    l.stop();
+                    true
+                }
+                None => false,
+            });
+            if !stopped {
+                command::stop(RUN_KEY);
             }
         }
-        if let (true, Some(l)) = (st.last_live, &st.live) {
-            ui.label(l.status());
+        let status = crate::live::with(|l| l.as_ref().map(|l| l.status())).filter(|_| st.last_live);
+        if let Some(status) = status {
+            ui.label(status);
         } else {
             match &run {
                 Some(r) if r.state == State::Running => match r.progress {
@@ -584,7 +583,7 @@ pub fn draw(
     // texture kept up to date as buckets come in.
     let active = st.view.position() >= st.view.snaps.len();
     let live = (st.showing_live && active)
-        .then(|| st.live.as_ref().map(|l| l.pixels().clone()))
+        .then(|| crate::live::with(|l| l.as_ref().filter(|l| !l.in_viewer()).map(|l| l.pixels().clone())))
         .flatten();
     let draw = move |painter: &egui::Painter,
                      rect: egui::Rect,
@@ -759,12 +758,16 @@ fn render_live(
     let prims = scene(graph, subnets).ok_or("The view flag shows no scene")?;
     let renderer = crate::live::renderer_for(settings.renderer)
         .ok_or_else(|| format!("{} does not render live in Imago", settings.renderer))?;
-    let live = match st.live.take() {
-        Some(l) => l,
-        None => crate::live::Session::start(&renderer, &render_dir())?,
-    };
-    let live = st.live.insert(live);
-    live.render(prims, (revision, graph.frame().to_bits()), graph.frame(), ipr)?;
+    // The layer's camera: the Viewer stops rendering.
+    crate::live::set_in_viewer(false);
+    crate::live::with(|l| {
+        let live = match l.take() {
+            Some(s) => s,
+            None => crate::live::Session::start(&renderer, &render_dir())?,
+        };
+        l.insert(live)
+            .render(prims, (revision, graph.frame().to_bits()), graph.frame(), ipr, None)
+    })?;
     st.last_live = true;
     st.view.show_active();
     Ok(())

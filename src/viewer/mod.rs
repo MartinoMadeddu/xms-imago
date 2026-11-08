@@ -85,6 +85,9 @@ pub struct Viewer {
     saved: Option<camera::Camera>,
     /// A movie being exported.
     movie: Option<movie::Job>,
+    /// Rendered: how the render goes, or why it stopped (until it is chosen
+    /// again).
+    render_note: Option<String>,
 }
 
 impl Viewer {
@@ -190,6 +193,7 @@ impl Viewer {
         }
 
         let size = pane;
+        let render = self.rendered(ui.ctx(), &input, &looking, aspect, pane);
         // The movie's frame through the same camera, at its own aspect.
         if let Some(c) = &mut capture {
             let a = c.size[0] as f32 / c.size[1].max(1) as f32;
@@ -207,6 +211,7 @@ impl Viewer {
             scene: self.scene.clone(),
             overlay,
             display: crate::colour::view(crate::colour::Pane::Viewer),
+            render,
         };
         ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
             rect,
@@ -216,8 +221,10 @@ impl Viewer {
         if let Some((path, _, cam)) = &looking {
             gate(ui, rect, &path, cam);
         }
-        // What the triangle budget drew as boxes, at the bottom left.
-        if let Some(text) = &self.scene.notice {
+        // How the render goes (or why it stopped), else what the triangle
+        // budget drew as boxes, at the bottom left.
+        let note = self.render_note.clone().or_else(|| self.scene.notice.clone());
+        if let Some(text) = &note {
             let painter = ui.painter_at(rect);
             let galley = painter.layout(
                 text.clone(),
@@ -329,6 +336,73 @@ impl Viewer {
             // Lights and cameras: their own lines, in the selection's colour.
             for [a, b] in pick::selected_glyphs(&prims, input.hierarchy.selected_paths()) {
                 edit::line(&mut overlay.top, a, b, c);
+            }
+        }
+    }
+
+    /// Rendered (Viewer > Arnold): the program's live render through this
+    /// view (started, else taken from the Image Viewer, if it is not
+    /// already), in IPR, sent each change and each move; its pixels to show.
+    fn rendered(
+        &mut self,
+        ctx: &egui::Context,
+        input: &ViewerInput,
+        looking: &Option<(String, glam::Mat4, crate::core::camera::Camera)>,
+        aspect: f32,
+        size: [u32; 2],
+    ) -> Option<Arc<xms_render::Pixels>> {
+        if !crate::live::in_viewer() {
+            return None;
+        }
+        self.render_note = None;
+        // Where the camera is, looking down -Z, without the scale a camera
+        // of the scene may have.
+        let (world, fov) = match looking {
+            Some((_, w, cam)) => {
+                let (eye, forward, up, _) = crate::core::camera::frame(*w);
+                (glam::Mat4::look_to_rh(eye, forward, up).inverse(), cam.fov(aspect))
+            }
+            None => (
+                glam::Mat4::look_at_rh(self.camera.eye, self.camera.target, glam::Vec3::Y).inverse(),
+                self.camera.fov,
+            ),
+        };
+        let frame = input.graph.frame();
+        let key = (input.revision, frame.to_bits());
+        let scene = || crate::live::scene(input.graph, input.subnets);
+        let done = crate::live::with(|s| -> Result<(Arc<xms_render::Pixels>, String), String> {
+            let live = match s.take() {
+                Some(live) => live,
+                None => {
+                    let renderer = crate::live::renderer_for("arnold").ok_or("Arnold does not render live in Imago")?;
+                    crate::live::Session::start(&renderer, &crate::image_viewer::render_dir())?
+                }
+            };
+            let s = s.insert(live);
+            if s.rendering() && s.in_viewer() {
+                if let Some(why) = s.update(key, frame, scene) {
+                    return Err(why);
+                }
+                s.look(world, fov, size);
+            } else {
+                let prims = scene().ok_or("The view flag shows no scene")?;
+                let view = crate::live::view(&prims, world, fov, size);
+                s.render(prims, key, frame, true, Some(view))?;
+            }
+            Ok((s.pixels().clone(), s.status()))
+        });
+        // Buckets come in on Arnold's threads.
+        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        match done {
+            Ok((pixels, status)) => {
+                self.render_note = Some(format!("Arnold {status}"));
+                Some(pixels)
+            }
+            // Back to drawing, rather than trying again each frame.
+            Err(why) => {
+                crate::live::set_in_viewer(false);
+                self.render_note = Some(format!("Arnold stopped: {why}"));
+                None
             }
         }
     }

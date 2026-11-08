@@ -51,6 +51,17 @@ pub struct Frame {
     pub display: crate::colour::View,
     /// Export Movie: this frame drawn again at the movie's size and read back.
     pub capture: Option<super::movie::Capture>,
+    /// Rendered (Viewer > Arnold): the render's pixels, shown in place of
+    /// the scene drawn, the overlays over them.
+    pub render: Option<Arc<xms_render::Pixels>>,
+}
+
+/// The render shown, on the GPU: written only where buckets came in.
+struct Rendered {
+    /// Which render's pixels (`Pixels` by address).
+    of: usize,
+    texture: wgpu::Texture,
+    group: wgpu::BindGroup,
 }
 
 /// Every buffer stays under this size: wgpu's guaranteed maximum is 256 MB, and
@@ -195,6 +206,10 @@ pub struct ViewerGpu {
     slots: Vec<usize>,
     line_buffer: Vec<(wgpu::Buffer, u32)>,
     generation: u64,
+    /// A render laid over the whole picture, behind the overlays.
+    background: wgpu::RenderPipeline,
+    rendered_layout: wgpu::BindGroupLayout,
+    rendered: Option<Rendered>,
 }
 
 impl ViewerGpu {
@@ -440,6 +455,64 @@ impl ViewerGpu {
             true,
         );
 
+        let rendered_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("viewer render"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let rendered = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("viewer render"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("rendered.wgsl").into()),
+        });
+        let background = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("viewer render"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("viewer render"),
+                bind_group_layouts: &[Some(&view_layout), Some(&rendered_layout)],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState {
+                module: &rendered,
+                entry_point: Some("vs_rendered"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &rendered,
+                entry_point: Some("fs_rendered"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: PICTURE,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            // Behind everything: the overlays drawn after it all pass.
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: SAMPLES,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
         let blit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("viewer blit"),
             entries: &[
@@ -543,7 +616,79 @@ impl ViewerGpu {
             slots: vec![],
             line_buffer: vec![],
             generation: u64::MAX,
+            background,
+            rendered_layout,
+            rendered: None,
         }
+    }
+
+    /// The render's beauty on the GPU: a texture made again for another
+    /// render or size, else written only where buckets came in (the Viewer
+    /// reads as reader 1).
+    fn ensure_rendered(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pixels: &Arc<xms_render::Pixels>) {
+        let of = Arc::as_ptr(pixels) as usize;
+        let size = self.rendered.as_ref().filter(|r| r.of == of).map(|r| r.texture.size());
+        let Some(mut region) = pixels.take("RGBA", 1, size.is_none()) else {
+            return;
+        };
+        let (w, h) = (region.frame.0 as u32, region.frame.1 as u32);
+        if size.is_none_or(|s| (s.width, s.height) != (w, h)) {
+            if (region.width, region.height) != region.frame {
+                region = pixels.take("RGBA", 1, true).unwrap_or(region);
+            }
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("viewer render"),
+                size: wgpu::Extent3d {
+                    width: w.max(1),
+                    height: h.max(1),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("viewer render"),
+                layout: &self.rendered_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                }],
+            });
+            self.rendered = Some(Rendered { of, texture, group });
+        }
+        let Some(r) = &self.rendered else { return };
+        if region.width == 0 || region.height == 0 {
+            return;
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &r.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: region.x as u32,
+                    y: region.y as u32,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&region.rgba),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(region.width as u32 * 16),
+                rows_per_image: Some(region.height as u32),
+            },
+            wgpu::Extent3d {
+                width: region.width as u32,
+                height: region.height as u32,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     /// The picture's textures, made again when the rectangle changes size.
@@ -663,7 +808,7 @@ impl ViewerGpu {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("viewer movie"),
         });
-        self.render(&mut encoder, t, clear);
+        self.render(&mut encoder, t, clear, false);
         {
             let view = bytes.create_view(&wgpu::TextureViewDescriptor::default());
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -885,7 +1030,9 @@ impl ViewerGpu {
         self.generation = scene.generation;
     }
 
-    fn render(&self, encoder: &mut wgpu::CommandEncoder, t: &Target, clear: [f32; 3]) {
+    /// The picture: the scene drawn, or (`rendered`) the render and the
+    /// overlays over it.
+    fn render(&self, encoder: &mut wgpu::CommandEncoder, t: &Target, clear: [f32; 3], rendered: bool) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("viewer"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -915,6 +1062,15 @@ impl ViewerGpu {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &self.view_group, &[]);
+        if rendered {
+            if let Some(r) = &self.rendered {
+                pass.set_pipeline(&self.background);
+                pass.set_bind_group(1, &r.group, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            self.overlays(&mut pass);
+            return;
+        }
         // Surfaces, their edges, lines (grid, boxes, curves), then what is
         // see-through.
         pass.set_pipeline(&self.opaque);
@@ -930,7 +1086,16 @@ impl ViewerGpu {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
-        // Edit Poly's wireframe and vertices, on their surface.
+        self.raised_lines(&mut pass);
+        pass.set_pipeline(&self.blended);
+        for d in self.draws.iter().filter(|d| d.blend && !d.edges) {
+            self.draw_mesh(&mut pass, d);
+        }
+        self.top_lines(&mut pass);
+    }
+
+    /// Edit Poly's wireframe and vertices, on their surface.
+    fn raised_lines(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.raised);
         for (buffer, count) in &self.frame_lines[0] {
             pass.set_vertex_buffer(0, buffer.slice(..));
@@ -941,16 +1106,21 @@ impl ViewerGpu {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..6, 0..*count);
         }
-        pass.set_pipeline(&self.blended);
-        for d in self.draws.iter().filter(|d| d.blend && !d.edges) {
-            self.draw_mesh(&mut pass, d);
-        }
-        // Over everything: the skeleton and the manipulator.
+    }
+
+    /// Over everything: the skeleton and the manipulator.
+    fn top_lines(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.on_top);
         for (buffer, count) in self.top_buffer.iter().chain(&self.frame_lines[1]) {
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..*count, 0..1);
         }
+    }
+
+    /// Over a render: what you work with, not the scene drawn.
+    fn overlays(&self, pass: &mut wgpu::RenderPass<'_>) {
+        self.raised_lines(pass);
+        self.top_lines(pass);
     }
 
     fn draw_mesh(&self, pass: &mut wgpu::RenderPass<'_>, d: &Draw) {
@@ -1332,12 +1502,16 @@ impl CallbackTrait for ViewerPaint {
                 (f.overlay.points.len() / POINT_FLOATS) as u32,
             )
         });
+        match &f.render {
+            Some(p) => gpu.ensure_rendered(device, queue, p),
+            None => gpu.rendered = None,
+        }
         if let Some(c) = f.capture.as_ref().filter(|c| c.wanted()) {
             gpu.capture(device, queue, c, f.eye, f.clear);
         }
         gpu.write_view(queue, f.view_proj, f.eye, f.size);
         if let Some(t) = &gpu.target {
-            gpu.render(encoder, t, f.clear);
+            gpu.render(encoder, t, f.clear, f.render.is_some());
         }
         vec![]
     }

@@ -200,10 +200,41 @@ impl Arnold {
         }
     }
 
+    /// Render through `v`, the Viewer's view: a camera of Imago's own in the
+    /// universe, the options' camera, at the view's size.
+    fn view(&self, v: &crate::View) -> bool {
+        let ai = &self.ai;
+        // SAFETY: the loaded universe, changed while paused.
+        unsafe {
+            let options = (ai.AiUniverseGetOptions)(self.universe);
+            let mut camera = (ai.AiNodeLookUpByName)(self.universe, ai.string(VIEW_NODE), std::ptr::null_mut());
+            if camera.is_null() {
+                camera = (ai.AiNode)(
+                    self.universe,
+                    ai.string("persp_camera"),
+                    ai.string(VIEW_NODE),
+                    std::ptr::null_mut(),
+                );
+            }
+            if camera.is_null() {
+                return false;
+            }
+            (ai.AiNodeSetMatrix)(camera, ai.string("matrix"), Matrix(v.matrix));
+            (ai.AiNodeSetFlt)(camera, ai.string("fov"), v.fov);
+            (ai.AiNodeSetPtr)(options, ai.string("camera"), camera);
+            (ai.AiNodeSetInt)(options, ai.string("xres"), v.size[0].max(1) as c_int);
+            (ai.AiNodeSetInt)(options, ai.string("yres"), v.size[1].max(1) as c_int);
+        }
+        true
+    }
+
     fn apply(&self, e: &Edit) -> bool {
         let ai = &self.ai;
         // SAFETY: nodes of the loaded universe, changed while paused.
         unsafe {
+            if let Change::View(v) = &e.change {
+                return self.view(v);
+            }
             let node = match &e.change {
                 Change::Settings(_) => (ai.AiUniverseGetOptions)(self.universe),
                 _ => (ai.AiNodeLookUpByName)(self.universe, ai.string(&e.path), std::ptr::null_mut()),
@@ -255,7 +286,7 @@ impl Arnold {
                 Change::Settings(settings) => settings.iter().all(|(name, v)| {
                     settings_params(name, v).is_some_and(|ps| ps.iter().all(|(p, v)| set(ai, node, p, v)))
                 }),
-                Change::Structure => false,
+                Change::Structure | Change::View(_) => false,
             }
         }
     }
@@ -263,6 +294,8 @@ impl Arnold {
 
 /// The node of Imago's driver in each universe.
 const PIXELS_NODE: &str = "/__xms_imago_pixels";
+/// The camera of the Viewer's view, when it renders through it.
+const VIEW_NODE: &str = "/__xms_imago_view";
 
 fn driver_name() -> String {
     driver::NAME.to_string_lossy().into_owned()

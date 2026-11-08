@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use std::sync::Arc;
 
-use crate::{Change, Edit, Event, Pixels, Renderer};
+use crate::{Change, Edit, Event, Pixels, Renderer, View};
 
 /// How often the renderer is asked how it is doing.
 const POLL: Duration = Duration::from_millis(20);
@@ -25,6 +25,7 @@ enum Command {
         layer: PathBuf,
         frame: f64,
         progressive: bool,
+        view: Option<View>,
     },
     Edit {
         edits: Vec<Edit>,
@@ -71,12 +72,15 @@ impl Live {
     }
 
     /// Render `layer` at `frame`, in place of what was rendered: `progressive`
-    /// (IPR), or once at the Render Settings' samples.
-    pub fn load(&self, layer: impl Into<PathBuf>, frame: f64, progressive: bool) {
+    /// (IPR), or once at the Render Settings' samples; through `view`, else
+    /// the layer's camera. The view stays through reloads, and a
+    /// `Change::View` edit moves it.
+    pub fn load(&self, layer: impl Into<PathBuf>, frame: f64, progressive: bool, view: Option<View>) {
         self.send(Command::Load {
             layer: layer.into(),
             frame,
             progressive,
+            view,
         });
     }
 
@@ -142,8 +146,10 @@ impl Drop for Live {
 }
 
 fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender<Event>) {
-    // The frame loaded, once a layer is, and whether it renders in passes.
+    // The frame loaded, once a layer is, and whether it renders in passes;
+    // the view it renders through, if not the layer's camera.
     let mut loaded: Option<(f64, bool)> = None;
+    let mut view: Option<View> = None;
     let mut send = |e: Event| {
         let _ = outbox.send(e);
     };
@@ -162,12 +168,20 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                         layer,
                         frame,
                         progressive,
+                        view: through,
                     } => {
-                        reload(&mut *renderer, &layer, (frame, progressive), &mut send);
+                        view = through;
+                        reload(&mut *renderer, &layer, (frame, progressive), view, &mut send);
                         loaded = Some((frame, progressive));
                     }
                     Command::Edit { edits, layer } => {
                         let at = loaded.unwrap_or((1.0, true));
+                        if let Some(v) = edits.iter().rev().find_map(|e| match e.change {
+                            Change::View(v) => Some(v),
+                            _ => None,
+                        }) {
+                            view = Some(v);
+                        }
                         let live = loaded.is_some() && edits.iter().all(|e| renderer.live(&e.change));
                         let applied = live
                             && match renderer.edit(&edits) {
@@ -184,7 +198,7 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                             }
                         } else {
                             match layer() {
-                                Ok(layer) => reload(&mut *renderer, &layer, at, &mut send),
+                                Ok(layer) => reload(&mut *renderer, &layer, at, view, &mut send),
                                 Err(e) => send(Event::Failed(e)),
                             }
                         }
@@ -201,13 +215,29 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
 }
 
 /// Load the layer at the frame `at` gives, and render it (in passes, if it
-/// says).
-fn reload(renderer: &mut dyn Renderer, layer: &std::path::Path, at: (f64, bool), send: &mut impl FnMut(Event)) {
+/// says), through `view` if one is given.
+fn reload(
+    renderer: &mut dyn Renderer,
+    layer: &std::path::Path,
+    at: (f64, bool),
+    view: Option<View>,
+    send: &mut impl FnMut(Event),
+) {
     let (frame, progressive) = at;
     let t = Instant::now();
     renderer.stop();
     match renderer.load(layer, frame) {
         Ok(images) => {
+            // Through the view before it is said to be loaded.
+            if let Some(v) = view {
+                let through = Edit {
+                    path: String::new(),
+                    change: Change::View(v),
+                };
+                if let Err(e) = renderer.edit(&[through]) {
+                    send(Event::Failed(e));
+                }
+            }
             send(Event::Loaded {
                 seconds: t.elapsed().as_secs_f64(),
                 images,
@@ -361,7 +391,7 @@ mod tests {
     #[test]
     fn a_layer_loads_and_renders_in_passes() {
         let (live, calls) = stand_in();
-        live.load("scene.usda", 1.0, true);
+        live.load("scene.usda", 1.0, true, None);
         let events = live.wait(SECOND, |e| *e == Event::Finished);
         assert!(matches!(&events[0], Event::Loaded { images, .. } if images[0].ends_with("beauty.0001.exr")));
         assert_eq!(
@@ -378,7 +408,7 @@ mod tests {
     #[test]
     fn edits_it_can_apply_are_live_others_reload() {
         let (live, calls) = stand_in();
-        live.load("scene.usda", 1.0, true);
+        live.load("scene.usda", 1.0, true, None);
         live.wait(SECOND, |e| *e == Event::Finished);
         live.edit(vec![light(4.0)], || Ok("scene.usda".into()));
         assert!(live
@@ -413,10 +443,49 @@ mod tests {
         assert!(!calls.iter().any(|c| c.contains("edit /asset")));
     }
 
+    /// The Viewer's view stays through a reload, and an edit moves it.
+    #[test]
+    fn a_view_stays_through_reloads() {
+        let (live, calls) = stand_in();
+        let view = |x: f32| crate::View {
+            matrix: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [x, 0.0, 0.0, 1.0],
+            ],
+            fov: 54.0,
+            size: [640, 360],
+        };
+        live.load("scene.usda", 1.0, true, Some(view(0.0)));
+        live.wait(SECOND, |e| *e == Event::Finished);
+        live.edit(
+            vec![Edit {
+                path: String::new(),
+                change: Change::View(view(2.0)),
+            }],
+            || Ok("scene.usda".into()),
+        );
+        live.wait(SECOND, |e| *e == Event::Edited(1));
+        live.edit(
+            vec![Edit {
+                path: "/asset".into(),
+                change: Change::Structure,
+            }],
+            || Ok("scene2.usda".into()),
+        );
+        live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
+        let calls = calls.lock().unwrap();
+        let views: Vec<&String> = calls.iter().filter(|c| c.contains("View")).collect();
+        assert_eq!(views.len(), 3, "{calls:?}");
+        // After the reload, the view the edit moved it to.
+        assert!(views[2].contains("2.0"), "{views:?}");
+    }
+
     #[test]
     fn a_layer_that_will_not_load_says_why() {
         let (live, _) = stand_in();
-        live.load("broken.usda", 1.0, true);
+        live.load("broken.usda", 1.0, true, None);
         let events = live.wait(SECOND, |e| matches!(e, Event::Failed(_)));
         assert_eq!(events.last(), Some(&Event::Failed("no such layer".into())));
     }
@@ -430,6 +499,7 @@ mod tests {
                 layer: "a.usda".into(),
                 frame: 1.0,
                 progressive: true,
+                view: None,
             },
             Command::Edit {
                 edits: vec![light(2.0)],
@@ -486,6 +556,7 @@ mod tests {
                 layer: "c.usda".into(),
                 frame: 2.0,
                 progressive: true,
+                view: None,
             },
         ]);
         assert!(matches!(&out[..], [Command::Load { frame, .. }] if *frame == 2.0));

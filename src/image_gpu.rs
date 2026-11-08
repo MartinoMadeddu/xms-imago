@@ -215,7 +215,7 @@ impl ImageGpu {
             .as_ref()
             .filter(|u| u.key == key)
             .map(|u| u.texture.size());
-        let Some(region) = live.take(layer, size.is_none()) else {
+        let Some(region) = live.take(layer, 0, size.is_none()) else {
             return;
         };
         let (w, h) = region.frame;
@@ -223,7 +223,7 @@ impl ImageGpu {
             let all = if (region.width, region.height) == (w, h) {
                 region
             } else {
-                live.take(layer, true).unwrap_or(region)
+                live.take(layer, 0, true).unwrap_or(region)
             };
             self.upload(device, queue, key, (w, h), bytemuck::cast_slice(&all.rgba));
             return;

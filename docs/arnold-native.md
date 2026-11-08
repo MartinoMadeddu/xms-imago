@@ -286,6 +286,34 @@ gives it, and `crate::live::Session::pixels` the frame when buckets came in.
   headers lay them out; by hand with Arnold (`examples/arnold_live` prints the
   image in memory after each render).
 
+### Step 5: rendering in the Viewer
+
+The Viewer's toolbar menu beside the display mode, Imago or Arnold: Arnold
+renders the scene live (IPR) through the Viewer's camera, in place of drawing
+it, the image refining as buckets come in.
+
+- **One session for the program** (`crate::live::with`): Arnold runs once per
+  process, so the Image Viewer and the Viewer share it, the last to start it
+  having it. The Image Viewer's Render takes it back to the layer's camera
+  (and the Viewer back to Imago); its Stop stops the Viewer's render too.
+- **The view** (`xms_render::Change::View`): a camera of Imago's own in
+  Arnold, `/__xms_imago_view`, placed where the Viewer looks from (the
+  Viewer's own camera, or the scene's camera looked through, without its
+  scale), its horizontal field of view, and the resolution the pane's size in
+  pixels; `options.camera` set to it. Sent with the load, kept through
+  reloads, sent again as an edit each time the view moves or the pane changes
+  size.
+- **Two readers of the pixels** (`Pixels::take(layer, reader, all)`): each
+  keeps what changed since it last took it, the Image Viewer reader 0, the
+  Viewer reader 1. The Viewer writes only that region into its texture of the
+  beauty, laid over the whole picture (`rendered.wgsl`) and shown through the
+  Viewer's colour view; Edit Poly's wireframe and handles, and the
+  manipulator, are drawn over it. The scene drawn is not.
+- **Failing:** why, at the bottom left, and the Viewer draws again (no
+  retrying each frame).
+- Tested in the crate (the view kept through reloads, the second reader)
+  and with a stand-in `libai`; the app part by hand with Arnold.
+
 ### Then: Imago on the farm
 
 Imago headless (`xms --headless scene.xms --render 1-100`): the graph opened,
