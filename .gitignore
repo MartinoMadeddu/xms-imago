@@ -3,6 +3,8 @@ _site/
 # The documentation's HTML, made from the Markdown (cargo run -p xms-docs)
 /docs/html/
 /crates/*/target
+/prototypes/*/target
+/prototypes/*/render
 /crates/*/Cargo.lock
 /examples/ragdoll/*.fbx
 !/examples/ragdoll/car.fbx

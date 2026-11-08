@@ -1,0 +1,9 @@
+[package]
+name = "xms-render"
+version.workspace = true
+edition = "2021"
+description = "XMS | Imago's renderer interface (load a layer, render progressively, edit by prim path, reload, stop) and its Arnold backend, libai loaded at run time"
+
+# The standard library only: Arnold is opened by the system's loader at run
+# time, nothing is linked at build time.
+[dependencies]

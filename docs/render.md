@@ -294,9 +294,9 @@ Viewer renders the scene the view flag shows.
 - **Layer**: the image's layers (AOVs), the beauty first. Channels are grouped
   by what is before their last dot (`combineddiffuse.r`, `.g`, `.b`); an EXR's
   named parts are layers too.
-- **RGB, R, G, B, A, L**: the colour, one channel, alpha, or luminance. A layer
-  of one channel is grey.
-- **Exposure** (stops), **Gamma**, **Reset**; **View** and **Display**,
+- **RGB** (a menu: RGB, R, G, B, A, L): the colour, one channel, alpha, or
+  luminance. A layer of one channel is grey.
+- **E** (exposure, in stops), **G** (gamma), **Reset**; **View** and **Display**,
   through OpenColorIO (see [Colour](colour.md)). The image is taken as in the
   rendering space (ACEScg); another space is chosen in ⚙.
 - The wheel zooms about the pointer, a drag pans, a double-click, F or **Fit**
@@ -313,6 +313,38 @@ oldest first, and the **Active Render**, always last, so the newest snapshot is
 beside it; the name field renames the one shown; **✕** lets it go. Rendering
 again shows the active render; a snapshot keeps its layers, so compare any AOV.
 They are kept while the program runs, with how much memory they take.
+
+With a renderer that can (Arnold, for RenderSettings with Arnold settings),
+Render renders in Imago itself, its image coming into the view bucket by
+bucket; Stop stops it. Another renderer (Karma) runs the command line.
+
+- **IPR**, beside Render, on by default: in passes, from few samples up, and
+  each change to the graph goes to the renderer while it renders. Off: once,
+  each bucket finished at the samples the Render Settings give, the scene as
+  it was when Render was pressed; Render is free again when it is done.
+
+- The first time, it starts Arnold from its SDK: `ARNOLD_PATH`, from
+  [File > Variables](interface.md#variables) or the environment (the renderer
+  definition's `live.sdk`). Arnold 7 or later; without a licence its images
+  are watermarked.
+- The scene is written as a layer in the render folder and Arnold loads it
+  with its own USD reader. With IPR, each change to the graph after that goes to it
+  while it renders, by prim path: a light's values, a MaterialX shader's
+  inputs, a move, hiding a prim, moved points, the Render Settings' Arnold
+  settings and resolution. Anything else (a prim added or removed, topology,
+  a material's network, a camera's lens, another frame) writes the layer
+  again and loads it.
+- Imago's own display driver in Arnold takes each bucket as it is done, every
+  AOV of it, into memory, beside the products' files (still written as they
+  say): the Layer menu has them all, as an EXR's. Only the part of the layer
+  shown that changed goes to the screen. The first pass can be
+  long in coming while Arnold makes `.tx` files of new textures, once (they
+  stay beside the textures).
+- Each AOV's format in the file, half or float, is its RenderVar's
+  `driver:parameters:aov:format`: Arnold's colour AOVs are half to start with
+  (`color4h`, `color3h`), its data AOVs (P, N, Z, motion) float, as Karma's.
+- It renders the layer's own RenderSettings and their camera. Arnold stays
+  loaded after Stop, until Imago closes, so rendering again is quick.
 
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.
@@ -456,7 +488,11 @@ kick): the renderer reads the RenderSettings prim the layer names.
 ## Not done yet
 
 - Rendering inside Imago (the Viewer's Render mode, rray as its render
-  delegate), and the image streamed into the Viewer while husk renders
+  delegate), and the image streamed into the Viewer while husk renders. The
+  plan, starting with Arnold driven live in Imago's process, is
+  `docs/arnold-native.md`; its first step, a prototype outside Imago, is
+  `prototypes/arnold`, its second the renderer interface and the Arnold
+  backend, `crates/xms-render`
 - Several Render Commands queued, or sent to a farm
 - A file's products and RenderVars read as relationships
 - A camera or resolution per product

@@ -8,6 +8,13 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-08
+
+- **Rendering in Imago with Arnold:** Render renders in Imago itself, Arnold loaded from your SDK (`ARNOLD_PATH`) at run time, nothing to build. The image comes into the Image Viewer bucket by bucket, every AOV of it, through Imago's own display driver in Arnold; the products' files are written as before.
+- **IPR**, on by default: in passes, and each change to the graph (a light, a MaterialX shader's inputs, a move, hiding a prim, moved points, Render Settings) goes to Arnold while it renders, the scene written again only when it must be. Off: once, each bucket at the Render Settings' samples.
+- **Bit depth:** Arnold's AOVs carry a format, half for colour, float for data, as Karma's.
+- **Image Viewer:** RGB, R, G, B, A, L in one menu; exposure and gamma as E and G; snapshots of a render in Imago keep what they took.
+
 ## [0.2.3] - 2026-11-07
 
 - **Image operators:** Image Merge (B with each A over it: Over, Plus, Multiply, Screen, In, Out and more), Colour Correct, Shuffle, Delete Channels, Constant, Crop, Reformat, Transform 2D, Blur, Premultiply and Unpremultiply, and Write Image (EXR with every channel, or PNG, JPEG, TIFF; a frame or a range). They work in ACEScg with premultiplied alpha.

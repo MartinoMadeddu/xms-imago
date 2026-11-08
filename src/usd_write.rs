@@ -174,6 +174,18 @@ fn tree_key(t: &StageTree) -> String {
 }
 
 /// Each stage of `prims` once.
+/// The axes and unit of the layer written for these primitives: those of the
+/// first stage it sublayers, since stage metadata only comes from the root
+/// layer; Imago's (Y up, metres) when there is none. A placement in Imago is,
+/// in the layer, this matrix's inverse times it.
+pub fn layer_axes(prims: &[Prim]) -> Mat4 {
+    trees_of(prims)
+        .iter()
+        .find(|t| t.arc.is_none())
+        .map(|t| t.root)
+        .unwrap_or(Mat4::IDENTITY)
+}
+
 fn trees_of(prims: &[Prim]) -> Vec<Arc<StageTree>> {
     let mut trees: Vec<Arc<StageTree>> = vec![];
     for p in prims {
@@ -252,12 +264,9 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
     // The stages the layer sublayers: their files at their own paths. The
     // others come in by a reference or a payload on a prim.
     let sublayered: Vec<&Arc<StageTree>> = trees.iter().filter(|t| t.arc.is_none()).collect();
-    // The layer's axes and unit: those of the first sublayered stage, since
-    // stage metadata only comes from the root layer; Imago's (Y up, metres)
-    // when there is none.
     let layer_root = match outside {
         Some(o) => o.layer_root,
-        None => sublayered.first().map(|t| t.root).unwrap_or(Mat4::IDENTITY),
+        None => layer_axes(prims),
     };
     // The stages a prim's parent can be in: this layer's, and those outside a
     // variant.

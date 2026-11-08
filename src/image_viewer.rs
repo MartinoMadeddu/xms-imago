@@ -12,6 +12,12 @@
 //! view, then the image, zoomed and panned, with the values under the pointer;
 //! under it the snapshots bar (Snap keeps the image, to go back and forth
 //! between it and the next render). Its log shows what the command prints.
+//!
+//! A renderer whose definition says how (Arnold) renders in Imago's own
+//! process instead (a `crate::live` session), its image coming in bucket by
+//! bucket: with **IPR** (on by default) in passes, sent each change to the
+//! graph as it renders; without, once at the Render Settings' samples. Stop
+//! stops it.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -71,6 +77,55 @@ pub struct ImageViewerState {
     /// The viewed operator's image (Load Image), while it gives one, and the
     /// colour space it is in: shown in place of renders.
     graph_image: Option<(Arc<xms_image::Image>, String)>,
+    /// IPR off: Render renders once in Imago, at the Render Settings'
+    /// samples, bucket by bucket. On (the default): in passes, sent each
+    /// change. A renderer that cannot render in Imago runs the command line.
+    ipr_off: bool,
+    /// The live render, once one is started.
+    live: Option<crate::live::Session>,
+    /// The last render was live: its status is shown.
+    last_live: bool,
+    /// When the live image last came into the view, and whether it is what it
+    /// shows (its texture then kept up to date bucket by bucket).
+    live_shown: Option<std::time::Instant>,
+    showing_live: bool,
+}
+
+/// How often a render in Imago is drawn as its buckets come in: only what
+/// changed goes to the GPU.
+const LIVE_DRAW: std::time::Duration = std::time::Duration::from_millis(33);
+/// How often the view's own copy of it (its values under the cursor, the CPU
+/// path) is brought up to date.
+const LIVE_IMAGE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// A render's images in memory, as the view shows images: an AOV each, its
+/// channels named as in an EXR (`R`… for the beauty, `diffuse.R`…, `Z`).
+fn image_of(layers: &[xms_render::Layer]) -> xms_image::Image {
+    let (w, h) = layers
+        .first()
+        .map(|l| (l.frame.width, l.frame.height))
+        .unwrap_or_default();
+    let mut channels = vec![];
+    for l in layers.iter().filter(|l| (l.frame.width, l.frame.height) == (w, h)) {
+        for (k, c) in ["R", "G", "B", "A"].iter().enumerate().take(l.channels) {
+            let name = match (l.name.as_str(), l.channels) {
+                ("RGBA", _) => c.to_string(),
+                (n, 1) => n.to_string(),
+                (n, _) => format!("{n}.{c}"),
+            };
+            channels.push(xms_image::Channel {
+                name,
+                values: l.frame.rgba.iter().map(|p| p[k]).collect(),
+            });
+        }
+    }
+    xms_image::Image {
+        width: w,
+        height: h,
+        origin: (0, 0),
+        frame: (0, 0, w, h),
+        channels,
+    }
 }
 
 /// The command lines the ⚙ menu fills in: name, line, what it does. Custom is
@@ -284,10 +339,14 @@ pub fn draw(
                             let title = match t {
                                 crate::types::NodeType::LoadImage { path, .. } => {
                                     let file = crate::core::image_file::path_at(path, graph.frame().round() as i64);
-                                    Path::new(&file).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| name.clone())
+                                    Path::new(&file)
+                                        .file_name()
+                                        .map(|f| f.to_string_lossy().into_owned())
+                                        .unwrap_or_else(|| name.clone())
                                 }
                                 _ => name.clone(),
                             };
+                            st.showing_live = false;
                             st.view.set(img.clone(), title);
                         }
                         Some((img, space))
@@ -308,21 +367,47 @@ pub fn draw(
             Ok(img) => {
                 // A render or an opened file now shows, not the operator's image.
                 st.graph_image = None;
+                st.showing_live = false;
                 st.view.set(Arc::new(img), title);
                 if let Some(r) = &mut st.run {
                     r.seen = written;
                 }
             }
             // A snapshot read while it was being written: the next one will do.
-            Err(_) if running => {}
+            Err(_) if running || st.live.as_ref().is_some_and(|l| l.rendering()) => {}
             Err(e) => st.message = e,
         }
     }
     poll(st);
+    // In Imago: the graph's changes sent (IPR); the image, in memory, shown as
+    // its buckets come in.
+    let mut live_layers = None;
+    if let Some(live) = &mut st.live {
+        let key = (revision, graph.frame().to_bits());
+        if let Some(why) = live.update(key, graph.frame(), || scene(graph, subnets)) {
+            st.message = why;
+        }
+        // At once when it is done: what a snapshot keeps.
+        if live.done() || st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_IMAGE) {
+            live_layers = live.layers();
+        }
+    }
+    if let Some(layers) = live_layers {
+        st.live_shown = Some(std::time::Instant::now());
+        st.showing_live = true;
+        st.graph_image = None;
+        st.view.set(
+            Arc::new(image_of(&layers)),
+            format!("Imago   frame {}", graph.frame().round() as i64),
+        );
+    }
+    let live_rendering = st.live.as_ref().is_some_and(|l| l.rendering());
 
     let run = command::snapshot(RUN_KEY, 400);
-    let running = run.as_ref().is_some_and(|r| r.state == State::Running);
-    if running || st.busy {
+    let running = run.as_ref().is_some_and(|r| r.state == State::Running) || live_rendering;
+    if live_rendering {
+        ui.ctx().request_repaint_after(LIVE_DRAW);
+    } else if running || st.busy {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }
 
@@ -383,41 +468,73 @@ pub fn draw(
                 .on_hover_text("The camera rendered through");
         });
         ui.separator();
+        // A renderer that can (Arnold) renders in Imago: IPR, on by default,
+        // in passes as you work; off, once at the Render Settings' samples.
+        // Another runs the command line.
+        let in_imago = chosen.as_ref().is_some_and(|s| crate::live::renderer_for(s.renderer).is_some());
+        let mut ipr = !st.ipr_off;
+        ui.add_enabled_ui(in_imago, |ui| ui.toggle_value(&mut ipr, "IPR"))
+            .inner
+            .on_hover_text("Interactive: Render renders in passes, from few samples up, and each change to the graph goes to the renderer while it renders, the scene written again only when it must be. Off: once, each bucket finished at the Render Settings' samples. Both in Imago, with the layer's own RenderSettings and camera")
+            .on_disabled_hover_text("In Imago with a renderer whose definition says how (Arnold); this one runs the command line in ⚙");
+        if ipr == st.ipr_off {
+            st.ipr_off = !ipr;
+            if let (false, Some(l)) = (ipr, &mut st.live) {
+                l.stop();
+            }
+        }
         let can = chosen.is_some() && !running;
         if ui
             .add_enabled(can, egui::Button::new("▶ Render"))
-            .on_hover_text(
-                "The current frame of the scene the view flag shows, with the command line in ⚙, in the background",
-            )
+            .on_hover_text(match (in_imago, ipr) {
+                (true, true) => "The scene the view flag shows, in Imago, in passes: changes go to it as you work",
+                (true, false) => "The current frame of the scene the view flag shows, in Imago, bucket by bucket at the Render Settings' samples",
+                _ => "The current frame of the scene the view flag shows, with the command line in ⚙, in the background",
+            })
             .clicked()
         {
             if let Some(s) = &chosen {
-                start(st, graph, subnets, s);
+                st.message.clear();
+                if in_imago {
+                    if let Err(e) = render_live(st, graph, subnets, s, revision, ipr) {
+                        st.message = e;
+                    }
+                } else {
+                    st.last_live = false;
+                    start(st, graph, subnets, s);
+                }
             }
         }
         if ui.add_enabled(running, egui::Button::new("⏹ Stop")).clicked() {
-            command::stop(RUN_KEY);
-        }
-        match &run {
-            Some(r) if r.state == State::Running => match r.progress {
-                Some(p) => {
-                    ui.add(egui::ProgressBar::new(p / 100.0).desired_width(120.0).show_percentage());
-                }
-                None => {
-                    ui.spinner();
-                }
-            },
-            Some(r) => {
-                let secs = r.elapsed.as_secs_f64();
-                let (text, colour) = match &r.state {
-                    State::Done => (format!("Done in {secs:.1} s"), crate::properties::form::ink::OK()),
-                    State::Stopped => ("Stopped".to_string(), egui::Color32::from_gray(200)),
-                    State::Failed(why) => (why.clone(), crate::properties::form::ink::BAD()),
-                    State::Running => (String::new(), egui::Color32::WHITE),
-                };
-                ui.label(egui::RichText::new(text).color(colour));
+            match &mut st.live {
+                Some(l) if l.rendering() => l.stop(),
+                _ => command::stop(RUN_KEY),
             }
-            None => {}
+        }
+        if let (true, Some(l)) = (st.last_live, &st.live) {
+            ui.label(l.status());
+        } else {
+            match &run {
+                Some(r) if r.state == State::Running => match r.progress {
+                    Some(p) => {
+                        ui.add(egui::ProgressBar::new(p / 100.0).desired_width(120.0).show_percentage());
+                    }
+                    None => {
+                        ui.spinner();
+                    }
+                },
+                Some(r) => {
+                    let secs = r.elapsed.as_secs_f64();
+                    let (text, colour) = match &r.state {
+                        State::Done => (format!("Done in {secs:.1} s"), crate::properties::form::ink::OK()),
+                        State::Stopped => ("Stopped".to_string(), egui::Color32::from_gray(200)),
+                        State::Failed(why) => (why.clone(), crate::properties::form::ink::BAD()),
+                        State::Running => (String::new(), egui::Color32::WHITE),
+                    };
+                    ui.label(egui::RichText::new(text).color(colour));
+                }
+                None => {}
+            }
         }
         if !st.message.is_empty() {
             ui.label(egui::RichText::new(st.message.clone()).color(crate::properties::form::ink::BAD()));
@@ -436,7 +553,11 @@ pub fn draw(
     // An operator's image is in the space its operator says; renders and
     // opened files in the one chosen here. Either way, a change of space only
     // remakes what is shown, from the pixels already in memory.
-    let input = st.graph_image.as_ref().map(|(_, space)| space.clone()).unwrap_or_else(|| st.input.clone());
+    let input = st
+        .graph_image
+        .as_ref()
+        .map(|(_, space)| space.clone())
+        .unwrap_or_else(|| st.input.clone());
     let now = (input, v);
     // On the GPU the transform is a shader (`image_gpu`); the view's own CPU
     // transform is made only for an image the GPU cannot take.
@@ -459,7 +580,18 @@ pub fn draw(
     // The image on the GPU (the colour transform a shader: a change of space
     // or view shows at once), else the view's own CPU path.
     let (from, view) = st.shown_in.clone().unwrap_or_default();
-    let draw = move |painter: &egui::Painter, rect: egui::Rect, image: &Arc<xms_image::Image>, layer: &xms_image::Layer, show: xms_image::Show, look: &xms_image::Look| {
+    // A render in Imago, while it is what is shown (not a snapshot): its
+    // texture kept up to date as buckets come in.
+    let active = st.view.position() >= st.view.snaps.len();
+    let live = (st.showing_live && active)
+        .then(|| st.live.as_ref().map(|l| l.pixels().clone()))
+        .flatten();
+    let draw = move |painter: &egui::Painter,
+                     rect: egui::Rect,
+                     image: &Arc<xms_image::Image>,
+                     layer: &xms_image::Layer,
+                     show: xms_image::Show,
+                     look: &xms_image::Look| {
         // Over the canvas (always on screen), the image placed in it.
         let canvas = painter.clip_rect();
         let place = [
@@ -470,10 +602,21 @@ pub fn draw(
         ];
         painter.add(eframe::egui_wgpu::Callback::new_paint_callback(
             canvas,
-            crate::image_gpu::ImagePaint { image: image.clone(), layer: layer.clone(), show, look: *look, from: from.clone(), view: view.clone(), place },
+            crate::image_gpu::ImagePaint {
+                image: image.clone(),
+                layer: layer.clone(),
+                show,
+                look: *look,
+                from: from.clone(),
+                view: view.clone(),
+                place,
+                live: live.clone(),
+            },
         ));
     };
-    ui.allocate_ui(egui::vec2(w, h), |ui| st.view.canvas(ui, gpu.then_some(&draw as &xms_image::GpuDraw)));
+    ui.allocate_ui(egui::vec2(w, h), |ui| {
+        st.view.canvas(ui, gpu.then_some(&draw as &xms_image::GpuDraw))
+    });
     ui.horizontal(|ui| st.view.snapshots(ui));
     if st.show_log {
         crate::properties::render::console(ui, "image_viewer_log", run.as_ref(), 150.0, "Nothing yet: press Render");
@@ -598,6 +741,33 @@ fn start(
         title: format!("frame {frame}   {}   {camera}", settings.path),
         finished: false,
     });
+}
+
+/// Renders live: the renderer started, once, then the scene written and
+/// loaded; what changes after goes to it as it renders.
+fn render_live(
+    st: &mut ImageViewerState,
+    graph: &NodeGraphState,
+    subnets: &crate::ice::IceGraphStore,
+    settings: &SettingsInfo,
+    revision: u64,
+    ipr: bool,
+) -> Result<(), String> {
+    if crate::usd_scene::any_reading() {
+        return Err("A stage is still being read: render when it is done".into());
+    }
+    let prims = scene(graph, subnets).ok_or("The view flag shows no scene")?;
+    let renderer = crate::live::renderer_for(settings.renderer)
+        .ok_or_else(|| format!("{} does not render live in Imago", settings.renderer))?;
+    let live = match st.live.take() {
+        Some(l) => l,
+        None => crate::live::Session::start(&renderer, &render_dir())?,
+    };
+    let live = st.live.insert(live);
+    live.render(prims, (revision, graph.frame().to_bits()), graph.frame(), ipr)?;
+    st.last_live = true;
+    st.view.show_active();
+    Ok(())
 }
 
 /// The command line rendering one frame of a layer to an image: its template

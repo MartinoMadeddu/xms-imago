@@ -156,8 +156,10 @@ Principles:
 1. The Viewer drawing straight from `Geo`, retiring the `MeshData` view.
 2. The rest of the ICE engine: arrays, merge modes on writes elsewhere, a
    Snippet node compiling to the same instructions, simulation.
-3. rray as render delegate, consuming the scene layer and its edits; `xms-scene`
-   and rray's merge.
+3. Rendering inside Imago through one renderer interface (load a layer, render
+   progressively, edit by prim path, reload, stop): Arnold first, loading
+   `libai` at run time (`docs/arnold-native.md`), then rray; `xms-scene` and
+   rray's merge.
 4. Write USD: de-instancing, flattening, instancer edits.
 
 ## Module map
@@ -169,6 +171,7 @@ Principles:
 | `src/core/` | operators' work: properties, Set Attribute, Edit Primitive, Reparent, locations, lights, rendering, command lines, variables |
 | `src/types.rs`, `src/edits.rs` | `Prim`, `Placement`, `EvalResult`; edits against the source |
 | `src/usd_stage.rs`, `src/usd_scene.rs`, `src/usd_write.rs` | USD in (stage to primitives, loading and caching) and out |
+| `src/live.rs` | Live rendering's edits: what changed between two cooks, by prim path |
 | `src/viewer/` | the Viewer on wgpu, Edit Poly's picking and handles, Export Movie |
 | `src/scene_explorer/`, `src/prim_inspector/` | the scene as a tree; the selected prims' values |
 | `src/ice/`, `src/materialx/` | the ICE and MaterialX editors |
@@ -183,4 +186,5 @@ Principles:
 | `crates/xms-image` | images as layers of float channels, OpenEXR |
 | `crates/xms-colour` | OpenColorIO config, views and transforms |
 | `crates/xms-docs` | the HTML documentation from the Markdown |
+| `crates/xms-render` | the renderer interface, run live on a thread; the Arnold backend, `libai` opened at run time |
 | `crates/ragdoll` | collision cleanup for motion capture |

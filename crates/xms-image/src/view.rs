@@ -193,33 +193,41 @@ impl ImageView {
                 .response
                 .on_hover_text("The layer (AOV) shown");
         });
-        for s in Show::ALL {
-            ui.selectable_value(&mut self.show, s, s.label())
-                .on_hover_text(match s {
-                    Show::Colour => "Its colour",
-                    Show::Red => "Red alone",
-                    Show::Green => "Green alone",
-                    Show::Blue => "Blue alone",
-                    Show::Alpha => "Alpha",
-                    Show::Luminance => "Luminance",
-                });
-        }
+        egui::ComboBox::from_id_salt("xms_image_show")
+            .width(52.0)
+            .selected_text(self.show.label())
+            .show_ui(ui, |ui| {
+                for s in Show::ALL {
+                    ui.selectable_value(&mut self.show, s, s.label())
+                        .on_hover_text(match s {
+                            Show::Colour => "Its colour",
+                            Show::Red => "Red alone",
+                            Show::Green => "Green alone",
+                            Show::Blue => "Blue alone",
+                            Show::Alpha => "Alpha",
+                            Show::Luminance => "Luminance",
+                        });
+                }
+            })
+            .response
+            .on_hover_text("What of the layer is shown: its colour, one channel, alpha or luminance");
         ui.separator();
         ui.add(
             egui::DragValue::new(&mut self.look.exposure)
                 .speed(0.05)
                 .range(-20.0..=20.0)
                 .max_decimals(2)
-                .prefix("Exposure "),
+                .prefix("E "),
         )
-        .on_hover_text("Stops: each doubles the values. Double-click to type");
+        .on_hover_text("Exposure, in stops: each doubles the values. Double-click to type");
         ui.add(
             egui::DragValue::new(&mut self.look.gamma)
                 .speed(0.01)
                 .range(0.1..=5.0)
                 .max_decimals(2)
-                .prefix("Gamma "),
-        );
+                .prefix("G "),
+        )
+        .on_hover_text("Gamma. Double-click to type");
         // With a display transform, it does what sRGB's curve does.
         if self.display.is_none() {
             ui.checkbox(&mut self.look.srgb, "sRGB")
