@@ -107,6 +107,11 @@ impl Session {
         self.rendering
     }
 
+    /// Its render is done (IPR: until the next change).
+    pub fn done(&self) -> bool {
+        self.finished
+    }
+
     /// While it renders, each time it is looked at: the scene sent when the
     /// graph's revision or the frame (`key`) changed (`prims` gives it), what
     /// the renderer did taken in. What failed, if anything.

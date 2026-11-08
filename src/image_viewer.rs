@@ -373,7 +373,8 @@ pub fn draw(
         if let Some(why) = live.update(key, graph.frame(), || scene(graph, subnets)) {
             st.message = why;
         }
-        if st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_IMAGE) {
+        // At once when it is done: what a snapshot keeps.
+        if live.done() || st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_IMAGE) {
             live_frame = live.frame();
         }
     }
@@ -565,9 +566,10 @@ pub fn draw(
     // The image on the GPU (the colour transform a shader: a change of space
     // or view shows at once), else the view's own CPU path.
     let (from, view) = st.shown_in.clone().unwrap_or_default();
-    // A render in Imago: its texture kept up to date as buckets come in.
-    let live = st
-        .showing_live
+    // A render in Imago, while it is what is shown (not a snapshot): its
+    // texture kept up to date as buckets come in.
+    let active = st.view.position() >= st.view.snaps.len();
+    let live = (st.showing_live && active)
         .then(|| st.live.as_ref().map(|l| l.pixels().clone()))
         .flatten();
     let draw = move |painter: &egui::Painter,
