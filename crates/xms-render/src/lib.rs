@@ -58,7 +58,8 @@ pub struct Edit {
 /// What a renderer did, as it happens.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    /// The layer is loaded, in that many seconds; its images will be these.
+    /// The layer is loaded, in that many seconds. Its images: the files each
+    /// pass's image is in, whole, once its `Pass` comes.
     Loaded { seconds: f64, images: Vec<PathBuf> },
     /// A pass is done: its images are whole, to be read.
     Pass { index: u32, total: u32 },
@@ -73,7 +74,8 @@ pub enum Event {
 /// A renderer that reads USD itself. Each call is made from one thread, the
 /// one [`Live`] runs it on.
 pub trait Renderer {
-    /// Load the layer at `frame`, in place of what was loaded.
+    /// Load the layer at `frame`, in place of what was loaded: the files each
+    /// pass's images will be in, whole.
     fn load(&mut self, layer: &Path, frame: f64) -> Result<Vec<PathBuf>, String>;
     /// Start rendering what is loaded, progressively, or again after edits.
     fn render(&mut self) -> Result<(), String>;

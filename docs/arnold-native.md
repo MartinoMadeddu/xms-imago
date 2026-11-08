@@ -217,8 +217,17 @@ ARNOLD_PATH=/path/to/Arnold-7.x-SDK cargo run --release -p xms-render \
 - **The current renders keep working:** the kick and husk command lines stay
   as they are, side by side with Live.
 
-Built: **● Live** in the Image Viewer's bar (`docs/render.md`).
+Built: **● Live** in the Image Viewer's bar, on by default, Render and Stop
+starting and stopping it (`docs/render.md`).
 
+- `crate::live::Session` is a live render that belongs to no pane: the scene
+  sent, edits as it changes, its status, each pass's image. The Image Viewer
+  drives one; the Viewer can drive one the same way (rendering in the 3D
+  viewport), with pixels in memory (Step 4) drawn as its texture.
+- Each pass's image is kept whole: at the end of a pass, in Arnold's own
+  callback before the next starts, the backend copies the EXR beside it
+  (`.live.exr`) and puts it in place at once; Arnold writes the file all
+  through a pass, so reading it as it is meets half an image.
 - `src/live.rs` works out the edits between two cooks of the scene, prim by
   prim, by pointer first, then by value (an operator cooked again makes its
   prims anew): a placement becomes its world matrix in the layer's axes

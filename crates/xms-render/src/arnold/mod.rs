@@ -9,6 +9,7 @@ mod ffi;
 use std::ffi::{c_int, CString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Mutex;
 
 use crate::{with_frame, Change, Edit, Event, Renderer, Value};
 use ffi::{Api, Matrix, Ptr, UpdateInfo};
@@ -49,6 +50,37 @@ struct Progress {
     failed: AtomicBool,
     /// `AiRenderGetStatus`, for updates that do not change the status.
     status: Option<unsafe extern "C" fn(Ptr) -> c_int>,
+    /// Each image Arnold writes, and where it is kept once a pass is done
+    /// (`kept`): Arnold writes the file all through the next pass.
+    images: Mutex<Vec<(PathBuf, PathBuf)>>,
+}
+
+impl Progress {
+    /// The images of the pass just done, kept whole: copied, then put in
+    /// place at once, so a reader never meets half a file. Called on Arnold's
+    /// thread before its next pass starts.
+    fn keep(&self) {
+        let Ok(images) = self.images.lock() else { return };
+        for (written, kept) in images.iter() {
+            let part = kept.with_extension("part");
+            if std::fs::copy(written, &part).is_ok() {
+                let _ = std::fs::rename(&part, kept);
+            }
+        }
+    }
+}
+
+/// Where a pass's image is kept: beside it, `.live` before its extension.
+fn kept(image: &Path) -> PathBuf {
+    let stem = image
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = image
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    image.with_file_name(format!("{stem}.live.{ext}"))
 }
 
 pub struct Arnold {
@@ -267,10 +299,12 @@ unsafe extern "C" fn update(data: Ptr, kind: c_int, info: *const UpdateInfo) -> 
     match kind {
         ffi::UPDATE_INTERRUPT => ffi::PAUSED,
         ffi::UPDATE_AFTER_PASS => {
+            progress.keep();
             progress.passes.fetch_add(1, Ordering::Relaxed);
             ffi::RENDERING
         }
         ffi::UPDATE_FINISHED => {
+            progress.keep();
             progress.passes.fetch_add(1, Ordering::Relaxed);
             progress.finished.store(true, Ordering::Relaxed);
             ffi::FINISHED
@@ -321,10 +355,14 @@ impl Renderer for Arnold {
                     let _ = std::fs::create_dir_all(dir);
                 }
                 (ai.AiNodeSetStr)(driver, ai.string("filename"), ai.string(&file.to_string_lossy()));
-                images.push(file);
+                images.push((kept(&file), file));
+            }
+            if let Ok(mut kept) = self.progress.images.lock() {
+                *kept = images.iter().map(|(k, f)| (f.clone(), k.clone())).collect();
             }
             self.session = (ai.AiRenderSession)(self.universe, ffi::SESSION_INTERACTIVE);
-            Ok(images)
+            // What is read: each pass's, kept whole.
+            Ok(images.into_iter().map(|(k, _)| k).collect())
         }
     }
 
@@ -423,6 +461,23 @@ mod tests {
             ])
         );
         assert_eq!(settings_params("pixelAspectRatio", &Value::Float(1.0)), None);
+    }
+
+    #[test]
+    fn a_pass_is_kept_whole_beside_the_image() {
+        assert_eq!(
+            kept(Path::new("render/beauty.0001.exr")),
+            Path::new("render/beauty.0001.live.exr")
+        );
+        let dir = std::env::temp_dir().join("xms_render_kept");
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("beauty.0001.exr");
+        std::fs::write(&image, "a pass").unwrap();
+        let progress = Progress::default();
+        *progress.images.lock().unwrap() = vec![(image.clone(), kept(&image))];
+        progress.keep();
+        assert_eq!(std::fs::read_to_string(kept(&image)).unwrap(), "a pass");
+        assert!(!kept(&image).with_extension("part").exists());
     }
 
     #[test]

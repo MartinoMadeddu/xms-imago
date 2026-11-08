@@ -1,18 +1,200 @@
-//! Live rendering's edits: what changed in the scene between two cooks, by prim
-//! path, as the renderer takes it (`xms_render::Change`). Primitives share what
-//! did not change (`Arc`s), so most compare by pointer. What no live edit
-//! covers (a prim added or removed, topology, a material's network, a
-//! camera's lens, another purpose or binding) is a change of structure: the
-//! layer is written and loaded again.
+//! Live rendering: a renderer in Imago's process (`xms_render`), sent the
+//! scene once, then what changes in it as you work. A [`Session`] belongs to no
+//! pane: the Image Viewer drives one, and the Viewer can.
+//!
+//! Its edits: what changed in the scene between two cooks, by prim path, as
+//! the renderer takes it (`xms_render::Change`). Primitives share what did not
+//! change (`Arc`s), so most compare by pointer. What no live edit covers (a
+//! prim added or removed, topology, a material's network, a camera's lens,
+//! another purpose or binding) is a change of structure: the layer is written
+//! and loaded again.
 
 use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use glam::Mat4;
 use xms_render::{Change, Edit, Value};
 
 use crate::core::properties::Value as Prop;
 use crate::types::{Placement, Prim};
+
+/// How a renderer renders live, when its definition says so: Arnold's.
+pub fn renderer_for(name: &str) -> Option<crate::core::render::LiveRenderer> {
+    crate::core::render::definitions()
+        .iter()
+        .find(|d| d.name == name)
+        .and_then(|d| d.live.clone())
+        .filter(|l| l.backend == "arnold")
+}
+
+/// A live render: the renderer, the scene as last sent to it, and how it is
+/// doing.
+pub struct Session {
+    live: xms_render::Live,
+    /// Where the scene is written, when it must be.
+    layer: PathBuf,
+    sent: Vec<Prim>,
+    /// The graph's revision and the frame the scene sent is of.
+    key: (u64, u64),
+    rendering: bool,
+    images: Vec<PathBuf>,
+    /// Passes done of the render going, and how many it makes.
+    pass: Option<(u32, u32)>,
+    finished: bool,
+    /// When it last started rendering: a first pass long in coming is Arnold
+    /// making its `.tx` textures.
+    since: Instant,
+    /// A pass is done whose image is not yet taken.
+    fresh: bool,
+}
+
+impl Session {
+    /// The renderer started, the scene to be written in `dir` when it must be.
+    pub fn start(renderer: &crate::core::render::LiveRenderer, dir: &Path) -> Result<Session, String> {
+        let sdk = crate::core::vars::expand(&renderer.sdk, &[]);
+        if sdk.trim().is_empty() || sdk.contains('$') {
+            return Err(
+                "Where is Arnold? Set ARNOLD_PATH to its SDK's folder, in File > Variables or the environment".into(),
+            );
+        }
+        let config = xms_render::arnold::Config {
+            sdk: sdk.trim().into(),
+            materialx: materialx_folder(dir),
+            licence: renderer.licence,
+        };
+        let live = xms_render::Live::start(move || {
+            Ok(Box::new(xms_render::arnold::Arnold::new(config)?) as Box<dyn xms_render::Renderer>)
+        });
+        Ok(Session {
+            live,
+            layer: dir.join("live.usda"),
+            sent: vec![],
+            key: (0, 0),
+            rendering: false,
+            images: vec![],
+            pass: None,
+            finished: false,
+            since: Instant::now(),
+            fresh: false,
+        })
+    }
+
+    /// Render the scene: `prims`, of the graph's revision and frame `key`, at
+    /// `frame`. Written and loaded.
+    pub fn render(&mut self, prims: Vec<Prim>, key: (u64, u64), frame: f64) -> Result<(), String> {
+        crate::usd_write::write_override(&prims, &self.layer)
+            .map_err(|e| format!("The scene could not be written: {e}"))?;
+        self.live.load(&self.layer, frame);
+        self.sent = prims;
+        self.key = key;
+        self.rendering = true;
+        self.since = Instant::now();
+        Ok(())
+    }
+
+    /// Stop rendering; the renderer keeps what it has loaded.
+    pub fn stop(&mut self) {
+        self.live.stop();
+        self.rendering = false;
+    }
+
+    pub fn rendering(&self) -> bool {
+        self.rendering
+    }
+
+    /// While it renders, each time it is looked at: the scene sent when the
+    /// graph's revision or the frame (`key`) changed (`prims` gives it), what
+    /// the renderer did taken in. What failed, if anything.
+    pub fn update(&mut self, key: (u64, u64), frame: f64, prims: impl FnOnce() -> Option<Vec<Prim>>) -> Option<String> {
+        if !self.rendering {
+            return None;
+        }
+        let mut failed = None;
+        if self.key != key && !crate::usd_scene::any_reading() {
+            if let Some(prims) = prims() {
+                if self.key.1 != key.1 {
+                    // Another frame: loaded.
+                    if let Err(e) = self.render(prims, key, frame) {
+                        failed = Some(e);
+                    }
+                } else {
+                    let edits = changes(&self.sent, &prims, crate::usd_write::layer_axes(&prims));
+                    if !edits.is_empty() {
+                        // Written only if the renderer cannot take them live.
+                        let (now, layer) = (prims.clone(), self.layer.clone());
+                        self.live.edit(edits, move || {
+                            crate::usd_write::write_override(&now, &layer).map(|_| layer)
+                        });
+                    }
+                    self.sent = prims;
+                    self.key = key;
+                }
+            }
+        }
+        for e in self.live.events() {
+            match e {
+                xms_render::Event::Loaded { images, .. } => {
+                    self.images = images;
+                    self.restarted();
+                }
+                xms_render::Event::Edited(_) => self.restarted(),
+                xms_render::Event::Pass { index, total } => {
+                    self.pass = Some((index + 1, total));
+                    self.fresh = true;
+                }
+                xms_render::Event::Finished => {
+                    self.finished = true;
+                    self.fresh = true;
+                }
+                xms_render::Event::Failed(why) => failed = Some(why),
+            }
+        }
+        failed
+    }
+
+    fn restarted(&mut self) {
+        self.pass = None;
+        self.finished = false;
+        self.since = Instant::now();
+    }
+
+    /// The image of the last pass done, once per pass: its beauty, whole.
+    pub fn image(&mut self) -> Option<PathBuf> {
+        if !std::mem::take(&mut self.fresh) {
+            return None;
+        }
+        self.images.first().cloned()
+    }
+
+    /// How it is doing, in a few words.
+    pub fn status(&self) -> String {
+        match (self.rendering, self.finished, self.pass) {
+            (false, _, _) => "Live: stopped".into(),
+            (_, true, _) => "Live: done".into(),
+            (_, _, Some((done, total))) => format!("Live: pass {done} of {total}"),
+            _ if self.since.elapsed().as_secs() >= 3 => {
+                "Live: waiting for the first pass (Arnold makes .tx files of new textures)".into()
+            }
+            _ => "Live: starting".into(),
+        }
+    }
+}
+
+/// MaterialX's libraries as files, for Arnold's USD reader to know MaterialX
+/// materials by: Imago's own, written once into `dir`.
+fn materialx_folder(dir: &Path) -> Option<PathBuf> {
+    let dir = dir.join("materialx");
+    for (name, text) in xms_matx::FILES {
+        let file = dir.join(name);
+        if !file.exists() {
+            std::fs::create_dir_all(file.parent()?).ok()?;
+            std::fs::write(&file, text).ok()?;
+        }
+    }
+    Some(dir)
+}
 
 /// The edits from `before` to `now`; one `Change::Structure` when any change
 /// is not one a renderer takes live. `axes`: the layer's (`usd_write::layer_axes`).

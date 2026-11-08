@@ -314,8 +314,10 @@ beside it; the name field renames the one shown; **✕** lets it go. Rendering
 again shows the active render; a snapshot keeps its layers, so compare any AOV.
 They are kept while the program runs, with how much memory they take.
 
-**Live**, beside Render, renders in Imago itself, as you work, with a
-renderer that can (Arnold, for RenderSettings with Arnold settings):
+**● Live**, beside Render, on by default: Render renders in Imago itself, as
+you work, with a renderer that can (Arnold, for RenderSettings with Arnold
+settings); Stop stops it. Off, or for another renderer, Render runs the
+command line.
 
 - The first time, it starts Arnold from its SDK: `ARNOLD_PATH`, from
   [File > Variables](interface.md#variables) or the environment (the renderer
@@ -328,11 +330,13 @@ renderer that can (Arnold, for RenderSettings with Arnold settings):
   settings and resolution. Anything else (a prim added or removed, topology,
   a material's network, a camera's lens, another frame) writes the layer
   again and loads it.
-- The image comes in after each of Arnold's progressive passes, whole. The
-  first pass can be long in coming while Arnold makes `.tx` files of new
+- Each of Arnold's progressive passes comes into the view as it is done, from
+  low samples up. Arnold writes its image all through a pass, so each pass's
+  is kept whole beside it (`beauty.0001.live.exr`) and that is what is read.
+  The first pass can be long in coming while Arnold makes `.tx` files of new
   textures, once (they stay beside the textures).
-- It renders the layer's own RenderSettings and their camera. Live off pauses
-  it; Arnold stays loaded until Imago closes.
+- It renders the layer's own RenderSettings and their camera. Arnold stays
+  loaded after Stop, until Imago closes, so rendering again is quick.
 
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.
