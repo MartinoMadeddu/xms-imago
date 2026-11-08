@@ -171,6 +171,7 @@ Principles:
 | `src/core/` | operators' work: properties, Set Attribute, Edit Primitive, Reparent, locations, lights, rendering, command lines, variables |
 | `src/types.rs`, `src/edits.rs` | `Prim`, `Placement`, `EvalResult`; edits against the source |
 | `src/usd_stage.rs`, `src/usd_scene.rs`, `src/usd_write.rs` | USD in (stage to primitives, loading and caching) and out |
+| `src/live.rs` | Live rendering's edits: what changed between two cooks, by prim path |
 | `src/viewer/` | the Viewer on wgpu, Edit Poly's picking and handles, Export Movie |
 | `src/scene_explorer/`, `src/prim_inspector/` | the scene as a tree; the selected prims' values |
 | `src/ice/`, `src/materialx/` | the ICE and MaterialX editors |

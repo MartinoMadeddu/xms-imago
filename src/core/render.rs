@@ -722,6 +722,24 @@ pub struct Definition {
     /// `driver:parameters:aov:clearValue`, `…:karma:filter`).
     #[serde(default)]
     pub var_defaults: Vec<Param>,
+    /// How the Image Viewer renders with it live, in Imago's process; `None`
+    /// for one it only runs as a command line.
+    #[serde(default)]
+    pub live: Option<LiveRenderer>,
+}
+
+/// A renderer Imago drives in its own process (`xms_render`).
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct LiveRenderer {
+    /// Its backend: `arnold`.
+    pub backend: String,
+    /// Where it is installed (Arnold's SDK, with `bin/` and `plugins/`), its
+    /// variables put in: `$ARNOLD_PATH`, from File > Variables or the
+    /// environment.
+    pub sdk: String,
+    /// Look for its licence; without one, renders are watermarked.
+    #[serde(default)]
+    pub licence: bool,
 }
 
 const EMBEDDED: [&str; 2] = [

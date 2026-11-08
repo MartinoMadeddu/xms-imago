@@ -314,6 +314,26 @@ beside it; the name field renames the one shown; **✕** lets it go. Rendering
 again shows the active render; a snapshot keeps its layers, so compare any AOV.
 They are kept while the program runs, with how much memory they take.
 
+**Live**, beside Render, renders in Imago itself, as you work, with a
+renderer that can (Arnold, for RenderSettings with Arnold settings):
+
+- The first time, it starts Arnold from its SDK: `ARNOLD_PATH`, from
+  [File > Variables](interface.md#variables) or the environment (the renderer
+  definition's `live.sdk`). Arnold 7 or later; without a licence its images
+  are watermarked.
+- The scene is written as a layer in the render folder and Arnold loads it
+  with its own USD reader. Each change to the graph after that goes to it
+  while it renders, by prim path: a light's values, a MaterialX shader's
+  inputs, a move, hiding a prim, moved points, the Render Settings' Arnold
+  settings and resolution. Anything else (a prim added or removed, topology,
+  a material's network, a camera's lens, another frame) writes the layer
+  again and loads it.
+- The image comes in after each of Arnold's progressive passes, whole. The
+  first pass can be long in coming while Arnold makes `.tx` files of new
+  textures, once (they stay beside the textures).
+- It renders the layer's own RenderSettings and their camera. Live off pauses
+  it; Arnold stays loaded until Imago closes.
+
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.
 

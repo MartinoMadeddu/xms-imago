@@ -3,6 +3,7 @@
   "label": "Arnold",
   "namespace": "arnold:global",
   "about": "Autodesk Arnold, through arnold-usd (husk with HdArnold, kick, usdview). Arnold's options are written as arnold:global: attributes on the RenderSettings prim, with the option's own name after the prefix.",
+  "live": { "backend": "arnold", "sdk": "$ARNOLD_PATH" },
   "params": [
     { "name": "arnold:global:AA_samples", "type": "int", "default": 3, "min": 1, "max": 32,
       "group": "Sampling", "label": "Camera (AA)",

@@ -23,6 +23,7 @@ mod image_viewer;
 mod inside_compound;
 mod keys_ui;
 mod layout;
+mod live;
 mod materialx;
 mod menus;
 mod modelling;

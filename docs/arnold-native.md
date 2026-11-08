@@ -217,6 +217,27 @@ ARNOLD_PATH=/path/to/Arnold-7.x-SDK cargo run --release -p xms-render \
 - **The current renders keep working:** the kick and husk command lines stay
   as they are, side by side with Live.
 
+Built: **● Live** in the Image Viewer's bar (`docs/render.md`).
+
+- `src/live.rs` works out the edits between two cooks of the scene, prim by
+  prim, by pointer first, then by value (an operator cooked again makes its
+  prims anew): a placement becomes its world matrix in the layer's axes
+  (`usd_write::layer_axes`), a light's values its attributes, a MaterialX
+  graph's input values its shaders' (`<material>/<node>`), `visibility` alone
+  a visibility, points alone (the same topology and other attributes) the
+  points, a RenderSettings prim's attributes the settings. Anything else is a
+  change of structure.
+- The layer is written only when a reload needs it: `Live::edit` takes the
+  writing as a closure, called on the render thread if the edits cannot be
+  applied live.
+- The renderer definition says how a renderer renders live
+  (`"live": { "backend": "arnold", "sdk": "$ARNOLD_PATH" }`, and `licence`).
+- MaterialX's libraries, which Imago carries inside it, are written once into
+  the render folder for Arnold's USD reader.
+- Not yet: the Image Viewer's choice of RenderSettings and camera (Live
+  renders the layer's own), and a "making textures" status from Arnold itself
+  (the bar says so when the first pass is long in coming).
+
 ### Step 4: pixels in memory
 
 - An in-memory display driver, replacing the EXR file, so passes reach the

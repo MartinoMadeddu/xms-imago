@@ -14,17 +14,13 @@ use crate::{Change, Edit, Event, Renderer};
 /// How often the renderer is asked how it is doing.
 const POLL: Duration = Duration::from_millis(20);
 
+/// Writes the layer as it is with an edit's changes, and says where: called
+/// only when they cannot be applied live.
+pub type Layer = Box<dyn FnOnce() -> Result<PathBuf, String> + Send>;
+
 enum Command {
-    Load {
-        layer: PathBuf,
-        frame: f64,
-    },
-    /// Edits, and the layer as it is with them, loaded if they cannot be
-    /// applied live.
-    Edit {
-        edits: Vec<Edit>,
-        layer: PathBuf,
-    },
+    Load { layer: PathBuf, frame: f64 },
+    Edit { edits: Vec<Edit>, layer: Layer },
     Stop,
 }
 
@@ -68,12 +64,12 @@ impl Live {
         });
     }
 
-    /// Changes since the layer was loaded, with `layer` as it is with them:
-    /// applied live, or that layer loaded when they cannot be.
-    pub fn edit(&self, edits: Vec<Edit>, layer: impl Into<PathBuf>) {
+    /// Changes since the layer was loaded: applied live, or, when they cannot
+    /// be, the layer `layer` writes loaded.
+    pub fn edit(&self, edits: Vec<Edit>, layer: impl FnOnce() -> Result<PathBuf, String> + Send + 'static) {
         self.send(Command::Edit {
             edits,
-            layer: layer.into(),
+            layer: Box::new(layer),
         });
     }
 
@@ -125,7 +121,8 @@ impl Drop for Live {
 }
 
 fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender<Event>) {
-    let mut loaded: Option<(PathBuf, f64)> = None;
+    // The frame loaded, once a layer is.
+    let mut loaded: Option<f64> = None;
     let mut send = |e: Event| {
         let _ = outbox.send(e);
     };
@@ -142,10 +139,10 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                     Command::Stop => renderer.stop(),
                     Command::Load { layer, frame } => {
                         reload(&mut *renderer, &layer, frame, &mut send);
-                        loaded = Some((layer, frame));
+                        loaded = Some(frame);
                     }
                     Command::Edit { edits, layer } => {
-                        let frame = loaded.as_ref().map(|(_, f)| *f).unwrap_or(1.0);
+                        let frame = loaded.unwrap_or(1.0);
                         let live = loaded.is_some() && edits.iter().all(|e| renderer.live(&e.change));
                         let applied = live
                             && match renderer.edit(&edits) {
@@ -161,9 +158,12 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                                 Err(e) => send(Event::Failed(e)),
                             }
                         } else {
-                            reload(&mut *renderer, &layer, frame, &mut send);
+                            match layer() {
+                                Ok(layer) => reload(&mut *renderer, &layer, frame, &mut send),
+                                Err(e) => send(Event::Failed(e)),
+                            }
                         }
-                        loaded = Some((layer, frame));
+                        loaded = Some(frame);
                     }
                 }
             }
@@ -320,6 +320,10 @@ mod tests {
 
     const SECOND: Duration = Duration::from_secs(1);
 
+    fn written(file: &'static str) -> Layer {
+        Box::new(move || Ok(file.into()))
+    }
+
     fn light(intensity: f32) -> Edit {
         Edit {
             path: "/lights/key".into(),
@@ -349,7 +353,7 @@ mod tests {
         let (live, calls) = stand_in();
         live.load("scene.usda", 1.0);
         live.wait(SECOND, |e| *e == Event::Finished);
-        live.edit(vec![light(4.0)], "scene.usda");
+        live.edit(vec![light(4.0)], || Ok("scene.usda".into()));
         assert!(live
             .wait(SECOND, |e| *e == Event::Edited(1))
             .contains(&Event::Edited(1)));
@@ -361,7 +365,7 @@ mod tests {
                     change: Change::Structure,
                 },
             ],
-            "scene2.usda",
+            || Ok("scene2.usda".into()),
         );
         assert!(live
             .wait(SECOND, |e| matches!(e, Event::Loaded { .. }))
@@ -373,7 +377,7 @@ mod tests {
                 path: "/missing".into(),
                 change: Change::Visible(false),
             }],
-            "scene3.usda",
+            || Ok("scene3.usda".into()),
         );
         live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
         let calls = calls.lock().unwrap();
@@ -401,7 +405,7 @@ mod tests {
             },
             Command::Edit {
                 edits: vec![light(2.0)],
-                layer: "a.usda".into(),
+                layer: written("a.usda"),
             },
             Command::Edit {
                 edits: vec![
@@ -415,15 +419,29 @@ mod tests {
                         change: Change::Visible(false),
                     },
                 ],
-                layer: "b.usda".into(),
+                layer: written("b.usda"),
             },
         ];
         let out = taken_together(batch);
         assert_eq!(out.len(), 2);
-        let Command::Edit { edits, layer } = &out[1] else {
+        let Command::Edit { edits, .. } = out.into_iter().nth(1).unwrap() else {
             panic!()
         };
-        assert_eq!(layer, Path::new("b.usda"));
+        // The last layer is the one written, if it must be.
+        let Command::Edit { layer, .. } = taken_together(vec![
+            Command::Edit {
+                edits: vec![light(2.0)],
+                layer: written("a.usda"),
+            },
+            Command::Edit {
+                edits: vec![light(3.0)],
+                layer: written("b.usda"),
+            },
+        ])
+        .remove(0) else {
+            panic!()
+        };
+        assert_eq!(layer().unwrap(), Path::new("b.usda"));
         assert_eq!(edits.len(), 2);
         assert_eq!(
             edits[0].change,
@@ -434,7 +452,7 @@ mod tests {
         let out = taken_together(vec![
             Command::Edit {
                 edits: vec![light(2.0)],
-                layer: "a.usda".into(),
+                layer: written("a.usda"),
             },
             Command::Load {
                 layer: "c.usda".into(),

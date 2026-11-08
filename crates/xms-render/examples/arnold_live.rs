@@ -10,11 +10,17 @@
 //! again once the render has finished (a restart after the end), moves a
 //! shape if asked, and asks for a change Arnold cannot make live (a reload).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use xms_render::arnold::{Arnold, Config};
 use xms_render::{Change, Edit, Event, Live, Renderer, Value};
+
+/// The layer as it is: the edits here change nothing Imago would write.
+fn unchanged(layer: &Path) -> impl FnOnce() -> Result<PathBuf, String> + Send + 'static {
+    let layer = layer.to_path_buf();
+    move || Ok(layer)
+}
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -33,11 +39,6 @@ fn main() {
     };
     let light = light.unwrap_or_else(|| "/lights/key".into());
     let t0 = Instant::now();
-    let log = |events: Vec<Event>| {
-        for e in events {
-            println!("{:7.2}s {e:?}", t0.elapsed().as_secs_f64());
-        }
-    };
     let materialx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../xms-matx/libraries");
     let live = Live::start(move || {
         let config = Config {
@@ -46,9 +47,20 @@ fn main() {
         };
         Ok(Box::new(Arnold::new(config)?) as Box<dyn Renderer>)
     });
-    let minute = Duration::from_secs(60);
-    let pass = |e: &Event| matches!(e, Event::Pass { .. } | Event::Failed(_));
-    let finished = |e: &Event| matches!(e, Event::Finished | Event::Failed(_));
+    // Each event as it comes, until one `wanted` accepts (a minute at most).
+    let until = |wanted: fn(&Event) -> bool| {
+        let end = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < end {
+            for e in live.wait(Duration::from_millis(20), |_| true) {
+                println!("{:7.2}s {e:?}", t0.elapsed().as_secs_f64());
+                if wanted(&e) {
+                    return;
+                }
+            }
+        }
+    };
+    let pass: fn(&Event) -> bool = |e| matches!(e, Event::Pass { .. } | Event::Failed(_));
+    let finished: fn(&Event) -> bool = |e| matches!(e, Event::Finished | Event::Failed(_));
     let intensity = |x: f32| Edit {
         path: light.clone(),
         change: Change::Attributes(vec![("inputs:intensity".into(), Value::Float(x))]),
@@ -56,15 +68,15 @@ fn main() {
 
     println!("load {}", layer.display());
     live.load(&layer, 1.0);
-    log(live.wait(minute, pass));
+    until(pass);
 
     println!("\nedit while it renders: {light} intensity 4");
-    live.edit(vec![intensity(4.0)], &layer);
-    log(live.wait(minute, finished));
+    live.edit(vec![intensity(4.0)], unchanged(&layer));
+    until(finished);
 
     println!("\nedit after it finished: {light} intensity 0.5");
-    live.edit(vec![intensity(0.5)], &layer);
-    log(live.wait(minute, finished));
+    live.edit(vec![intensity(0.5)], unchanged(&layer));
+    until(finished);
 
     if let Some(path) = moved {
         println!("\nmove {path}: its world matrix a translation of 0.05 in z");
@@ -80,9 +92,9 @@ fn main() {
                 path,
                 change: Change::Transform(m),
             }],
-            &layer,
+            unchanged(&layer),
         );
-        log(live.wait(minute, finished));
+        until(finished);
     }
 
     println!("\na change Arnold cannot make live: a reload");
@@ -91,9 +103,9 @@ fn main() {
             path: "/root".into(),
             change: Change::Structure,
         }],
-        &layer,
+        unchanged(&layer),
     );
-    log(live.wait(minute, finished));
+    until(finished);
     println!(
         "\ndone in {:.2}s. Send this whole output back.",
         t0.elapsed().as_secs_f64()

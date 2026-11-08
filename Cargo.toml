@@ -30,6 +30,9 @@ xms-image = { path = "crates/xms-image" }
 xms-colour = { path = "crates/xms-colour" }
 # The documentation as HTML pages, made from the Markdown (Help > Documentation).
 xms-docs = { path = "crates/xms-docs" }
+# The renderer interface, and Arnold rendering live in Imago (libai opened at
+# run time: nothing linked).
+xms-render = { path = "crates/xms-render" }
 
 glam = { version = "0.27", features = ["serde"] }
 egui = "0.36"
