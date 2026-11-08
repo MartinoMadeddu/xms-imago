@@ -15,7 +15,8 @@ mod live;
 pub use live::Live;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// A value of an attribute, as USD has it.
 #[derive(Clone, Debug, PartialEq)]
@@ -90,6 +91,72 @@ pub trait Renderer {
     fn stop(&mut self);
 }
 
+/// An image as it renders: RGBA floats, rows from the top, the frame's size.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Frame {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<[f32; 4]>,
+}
+
+/// The image a renderer fills bucket by bucket as it renders, in memory: read
+/// by what shows it (the Image Viewer, the Viewer), from any thread, when its
+/// generation says it changed.
+#[derive(Default)]
+pub struct Pixels {
+    buffer: Mutex<(Frame, (i32, i32))>,
+    generation: AtomicU64,
+}
+
+impl Pixels {
+    /// Changes each time a bucket comes in.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    /// The image as it is.
+    pub fn frame(&self) -> Frame {
+        self.buffer.lock().map(|b| b.0.clone()).unwrap_or_default()
+    }
+
+    /// A render starts: its frame, from `(x, y)`, `width` by `height`. What
+    /// is there stays, to be rendered over, unless the size changed.
+    pub fn open(&self, x: i32, y: i32, width: usize, height: usize) {
+        if let Ok(mut b) = self.buffer.lock() {
+            if (b.0.width, b.0.height) != (width, height) {
+                b.0 = Frame {
+                    width,
+                    height,
+                    rgba: vec![[0.0; 4]; width * height],
+                };
+            }
+            b.1 = (x, y);
+        }
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// A bucket done: `width` by `height` from `(x, y)` in the frame's
+    /// coordinates, `pixel(i)` its `i`th pixel, row by row.
+    pub fn bucket(&self, x: i32, y: i32, width: usize, height: usize, pixel: impl Fn(usize) -> [f32; 4]) {
+        if let Ok(mut b) = self.buffer.lock() {
+            let ((x0, y0), w, h) = (b.1, b.0.width as i32, b.0.height as i32);
+            for row in 0..height {
+                let fy = y + row as i32 - y0;
+                if !(0..h).contains(&fy) {
+                    continue;
+                }
+                for col in 0..width {
+                    let fx = x + col as i32 - x0;
+                    if (0..w).contains(&fx) {
+                        b.0.rgba[(fy * w + fx) as usize] = pixel(row * width + col);
+                    }
+                }
+            }
+        }
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
 /// `file` with the frame's tokens put in, as husk does and Arnold does not:
 /// `$F` the frame, `$F4` padded to 4 digits.
 pub fn with_frame(file: &str, frame: f64) -> String {
@@ -110,6 +177,29 @@ pub fn with_frame(file: &str, frame: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn buckets_fill_the_frame_where_they_are() {
+        let pixels = Pixels::default();
+        // An overscan's frame starts before 0.
+        pixels.open(-1, -1, 4, 3);
+        let g = pixels.generation();
+        pixels.bucket(0, 0, 2, 2, |i| [i as f32, 0.0, 0.0, 1.0]);
+        assert!(pixels.generation() > g);
+        let f = pixels.frame();
+        assert_eq!((f.width, f.height), (4, 3));
+        assert_eq!(f.rgba[4 + 1], [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(f.rgba[4 + 2], [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(f.rgba[8 + 2], [3.0, 0.0, 0.0, 1.0]);
+        // Out of the frame: left out.
+        pixels.bucket(2, 1, 2, 2, |_| [9.0; 4]);
+        assert_eq!(pixels.frame().rgba[8 + 3], [9.0; 4]);
+        // The next pass renders over it; another size starts again.
+        pixels.open(-1, -1, 4, 3);
+        assert_eq!(pixels.frame().rgba[8 + 3], [9.0; 4]);
+        pixels.open(0, 0, 2, 2);
+        assert_eq!(pixels.frame().rgba, vec![[0.0; 4]; 4]);
+    }
 
     #[test]
     fn frame_tokens_are_put_in() {

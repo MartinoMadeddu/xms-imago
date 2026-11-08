@@ -83,6 +83,27 @@ pub struct ImageViewerState {
     live: Option<crate::live::Session>,
     /// The last render was live: its status is shown.
     last_live: bool,
+    /// When the live image last came into the view.
+    live_shown: Option<std::time::Instant>,
+}
+
+/// How often a live render's image comes into the view as its buckets come in.
+const LIVE_REFRESH: std::time::Duration = std::time::Duration::from_millis(66);
+
+/// A live render's image, in memory, as the view shows images: its channels.
+fn image_of(frame: &xms_render::Frame) -> xms_image::Image {
+    let (w, h) = (frame.width, frame.height);
+    let channel = |name: &str, k: usize| xms_image::Channel {
+        name: name.into(),
+        values: frame.rgba.iter().map(|p| p[k]).collect(),
+    };
+    xms_image::Image {
+        width: w,
+        height: h,
+        origin: (0, 0),
+        frame: (0, 0, w, h),
+        channels: vec![channel("R", 0), channel("G", 1), channel("B", 2), channel("A", 3)],
+    }
 }
 
 /// The command lines the ⚙ menu fills in: name, line, what it does. Custom is
@@ -334,25 +355,33 @@ pub fn draw(
         }
     }
     poll(st);
-    // Live: the graph's changes sent, a pass's image read once it is done.
-    let mut live_image = None;
+    // Live: the graph's changes sent; the image, in memory, shown as its
+    // buckets come in (at most every LIVE_REFRESH).
+    let mut live_frame = None;
     if let Some(live) = &mut st.live {
         let key = (revision, graph.frame().to_bits());
         if let Some(why) = live.update(key, graph.frame(), || scene(graph, subnets)) {
             st.message = why;
         }
-        if !st.busy {
-            live_image = live.image();
+        if st.live_shown.is_none_or(|t| t.elapsed() >= LIVE_REFRESH) {
+            live_frame = live.pixels();
         }
     }
-    if let Some(image) = live_image {
-        st.read(image, format!("Live   frame {}", graph.frame().round() as i64), None);
+    if let Some(frame) = live_frame {
+        st.live_shown = Some(std::time::Instant::now());
+        st.graph_image = None;
+        st.view.set(
+            Arc::new(image_of(&frame)),
+            format!("Live   frame {}", graph.frame().round() as i64),
+        );
     }
     let live_rendering = st.live.as_ref().is_some_and(|l| l.rendering());
 
     let run = command::snapshot(RUN_KEY, 400);
     let running = run.as_ref().is_some_and(|r| r.state == State::Running) || live_rendering;
-    if running || st.busy {
+    if live_rendering {
+        ui.ctx().request_repaint_after(LIVE_REFRESH);
+    } else if running || st.busy {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }
 

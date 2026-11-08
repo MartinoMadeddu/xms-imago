@@ -39,15 +39,14 @@ pub struct Session {
     /// The graph's revision and the frame the scene sent is of.
     key: (u64, u64),
     rendering: bool,
-    images: Vec<PathBuf>,
     /// Passes done of the render going, and how many it makes.
     pass: Option<(u32, u32)>,
     finished: bool,
     /// When it last started rendering: a first pass long in coming is Arnold
     /// making its `.tx` textures.
     since: Instant,
-    /// A pass is done whose image is not yet taken.
-    fresh: bool,
+    /// The image's generation last taken.
+    taken: u64,
 }
 
 impl Session {
@@ -64,8 +63,8 @@ impl Session {
             materialx: materialx_folder(dir),
             licence: renderer.licence,
         };
-        let live = xms_render::Live::start(move || {
-            Ok(Box::new(xms_render::arnold::Arnold::new(config)?) as Box<dyn xms_render::Renderer>)
+        let live = xms_render::Live::start(move |pixels| {
+            Ok(Box::new(xms_render::arnold::Arnold::new(config, pixels)?) as Box<dyn xms_render::Renderer>)
         });
         Ok(Session {
             live,
@@ -73,11 +72,10 @@ impl Session {
             sent: vec![],
             key: (0, 0),
             rendering: false,
-            images: vec![],
             pass: None,
             finished: false,
             since: Instant::now(),
-            fresh: false,
+            taken: 0,
         })
     }
 
@@ -135,19 +133,10 @@ impl Session {
         }
         for e in self.live.events() {
             match e {
-                xms_render::Event::Loaded { images, .. } => {
-                    self.images = images;
-                    self.restarted();
-                }
+                xms_render::Event::Loaded { .. } => self.restarted(),
                 xms_render::Event::Edited(_) => self.restarted(),
-                xms_render::Event::Pass { index, total } => {
-                    self.pass = Some((index + 1, total));
-                    self.fresh = true;
-                }
-                xms_render::Event::Finished => {
-                    self.finished = true;
-                    self.fresh = true;
-                }
+                xms_render::Event::Pass { index, total } => self.pass = Some((index + 1, total)),
+                xms_render::Event::Finished => self.finished = true,
                 xms_render::Event::Failed(why) => failed = Some(why),
             }
         }
@@ -160,12 +149,16 @@ impl Session {
         self.since = Instant::now();
     }
 
-    /// The image of the last pass done, once per pass: its beauty, whole.
-    pub fn image(&mut self) -> Option<PathBuf> {
-        if !std::mem::take(&mut self.fresh) {
+    /// The image as it renders, in memory, when buckets came in since it was
+    /// last taken: its beauty, refining pass by pass.
+    pub fn pixels(&mut self) -> Option<xms_render::Frame> {
+        let pixels = self.live.pixels();
+        let now = pixels.generation();
+        if now == self.taken {
             return None;
         }
-        self.images.first().cloned()
+        self.taken = now;
+        Some(pixels.frame()).filter(|f| f.width > 0 && f.height > 0)
     }
 
     /// How it is doing, in a few words.

@@ -40,12 +40,12 @@ fn main() {
     let light = light.unwrap_or_else(|| "/lights/key".into());
     let t0 = Instant::now();
     let materialx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../xms-matx/libraries");
-    let live = Live::start(move || {
+    let live = Live::start(move |pixels| {
         let config = Config {
             materialx: materialx.canonicalize().ok(),
             ..Config::from_env()?
         };
-        Ok(Box::new(Arnold::new(config)?) as Box<dyn Renderer>)
+        Ok(Box::new(Arnold::new(config, pixels)?) as Box<dyn Renderer>)
     });
     // Each event as it comes, until one `wanted` accepts (a minute at most).
     let until = |wanted: fn(&Event) -> bool| {
@@ -53,6 +53,17 @@ fn main() {
         while Instant::now() < end {
             for e in live.wait(Duration::from_millis(20), |_| true) {
                 println!("{:7.2}s {e:?}", t0.elapsed().as_secs_f64());
+                if e == Event::Finished {
+                    // The image in memory, bucket by bucket (Imago's driver).
+                    let f = live.pixels().frame();
+                    let lit = f.rgba.iter().filter(|p| p[0] + p[1] + p[2] > 0.0).count();
+                    println!(
+                        "         pixels in memory: {}x{}, {lit} lit, {} buckets in",
+                        f.width,
+                        f.height,
+                        live.pixels().generation()
+                    );
+                }
                 if wanted(&e) {
                     return;
                 }

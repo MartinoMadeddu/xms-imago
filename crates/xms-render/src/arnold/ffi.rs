@@ -10,7 +10,13 @@ pub type Ptr = *mut c_void;
 /// Arnold's string: one pointer to text Arnold keeps (`AtString`).
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct AtString(*const c_char);
+pub struct AtString(pub *const c_char);
+
+impl Default for AtString {
+    fn default() -> Self {
+        AtString(std::ptr::null())
+    }
+}
 
 pub const SESSION_INTERACTIVE: c_int = 1;
 pub const RENDER_MODE_CAMERA: c_int = 0;
@@ -28,8 +34,10 @@ pub const TYPE_INT: u8 = 0x01;
 pub const TYPE_BOOLEAN: u8 = 0x03;
 pub const TYPE_FLOAT: u8 = 0x04;
 pub const TYPE_RGB: u8 = 0x05;
+pub const TYPE_RGBA: u8 = 0x06;
 pub const TYPE_VECTOR: u8 = 0x07;
 pub const TYPE_STRING: u8 = 0x0A;
+pub const TYPE_NONE: u8 = 0xFF;
 // `AtRenderStatus`.
 pub const NOT_STARTED: c_int = 0;
 pub const PAUSED: c_int = 1;
@@ -130,6 +138,13 @@ api! {
     AiArrayConvert: fn(u32, u8, u8, *const c_void) -> Ptr;
     AiArrayGetNumElements: fn(Ptr) -> u32;
     AiArrayGetNumKeys: fn(Ptr) -> u8;
+    AiArrayAllocate: fn(u32, u8, u8) -> Ptr;
+    AiArrayGetStr: fn(Ptr, u32) -> AtString;
+    AiArraySetStr: fn(Ptr, u32, AtString) -> bool;
+    AiNode: fn(Ptr, AtString, AtString, Ptr) -> Ptr;
+    AiNodeEntryInstall: fn(c_int, u8, *const c_char, *const c_char, *const c_void, *const c_char);
+    AiDriverInitialize: fn(Ptr, bool);
+    AiOutputIteratorGetNext: fn(Ptr, *mut AtString, *mut c_int, *mut *const c_void) -> bool;
     AiParamValueMap: fn() -> Ptr;
     AiParamValueMapSetFlt: fn(Ptr, AtString, f32);
     AiParamValueMapDestroy: fn(Ptr);

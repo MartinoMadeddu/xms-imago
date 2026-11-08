@@ -330,11 +330,11 @@ command line.
   settings and resolution. Anything else (a prim added or removed, topology,
   a material's network, a camera's lens, another frame) writes the layer
   again and loads it.
-- Each of Arnold's progressive passes comes into the view as it is done, from
-  low samples up. Arnold writes its image all through a pass, so each pass's
-  is kept whole beside it (`beauty.0001.live.exr`) and that is what is read.
-  The first pass can be long in coming while Arnold makes `.tx` files of new
-  textures, once (they stay beside the textures).
+- The image refines in the view as Arnold renders, bucket by bucket, pass by
+  pass from low samples up: Imago's own display driver in Arnold takes each
+  bucket as it is done, into memory, beside the products' files (still
+  written as they say). The first pass can be long in coming while Arnold
+  makes `.tx` files of new textures, once (they stay beside the textures).
 - It renders the layer's own RenderSettings and their camera. Arnold stays
   loaded after Stop, until Imago closes, so rendering again is quick.
 

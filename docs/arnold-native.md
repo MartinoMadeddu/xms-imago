@@ -224,10 +224,8 @@ starting and stopping it (`docs/render.md`).
   sent, edits as it changes, its status, each pass's image. The Image Viewer
   drives one; the Viewer can drive one the same way (rendering in the 3D
   viewport), with pixels in memory (Step 4) drawn as its texture.
-- Each pass's image is kept whole: at the end of a pass, in Arnold's own
-  callback before the next starts, the backend copies the EXR beside it
-  (`.live.exr`) and puts it in place at once; Arnold writes the file all
-  through a pass, so reading it as it is meets half an image.
+- Before Step 4, each pass's EXR was copied whole at the end of the pass
+  (Arnold writes the file all through a pass): replaced by pixels in memory.
 - `src/live.rs` works out the edits between two cooks of the scene, prim by
   prim, by pointer first, then by value (an operator cooked again makes its
   prims anew): a placement becomes its world matrix in the layer's axes
@@ -253,6 +251,25 @@ starting and stopping it (`docs/render.md`).
   Image Viewer without disk writes. The hardest step: a driver node is
   registered from Rust as a table of functions, fiddly and dependent on
   Arnold's version.
+
+Built: `xms_render::Pixels`, the image a renderer fills bucket by bucket, in
+memory, read from any thread when its generation changes; `Live::pixels`
+gives it, and `crate::live::Session::pixels` the frame when buckets came in.
+
+- **Imago's driver** (`arnold/driver.rs`): a node type of its own,
+  `xms_imago_pixels`, installed with `AiNodeEntryInstall` once Arnold starts:
+  its common and driver methods as `repr(C)` tables of `extern "C"`
+  functions, in the order `ai_node_entry.h` and `ai_drivers.h` declare them.
+  It takes RGB and RGBA; each bucket, on the render thread that did it
+  (`DriverProcessBucket`), goes into the image where it is in the frame.
+- **Attached at each load:** a node of it, `/__xms_imago_pixels`, and the
+  first output line (the beauty) again, to it as RGBA, added to the options'
+  `outputs`. The products' drivers still write their files.
+- **The Image Viewer** shows the image as it changes, at most every 66 ms, as
+  four float channels. The Viewer can take the same frame as a texture.
+- Tested against a stand-in `libai` calling the tables from C as Arnold's
+  headers lay them out; by hand with Arnold (`examples/arnold_live` prints the
+  image in memory after each render).
 
 ### Then: rray
 

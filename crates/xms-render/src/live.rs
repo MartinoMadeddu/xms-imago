@@ -9,7 +9,9 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::{Change, Edit, Event, Renderer};
+use std::sync::Arc;
+
+use crate::{Change, Edit, Event, Pixels, Renderer};
 
 /// How often the renderer is asked how it is doing.
 const POLL: Duration = Duration::from_millis(20);
@@ -27,22 +29,26 @@ enum Command {
 /// A live render: load a layer, then send it edits; its [`Event`]s say how it
 /// is doing.
 pub struct Live {
+    pixels: Arc<Pixels>,
     commands: Option<Sender<Command>>,
     events: Receiver<Event>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Live {
-    /// The renderer `make` makes, on the thread it is driven from.
+    /// The renderer `make` makes, on the thread it is driven from, given the
+    /// image to fill as it renders.
     pub fn start<F>(make: F) -> Live
     where
-        F: FnOnce() -> Result<Box<dyn Renderer>, String> + Send + 'static,
+        F: FnOnce(Arc<Pixels>) -> Result<Box<dyn Renderer>, String> + Send + 'static,
     {
+        let pixels = Arc::new(Pixels::default());
         let (commands, inbox) = channel();
         let (outbox, events) = channel();
+        let theirs = pixels.clone();
         let thread = std::thread::Builder::new()
             .name("xms-render".into())
-            .spawn(move || match make() {
+            .spawn(move || match make(theirs) {
                 Ok(renderer) => run(renderer, inbox, outbox),
                 Err(e) => {
                     let _ = outbox.send(Event::Failed(e));
@@ -50,6 +56,7 @@ impl Live {
             })
             .ok();
         Live {
+            pixels,
             commands: Some(commands),
             events,
             thread,
@@ -76,6 +83,11 @@ impl Live {
     /// Stop rendering; a load or an edit starts it again.
     pub fn stop(&self) {
         self.send(Command::Stop);
+    }
+
+    /// The image as it renders, bucket by bucket.
+    pub fn pixels(&self) -> &Arc<Pixels> {
+        &self.pixels
     }
 
     /// What happened since it was last asked.
@@ -314,7 +326,7 @@ mod tests {
     fn stand_in() -> (Live, Arc<Mutex<Vec<String>>>) {
         let calls = Arc::new(Mutex::new(vec![]));
         let c = calls.clone();
-        let live = Live::start(move || Ok(Box::new(StandIn { calls: c, passes: 0 }) as Box<dyn Renderer>));
+        let live = Live::start(move |_| Ok(Box::new(StandIn { calls: c, passes: 0 }) as Box<dyn Renderer>));
         (live, calls)
     }
 

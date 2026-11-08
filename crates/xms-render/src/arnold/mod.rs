@@ -4,14 +4,15 @@
 //! calls on the node of that name; what has no node, or no parameter Arnold's
 //! reader would have set from that attribute, is a reload.
 
+mod driver;
 mod ffi;
 
 use std::ffi::{c_int, CString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::Arc;
 
-use crate::{with_frame, Change, Edit, Event, Renderer, Value};
+use crate::{with_frame, Change, Edit, Event, Pixels, Renderer, Value};
 use ffi::{Api, Matrix, Ptr, UpdateInfo};
 
 /// Where Arnold is, and how it renders.
@@ -50,37 +51,6 @@ struct Progress {
     failed: AtomicBool,
     /// `AiRenderGetStatus`, for updates that do not change the status.
     status: Option<unsafe extern "C" fn(Ptr) -> c_int>,
-    /// Each image Arnold writes, and where it is kept once a pass is done
-    /// (`kept`): Arnold writes the file all through the next pass.
-    images: Mutex<Vec<(PathBuf, PathBuf)>>,
-}
-
-impl Progress {
-    /// The images of the pass just done, kept whole: copied, then put in
-    /// place at once, so a reader never meets half a file. Called on Arnold's
-    /// thread before its next pass starts.
-    fn keep(&self) {
-        let Ok(images) = self.images.lock() else { return };
-        for (written, kept) in images.iter() {
-            let part = kept.with_extension("part");
-            if std::fs::copy(written, &part).is_ok() {
-                let _ = std::fs::rename(&part, kept);
-            }
-        }
-    }
-}
-
-/// Where a pass's image is kept: beside it, `.live` before its extension.
-fn kept(image: &Path) -> PathBuf {
-    let stem = image
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let ext = image
-        .extension()
-        .map(|e| e.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    image.with_file_name(format!("{stem}.live.{ext}"))
 }
 
 pub struct Arnold {
@@ -94,8 +64,9 @@ pub struct Arnold {
 }
 
 impl Arnold {
-    /// Start Arnold: Arnold 7 or later.
-    pub fn new(config: Config) -> Result<Arnold, String> {
+    /// Start Arnold, Arnold 7 or later, its image going into `pixels` bucket by
+    /// bucket as it renders.
+    pub fn new(config: Config, pixels: Arc<Pixels>) -> Result<Arnold, String> {
         if STARTED.swap(true, Ordering::SeqCst) {
             return Err("Arnold is already rendering in Imago".into());
         }
@@ -117,8 +88,27 @@ impl Arnold {
             {
                 return Err(format!("Arnold {version}: Imago renders with Arnold 7 or later"));
             }
-            // SAFETY: once per process (STARTED), before any other call.
-            unsafe { (ai.AiBegin)(ffi::SESSION_INTERACTIVE) };
+            // SAFETY: once per process (STARTED), before any other call; the
+            // driver's table is a static, as Arnold keeps it.
+            unsafe {
+                (ai.AiBegin)(ffi::SESSION_INTERACTIVE);
+                driver::prepare(
+                    pixels,
+                    driver::Calls {
+                        driver_initialize: ai.AiDriverInitialize,
+                        output_next: ai.AiOutputIteratorGetNext,
+                    },
+                );
+                let version = CString::new(version.as_str()).unwrap_or_default();
+                (ai.AiNodeEntryInstall)(
+                    ffi::NODE_DRIVER as c_int,
+                    ffi::TYPE_NONE,
+                    driver::NAME.as_ptr(),
+                    c"".as_ptr(),
+                    &driver::METHODS as *const driver::NodeMethods as *const std::ffi::c_void,
+                    version.as_ptr(),
+                );
+            }
             let progress = Box::new(Progress {
                 status: Some(ai.AiRenderGetStatus),
                 ..Default::default()
@@ -168,6 +158,35 @@ impl Arnold {
                 (self.ai.AiUniverseDestroy)(self.universe);
                 self.universe = std::ptr::null_mut();
             }
+        }
+    }
+
+    /// The first output (the beauty) to Imago's driver too: in memory, bucket
+    /// by bucket, beside the products' files.
+    fn pixels_out(&self, options: Ptr) {
+        let ai = &self.ai;
+        // SAFETY: the loaded universe, before its session renders.
+        unsafe {
+            let outputs = (ai.AiNodeGetArray)(options, ai.string("outputs"));
+            if outputs.is_null() {
+                return;
+            }
+            let n = (ai.AiArrayGetNumElements)(outputs);
+            let lines: Vec<String> = (0..n).map(|i| ffi::text((ai.AiArrayGetStr)(outputs, i).0)).collect();
+            let Some(line) = lines.first().and_then(|l| pixels_line(l)) else {
+                return;
+            };
+            (ai.AiNode)(
+                self.universe,
+                ai.string(&driver_name()),
+                ai.string(PIXELS_NODE),
+                std::ptr::null_mut(),
+            );
+            let all = (ai.AiArrayAllocate)(n + 1, 1, ffi::TYPE_STRING);
+            for (i, l) in lines.iter().chain([&line]).enumerate() {
+                (ai.AiArraySetStr)(all, i as u32, ai.string(l));
+            }
+            (ai.AiNodeSetArray)(options, ai.string("outputs"), all);
         }
     }
 
@@ -229,6 +248,23 @@ impl Arnold {
                 Change::Structure => false,
             }
         }
+    }
+}
+
+/// The node of Imago's driver in each universe.
+const PIXELS_NODE: &str = "/__xms_imago_pixels";
+
+fn driver_name() -> String {
+    driver::NAME.to_string_lossy().into_owned()
+}
+
+/// An output line (`AOV type filter driver`, maybe a layer after) sent to
+/// Imago's driver as RGBA.
+fn pixels_line(line: &str) -> Option<String> {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    match words[..] {
+        [aov, _, filter, _, ..] => Some(format!("{aov} RGBA {filter} {PIXELS_NODE}")),
+        _ => None,
     }
 }
 
@@ -299,12 +335,10 @@ unsafe extern "C" fn update(data: Ptr, kind: c_int, info: *const UpdateInfo) -> 
     match kind {
         ffi::UPDATE_INTERRUPT => ffi::PAUSED,
         ffi::UPDATE_AFTER_PASS => {
-            progress.keep();
             progress.passes.fetch_add(1, Ordering::Relaxed);
             ffi::RENDERING
         }
         ffi::UPDATE_FINISHED => {
-            progress.keep();
             progress.passes.fetch_add(1, Ordering::Relaxed);
             progress.finished.store(true, Ordering::Relaxed);
             ffi::FINISHED
@@ -355,14 +389,11 @@ impl Renderer for Arnold {
                     let _ = std::fs::create_dir_all(dir);
                 }
                 (ai.AiNodeSetStr)(driver, ai.string("filename"), ai.string(&file.to_string_lossy()));
-                images.push((kept(&file), file));
+                images.push(file);
             }
-            if let Ok(mut kept) = self.progress.images.lock() {
-                *kept = images.iter().map(|(k, f)| (f.clone(), k.clone())).collect();
-            }
+            self.pixels_out(options);
             self.session = (ai.AiRenderSession)(self.universe, ffi::SESSION_INTERACTIVE);
-            // What is read: each pass's, kept whole.
-            Ok(images.into_iter().map(|(k, _)| k).collect())
+            Ok(images)
         }
     }
 
@@ -464,28 +495,23 @@ mod tests {
     }
 
     #[test]
-    fn a_pass_is_kept_whole_beside_the_image() {
+    fn the_beauty_goes_to_imagos_driver_too() {
         assert_eq!(
-            kept(Path::new("render/beauty.0001.exr")),
-            Path::new("render/beauty.0001.live.exr")
+            pixels_line("RGBA RGBA /Render/Products/Vars/RGBA/filter /Render/Products/beauty").as_deref(),
+            Some("RGBA RGBA /Render/Products/Vars/RGBA/filter /__xms_imago_pixels")
         );
-        let dir = std::env::temp_dir().join("xms_render_kept");
-        std::fs::create_dir_all(&dir).unwrap();
-        let image = dir.join("beauty.0001.exr");
-        std::fs::write(&image, "a pass").unwrap();
-        let progress = Progress::default();
-        *progress.images.lock().unwrap() = vec![(image.clone(), kept(&image))];
-        progress.keep();
-        assert_eq!(std::fs::read_to_string(kept(&image)).unwrap(), "a pass");
-        assert!(!kept(&image).with_extension("part").exists());
+        assert_eq!(pixels_line("RGBA RGBA"), None);
     }
 
     #[test]
     fn without_the_sdk_it_says_where_it_looked() {
-        let e = Arnold::new(Config {
-            sdk: "/no/arnold/here".into(),
-            ..Default::default()
-        })
+        let e = Arnold::new(
+            Config {
+                sdk: "/no/arnold/here".into(),
+                ..Default::default()
+            },
+            Default::default(),
+        )
         .err()
         .unwrap();
         assert!(e.contains("/no/arnold/here"), "{e}");
