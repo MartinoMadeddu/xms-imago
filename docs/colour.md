@@ -40,9 +40,12 @@ one has its `scene_linear` role taken instead, and the OCIO mark says so.
 ## Viewer
 
 The Viewer draws the scene in linear light, in half floats, so light brighter
-than 1 is kept. Its **View** (ACES 1.0 - SDR Video, Un-tone-mapped, Raw) and
-**Display** (sRGB, Rec.1886 Rec.709, Display P3) are in File > Settings >
-Viewer, which also says which config is used, so its top bar stays clear.
+than 1 is kept. It shows the **View** (ACES 1.0 - SDR Video, Un-tone-mapped,
+Raw) and **Display** (sRGB, Rec.1886 Rec.709, Display P3) the Image Viewer's
+menus choose: one colour for both, **As Image Viewer** in File > Settings >
+Viewer, on to start with. Off, the Viewer has its own View and Display there,
+starting from what it showed; the page also says which config is used, so the
+Viewer's top bar stays clear.
 Changing the display keeps the view when the display has it. The transform runs on the GPU: OpenColorIO's own shader
 for the view, written as WGSL, LUTs and all. Its overlays (the grid, the
 handles, selection) go through it too. Each pane's choice is remembered.

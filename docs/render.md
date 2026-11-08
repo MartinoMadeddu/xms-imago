@@ -346,8 +346,8 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
 - It renders the layer's own RenderSettings and their camera. Arnold stays
   loaded after Stop, until Imago closes, so rendering again is quick.
 
-- **In the Viewer:** the Viewer's toolbar menu beside the display mode, Imago
-  or Arnold. Arnold renders the scene there with IPR, through the Viewer's
+- **In the Viewer:** the menu at the Viewer's top right, Viewport or
+  Arnold. Arnold renders the scene there with IPR, through the Viewer's
   camera (its own, or the scene's camera looked through) at the pane's size,
   each change and each move of the view sent as you work; the wireframe and
   handles you work with are drawn over it. One Arnold for both panes: Render

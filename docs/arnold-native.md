@@ -288,7 +288,7 @@ gives it, and `crate::live::Session::pixels` the frame when buckets came in.
 
 ### Step 5: rendering in the Viewer
 
-The Viewer's toolbar menu beside the display mode, Imago or Arnold: Arnold
+The menu at the Viewer's top right, Viewport or Arnold: Arnold
 renders the scene live (IPR) through the Viewer's camera, in place of drawing
 it, the image refining as buckets come in.
 

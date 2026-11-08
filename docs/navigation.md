@@ -1,8 +1,8 @@
 # Viewer navigation
 
-The menu at the top left of the Viewer chooses the navigation style. The choice
-is kept between sessions. The question mark next to the menu shows or hides the
-keys of the current style.
+File > Settings > Viewer chooses the navigation style, and whether the zoom
+drag is inverted. The choice is kept between sessions. The question mark at
+the top left of the Viewer shows or hides the keys of the current style.
 
 | Style | Orbit | Pan | Zoom drag | Zoom in |
 |---|---|---|---|---|
