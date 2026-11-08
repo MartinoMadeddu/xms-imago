@@ -466,7 +466,10 @@ pub fn draw(
         ui.add_enabled_ui(in_imago, |ui| ui.toggle_value(&mut ipr, "IPR"))
             .inner
             .on_hover_text("Interactive: Render renders in passes, from few samples up, and each change to the graph goes to the renderer while it renders, the scene written again only when it must be. Off: once, each bucket finished at the Render Settings' samples. Both in Imago, with the layer's own RenderSettings and camera")
-            .on_disabled_hover_text("In Imago with a renderer whose definition says how (Arnold); this one runs the command line in ⚙");
+            .on_disabled_hover_text(match chosen.as_ref().and_then(|s| crate::live::why_not(s.renderer)) {
+                Some(why) => format!("It does not render in Imago here ({why}), so Render runs the command line in ⚙. File > Settings > Renderers says where it is looked for"),
+                None => "In Imago with a renderer whose definition says how (Arnold); this one runs the command line in ⚙".into(),
+            });
         if ipr == st.ipr_off {
             st.ipr_off = !ipr;
             if !ipr {

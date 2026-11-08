@@ -837,7 +837,8 @@ pub(crate) fn draw_ui(
                     let rendered = crate::live::in_viewer();
                     crate::menus::menu(ui, format!("{} ⏷", if rendered { "Arnold" } else { "Viewport" }), |ui| {
                         if ui.radio(!rendered, "Viewport").on_hover_text("The scene drawn by Imago's viewport (wgpu: Metal on macOS, Vulkan or DirectX 12 elsewhere), as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }
-                        if ui.radio(rendered, "Arnold").on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").clicked() { crate::live::set_in_viewer(true); ui.close(); }
+                        let why = crate::live::why_not("arnold");
+                        if ui.add_enabled(why.is_none(), egui::RadioButton::new(rendered, "Arnold")).on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").on_disabled_hover_text(format!("Arnold does not render in Imago here: {}", why.unwrap_or_default())).clicked() { crate::live::set_in_viewer(true); ui.close(); }
                     }).response.on_hover_text("Draw the scene, or render it with Arnold");
                 });
         });

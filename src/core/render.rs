@@ -31,6 +31,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use super::renderers::definition;
 use crate::core::properties::{Value, ValueType};
 use crate::types::{prim_location, EvalResult, MeshData, Prim};
 
@@ -701,9 +702,9 @@ fn color3f() -> String {
 }
 
 /// A renderer's definition: its settings and its standard AOVs. Karma's and
-/// Arnold's come with Imago (`assets/renderers`); a JSON file of the same shape
-/// in the renderers folder (`renderers_folder`) adds a renderer, or replaces
-/// one of the same name.
+/// Arnold's are built in (`assets/renderers`); a JSON file of the same shape
+/// in your renderers folder adds a renderer, or replaces one of the same name
+/// (`super::renderers`).
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 pub struct Definition {
     /// Its key, saved with the operator (`karma`).
@@ -726,6 +727,15 @@ pub struct Definition {
     /// for one it only runs as a command line.
     #[serde(default)]
     pub live: Option<LiveRenderer>,
+    /// How it is found on this machine as a command line.
+    #[serde(default)]
+    pub detect: super::renderers::Detect,
+    /// The version of Imago a copy of a built-in definition was made from.
+    #[serde(default)]
+    pub from: String,
+    /// Where it was read from.
+    #[serde(skip)]
+    pub source: super::renderers::Source,
 }
 
 /// A renderer Imago drives in its own process (`xms_render`).
@@ -735,82 +745,12 @@ pub struct LiveRenderer {
     pub backend: String,
     /// Where it is installed (Arnold's SDK, with `bin/` and `plugins/`), its
     /// variables put in: `$ARNOLD_PATH`, from File > Variables or the
-    /// environment.
+    /// environment. The folder set in File > Settings > Renderers comes first
+    /// (`super::renderers::sdk`).
     pub sdk: String,
     /// Look for its licence; without one, renders are watermarked.
     #[serde(default)]
     pub licence: bool,
-}
-
-const EMBEDDED: [&str; 2] = [
-    include_str!("../../assets/renderers/karma.json"),
-    include_str!("../../assets/renderers/arnold.json"),
-];
-
-/// The folder of the user's own renderer definitions: `$XMS_RENDERERS`, else
-/// `renderers` in Imago's config folder.
-pub fn renderers_folder() -> Option<std::path::PathBuf> {
-    std::env::var_os("XMS_RENDERERS")
-        .map(std::path::PathBuf::from)
-        .or_else(|| crate::file_browser::config_path("renderers"))
-}
-
-/// Every renderer definition, read once: those that come with Imago, then the
-/// folder's, by file name. Files that do not read are listed in
-/// `definition_errors`.
-pub fn definitions() -> &'static [Arc<Definition>] {
-    &loaded().0
-}
-
-/// The renderer definition files that could not be read, and why.
-pub fn definition_errors() -> &'static [String] {
-    &loaded().1
-}
-
-fn loaded() -> &'static (Vec<Arc<Definition>>, Vec<String>) {
-    static DEFS: std::sync::OnceLock<(Vec<Arc<Definition>>, Vec<String>)> = std::sync::OnceLock::new();
-    DEFS.get_or_init(|| {
-        let mut defs: Vec<Arc<Definition>> = EMBEDDED
-            .iter()
-            .map(|text| {
-                Arc::new(
-                    serde_json::from_str::<Definition>(text).expect("the renderer definitions Imago comes with read"),
-                )
-            })
-            .collect();
-        let mut errors = vec![];
-        let mut files: Vec<std::path::PathBuf> = renderers_folder()
-            .and_then(|dir| std::fs::read_dir(dir).ok())
-            .map(|read| {
-                read.filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("json")))
-                    .collect()
-            })
-            .unwrap_or_default();
-        files.sort();
-        for f in files {
-            match std::fs::read_to_string(&f)
-                .map_err(|e| e.to_string())
-                .and_then(|t| serde_json::from_str::<Definition>(&t).map_err(|e| e.to_string()))
-            {
-                Ok(d) if d.name.trim().is_empty() || d.name == CUSTOM => {
-                    errors.push(format!("{}: needs a name other than \"{CUSTOM}\"", f.display()))
-                }
-                Ok(d) => match defs.iter().position(|x| x.name == d.name) {
-                    Some(k) => defs[k] = Arc::new(d),
-                    None => defs.push(Arc::new(d)),
-                },
-                Err(e) => errors.push(format!("{}: {e}", f.display())),
-            }
-        }
-        (defs, errors)
-    })
-}
-
-/// A renderer's definition, by its key.
-pub fn definition(name: &str) -> Option<Arc<Definition>> {
-    definitions().iter().find(|d| d.name == name).cloned()
 }
 
 /// The key of the Custom renderer: no definition, its name typed in.
@@ -954,6 +894,18 @@ impl RendererSettings {
         }
     }
 
+    /// Settings set under the renderer's namespace that its definition does
+    /// not have (a definition reloaded without them): kept and written, by
+    /// name.
+    pub fn not_in<'a>(&'a self, def: &Definition) -> Vec<(&'a str, &'a Value)> {
+        let ns = format!("{}:", def.namespace);
+        self.values
+            .iter()
+            .filter(|(k, _)| k.starts_with(&ns) && !def.params.iter().any(|p| &p.name == *k))
+            .map(|(k, v)| (k.as_str(), v))
+            .collect()
+    }
+
     /// The settings typed in for the renderer chosen.
     pub fn extras(&self) -> &[Extra] {
         self.extras.get(&self.extras_key()).map(|v| v.as_slice()).unwrap_or(&[])
@@ -1003,6 +955,9 @@ pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> Ev
     if let Some(def) = &def {
         for p in &def.params {
             st.set(&p.name, RAttr::of(&r.value(p)));
+        }
+        for (name, v) in r.not_in(def) {
+            st.set(name, RAttr::of(v));
         }
     }
     // A Custom renderer's settings go under its name: none, none written.
@@ -1559,6 +1514,27 @@ mod tests {
             .params
             .iter()
             .all(|p| p.name.starts_with("arnold:global:")));
+    }
+
+    /// A setting set on the operator that the definition no longer has (yours
+    /// reloaded without it) is still written, by name; another renderer's is
+    /// not.
+    #[test]
+    fn settings_no_longer_in_the_definition_are_kept_by_name() {
+        let mut r = RendererSettings::for_renderer("arnold");
+        r.values.insert("arnold:global:gone_setting".into(), Value::Int(4));
+        r.values.insert("karma:global:other".into(), Value::Int(1));
+        r.values.insert("arnold:global:AA_samples".into(), Value::Int(6));
+        let def = definition("arnold").unwrap();
+        let kept: Vec<&str> = r.not_in(&def).into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kept, ["arnold:global:gone_setting"]);
+        let prims = named(renderer_settings(None, &r));
+        let lines = at(&prims, "/Render/Settings").lines();
+        assert!(
+            lines.iter().any(|l| l.contains("arnold:global:gone_setting = 4")),
+            "{lines:#?}"
+        );
+        assert!(!lines.iter().any(|l| l.contains("karma:global:other")));
     }
 
     #[test]

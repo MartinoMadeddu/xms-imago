@@ -1,21 +1,24 @@
 //! File > Settings: Imago's settings in one window, a page for each part of
 //! the program, listed on its left. Each setting is kept where its part keeps
-//! it (the Viewer's colour in `colour`, its navigation in `navigation.txt`).
+//! it (the Viewer's colour in `colour`, its navigation in `navigation.txt`,
+//! where renderers are installed in `core::renderers`).
 
 /// A page of the Settings window.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
     #[default]
     Viewer,
+    Renderers,
     Interface,
 }
 
 impl Page {
-    pub const ALL: [Page; 2] = [Page::Viewer, Page::Interface];
+    pub const ALL: [Page; 3] = [Page::Viewer, Page::Renderers, Page::Interface];
 
     pub fn label(self) -> &'static str {
         match self {
             Page::Viewer => "Viewer",
+            Page::Renderers => "Renderers",
             Page::Interface => "Interface",
         }
     }
@@ -53,6 +56,7 @@ pub fn window(ctx: &egui::Context, nav: &mut crate::viewport::nav::NavSettings) 
                 ui.separator();
                 ui.vertical(|ui| match page {
                     Page::Viewer => viewer(ui, nav),
+                    Page::Renderers => renderers(ui),
                     Page::Interface => crate::ui_scale::settings(ui),
                 });
             });
@@ -110,4 +114,59 @@ fn viewer(ui: &mut egui::Ui, nav: &mut crate::viewport::nav::NavSettings) {
         .small()
         .color(dim),
     );
+}
+
+/// Each renderer: whether it is on this machine, where it is installed (for
+/// one rendering in Imago), where its definition comes from; your folder.
+fn renderers(ui: &mut egui::Ui) {
+    use crate::core::renderers;
+    use crate::properties::form::{group, Status};
+    let dim = crate::properties::form::ink::DIM();
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for d in renderers::definitions() {
+            group(ui, &d.label, Some(d.about.as_str()), |f| {
+                if let Some(live) = &d.live {
+                    // Typed, then set when the field is left: each change
+                    // looks for the renderer again.
+                    let id = egui::Id::new(("renderer_folder", live.backend.as_str()));
+                    let mut text = f
+                        .ui
+                        .ctx()
+                        .data(|m| m.get_temp::<String>(id))
+                        .unwrap_or_else(|| renderers::folder_set(&live.backend));
+                    let hint = format!(
+                        "Where {} is installed, the folder with bin/ and plugins/. Empty: {} (programs opened from the Finder or the Dock on macOS do not see variables set in a shell's profile, so set it here)",
+                        d.label,
+                        live.sdk.trim()
+                    );
+                    let r = f.text(&format!("{} Folder", d.label), Some(hint.as_str()), &mut text, live.sdk.trim());
+                    if r.lost_focus() {
+                        renderers::set_folder(&live.backend, &text);
+                        f.ui.ctx().data_mut(|m| m.remove::<String>(id));
+                    } else if r.changed() {
+                        f.ui.ctx().data_mut(|m| m.insert_temp(id, text));
+                    }
+                }
+                crate::properties::render::definition_rows(f, &d);
+            });
+        }
+        for e in renderers::errors() {
+            crate::properties::form::status_label(ui, Status::Bad, &e);
+        }
+        ui.add_space(6.0);
+        if let Some(dir) = renderers::folder() {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("Your definitions: {}", dir.display())).small().color(dim));
+                if ui.small_button("Open").on_hover_text("Show the folder (made if it is not there)").clicked() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let _ = crate::docs::show(&dir);
+                }
+            });
+        }
+        ui.label(
+            egui::RichText::new("$XMS_RENDERERS names another folder. See docs/render.md, Renderer definitions")
+                .small()
+                .color(dim),
+        );
+    });
 }

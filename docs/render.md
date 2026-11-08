@@ -93,12 +93,47 @@ has no standard AOVs: add them with Render Variables.
 ### Renderer definitions
 
 A renderer is a JSON file: its name, label and namespace, its settings and its
-standard AOVs. Karma's and Arnold's come with Imago
-(`assets/renderers/karma.json`, `arnold.json`). More go in the **renderers
-folder**: `$XMS_RENDERERS`, else `renderers` in Imago's config folder
-(`~/.config/xms/renderers` on Linux, `%APPDATA%\xms\renderers` on Windows). A
-file there adds a renderer to the menu, or replaces the one of the same name.
-Files that do not read are listed in the panel, with why.
+standard AOVs (the plan: [renderer-definitions.md](renderer-definitions.md)).
+
+- **Built in:** Karma's and Arnold's are compiled into Imago
+  (`assets/renderers/karma.json`, `arnold.json`): they match its version and
+  cannot go missing.
+- **Yours, over them:** your **renderers folder**, `$XMS_RENDERERS`, else
+  `renderers` in Imago's config folder (`~/.config/xms/renderers` on Linux,
+  `~/Library/Application Support/xms/renderers` on macOS,
+  `%APPDATA%\xms\renderers` on Windows), read at launch and on **Reload**. A
+  file there replaces the built-in one of its name, or adds a renderer. One
+  that does not read is listed in the panel, with why, and the built-in one is
+  used.
+- **Make editable copy** (the Render Settings panel, File > Settings >
+  Renderers) writes the built-in definition into your folder, with
+  `"from": "<Imago's version>"`, and opens the folder. The panel says where
+  each definition comes from ("Built in (Imago 0.2.5)", "Yours: …"), and,
+  when the built-in one has settings or AOVs yours lacks (a later Imago), which.
+  **Revert to built-in** renames yours aside (`arnold.json.reverted-<seconds>`).
+- **Settings kept by name:** one set on an operator that the definition no
+  longer has (under its namespace) is still written, and listed as not in the
+  definition.
+
+**Whether a renderer is on this machine**, each way Imago runs it, is shown in
+the renderer menu ("not found here"), the panel and File > Settings >
+Renderers; no renderer is ever hidden, so settings can be made for another
+machine:
+
+- **In Imago** (the `live` block): the renderer loaded as it is to render, and
+  its version ("Arnold 7.5.0.0 in Imago"), or why not. Where it is: the
+  **Arnold Folder** in File > Settings > Renderers, else `live.sdk`
+  (`$ARNOLD_PATH`). Programs opened from the Finder or the Dock on macOS do not
+  see variables set in a shell's profile: set the folder there. Not found,
+  Render runs the command line instead, and the Viewer's Arnold is greyed,
+  saying why.
+- **As a command line** (`detect`): any of `env` (variables set), `programs`
+  (on the `PATH`) and `files` (variables put in). Not found is only a warning:
+  the command line still runs.
+
+```json
+"detect": { "env": ["HFS"], "programs": ["husk"], "files": ["$HFS/bin/husk"] }
+```
 
 ```json
 {

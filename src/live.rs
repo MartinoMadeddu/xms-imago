@@ -79,13 +79,23 @@ pub fn view(prims: &[Prim], world: Mat4, vertical_fov: f32, size: [u32; 2]) -> x
     }
 }
 
-/// How a renderer renders live, when its definition says so: Arnold's.
+/// How a renderer renders live, when its definition says so (Arnold's) and
+/// it was not found not to load here (still looking is a yes: a render then
+/// says what went wrong).
 pub fn renderer_for(name: &str) -> Option<crate::core::render::LiveRenderer> {
-    crate::core::render::definitions()
-        .iter()
-        .find(|d| d.name == name)
+    let found = crate::core::renderers::found(name);
+    crate::core::renderers::definition(name)
         .and_then(|d| d.live.clone())
         .filter(|l| l.backend == "arnold")
+        .filter(|_| !matches!(found.in_imago, Some(crate::core::renderers::Found::No(_))))
+}
+
+/// Why a renderer does not render in Imago, when it is one that would.
+pub fn why_not(name: &str) -> Option<String> {
+    match crate::core::renderers::found(name).in_imago {
+        Some(crate::core::renderers::Found::No(why)) => Some(why),
+        _ => None,
+    }
 }
 
 /// A live render: the renderer, the scene as last sent to it, and how it is
@@ -116,14 +126,9 @@ pub struct Session {
 impl Session {
     /// The renderer started, the scene to be written in `dir` when it must be.
     pub fn start(renderer: &crate::core::render::LiveRenderer, dir: &Path) -> Result<Session, String> {
-        let sdk = crate::core::vars::expand(&renderer.sdk, &[]);
-        if sdk.trim().is_empty() || sdk.contains('$') {
-            return Err(
-                "Where is Arnold? Set ARNOLD_PATH to its SDK's folder, in File > Variables or the environment".into(),
-            );
-        }
+        let sdk = crate::core::renderers::sdk(renderer).ok_or_else(|| crate::core::renderers::where_is(renderer))?;
         let config = xms_render::arnold::Config {
-            sdk: sdk.trim().into(),
+            sdk,
             materialx: materialx_folder(dir),
             licence: renderer.licence,
         };

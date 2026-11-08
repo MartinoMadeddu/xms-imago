@@ -39,6 +39,25 @@ impl Config {
     }
 }
 
+/// Whether Arnold renders in Imago from the SDK at `sdk`: its library loaded,
+/// as it is to render, and its version, else why not. The library stays
+/// loaded (the system's loader is never asked to close it), so rendering
+/// later opens it again at no cost.
+pub fn version(sdk: &Path) -> Result<String, String> {
+    let version = Api::load(sdk)?.version();
+    supported(&version)?;
+    Ok(version)
+}
+
+/// Imago renders with Arnold 7 or later.
+fn supported(version: &str) -> Result<(), String> {
+    let major = version.split('.').next().and_then(|m| m.trim().parse::<u32>().ok());
+    match major {
+        Some(m) if m >= 7 => Ok(()),
+        _ => Err(format!("Arnold {version}: Imago renders with Arnold 7 or later")),
+    }
+}
+
 /// Arnold is started once per process.
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -81,15 +100,7 @@ impl Arnold {
             }
             let ai = Api::load(&config.sdk)?;
             let version = ai.version();
-            if version
-                .split('.')
-                .next()
-                .and_then(|m| m.parse::<u32>().ok())
-                .unwrap_or(0)
-                < 7
-            {
-                return Err(format!("Arnold {version}: Imago renders with Arnold 7 or later"));
-            }
+            supported(&version)?;
             // SAFETY: once per process (STARTED), before any other call; the
             // driver's table is a static, as Arnold keeps it.
             unsafe {
@@ -523,6 +534,19 @@ impl Drop for Arnold {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arnold_7_or_later_is_supported() {
+        assert!(supported("7.5.0.0").is_ok() && supported("8.0.1").is_ok());
+        assert!(supported("6.2.1.1").unwrap_err().contains("7 or later"));
+        assert!(supported("").is_err());
+    }
+
+    #[test]
+    fn no_sdk_says_where_it_looked() {
+        let e = version(Path::new("/nowhere/arnold")).unwrap_err();
+        assert!(e.contains("/nowhere/arnold"), "{e}");
+    }
 
     #[test]
     fn lights_and_settings_map_to_arnold_parameters() {

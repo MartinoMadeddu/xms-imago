@@ -2,6 +2,7 @@
   "name": "karma",
   "label": "Karma",
   "namespace": "karma:global",
+  "detect": { "env": ["HFS"], "programs": ["husk"], "files": ["$HFS/bin/husk"] },
   "about": "SideFX Karma (CPU and XPU), through husk or Houdini. Settings are namespaced attributes on the RenderSettings prim, as Houdini 20.5's Karma Render Settings writes them (karma:global:, and karma:object: for the defaults every object takes). AOVs follow what it writes too (each RenderVar's format, filter, multi-sampling); those marked unconfirmed were not seen in a Houdini file.",
   "params": [
     {"name": "karma:global:engine", "type": "string", "default": "cpu", "group": "Rendering", "label": "Engine", "help": "cpu or xpu. husk's --engine overrides it."},
