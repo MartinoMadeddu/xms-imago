@@ -140,10 +140,12 @@ fn points_only(before: &crate::core::geo::Geo, now: &crate::core::geo::Geo) -> O
     if before.topology != now.topology {
         return None;
     }
+    // Its attributes but its points.
+    fn others(g: &crate::core::geo::Geo, ctx: Context) -> Vec<(&str, &xms_geo::Attr)> {
+        g.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS).collect()
+    }
     for ctx in [Context::Object, Context::Point, Context::Face, Context::Corner] {
-        let others =
-            |g: &crate::core::geo::Geo| -> Vec<_> { g.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS).collect() };
-        if others(before) != others(now) {
+        if others(before, ctx) != others(now, ctx) {
             return None;
         }
     }
