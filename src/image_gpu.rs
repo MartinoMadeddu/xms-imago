@@ -129,7 +129,7 @@ fn look_bytes(show: Show, look: &Look, place: [f32; 4]) -> [u8; 32] {
 }
 
 /// The layer as RGBA floats, as stored: a channel it lacks 0, alpha 1.
-fn layer_pixels(image: &Image, layer: &Layer) -> Vec<f32> {
+pub(crate) fn layer_pixels(image: &Image, layer: &Layer) -> Vec<f32> {
     let n = image.width * image.height;
     let channel = |k: usize| layer.rgba[k].and_then(|c| image.channels.get(c)).map(|c| &c.values);
     let (r, g, b, a) = (channel(0), channel(1), channel(2), channel(3));

@@ -98,7 +98,7 @@ const LIVE_IMAGE: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// A render's images in memory, as the view shows images: an AOV each, its
 /// channels named as in an EXR (`R`… for the beauty, `diffuse.R`…, `Z`).
-fn image_of(layers: &[xms_render::Layer]) -> xms_image::Image {
+pub(crate) fn image_of(layers: &[xms_render::Layer]) -> xms_image::Image {
     let (w, h) = layers
         .first()
         .map(|l| (l.frame.width, l.frame.height))
@@ -581,7 +581,7 @@ pub fn draw(
     let (from, view) = st.shown_in.clone().unwrap_or_default();
     // A render in Imago, while it is what is shown (not a snapshot): its
     // texture kept up to date as buckets come in.
-    let active = st.view.position() >= st.view.snaps.len();
+    let active = st.view.snap_shown().is_none();
     let live = (st.showing_live && active)
         .then(|| crate::live::with(|l| l.as_ref().filter(|l| !l.in_viewer()).map(|l| l.pixels().clone())))
         .flatten();

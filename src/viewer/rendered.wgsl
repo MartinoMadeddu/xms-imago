@@ -1,5 +1,5 @@
-// Viewer > Arnold: the render over the whole picture, scaled to it while a
-// render of another size is still the last one in.
+// What the Viewer shows in place of the scene drawn: the render (Viewer >
+// Arnold) or a snapshot, over the whole picture.
 
 struct View {
     view_proj: mat4x4<f32>,
@@ -17,9 +17,16 @@ fn vs_rendered(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_rendered(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    // Fitted, its aspect kept: a snapshot (or the last render while the pane
+    // changes size) of another shape is framed in black.
     let size = vec2<f32>(textureDimensions(rendered));
-    let p = vec2<i32>(at.xy * size / max(view.viewport.xy, vec2<f32>(1.0)));
-    let c = textureLoad(rendered, clamp(p, vec2<i32>(0), vec2<i32>(size) - 1), 0);
+    let pane = max(view.viewport.xy, vec2<f32>(1.0));
+    let scale = min(pane.x / size.x, pane.y / size.y);
+    let p = (at.xy - (pane - size * scale) * 0.5) / scale;
+    if any(p < vec2<f32>(0.0)) || any(p >= size) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    let c = textureLoad(rendered, vec2<i32>(p), 0);
     // Opaque: its alpha is the render's, not the picture's.
     return vec4<f32>(c.rgb, 1.0);
 }

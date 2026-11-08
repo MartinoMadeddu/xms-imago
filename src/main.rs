@@ -830,6 +830,10 @@ pub(crate) fn draw_ui(
                 .corner_radius(4.0)
                 .inner_margin(3.0)
                 .show(ui, |ui| {
+                    // One size whichever is chosen: the area keeps last
+                    // frame's width, and a narrower label would wrap.
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                    ui.set_min_width(96.0);
                     let rendered = crate::live::in_viewer();
                     crate::menus::menu(ui, format!("{} ⏷", if rendered { "Arnold" } else { "Viewport" }), |ui| {
                         if ui.radio(!rendered, "Viewport").on_hover_text("The scene drawn by Imago's viewport (wgpu: Metal on macOS, Vulkan or DirectX 12 elsewhere), as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }

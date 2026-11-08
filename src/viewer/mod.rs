@@ -88,6 +88,11 @@ pub struct Viewer {
     /// Rendered: how the render goes, or why it stopped (until it is chosen
     /// again).
     render_note: Option<String>,
+    /// The snapshots bar is shown (the 📷 at the bottom left; hidden to
+    /// start with).
+    snaps_shown: bool,
+    /// The snapshot shown in place of the scene, by id, while the bar is.
+    snap_showing: Option<usize>,
 }
 
 impl Viewer {
@@ -193,7 +198,22 @@ impl Viewer {
         }
 
         let size = pane;
-        let render = self.rendered(ui.ctx(), &input, &looking, aspect, pane);
+        let live = self.rendered(ui.ctx(), &input, &looking, aspect, pane);
+        // A snapshot chosen in the bar, else the render.
+        let still = self
+            .snaps_shown
+            .then(|| {
+                xms_image::Snaps::shared()
+                    .lock()
+                    .ok()?
+                    .get(self.snap_showing)
+                    .map(|s| s.image.clone())
+            })
+            .flatten();
+        let background = match (still, live) {
+            (Some(image), _) => Some(gpu::Background::Still(image)),
+            (None, live) => live.map(gpu::Background::Live),
+        };
         // The movie's frame through the same camera, at its own aspect.
         if let Some(c) = &mut capture {
             let a = c.size[0] as f32 / c.size[1].max(1) as f32;
@@ -211,7 +231,7 @@ impl Viewer {
             scene: self.scene.clone(),
             overlay,
             display: crate::colour::view(crate::colour::Pane::Viewer),
-            render,
+            background,
         };
         ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
             rect,
@@ -221,8 +241,9 @@ impl Viewer {
         if let Some((path, _, cam)) = &looking {
             gate(ui, rect, &path, cam);
         }
+        let bar = self.snaps_bar(ui.ctx(), rect);
         // How the render goes (or why it stopped), else what the triangle
-        // budget drew as boxes, at the bottom left.
+        // budget drew as boxes, at the bottom left, over the snapshots bar.
         let note = self.render_note.clone().or_else(|| self.scene.notice.clone());
         if let Some(text) = &note {
             let painter = ui.painter_at(rect);
@@ -232,7 +253,7 @@ impl Viewer {
                 egui::Color32::from_gray(235),
                 (rect.width() - 24.0).max(80.0),
             );
-            let at = egui::pos2(rect.min.x + 10.0, rect.max.y - 10.0 - galley.size().y);
+            let at = egui::pos2(rect.min.x + 10.0, bar - 10.0 - galley.size().y);
             painter.rect_filled(
                 egui::Rect::from_min_size(at, galley.size()).expand(5.0),
                 3.0,
@@ -338,6 +359,55 @@ impl Viewer {
                 edit::line(&mut overlay.top, a, b, c);
             }
         }
+    }
+
+    /// The 📷 at the bottom left, and while it is on the snapshots bar beside
+    /// it: the program's snapshots (the Image Viewer's too), Snap keeping the
+    /// render in the Viewer. Where its top is.
+    fn snaps_bar(&mut self, ctx: &egui::Context, rect: egui::Rect) -> f32 {
+        let shown = egui::Area::new(egui::Id::new("viewer_snaps"))
+            .order(egui::Order::Background)
+            .pivot(egui::Align2::LEFT_BOTTOM)
+            .fixed_pos(egui::pos2(rect.min.x + 10.0, rect.max.y - 8.0))
+            .show(ctx, |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                egui::Frame::NONE
+                    .fill(crate::theme::c(90, 90, 90).gamma_multiply(0.92))
+                    .stroke(egui::Stroke::new(1.0_f32, crate::theme::c(70, 70, 70)))
+                    .corner_radius(4.0)
+                    .inner_margin(3.0)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.toggle_value(&mut self.snaps_shown, "📷").on_hover_text(
+                                "Snapshots: keep the render here, and show any snapshot (the Image Viewer's too)",
+                            );
+                            if !self.snaps_shown {
+                                return;
+                            }
+                            ui.separator();
+                            // Snap: what Arnold rendered in the Viewer so far.
+                            let rendering = crate::live::in_viewer()
+                                && crate::live::with(|l| l.as_ref().is_some_and(|l| l.rendering()));
+                            let active = rendering.then_some(|| {
+                                let layers =
+                                    crate::live::with(|l| l.as_ref().map(|l| l.pixels().layers())).unwrap_or_default();
+                                (
+                                    Arc::new(crate::image_viewer::image_of(&layers)),
+                                    "Viewer, Arnold".to_string(),
+                                )
+                            });
+                            xms_image::view::snapshots_bar(
+                                ui,
+                                "viewer_snaps",
+                                &xms_image::Snaps::shared(),
+                                &mut self.snap_showing,
+                                "Viewer",
+                                active,
+                            );
+                        });
+                    });
+            });
+        shown.response.rect.top()
     }
 
     /// Rendered (Viewer > Arnold): the program's live render through this

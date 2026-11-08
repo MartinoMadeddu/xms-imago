@@ -51,14 +51,23 @@ pub struct Frame {
     pub display: crate::colour::View,
     /// Export Movie: this frame drawn again at the movie's size and read back.
     pub capture: Option<super::movie::Capture>,
-    /// Rendered (Viewer > Arnold): the render's pixels, shown in place of
-    /// the scene drawn, the overlays over them.
-    pub render: Option<Arc<xms_render::Pixels>>,
+    /// Shown in place of the scene drawn: the render, the overlays over it,
+    /// or a snapshot.
+    pub background: Option<Background>,
 }
 
-/// The render shown, on the GPU: written only where buckets came in.
+/// What the Viewer shows in place of the scene drawn.
+pub enum Background {
+    /// Viewer > Arnold: the render's pixels as they come in.
+    Live(Arc<xms_render::Pixels>),
+    /// A snapshot (the snapshots bar).
+    Still(Arc<xms_image::Image>),
+}
+
+/// The render or snapshot shown, on the GPU: a render's written only where
+/// buckets came in.
 struct Rendered {
-    /// Which render's pixels (`Pixels` by address).
+    /// Which render's pixels or snapshot (by address).
     of: usize,
     texture: wgpu::Texture,
     group: wgpu::BindGroup,
@@ -627,65 +636,89 @@ impl ViewerGpu {
     /// reads as reader 1).
     fn ensure_rendered(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pixels: &Arc<xms_render::Pixels>) {
         let of = Arc::as_ptr(pixels) as usize;
-        let size = self.rendered.as_ref().filter(|r| r.of == of).map(|r| r.texture.size());
-        let Some(mut region) = pixels.take("RGBA", 1, size.is_none()) else {
+        let kept = self.rendered.as_ref().filter(|r| r.of == of).map(|r| r.texture.size());
+        let Some(mut region) = pixels.take("RGBA", 1, kept.is_none()) else {
             return;
         };
         let (w, h) = (region.frame.0 as u32, region.frame.1 as u32);
-        if size.is_none_or(|s| (s.width, s.height) != (w, h)) {
+        if kept.is_none_or(|s| (s.width, s.height) != (w, h)) {
             if (region.width, region.height) != region.frame {
                 region = pixels.take("RGBA", 1, true).unwrap_or(region);
             }
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("viewer render"),
-                size: wgpu::Extent3d {
-                    width: w.max(1),
-                    height: h.max(1),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba32Float,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("viewer render"),
-                layout: &self.rendered_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(
-                        &texture.create_view(&wgpu::TextureViewDescriptor::default()),
-                    ),
-                }],
-            });
-            self.rendered = Some(Rendered { of, texture, group });
+            self.rendered = Some(self.rendered_texture(device, of, (w, h)));
         }
-        let Some(r) = &self.rendered else { return };
-        if region.width == 0 || region.height == 0 {
+        let at = (
+            region.x as u32,
+            region.y as u32,
+            region.width as u32,
+            region.height as u32,
+        );
+        self.write_rendered(queue, at, bytemuck::cast_slice(&region.rgba));
+    }
+
+    /// A snapshot's beauty (or first layer) on the GPU, once.
+    fn ensure_still(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, image: &Arc<xms_image::Image>) {
+        let of = Arc::as_ptr(image) as usize;
+        if self.rendered.as_ref().is_some_and(|r| r.of == of) {
             return;
         }
+        let layers = image.layers();
+        let Some(layer) = layers.iter().find(|l| l.name == "RGBA").or(layers.first()) else {
+            return;
+        };
+        let (w, h) = (image.width as u32, image.height as u32);
+        self.rendered = Some(self.rendered_texture(device, of, (w, h)));
+        let pixels = crate::image_gpu::layer_pixels(image, layer);
+        self.write_rendered(queue, (0, 0, w, h), bytemuck::cast_slice(&pixels));
+    }
+
+    fn rendered_texture(&self, device: &wgpu::Device, of: usize, (w, h): (u32, u32)) -> Rendered {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("viewer render"),
+            size: wgpu::Extent3d {
+                width: w.max(1),
+                height: h.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("viewer render"),
+            layout: &self.rendered_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
+            }],
+        });
+        Rendered { of, texture, group }
+    }
+
+    /// RGBA floats into the texture of what is shown, at (x, y, width, height).
+    fn write_rendered(&self, queue: &wgpu::Queue, (x, y, w, h): (u32, u32, u32, u32), rgba: &[u8]) {
+        let Some(r) = self.rendered.as_ref().filter(|_| w > 0 && h > 0) else {
+            return;
+        };
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &r.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: region.x as u32,
-                    y: region.y as u32,
-                    z: 0,
-                },
+                origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
-            bytemuck::cast_slice(&region.rgba),
+            rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(region.width as u32 * 16),
-                rows_per_image: Some(region.height as u32),
+                bytes_per_row: Some(w * 16),
+                rows_per_image: Some(h),
             },
             wgpu::Extent3d {
-                width: region.width as u32,
-                height: region.height as u32,
+                width: w,
+                height: h,
                 depth_or_array_layers: 1,
             },
         );
@@ -808,7 +841,7 @@ impl ViewerGpu {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("viewer movie"),
         });
-        self.render(&mut encoder, t, clear, false);
+        self.render(&mut encoder, t, clear, None);
         {
             let view = bytes.create_view(&wgpu::TextureViewDescriptor::default());
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1030,9 +1063,9 @@ impl ViewerGpu {
         self.generation = scene.generation;
     }
 
-    /// The picture: the scene drawn, or (`rendered`) the render and the
-    /// overlays over it.
-    fn render(&self, encoder: &mut wgpu::CommandEncoder, t: &Target, clear: [f32; 3], rendered: bool) {
+    /// The picture: the scene drawn, or (`shown`) what is shown in its place,
+    /// the overlays over it when `shown` is true.
+    fn render(&self, encoder: &mut wgpu::CommandEncoder, t: &Target, clear: [f32; 3], shown: Option<bool>) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("viewer"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1062,13 +1095,15 @@ impl ViewerGpu {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &self.view_group, &[]);
-        if rendered {
+        if let Some(overlays) = shown {
             if let Some(r) = &self.rendered {
                 pass.set_pipeline(&self.background);
                 pass.set_bind_group(1, &r.group, &[]);
                 pass.draw(0..3, 0..1);
             }
-            self.overlays(&mut pass);
+            if overlays {
+                self.overlays(&mut pass);
+            }
             return;
         }
         // Surfaces, their edges, lines (grid, boxes, curves), then what is
@@ -1502,8 +1537,9 @@ impl CallbackTrait for ViewerPaint {
                 (f.overlay.points.len() / POINT_FLOATS) as u32,
             )
         });
-        match &f.render {
-            Some(p) => gpu.ensure_rendered(device, queue, p),
+        match &f.background {
+            Some(Background::Live(p)) => gpu.ensure_rendered(device, queue, p),
+            Some(Background::Still(image)) => gpu.ensure_still(device, queue, image),
             None => gpu.rendered = None,
         }
         if let Some(c) = f.capture.as_ref().filter(|c| c.wanted()) {
@@ -1511,7 +1547,8 @@ impl CallbackTrait for ViewerPaint {
         }
         gpu.write_view(queue, f.view_proj, f.eye, f.size);
         if let Some(t) = &gpu.target {
-            gpu.render(encoder, t, f.clear, f.render.is_some());
+            let overlays = f.background.as_ref().map(|b| matches!(b, Background::Live(_)));
+            gpu.render(encoder, t, f.clear, overlays);
         }
         vec![]
     }

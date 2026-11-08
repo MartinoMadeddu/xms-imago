@@ -314,6 +314,13 @@ beside it; the name field renames the one shown; **✕** lets it go. Rendering
 again shows the active render; a snapshot keeps its layers, so compare any AOV.
 They are kept while the program runs, with how much memory they take.
 
+The snapshots are the program's, not the pane's: the Viewer has the same bar,
+behind the **📷** at its bottom left (hidden to start with). There Snap keeps
+what Arnold has rendered in the Viewer, every AOV, and choosing a snapshot
+shows it in place of the scene, fitted, its aspect kept; **Viewer**, last,
+shows the scene again. Each pane shows the one it chose, so snap in the
+Viewer, then compare in the Image Viewer.
+
 With a renderer that can (Arnold, for RenderSettings with Arnold settings),
 Render renders in Imago itself, its image coming into the view bucket by
 bucket; Stop stops it. Another renderer (Karma) runs the command line.

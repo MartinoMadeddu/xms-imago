@@ -311,6 +311,9 @@ it, the image refining as buckets come in.
   manipulator, are drawn over it. The scene drawn is not.
 - **Failing:** why, at the bottom left, and the Viewer draws again (no
   retrying each frame).
+- **Snapshots** (`xms_image::Snaps::shared`): one list for the program; the
+  Viewer's bar (📷, bottom left) snaps its render, and shows any snapshot in
+  the same texture, fitted.
 - Tested in the crate (the view kept through reloads, the second reader)
   and with a stand-in `libai`; the app part by hand with Arnold.
 
