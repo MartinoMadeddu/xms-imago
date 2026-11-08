@@ -314,27 +314,34 @@ beside it; the name field renames the one shown; **✕** lets it go. Rendering
 again shows the active render; a snapshot keeps its layers, so compare any AOV.
 They are kept while the program runs, with how much memory they take.
 
-**● Live**, beside Render, on by default: Render renders in Imago itself, as
-you work, with a renderer that can (Arnold, for RenderSettings with Arnold
-settings); Stop stops it. Off, or for another renderer, Render runs the
-command line.
+With a renderer that can (Arnold, for RenderSettings with Arnold settings),
+Render renders in Imago itself, its image coming into the view bucket by
+bucket; Stop stops it. Another renderer (Karma) runs the command line.
+
+- **IPR**, beside Render, on by default: in passes, from few samples up, and
+  each change to the graph goes to the renderer while it renders. Off: once,
+  each bucket finished at the samples the Render Settings give, the scene as
+  it was when Render was pressed; Render is free again when it is done.
 
 - The first time, it starts Arnold from its SDK: `ARNOLD_PATH`, from
   [File > Variables](interface.md#variables) or the environment (the renderer
   definition's `live.sdk`). Arnold 7 or later; without a licence its images
   are watermarked.
 - The scene is written as a layer in the render folder and Arnold loads it
-  with its own USD reader. Each change to the graph after that goes to it
+  with its own USD reader. With IPR, each change to the graph after that goes to it
   while it renders, by prim path: a light's values, a MaterialX shader's
   inputs, a move, hiding a prim, moved points, the Render Settings' Arnold
   settings and resolution. Anything else (a prim added or removed, topology,
   a material's network, a camera's lens, another frame) writes the layer
   again and loads it.
-- The image refines in the view as Arnold renders, bucket by bucket, pass by
-  pass from low samples up: Imago's own display driver in Arnold takes each
-  bucket as it is done, into memory, beside the products' files (still
-  written as they say). The first pass can be long in coming while Arnold
-  makes `.tx` files of new textures, once (they stay beside the textures).
+- Imago's own display driver in Arnold takes each bucket as it is done, into
+  memory, beside the products' files (still written as they say); only the
+  part of the image that changed goes to the screen. The first pass can be
+  long in coming while Arnold makes `.tx` files of new textures, once (they
+  stay beside the textures).
+- Each AOV's format in the file, half or float, is its RenderVar's
+  `driver:parameters:aov:format`: Arnold's colour AOVs are half to start with
+  (`color4h`, `color3h`), its data AOVs (P, N, Z, motion) float, as Karma's.
 - It renders the layer's own RenderSettings and their camera. Arnold stays
   loaded after Stop, until Imago closes, so rendering again is quick.
 

@@ -81,6 +81,7 @@ api! {
     AiNodeGetNodeEntry: fn(Ptr) -> Ptr;
     AiNodeEntryGetName: fn(Ptr) -> *const c_char;
     AiNodeGetFlt: fn(Ptr, AtString) -> f32;
+    AiNodeGetBool: fn(Ptr, AtString) -> bool;
     AiNodeSetFlt: fn(Ptr, AtString, f32);
     AiNodeSetBool: fn(Ptr, AtString, bool);
     AiNodeGetStr: fn(Ptr, AtString) -> AtString;

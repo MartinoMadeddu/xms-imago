@@ -153,8 +153,19 @@ fn run(a: &Args) -> Result<(), String> {
         let nodes = ai.nodes(universe, arnold::NODE_ALL);
         let by_path = nodes.iter().filter(|(_, n, _)| n.starts_with('/')).count();
         println!("\n{} nodes, {} named by a path:", nodes.len(), by_path);
-        for (kind, name, _) in &nodes {
-            println!("  {kind:<24} {name}");
+        for (kind, name, node) in &nodes {
+            // Half or float in the file: the AOVs' formats, as Arnold took them.
+            let precision = match kind.as_str() {
+                "render_output" | "driver_exr" => {
+                    if (ai.AiNodeGetBool)(*node, ai.string("half_precision")) {
+                        "  half"
+                    } else {
+                        "  float"
+                    }
+                }
+                _ => "",
+            };
+            println!("  {kind:<24} {name}{precision}");
         }
 
         let drivers: Vec<(String, Ptr)> = ai

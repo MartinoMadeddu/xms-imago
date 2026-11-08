@@ -61,6 +61,8 @@ pub struct Arnold {
     progress: Box<Progress>,
     /// Passes already told.
     told: u32,
+    /// What it could not do as asked, to tell.
+    notes: Vec<String>,
 }
 
 impl Arnold {
@@ -120,6 +122,7 @@ impl Arnold {
                 session: std::ptr::null_mut(),
                 progress,
                 told: 0,
+                notes: vec![],
             })
         })();
         if started.is_err() {
@@ -397,12 +400,18 @@ impl Renderer for Arnold {
         }
     }
 
-    fn render(&mut self) -> Result<(), String> {
+    fn render(&mut self, progressive: bool) -> Result<(), String> {
         let ai = &self.ai;
         self.told = 0;
         self.progress.passes.store(0, Ordering::Relaxed);
         self.progress.finished.store(false, Ordering::Relaxed);
         self.progress.failed.store(false, Ordering::Relaxed);
+        // SAFETY: a live session, before it starts again.
+        let taken = unsafe { (ai.AiRenderSetHintBool)(self.session, ai.string("progressive"), progressive) };
+        if !taken && !progressive {
+            self.notes
+                .push("Arnold did not take the hint to render without passes: it renders in passes".into());
+        }
         // SAFETY: a live session; the callback's data lives as long.
         unsafe {
             match self.status() {
@@ -450,6 +459,7 @@ impl Renderer for Arnold {
         if self.progress.finished.swap(false, Ordering::Relaxed) {
             events.push(Event::Finished);
         }
+        events.extend(self.notes.drain(..).map(Event::Failed));
         if self.progress.failed.swap(false, Ordering::Relaxed) {
             events.push(Event::Failed("the render failed: Arnold's log says why".into()));
         }

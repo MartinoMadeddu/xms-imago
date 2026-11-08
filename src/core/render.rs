@@ -1108,7 +1108,7 @@ pub fn var_extra_presets() -> Vec<(&'static str, Value, &'static str)> {
         (
             "driver:parameters:aov:format",
             Value::Token("half".into()),
-            "Karma, husk: the channels' format in the file (half, float, color3h, color4h…)",
+            "The channels' format in the file, half or float (half, float, color3h, color4h…): Karma, Arnold",
         ),
         (
             "driver:parameters:aov:name",

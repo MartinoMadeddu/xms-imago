@@ -3,7 +3,8 @@
 //! transform (the image's colour space to the view chosen) OpenColorIO's
 //! shader; exposure, gamma and which channel values given to it. Changing the
 //! space or the view makes a shader again, not the pixels: at once, at any
-//! size of image.
+//! size of image. A render in Imago (`live`) keeps its texture, written only
+//! where buckets came in since the last frame.
 
 use std::sync::Arc;
 
@@ -25,6 +26,9 @@ pub struct ImagePaint {
     /// Where the image is in the canvas (the callback's rectangle), from 0 to
     /// 1: its corner and its size. Zoomed in, past the canvas's edges.
     pub place: [f32; 4],
+    /// A render in Imago, shown as its buckets come in, in place of `image`'s
+    /// pixels.
+    pub live: Option<Arc<xms_render::Pixels>>,
 }
 
 /// The pipeline for one colour space and view.
@@ -39,6 +43,7 @@ struct Uploaded {
     key: (usize, String),
     group: wgpu::BindGroup,
     look: wgpu::Buffer,
+    texture: wgpu::Texture,
 }
 
 /// What the paint callback keeps between frames.
@@ -62,32 +67,37 @@ pub fn fits(image: &Image) -> bool {
 
 /// Put the Image Viewer's GPU state where its paint callback finds it.
 pub fn install(render_state: &egui_wgpu::RenderState, samples: u32) {
-    MAX_SIDE.store(render_state.device.limits().max_texture_dimension_2d as usize, std::sync::atomic::Ordering::Relaxed);
-    let layout = render_state.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("image"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
+    MAX_SIDE.store(
+        render_state.device.limits().max_texture_dimension_2d as usize,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    let layout = render_state
+        .device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("image"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: wgpu::BufferSize::new(32),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(32),
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-        ],
-    });
+            ],
+        });
     render_state.renderer.write().callback_resources.insert(ImageGpu {
         layout,
         format: render_state.target_format,
@@ -150,7 +160,11 @@ impl ImageGpu {
             bind_group_layouts: &[Some(&self.layout), Some(&colour_layout)],
             immediate_size: 0,
         });
-        let fs = if self.format.is_srgb() { "fs_image_srgb" } else { "fs_image" };
+        let fs = if self.format.is_srgb() {
+            "fs_image_srgb"
+        } else {
+            "fs_image"
+        };
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("image viewer"),
             layout: Some(&layout),
@@ -188,9 +202,70 @@ impl ImageGpu {
         if self.uploaded.as_ref().is_some_and(|u| u.key == key) {
             return;
         }
+        let pixels = layer_pixels(image, layer);
+        self.upload(device, queue, key, (image.width, image.height), &pixels);
+    }
+
+    /// A live render's texture: made again for another render or size, else
+    /// written only where buckets came in.
+    fn ensure_live(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, live: &Arc<xms_render::Pixels>) {
+        let key = (Arc::as_ptr(live) as usize, "live".to_string());
+        let size = self
+            .uploaded
+            .as_ref()
+            .filter(|u| u.key == key)
+            .map(|u| u.texture.size());
+        let Some(region) = live.take(size.is_none()) else {
+            return;
+        };
+        let (w, h) = region.frame;
+        if size.is_none_or(|s| (s.width, s.height) != (w as u32, h as u32)) {
+            let all = if (region.width, region.height) == (w, h) {
+                region
+            } else {
+                live.take(true).unwrap_or(region)
+            };
+            self.upload(device, queue, key, (w, h), bytemuck::cast_slice(&all.rgba));
+            return;
+        }
+        let Some(u) = &self.uploaded else { return };
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &u.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: region.x as u32,
+                    y: region.y as u32,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&region.rgba),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(region.width as u32 * 16),
+                rows_per_image: Some(region.height as u32),
+            },
+            wgpu::Extent3d {
+                width: region.width as u32,
+                height: region.height as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// A texture of RGBA floats, `size` big, with its bind group.
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        key: (usize, String),
+        size: (usize, usize),
+        pixels: &[f32],
+    ) {
         let size = wgpu::Extent3d {
-            width: image.width as u32,
-            height: image.height as u32,
+            width: size.0 as u32,
+            height: size.1 as u32,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture_with_data(
@@ -206,7 +281,7 @@ impl ImageGpu {
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            bytemuck::cast_slice(&layer_pixels(image, layer)),
+            bytemuck::cast_slice(pixels),
         );
         let look = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("image viewer look"),
@@ -229,7 +304,12 @@ impl ImageGpu {
                 },
             ],
         });
-        self.uploaded = Some(Uploaded { key, group, look });
+        self.uploaded = Some(Uploaded {
+            key,
+            group,
+            look,
+            texture,
+        });
     }
 }
 
@@ -246,16 +326,26 @@ impl CallbackTrait for ImagePaint {
             return vec![];
         };
         gpu.ensure_display(device, queue, &self.from, &self.view);
-        gpu.ensure_image(device, queue, &self.image, &self.layer);
+        match &self.live {
+            Some(live) => gpu.ensure_live(device, queue, live),
+            None => gpu.ensure_image(device, queue, &self.image, &self.layer),
+        }
         if let Some(u) = &gpu.uploaded {
             queue.write_buffer(&u.look, 0, &look_bytes(self.show, &self.look, self.place));
         }
         vec![]
     }
 
-    fn paint(&self, _info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        pass: &mut wgpu::RenderPass<'static>,
+        resources: &CallbackResources,
+    ) {
         let Some(gpu) = resources.get::<ImageGpu>() else { return };
-        let (Some(d), Some(u)) = (&gpu.display, &gpu.uploaded) else { return };
+        let (Some(d), Some(u)) = (&gpu.display, &gpu.uploaded) else {
+            return;
+        };
         pass.set_pipeline(&d.pipeline);
         pass.set_bind_group(0, &u.group, &[]);
         pass.set_bind_group(1, &d.group, &[]);
@@ -269,18 +359,34 @@ mod tests {
 
     #[test]
     fn a_layer_goes_up_as_rgba_with_what_it_lacks_filled_in() {
-        let ch = |name: &str, v: Vec<f32>| xms_image::Channel { name: name.into(), values: v };
+        let ch = |name: &str, v: Vec<f32>| xms_image::Channel {
+            name: name.into(),
+            values: v,
+        };
         let image = Image {
             width: 2,
             height: 1,
             origin: (0, 0),
             frame: (0, 0, 2, 1),
-            channels: vec![ch("R", vec![0.5, 2.0]), ch("G", vec![0.25, 0.0]), ch("B", vec![0.0, 1.0]), ch("Z", vec![7.0, 8.0])],
+            channels: vec![
+                ch("R", vec![0.5, 2.0]),
+                ch("G", vec![0.25, 0.0]),
+                ch("B", vec![0.0, 1.0]),
+                ch("Z", vec![7.0, 8.0]),
+            ],
         };
         let layers = image.layers();
         let rgb = layers.iter().find(|l| l.rgba[0].is_some()).unwrap();
-        assert_eq!(layer_pixels(&image, rgb), vec![0.5, 0.25, 0.0, 1.0, 2.0, 0.0, 1.0, 1.0], "as stored, alpha 1");
-        let look = Look { exposure: 1.0, gamma: 2.2, srgb: false };
+        assert_eq!(
+            layer_pixels(&image, rgb),
+            vec![0.5, 0.25, 0.0, 1.0, 2.0, 0.0, 1.0, 1.0],
+            "as stored, alpha 1"
+        );
+        let look = Look {
+            exposure: 1.0,
+            gamma: 2.2,
+            srgb: false,
+        };
         let b = look_bytes(Show::Alpha, &look, [0.25, 0.0, 0.5, 1.0]);
         assert_eq!(f32::from_le_bytes(b[0..4].try_into().unwrap()), 2.0);
         assert_eq!(u32::from_le_bytes(b[8..12].try_into().unwrap()), 4);

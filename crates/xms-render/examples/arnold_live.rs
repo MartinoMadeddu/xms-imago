@@ -3,12 +3,13 @@
 //!
 //! ```text
 //! ARNOLD_PATH=/path/to/Arnold-7.x-SDK cargo run --release -p xms-render --example arnold_live -- \
-//!     scene.usda --light /lights/key [--move /root/statue/statue]
+//!     scene.usda --light /lights/key [--move /root/statue/statue] [--final]
 //! ```
 //!
 //! It loads the layer, edits the light's intensity during the first passes,
 //! again once the render has finished (a restart after the end), moves a
 //! shape if asked, and asks for a change Arnold cannot make live (a reload).
+//! `--final`: once at the Render Settings' samples, no passes (IPR off).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -25,11 +26,12 @@ fn unchanged(layer: &Path) -> impl FnOnce() -> Result<PathBuf, String> + Send + 
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut layer = None;
-    let (mut light, mut moved) = (None, None);
+    let (mut light, mut moved, mut progressive) = (None, None, true);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--light" => light = args.next(),
             "--move" => moved = args.next(),
+            "--final" => progressive = false,
             _ => layer = Some(PathBuf::from(a)),
         }
     }
@@ -78,7 +80,7 @@ fn main() {
     };
 
     println!("load {}", layer.display());
-    live.load(&layer, 1.0);
+    live.load(&layer, 1.0, progressive);
     until(pass);
 
     println!("\nedit while it renders: {light} intensity 4");

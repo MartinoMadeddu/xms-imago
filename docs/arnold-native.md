@@ -265,8 +265,21 @@ gives it, and `crate::live::Session::pixels` the frame when buckets came in.
 - **Attached at each load:** a node of it, `/__xms_imago_pixels`, and the
   first output line (the beauty) again, to it as RGBA, added to the options'
   `outputs`. The products' drivers still write their files.
-- **The Image Viewer** shows the image as it changes, at most every 66 ms, as
-  four float channels. The Viewer can take the same frame as a texture.
+- **On screen, only what changed:** `Pixels` keeps the bounds of what came
+  in since it was last taken (`take`); the Image Viewer keeps its live
+  texture and writes only that region into it each frame
+  (`image_gpu::ensure_live`), its own copy of the image (values under the
+  cursor) brought up to date a few times a second. The Viewer can keep a
+  texture the same way.
+- **IPR off:** the same session renders once, without passes (the
+  `progressive` render hint off: each bucket at the Render Settings'
+  samples), the graph's changes not sent; said if Arnold does not take the
+  hint.
+- **Half or float** is a file's, each AOV's (`driver:parameters:aov:format`,
+  as Karma's): Arnold gives a driver floats whatever the file holds, and the
+  image in memory stays float. Whether Arnold's USD reader makes an output
+  half from the format is checked with the prototype, which says each
+  output's and EXR driver's `half_precision`.
 - Tested against a stand-in `libai` calling the tables from C as Arnold's
   headers lay them out; by hand with Arnold (`examples/arnold_live` prints the
   image in memory after each render).

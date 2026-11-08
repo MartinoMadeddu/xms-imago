@@ -39,6 +39,9 @@ pub struct Session {
     /// The graph's revision and the frame the scene sent is of.
     key: (u64, u64),
     rendering: bool,
+    /// IPR: in passes, sent each change. Else once, at the Render Settings'
+    /// samples, bucket by bucket, the scene as it was.
+    ipr: bool,
     /// Passes done of the render going, and how many it makes.
     pass: Option<(u32, u32)>,
     finished: bool,
@@ -72,6 +75,7 @@ impl Session {
             sent: vec![],
             key: (0, 0),
             rendering: false,
+            ipr: true,
             pass: None,
             finished: false,
             since: Instant::now(),
@@ -80,11 +84,12 @@ impl Session {
     }
 
     /// Render the scene: `prims`, of the graph's revision and frame `key`, at
-    /// `frame`. Written and loaded.
-    pub fn render(&mut self, prims: Vec<Prim>, key: (u64, u64), frame: f64) -> Result<(), String> {
+    /// `frame`. Written and loaded; `ipr`, in passes, sent each change after.
+    pub fn render(&mut self, prims: Vec<Prim>, key: (u64, u64), frame: f64, ipr: bool) -> Result<(), String> {
         crate::usd_write::write_override(&prims, &self.layer)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
-        self.live.load(&self.layer, frame);
+        self.live.load(&self.layer, frame, ipr);
+        self.ipr = ipr;
         self.sent = prims;
         self.key = key;
         self.rendering = true;
@@ -110,11 +115,11 @@ impl Session {
             return None;
         }
         let mut failed = None;
-        if self.key != key && !crate::usd_scene::any_reading() {
+        if self.ipr && self.key != key && !crate::usd_scene::any_reading() {
             if let Some(prims) = prims() {
                 if self.key.1 != key.1 {
                     // Another frame: loaded.
-                    if let Err(e) = self.render(prims, key, frame) {
+                    if let Err(e) = self.render(prims, key, frame, true) {
                         failed = Some(e);
                     }
                 } else {
@@ -136,7 +141,11 @@ impl Session {
                 xms_render::Event::Loaded { .. } => self.restarted(),
                 xms_render::Event::Edited(_) => self.restarted(),
                 xms_render::Event::Pass { index, total } => self.pass = Some((index + 1, total)),
-                xms_render::Event::Finished => self.finished = true,
+                xms_render::Event::Finished => {
+                    self.finished = true;
+                    // A final render is done; IPR waits for changes.
+                    self.rendering &= self.ipr;
+                }
                 xms_render::Event::Failed(why) => failed = Some(why),
             }
         }
@@ -149,9 +158,15 @@ impl Session {
         self.since = Instant::now();
     }
 
+    /// The image as it renders, in memory, bucket by bucket: for a texture
+    /// kept up to date with what changed (`Pixels::take`).
+    pub fn pixels(&self) -> &Arc<xms_render::Pixels> {
+        self.live.pixels()
+    }
+
     /// The image as it renders, in memory, when buckets came in since it was
     /// last taken: its beauty, refining pass by pass.
-    pub fn pixels(&mut self) -> Option<xms_render::Frame> {
+    pub fn frame(&mut self) -> Option<xms_render::Frame> {
         let pixels = self.live.pixels();
         let now = pixels.generation();
         if now == self.taken {
@@ -163,14 +178,16 @@ impl Session {
 
     /// How it is doing, in a few words.
     pub fn status(&self) -> String {
+        let what = if self.ipr { "IPR" } else { "Render" };
         match (self.rendering, self.finished, self.pass) {
-            (false, _, _) => "Live: stopped".into(),
-            (_, true, _) => "Live: done".into(),
-            (_, _, Some((done, total))) => format!("Live: pass {done} of {total}"),
-            _ if self.since.elapsed().as_secs() >= 3 => {
-                "Live: waiting for the first pass (Arnold makes .tx files of new textures)".into()
+            (_, true, _) => format!("{what}: done"),
+            (false, _, _) => format!("{what}: stopped"),
+            (true, _, Some((done, total))) if self.ipr => format!("{what}: pass {done} of {total}"),
+            _ if self.since.elapsed().as_secs() >= 3 && self.pass.is_none() && self.ipr => {
+                format!("{what}: waiting for the first pass (Arnold makes .tx files of new textures)")
             }
-            _ => "Live: starting".into(),
+            _ if self.ipr => format!("{what}: starting"),
+            _ => format!("{what}: rendering, bucket by bucket"),
         }
     }
 }

@@ -78,8 +78,10 @@ pub trait Renderer {
     /// Load the layer at `frame`, in place of what was loaded: the files each
     /// pass's images will be in, whole.
     fn load(&mut self, layer: &Path, frame: f64) -> Result<Vec<PathBuf>, String>;
-    /// Start rendering what is loaded, progressively, or again after edits.
-    fn render(&mut self) -> Result<(), String>;
+    /// Start rendering what is loaded, or again after edits: `progressive`,
+    /// in passes from few samples up (IPR); else once, each bucket finished at
+    /// the samples the Render Settings give.
+    fn render(&mut self, progressive: bool) -> Result<(), String>;
     /// Whether this kind of change can be applied live at all.
     fn live(&self, change: &Change) -> bool;
     /// Apply live edits. `Ok(false)`: one could not be (no node at its path,
@@ -99,13 +101,44 @@ pub struct Frame {
     pub rgba: Vec<[f32; 4]>,
 }
 
+/// Part of a frame: `width` by `height` pixels from `(x, y)`, rows from the
+/// top, in a frame `frame` big.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Region {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub frame: (usize, usize),
+    pub rgba: Vec<[f32; 4]>,
+}
+
 /// The image a renderer fills bucket by bucket as it renders, in memory: read
 /// by what shows it (the Image Viewer, the Viewer), from any thread, when its
-/// generation says it changed.
+/// generation says it changed; or only what changed, as a region.
 #[derive(Default)]
 pub struct Pixels {
-    buffer: Mutex<(Frame, (i32, i32))>,
+    buffer: Mutex<Buffer>,
     generation: AtomicU64,
+}
+
+#[derive(Default)]
+struct Buffer {
+    frame: Frame,
+    /// Where the frame starts in the render's coordinates.
+    origin: (i32, i32),
+    /// What changed since it was last taken: `x0, y0, x1, y1`, `x1` and `y1`
+    /// past it.
+    changed: Option<[usize; 4]>,
+}
+
+impl Buffer {
+    fn changed(&mut self, x0: usize, y0: usize, x1: usize, y1: usize) {
+        self.changed = Some(match self.changed {
+            Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
+            None => [x0, y0, x1, y1],
+        });
+    }
 }
 
 impl Pixels {
@@ -116,21 +149,46 @@ impl Pixels {
 
     /// The image as it is.
     pub fn frame(&self) -> Frame {
-        self.buffer.lock().map(|b| b.0.clone()).unwrap_or_default()
+        self.buffer.lock().map(|b| b.frame.clone()).unwrap_or_default()
+    }
+
+    /// What changed since it was last taken (all of it, `all`), and nothing
+    /// changed since: for one reader only, as a texture is kept up to date.
+    pub fn take(&self, all: bool) -> Option<Region> {
+        let mut b = self.buffer.lock().ok()?;
+        let (w, h) = (b.frame.width, b.frame.height);
+        let changed = b.changed.take();
+        let [x0, y0, x1, y1] = if all { Some([0, 0, w, h]) } else { changed }?;
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+        let mut rgba = Vec::with_capacity((x1 - x0) * (y1 - y0));
+        for row in y0..y1 {
+            rgba.extend_from_slice(&b.frame.rgba[row * w + x0..row * w + x1]);
+        }
+        Some(Region {
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
+            frame: (w, h),
+            rgba,
+        })
     }
 
     /// A render starts: its frame, from `(x, y)`, `width` by `height`. What
     /// is there stays, to be rendered over, unless the size changed.
     pub fn open(&self, x: i32, y: i32, width: usize, height: usize) {
         if let Ok(mut b) = self.buffer.lock() {
-            if (b.0.width, b.0.height) != (width, height) {
-                b.0 = Frame {
+            if (b.frame.width, b.frame.height) != (width, height) {
+                b.frame = Frame {
                     width,
                     height,
                     rgba: vec![[0.0; 4]; width * height],
                 };
+                b.changed(0, 0, width, height);
             }
-            b.1 = (x, y);
+            b.origin = (x, y);
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
     }
@@ -139,18 +197,21 @@ impl Pixels {
     /// coordinates, `pixel(i)` its `i`th pixel, row by row.
     pub fn bucket(&self, x: i32, y: i32, width: usize, height: usize, pixel: impl Fn(usize) -> [f32; 4]) {
         if let Ok(mut b) = self.buffer.lock() {
-            let ((x0, y0), w, h) = (b.1, b.0.width as i32, b.0.height as i32);
-            for row in 0..height {
-                let fy = y + row as i32 - y0;
-                if !(0..h).contains(&fy) {
-                    continue;
+            let ((x0, y0), w, h) = (b.origin, b.frame.width as i32, b.frame.height as i32);
+            // The bucket, in the frame.
+            let (fx0, fy0) = ((x - x0).clamp(0, w), (y - y0).clamp(0, h));
+            let (fx1, fy1) = (
+                (x - x0 + width as i32).clamp(0, w),
+                (y - y0 + height as i32).clamp(0, h),
+            );
+            for fy in fy0..fy1 {
+                for fx in fx0..fx1 {
+                    let i = (fy - (y - y0)) as usize * width + (fx - (x - x0)) as usize;
+                    b.frame.rgba[(fy * w + fx) as usize] = pixel(i);
                 }
-                for col in 0..width {
-                    let fx = x + col as i32 - x0;
-                    if (0..w).contains(&fx) {
-                        b.0.rgba[(fy * w + fx) as usize] = pixel(row * width + col);
-                    }
-                }
+            }
+            if fx1 > fx0 && fy1 > fy0 {
+                b.changed(fx0 as usize, fy0 as usize, fx1 as usize, fy1 as usize);
             }
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
@@ -199,6 +260,24 @@ mod tests {
         assert_eq!(pixels.frame().rgba[8 + 3], [9.0; 4]);
         pixels.open(0, 0, 2, 2);
         assert_eq!(pixels.frame().rgba, vec![[0.0; 4]; 4]);
+    }
+
+    #[test]
+    fn only_what_changed_is_taken() {
+        let pixels = Pixels::default();
+        pixels.open(0, 0, 8, 4);
+        // A new size: all of it.
+        assert_eq!(pixels.take(false).map(|r| (r.width, r.height)), Some((8, 4)));
+        assert_eq!(pixels.take(false), None);
+        pixels.bucket(2, 1, 2, 2, |_| [1.0; 4]);
+        pixels.bucket(5, 0, 1, 1, |_| [2.0; 4]);
+        let r = pixels.take(false).unwrap();
+        // The two buckets' bounds, as rows.
+        assert_eq!((r.x, r.y, r.width, r.height, r.frame), (2, 0, 4, 3, (8, 4)));
+        assert_eq!(r.rgba[3], [2.0; 4]);
+        assert_eq!(r.rgba[4], [1.0; 4]);
+        assert_eq!(pixels.take(false), None);
+        assert_eq!(pixels.take(true).map(|r| r.rgba.len()), Some(32));
     }
 
     #[test]

@@ -154,6 +154,7 @@ api! {
     AiRenderBegin: fn(Ptr, c_int, Option<UpdateCallback>, Ptr) -> c_int;
     AiRenderInterrupt: fn(Ptr, c_int);
     AiRenderRestart: fn(Ptr);
+    AiRenderSetHintBool: fn(Ptr, AtString, bool) -> bool;
     AiRenderGetStatus: fn(Ptr) -> c_int;
     AiRenderEnd: fn(Ptr) -> c_int;
 }

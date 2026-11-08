@@ -21,8 +21,15 @@ const POLL: Duration = Duration::from_millis(20);
 pub type Layer = Box<dyn FnOnce() -> Result<PathBuf, String> + Send>;
 
 enum Command {
-    Load { layer: PathBuf, frame: f64 },
-    Edit { edits: Vec<Edit>, layer: Layer },
+    Load {
+        layer: PathBuf,
+        frame: f64,
+        progressive: bool,
+    },
+    Edit {
+        edits: Vec<Edit>,
+        layer: Layer,
+    },
     Stop,
 }
 
@@ -63,11 +70,13 @@ impl Live {
         }
     }
 
-    /// Render `layer` at `frame`, in place of what was rendered.
-    pub fn load(&self, layer: impl Into<PathBuf>, frame: f64) {
+    /// Render `layer` at `frame`, in place of what was rendered: `progressive`
+    /// (IPR), or once at the Render Settings' samples.
+    pub fn load(&self, layer: impl Into<PathBuf>, frame: f64, progressive: bool) {
         self.send(Command::Load {
             layer: layer.into(),
             frame,
+            progressive,
         });
     }
 
@@ -133,8 +142,8 @@ impl Drop for Live {
 }
 
 fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender<Event>) {
-    // The frame loaded, once a layer is.
-    let mut loaded: Option<f64> = None;
+    // The frame loaded, once a layer is, and whether it renders in passes.
+    let mut loaded: Option<(f64, bool)> = None;
     let mut send = |e: Event| {
         let _ = outbox.send(e);
     };
@@ -149,12 +158,16 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
             for c in taken_together(batch) {
                 match c {
                     Command::Stop => renderer.stop(),
-                    Command::Load { layer, frame } => {
-                        reload(&mut *renderer, &layer, frame, &mut send);
-                        loaded = Some(frame);
+                    Command::Load {
+                        layer,
+                        frame,
+                        progressive,
+                    } => {
+                        reload(&mut *renderer, &layer, (frame, progressive), &mut send);
+                        loaded = Some((frame, progressive));
                     }
                     Command::Edit { edits, layer } => {
-                        let frame = loaded.unwrap_or(1.0);
+                        let at = loaded.unwrap_or((1.0, true));
                         let live = loaded.is_some() && edits.iter().all(|e| renderer.live(&e.change));
                         let applied = live
                             && match renderer.edit(&edits) {
@@ -165,17 +178,17 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                                 }
                             };
                         if applied {
-                            match renderer.render() {
+                            match renderer.render(at.1) {
                                 Ok(()) => send(Event::Edited(edits.len())),
                                 Err(e) => send(Event::Failed(e)),
                             }
                         } else {
                             match layer() {
-                                Ok(layer) => reload(&mut *renderer, &layer, frame, &mut send),
+                                Ok(layer) => reload(&mut *renderer, &layer, at, &mut send),
                                 Err(e) => send(Event::Failed(e)),
                             }
                         }
-                        loaded = Some(frame);
+                        loaded = Some(at);
                     }
                 }
             }
@@ -187,8 +200,10 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
     renderer.stop();
 }
 
-/// Load the layer and render it.
-fn reload(renderer: &mut dyn Renderer, layer: &std::path::Path, frame: f64, send: &mut impl FnMut(Event)) {
+/// Load the layer at the frame `at` gives, and render it (in passes, if it
+/// says).
+fn reload(renderer: &mut dyn Renderer, layer: &std::path::Path, at: (f64, bool), send: &mut impl FnMut(Event)) {
+    let (frame, progressive) = at;
     let t = Instant::now();
     renderer.stop();
     match renderer.load(layer, frame) {
@@ -197,7 +212,7 @@ fn reload(renderer: &mut dyn Renderer, layer: &std::path::Path, frame: f64, send
                 seconds: t.elapsed().as_secs_f64(),
                 images,
             });
-            if let Err(e) = renderer.render() {
+            if let Err(e) = renderer.render(progressive) {
                 send(Event::Failed(e));
             }
         }
@@ -290,7 +305,7 @@ mod tests {
             }
             Ok(vec!["render/beauty.0001.exr".into()])
         }
-        fn render(&mut self) -> Result<(), String> {
+        fn render(&mut self, _: bool) -> Result<(), String> {
             self.calls.lock().unwrap().push("render".into());
             self.passes = 2;
             Ok(())
@@ -346,7 +361,7 @@ mod tests {
     #[test]
     fn a_layer_loads_and_renders_in_passes() {
         let (live, calls) = stand_in();
-        live.load("scene.usda", 1.0);
+        live.load("scene.usda", 1.0, true);
         let events = live.wait(SECOND, |e| *e == Event::Finished);
         assert!(matches!(&events[0], Event::Loaded { images, .. } if images[0].ends_with("beauty.0001.exr")));
         assert_eq!(
@@ -363,7 +378,7 @@ mod tests {
     #[test]
     fn edits_it_can_apply_are_live_others_reload() {
         let (live, calls) = stand_in();
-        live.load("scene.usda", 1.0);
+        live.load("scene.usda", 1.0, true);
         live.wait(SECOND, |e| *e == Event::Finished);
         live.edit(vec![light(4.0)], || Ok("scene.usda".into()));
         assert!(live
@@ -401,7 +416,7 @@ mod tests {
     #[test]
     fn a_layer_that_will_not_load_says_why() {
         let (live, _) = stand_in();
-        live.load("broken.usda", 1.0);
+        live.load("broken.usda", 1.0, true);
         let events = live.wait(SECOND, |e| matches!(e, Event::Failed(_)));
         assert_eq!(events.last(), Some(&Event::Failed("no such layer".into())));
     }
@@ -414,6 +429,7 @@ mod tests {
             Command::Load {
                 layer: "a.usda".into(),
                 frame: 1.0,
+                progressive: true,
             },
             Command::Edit {
                 edits: vec![light(2.0)],
@@ -469,6 +485,7 @@ mod tests {
             Command::Load {
                 layer: "c.usda".into(),
                 frame: 2.0,
+                progressive: true,
             },
         ]);
         assert!(matches!(&out[..], [Command::Load { frame, .. }] if *frame == 2.0));
