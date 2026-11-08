@@ -286,6 +286,15 @@ gives it, and `crate::live::Session::pixels` the frame when buckets came in.
   headers lay them out; by hand with Arnold (`examples/arnold_live` prints the
   image in memory after each render).
 
+### Then: Imago on the farm
+
+Imago headless (`xms --headless scene.xms --render 1-100`): the graph opened,
+the scene loaded in Arnold once, then frame by frame what changed sent as live
+edits (ICE deformers' and animation's points, transforms), the layer written
+again only for a change of structure, each frame rendered at the Render
+Settings' samples (IPR off, the licence looked for), its products written. ICE
+and Imago's other tools on the farm without baking to disk first.
+
 ### Then: rray
 
 - rray as the second backend, through the same interface, natively in Rust.
