@@ -228,8 +228,8 @@ starting and stopping it (`docs/render.md`).
   (Arnold writes the file all through a pass): replaced by pixels in memory.
 - `src/live.rs` works out the edits between two cooks of the scene, prim by
   prim, by pointer first, then by value (an operator cooked again makes its
-  prims anew): a placement becomes its world matrix in the layer's axes
-  (`usd_write::layer_axes`), a light's values its attributes, a MaterialX
+  prims anew): a placement becomes its world matrix in the scene's axes
+  (`SceneRange::axes`), a light's values its attributes, a MaterialX
   graph's input values its shaders' (`<material>/<node>`), `visibility` alone
   a visibility, points alone (the same topology and other attributes) the
   points, a RenderSettings prim's attributes the settings. Anything else is a
@@ -352,14 +352,23 @@ Findings on Linux and with Alembic hair (9 November):
   its `plugins` on `ARNOLD_PLUGIN_PATH` before `AiBegin`.
 - **Frame rates:** USD scales a file's time to the root layer's; a 25 fps
   Alembic under a layer saying nothing (24) rendered at other frames. The
-  layer repeats its stages' `timeCodesPerSecond`.
+  layer now says the scene's rate (File > Settings > Scene), and Imago reads
+  a stage of another rate as USD does, at the same second, with a warning.
 - **Curves:** their points are Arnold's `points`, not `vlist`; written with
   their counts (USD's Alembic reader may lay curves out otherwise), widths
   per point, never blocked by the file's.
 - **References vs sublayers:** a stage loaded as a reference placed its hair
-  elsewhere in Arnold than in Imago; as sublayers it matched. To look at.
+  elsewhere in Arnold than in Imago; as sublayers it matched. Two causes
+  found: the axis and unit correction was baked into the referenced prim's
+  transform, so an edit of that prim wrote a second `xformOp:transform`; and
+  prims made in Imago under a referenced prim were placed relative to the
+  first sublayered stage's axes. Both gone with the scene's axes (see
+  [usd.md](usd.md#the-scenes-axes-unit-and-rate)); to confirm on the hair.
 - **Merge order** changed what reached Arnold (the animated branch had to be
-  first). To look at.
+  first). The layer sublayered its stages weakest first (the opposite of what
+  Imago shows), took its axes, unit and rate from whichever stage came first,
+  and deactivated a weaker stage's prim that a stronger one took the place
+  of. Now the later input is the stronger in both.
 
 ### Then: rray
 

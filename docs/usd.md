@@ -34,7 +34,7 @@ baked into the points, so what is written back matches the file.
 | Formats | Text (`.usda`), binary (`.usdc`), `.usdz`, and Alembic (`.abc`) read as a layer ([Alembic](#alembic)) |
 | Composition | Sublayers, references, payloads, inherits, specializes, variants |
 | Transforms | The whole `xformOpOrder`, `!resetXformStack!` included |
-| Units and axes | Kept as authored, as USD composes them and renderers read them: a Z-up stage in centimetres stays Z-up in centimetres. With the Load USD operator's **Y-up metres** on, `upAxis` and `metersPerUnit` become a correction on the placement (the points stay as authored); turning it on or off reads the stage again |
+| Units and axes | Imago works in Y-up metres. A stage is read as authored by default: a Z-up stage in centimetres lies on its side, a hundred times too big, and its Load USD says so. With the operator's **Y-up metres** on, `upAxis` and `metersPerUnit` become a correction on the placement (the points stay as authored); turning it on or off reads the stage again. Either way a layer written has it where Imago shows it, in the [scene's](#the-scenes-axes-unit-and-rate) axes and unit |
 | Meshes | Points, polygons of any size, left-handed orientation, subdivision scheme |
 | Curves | `BasisCurves`: control points, counts, basis (linear, Bézier, B-spline, Catmull-Rom) and wrap, kept as authored |
 | Points | `Points`, with their widths |
@@ -46,7 +46,7 @@ baked into the points, so what is written back matches the file.
 | Cameras | Primitives with no geometry: projection, focal length, aperture and offsets, clipping range, f-stop, focus distance, where they are. Moved by Transform, looked through in the Viewer |
 | Lights | Primitives with no geometry: every UsdLux type (Dome, Rect, Sphere, Disk, Cylinder, Distant), with its values (intensity, exposure, colour, temperature, size, texture, shaping), where it is and which way it faces. Moved by Transform, listed in the Primitive Inspector (see [Lights](#lights)) |
 | Skeletons | Listed by name |
-| Time samples | Every sample of the stage, over its time range: a time code is a frame, so the timeline plays the file's animation (transforms, visibility, points and primvars, point instancers, cameras' lenses, lights' values) through the whole graph. A stage that changes over time cooks again at each frame, its still geometry shared; one that does not costs nothing more. When only transforms and geometry move (no point instancers), a frame is the stage as first read with the moving prims made again; anything else, and the whole stage is walked |
+| Time samples | Every sample of the stage, over its time range, at the scene's frames: at the scene's rate a time code is a frame; at another, the stage is read at the same second, as USD retimes it ([below](#the-scenes-axes-unit-and-rate)). The timeline plays the file's animation (transforms, visibility, points and primvars, point instancers, cameras' lenses, lights' values) through the whole graph. A stage that changes over time cooks again at each frame, its still geometry shared; one that does not costs nothing more. When only transforms and geometry move (no point instancers), a frame is the stage as first read with the moving prims made again; anything else, and the whole stage is walked |
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked
 beside itself so its textures are files the Viewer can read.
@@ -91,11 +91,10 @@ Load USD's **Mode** says how the file comes into the scene, as in USD:
   as USD leaves it out.
 - Bindings and point-instancer prototypes inside the referenced prim follow it
   to its new paths. A binding to a material outside it keeps its path.
-- A file's axes and unit are not converted by a reference in USD, and Imago
-  reads them as authored too. Where a Load USD has **Y-up metres** on and the
-  file's differ from the layer's, Write USD puts the transform from one to the
-  other on the referenced prim, on top of the prim's own: opened, the layer
-  gives what Imago shows.
+- A file's axes and unit are not converted by a reference in USD. Write USD
+  puts the transform from where Imago shows it to the scene's axes and unit
+  before the referenced prim's own (see below): opened, the layer gives what
+  Imago shows.
 - The Scene Explorer lists the stage at its new paths; Set Attribute, Material
   Binding and every Prims Location tab name it by them.
 
@@ -339,6 +338,12 @@ On a path two inputs have, the later input is the stronger, as an `over` on the
 same path in USD: its primitive takes the first one's place. What it does not
 say is read from the first one: a shape put on the path of a prim loaded from a
 file keeps that prim's material and stage, and is written as a change to it.
+
+Stages are as strong as their inputs, whichever order they come in: a layer
+written sublayers the later input's stage first (USD's strongest), and a prim
+of one stage that another stage's prim took the place of is left under it, not
+deactivated. USD composes the two on that path; Imago shows the stronger
+one's alone, and Write USD's panel and the render's Log say so.
 
 The pattern is a name pattern as described in
 [Interface](interface.md#name-patterns): comma-separated regular expressions
@@ -627,12 +632,32 @@ Write USD writes what the scene graph changed as a `.usda` override layer. The
 layer sublayers the file each sublayered stage was read from, references or
 payloads each stage loaded that way on its prim, and holds only opinions over
 them, so opened on its own (in usdview, rray, or Imago) it gives what Imago
-shows. It repeats the first sublayered file's `upAxis` and `metersPerUnit`,
-which USD reads from the layer that is opened; with none, it is Y up in metres.
-It repeats its stages' `timeCodesPerSecond` (and `framesPerSecond`) too: USD
-scales a file's time to the layer's when they differ, so a 25 fps file under a
-layer saying nothing (24) would be read at other times than Imago shows (frame
-1008 of Imago is time code 1008 of the file).
+shows. Its stages are sublayered strongest first (the later input of a
+Merge, [above](#shapes-are-primitives)). It says the scene's `upAxis`,
+`metersPerUnit`, `timeCodesPerSecond` and `framesPerSecond` (below).
+
+### The scene's axes, unit and rate
+
+File > Settings > **Scene** sets the scene's up axis (Y or Z), unit (metres,
+centimetres…) and frames a second, saved with the graph (the timeline's rate is
+the same one). Imago itself always works in Y-up metres; these are what every
+layer it writes says (Write USD's, a render's), so a show's convention is kept
+whatever its files are in.
+
+- **Axes and unit.** USD corrects neither across a sublayer or a reference:
+  stage metadata is the root layer's alone, and a file of other axes composes
+  as authored. So each stage is put where Imago shows it, in the scene's axes
+  and unit, by a transform before its root prims' own:
+  `matrix4d xformOp:transform:toScene`, first in their `xformOpOrder` (after
+  `!resetXformStack!`), the file's ops after it, animated or not. A referenced
+  stage has it on the prim the reference is on. A root prim two stages have is
+  put as the stronger has it, and the panel says so when they differ.
+- **Rate.** USD retimes a sublayered or referenced file whose
+  `timeCodesPerSecond` is not the root layer's, keeping seconds: a 25 fps cache
+  in a 24 fps scene has its time code 25 at frame 24. Imago reads stages the
+  same way, so the Viewer and a render agree, and the Load USD panel, Write
+  USD's and the render's Log say when a stage is not at the scene's rate. **Use
+  as Scene Range** takes the stage's.
 
 Set a path and press **Write**. The panel then says what was written, and lists
 what could not be, with the reason.
@@ -657,9 +682,8 @@ what could not be, with the reason.
 | A prim made in Imago (a shape, say) | A new prim (`def Mesh`, `def BasisCurves` or `def Points`), its parents `def Xform` where no stage has them |
 
 The layer's `defaultPrim` is the first root prim of the first stage, or, with no
-stage, the first prim made in Imago (`cube` for a lone Cube). A layer with no
-stage is Y up in metres, as Imago is; next to a stage, prims made in Imago are
-written in the stage's axes and unit.
+stage, the first prim made in Imago (`cube` for a lone Cube). Prims made in
+Imago are written in the scene's axes and unit.
 
 Only what changed is written: a stage nothing touched gives a layer with its
 header alone. What changed is found by comparison with the stage as it was
@@ -692,8 +716,11 @@ makes it the scene's frames and rate.
 ## Not done yet
 
 - Load USD: a layer offset on a reference, several references on one prim,
-  population masks, payloads left unloaded; moving the referenced prim itself
-  when it is a mesh is written without the axis and unit transform
+  population masks, payloads left unloaded
+- Two stages with a prim on one path: Imago shows the stronger one's alone,
+  where USD composes the weaker one's attributes under it
+- Transforms in the Properties panel are Imago's, in Y-up metres, whatever
+  the scene's axes and unit
 
 - Write USD: editing inside instances, a flattened single file; the stage's own `defaultPrim` (the first root prim is
   used)

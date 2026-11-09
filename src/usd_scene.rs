@@ -130,6 +130,9 @@ pub struct StageNode {
     pub local: glam::DMat4,
     /// It ignores its parents' transforms (`!resetXformStack!`).
     pub reset_xform: bool,
+    /// Its `xformOpOrder` in the file (empty when it has none, or was not
+    /// read): what a layer puts the scene's correction before.
+    pub ops: Vec<String>,
     /// Inside a native instance: read from the prototype, and read-only in USD
     /// (instance proxies cannot carry opinions).
     pub proxy: bool,
@@ -153,13 +156,13 @@ pub struct StageTree {
     /// placement: what writing takes off again to get back to the file's space.
     pub root: glam::Mat4,
     /// The file the stage was read from, and its up axis and unit: what an
-    /// override layer sublayers and repeats.
+    /// override layer sublayers, and corrects to the scene's.
     pub source: std::path::PathBuf,
     pub up_axis: String,
     pub meters_per_unit: Option<f64>,
-    /// Its time codes a second (`timeCodesPerSecond`): what an override
-    /// layer repeats, so USD does not scale the file's time to the layer's
-    /// (Imago reads a time code as a frame).
+    /// Its time codes a second (`timeCodesPerSecond`): Imago reads it at
+    /// the scene's frames scaled by it over the scene's rate, as USD does
+    /// (`retimed`).
     pub time_codes_per_second: Option<f64>,
     /// Values Set Attribute set on prims of the stage that are not geometry
     /// primitives (Xforms, cameras, lights, materials), by path. Empty as
@@ -926,15 +929,11 @@ fn read_scene(data: Layer, convert: bool) -> UsdScene {
         scene.time = Some((start, end, number(&mut r, "timeCodesPerSecond").unwrap_or(24.0)));
     }
     // When asked: to Y-up, and to metres when the layer says what its unit is.
-    let mut root = Mat4::IDENTITY;
-    if convert && scene.up_axis == "Z" {
-        root = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    }
-    if let Some(unit) = scene.meters_per_unit.filter(|_| convert) {
-        if unit > 0.0 && (unit - 1.0).abs() > 1e-9 {
-            root *= Mat4::from_scale(Vec3::splat(unit as f32));
-        }
-    }
+    let root = if convert {
+        axes(&scene.up_axis, scene.meters_per_unit)
+    } else {
+        Mat4::IDENTITY
+    };
 
     let (mut composed, mut instanced, mut subsets) = (0usize, 0usize, 0usize);
     let mut todo: Vec<(String, Mat4)> = vec![("/".to_string(), root)];
@@ -1328,9 +1327,24 @@ fn changed() {
     CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// The stage at `frame`, its time code (Imago's frames are the stage's time
-/// codes): itself when nothing of it changes over time, or at the time it was
-/// read at. Each frame is made once, and the last few are kept.
+/// From a layer's up axis and unit to Y-up metres (a unit not stated is
+/// left as it is).
+pub fn axes(up_axis: &str, meters_per_unit: Option<f64>) -> Mat4 {
+    let mut m = Mat4::IDENTITY;
+    if up_axis == "Z" {
+        m = Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    }
+    if let Some(unit) = meters_per_unit {
+        if unit > 0.0 && (unit - 1.0).abs() > 1e-9 {
+            m *= Mat4::from_scale(Vec3::splat(unit as f32));
+        }
+    }
+    m
+}
+
+/// The stage at its time code `frame` (`retimed` from the scene's): itself
+/// when nothing of it changes over time, or at the time it was read at. Each
+/// time is made once, and the last few are kept.
 pub fn at_frame(scene: &Arc<UsdScene>, frame: f64) -> Arc<UsdScene> {
     let Some(timed) = &scene.timed else {
         return scene.clone();
@@ -1379,13 +1393,15 @@ pub fn animated(path: &str, convert: bool) -> bool {
 }
 
 thread_local! {
-    /// The frame Load USD cooks at (`cooking_at`).
-    static COOK_FRAME: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+    /// The frame Load USD cooks at and the scene's frames a second
+    /// (`cooking_at`).
+    static COOK_FRAME: std::cell::Cell<Option<(f64, f64)>> = const { std::cell::Cell::new(None) };
 }
 
-/// Run `f` with Load USD cooking at `frame`.
-pub fn cooking_at<R>(frame: f64, f: impl FnOnce() -> R) -> R {
-    let was = COOK_FRAME.with(|c| c.replace(Some(frame)));
+/// Run `f` with Load USD cooking at `frame` of a scene of `rate` frames a
+/// second.
+pub fn cooking_at<R>(frame: f64, rate: f64, f: impl FnOnce() -> R) -> R {
+    let was = COOK_FRAME.with(|c| c.replace(Some((frame, rate))));
     let r = f();
     COOK_FRAME.with(|c| c.set(was));
     r
@@ -1394,7 +1410,26 @@ pub fn cooking_at<R>(frame: f64, f: impl FnOnce() -> R) -> R {
 /// The frame Load USD cooks at: `None` outside a graph's cook (the stage at
 /// the time it was read at).
 pub fn cook_frame() -> Option<f64> {
-    COOK_FRAME.with(|c| c.get())
+    COOK_FRAME.with(|c| c.get()).map(|(frame, _)| frame)
+}
+
+/// The time code of a stage of `rate` time codes a second (USD's 24 when it
+/// says none) at the frame cooked.
+pub fn cook_time(rate: Option<f64>) -> Option<f64> {
+    COOK_FRAME
+        .with(|c| c.get())
+        .map(|(frame, scene)| retimed(frame, rate.unwrap_or(24.0), scene))
+}
+
+/// A stage's time code at a scene's `frame`: scaled by its rate over the
+/// scene's, as USD scales a sublayered or referenced layer's time to the root
+/// layer's `timeCodesPerSecond` (the same second, not the same number).
+pub fn retimed(frame: f64, stage: f64, scene: f64) -> f64 {
+    if scene <= 0.0 || stage <= 0.0 || (stage - scene).abs() < 1e-9 {
+        frame
+    } else {
+        frame * stage / scene
+    }
 }
 
 /// See `GENERATION`.
@@ -1532,6 +1567,17 @@ mod tests {
             None => (*m.mesh).clone(),
         }
     }
+    /// A stage of another rate than the scene's at the same second, as USD
+    /// retimes it; of the same rate, frame for frame.
+    #[test]
+    fn a_stage_of_another_rate_is_read_at_the_same_second() {
+        assert_eq!(retimed(24.0, 25.0, 24.0), 25.0);
+        assert_eq!(retimed(1001.0, 25.0, 25.0), 1001.0);
+        assert_eq!(cooking_at(48.0, 24.0, || cook_time(Some(12.0))), Some(24.0));
+        assert_eq!(cooking_at(48.0, 24.0, || cook_time(None)), Some(48.0), "USD's 24");
+        assert_eq!(cook_time(Some(25.0)), None, "outside a cook");
+    }
+
     /// An animated stage is shown at any frame: a moving Xform's mesh where it
     /// is then, points that move as they are then; what does not change is the
     /// stage as read, its geometry shared.

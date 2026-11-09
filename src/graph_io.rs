@@ -61,8 +61,8 @@ struct SavedGraph {
     /// `NodeGraphState::view_output`).
     #[serde(default)]
     view_output: usize,
-    /// The scene's frame range and rate. Graphs saved before it have the
-    /// default (1 to 120 at 24 fps).
+    /// The scene's frame range and rate, up axis and unit. Graphs saved
+    /// before it have the default (1 to 120 at 24 fps, Y-up metres).
     #[serde(default)]
     scene: crate::node_graph::SceneRange,
     /// The graph inside each ICE node, by the node's id. Left out when there

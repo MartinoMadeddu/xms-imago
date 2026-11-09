@@ -146,6 +146,7 @@ fn scene_frames(g: &mut NodeGraphState, parts: &[Part]) {
         end: frames,
         fps_num: 24,
         fps_den: 1,
+        ..Default::default()
     };
 }
 

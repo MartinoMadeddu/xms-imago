@@ -630,13 +630,26 @@ pub fn merges_primitives(mode: MergeMode, first: &EvalResult) -> bool {
 /// material, no stage, no purpose) is read from the weaker one, so a shape put
 /// on the path of a prim loaded from a file becomes an edit of that prim, and
 /// is written as one.
+///
+/// Later in a list is stronger: a layer sublayers its stages in the order of
+/// the last primitive of each (`usd_write`). So one of another stage taking a
+/// primitive's place goes last, as its stage is the stronger.
 pub fn merge_prims(first: &[Prim], second: &[Prim]) -> Vec<Prim> {
     let mut out: Vec<Prim> = first.to_vec();
     for p in second {
         match out.iter().position(|q| q.path == p.path) {
             Some(i) => {
                 let stronger = over(&out[i], p);
-                out[i] = stronger;
+                let other_stage = match (&out[i].stage, &p.stage) {
+                    (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+                    _ => false,
+                };
+                if other_stage {
+                    out.remove(i);
+                    out.push(stronger);
+                } else {
+                    out[i] = stronger;
+                }
             }
             None => out.push(p.clone()),
         }
@@ -702,7 +715,8 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
 
 /// The primitives of the stage at `path`, read as Load USD reads it (see
 /// `stage_prims`), with `variants` chosen over the file's (Variant), at the
-/// frame being cooked when the stage changes over time. One per mesh prim,
+/// frame being cooked when the stage changes over time (its time code there:
+/// `usd_scene::cook_time`). One per mesh prim,
 /// shared with the cached stage. `None` with nothing to show: no geometry,
 /// instancer, camera or light.
 pub fn load_stage(
@@ -714,8 +728,8 @@ pub fn load_stage(
     prim: &str,
 ) -> Option<Vec<Prim>> {
     let scene = crate::usd_scene::load_cached_with(path, convert, variants).ok()?;
-    let scene = match crate::usd_scene::cook_frame() {
-        Some(f) => crate::usd_scene::at_frame(&scene, f),
+    let scene = match crate::usd_scene::cook_time(scene.tree.time_codes_per_second.or(scene.time.map(|t| t.2))) {
+        Some(t) => crate::usd_scene::at_frame(&scene, t),
         None => scene,
     };
     if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() {
@@ -1656,6 +1670,25 @@ mod packed_tests {
         let p = &prims(&out)[0];
         assert!(max_y(&p.mesh) > 1.4 && p.material.as_deref() == Some("/looks/red"));
         assert!(Arc::ptr_eq(p.stage.as_ref().unwrap(), loaded.stage.as_ref().unwrap()));
+    }
+
+    /// A primitive of another stage taking one's place goes last: its stage is
+    /// the stronger, as the layer written sublayers it (the last primitive of
+    /// each stage says how strong it is).
+    #[test]
+    fn a_prim_of_another_stage_on_the_same_path_goes_last() {
+        let on = |path: &str, stage: &Arc<crate::usd_scene::StageTree>| Prim {
+            stage: Some(stage.clone()),
+            ..Prim::new(path.into(), create_cube(1.0))
+        };
+        let (a, b) = (Arc::new(Default::default()), Arc::new(Default::default()));
+        let out = merge_prims(&[on("/x", &a), on("/z", &a)], &[on("/x", &b)]);
+        let paths: Vec<&str> = out.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, vec!["/z", "/x"]);
+        assert!(Arc::ptr_eq(out[1].stage.as_ref().unwrap(), &b));
+        // Of the same stage (an edit of it): in its place.
+        let out = merge_prims(&[on("/x", &a), on("/z", &a)], &[on("/x", &a)]);
+        assert_eq!(out[0].path, "/x");
     }
 }
 

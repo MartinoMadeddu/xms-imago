@@ -518,7 +518,7 @@ pub(crate) fn draw_ui(
         });
     theme::editor(ctx);
     variables::window(ctx, &mut graph.variables);
-    settings::window(ctx, nav_settings);
+    settings::window(ctx, &mut graph.scene, nav_settings);
     // What saves, replaces or closes the graph is done on the root scene
     // graph: out of any compound first.
     if command.as_ref().is_some_and(|c| {
@@ -1261,7 +1261,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                     }
                     // Writing over files that exist asks first.
                     if let Some(PanelAction::SceneRange(r)) = io.action {
-                        self.graph.scene = r;
+                        // The range and rate; the axes and unit stay the scene's.
+                        self.graph.scene = crate::node_graph::SceneRange {
+                            up_axis: self.graph.scene.up_axis,
+                            meters_per_unit: self.graph.scene.meters_per_unit,
+                            ..r
+                        };
                         self.graph_file.message = format!(
                             "Scene frames {} to {} at {} fps, from the stage",
                             r.start,
@@ -2897,9 +2902,9 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         }
         let layer = std::path::Path::new(&path);
         if still || cooked.len() == 1 {
-            return usd_write::write_override(&cooked[0].1, layer);
+            return usd_write::write_override(&cooked[0].1, layer, &graph.scene);
         }
-        usd_write::write_frames(&cooked, layer, graph.scene.fps())
+        usd_write::write_frames(&cooked, layer, &graph.scene)
     })();
     usd_write::remember(id, result);
 }

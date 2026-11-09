@@ -460,14 +460,14 @@ impl Viewer {
             };
             let s = s.insert(live);
             if s.rendering() && s.in_viewer() {
-                if let Some(why) = s.update(key, frame, scene) {
+                if let Some(why) = s.update(&input.graph.scene, key, frame, scene) {
                     return Err(why);
                 }
                 s.look(world, fov, size);
             } else {
                 let prims = scene().ok_or("The view flag shows no scene")?;
-                let view = crate::live::view(&prims, world, fov, size);
-                s.render(prims, key, frame, true, Some(view))?;
+                let view = crate::live::view(&input.graph.scene, world, fov, size);
+                s.render(prims, &input.graph.scene, key, frame, true, Some(view))?;
             }
             Ok((s.pixels().clone(), s.status()))
         });

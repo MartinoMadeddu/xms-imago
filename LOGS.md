@@ -817,3 +817,5 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Linux: Imago starts itself again with Arnold's bin on LD_LIBRARY_PATH when it is not there, so Arnold's plugins (usd_proc.so) load: Arnold's USD reader, 'unknown format' without it. (Martino)
 - 09/11/2026: Arnold's plugin loading in the Log too (AI_LOG_PLUGINS): which plugins it loaded, or why its USD reader did not load. (Martino)
 - 09/11/2026: Docs brought up to date with the day: ARCHITECTURE (7b, rendering in Imago; the module map), README (Arnold, the command line), render.md (the Log, curves' widths), arnold-native.md (Linux and Alembic hair findings), CHANGELOG. (Martino)
+- 09/11/2026: Merge and composition as USD has them: stages sublayered strongest first (the later input), a prim another stage took the place of left under it rather than deactivated, the scene's up axis, unit and rate (File > Settings > Scene, with the graph) in every layer with each stage corrected to them (xformOp:transform:toScene before its own ops), stages of another rate read at the same second as USD retimes them. (Martino)
+- 09/11/2026: Imago 0.2.9. (Martino)

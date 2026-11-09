@@ -835,7 +835,7 @@ pub fn draw_properties(
             let read = crate::core::vars::expand(path.trim(), &[]);
             load_mode_rows(ui, &read, mode, location, prim, *convert);
             group(ui, "Units and axis", None, |f| {
-                f.toggle("Y-up metres", Some("Turn the stage to Y-up and scale it to metres by its upAxis and metersPerUnit, in its placement (the geometry stays as authored). Off: as authored, as USD composes it and renderers read it. Changing it reads the stage again"), convert);
+                f.toggle("Y-up metres", Some("Turn the stage to Y-up and scale it to metres by its upAxis and metersPerUnit, in its placement (the geometry stays as authored). Off: as authored, read as if Y-up metres. Either way, a layer written has it where Imago shows it, in the scene's axes and unit (File > Settings > Scene). Changing it reads the stage again"), convert);
             });
             if !read.is_empty() { usd_summary(ui, &read, *convert, io); }
         }
@@ -871,6 +871,7 @@ pub fn draw_properties(
                         f.status(Status::Ok, format!("Written: {} changed, {} deactivated, {} added{arcs}{over}", r.changed, r.deactivated, r.added));
                         for s in r.skipped.iter().take(8) { f.status(Status::Info, format!("Not written: {s}")); }
                         if r.skipped.len() > 8 { f.status(Status::Info, format!("… and {} more not written", r.skipped.len() - 8)); }
+                        for n in &r.notes { f.status(Status::Info, n); }
                     }
                 }
             });
@@ -3783,18 +3784,23 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
         if !scene.converted && (scene.up_axis != "Y" || scene.meters_per_unit.is_some_and(|u| (u - 1.0).abs() > 1e-9)) {
             f.status(
                 Status::Info,
-                "Not Y-up metres: other stages may not match it. Turn on Y-up metres, or move and scale it yourself",
+                "Not Y-up metres: shown as authored in Imago's Y-up metres, and written so. Turn on Y-up metres to stand it up and scale it, or move and scale it yourself",
             );
         }
         let moving = if scene.timed.is_some() { ", animated" } else { "" };
         match scene.time {
             Some((start, end, rate)) => {
                 f.value("Time", format!("{start} to {end} at {rate} per second{moving}"));
+                // Another rate than the scene's: USD retimes it, and Imago as it.
+                let fps = crate::core::vars::globals().fps;
+                if fps > 0.0 && (rate - fps).abs() > 1e-6 {
+                    f.status(Status::Info, format!("Not the scene's {fps} frames a second: retimed to it by seconds, as USD does (its time code {rate} at frame {fps}). Use as Scene Range takes its rate"));
+                }
                 let range = crate::node_graph::SceneRange::from_stage(start, end, rate);
                 let set = f.buttons("", None, |ui| {
                     ui.button("Use as Scene Range")
                         .on_hover_text(format!(
-                            "Make the scene's frames {} to {} at {} fps: a time code of the stage is a frame",
+                            "Make the scene's frames {} to {} at {} fps: a time code of the stage is then a frame",
                             range.start,
                             range.end,
                             range.fps()

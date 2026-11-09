@@ -209,6 +209,9 @@ and Display. Stop keeps the frames so far.
 
 **File > Settings** has a page per part of Imago:
 
+- **Scene:** the up axis, unit and frames a second every layer Imago writes
+  says, saved with the graph (Imago itself works in Y-up metres; see
+  [USD](usd.md#the-scenes-axes-unit-and-rate)).
 - **Viewer:** the navigation style and zoom drag (see [Viewer
   navigation](navigation.md)), and the View and Display the scene is shown in:
   the Image Viewer's (As Image Viewer, to start with) or its own (see

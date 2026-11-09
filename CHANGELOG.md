@@ -8,6 +8,10 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-09
+
+- **Composition as USD has it:** a later input of a Merge is the stronger in the layers Imago writes too (its stage sublayered first), whichever order the inputs come in, and a prim another stage's prim took the place of is no longer deactivated (which took both away).
+- **The scene's up axis, unit and rate** (File > Settings > Scene, saved with the graph): every layer says them, each stage put where Imago shows it by a transform before its root prims' own (`xformOp:transform:toScene`); a stage of another rate is read at the same second, as USD retimes it, with a warning in Load USD, Write USD and the render's Log.
 - **Arnold on Linux:** Imago starts with Arnold's `bin` on the library path, so Arnold's USD reader loads (it was "unknown format"); Arnold's plugin loading is in the Log.
 
 ## [0.2.8] - 2026-11-09

@@ -110,9 +110,16 @@ Principles:
   left out.
 - Animation is written as `timeSamples` where it changes, one value where it
   does not.
-- The layer repeats its stages' `upAxis`, `metersPerUnit` and
-  `timeCodesPerSecond` (USD scales a file's time to the layer's: a 25 fps
-  Alembic under a layer saying nothing would be read at other frames).
+- Composition follows USD, not a renderer. A later input of a Merge is
+  stronger (`merge_prims`), and a list's stages are as strong as their last
+  primitive: the layer sublayers them strongest first, and a prim another
+  stage's prim took the place of is left under it. The layer says the scene's
+  `upAxis`, `metersPerUnit` and `timeCodesPerSecond` (`SceneRange`, saved
+  with the graph; Imago itself is Y-up metres). USD corrects neither axes nor
+  unit across an arc, so each stage gets `xformOp:transform:toScene` before
+  its root prims' own ops; it does retime a stage of another rate, and Imago
+  reads stages the same way (`usd_scene::retimed`). Any renderer reading USD
+  then gets what the Viewer shows.
 - Curves whose points moved are written with their counts, type, basis and
   wrap (USD's Alembic reader may lay a file's curves out otherwise); widths set
   per curve are written per point, and an attribute moved to another context
