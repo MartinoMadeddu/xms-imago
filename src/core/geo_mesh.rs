@@ -43,10 +43,13 @@ impl GeoMesh for Geo {
     }
 
     fn primvars_view(&self) -> Vec<PrimVar> {
+        // Free points' widths are the view's own (`MeshData::widths`); curves'
+        // are a primvar like any other, so the Primitive Inspector lists them.
+        let own_widths = matches!(self.topology, Topology::Points);
         let mut out = vec![];
         for ctx in Context::ALL {
             for (name, attr) in self.attrs(ctx) {
-                if matches!(name, POINTS | NORMALS | WIDTHS) || UV_NAMES.contains(&name) {
+                if matches!(name, POINTS | NORMALS) || (name == WIDTHS && own_widths) || UV_NAMES.contains(&name) {
                     continue;
                 }
                 if let Some(values) = float_rows(attr, self.count(ctx)) {
@@ -469,7 +472,18 @@ mod tests {
 
         let mut hair = Geo::from_points(vec![[0.0; 3], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0], [0.0, 3.0, 0.0]]);
         hair.topology = Topology::curves(vec![4], CurveBasis::CatmullRom, CurveWrap::Nonperiodic);
+        // Curves' widths (ICE sets them): shown with their other primvars.
+        hair.set(
+            Context::Point,
+            WIDTHS,
+            Attr::new(Column::Float(Arc::new(vec![0.003; 4])), Role::None),
+        );
         let m = hair.to_mesh();
+        assert!(
+            m.primvars.iter().any(|p| p.name == WIDTHS && p.values.len() == 4),
+            "{:?}",
+            m.primvars
+        );
         assert_eq!(
             (m.curve_counts.clone(), m.curve_basis),
             (vec![4], CurveBasis::CatmullRom)
