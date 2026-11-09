@@ -411,6 +411,10 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
 - Each AOV's format in the file, half or float, is its RenderVar's
   `driver:parameters:aov:format`: Arnold's colour AOVs are half to start with
   (`color4h`, `color3h`), its data AOVs (P, N, Z, motion) float, as Karma's.
+- **Arnold's own log**, its warnings and errors, is the Image Viewer's
+  **Log** while it renders in Imago (headless, printed as it comes). When a
+  layer does not load, the error says Arnold's reason (a plugin that does not
+  load, a file it cannot open), not only that it failed.
 - It renders the layer's own RenderSettings and their camera. Arnold stays
   loaded after Stop, until Imago closes, so rendering again is quick.
 

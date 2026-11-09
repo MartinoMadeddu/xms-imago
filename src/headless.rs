@@ -195,7 +195,7 @@ fn render(
         } else {
             session.frame(prims, key, *frame as f64);
         }
-        let images = session.finish(Duration::from_secs(48 * 3600), |n| say(&format!("note: {n}")))?;
+        let images = session.finish(Duration::from_secs(48 * 3600), |n| say(n))?;
         if images.is_empty() {
             return Err("No render product: nothing would be written (Render Settings make one)".into());
         }

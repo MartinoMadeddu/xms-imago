@@ -121,7 +121,12 @@ pub struct Session {
     since: Instant,
     /// The image's generation last taken.
     taken: u64,
+    /// The renderer's own log, its warnings and errors: the last `LOG_KEPT`.
+    log: std::collections::VecDeque<String>,
 }
+
+/// How many of the renderer's log lines a session keeps.
+const LOG_KEPT: usize = 400;
 
 /// How Arnold is started: from where it is installed, MaterialX's libraries
 /// written in `dir`, relative products from `outputs`.
@@ -163,6 +168,7 @@ impl Session {
             finished: false,
             since: Instant::now(),
             taken: 0,
+            log: Default::default(),
         })
     }
 
@@ -274,6 +280,7 @@ impl Session {
                 }
                 xms_render::Event::Failed(why) | xms_render::Event::Note(why) => failed = Some(why),
                 xms_render::Event::Images(_) => {}
+                xms_render::Event::Log(line) => self.logged(line),
             }
         }
         failed
@@ -300,7 +307,8 @@ impl Session {
     }
 
     /// Until the render going is done, at most `timeout`: the files it
-    /// writes (when it was loaded again), each note on the way told to `note`.
+    /// writes, each note and line of the renderer's log on the way told to
+    /// `note`.
     pub fn finish(&mut self, timeout: std::time::Duration, note: impl Fn(&str)) -> Result<Vec<PathBuf>, String> {
         let end = Instant::now() + timeout;
         let mut images = vec![];
@@ -311,6 +319,10 @@ impl Session {
                 match e {
                     xms_render::Event::Loaded { images: i, .. } | xms_render::Event::Images(i) => images = i,
                     xms_render::Event::Note(n) => note(&n),
+                    xms_render::Event::Log(line) => {
+                        note(&line);
+                        self.logged(line);
+                    }
                     xms_render::Event::Failed(why) => {
                         self.rendering = false;
                         return Err(why);
@@ -325,6 +337,27 @@ impl Session {
             }
         }
         Err(format!("Not done after {} s", timeout.as_secs()))
+    }
+
+    fn logged(&mut self, line: String) {
+        if self.log.len() >= LOG_KEPT {
+            self.log.pop_front();
+        }
+        self.log.push_back(line);
+    }
+
+    /// Its log as the Image Viewer's console shows a run: the renderer's
+    /// warnings and errors.
+    pub fn log(&self) -> crate::core::command::Snapshot {
+        use crate::core::command::State;
+        crate::core::command::Snapshot {
+            state: if self.rendering { State::Running } else { State::Done },
+            lines: self.log.iter().cloned().collect(),
+            progress: None,
+            at: (1, 1),
+            elapsed: self.since.elapsed(),
+            command: "Arnold in Imago".into(),
+        }
     }
 
     fn restarted(&mut self) {

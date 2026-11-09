@@ -639,7 +639,9 @@ pub fn draw(
     });
     ui.horizontal(|ui| st.view.snapshots(ui));
     if st.show_log {
-        crate::properties::render::console(ui, "image_viewer_log", run.as_ref(), 150.0, "Nothing yet: press Render");
+        // A render in Imago: Arnold's own warnings and errors.
+        let log = st.last_live.then(|| crate::live::with(|l| l.as_ref().map(|l| l.log()))).flatten();
+        crate::properties::render::console(ui, "image_viewer_log", log.as_ref().or(run.as_ref()), 150.0, "Nothing yet: press Render");
     }
 }
 

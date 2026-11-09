@@ -7,10 +7,10 @@
 mod driver;
 mod ffi;
 
-use std::ffi::{c_int, CString};
+use std::ffi::{c_char, c_int, CStr, CString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{with_frame, Change, Edit, Event, Pixels, Renderer, Value};
 use ffi::{Api, Matrix, Ptr, UpdateInfo};
@@ -87,15 +87,60 @@ pub fn installed(sdk: &Path) -> Result<Installed, String> {
 
 /// `AiBegin`, once while Arnold is started: by whichever comes first, a
 /// render or `installed`.
-static BEGUN: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+static BEGUN: Mutex<bool> = Mutex::new(false);
 
 fn begin(ai: &Api) {
     let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
     if !*begun {
-        // SAFETY: before any call that needs it, once until `AiEnd`.
-        unsafe { (ai.AiBegin)(ffi::SESSION_INTERACTIVE) };
+        // SAFETY: before any call that needs it, once until `AiEnd`; the
+        // callback is a function of this crate, its data none.
+        unsafe {
+            (ai.AiBegin)(ffi::SESSION_INTERACTIVE);
+            (ai.AiMsgRegisterCallback)(Some(logged), ffi::LOG_WARNINGS_ERRORS, std::ptr::null_mut());
+        }
         *begun = true;
     }
+}
+
+/// Arnold's warnings and errors, as it logs them: how many there were, and
+/// the last of them (`LOG_KEPT`).
+static LOG: Mutex<(u64, std::collections::VecDeque<(bool, String)>)> =
+    Mutex::new((0, std::collections::VecDeque::new()));
+const LOG_KEPT: usize = 2000;
+
+/// Arnold's log callback, on whichever thread logs.
+unsafe extern "C" fn logged(_mask: c_int, severity: c_int, text: *const c_char, _: Ptr, _: Ptr) {
+    if text.is_null() {
+        return;
+    }
+    // SAFETY: Arnold's text, for the call.
+    let text = unsafe { CStr::from_ptr(text) }.to_string_lossy().trim().to_string();
+    log(severity == ffi::SEVERITY_ERROR, text);
+}
+
+fn log(error: bool, text: String) {
+    if let Ok(mut l) = LOG.lock() {
+        l.0 += 1;
+        if l.1.len() >= LOG_KEPT {
+            l.1.pop_front();
+        }
+        l.1.push_back((error, text));
+    }
+}
+
+/// The lines logged after the first `seen`, as Imago shows them
+/// (`Arnold error: …`), and how many there are now.
+fn log_after(seen: u64) -> (Vec<(bool, String)>, u64) {
+    let Ok(l) = LOG.lock() else {
+        return (vec![], seen);
+    };
+    let new = (l.0.saturating_sub(seen) as usize).min(l.1.len());
+    let lines = l.1.iter().skip(l.1.len() - new).cloned().collect();
+    (lines, l.0)
+}
+
+fn shown((error, text): &(bool, String)) -> String {
+    format!("Arnold {}: {text}", if *error { "error" } else { "warning" })
 }
 
 /// The image files the scene at `layer` reads at `frame`, as Arnold loads
@@ -112,6 +157,7 @@ pub fn textures(config: &Config, layer: &Path, frame: f64) -> Result<Vec<PathBuf
     }
     begin(&ai);
     let file = CString::new(layer.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+    let before = log_after(u64::MAX).1;
     let mut names = vec![];
     // SAFETY: a universe of its own, destroyed once its nodes are read.
     unsafe {
@@ -129,7 +175,7 @@ pub fn textures(config: &Config, layer: &Path, frame: f64) -> Result<Vec<PathBuf
         }
         (ai.AiUniverseDestroy)(universe);
         if !loaded {
-            return Err(format!("Arnold could not load {}", layer.display()));
+            return Err(could_not_load(layer, before));
         }
     }
     let folder = layer.parent().unwrap_or(Path::new("."));
@@ -178,6 +224,21 @@ pub fn maketx(config: &Config) -> PathBuf {
     config.sdk.join("bin").join(exe)
 }
 
+/// Why Arnold did not load a layer: the errors it logged since `before`,
+/// else its warnings, else that it said no more.
+fn could_not_load(layer: &Path, before: u64) -> String {
+    let (lines, _) = log_after(before);
+    let errors: Vec<&str> = lines.iter().filter(|(e, _)| *e).map(|(_, t)| t.as_str()).collect();
+    let said: Vec<&str> = match errors.is_empty() {
+        true => lines.iter().map(|(_, t)| t.as_str()).collect(),
+        false => errors,
+    };
+    match said.is_empty() {
+        true => format!("Arnold could not load {} (it logged no error)", layer.display()),
+        false => format!("Arnold could not load {}: {}", layer.display(), said.join("; ")),
+    }
+}
+
 /// Imago renders with Arnold 7 or later.
 fn supported(version: &str) -> Result<(), String> {
     let major = version.split('.').next().and_then(|m| m.trim().parse::<u32>().ok());
@@ -220,6 +281,8 @@ pub struct Arnold {
     folder: PathBuf,
     /// The products' files after another frame, to tell.
     images: Option<Vec<PathBuf>>,
+    /// Arnold's log lines told.
+    logged: u64,
 }
 
 impl Arnold {
@@ -274,6 +337,7 @@ impl Arnold {
                 products: vec![],
                 folder: PathBuf::new(),
                 images: None,
+                logged: log_after(u64::MAX).1,
             })
         })();
         if started.is_err() {
@@ -580,6 +644,7 @@ unsafe extern "C" fn update(data: Ptr, kind: c_int, info: *const UpdateInfo) -> 
 impl Renderer for Arnold {
     fn load(&mut self, layer: &Path, frame: f64) -> Result<Vec<PathBuf>, String> {
         self.unload();
+        let before = log_after(u64::MAX).1;
         let ai = &self.ai;
         let file = CString::new(layer.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
         // SAFETY: a new universe, loaded before its session renders.
@@ -591,7 +656,7 @@ impl Renderer for Arnold {
             let loaded = (ai.AiSceneLoad)(self.universe, file.as_ptr(), params);
             (ai.AiParamValueMapDestroy)(params);
             if !loaded {
-                return Err(format!("Arnold could not load {}", layer.display()));
+                return Err(could_not_load(layer, before));
             }
             // After the load: the layer's Render Settings set the options.
             (ai.AiNodeSetBool)(options, ai.string("skip_license_check"), !self.config.licence);
@@ -682,6 +747,9 @@ impl Renderer for Arnold {
             events.push(Event::Finished);
         }
         events.extend(self.notes.drain(..).map(Event::Note));
+        let (lines, seen) = log_after(self.logged);
+        self.logged = seen;
+        events.extend(lines.iter().map(|l| Event::Log(shown(l))));
         events.extend(self.images.take().map(Event::Images));
         if self.progress.failed.swap(false, Ordering::Relaxed) {
             events.push(Event::Failed("the render failed: Arnold's log says why".into()));
@@ -727,6 +795,29 @@ mod tests {
         assert_eq!(tiles, [dir.join("wood.1001.exr"), dir.join("wood.1002.exr")]);
         assert_eq!(super::tiles(&dir.join("wood.exr")), [dir.join("wood.exr")]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Arnold's log: the lines after those seen, and a failed load says its
+    /// errors (else its warnings).
+    #[test]
+    fn arnolds_log_is_told_and_says_why_a_load_failed() {
+        let seen = log_after(u64::MAX).1;
+        log(false, "[usd] no default prim".into());
+        log(true, "can't load plugin usd_proc.so: libGLU.so.1: cannot open".into());
+        let (lines, now) = log_after(seen);
+        assert!(now >= seen + 2);
+        let ours: Vec<String> = lines.iter().filter(|(_, t)| t.contains("usd")).map(shown).collect();
+        assert_eq!(
+            ours,
+            [
+                "Arnold warning: [usd] no default prim",
+                "Arnold error: can't load plugin usd_proc.so: libGLU.so.1: cannot open"
+            ]
+        );
+        let why = could_not_load(Path::new("/tmp/live.usda"), seen);
+        assert!(why.contains("/tmp/live.usda: ") && why.contains("libGLU.so.1"), "{why}");
+        assert!(!why.contains("no default prim"), "errors only, when there are: {why}");
+        assert!(could_not_load(Path::new("/x.usda"), log_after(u64::MAX).1).contains("logged no error"));
     }
 
     #[test]

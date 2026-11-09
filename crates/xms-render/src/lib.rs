@@ -90,6 +90,8 @@ pub enum Event {
     Note(String),
     /// Another frame (`Change::Frame`): the files its images go to.
     Images(Vec<PathBuf>),
+    /// A line of the renderer's own log (its warnings and errors).
+    Log(String),
 }
 
 /// A renderer that reads USD itself. Each call is made from one thread, the

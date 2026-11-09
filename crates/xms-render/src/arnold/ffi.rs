@@ -80,6 +80,13 @@ pub struct UpdateInfo {
     pub total_passes: u32,
 }
 
+/// `AtMsgExtendedCallBack`: a log line's mask, severity, text, metadata and
+/// the pointer given.
+pub type MsgCallback = unsafe extern "C" fn(c_int, c_int, *const c_char, Ptr, Ptr);
+/// `AI_LOG_WARNINGS | AI_LOG_ERRORS`: the lines Imago keeps.
+pub const LOG_WARNINGS_ERRORS: c_int = 0x0002 | 0x0004;
+pub const SEVERITY_ERROR: c_int = 0x02;
+
 /// `AtRenderUpdateCallback`.
 pub type UpdateCallback = unsafe extern "C" fn(Ptr, c_int, *const UpdateInfo) -> c_int;
 
@@ -164,6 +171,7 @@ api! {
     AiRenderSession: fn(Ptr, c_int) -> Ptr;
     AiRenderSessionDestroy: fn(Ptr);
     AiRenderBegin: fn(Ptr, c_int, Option<UpdateCallback>, Ptr) -> c_int;
+    AiMsgRegisterCallback: fn(Option<MsgCallback>, c_int, Ptr) -> u32;
     AiRenderInterrupt: fn(Ptr, c_int);
     AiRenderRestart: fn(Ptr);
     AiRenderSetHintBool: fn(Ptr, AtString, bool) -> bool;
