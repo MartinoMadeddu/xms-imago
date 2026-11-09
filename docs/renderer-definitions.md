@@ -84,7 +84,7 @@ husk and not in Imago, or the reverse.
 
 ## Steps
 
-Steps 1 to 4 are built (`src/core/renderers.rs`; `xms_render::arnold::version`
+Steps 1 to 4 are built (`src/core/renderers.rs`; `xms_render::arnold::installed`
 for Arnold in Imago).
 
 1. **Detection:** the `live` check (loading the renderer, its version) and the
@@ -103,12 +103,18 @@ user definition replacing a built-in one and adding one; a broken file listed
 with its reason, the built-in still used; Make editable copy and Revert; what
 yours lacks; a setting kept by name across a reload that removes it.
 
+## Then (built)
+
+- **Arnold's own options**, read from Arnold once found, listed under All
+  Options, written only when changed (`with_options`).
+- **Folders as variables:** a definition's `folder` (`Houdini Folder`, `HFS`),
+  set in Settings, is that variable inside Imago, and its `bin` is on the
+  command lines' `PATH`.
+
 ## Later
 
-- **Definitions from the renderer itself.** With Arnold loaded in Imago, its
-  `options` node's parameters (names, types, defaults) can be read straight
-  from the installed version, so Make editable copy can write a definition
-  complete for your Arnold; hand-written files then only add groups, labels
-  and help. Karma's from `karma --all-properties`.
+- **Make editable copy with Arnold's options:** writing the options read
+  from your Arnold into your copy, to group and label. Karma's from
+  `karma --all-properties`.
 - **A project layer:** `$JOB/renderers` between the built-in definitions and
   yours, so a show pins its own (and the farm renders with them).

@@ -125,23 +125,26 @@ fn renderers(ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         for d in renderers::definitions() {
             group(ui, &d.label, Some(d.about.as_str()), |f| {
-                if let Some(live) = &d.live {
+                if let Some(folder) = &d.folder {
                     // Typed, then set when the field is left: each change
-                    // looks for the renderer again.
-                    let id = egui::Id::new(("renderer_folder", live.backend.as_str()));
+                    // looks for the renderers again.
+                    let var = folder.variable.as_str();
+                    let id = egui::Id::new(("renderer_folder", var));
                     let mut text = f
                         .ui
                         .ctx()
                         .data(|m| m.get_temp::<String>(id))
-                        .unwrap_or_else(|| renderers::folder_set(&live.backend));
+                        .unwrap_or_else(|| renderers::folder_var(var).unwrap_or_default());
+                    let env = std::env::var(var).ok().filter(|v| !v.is_empty());
                     let hint = format!(
-                        "Where {} is installed, the folder with bin/ and plugins/. Empty: {} (programs opened from the Finder or the Dock on macOS do not see variables set in a shell's profile, so set it here)",
+                        "Where {} is installed: ${var} inside Imago, its bin/ on the PATH of the command lines it runs. Empty: ${var} from the environment ({}). Programs opened from the Finder or the Dock on macOS do not see variables set in a shell's profile, so set it here",
                         d.label,
-                        live.sdk.trim()
+                        env.as_deref().unwrap_or("not set")
                     );
-                    let r = f.text(&format!("{} Folder", d.label), Some(hint.as_str()), &mut text, live.sdk.trim());
+                    let shown = env.map(|e| format!("${var}: {e}")).unwrap_or_else(|| format!("${var} is not set"));
+                    let r = f.text(&folder.label, Some(hint.as_str()), &mut text, &shown);
                     if r.lost_focus() {
-                        renderers::set_folder(&live.backend, &text);
+                        renderers::set_folder(var, &text);
                         f.ui.ctx().data_mut(|m| m.remove::<String>(id));
                     } else if r.changed() {
                         f.ui.ctx().data_mut(|m| m.insert_temp(id, text));

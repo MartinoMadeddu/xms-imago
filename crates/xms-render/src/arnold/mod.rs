@@ -39,14 +39,61 @@ impl Config {
     }
 }
 
+/// Arnold as installed: its version, and the parameters of its `options`
+/// node (what Render Settings can set), as this version has them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Installed {
+    pub version: String,
+    pub options: Vec<ArnoldOption>,
+}
+
+/// One parameter of Arnold's `options` node, and its default.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArnoldOption {
+    pub name: String,
+    pub default: OptionDefault,
+}
+
+/// A parameter's type and default, of the types a setting can be.
+#[derive(Clone, Debug, PartialEq)]
+pub enum OptionDefault {
+    Bool(bool),
+    Int(i32),
+    Float(f32),
+    Rgb([f32; 3]),
+    Vector([f32; 3]),
+    Vector2([f32; 2]),
+    Text(String),
+    /// An enum: its default and every value it takes.
+    Choice(String, Vec<String>),
+}
+
 /// Whether Arnold renders in Imago from the SDK at `sdk`: its library loaded,
-/// as it is to render, and its version, else why not. The library stays
-/// loaded (the system's loader is never asked to close it), so rendering
-/// later opens it again at no cost.
-pub fn version(sdk: &Path) -> Result<String, String> {
-    let version = Api::load(sdk)?.version();
+/// as it is to render, and started; its version and options, else why not.
+/// It stays loaded and started (the system's loader is never asked to close
+/// it), so rendering later starts at no cost.
+pub fn installed(sdk: &Path) -> Result<Installed, String> {
+    let ai = Api::load(sdk)?;
+    let version = ai.version();
     supported(&version)?;
-    Ok(version)
+    begin(&ai);
+    Ok(Installed {
+        version,
+        options: ai.options(),
+    })
+}
+
+/// `AiBegin`, once while Arnold is started: by whichever comes first, a
+/// render or `installed`.
+static BEGUN: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+fn begin(ai: &Api) {
+    let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
+    if !*begun {
+        // SAFETY: before any call that needs it, once until `AiEnd`.
+        unsafe { (ai.AiBegin)(ffi::SESSION_INTERACTIVE) };
+        *begun = true;
+    }
 }
 
 /// Imago renders with Arnold 7 or later.
@@ -101,10 +148,10 @@ impl Arnold {
             let ai = Api::load(&config.sdk)?;
             let version = ai.version();
             supported(&version)?;
-            // SAFETY: once per process (STARTED), before any other call; the
-            // driver's table is a static, as Arnold keeps it.
+            begin(&ai);
+            // SAFETY: once per process (STARTED), Arnold started; the driver's
+            // table is a static, as Arnold keeps it.
             unsafe {
-                (ai.AiBegin)(ffi::SESSION_INTERACTIVE);
                 driver::prepare(
                     pixels,
                     driver::Calls {
@@ -525,8 +572,10 @@ impl Renderer for Arnold {
 impl Drop for Arnold {
     fn drop(&mut self) {
         self.unload();
+        let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
         // SAFETY: once, after everything Arnold made is let go.
         unsafe { (self.ai.AiEnd)() };
+        *begun = false;
         STARTED.store(false, Ordering::SeqCst);
     }
 }
@@ -544,7 +593,7 @@ mod tests {
 
     #[test]
     fn no_sdk_says_where_it_looked() {
-        let e = version(Path::new("/nowhere/arnold")).unwrap_err();
+        let e = installed(Path::new("/nowhere/arnold")).unwrap_err();
         assert!(e.contains("/nowhere/arnold"), "{e}");
     }
 

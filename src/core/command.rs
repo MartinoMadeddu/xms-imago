@@ -197,23 +197,27 @@ fn runs() -> &'static Mutex<HashMap<usize, Arc<Mutex<Shared>>>> {
     RUNS.get_or_init(Default::default)
 }
 
-/// What a command line is run through: the system's shell.
+/// What a command line is run through: the system's shell, with the
+/// renderers' folders set in Settings (`$HFS`…, their `bin` on the `PATH`).
 fn shell(line: &str) -> std::process::Command {
     #[cfg(windows)]
-    {
+    let mut c = {
         let mut c = std::process::Command::new("cmd");
         c.args(["/C", line]);
         c
-    }
+    };
     #[cfg(not(windows))]
-    {
+    let mut c = {
         let mut c = std::process::Command::new("sh");
         c.args(["-c", line]);
         // Its own process group, so Stop ends what it starts too.
         use std::os::unix::process::CommandExt;
         c.process_group(0);
         c
-    }
+    };
+    c.envs(crate::core::renderers::folders());
+    c.env("PATH", crate::core::renderers::search_path());
+    c
 }
 
 /// Ends a process and everything it started.

@@ -501,7 +501,7 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
 fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Definition>) {
     if let Some(def) = def {
         let mut groups: Vec<&str> = vec![];
-        for p in &def.params {
+        for p in def.params.iter().filter(|p| !p.sparse) {
             if !groups.contains(&p.group.as_str()) {
                 groups.push(&p.group);
             }
@@ -513,6 +513,7 @@ fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Defin
                 }
             });
         }
+        all_options(ui, r, def);
         group(ui, "Defaults", None, |f| {
             let changed = def.params.iter().filter(|p| r.values.contains_key(&p.name)).count();
             f.buttons(
@@ -532,9 +533,9 @@ fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Defin
             f.status(
                 Status::Info,
                 if changed == 0 {
-                    "Every setting is its default; all are written".to_string()
+                    "Every setting is its default; those listed are written, All Options' only when changed".to_string()
                 } else {
-                    format!("{changed} changed from the defaults; all are written")
+                    format!("{changed} changed from the defaults; those listed are written, All Options' only when changed")
                 },
             );
         });
@@ -554,6 +555,43 @@ fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Defin
 }
 
 /// One setting of a definition: changed values are kept, defaults are not.
+/// The options read from the renderer itself (`sparse`), too many to list:
+/// those changed, and those whose name has what is typed in the filter.
+fn all_options(ui: &mut egui::Ui, r: &mut RendererSettings, def: &Definition) {
+    let all: Vec<&Param> = def.params.iter().filter(|p| p.sparse).collect();
+    let hint = "Every option of the renderer as installed, read from it (Arnold's options node): written only when changed, Arnold's default otherwise";
+    group(ui, crate::core::renderers::ALL_OPTIONS, Some(hint), |f| {
+        if all.is_empty() {
+            let why = match def.live.is_some() {
+                true => "Read from the renderer once it is found (File > Settings > Renderers): until then, the settings above, and Extra Settings for any other",
+                false => "Imago does not read this renderer's options: the settings above, and Extra Settings for any other",
+            };
+            f.status(Status::Info, why);
+            return;
+        }
+        let id = egui::Id::new(("render_all_options_filter", def.name.as_str()));
+        let mut filter = f.ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
+        f.text("Find", Some("Type part of an option's name"), &mut filter, &format!("{} options", all.len()));
+        f.ui.ctx().data_mut(|d| d.insert_temp(id, filter.clone()));
+        let needle = filter.trim().to_lowercase();
+        let shown: Vec<&Param> = all
+            .iter()
+            .copied()
+            .filter(|p| r.values.contains_key(&p.name) || (!needle.is_empty() && p.label.to_lowercase().contains(&needle)))
+            .take(60)
+            .collect();
+        for p in &shown {
+            param_row(f, r, p);
+        }
+        if shown.is_empty() {
+            f.status(Status::Info, match needle.is_empty() {
+                true => "None changed: type in Find to show options".to_string(),
+                false => format!("No option has \"{}\" in its name", filter.trim()),
+            });
+        }
+    });
+}
+
 fn param_row(f: &mut Rows, r: &mut RendererSettings, p: &Param) {
     let mut v = r.value(p);
     let before = v.clone();

@@ -487,7 +487,9 @@ fn value(name: &str, locals: &[(&str, String)], g: &Globals, depth: usize, keep:
             if let Some(v) = g.user.list.iter().find(|v| v.name == name) {
                 return Some(nested(v.value.as_str()));
             }
-            return std::env::var(name).ok();
+            // A renderer's folder set in Settings (`$HFS`, `$ARNOLD_PATH`),
+            // over the environment's.
+            return crate::core::renderers::folder_var(name).or_else(|| std::env::var(name).ok());
         }
     })
 }

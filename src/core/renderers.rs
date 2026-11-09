@@ -63,6 +63,18 @@ impl Detect {
     }
 }
 
+/// Where a renderer is installed, set in File > Settings > Renderers: the
+/// variable it sets inside Imago, over the environment's (for its `live` and
+/// `detect` blocks, and command lines, which also find its `bin` on the
+/// `PATH`).
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct Folder {
+    /// `Houdini Folder`.
+    pub label: String,
+    /// `HFS`.
+    pub variable: String,
+}
+
 /// What looking for a renderer, one way it runs, found.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Found {
@@ -322,11 +334,29 @@ fn find_all(defs: &[Arc<Definition>]) {
     let defs = defs.to_vec();
     std::thread::spawn(move || {
         for d in defs {
+            let installed = d.live.as_ref().map(in_imago);
             let finding = Finding {
-                in_imago: d.live.as_ref().map(in_imago),
+                in_imago: installed.as_ref().map(|i| match i {
+                    Ok(a) => Found::Yes(format!("Arnold {} in Imago ({} options)", a.version, a.options.len())),
+                    Err(e) => Found::No(e.clone()),
+                }),
                 command: (!d.detect.is_empty())
                     .then(|| on_machine(&d.detect, &|s: &str| crate::core::vars::expand(s, &[]))),
             };
+            // Its settings, those the renderer as installed has too.
+            if let Some(Ok(a)) = &installed {
+                let mut slot = LOADED.write().unwrap_or_else(|e| e.into_inner());
+                if let Some(l) = slot.as_mut() {
+                    let mut defs = l.defs.clone();
+                    if let Some(k) = defs.iter().position(|x| x.name == d.name) {
+                        defs[k] = Arc::new(with_options(&defs[k], a));
+                        *l = Arc::new(Loaded {
+                            defs,
+                            errors: l.errors.clone(),
+                        });
+                    }
+                }
+            }
             FINDINGS
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -335,19 +365,84 @@ fn find_all(defs: &[Arc<Definition>]) {
     });
 }
 
-/// A renderer run in Imago, loaded as it is to render.
-fn in_imago(live: &LiveRenderer) -> Found {
-    let Some(sdk) = sdk(live) else {
-        return Found::No(where_is(live));
-    };
+/// A renderer run in Imago, loaded as it is to render: as installed.
+fn in_imago(live: &LiveRenderer) -> Result<xms_render::arnold::Installed, String> {
+    let sdk = sdk(live).ok_or_else(|| where_is(live))?;
     match live.backend.as_str() {
-        "arnold" => match xms_render::arnold::version(&sdk) {
-            Ok(v) => Found::Yes(format!("Arnold {v} in Imago")),
-            Err(e) => Found::No(e),
-        },
-        other => Found::No(format!("Imago has no backend named \"{other}\"")),
+        "arnold" => xms_render::arnold::installed(&sdk),
+        other => Err(format!("Imago has no backend named \"{other}\"")),
     }
 }
+
+/// The options Render Settings sets itself (resolution, aspect, data window,
+/// camera) or that are not settings: not listed.
+const NOT_OPTIONS: [&str; 9] = [
+    "name",
+    "camera",
+    "xres",
+    "yres",
+    "pixel_aspect_ratio",
+    "region_min_x",
+    "region_min_y",
+    "region_max_x",
+    "region_max_y",
+];
+
+/// A definition and the options of its renderer, as installed, that it does
+/// not list: each under All Options, named as the definition names
+/// settings (`arnold:global:` and Arnold's name), its default Arnold's,
+/// written only when changed.
+fn with_options(def: &Definition, installed: &xms_render::arnold::Installed) -> Definition {
+    use serde_json::json;
+    use xms_render::arnold::OptionDefault as D;
+    let mut out = def.clone();
+    for o in &installed.options {
+        let name = format!("{}:{}", def.namespace, o.name);
+        if NOT_OPTIONS.contains(&o.name.as_str()) || def.params.iter().any(|p| p.name == name) {
+            continue;
+        }
+        let (ty, default, choices) = match &o.default {
+            D::Bool(b) => ("bool", json!(b), vec![]),
+            D::Int(i) => ("int", json!(i), vec![]),
+            D::Float(f) => ("float", json!(f), vec![]),
+            D::Rgb(c) => ("color3f", json!(c), vec![]),
+            D::Vector(v) => ("float3", json!(v), vec![]),
+            D::Vector2(v) => ("float2", json!(v), vec![]),
+            D::Text(t) => ("string", json!(t), vec![]),
+            D::Choice(at, all) => {
+                // An enum's default is one of its values.
+                let at = all
+                    .iter()
+                    .find(|v| *v == at)
+                    .or(all.first())
+                    .cloned()
+                    .unwrap_or_default();
+                ("token", json!(at), all.clone())
+            }
+        };
+        out.params.push(super::render::Param {
+            name,
+            ty: ty.into(),
+            default,
+            group: ALL_OPTIONS.into(),
+            label: o.name.clone(),
+            help: format!(
+                "Arnold {}'s own option, read from Arnold itself, its default Arnold's. Written only when changed",
+                installed.version
+            ),
+            min: None,
+            max: None,
+            choices,
+            unconfirmed: false,
+            uniform: false,
+            sparse: true,
+        });
+    }
+    out
+}
+
+/// The group of the options read from the renderer itself.
+pub const ALL_OPTIONS: &str = "All Options";
 
 /// What to say when where a renderer is installed is not known.
 pub fn where_is(live: &LiveRenderer) -> String {
@@ -367,7 +462,7 @@ fn on_machine(detect: &Detect, expand: &dyn Fn(&str) -> String) -> Found {
     {
         return Found::Yes(format!("${e} set"));
     }
-    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path = search_path();
     let exe = |p: &str| {
         if cfg!(windows) {
             format!("{p}.exe")
@@ -397,57 +492,78 @@ fn on_machine(detect: &Detect, expand: &dyn Fn(&str) -> String) -> Found {
     Found::No(format!("not found on this machine (looked for {})", looked.join(", ")))
 }
 
-// Where a renderer run in Imago is installed
+// Where renderers are installed
 
 fn folders_file() -> Option<PathBuf> {
     crate::file_browser::config_path("renderer_folders.txt")
 }
 
-/// One line per backend: its name and folder, tab separated.
+/// One line per variable: its name and folder, tab separated. (`arnold`, as
+/// the first version keyed Arnold's: `ARNOLD_PATH`.)
 fn read_folders(text: &str) -> BTreeMap<String, String> {
     text.lines()
         .filter_map(|l| l.split_once('\t'))
         .filter(|(_, f)| !f.trim().is_empty())
-        .map(|(b, f)| (b.trim().to_string(), f.trim().to_string()))
+        .map(|(v, f)| match v.trim() {
+            "arnold" => ("ARNOLD_PATH".to_string(), f.trim().to_string()),
+            v => (v.to_string(), f.trim().to_string()),
+        })
         .collect()
 }
 
-/// The folder set for a backend in Settings (empty: none).
-pub fn folder_set(backend: &str) -> String {
-    folders_file()
+static FOLDERS: RwLock<Option<BTreeMap<String, String>>> = RwLock::new(None);
+
+/// Every folder set, by variable, read once.
+pub fn folders() -> BTreeMap<String, String> {
+    if let Some(f) = FOLDERS.read().unwrap_or_else(|e| e.into_inner()).clone() {
+        return f;
+    }
+    let read = folders_file()
         .and_then(|f| std::fs::read_to_string(f).ok())
         .map(|t| read_folders(&t))
-        .and_then(|m| m.get(backend).cloned())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    *FOLDERS.write().unwrap_or_else(|e| e.into_inner()) = Some(read.clone());
+    read
 }
 
-/// Set (or with an empty one clear) a backend's folder, and look again.
-pub fn set_folder(backend: &str, folder: &str) {
-    let Some(file) = folders_file() else { return };
-    let mut all = std::fs::read_to_string(&file)
-        .map(|t| read_folders(&t))
-        .unwrap_or_default();
+/// The folder set for a variable (`HFS`), if one is.
+pub fn folder_var(variable: &str) -> Option<String> {
+    folders().remove(variable)
+}
+
+/// Set (or with an empty one clear) the folder of a variable, and look for
+/// the renderers again.
+pub fn set_folder(variable: &str, folder: &str) {
+    let mut all = folders();
     match folder.trim() {
-        "" => all.remove(backend),
-        f => all.insert(backend.to_string(), f.to_string()),
+        "" => all.remove(variable),
+        f => all.insert(variable.to_string(), f.to_string()),
     };
-    let text: String = all.iter().map(|(b, f)| format!("{b}\t{f}\n")).collect();
-    if let Some(dir) = file.parent() {
-        let _ = std::fs::create_dir_all(dir);
+    if let Some(file) = folders_file() {
+        let text: String = all.iter().map(|(v, f)| format!("{v}\t{f}\n")).collect();
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, text);
     }
-    let _ = std::fs::write(file, text);
+    *FOLDERS.write().unwrap_or_else(|e| e.into_inner()) = Some(all);
     find_all(&definitions());
 }
 
-/// Where a renderer run in Imago is installed: the folder set in Settings,
-/// else its definition's `sdk` with its variables put in (`$ARNOLD_PATH`);
-/// `None` while a variable is not set.
+/// Where programs are looked for: each folder's `bin` set in Settings, then
+/// the `PATH` (programs opened from the Finder or the Dock on macOS have a
+/// short one).
+pub fn search_path() -> std::ffi::OsString {
+    let set = folders().into_values().map(|f| PathBuf::from(f).join("bin"));
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(set.chain(std::env::split_paths(&path))).unwrap_or(path)
+}
+
+/// Where a renderer run in Imago is installed: its definition's `sdk`, its
+/// variables put in (`$ARNOLD_PATH`: the folder set in Settings, else the
+/// environment's); `None` while one is not set.
 pub fn sdk(live: &LiveRenderer) -> Option<PathBuf> {
-    let set = folder_set(&live.backend);
-    let path = match set.is_empty() {
-        false => crate::core::vars::expand(&set, &[]),
-        true => crate::core::vars::expand(&live.sdk, &[]),
-    };
+    let path = crate::core::vars::expand(&live.sdk, &[]);
     let path = path.trim();
     (!path.is_empty() && !path.contains('$')).then(|| PathBuf::from(path))
 }
@@ -603,9 +719,61 @@ mod tests {
     }
 
     #[test]
-    fn the_folders_set_are_read_back_by_backend() {
-        let m = read_folders("arnold\t/Applications/Arnold-7.5\nrray\t  \njunk\n");
-        assert_eq!(m.len(), 1);
-        assert_eq!(m["arnold"], "/Applications/Arnold-7.5");
+    fn the_folders_set_are_read_back_by_variable() {
+        let m = read_folders("HFS\t/opt/hfs21.0\narnold\t/Applications/Arnold-7.5\nrray\t  \njunk\n");
+        assert_eq!(m.len(), 2);
+        assert_eq!(m["HFS"], "/opt/hfs21.0");
+        assert_eq!(
+            m["ARNOLD_PATH"], "/Applications/Arnold-7.5",
+            "as the first version keyed it"
+        );
+    }
+
+    #[test]
+    fn arnolds_own_options_are_added_written_only_when_changed() {
+        use xms_render::arnold::{ArnoldOption, Installed, OptionDefault as D};
+        let def = read(None).defs.into_iter().find(|d| d.name == "arnold").unwrap();
+        let installed = Installed {
+            version: "7.5.0.0".into(),
+            options: vec![
+                ArnoldOption {
+                    name: "name".into(),
+                    default: D::Text("options".into()),
+                },
+                ArnoldOption {
+                    name: "AA_samples".into(),
+                    default: D::Int(1),
+                },
+                ArnoldOption {
+                    name: "texture_max_memory_MB".into(),
+                    default: D::Float(4096.0),
+                },
+                ArnoldOption {
+                    name: "render_device".into(),
+                    default: D::Choice("CPU".into(), vec!["CPU".into(), "GPU".into()]),
+                },
+            ],
+        };
+        let all = with_options(&def, &installed);
+        let added: Vec<&str> = all.params[def.params.len()..].iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            added,
+            ["arnold:global:texture_max_memory_MB", "arnold:global:render_device"],
+            "listed ones (AA_samples) and Render Settings' own (name) left out"
+        );
+        let device = all.params.last().unwrap();
+        assert!(device.sparse && device.group == ALL_OPTIONS);
+        assert_eq!((device.ty.as_str(), device.choices.len()), ("token", 2));
+        // Written only when changed; the listed ones always.
+        let mut r = crate::core::render::RendererSettings::for_renderer("arnold");
+        let written = |r: &crate::core::render::RendererSettings| -> Vec<String> {
+            r.written(&all).into_iter().map(|(k, _)| k).collect()
+        };
+        assert_eq!(written(&r).len(), def.params.len());
+        let gpu = crate::core::properties::Value::Token("GPU".into());
+        r.values.insert("arnold:global:render_device".into(), gpu.clone());
+        let now = r.written(&all);
+        assert_eq!(now.len(), def.params.len() + 1);
+        assert_eq!(now.last().unwrap(), &("arnold:global:render_device".to_string(), gpu));
     }
 }

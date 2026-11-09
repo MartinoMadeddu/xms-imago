@@ -39,6 +39,7 @@ pub const TYPE_RGBA: u8 = 0x06;
 pub const TYPE_VECTOR: u8 = 0x07;
 pub const TYPE_VECTOR2: u8 = 0x09;
 pub const TYPE_STRING: u8 = 0x0A;
+pub const TYPE_ENUM: u8 = 0x0F;
 pub const TYPE_NONE: u8 = 0xFF;
 // `AtRenderStatus`.
 pub const NOT_STARTED: c_int = 0;
@@ -127,6 +128,14 @@ api! {
     AiNodeEntryGetType: fn(Ptr) -> c_int;
     AiNodeEntryLookUpParameter: fn(Ptr, AtString) -> Ptr;
     AiParamGetType: fn(Ptr) -> u8;
+    AiNodeEntryLookUp: fn(AtString) -> Ptr;
+    AiNodeEntryGetParamIterator: fn(Ptr) -> Ptr;
+    AiParamIteratorFinished: fn(Ptr) -> bool;
+    AiParamIteratorGetNext: fn(Ptr) -> Ptr;
+    AiParamIteratorDestroy: fn(Ptr);
+    AiParamGetName: fn(Ptr) -> AtString;
+    AiParamGetDefault: fn(Ptr) -> *const c_void;
+    AiParamGetEnum: fn(Ptr) -> *const *const c_char;
     AiNodeSetByte: fn(Ptr, AtString, u8);
     AiNodeSetInt: fn(Ptr, AtString, c_int);
     AiNodeSetFlt: fn(Ptr, AtString, f32);
@@ -186,6 +195,59 @@ impl Api {
         // SAFETY: Arnold accepts null for the parts it is not asked for.
         let all = unsafe { (self.AiGetVersion)(null(), null(), null(), null()) };
         text(all)
+    }
+
+    /// The parameters of the `options` node a setting can be (not nodes,
+    /// arrays, matrices or pointers), with their defaults, in Arnold's order.
+    /// Arnold started.
+    pub fn options(&self) -> Vec<super::ArnoldOption> {
+        use super::OptionDefault as D;
+        let mut out = vec![];
+        // SAFETY: Arnold's own entry and parameters, read while it is started;
+        // a default is read as its parameter's type has it (`AtParamValue`),
+        // the iterator destroyed once walked.
+        unsafe {
+            let entry = (self.AiNodeEntryLookUp)(self.string("options"));
+            if entry.is_null() {
+                return out;
+            }
+            let it = (self.AiNodeEntryGetParamIterator)(entry);
+            while !(self.AiParamIteratorFinished)(it) {
+                let p = (self.AiParamIteratorGetNext)(it);
+                let v = (self.AiParamGetDefault)(p);
+                if p.is_null() || v.is_null() {
+                    continue;
+                }
+                let default = match (self.AiParamGetType)(p) {
+                    TYPE_BOOLEAN => D::Bool(*(v as *const bool)),
+                    TYPE_BYTE => D::Int(*(v as *const u8) as i32),
+                    TYPE_INT => D::Int(*(v as *const i32)),
+                    TYPE_UINT => D::Int((*(v as *const u32)).min(i32::MAX as u32) as i32),
+                    TYPE_FLOAT => D::Float(*(v as *const f32)),
+                    TYPE_RGB => D::Rgb(*(v as *const [f32; 3])),
+                    TYPE_VECTOR => D::Vector(*(v as *const [f32; 3])),
+                    TYPE_VECTOR2 => D::Vector2(*(v as *const [f32; 2])),
+                    TYPE_STRING => D::Text(text((*(v as *const AtString)).0)),
+                    TYPE_ENUM => {
+                        let mut names = vec![];
+                        let list = (self.AiParamGetEnum)(p);
+                        while !list.is_null() && !(*list.add(names.len())).is_null() {
+                            names.push(text(*list.add(names.len())));
+                        }
+                        let k = *(v as *const i32);
+                        let at = names.get(k.max(0) as usize).cloned().unwrap_or_default();
+                        D::Choice(at, names)
+                    }
+                    _ => continue,
+                };
+                out.push(super::ArnoldOption {
+                    name: text((self.AiParamGetName)(p).0),
+                    default,
+                });
+            }
+            (self.AiParamIteratorDestroy)(it);
+        }
+        out
     }
 
     /// Every node of `mask` in `universe`: its type and name.

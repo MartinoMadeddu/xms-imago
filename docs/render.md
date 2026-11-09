@@ -120,18 +120,30 @@ the renderer menu ("not found here"), the panel and File > Settings >
 Renderers; no renderer is ever hidden, so settings can be made for another
 machine:
 
-- **In Imago** (the `live` block): the renderer loaded as it is to render, and
-  its version ("Arnold 7.5.0.0 in Imago"), or why not. Where it is: the
-  **Arnold Folder** in File > Settings > Renderers, else `live.sdk`
-  (`$ARNOLD_PATH`). Programs opened from the Finder or the Dock on macOS do not
-  see variables set in a shell's profile: set the folder there. Not found,
-  Render runs the command line instead, and the Viewer's Arnold is greyed,
-  saying why.
+- **In Imago** (the `live` block): the renderer loaded and started as it is to
+  render, and its version ("Arnold 7.5.0.0 in Imago (212 options)"), or why
+  not. Not found, Render runs the command line instead, and the Viewer's
+  Arnold is greyed, saying why.
+- **Where each is installed** (a definition's `folder`): the **Arnold Folder**
+  and the **Houdini Folder** in File > Settings > Renderers. Each sets its
+  variable inside Imago (`$ARNOLD_PATH`, `$HFS`) over the environment's, for
+  finding the renderer and for command lines, which also find its `bin` on
+  their `PATH` (husk, kick). Programs opened from the Finder or the Dock on
+  macOS do not see variables set in a shell's profile, nor its `PATH`: set the
+  folders there.
+- **Arnold's own options:** once Arnold is found, every parameter of its
+  `options` node (but those Render Settings sets itself: resolution, aspect,
+  data window, camera) is read from it, its type, default and an enum's
+  values, and listed under **All Options** in the Render Settings panel
+  (`arnold:global:` and Arnold's name), those changed and those found by name.
+  Each is written only when changed: Arnold's default otherwise. The settings
+  the definition lists, with their labels and groups, are shown as before.
 - **As a command line** (`detect`): any of `env` (variables set), `programs`
   (on the `PATH`) and `files` (variables put in). Not found is only a warning:
   the command line still runs.
 
 ```json
+"folder": { "label": "Houdini Folder", "variable": "HFS" },
 "detect": { "env": ["HFS"], "programs": ["husk"], "files": ["$HFS/bin/husk"] }
 ```
 

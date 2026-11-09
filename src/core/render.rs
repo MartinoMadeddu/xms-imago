@@ -614,6 +614,10 @@ pub struct Param {
     /// Written `uniform` (a schema attribute that does not change over time).
     #[serde(default)]
     pub uniform: bool,
+    /// Written only when changed: the renderer's own default otherwise (the
+    /// options read from Arnold itself, `super::renderers`).
+    #[serde(default)]
+    pub sparse: bool,
 }
 
 impl Param {
@@ -730,6 +734,9 @@ pub struct Definition {
     /// How it is found on this machine as a command line.
     #[serde(default)]
     pub detect: super::renderers::Detect,
+    /// Where it is installed, set in File > Settings > Renderers.
+    #[serde(default)]
+    pub folder: Option<super::renderers::Folder>,
     /// The version of Imago a copy of a built-in definition was made from.
     #[serde(default)]
     pub from: String,
@@ -894,6 +901,18 @@ impl RendererSettings {
         }
     }
 
+    /// The settings written for a definition: each it lists (one `sparse`
+    /// only when changed), then those set that it does not have.
+    pub fn written(&self, def: &Definition) -> Vec<(String, Value)> {
+        let listed = def
+            .params
+            .iter()
+            .filter(|p| !p.sparse || self.values.contains_key(&p.name))
+            .map(|p| (p.name.clone(), self.value(p)));
+        let kept = self.not_in(def).into_iter().map(|(k, v)| (k.to_string(), v.clone()));
+        listed.chain(kept).collect()
+    }
+
     /// Settings set under the renderer's namespace that its definition does
     /// not have (a definition reloaded without them): kept and written, by
     /// name.
@@ -953,11 +972,8 @@ pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> Ev
     let mut st = take(&prims, &path, RenderKind::Settings);
     let def = (r.renderer != CUSTOM).then(|| definition(&r.renderer)).flatten();
     if let Some(def) = &def {
-        for p in &def.params {
-            st.set(&p.name, RAttr::of(&r.value(p)));
-        }
-        for (name, v) in r.not_in(def) {
-            st.set(name, RAttr::of(v));
+        for (name, v) in r.written(def) {
+            st.set(&name, RAttr::of(&v));
         }
     }
     // A Custom renderer's settings go under its name: none, none written.
