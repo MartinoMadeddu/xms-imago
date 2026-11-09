@@ -19,6 +19,7 @@ version's heading when you tag it.
 - **Render Settings:** a Log tab for the renderer as found and its definition; under the renderer only its version, and a red line when the Log has something to say.
 - **Image Viewer:** with IPR off, the buckets being rendered are outlined in orange.
 - **Stop** ends everything a command line started, even with Arnold loaded.
+- **Arnold's Max Value** (sample clamp) defaults to Arnold's own: no clamping.
 
 ## [0.2.5] - 2026-11-08
 
