@@ -76,6 +76,8 @@ use types::NodeType;
 use types::{IceGraphId, MeshData, PrimInspectorState, SceneHierarchy};
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    arnold_library_path();
     // `--headless`: a scene rendered without the window.
     let args: Vec<String> = std::env::args().collect();
     if let Some(job) = headless::job(&args) {
@@ -88,6 +90,44 @@ fn main() {
     if let Err(e) = eframe_app::run() {
         eprintln!("{e}");
     }
+}
+
+/// Linux: Arnold's plugins (its USD reader) find `libai.so` only on the
+/// library path, as `kick` has it; Imago loads Arnold by its full path, so
+/// they would not load ("unknown format"). With Arnold's folder known (File >
+/// Settings > Renderers, else `$ARNOLD_PATH`) and its `bin` not on
+/// `LD_LIBRARY_PATH`, Imago starts itself again with it there, once: the
+/// library path is read only when a program starts.
+#[cfg(target_os = "linux")]
+fn arnold_library_path() {
+    use std::os::unix::process::CommandExt;
+    const AGAIN: &str = "XMS_IMAGO_ARNOLD_LIBRARY_PATH";
+    if std::env::var_os(AGAIN).is_some() {
+        return;
+    }
+    let Some(folder) = crate::core::renderers::folder_var("ARNOLD_PATH")
+        .or_else(|| std::env::var("ARNOLD_PATH").ok())
+        .filter(|f| !f.trim().is_empty())
+    else {
+        return;
+    };
+    let bin = std::path::PathBuf::from(folder.trim()).join("bin");
+    let now = std::env::var_os("LD_LIBRARY_PATH").unwrap_or_default();
+    if !bin.join("libai.so").is_file() || std::env::split_paths(&now).any(|p| p == bin) {
+        return;
+    }
+    let paths = std::iter::once(bin).chain(std::env::split_paths(&now));
+    let (Ok(joined), Ok(me)) = (std::env::join_paths(paths), std::env::current_exe()) else {
+        return;
+    };
+    let failed = std::process::Command::new(me)
+        .args(std::env::args_os().skip(1))
+        .env("LD_LIBRARY_PATH", joined)
+        .env(AGAIN, "1")
+        .exec();
+    // Only when it could not start again: on without (Arnold's USD reader
+    // will say why it does not load).
+    eprintln!("Imago could not start again with Arnold's libraries on the library path: {failed}");
 }
 
 // Icon

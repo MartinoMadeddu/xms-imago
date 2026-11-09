@@ -415,6 +415,10 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
   variables a shell would, before starting it: `ARNOLD_PATH` the folder
   (unless set), its `plugins` first on `ARNOLD_PLUGIN_PATH`, where Arnold's
   USD reader is.
+  On Linux, Arnold's plugins find `libai.so` only on the library path, as
+  `kick` has it: Imago starts itself again with Arnold's `bin` on
+  `LD_LIBRARY_PATH` when it is not (once, at launch; after changing the
+  Arnold Folder, start Imago again).
 - **Arnold's own log**, its warnings and errors, is the Image Viewer's
   **Log** while it renders in Imago (headless, printed as it comes). When a
   layer does not load, the error says Arnold's reason (a plugin that does not

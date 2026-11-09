@@ -814,3 +814,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Curves whose points moved are written with their counts, type, basis and wrap: USD's Alembic reader could lay the file's curves out otherwise than Imago, joining Imago's points into other curves (a ball of random strands in Arnold). (Martino)
 - 09/11/2026: Curves' widths set per curve (ICE) written per point, as Arnold reads them, and no longer blocked when the file had them per point (the block came after and took them away: Arnold's default width, a ball of blocks). (Martino)
 - 09/11/2026: Imago 0.2.8. (Martino)
+- 09/11/2026: Linux: Imago starts itself again with Arnold's bin on LD_LIBRARY_PATH when it is not there, so Arnold's plugins (usd_proc.so) load: Arnold's USD reader, 'unknown format' without it. (Martino)
