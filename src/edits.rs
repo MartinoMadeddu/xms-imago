@@ -121,8 +121,10 @@ fn diff_geo(src: &Geo, cur: &Geo, e: &mut PrimEdit) {
                 e.attrs.push((ctx, Arc::from(name)));
             }
         }
+        // Gone, unless set in another context (USD has one attribute of a
+        // name: blocking it would take away the one written).
         for (name, _) in src.attrs(ctx) {
-            if cur.attr(ctx, name).is_none() {
+            if Context::ALL.iter().all(|c| cur.attr(*c, name).is_none()) {
                 e.removed.push((ctx, Arc::from(name)));
             }
         }
@@ -329,6 +331,34 @@ mod tests {
         assert_eq!(set.removed, vec!["/c".to_string()]);
         // Not from this stage: listed by the stage it belongs to, not here.
         assert!(set.added.is_empty());
+    }
+
+    /// An attribute set in another context than the file's (widths per curve
+    /// where the file has them per point) is written, not blocked.
+    #[test]
+    fn an_attribute_moved_to_another_context_is_not_removed() {
+        use crate::core::geo::{Attr, Column, Role, WIDTHS};
+        let mut src = Geo::from_points(vec![[0.0; 3]; 2]);
+        src.set(
+            Context::Point,
+            WIDTHS,
+            Attr::new(Column::Float(Arc::new(vec![1.0, 1.0])), Role::None),
+        );
+        let mut cur = src.clone();
+        cur.remove(Context::Point, WIDTHS);
+        cur.set(
+            Context::Object,
+            WIDTHS,
+            Attr::new(Column::Float(Arc::new(vec![0.5])), Role::None),
+        );
+        let mut e = PrimEdit::default();
+        diff_geo(&src, &cur, &mut e);
+        assert!(e.removed.is_empty(), "{:?}", e.removed);
+        assert_eq!(e.attrs.len(), 1);
+        cur.remove(Context::Object, WIDTHS);
+        let mut gone = PrimEdit::default();
+        diff_geo(&src, &cur, &mut gone);
+        assert_eq!(gone.removed.len(), 1, "gone from every context: blocked");
     }
 
     #[test]

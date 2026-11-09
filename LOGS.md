@@ -812,3 +812,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Override layers (Write USD, rendering in Imago) repeat their stages' timeCodesPerSecond and framesPerSecond: a 25 fps file under Imago's layer was read at USD's 24, so Arnold rendered other times than Imago showed. (Martino)
 - 09/11/2026: Curves' widths (set by ICE) listed in the Primitive Inspector: they were written but not shown, as only free points' widths were. (Martino)
 - 09/11/2026: Curves whose points moved are written with their counts, type, basis and wrap: USD's Alembic reader could lay the file's curves out otherwise than Imago, joining Imago's points into other curves (a ball of random strands in Arnold). (Martino)
+- 09/11/2026: Curves' widths set per curve (ICE) written per point, as Arnold reads them, and no longer blocked when the file had them per point (the block came after and took them away: Arnold's default width, a ball of blocks). (Martino)

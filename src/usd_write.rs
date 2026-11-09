@@ -1027,7 +1027,8 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
             if instancer {
                 instancer_array(spec, *ctx, name, attr);
             } else {
-                attribute(spec, *ctx, name, attr);
+                let (ctx, attr) = as_written(geo, *ctx, name, attr);
+                attribute(spec, ctx, name, &attr);
             }
         }
         if &**name == POINTS && !instancer {
@@ -1231,10 +1232,41 @@ fn geometry(spec: &mut Spec, geo: &Geo, over: bool) {
     topology(spec, &geo.topology, over);
     for ctx in Context::ALL {
         for (name, attr) in geo.attrs(ctx) {
-            attribute(spec, ctx, name, attr);
+            let (ctx, attr) = as_written(geo, ctx, name, attr);
+            attribute(spec, ctx, name, &attr);
         }
     }
     extent(spec, geo);
+}
+
+/// An attribute as USD's readers take it: curves' widths one per curve
+/// (`uniform`, what an ICE graph per curve sets) as one per point, which
+/// renderers read (Arnold's USD reader takes no widths per curve).
+fn as_written<'a>(geo: &Geo, ctx: Context, name: &str, attr: &'a Attr) -> (Context, std::borrow::Cow<'a, Attr>) {
+    use std::borrow::Cow;
+    let (Topology::Curves { counts, .. }, Context::Face, Column::Float(values)) = (&geo.topology, ctx, &attr.column)
+    else {
+        return (ctx, Cow::Borrowed(attr));
+    };
+    if name != WIDTHS {
+        return (ctx, Cow::Borrowed(attr));
+    }
+    let of = |curve: usize| {
+        let at = attr
+            .indices
+            .as_ref()
+            .map_or(curve, |ix| ix.get(curve).copied().unwrap_or(0) as usize);
+        values.get(at).or(values.first()).copied().unwrap_or(0.0)
+    };
+    let per_point: Vec<f32> = counts
+        .iter()
+        .enumerate()
+        .flat_map(|(curve, n)| std::iter::repeat_n(of(curve), *n as usize))
+        .collect();
+    (
+        Context::Point,
+        Cow::Owned(Attr::new(Column::Float(Arc::new(per_point)), attr.role)),
+    )
 }
 
 fn topology(spec: &mut Spec, t: &Topology, over: bool) {
@@ -1537,6 +1569,33 @@ def Xform "set" {{
             "{text}"
         );
         assert!(!text.contains("startTimeCode"), "no time of its own: {text}");
+    }
+
+    /// Widths one per curve (an ICE graph per curve) are written one per
+    /// point, as renderers read them; others as they are.
+    #[test]
+    fn curves_widths_per_curve_are_written_per_point() {
+        let mut hair = Geo::from_points(vec![[0.0; 3]; 5]);
+        hair.topology = Topology::curves(vec![3, 2], xms_geo::CurveBasis::Linear, xms_geo::CurveWrap::Nonperiodic);
+        hair.set(
+            Context::Face,
+            WIDTHS,
+            Attr::new(Column::Float(Arc::new(vec![0.1, 0.2])), Role::None),
+        );
+        hair.set(
+            Context::Face,
+            "bindPoly",
+            Attr::new(Column::Int(Arc::new(vec![4, 7])), Role::None),
+        );
+        let mut spec = Spec::default();
+        geometry(&mut spec, &hair, false);
+        let text = spec.lines.join("\n");
+        assert!(text.contains("float[] widths = [0.1, 0.1, 0.1, 0.2, 0.2]"), "{text}");
+        assert!(text.contains("interpolation = \"vertex\""), "{text}");
+        assert!(
+            text.contains("int[] primvars:bindPoly = [4, 7]"),
+            "per curve still: {text}"
+        );
     }
 
     /// Curves whose points moved (a deformer): written with their counts,
