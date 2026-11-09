@@ -821,3 +821,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Imago 0.2.9. (Martino)
 - 09/11/2026: Imago 0.2.10 (0.2.9 again: its release failed on GitHub's side). (Martino)
 - 09/11/2026: Rendering in Imago (and headless): a prim whose points moved keeps them out of the layer even when a deformer also set an attribute; what it copied unchanged is the file's again (not written), and the Log names what is written besides. (Martino)
+- 09/11/2026: Plan (not yet agreed): native edits, what Imago computes sent to the renderer as its own data when rendering in Imago, USD kept for the files (docs/native-edits.md). (Martino)

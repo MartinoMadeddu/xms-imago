@@ -25,7 +25,8 @@
   `--run`, `--tx`) for farms
 - [Native Arnold](arnold-native.md) and [renderer
   definitions](renderer-definitions.md): the plans behind rendering in Imago,
-  their steps and findings
+  their steps and findings; [native edits](native-edits.md), a plan not yet
+  agreed: what Imago computes sent to the renderer natively
 - [Colour](colour.md): OpenColorIO, `$OCIO`'s config or Imago's own, the
   Viewer's and the Image Viewer's displays and views
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and
