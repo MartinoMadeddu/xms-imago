@@ -34,6 +34,9 @@ One program, a few crates of its own, and open libraries under them.
 - **Rigging-Mocap:** procedural rigging and dynamic/ragdoll mo-cap clean up and
   process.
 - **The Viewer and the Image Viewer:** wgpu, colour managed with OpenColorIO.
+- **Rendering:** UsdRender prims from the graph; Arnold renders in Imago itself
+  (IPR, every AOV bucket by bucket into the Image Viewer, or live in the
+  Viewer), Karma and others through their command lines.
 
 Its crates:
 
@@ -44,7 +47,10 @@ Its crates:
   copy-on-write.
 - `xms-ice`: the ICE engine.
 - `xms-matx`: the MaterialX node libraries.
-- `xms-image`: renders and images as layers of float channels.
+- `xms-image`: renders and images as layers of float channels, and the
+  snapshots both viewers share.
+- `xms-render`: rendering in Imago: the renderer interface, live edits by prim
+  path, the pixels as they come, and the Arnold backend.
 - `xms-alembic`: Alembic caches.
 - `xms-colour`: colour management.
 - `ragdoll`: collision cleanup for motion capture.
@@ -60,6 +66,8 @@ Built on:
 - [rayon](https://github.com/rayon-rs/rayon), to use every core.
 - [ufbx](https://github.com/ufbx/ufbx) for FBX, and
   [image](https://github.com/image-rs/image) for PNG, JPEG, OpenEXR and more.
+- [Arnold](https://www.autodesk.com/products/arnold), loaded from your SDK
+  when Imago runs (nothing to build against it), to render in Imago.
 - Houdini's husk, to render with Karma.
 
 ## Get it

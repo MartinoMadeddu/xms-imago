@@ -154,14 +154,21 @@ unsafe extern "C" fn open(_: Ptr, _: Ptr, display: BBox2, _data: BBox2, _: c_int
 unsafe extern "C" fn needs_bucket(_: Ptr, _: c_int, _: c_int, _: c_int, _: c_int, _: u16) -> bool {
     true
 }
-unsafe extern "C" fn prepare_bucket(_: Ptr, _: c_int, _: c_int, _: c_int, _: c_int, _: u16) {}
+/// A bucket started, on the render thread that renders it: shown being
+/// rendered.
+unsafe extern "C" fn prepare_bucket(_: Ptr, x: c_int, y: c_int, w: c_int, h: c_int, tid: u16) {
+    if let Some(p) = pixels() {
+        p.bucket_started(tid, (x, y, w.max(0) as usize, h.max(0) as usize));
+    }
+}
 
 /// A bucket done, on the render thread that did it: each output's pixels (an
 /// AOV each) into its layer, one channel held grey.
-unsafe extern "C" fn process_bucket(_: Ptr, outputs: Ptr, _: Ptr, x: c_int, y: c_int, w: c_int, h: c_int, _: u16) {
+unsafe extern "C" fn process_bucket(_: Ptr, outputs: Ptr, _: Ptr, x: c_int, y: c_int, w: c_int, h: c_int, tid: u16) {
     let (Some(p), Some(c)) = (pixels(), CALLS.get()) else {
         return;
     };
+    p.bucket_done(tid);
     let (w, h) = (w.max(0) as usize, h.max(0) as usize);
     let n = w * h;
     let at = (x, y, w, h);
@@ -212,4 +219,8 @@ unsafe extern "C" fn process_bucket(_: Ptr, outputs: Ptr, _: Ptr, x: c_int, y: c
 
 /// Done in `process_bucket`, on the render threads.
 unsafe extern "C" fn write_bucket(_: Ptr, _: Ptr, _: Ptr, _: c_int, _: c_int, _: c_int, _: c_int) {}
-unsafe extern "C" fn close(_: Ptr, _: Ptr) {}
+unsafe extern "C" fn close(_: Ptr, _: Ptr) {
+    if let Some(p) = pixels() {
+        p.closed();
+    }
+}

@@ -383,12 +383,14 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
 - **IPR**, beside Render, on by default: in passes, from few samples up, and
   each change to the graph goes to the renderer while it renders. Off: once,
   each bucket finished at the samples the Render Settings give, the scene as
-  it was when Render was pressed; Render is free again when it is done.
+  it was when Render was pressed, the buckets being rendered outlined in
+  orange; Render is free again when it is done.
 
-- The first time, it starts Arnold from its SDK: `ARNOLD_PATH`, from
-  [File > Variables](interface.md#variables) or the environment (the renderer
-  definition's `live.sdk`). Arnold 7 or later; without a licence its images
-  are watermarked.
+- Arnold is loaded from its SDK: the **Arnold Folder** in File > Settings >
+  Renderers, else `ARNOLD_PATH` from [File > Variables](interface.md#variables)
+  or the environment (the renderer definition's `live.sdk`). Arnold 7 or
+  later; without a licence its images are watermarked. Imago looks for it at
+  launch (see Renderer definitions), so Render starts at once.
 - The scene is written as a layer in the render folder and Arnold loads it
   with its own USD reader. With IPR, each change to the graph after that goes to it
   while it renders, by prim path: a light's values, a MaterialX shader's

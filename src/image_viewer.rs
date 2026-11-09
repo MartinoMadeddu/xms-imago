@@ -588,6 +588,12 @@ pub fn draw(
     let live = (st.showing_live && active)
         .then(|| crate::live::with(|l| l.as_ref().filter(|l| !l.in_viewer()).map(|l| l.pixels().clone())))
         .flatten();
+    // IPR off: the buckets being rendered, outlined in orange.
+    let buckets = live
+        .as_ref()
+        .filter(|_| st.ipr_off && live_rendering)
+        .map(|p| p.rendering())
+        .unwrap_or_default();
     let draw = move |painter: &egui::Painter,
                      rect: egui::Rect,
                      image: &Arc<xms_image::Image>,
@@ -615,6 +621,18 @@ pub fn draw(
                 live: live.clone(),
             },
         ));
+        // In image pixels from the image's top left, as the frame is.
+        let scale = rect.width() / image.width.max(1) as f32;
+        for [x, y, w, h] in &buckets {
+            let min = rect.min + egui::vec2(*x as f32, *y as f32) * scale;
+            let at = egui::Rect::from_min_size(min, egui::vec2(*w as f32, *h as f32) * scale);
+            painter.rect_stroke(
+                at,
+                0.0,
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 150, 30)),
+                egui::StrokeKind::Inside,
+            );
+        }
     };
     ui.allocate_ui(egui::vec2(w, h), |ui| {
         st.view.canvas(ui, gpu.then_some(&draw as &xms_image::GpuDraw))

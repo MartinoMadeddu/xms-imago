@@ -16,6 +16,9 @@ version's heading when you tag it.
 - **Your renderer definitions:** Make editable copy, Revert to built-in, Reload; what a later built-in definition has that yours lacks; settings kept by name. The definition is checked against Arnold's own options, and a new Arnold's changes are listed.
 - **Arnold settings as Houdini's ROP:** indirect specular blur, low light threshold, nested dielectrics, indirect clamp, max subdivisions, textures (auto TX and more), bucket scanning, more Ignore toggles.
 - **Viewer:** its colour as the Image Viewer's by default (File > Settings > Viewer), where its navigation style now is too.
+- **Render Settings:** a Log tab for the renderer as found and its definition; under the renderer only its version, and a red line when the Log has something to say.
+- **Image Viewer:** with IPR off, the buckets being rendered are outlined in orange.
+- **Stop** ends everything a command line started, even with Arnold loaded.
 
 ## [0.2.5] - 2026-11-08
 

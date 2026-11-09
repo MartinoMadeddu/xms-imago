@@ -18,8 +18,13 @@
   from a selection with Make Compound, gone inside, saved as an `.icd` file
   definition in a library; promotion, references and ICE compounds being built
 - [Rendering](render.md): Render Commons, Render Settings (Karma, Arnold,
-  Custom, renderer definition files, AOVs), Render Variables, as UsdRender prims
-  Write USD writes
+  Custom, renderer definition files, AOVs, the Log tab), Render Variables, as
+  UsdRender prims Write USD writes; rendering with Arnold in Imago (IPR, every
+  AOV in the Image Viewer, in the Viewer), snapshots, renderers found on this
+  machine
+- [Native Arnold](arnold-native.md) and [renderer
+  definitions](renderer-definitions.md): the plans behind rendering in Imago,
+  their steps and findings
 - [Colour](colour.md): OpenColorIO, `$OCIO`'s config or Imago's own, the
   Viewer's and the Image Viewer's displays and views
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and

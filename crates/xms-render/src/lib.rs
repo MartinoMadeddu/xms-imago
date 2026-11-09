@@ -150,6 +150,9 @@ struct Buffer {
     /// Where the frame starts in the render's coordinates.
     origin: (i32, i32),
     layers: Vec<Held>,
+    /// The buckets being rendered, by the render thread rendering each: `x,
+    /// y, width, height` in the frame.
+    rendering: Vec<(u16, [usize; 4])>,
 }
 
 /// How many read only what changed (`Pixels::take`), each its own: the Image
@@ -232,8 +235,42 @@ impl Pixels {
                 b.layers.clear();
             }
             b.origin = (x, y);
+            b.rendering.clear();
         }
         self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// A render thread starts a bucket: `width` by `height` from `(x, y)` in
+    /// the render's coordinates (its last one done, if it did not say).
+    pub fn bucket_started(&self, thread: u16, (x, y, width, height): (i32, i32, usize, usize)) {
+        if let Ok(mut b) = self.buffer.lock() {
+            let (x0, y0) = b.origin;
+            let at = [(x - x0).max(0) as usize, (y - y0).max(0) as usize, width, height];
+            b.rendering.retain(|(t, _)| *t != thread);
+            b.rendering.push((thread, at));
+        }
+    }
+
+    /// A render thread's bucket done.
+    pub fn bucket_done(&self, thread: u16) {
+        if let Ok(mut b) = self.buffer.lock() {
+            b.rendering.retain(|(t, _)| *t != thread);
+        }
+    }
+
+    /// The render ended or was stopped: no bucket is being rendered.
+    pub fn closed(&self) {
+        if let Ok(mut b) = self.buffer.lock() {
+            b.rendering.clear();
+        }
+    }
+
+    /// The buckets being rendered now: `x, y, width, height` in the frame.
+    pub fn rendering(&self) -> Vec<[usize; 4]> {
+        self.buffer
+            .lock()
+            .map(|b| b.rendering.iter().map(|(_, at)| *at).collect())
+            .unwrap_or_default()
     }
 
     /// A bucket of the layer `name` (`channels` of red, green, blue, alpha)
@@ -343,6 +380,27 @@ mod tests {
             [("RGBA", 4), ("Z", 1)]
         );
         assert_eq!(layers[1].frame.rgba[1], [1.0; 4]);
+    }
+
+    /// The buckets being rendered: one a thread, in the frame, gone when done
+    /// or when the render ends.
+    #[test]
+    fn the_buckets_rendering_are_known() {
+        let p = Pixels::default();
+        p.open(10, 20, 64, 64);
+        p.bucket_started(0, (10, 20, 16, 16));
+        p.bucket_started(1, (26, 20, 16, 16));
+        assert_eq!(p.rendering(), [[0, 0, 16, 16], [16, 0, 16, 16]]);
+        // A thread's next bucket replaces its last.
+        p.bucket_started(0, (10, 36, 16, 16));
+        assert_eq!(p.rendering(), [[16, 0, 16, 16], [0, 16, 16, 16]]);
+        p.bucket_done(1);
+        assert_eq!(p.rendering(), [[0, 16, 16, 16]]);
+        p.closed();
+        assert!(p.rendering().is_empty());
+        p.bucket_started(3, (10, 20, 8, 8));
+        p.open(10, 20, 64, 64);
+        assert!(p.rendering().is_empty(), "a new render starts with none");
     }
 
     #[test]

@@ -209,8 +209,14 @@ and Display. Stop keeps the frames so far.
 
 **File > Settings** has a page per part of Imago:
 
-- **Viewer:** the View and Display the scene is shown in (see
+- **Viewer:** the navigation style and zoom drag (see [Viewer
+  navigation](navigation.md)), and the View and Display the scene is shown in:
+  the Image Viewer's (As Image Viewer, to start with) or its own (see
   [Colour](colour.md)).
+- **Renderers:** each renderer as found on this machine, the **Arnold
+  Folder** and **Houdini Folder** (`$ARNOLD_PATH`, `$HFS` inside Imago), where
+  each definition comes from, Make editable copy, Revert to built-in, Reload
+  (see [Rendering](render.md#renderer-definitions)).
 - **Interface:** the size of everything but the Viewer's picture: Auto (from
   the screen's height) or 60% to 160%, also Ctrl+= and Ctrl+-, Ctrl+0 for Auto.
 

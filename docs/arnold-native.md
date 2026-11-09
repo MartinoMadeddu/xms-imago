@@ -311,6 +311,8 @@ it, the image refining as buckets come in.
   manipulator, are drawn over it. The scene drawn is not.
 - **Failing:** why, at the bottom left, and the Viewer draws again (no
   retrying each frame).
+- **Buckets being rendered** (`Pixels::rendering`, from the driver's
+  `PrepareBucket`): outlined in orange in the Image Viewer when IPR is off.
 - **Snapshots** (`xms_image::Snaps::shared`): one list for the program; the
   Viewer's bar (📷, bottom left) snaps its render, and shows any snapshot in
   the same texture, fitted.
