@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-09
+
 - **The xms command line, headless:** `--render` (Arnold in Imago: the graph cooked each frame, ICE deformers too, Arnold loaded once, deformed points sent in memory, no scene description kept, the products written), `--write` (the Write USD nodes), `--run` (the Render Command nodes), `--tx` (`.tx` files of the scene's textures), `--node`; progress lines for farm managers and an exit code.
 - **Rendering in Imago writes a light layer:** points that only moved (deformers, animation) go to Arnold in memory, not into the layer.
 - **Auto-generate TX** is off by default in Arnold's settings.
