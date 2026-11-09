@@ -1013,7 +1013,11 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
         return;
     }
     let Some(geo) = &p.geo else { return };
-    if e.topology {
+    // Curves' points with their counts, type, basis and wrap: a reader that
+    // lays the file's curves out otherwise than Imago (USD's Alembic reader)
+    // would join Imago's points into other curves.
+    let curves = matches!(geo.topology, Topology::Curves { .. });
+    if e.topology || (curves && e.attrs.iter().any(|(_, n)| &**n == POINTS)) {
         topology(spec, &geo.topology, true);
     }
     // A point instancer: its points and their attributes are its arrays.
@@ -1533,6 +1537,31 @@ def Xform "set" {{
             "{text}"
         );
         assert!(!text.contains("startTimeCode"), "no time of its own: {text}");
+    }
+
+    /// Curves whose points moved (a deformer): written with their counts,
+    /// so whatever reads the file lays the points out as Imago does.
+    #[test]
+    fn curves_moved_are_written_with_their_counts() {
+        let text = r#"#usda 1.0
+(
+    upAxis = "Y"
+)
+def BasisCurves "hair" {
+    int[] curveVertexCounts = [3, 2]
+    point3f[] points = [(0, 0, 0), (0, 1, 0), (0, 2, 0), (1, 0, 0), (1, 1, 0)]
+    uniform token type = "linear"
+}
+"#;
+        let (_, mut prims) = load("curves.usda", text);
+        let hair = prims.iter_mut().find(|p| p.path == "/hair").expect("the curves");
+        let mut g = (**hair.geo.as_ref().unwrap()).clone();
+        g.points_mut()[1] = [0.0, 1.5, 0.0];
+        hair.geo = Some(Arc::new(g));
+        let out = std::env::temp_dir().join("xms_usd_write_test/curves_over.usda");
+        let (layer, _) = override_layer(&prims, &out).unwrap();
+        assert!(layer.contains("int[] curveVertexCounts = [3, 2]"), "{layer}");
+        assert!(layer.contains("point3f[] points"), "{layer}");
     }
 
     #[test]

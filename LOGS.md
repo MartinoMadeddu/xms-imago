@@ -811,3 +811,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Curves' and points' points sent live as Arnold names them (points, not vlist); each edit Arnold cannot take live says why in the Log (no node of that name, point counts, motion blur keys), and points sent in memory are said too. (Martino)
 - 09/11/2026: Override layers (Write USD, rendering in Imago) repeat their stages' timeCodesPerSecond and framesPerSecond: a 25 fps file under Imago's layer was read at USD's 24, so Arnold rendered other times than Imago showed. (Martino)
 - 09/11/2026: Curves' widths (set by ICE) listed in the Primitive Inspector: they were written but not shown, as only free points' widths were. (Martino)
+- 09/11/2026: Curves whose points moved are written with their counts, type, basis and wrap: USD's Alembic reader could lay the file's curves out otherwise than Imago, joining Imago's points into other curves (a ball of random strands in Arnold). (Martino)
