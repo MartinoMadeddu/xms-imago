@@ -8,6 +8,15 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-09
+
+- **Arnold in the Viewer:** the menu at the Viewer's top right, Viewport or Arnold: Arnold renders live (IPR) through the Viewer's camera at the pane's size, each change and each move of the view sent as you work, the wireframe and handles drawn over it.
+- **Snapshots in both viewers:** one set for the program. The Viewer's bar (📷, bottom left, hidden to start with) snaps its render and shows any snapshot; compare them in the Image Viewer.
+- **Renderers found on this machine:** each, each way it runs (Arnold in Imago with its version; husk, kick as command lines), shown in the renderer menu, the Render Settings panel and File > Settings > Renderers, never hidden. **Arnold Folder** and **Houdini Folder** there set `$ARNOLD_PATH` and `$HFS` inside Imago, for programs opened from the Finder or the Dock.
+- **Your renderer definitions:** Make editable copy, Revert to built-in, Reload; what a later built-in definition has that yours lacks; settings kept by name. The definition is checked against Arnold's own options, and a new Arnold's changes are listed.
+- **Arnold settings as Houdini's ROP:** indirect specular blur, low light threshold, nested dielectrics, indirect clamp, max subdivisions, textures (auto TX and more), bucket scanning, more Ignore toggles.
+- **Viewer:** its colour as the Image Viewer's by default (File > Settings > Viewer), where its navigation style now is too.
+
 ## [0.2.5] - 2026-11-08
 
 - **Rendering in Imago with Arnold:** Render renders in Imago itself, Arnold loaded from your SDK (`ARNOLD_PATH`) at run time, nothing to build. The image comes into the Image Viewer bucket by bucket, every AOV of it, through Imago's own display driver in Arnold; the products' files are written as before.

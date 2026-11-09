@@ -4406,32 +4406,32 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 
 [[package]]
 name = "xms-alembic"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "xms-colour"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "ocio",
 ]
 
 [[package]]
 name = "xms-docs"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "pulldown-cmark",
 ]
 
 [[package]]
 name = "xms-geo"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "xms-ice"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "glam 0.27.0",
  "rayon",
@@ -4441,7 +4441,7 @@ dependencies = [
 
 [[package]]
 name = "xms-image"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "egui",
  "exr",
@@ -4450,7 +4450,7 @@ dependencies = [
 
 [[package]]
 name = "xms-imago"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "bytemuck",
  "eframe",
@@ -4480,19 +4480,19 @@ dependencies = [
 
 [[package]]
 name = "xms-matx"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "xms-render"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "xms-scene"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "xms-usd"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "nalgebra",
  "openusd 0.8.0",
@@ -4504,7 +4504,7 @@ dependencies = [
 
 [[package]]
 name = "xms_ragdoll"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "glam 0.27.0",
 ]
