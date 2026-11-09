@@ -374,8 +374,13 @@ fn find_all(defs: &[Arc<Definition>]) {
     });
 }
 
-/// A renderer run in Imago, loaded as it is to render: as installed.
+/// A renderer run in Imago, loaded as it is to render: as installed. Not in
+/// tests: Arnold started in the tests' process would hold its memory and
+/// signals for every other test.
 fn in_imago(live: &LiveRenderer) -> Result<xms_render::arnold::Installed, String> {
+    if cfg!(test) {
+        return Err("not looked for in tests".into());
+    }
     let sdk = sdk(live).ok_or_else(|| where_is(live))?;
     match live.backend.as_str() {
         "arnold" => xms_render::arnold::installed(&sdk),

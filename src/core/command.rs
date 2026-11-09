@@ -220,7 +220,10 @@ fn shell(line: &str) -> std::process::Command {
     c
 }
 
-/// Ends a process and everything it started.
+/// Ends a process and everything it started: asked to end (TERM), then made
+/// to (KILL), its whole group. A program loaded in Imago may leave TERM
+/// ignored or blocked for what Imago starts (Arnold handles signals), and
+/// KILL cannot be.
 fn kill_tree(child: &mut std::process::Child) {
     let pid = child.id();
     #[cfg(windows)]
@@ -231,8 +234,13 @@ fn kill_tree(child: &mut std::process::Child) {
     }
     #[cfg(not(windows))]
     {
+        let group = format!("-{pid}");
         let _ = std::process::Command::new("kill")
-            .args(["-TERM", "--", &format!("-{pid}")])
+            .args(["-TERM", "--", &group])
+            .output();
+        std::thread::sleep(Duration::from_millis(100));
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", "--", &group])
             .output();
     }
     let _ = child.kill();
