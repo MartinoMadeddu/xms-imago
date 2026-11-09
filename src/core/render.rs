@@ -614,10 +614,6 @@ pub struct Param {
     /// Written `uniform` (a schema attribute that does not change over time).
     #[serde(default)]
     pub uniform: bool,
-    /// Written only when changed: the renderer's own default otherwise (the
-    /// options read from Arnold itself, `super::renderers`).
-    #[serde(default)]
-    pub sparse: bool,
 }
 
 impl Param {
@@ -901,14 +897,10 @@ impl RendererSettings {
         }
     }
 
-    /// The settings written for a definition: each it lists (one `sparse`
-    /// only when changed), then those set that it does not have.
+    /// The settings written for a definition: each it lists, then those set
+    /// that it does not have.
     pub fn written(&self, def: &Definition) -> Vec<(String, Value)> {
-        let listed = def
-            .params
-            .iter()
-            .filter(|p| !p.sparse || self.values.contains_key(&p.name))
-            .map(|p| (p.name.clone(), self.value(p)));
+        let listed = def.params.iter().map(|p| (p.name.clone(), self.value(p)));
         let kept = self.not_in(def).into_iter().map(|(k, v)| (k.to_string(), v.clone()));
         listed.chain(kept).collect()
     }

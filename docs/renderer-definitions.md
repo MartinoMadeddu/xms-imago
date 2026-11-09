@@ -105,8 +105,11 @@ yours lacks; a setting kept by name across a reload that removes it.
 
 ## Then (built)
 
-- **Arnold's own options**, read from Arnold once found, listed under All
-  Options, written only when changed (`with_options`).
+- **The definition checked against Arnold** (`check`): its settings Arnold
+  does not have, its defaults that are not Arnold's, and, with each Arnold's
+  options kept with its version, what a new version added, dropped or
+  changed. The settings listed stay the definition's (the Arnold ROP's
+  Sampling, Ray Depth, Textures…), not all of Arnold's options.
 - **Folders as variables:** a definition's `folder` (`Houdini Folder`, `HFS`),
   set in Settings, is that variable inside Imago, and its `bin` is on the
   command lines' `PATH`.

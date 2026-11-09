@@ -369,6 +369,46 @@ pub fn definition_rows(f: &mut Rows, d: &render::Definition) {
     }
     let here = if finding.any() { Status::Ok } else { Status::Bad };
     f.status(here, format!("{}: {}", d.label, finding.describe()));
+    // Against the renderer as installed, and what a new version changed.
+    if let Some(c) = renderers::checked(&d.name) {
+        let some = |v: &[String]| match v.len() {
+            0 => "none".to_string(),
+            n if n > 12 => format!("{}… ({n})", v[..12].join(", ")),
+            _ => v.join(", "),
+        };
+        if let Some((was, added, gone, changed)) = &c.since {
+            f.status(Status::Bad, format!(
+                "{} {} here now (was {was}). Its options: added {}; gone {}; changed {}. Is this definition up to date?",
+                d.label, c.version, some(added), some(gone), some(changed)
+            ));
+        }
+        if !c.unknown.is_empty() {
+            f.status(
+                Status::Bad,
+                format!(
+                    "Not options of {} {}, so ignored by it: {}",
+                    d.label,
+                    c.version,
+                    some(&c.unknown)
+                ),
+            );
+        }
+        if !c.defaults.is_empty() {
+            let list: Vec<String> = c
+                .defaults
+                .iter()
+                .map(|(n, ours, theirs)| format!("{n} {ours} ({theirs})"))
+                .collect();
+            f.status(
+                Status::Info,
+                format!(
+                    "Defaults here that are not {}'s own (its in brackets): {}",
+                    d.label,
+                    some(&list)
+                ),
+            );
+        }
+    }
     let from = match (&d.source, d.from.as_str()) {
         (Source::Yours(_), from) if !from.is_empty() => format!("{} (copied from Imago {from})", d.source.describe()),
         _ => d.source.describe(),
@@ -376,10 +416,22 @@ pub fn definition_rows(f: &mut Rows, d: &render::Definition) {
     f.status(Status::Info, from);
     let (params, aovs) = renderers::lacks(d);
     if !params.is_empty() || !aovs.is_empty() {
-        let list = |v: &[String]| v.iter().map(|n| n.rsplit(':').next().unwrap_or(n)).collect::<Vec<_>>().join(", ");
-        let mut text = format!("The built-in definition (Imago {}) has what yours does not:", env!("CARGO_PKG_VERSION"));
-        if !params.is_empty() { text += &format!(" {} setting(s): {}.", params.len(), list(&params)); }
-        if !aovs.is_empty() { text += &format!(" {} AOV(s): {}.", aovs.len(), list(&aovs)); }
+        let list = |v: &[String]| {
+            v.iter()
+                .map(|n| n.rsplit(':').next().unwrap_or(n))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut text = format!(
+            "The built-in definition (Imago {}) has what yours does not:",
+            env!("CARGO_PKG_VERSION")
+        );
+        if !params.is_empty() {
+            text += &format!(" {} setting(s): {}.", params.len(), list(&params));
+        }
+        if !aovs.is_empty() {
+            text += &format!(" {} AOV(s): {}.", aovs.len(), list(&aovs));
+        }
         f.status(Status::Bad, text);
     }
     let built_in = renderers::is_built_in(&d.name);
@@ -501,7 +553,7 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
 fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Definition>) {
     if let Some(def) = def {
         let mut groups: Vec<&str> = vec![];
-        for p in def.params.iter().filter(|p| !p.sparse) {
+        for p in &def.params {
             if !groups.contains(&p.group.as_str()) {
                 groups.push(&p.group);
             }
@@ -513,7 +565,6 @@ fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Defin
                 }
             });
         }
-        all_options(ui, r, def);
         group(ui, "Defaults", None, |f| {
             let changed = def.params.iter().filter(|p| r.values.contains_key(&p.name)).count();
             f.buttons(
@@ -533,9 +584,9 @@ fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Defin
             f.status(
                 Status::Info,
                 if changed == 0 {
-                    "Every setting is its default; those listed are written, All Options' only when changed".to_string()
+                    "Every setting is its default; all are written".to_string()
                 } else {
-                    format!("{changed} changed from the defaults; those listed are written, All Options' only when changed")
+                    format!("{changed} changed from the defaults; all are written")
                 },
             );
         });
@@ -555,43 +606,6 @@ fn settings_rows(ui: &mut egui::Ui, r: &mut RendererSettings, def: Option<&Defin
 }
 
 /// One setting of a definition: changed values are kept, defaults are not.
-/// The options read from the renderer itself (`sparse`), too many to list:
-/// those changed, and those whose name has what is typed in the filter.
-fn all_options(ui: &mut egui::Ui, r: &mut RendererSettings, def: &Definition) {
-    let all: Vec<&Param> = def.params.iter().filter(|p| p.sparse).collect();
-    let hint = "Every option of the renderer as installed, read from it (Arnold's options node): written only when changed, Arnold's default otherwise";
-    group(ui, crate::core::renderers::ALL_OPTIONS, Some(hint), |f| {
-        if all.is_empty() {
-            let why = match def.live.is_some() {
-                true => "Read from the renderer once it is found (File > Settings > Renderers): until then, the settings above, and Extra Settings for any other",
-                false => "Imago does not read this renderer's options: the settings above, and Extra Settings for any other",
-            };
-            f.status(Status::Info, why);
-            return;
-        }
-        let id = egui::Id::new(("render_all_options_filter", def.name.as_str()));
-        let mut filter = f.ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-        f.text("Find", Some("Type part of an option's name"), &mut filter, &format!("{} options", all.len()));
-        f.ui.ctx().data_mut(|d| d.insert_temp(id, filter.clone()));
-        let needle = filter.trim().to_lowercase();
-        let shown: Vec<&Param> = all
-            .iter()
-            .copied()
-            .filter(|p| r.values.contains_key(&p.name) || (!needle.is_empty() && p.label.to_lowercase().contains(&needle)))
-            .take(60)
-            .collect();
-        for p in &shown {
-            param_row(f, r, p);
-        }
-        if shown.is_empty() {
-            f.status(Status::Info, match needle.is_empty() {
-                true => "None changed: type in Find to show options".to_string(),
-                false => format!("No option has \"{}\" in its name", filter.trim()),
-            });
-        }
-    });
-}
-
 fn param_row(f: &mut Rows, r: &mut RendererSettings, p: &Param) {
     let mut v = r.value(p);
     let before = v.clone();

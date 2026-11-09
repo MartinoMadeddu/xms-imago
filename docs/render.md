@@ -131,13 +131,17 @@ machine:
   their `PATH` (husk, kick). Programs opened from the Finder or the Dock on
   macOS do not see variables set in a shell's profile, nor its `PATH`: set the
   folders there.
-- **Arnold's own options:** once Arnold is found, every parameter of its
-  `options` node (but those Render Settings sets itself: resolution, aspect,
-  data window, camera) is read from it, its type, default and an enum's
-  values, and listed under **All Options** in the Render Settings panel
-  (`arnold:global:` and Arnold's name), those changed and those found by name.
-  Each is written only when changed: Arnold's default otherwise. The settings
-  the definition lists, with their labels and groups, are shown as before.
+- **The definition checked against Arnold:** once Arnold is found, every
+  parameter of its `options` node is read from it (name, type, default, an
+  enum's values). The panel and Settings say which settings of the definition
+  are not Arnold options (so Arnold ignores them), and which defaults are not
+  Arnold's own (most on purpose, as Houdini's Arnold ROP has them: Camera (AA)
+  3, where Arnold's is 1). The options are kept in Imago's config folder with
+  Arnold's version (`arnold_options.txt`): when a later Arnold is found, the
+  options it added, dropped or changed are listed, to bring the definition up
+  to date. The settings listed are the definition's: the Arnold ROP's
+  Sampling, Ray Depth, Subdivision, Textures, System and Ignore, not all of
+  Arnold's options.
 - **As a command line** (`detect`): any of `env` (variables set), `programs`
   (on the `PATH`) and `files` (variables put in). Not found is only a warning:
   the command line still runs.

@@ -343,19 +343,28 @@ fn find_all(defs: &[Arc<Definition>]) {
                 command: (!d.detect.is_empty())
                     .then(|| on_machine(&d.detect, &|s: &str| crate::core::vars::expand(s, &[]))),
             };
-            // Its settings, those the renderer as installed has too.
+            // The definition against the renderer as installed, and the
+            // renderer against the one found here last.
             if let Some(Ok(a)) = &installed {
-                let mut slot = LOADED.write().unwrap_or_else(|e| e.into_inner());
-                if let Some(l) = slot.as_mut() {
-                    let mut defs = l.defs.clone();
-                    if let Some(k) = defs.iter().position(|x| x.name == d.name) {
-                        defs[k] = Arc::new(with_options(&defs[k], a));
-                        *l = Arc::new(Loaded {
-                            defs,
-                            errors: l.errors.clone(),
-                        });
+                let options = text_options(&a.options);
+                let last = options_file(&d.name).and_then(|f| std::fs::read_to_string(f).ok());
+                let last = last.as_deref().and_then(read_options);
+                let params: Vec<(String, String)> = d
+                    .params
+                    .iter()
+                    .map(|p| (p.name.clone(), p.default_value().display()))
+                    .collect();
+                let check = check(&d.namespace, &params, &a.version, &options, last.as_ref());
+                if let Some(f) = options_file(&d.name) {
+                    if let Some(dir) = f.parent() {
+                        let _ = std::fs::create_dir_all(dir);
                     }
+                    let _ = std::fs::write(f, write_options(&a.version, &options));
                 }
+                CHECKS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(d.name.clone(), check);
             }
             FINDINGS
                 .lock()
@@ -374,75 +383,139 @@ fn in_imago(live: &LiveRenderer) -> Result<xms_render::arnold::Installed, String
     }
 }
 
-/// The options Render Settings sets itself (resolution, aspect, data window,
-/// camera) or that are not settings: not listed.
-const NOT_OPTIONS: [&str; 9] = [
-    "name",
-    "camera",
-    "xres",
-    "yres",
-    "pixel_aspect_ratio",
-    "region_min_x",
-    "region_min_y",
-    "region_max_x",
-    "region_max_y",
-];
+/// A renderer's options as text: name, type and default, in its order.
+type Options = Vec<(String, String, String)>;
 
-/// A definition and the options of its renderer, as installed, that it does
-/// not list: each under All Options, named as the definition names
-/// settings (`arnold:global:` and Arnold's name), its default Arnold's,
-/// written only when changed.
-fn with_options(def: &Definition, installed: &xms_render::arnold::Installed) -> Definition {
-    use serde_json::json;
+fn text_options(options: &[xms_render::arnold::ArnoldOption]) -> Options {
     use xms_render::arnold::OptionDefault as D;
-    let mut out = def.clone();
-    for o in &installed.options {
-        let name = format!("{}:{}", def.namespace, o.name);
-        if NOT_OPTIONS.contains(&o.name.as_str()) || def.params.iter().any(|p| p.name == name) {
-            continue;
-        }
-        let (ty, default, choices) = match &o.default {
-            D::Bool(b) => ("bool", json!(b), vec![]),
-            D::Int(i) => ("int", json!(i), vec![]),
-            D::Float(f) => ("float", json!(f), vec![]),
-            D::Rgb(c) => ("color3f", json!(c), vec![]),
-            D::Vector(v) => ("float3", json!(v), vec![]),
-            D::Vector2(v) => ("float2", json!(v), vec![]),
-            D::Text(t) => ("string", json!(t), vec![]),
-            D::Choice(at, all) => {
-                // An enum's default is one of its values.
-                let at = all
-                    .iter()
-                    .find(|v| *v == at)
-                    .or(all.first())
-                    .cloned()
-                    .unwrap_or_default();
-                ("token", json!(at), all.clone())
+    let floats = |v: &[f32]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" ");
+    options
+        .iter()
+        .map(|o| {
+            let (ty, v) = match &o.default {
+                D::Bool(b) => ("bool", b.to_string()),
+                D::Int(i) => ("int", i.to_string()),
+                D::Float(f) => ("float", f.to_string()),
+                D::Rgb(c) => ("rgb", floats(c)),
+                D::Vector(v) => ("vector", floats(v)),
+                D::Vector2(v) => ("vector2", floats(v)),
+                D::Text(t) => ("string", t.clone()),
+                D::Choice(at, all) => ("enum", format!("{at} [{}]", all.join(" "))),
+            };
+            (o.name.clone(), ty.to_string(), v)
+        })
+        .collect()
+}
+
+/// Where the options of a renderer found here last are kept, with its
+/// version: to say what a new version changed.
+fn options_file(renderer: &str) -> Option<PathBuf> {
+    crate::file_browser::config_path(&format!("{renderer}_options.txt"))
+}
+
+/// The version on the first line, then a line per option: name, type and
+/// default, tab separated.
+fn write_options(version: &str, options: &Options) -> String {
+    let lines = options.iter().map(|(n, t, d)| format!("{n}\t{t}\t{d}\n"));
+    std::iter::once(format!("{version}\n")).chain(lines).collect()
+}
+
+fn read_options(text: &str) -> Option<(String, Options)> {
+    let mut lines = text.lines();
+    let version = lines.next()?.trim().to_string();
+    let options = lines
+        .filter_map(|l| {
+            let mut p = l.splitn(3, '\t');
+            Some((
+                p.next()?.to_string(),
+                p.next()?.to_string(),
+                p.next().unwrap_or("").to_string(),
+            ))
+        })
+        .collect();
+    Some((version, options))
+}
+
+/// A renderer's definition against the renderer as installed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Check {
+    /// The renderer's version.
+    pub version: String,
+    /// Settings the definition lists that the renderer does not have.
+    pub unknown: Vec<String>,
+    /// Settings whose default is not the renderer's: name, the definition's,
+    /// the renderer's.
+    pub defaults: Vec<(String, String, String)>,
+    /// A new version since the one found here last: the last's, and the
+    /// options added, gone, and whose type or default changed.
+    pub since: Option<(String, Vec<String>, Vec<String>, Vec<String>)>,
+}
+
+static CHECKS: Mutex<BTreeMap<String, Check>> = Mutex::new(BTreeMap::new());
+
+/// A renderer's definition against the renderer as installed, once it was
+/// found (in Imago).
+pub fn checked(name: &str) -> Option<Check> {
+    CHECKS.lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()
+}
+
+/// The same default: numbers alike, else the same text (an enum's value,
+/// ignoring case).
+fn same(a: &str, b: &str) -> bool {
+    // A bool as a number: `.usda` writes 1, Arnold says true.
+    let number = |s: &str| match s.trim() {
+        "true" => Ok(1.0),
+        "false" => Ok(0.0),
+        s => s.parse::<f64>(),
+    };
+    match (number(a), number(b)) {
+        (Ok(x), Ok(y)) => (x - y).abs() <= 1e-6 * x.abs().max(1.0),
+        _ => a.trim().eq_ignore_ascii_case(b.trim()),
+    }
+}
+
+/// The definition's settings (name and default) under `namespace` against
+/// the renderer's options; the options against those found here `last`.
+fn check(
+    namespace: &str,
+    params: &[(String, String)],
+    version: &str,
+    options: &Options,
+    last: Option<&(String, Options)>,
+) -> Check {
+    let prefix = format!("{namespace}:");
+    let mut out = Check {
+        version: version.to_string(),
+        ..Default::default()
+    };
+    for (name, default) in params {
+        let short = name.strip_prefix(&prefix).unwrap_or(name);
+        match options.iter().find(|(n, _, _)| n == short) {
+            None => out.unknown.push(short.to_string()),
+            Some((_, _, theirs)) => {
+                // An enum's default, without its values.
+                let theirs = theirs.split(" [").next().unwrap_or(theirs);
+                if !same(default, theirs) {
+                    out.defaults
+                        .push((short.to_string(), default.clone(), theirs.to_string()));
+                }
             }
-        };
-        out.params.push(super::render::Param {
-            name,
-            ty: ty.into(),
-            default,
-            group: ALL_OPTIONS.into(),
-            label: o.name.clone(),
-            help: format!(
-                "Arnold {}'s own option, read from Arnold itself, its default Arnold's. Written only when changed",
-                installed.version
-            ),
-            min: None,
-            max: None,
-            choices,
-            unconfirmed: false,
-            uniform: false,
-            sparse: true,
-        });
+        }
+    }
+    if let Some((was, before)) = last.filter(|(was, _)| was != version) {
+        let names = |o: &Options| o.iter().map(|(n, _, _)| n.clone()).collect::<Vec<_>>();
+        let (now, then) = (names(options), names(before));
+        let added = now.iter().filter(|n| !then.contains(n)).cloned().collect();
+        let gone = then.iter().filter(|n| !now.contains(n)).cloned().collect();
+        let changed = options
+            .iter()
+            .filter(|o| before.iter().any(|b| b.0 == o.0 && (b.1 != o.1 || b.2 != o.2)))
+            .map(|o| o.0.clone())
+            .collect();
+        out.since = Some((was.clone(), added, gone, changed));
     }
     out
 }
-
-/// The group of the options read from the renderer itself.
-pub const ALL_OPTIONS: &str = "All Options";
 
 /// What to say when where a renderer is installed is not known.
 pub fn where_is(live: &LiveRenderer) -> String {
@@ -729,51 +802,76 @@ mod tests {
         );
     }
 
+    fn options(list: &[(&str, &str, &str)]) -> Options {
+        list.iter()
+            .map(|(n, t, d)| (n.to_string(), t.to_string(), d.to_string()))
+            .collect()
+    }
+
+    /// The definition's settings against Arnold's options: one Arnold does
+    /// not have, defaults that differ (numbers alike, an enum's value).
     #[test]
-    fn arnolds_own_options_are_added_written_only_when_changed() {
-        use xms_render::arnold::{ArnoldOption, Installed, OptionDefault as D};
-        let def = read(None).defs.into_iter().find(|d| d.name == "arnold").unwrap();
-        let installed = Installed {
-            version: "7.5.0.0".into(),
-            options: vec![
-                ArnoldOption {
-                    name: "name".into(),
-                    default: D::Text("options".into()),
-                },
-                ArnoldOption {
-                    name: "AA_samples".into(),
-                    default: D::Int(1),
-                },
-                ArnoldOption {
-                    name: "texture_max_memory_MB".into(),
-                    default: D::Float(4096.0),
-                },
-                ArnoldOption {
-                    name: "render_device".into(),
-                    default: D::Choice("CPU".into(), vec!["CPU".into(), "GPU".into()]),
-                },
-            ],
-        };
-        let all = with_options(&def, &installed);
-        let added: Vec<&str> = all.params[def.params.len()..].iter().map(|p| p.name.as_str()).collect();
+    fn a_definition_is_checked_against_the_renderer() {
+        let arnold = options(&[
+            ("AA_samples", "int", "1"),
+            ("AA_adaptive_threshold", "float", "0.015"),
+            ("render_device", "enum", "CPU [CPU GPU]"),
+            ("ignore_sss", "bool", "false"),
+        ]);
+        let params = [
+            ("arnold:global:AA_samples".to_string(), "3".to_string()),
+            (
+                "arnold:global:AA_adaptive_threshold".to_string(),
+                "0.0150000".to_string(),
+            ),
+            ("arnold:global:render_device".to_string(), "cpu".to_string()),
+            ("arnold:global:ignore_sss".to_string(), "0".to_string()),
+            ("arnold:global:not_an_option".to_string(), "0".to_string()),
+        ];
+        let c = check("arnold:global", &params, "7.5.0.0", &arnold, None);
+        assert_eq!(c.unknown, ["not_an_option"]);
         assert_eq!(
-            added,
-            ["arnold:global:texture_max_memory_MB", "arnold:global:render_device"],
-            "listed ones (AA_samples) and Render Settings' own (name) left out"
+            c.defaults,
+            [("AA_samples".to_string(), "3".to_string(), "1".to_string())]
         );
-        let device = all.params.last().unwrap();
-        assert!(device.sparse && device.group == ALL_OPTIONS);
-        assert_eq!((device.ty.as_str(), device.choices.len()), ("token", 2));
-        // Written only when changed; the listed ones always.
-        let mut r = crate::core::render::RendererSettings::for_renderer("arnold");
-        let written = |r: &crate::core::render::RendererSettings| -> Vec<String> {
-            r.written(&all).into_iter().map(|(k, _)| k).collect()
-        };
-        assert_eq!(written(&r).len(), def.params.len());
-        let gpu = crate::core::properties::Value::Token("GPU".into());
-        r.values.insert("arnold:global:render_device".into(), gpu.clone());
-        let now = r.written(&all);
-        assert_eq!(now.len(), def.params.len() + 1);
-        assert_eq!(now.last().unwrap(), &("arnold:global:render_device".to_string(), gpu));
+        assert_eq!(c.since, None, "nothing found here before");
+        // The same version again: nothing new.
+        let same = check(
+            "arnold:global",
+            &params,
+            "7.5.0.0",
+            &arnold,
+            Some(&("7.5.0.0".into(), arnold.clone())),
+        );
+        assert_eq!(same.since, None);
+    }
+
+    /// A new Arnold: the options added, gone and changed since the last.
+    #[test]
+    fn a_new_version_says_what_changed() {
+        let before = options(&[
+            ("AA_samples", "int", "1"),
+            ("old", "bool", "false"),
+            ("bucket_size", "int", "64"),
+        ]);
+        let now = options(&[
+            ("AA_samples", "int", "1"),
+            ("bucket_size", "int", "32"),
+            ("new_one", "float", "1"),
+        ]);
+        let text = write_options("7.4.0.0", &before);
+        let last = read_options(&text).unwrap();
+        assert_eq!(last, ("7.4.0.0".to_string(), before.clone()));
+        let c = check("arnold:global", &[], "7.5.0.0", &now, Some(&last));
+        let (was, added, gone, changed) = c.since.unwrap();
+        assert_eq!(was, "7.4.0.0");
+        assert_eq!(
+            (added, gone, changed),
+            (
+                vec!["new_one".to_string()],
+                vec!["old".to_string()],
+                vec!["bucket_size".to_string()]
+            )
+        );
     }
 }
