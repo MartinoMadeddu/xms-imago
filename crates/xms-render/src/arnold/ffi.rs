@@ -83,8 +83,9 @@ pub struct UpdateInfo {
 /// `AtMsgExtendedCallBack`: a log line's mask, severity, text, metadata and
 /// the pointer given.
 pub type MsgCallback = unsafe extern "C" fn(c_int, c_int, *const c_char, Ptr, Ptr);
-/// `AI_LOG_WARNINGS | AI_LOG_ERRORS`: the lines Imago keeps.
-pub const LOG_WARNINGS_ERRORS: c_int = 0x0002 | 0x0004;
+/// `AI_LOG_WARNINGS | AI_LOG_ERRORS | AI_LOG_PLUGINS`: the lines Imago keeps
+/// (the plugins Arnold loads, its USD reader among them, or why not).
+pub const LOG_MASK: c_int = 0x0002 | 0x0004 | 0x0040;
 pub const SEVERITY_ERROR: c_int = 0x02;
 
 /// `AtRenderUpdateCallback`.

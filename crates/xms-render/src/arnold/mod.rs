@@ -97,7 +97,7 @@ fn begin(ai: &Api, sdk: &Path) {
         // callback is a function of this crate, its data none.
         unsafe {
             (ai.AiBegin)(ffi::SESSION_INTERACTIVE);
-            (ai.AiMsgRegisterCallback)(Some(logged), ffi::LOG_WARNINGS_ERRORS, std::ptr::null_mut());
+            (ai.AiMsgRegisterCallback)(Some(logged), ffi::LOG_MASK, std::ptr::null_mut());
         }
         *begun = true;
     }
@@ -127,7 +127,7 @@ fn environment(sdk: &Path) {
     }
 }
 
-/// Arnold's warnings and errors, as it logs them: how many there were, and
+/// Arnold's warnings, errors and plugin loading, as it logs them: how many there were, and
 /// the last of them (`LOG_KEPT`).
 static LOG: Mutex<(u64, std::collections::VecDeque<(bool, String)>)> =
     Mutex::new((0, std::collections::VecDeque::new()));
@@ -168,7 +168,7 @@ fn shown((error, text): &(bool, String)) -> String {
     match text.starts_with("Imago:") {
         // What Imago did with Arnold, as it is.
         true => text.clone(),
-        false => format!("Arnold {}: {text}", if *error { "error" } else { "warning" }),
+        false => format!("Arnold{}: {text}", if *error { " error" } else { "" }),
     }
 }
 
@@ -871,7 +871,7 @@ mod tests {
         assert_eq!(
             ours,
             [
-                "Arnold warning: [usd] no default prim",
+                "Arnold: [usd] no default prim",
                 "Arnold error: can't load plugin usd_proc.so: libGLU.so.1: cannot open"
             ]
         );
