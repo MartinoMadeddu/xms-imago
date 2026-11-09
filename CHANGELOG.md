@@ -8,6 +8,10 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-09
+
+- 0.2.9 again: its release failed on GitHub's side.
+
 ## [0.2.9] - 2026-11-09
 
 - **Composition as USD has it:** a later input of a Merge is the stronger in the layers Imago writes too (its stage sublayered first), whichever order the inputs come in, and a prim another stage's prim took the place of is no longer deactivated (which took both away).
