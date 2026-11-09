@@ -500,16 +500,10 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
         } else if def.is_none() {
             f.status(Status::Bad, format!("No definition named \"{}\": its settings are kept, not written", r.renderer));
         }
+        // The rest in the Log tab.
         if let Some(d) = &def {
-            if !d.about.is_empty() { f.status(Status::Info, d.about.clone()); }
-            definition_rows(f, d);
-            let kept = r.not_in(d);
-            if !kept.is_empty() {
-                let names: Vec<&str> = kept.iter().map(|(k, _)| *k).collect();
-                f.status(Status::Info, format!("Not in this renderer's definition, kept and written: {}", names.join(", ")));
-            }
+            for (status, text) in summary(d) { f.status(status, text); }
         }
-        for e in crate::core::renderers::errors() { f.status(Status::Bad, e); }
     });
     group(ui, "Primitive", Some("Where the settings go: the RenderSettings prim the scene names, else the first one coming in, else one made here"), |f| {
         match &ctx.settings {
@@ -521,12 +515,11 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
         }
     });
 
-    // Settings and AOVs: one tab at a time.
+    // Settings, AOVs and the Log: one tab at a time.
     let tab_id = egui::Id::new(("render_settings_tab", node.0));
-    let mut aovs_tab = ui.data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
+    let mut open = ui.data(|d| d.get_temp::<usize>(tab_id)).unwrap_or(0);
     let ticked = def.as_ref().map(|d| r.ticked(d).len()).unwrap_or(0);
     let aovs = format!("AOVs ({ticked})");
-    let mut open = aovs_tab as usize;
     super::form::tabs(
         ui,
         ("render_settings", node.0),
@@ -536,17 +529,87 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
                 aovs.as_str(),
                 Some("The renderer's standard AOVs: those ticked become RenderVars of the product"),
             ),
+            (
+                "Log",
+                Some("The renderer as found here, its definition (where it comes from, checked against the renderer), Make editable copy and Reload"),
+            ),
         ],
         &mut open,
     );
-    aovs_tab = open == 1;
-    ui.data_mut(|d| d.insert_temp(tab_id, aovs_tab));
+    ui.data_mut(|d| d.insert_temp(tab_id, open));
 
-    if aovs_tab {
-        aov_rows(ui, r, def.as_deref(), ctx);
-    } else {
-        settings_rows(ui, r, def.as_deref());
+    match open {
+        1 => aov_rows(ui, r, def.as_deref(), ctx),
+        2 => log_rows(ui, r, def.as_deref()),
+        _ => settings_rows(ui, r, def.as_deref()),
     }
+}
+
+/// Under the renderer chosen: its version as found here, and a warning to
+/// read the Log when it has one.
+fn summary(d: &render::Definition) -> Vec<(Status, String)> {
+    use crate::core::renderers::{self, Found};
+    let finding = renderers::found(&d.name);
+    let mut out = vec![];
+    match (&finding.in_imago, &finding.command) {
+        (Some(Found::Yes(s)), _) => out.push((Status::Ok, s.clone())),
+        (Some(Found::Looking), _) | (None, Some(Found::Looking)) => {
+            out.push((Status::Info, format!("Looking for {}…", d.label)))
+        }
+        (in_imago, Some(Found::Yes(s))) => {
+            out.push((Status::Ok, s.clone()));
+            if in_imago.is_some() {
+                out.push((Status::Bad, format!("{} does not render in Imago here: see Log", d.label)));
+            }
+        }
+        (None, None) => {}
+        _ => out.push((Status::Bad, format!("{} not found here: see Log", d.label))),
+    }
+    if let Some(c) = renderers::checked(&d.name) {
+        if !c.unknown.is_empty() {
+            out.push((
+                Status::Bad,
+                format!("Some settings are not options of {} {}: see Log", d.label, c.version),
+            ));
+        }
+        if c.since.is_some() {
+            out.push((Status::Bad, format!("{} {} is new here: see Log", d.label, c.version)));
+        }
+    }
+    let lacks = renderers::lacks(d);
+    if !lacks.0.is_empty() || !lacks.1.is_empty() {
+        out.push((Status::Bad, "Your definition lacks some of the built-in one's: see Log".into()));
+    }
+    if !renderers::errors().is_empty() {
+        out.push((Status::Bad, "A renderer definition of yours does not read: see Log".into()));
+    }
+    out
+}
+
+/// The Log tab: the renderer as found here and its definition, in full.
+fn log_rows(ui: &mut egui::Ui, r: &RendererSettings, def: Option<&Definition>) {
+    group(ui, "Renderer", None, |f| {
+        match def {
+            Some(d) => {
+                if !d.about.is_empty() {
+                    f.status(Status::Info, d.about.clone());
+                }
+                definition_rows(f, d);
+                let kept = r.not_in(d);
+                if !kept.is_empty() {
+                    let names: Vec<&str> = kept.iter().map(|(k, _)| *k).collect();
+                    f.status(
+                        Status::Info,
+                        format!("Not in this renderer's definition, kept and written: {}", names.join(", ")),
+                    );
+                }
+            }
+            None => f.status(Status::Info, "Custom: no definition, nothing to check"),
+        }
+        for e in crate::core::renderers::errors() {
+            f.status(Status::Bad, e);
+        }
+    });
 }
 
 /// The definition's settings by group, then those typed in.

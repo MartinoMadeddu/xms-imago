@@ -173,8 +173,8 @@ images and when each was written, and the edit and how long it took to show.
 - Arnold makes `.tx` files of the textures as it first meets them, which can
   hold the first passes for many seconds; once made, they stay beside the
   textures. Whether Live makes them or uses only those made is to decide.
-- A point instancer was read as its prototype only: whether its copies render
-  is still to see.
+- A point instancer's copies render (a forest of instances, checked on 9
+  November); the prototype read alone was the prototype script's report.
 
 ### Step 2: the renderer interface and the Arnold backend in Imago
 

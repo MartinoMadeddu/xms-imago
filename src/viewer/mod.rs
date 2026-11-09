@@ -24,6 +24,9 @@ use glam::Vec2;
 use crate::viewport::nav::{Held, NavAction, NavSettings, NavStyle};
 pub use gpu::install;
 
+/// The start of the note saying why the Viewer's render stopped.
+const STOPPED: &str = "Arnold stopped: ";
+
 /// What the Viewer reads, and the playback it can toggle (Houdini's Space).
 pub struct ViewerInput<'a> {
     /// Mutable: Edit Poly's picking and manipulators write to its node.
@@ -422,6 +425,11 @@ impl Viewer {
         size: [u32; 2],
     ) -> Option<Arc<xms_render::Pixels>> {
         if !crate::live::in_viewer() {
+            // Why it stopped stays, until Arnold is chosen again; how it went
+            // goes.
+            if !self.render_note.as_ref().is_some_and(|n| n.starts_with(STOPPED)) {
+                self.render_note = None;
+            }
             return None;
         }
         self.render_note = None;
@@ -473,7 +481,7 @@ impl Viewer {
             // Back to drawing, rather than trying again each frame.
             Err(why) => {
                 crate::live::set_in_viewer(false);
-                self.render_note = Some(format!("Arnold stopped: {why}"));
+                self.render_note = Some(format!("{STOPPED}{why}"));
                 None
             }
         }

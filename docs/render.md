@@ -105,7 +105,11 @@ standard AOVs (the plan: [renderer-definitions.md](renderer-definitions.md)).
   file there replaces the built-in one of its name, or adds a renderer. One
   that does not read is listed in the panel, with why, and the built-in one is
   used.
-- **Make editable copy** (the Render Settings panel, File > Settings >
+- **The Log tab** of Render Settings holds all this: the renderer as found
+  here, where its definition comes from, the checks against Arnold, and the
+  buttons below. Under the renderer chosen are only its version and, in red, a
+  line pointing to the Log when it has something to say.
+- **Make editable copy** (Render Settings' Log tab, File > Settings >
   Renderers) writes the built-in definition into your folder, with
   `"from": "<Imago's version>"`, and opens the folder. The panel says where
   each definition comes from ("Built in (Imago 0.2.5)", "Yours: …"), and,
