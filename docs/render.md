@@ -98,7 +98,11 @@ standard AOVs (the plan: [renderer-definitions.md](renderer-definitions.md)).
 - **Built in:** Karma's and Arnold's are compiled into Imago
   (`assets/renderers/karma.json`, `arnold.json`): they match its version and
   cannot go missing.
-- **Yours, over them:** your **renderers folder**, `$XMS_RENDERERS`, else
+- **The project's, over them:** the `.json` files of `$JOB/renderers`
+  ([File > Variables](interface.md#variables) or the environment), read again
+  when `$JOB` changes: a show pins its own definitions, and the farm renders
+  with them.
+- **Yours, over those:** your **renderers folder**, `$XMS_RENDERERS`, else
   `renderers` in Imago's config folder (`~/.config/xms/renderers` on Linux,
   `~/Library/Application Support/xms/renderers` on macOS,
   `%APPDATA%\xms\renderers` on Windows), read at launch and on **Reload**. A
@@ -417,6 +421,24 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
   handles you work with are drawn over it. One Arnold for both panes: Render
   in the Image Viewer takes it back to the layer's camera, and Stop stops
   either.
+
+### Headless: rendering without the window
+
+```
+xms --headless shot.xms --render 1-100
+xms --headless shot.xms --render 1-100x2
+xms --headless shot.xms            (the scene's range)
+```
+
+Imago opens the graph and cooks it frame by frame as in the window, ICE
+deformers and every operator included, and Arnold renders each frame in
+Imago's process at the Render Settings' samples. Arnold loads the scene once;
+each frame after is sent to it as live edits, so nothing is cached to disk
+between frames. The images are the Render Settings' products, written by
+Arnold: relative ones from the scene's folder. Each frame's files are printed
+as it is done; a frame not written, a scene with no product, or a render that
+fails ends Imago with code 1. Arnold is found as in the window (the Arnold
+Folder, else `$ARNOLD_PATH`), and the definitions of `$JOB/renderers` are read.
 
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.

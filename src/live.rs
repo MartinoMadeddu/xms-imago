@@ -102,8 +102,9 @@ pub fn why_not(name: &str) -> Option<String> {
 /// doing.
 pub struct Session {
     live: xms_render::Live,
-    /// Where the scene is written, when it must be.
-    layer: PathBuf,
+    /// Where the scene is written, when it must be (relative products are
+    /// from its folder).
+    pub layer: PathBuf,
     sent: Vec<Prim>,
     /// The graph's revision and the frame the scene sent is of.
     key: (u64, u64),
@@ -249,10 +250,59 @@ impl Session {
                     // A final render is done; IPR waits for changes.
                     self.rendering &= self.ipr;
                 }
-                xms_render::Event::Failed(why) => failed = Some(why),
+                xms_render::Event::Failed(why) | xms_render::Event::Note(why) => failed = Some(why),
+                xms_render::Event::Images(_) => {}
             }
         }
         failed
+    }
+
+    /// Another frame of a range rendered without the window (headless): what
+    /// changed sent live with the frame, Arnold loaded once; the layer written
+    /// again only when the renderer cannot take a change live (`Structure`,
+    /// motion blur's keys).
+    pub fn frame(&mut self, prims: Vec<Prim>, key: (u64, u64), frame: f64) {
+        let mut edits = changes(&self.sent, &prims, crate::usd_write::layer_axes(&prims));
+        edits.push(xms_render::Edit {
+            path: String::new(),
+            change: Change::Frame(frame),
+        });
+        let (now, layer) = (prims.clone(), self.layer.clone());
+        self.live.edit(edits, move || {
+            crate::usd_write::write_override(&now, &layer).map(|_| layer)
+        });
+        self.sent = prims;
+        self.key = key;
+        self.rendering = true;
+        self.restarted();
+    }
+
+    /// Until the render going is done, at most `timeout`: the files it
+    /// writes (when it was loaded again), each note on the way told to `note`.
+    pub fn finish(&mut self, timeout: std::time::Duration, note: impl Fn(&str)) -> Result<Vec<PathBuf>, String> {
+        let end = Instant::now() + timeout;
+        let mut images = vec![];
+        while let Some(left) = end.checked_duration_since(Instant::now()) {
+            for e in self.live.wait(left, |e| {
+                matches!(e, xms_render::Event::Finished | xms_render::Event::Failed(_))
+            }) {
+                match e {
+                    xms_render::Event::Loaded { images: i, .. } | xms_render::Event::Images(i) => images = i,
+                    xms_render::Event::Note(n) => note(&n),
+                    xms_render::Event::Failed(why) => {
+                        self.rendering = false;
+                        return Err(why);
+                    }
+                    xms_render::Event::Finished => {
+                        self.finished = true;
+                        self.rendering = false;
+                        return Ok(images);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Err(format!("Not done after {} s", timeout.as_secs()))
     }
 
     fn restarted(&mut self) {

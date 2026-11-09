@@ -15,6 +15,7 @@ mod fbx_writer;
 mod file_browser;
 mod graph_io;
 mod graph_ports;
+mod headless;
 mod history;
 mod ice;
 /// The Image Viewer pane: renders and images.
@@ -75,6 +76,15 @@ use types::NodeType;
 use types::{IceGraphId, MeshData, PrimInspectorState, SceneHierarchy};
 
 fn main() {
+    // `--headless`: a scene rendered without the window.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(job) = headless::job(&args) {
+        if let Err(e) = job.and_then(|j| headless::run(&j)) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(e) = eframe_app::run() {
         eprintln!("{e}");
     }

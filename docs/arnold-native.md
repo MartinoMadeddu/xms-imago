@@ -319,14 +319,26 @@ it, the image refining as buckets come in.
 - Tested in the crate (the view kept through reloads, the second reader)
   and with a stand-in `libai`; the app part by hand with Arnold.
 
-### Then: Imago on the farm
+### Step 6: Imago on the farm (built)
 
-Imago headless (`xms --headless scene.xms --render 1-100`): the graph opened,
-the scene loaded in Arnold once, then frame by frame what changed sent as live
-edits (ICE deformers' and animation's points, transforms), the layer written
-again only for a change of structure, each frame rendered at the Render
-Settings' samples (IPR off, the licence looked for), its products written. ICE
-and Imago's other tools on the farm without baking to disk first.
+Imago headless (`xms --headless scene.xms --render 1-100`, `src/headless.rs`):
+the graph opened and cooked frame by frame as in the window, the scene loaded
+in Arnold once, then frame by frame what changed sent as live edits (ICE
+deformers' and animation's points, transforms, lights, settings) with
+`Change::Frame`, which sets Arnold's frame and the products' file names
+(`Event::Images` says them); the layer written again only for a change Arnold
+cannot take live (structure, motion blur's keys). Each frame renders at the
+Render Settings' samples (IPR off), its products written by Arnold; Imago
+waits for it, checks the files are there, and goes on. ICE and Imago's other
+tools on the farm without baking to disk first.
+
+- The layer is written beside the scene (a hidden
+  `.<scene>.imago-<pid>.usda`, removed at the end), so relative products are
+  from the scene's folder.
+- Renderer definitions come from `$JOB/renderers` too, so the farm renders
+  with the show's (see [renderer-definitions.md](renderer-definitions.md)).
+- Tested in the crate (a frame edit, a reload at the frame sent) and with a
+  stand-in `libai` (the products' names frame by frame); on a farm, by hand.
 
 ### Then: rray
 

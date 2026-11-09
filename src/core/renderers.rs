@@ -2,10 +2,11 @@
 //! machine (see `docs/renderer-definitions.md`).
 //!
 //! - **Definitions** (`definitions`): the ones Imago is built with
-//!   (`assets/renderers`), then yours, from your renderers folder (`folder`),
-//!   read at launch and on `reload`. One of yours replaces the built-in one of
-//!   its name, or adds a renderer; a file that does not read is listed
-//!   (`errors`), the built-in one kept.
+//!   (`assets/renderers`), then the project's (`$JOB/renderers`, so a show
+//!   pins its own, on the farm too), then yours, from your renderers folder
+//!   (`folder`), read at launch, on `reload` and when `$JOB` changes. Each
+//!   replaces the one of its name before it, or adds a renderer; a file that
+//!   does not read is listed (`errors`), the one before it kept.
 //! - **Yours from a built-in one:** `make_copy` writes it into your folder
 //!   with the version it is from; `lacks` says what a later built-in one has
 //!   that yours does not; `revert` renames yours aside.
@@ -30,6 +31,8 @@ const BUILT_IN: [&str; 2] = [
 pub enum Source {
     #[default]
     BuiltIn,
+    /// The project's: `$JOB/renderers`.
+    Project(PathBuf),
     Yours(PathBuf),
 }
 
@@ -37,6 +40,7 @@ impl Source {
     pub fn describe(&self) -> String {
         match self {
             Source::BuiltIn => format!("Built in (Imago {})", env!("CARGO_PKG_VERSION")),
+            Source::Project(p) => format!("The project's: {}", p.display()),
             Source::Yours(p) => format!("Yours: {}", p.display()),
         }
     }
@@ -132,19 +136,38 @@ pub fn folder() -> Option<PathBuf> {
 struct Loaded {
     defs: Vec<Arc<Definition>>,
     errors: Vec<String>,
+    /// The project's folder they were read with.
+    project: Option<PathBuf>,
+}
+
+/// The project's renderer definitions: `$JOB/renderers`, while `$JOB` is set
+/// (File > Variables, or the environment).
+pub fn project_folder() -> Option<PathBuf> {
+    let path = crate::core::vars::expand("$JOB/renderers", &[]);
+    (!path.contains('$') && !path.trim().starts_with("/renderers")).then(|| PathBuf::from(path.trim()))
+}
+
+fn read_all() -> Loaded {
+    let project = project_folder();
+    let mut l = read(project.as_deref(), folder().as_deref());
+    l.project = project;
+    l
 }
 
 static LOADED: RwLock<Option<Arc<Loaded>>> = RwLock::new(None);
 
 fn loaded() -> Arc<Loaded> {
-    if let Some(l) = LOADED.read().unwrap_or_else(|e| e.into_inner()).clone() {
+    // Read again when the project changed (another graph, another $JOB).
+    let project = project_folder();
+    let fresh = |l: &Arc<Loaded>| l.project == project;
+    if let Some(l) = LOADED.read().unwrap_or_else(|e| e.into_inner()).clone().filter(fresh) {
         return l;
     }
     let mut slot = LOADED.write().unwrap_or_else(|e| e.into_inner());
-    if let Some(l) = slot.clone() {
+    if let Some(l) = slot.clone().filter(fresh) {
         return l;
     }
-    let l = Arc::new(read(folder().as_deref()));
+    let l = Arc::new(read_all());
     *slot = Some(l.clone());
     drop(slot);
     find_all(&l.defs);
@@ -168,7 +191,7 @@ pub fn errors() -> Vec<String> {
 
 /// Your folder read again, and the renderers looked for again.
 pub fn reload() {
-    let l = Arc::new(read(folder().as_deref()));
+    let l = Arc::new(read_all());
     *LOADED.write().unwrap_or_else(|e| e.into_inner()) = Some(l.clone());
     find_all(&l.defs);
 }
@@ -186,10 +209,8 @@ pub fn is_built_in(name: &str) -> bool {
     built_in().any(|(d, _)| d.name == name)
 }
 
-/// The built-in definitions, then the `.json` files of `folder`, by name.
-fn read(folder: Option<&Path>) -> Loaded {
-    let mut defs: Vec<Arc<Definition>> = built_in().map(|(d, _)| Arc::new(d)).collect();
-    let mut errors = vec![];
+/// The `.json` files of a folder, by name.
+fn json_files(folder: Option<&Path>) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = folder
         .and_then(|dir| std::fs::read_dir(dir).ok())
         .map(|read| {
@@ -200,37 +221,70 @@ fn read(folder: Option<&Path>) -> Loaded {
         })
         .unwrap_or_default();
     files.sort();
-    for f in files {
-        match std::fs::read_to_string(&f)
-            .map_err(|e| e.to_string())
-            .and_then(|t| serde_json::from_str::<Definition>(&t).map_err(|e| e.to_string()))
-        {
-            Ok(d) if d.name.trim().is_empty() || d.name == CUSTOM => {
-                errors.push(format!("{}: needs a name other than \"{CUSTOM}\"", f.display()))
-            }
-            Ok(mut d) => {
-                d.source = Source::Yours(f);
-                match defs.iter().position(|x| x.name == d.name) {
-                    Some(k) => defs[k] = Arc::new(d),
-                    None => defs.push(Arc::new(d)),
-                }
-            }
-            Err(e) => errors.push(format!("{}: {e} (the built-in definition is used)", f.display())),
-        }
-    }
-    Loaded { defs, errors }
+    files
 }
 
-/// The built-in definition of a renderer, as a file of yours in `folder`,
-/// `from` this version of Imago. Where it went.
-fn copy_into(folder: &Path, name: &str) -> Result<PathBuf, String> {
-    let (_, text) = built_in()
-        .find(|(d, _)| d.name == name)
-        .ok_or_else(|| format!("No built-in definition named \"{name}\""))?;
+/// The built-in definitions, then the project's (`.json` files of
+/// `project`), then yours (of `yours`), each over the one of its name.
+fn read(project: Option<&Path>, yours: Option<&Path>) -> Loaded {
+    let mut defs: Vec<Arc<Definition>> = built_in().map(|(d, _)| Arc::new(d)).collect();
+    let mut errors = vec![];
+    let layers = [
+        (project, Source::Project as fn(PathBuf) -> Source),
+        (yours, Source::Yours),
+    ];
+    for (folder, source) in layers {
+        for f in json_files(folder) {
+            match std::fs::read_to_string(&f)
+                .map_err(|e| e.to_string())
+                .and_then(|t| serde_json::from_str::<Definition>(&t).map_err(|e| e.to_string()))
+            {
+                Ok(d) if d.name.trim().is_empty() || d.name == CUSTOM => {
+                    errors.push(format!("{}: needs a name other than \"{CUSTOM}\"", f.display()))
+                }
+                Ok(mut d) => {
+                    d.source = source(f.clone());
+                    match defs.iter().position(|x| x.name == d.name) {
+                        Some(k) => {
+                            if let (Source::Yours(_), Source::Project(p)) = (&d.source, &defs[k].source) {
+                                errors.push(format!(
+                                    "{}: yours replaces the project's ({})",
+                                    f.display(),
+                                    p.display()
+                                ));
+                            }
+                            defs[k] = Arc::new(d)
+                        }
+                        None => defs.push(Arc::new(d)),
+                    }
+                }
+                Err(e) => errors.push(format!("{}: {e} (the one before it is used)", f.display())),
+            }
+        }
+    }
+    Loaded {
+        defs,
+        errors,
+        project: None,
+    }
+}
+
+/// A renderer's definition, as a file of yours in `folder`: the project's
+/// file as it is, when `project` names it, else the built-in one `from` this
+/// version of Imago. Where it went.
+fn copy_into(folder: &Path, name: &str, project: Option<&Path>) -> Result<PathBuf, String> {
     let file = folder.join(format!("{name}.json"));
     if file.exists() {
         return Err(format!("Yours is there already: {}", file.display()));
     }
+    if let Some(p) = project {
+        std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        std::fs::copy(p, &file).map_err(|e| format!("{}: {e}", p.display()))?;
+        return Ok(file);
+    }
+    let (_, text) = built_in()
+        .find(|(d, _)| d.name == name)
+        .ok_or_else(|| format!("No built-in definition named \"{name}\""))?;
     // The version first, the built-in text as it is after it.
     let body = text
         .trim_start()
@@ -242,11 +296,16 @@ fn copy_into(folder: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(file)
 }
 
-/// Make editable copy: the built-in definition into your folder, read in its
-/// place from now on, and the folder opened. Where it went.
+/// Make editable copy: the definition read (the project's, else the built-in
+/// one) into your folder, read in its place from now on, and the folder
+/// opened. Where it went.
 pub fn make_copy(name: &str) -> Result<PathBuf, String> {
     let dir = folder().ok_or("No config folder to put your renderer definitions in")?;
-    let file = copy_into(&dir, name)?;
+    let project = definition(name).and_then(|d| match &d.source {
+        Source::Project(p) => Some(p.clone()),
+        _ => None,
+    });
+    let file = copy_into(&dir, name, project.as_deref())?;
     reload();
     let _ = crate::docs::show(&dir);
     Ok(file)
@@ -255,8 +314,10 @@ pub fn make_copy(name: &str) -> Result<PathBuf, String> {
 /// Revert to built-in: your file renamed aside (not loaded, not deleted).
 /// What it is called now.
 pub fn revert(def: &Definition) -> Result<PathBuf, String> {
-    let Source::Yours(file) = &def.source else {
-        return Err("It is the built-in definition already".into());
+    let file = match &def.source {
+        Source::Yours(file) => file,
+        Source::Project(p) => return Err(format!("The project's is the show's: change it in {}", p.display())),
+        Source::BuiltIn => return Err("It is the built-in definition already".into()),
     };
     let aside = aside(file, std::time::SystemTime::now());
     std::fs::rename(file, &aside).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -672,7 +733,7 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("broken.json"), "{ not json").unwrap();
         std::fs::write(dir.join("notes.txt"), "not a definition").unwrap();
-        let l = read(Some(&dir));
+        let l = read(None, Some(&dir));
         let names: Vec<&str> = l.defs.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, ["karma", "arnold", "rray"]);
         let arnold = &l.defs[1];
@@ -680,7 +741,7 @@ mod tests {
         assert_eq!(arnold.source, Source::Yours(dir.join("arnold.json")));
         assert_eq!(l.defs[0].source, Source::BuiltIn);
         assert_eq!(l.errors.len(), 1);
-        assert!(l.errors[0].contains("broken.json") && l.errors[0].contains("built-in definition is used"));
+        assert!(l.errors[0].contains("broken.json") && l.errors[0].contains("the one before it is used"));
         // Yours lacks every setting and AOV of the built-in one.
         let (params, aovs) = lacks(arnold);
         assert!(params.contains(&"arnold:global:AA_samples".to_string()) && !aovs.is_empty());
@@ -688,25 +749,62 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The project's over the built-in ones, yours over the project's (said);
+    /// an editable copy of the project's is its file as it is.
+    #[test]
+    fn the_projects_come_between_the_built_in_ones_and_yours() {
+        let (job, mine) = (temp("job"), temp("mine"));
+        let def = |label: &str| format!(r#"{{"name": "arnold", "label": "{label}", "namespace": "arnold:global"}}"#);
+        std::fs::write(job.join("arnold.json"), def("Show")).unwrap();
+        std::fs::write(
+            job.join("rray.json"),
+            r#"{"name": "rray", "label": "rray", "namespace": "rray"}"#,
+        )
+        .unwrap();
+        let l = read(Some(&job), Some(&mine));
+        let arnold = l.defs.iter().find(|d| d.name == "arnold").unwrap();
+        assert_eq!(
+            (arnold.label.as_str(), &arnold.source),
+            ("Show", &Source::Project(job.join("arnold.json")))
+        );
+        assert!(l.defs.iter().any(|d| d.name == "rray"));
+        assert!(l.errors.is_empty());
+        // An editable copy of the project's: its file.
+        let file = copy_into(&mine, "arnold", Some(&job.join("arnold.json"))).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), def("Show"));
+        std::fs::write(&file, def("Mine")).unwrap();
+        let l = read(Some(&job), Some(&mine));
+        let arnold = l.defs.iter().find(|d| d.name == "arnold").unwrap();
+        assert_eq!(arnold.label, "Mine");
+        assert!(l.errors[0].contains("yours replaces the project's"), "{:?}", l.errors);
+        assert!(revert(&Definition {
+            source: Source::Project(job.join("arnold.json")),
+            ..(**arnold).clone()
+        })
+        .unwrap_err()
+        .contains("the show's"));
+        let _ = (std::fs::remove_dir_all(&job), std::fs::remove_dir_all(&mine));
+    }
+
     #[test]
     fn an_editable_copy_is_the_built_in_one_from_this_version() {
         let dir = temp("copy");
-        let file = copy_into(&dir, "arnold").unwrap();
+        let file = copy_into(&dir, "arnold", None).unwrap();
         assert_eq!(file, dir.join("arnold.json"));
-        let l = read(Some(&dir));
+        let l = read(None, Some(&dir));
         let mine = l.defs.iter().find(|d| d.name == "arnold").unwrap();
         assert_eq!(mine.from, env!("CARGO_PKG_VERSION"));
         assert_eq!(mine.source, Source::Yours(file.clone()));
         let built = built_in().find(|(d, _)| d.name == "arnold").unwrap().0;
         assert_eq!((&mine.params, &mine.aovs), (&built.params, &built.aovs));
         assert_eq!(lacks(mine), (vec![], vec![]));
-        assert!(copy_into(&dir, "arnold").unwrap_err().contains("already"));
-        assert!(copy_into(&dir, "nothing").is_err());
+        assert!(copy_into(&dir, "arnold", None).unwrap_err().contains("already"));
+        assert!(copy_into(&dir, "nothing", None).is_err());
         // Reverting: renamed aside, no longer read.
         let away = aside(&file, std::time::UNIX_EPOCH + std::time::Duration::from_secs(7));
         assert_eq!(away, dir.join("arnold.json.reverted-7"));
         std::fs::rename(&file, &away).unwrap();
-        let l = read(Some(&dir));
+        let l = read(None, Some(&dir));
         assert_eq!(
             l.defs.iter().find(|d| d.name == "arnold").unwrap().source,
             Source::BuiltIn

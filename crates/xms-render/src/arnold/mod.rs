@@ -129,6 +129,12 @@ pub struct Arnold {
     told: u32,
     /// What it could not do as asked, to tell.
     notes: Vec<String>,
+    /// The products' drivers and their file names as the layer has them
+    /// (frame tokens left in), and the layer's folder: for another frame.
+    products: Vec<(Ptr, String)>,
+    folder: PathBuf,
+    /// The products' files after another frame, to tell.
+    images: Option<Vec<PathBuf>>,
 }
 
 impl Arnold {
@@ -181,6 +187,9 @@ impl Arnold {
                 progress,
                 told: 0,
                 notes: vec![],
+                products: vec![],
+                folder: PathBuf::new(),
+                images: None,
             })
         })();
         if started.is_err() {
@@ -206,7 +215,29 @@ impl Arnold {
     }
 
     /// What is loaded, let go.
+    /// The products' file names at `frame`, their folders made: relative
+    /// ones from the layer's folder.
+    fn at_frame(&self, frame: f64) -> Vec<PathBuf> {
+        let ai = &self.ai;
+        let mut images = vec![];
+        for (driver, name) in &self.products {
+            let mut file = PathBuf::from(with_frame(name, frame));
+            if file.is_relative() {
+                file = self.folder.join(file);
+            }
+            if let Some(dir) = file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            // SAFETY: a driver of the loaded universe (`products` is made
+            // again with each load).
+            unsafe { (ai.AiNodeSetStr)(*driver, ai.string("filename"), ai.string(&file.to_string_lossy())) };
+            images.push(file);
+        }
+        images
+    }
+
     fn unload(&mut self) {
+        self.products.clear();
         // SAFETY: the session and universe made by `load`, ended once.
         unsafe {
             if !self.session.is_null() {
@@ -293,6 +324,12 @@ impl Arnold {
             if let Change::View(v) = &e.change {
                 return self.view(v);
             }
+            if let Change::Frame(f) = e.change {
+                // The products' files: in `edit`.
+                let options = (ai.AiUniverseGetOptions)(self.universe);
+                (ai.AiNodeSetFlt)(options, ai.string("frame"), f as f32);
+                return true;
+            }
             let node = match &e.change {
                 Change::Settings(_) => (ai.AiUniverseGetOptions)(self.universe),
                 _ => (ai.AiNodeLookUpByName)(self.universe, ai.string(&e.path), std::ptr::null_mut()),
@@ -344,7 +381,7 @@ impl Arnold {
                 Change::Settings(settings) => settings.iter().all(|(name, v)| {
                     settings_params(name, v).is_some_and(|ps| ps.iter().all(|(p, v)| set(ai, node, p, v)))
                 }),
-                Change::Structure | Change::View(_) => false,
+                Change::Structure | Change::View(_) | Change::Frame(_) => false,
             }
         }
     }
@@ -476,22 +513,14 @@ impl Renderer for Arnold {
             (ai.AiNodeSetBool)(options, ai.string("skip_license_check"), !self.config.licence);
             // The products' frame tokens, left for the renderer, put in; the
             // folders made. Relative paths are from the layer's folder.
-            let mut images = vec![];
-            for (_, _, driver) in ai.nodes(self.universe, ffi::NODE_DRIVER) {
-                let name = ai.str_param(driver, "filename");
-                if name.is_empty() {
-                    continue;
-                }
-                let mut file = PathBuf::from(with_frame(&name, frame));
-                if file.is_relative() {
-                    file = layer.parent().unwrap_or(Path::new(".")).join(file);
-                }
-                if let Some(dir) = file.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                (ai.AiNodeSetStr)(driver, ai.string("filename"), ai.string(&file.to_string_lossy()));
-                images.push(file);
-            }
+            self.folder = layer.parent().unwrap_or(Path::new(".")).to_path_buf();
+            self.products = ai
+                .nodes(self.universe, ffi::NODE_DRIVER)
+                .into_iter()
+                .map(|(_, _, driver)| (driver, ai.str_param(driver, "filename")))
+                .filter(|(_, name)| !name.is_empty())
+                .collect();
+            let images = self.at_frame(frame);
             self.pixels_out(options);
             self.session = (ai.AiRenderSession)(self.universe, ffi::SESSION_INTERACTIVE);
             Ok(images)
@@ -540,7 +569,15 @@ impl Renderer for Arnold {
             return Ok(false);
         }
         self.pause();
-        Ok(edits.iter().all(|e| self.apply(e)))
+        let applied = edits.iter().all(|e| self.apply(e));
+        if let Some(f) = edits.iter().rev().find_map(|e| match e.change {
+            Change::Frame(f) => Some(f),
+            _ => None,
+        }) {
+            let images = self.at_frame(f);
+            self.images = Some(images);
+        }
+        Ok(applied)
     }
 
     fn poll(&mut self) -> Vec<Event> {
@@ -557,7 +594,8 @@ impl Renderer for Arnold {
         if self.progress.finished.swap(false, Ordering::Relaxed) {
             events.push(Event::Finished);
         }
-        events.extend(self.notes.drain(..).map(Event::Failed));
+        events.extend(self.notes.drain(..).map(Event::Note));
+        events.extend(self.images.take().map(Event::Images));
         if self.progress.failed.swap(false, Ordering::Relaxed) {
             events.push(Event::Failed("the render failed: Arnold's log says why".into()));
         }

@@ -49,6 +49,10 @@ pub enum Change {
     Structure,
     /// The render's own view, in place of the layer's camera: the Viewer's.
     View(View),
+    /// Another frame: the products' file names (their frame tokens) and the
+    /// frame the renderer is at; what changed in the scene comes as edits of
+    /// its own (headless Imago rendering a range, Arnold loaded once).
+    Frame(f64),
 }
 
 /// A view to render through, the Viewer's: its camera's placement in the
@@ -82,6 +86,10 @@ pub enum Event {
     Edited(usize),
     /// Something it could not do, and why.
     Failed(String),
+    /// Something to know that does not stop it (a hint not taken).
+    Note(String),
+    /// Another frame (`Change::Frame`): the files its images go to.
+    Images(Vec<PathBuf>),
 }
 
 /// A renderer that reads USD itself. Each call is made from one thread, the

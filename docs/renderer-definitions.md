@@ -114,10 +114,15 @@ yours lacks; a setting kept by name across a reload that removes it.
   set in Settings, is that variable inside Imago, and its `bin` is on the
   command lines' `PATH`.
 
+- **A project layer:** `$JOB/renderers`, between the built-in definitions
+  and yours, read again when `$JOB` changes: a show pins its own, and the farm
+  renders with them. Yours replaces the project's of the same name, and the
+  Log says so; Make editable copy of the project's copies its file; Revert is
+  only for yours.
+
 ## Later
 
 - **Make editable copy with Arnold's options:** writing the options read
   from your Arnold into your copy, to group and label. Karma's from
   `karma --all-properties`.
-- **A project layer:** `$JOB/renderers` between the built-in definitions and
-  yours, so a show pins its own (and the farm renders with them).
+

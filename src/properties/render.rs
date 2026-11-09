@@ -436,15 +436,15 @@ pub fn definition_rows(f: &mut Rows, d: &render::Definition) {
     }
     let built_in = renderers::is_built_in(&d.name);
     let mut message = None;
-    f.buttons("Definition", Some("Your definitions folder is read at launch and on Reload; one of yours replaces the built-in one of its name"), |ui| {
+    f.buttons("Definition", Some("Built in, then the project's ($JOB/renderers), then yours (your renderers folder), each over the one of its name; read at launch, on Reload and when $JOB changes"), |ui| {
         match &d.source {
-            Source::BuiltIn if built_in => {
-                if ui.button("Make editable copy").on_hover_text("Write this built-in definition into your renderers folder, to change: from then on yours is read in its place").clicked() {
+            Source::BuiltIn | Source::Project(_) if built_in || matches!(d.source, Source::Project(_)) => {
+                if ui.button("Make editable copy").on_hover_text("Write this definition (the project's, else the built-in one) into your renderers folder, to change: from then on yours is read in its place").clicked() {
                     message = Some(renderers::make_copy(&d.name).map(|p| format!("Written: {}", p.display())));
                 }
             }
-            Source::Yours(_) if built_in => {
-                if ui.button("Revert to built-in").on_hover_text("Rename your file aside (not deleted): the built-in definition is read again").clicked() {
+            Source::Yours(_) => {
+                if ui.button("Revert").on_hover_text("Rename your file aside (not deleted): the project's or the built-in definition is read again").clicked() {
                     message = Some(renderers::revert(d).map(|p| format!("Yours is now {}", p.display())));
                 }
             }

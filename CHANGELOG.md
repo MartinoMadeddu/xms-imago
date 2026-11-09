@@ -8,6 +8,9 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Headless Imago:** `xms --headless scene.xms --render 1-100` renders a range with Arnold without the window: the graph cooked each frame (ICE deformers too), Arnold loaded once and each frame sent as live edits, the products written.
+- **Project renderer definitions:** `$JOB/renderers`, between the built-in ones and yours, so a show pins its own.
+
 ## [0.2.6] - 2026-11-09
 
 - **Arnold in the Viewer:** the menu at the Viewer's top right, Viewport or Arnold: Arnold renders live (IPR) through the Viewer's camera at the pane's size, each change and each move of the view sent as you work, the wireframe and handles drawn over it.

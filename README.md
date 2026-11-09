@@ -80,6 +80,8 @@ Built on:
   [changelog](CHANGELOG.md).
 - **Documentation:** [docs/](docs/README.md), or **Help > Documentation** in
   Imago.
+- **On a farm:** `xms --headless scene.xms --render 1-100` renders a range
+  with Arnold without the window (see [Rendering](docs/render.md)).
 
 ## How to build
 

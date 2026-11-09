@@ -175,7 +175,13 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                         loaded = Some((frame, progressive));
                     }
                     Command::Edit { edits, layer } => {
-                        let at = loaded.unwrap_or((1.0, true));
+                        let mut at = loaded.unwrap_or((1.0, true));
+                        if let Some(f) = edits.iter().rev().find_map(|e| match e.change {
+                            Change::Frame(f) => Some(f),
+                            _ => None,
+                        }) {
+                            at.0 = f;
+                        }
                         if let Some(v) = edits.iter().rev().find_map(|e| match e.change {
                             Change::View(v) => Some(v),
                             _ => None,
@@ -403,6 +409,40 @@ mod tests {
             ]
         );
         assert_eq!(calls.lock().unwrap()[..], ["stop", "load scene.usda 1", "render"]);
+    }
+
+    /// Another frame, live (headless Imago's range): the frame edit applied
+    /// with what changed; a reload after it is at that frame.
+    #[test]
+    fn another_frame_is_an_edit_and_reloads_at_it() {
+        let (live, calls) = stand_in();
+        live.load("scene.usda", 1.0, false, None);
+        live.wait(SECOND, |e| *e == Event::Finished);
+        let frame = |f: f64| Edit {
+            path: String::new(),
+            change: Change::Frame(f),
+        };
+        live.edit(vec![light(2.0), frame(2.0)], || Ok("scene.usda".into()));
+        assert!(live
+            .wait(SECOND, |e| *e == Event::Edited(2))
+            .contains(&Event::Edited(2)));
+        live.edit(
+            vec![
+                frame(3.0),
+                Edit {
+                    path: "/asset".into(),
+                    change: Change::Structure,
+                },
+            ],
+            || Ok("scene.usda".into()),
+        );
+        live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
+        let calls = calls.lock().unwrap();
+        assert!(calls.iter().any(|c| c == "edit  Frame(2.0)"), "{calls:?}");
+        assert!(
+            calls.iter().any(|c| c == "load scene.usda 3"),
+            "reloaded at the frame sent: {calls:?}"
+        );
     }
 
     #[test]
