@@ -78,7 +78,7 @@ pub fn installed(sdk: &Path) -> Result<Installed, String> {
     let ai = Api::load(sdk)?;
     let version = ai.version();
     supported(&version)?;
-    begin(&ai);
+    begin(&ai, sdk);
     Ok(Installed {
         version,
         options: ai.options(),
@@ -89,9 +89,10 @@ pub fn installed(sdk: &Path) -> Result<Installed, String> {
 /// render or `installed`.
 static BEGUN: Mutex<bool> = Mutex::new(false);
 
-fn begin(ai: &Api) {
+fn begin(ai: &Api, sdk: &Path) {
     let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
     if !*begun {
+        environment(sdk);
         // SAFETY: before any call that needs it, once until `AiEnd`; the
         // callback is a function of this crate, its data none.
         unsafe {
@@ -99,6 +100,30 @@ fn begin(ai: &Api) {
             (ai.AiMsgRegisterCallback)(Some(logged), ffi::LOG_WARNINGS_ERRORS, std::ptr::null_mut());
         }
         *begun = true;
+    }
+}
+
+/// Arnold's environment, as its own programs (kick) have it from a shell,
+/// for an SDK set in Imago's Settings rather than the environment:
+/// `ARNOLD_PATH` the SDK unless set, its `plugins` folder first on
+/// `ARNOLD_PLUGIN_PATH` (the USD reader among them), before `AiBegin`.
+fn environment(sdk: &Path) {
+    if std::env::var_os("ARNOLD_PATH").is_none_or(|v| v.is_empty()) {
+        std::env::set_var("ARNOLD_PATH", sdk);
+    }
+    let plugins = sdk.join("plugins");
+    if !plugins.is_dir() {
+        return;
+    }
+    let now = std::env::var_os("ARNOLD_PLUGIN_PATH").unwrap_or_default();
+    let mut paths: Vec<PathBuf> = std::env::split_paths(&now)
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect();
+    if !paths.contains(&plugins) {
+        paths.insert(0, plugins);
+        if let Ok(joined) = std::env::join_paths(paths) {
+            std::env::set_var("ARNOLD_PLUGIN_PATH", joined);
+        }
     }
 }
 
@@ -155,7 +180,7 @@ pub fn textures(config: &Config, layer: &Path, frame: f64) -> Result<Vec<PathBuf
             std::env::set_var(MTLX, dir);
         }
     }
-    begin(&ai);
+    begin(&ai, &config.sdk);
     let file = CString::new(layer.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
     let before = log_after(u64::MAX).1;
     let mut names = vec![];
@@ -301,7 +326,7 @@ impl Arnold {
             let ai = Api::load(&config.sdk)?;
             let version = ai.version();
             supported(&version)?;
-            begin(&ai);
+            begin(&ai, &config.sdk);
             // SAFETY: once per process (STARTED), Arnold started; the driver's
             // table is a static, as Arnold keeps it.
             unsafe {
@@ -818,6 +843,24 @@ mod tests {
         assert!(why.contains("/tmp/live.usda: ") && why.contains("libGLU.so.1"), "{why}");
         assert!(!why.contains("no default prim"), "errors only, when there are: {why}");
         assert!(could_not_load(Path::new("/x.usda"), log_after(u64::MAX).1).contains("logged no error"));
+    }
+
+    /// An SDK set in Settings: Arnold's variables as a shell would have them.
+    #[test]
+    fn an_sdk_from_settings_sets_arnolds_environment() {
+        let sdk = std::env::temp_dir().join(format!("xms_sdk_{}", std::process::id()));
+        std::fs::create_dir_all(sdk.join("plugins")).unwrap();
+        let had = std::env::var_os("ARNOLD_PATH");
+        environment(&sdk);
+        let plugins: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("ARNOLD_PLUGIN_PATH").unwrap()).collect();
+        assert_eq!(plugins[0], sdk.join("plugins"));
+        environment(&sdk);
+        let again: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("ARNOLD_PLUGIN_PATH").unwrap()).collect();
+        assert_eq!(again.len(), plugins.len(), "once");
+        if had.is_none() {
+            assert_eq!(std::env::var_os("ARNOLD_PATH"), Some(sdk.clone().into()));
+        }
+        let _ = std::fs::remove_dir_all(&sdk);
     }
 
     #[test]
