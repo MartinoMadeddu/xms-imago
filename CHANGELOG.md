@@ -8,8 +8,12 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-09
+
 - **Frame rates:** Imago's USD layers repeat their files' `timeCodesPerSecond`, so a 25 fps file renders (and is written) at the frames Imago shows.
-- **Arnold's log in Imago:** its warnings and errors in the Image Viewer's Log (printed headless), and the reason when a scene does not load.
+- **Arnold's log in Imago:** its warnings and errors in the Image Viewer's Log (printed headless), and the reason when a scene does not load; the Log also says which changes went to Arnold live and which made it load the scene again.
+- **Arnold from the Arnold Folder in Settings** (nothing in the environment, as on Linux): `ARNOLD_PATH` and its plugins (the USD reader) set for Arnold before it starts.
+- **Hair in Arnold:** curves deformed in ICE render as Imago shows them: their points sent live, written with their counts, and widths set per curve written per point and no longer blocked by the file's. Curves' widths are listed in the Primitive Inspector.
 
 ## [0.2.7] - 2026-11-09
 
