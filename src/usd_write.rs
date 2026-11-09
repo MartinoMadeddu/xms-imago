@@ -117,6 +117,9 @@ struct Header {
     render_settings: Option<String>,
     /// `metersPerUnit`, `upAxis`.
     units: Vec<String>,
+    /// The stages' time codes a second, repeated so USD does not scale their
+    /// time to this layer's (written when the layer has no time of its own).
+    rate: Option<f64>,
     sublayers: Vec<String>,
 }
 
@@ -128,9 +131,11 @@ impl Header {
         if let Some(name) = &self.default_prim {
             let _ = writeln!(text, "    defaultPrim = \"{name}\"");
         }
-        if let Some((start, end, rate)) = time {
+        if let Some((start, end, _)) = time {
             let _ = writeln!(text, "    startTimeCode = {}", num64(start));
             let _ = writeln!(text, "    endTimeCode = {}", num64(end));
+        }
+        if let Some(rate) = time.map(|t| t.2).or(self.rate) {
             let _ = writeln!(text, "    timeCodesPerSecond = {}", num64(rate));
             let _ = writeln!(text, "    framesPerSecond = {}", num64(rate));
         }
@@ -515,6 +520,7 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
         default_prim,
         render_settings: crate::core::render::layer_settings(prims),
         units,
+        rate: trees.iter().find_map(|t| t.time_codes_per_second),
         sublayers: sublayered
             .iter()
             .map(|t| format!("@{}@", relative(&t.source, dir).display()))
@@ -1509,6 +1515,24 @@ def Xform "set" {{
 }}
 "#
         )
+    }
+
+    /// A stage of 25 time codes a second: the override says so too, so USD
+    /// does not scale the stage's time to the layer's 24 (frame 1008 of
+    /// Imago is time code 1008 of the file, as Imago reads it).
+    #[test]
+    fn an_override_keeps_its_stages_time_codes_a_second() {
+        let (_, prims) = load(
+            "rate.usda",
+            &stage_text().replace("upAxis", "timeCodesPerSecond = 25\n    upAxis"),
+        );
+        let out = std::env::temp_dir().join("xms_usd_write_test/rate_over.usda");
+        let (text, _) = override_layer(&prims, &out).unwrap();
+        assert!(
+            text.contains("timeCodesPerSecond = 25") && text.contains("framesPerSecond = 25"),
+            "{text}"
+        );
+        assert!(!text.contains("startTimeCode"), "no time of its own: {text}");
     }
 
     #[test]

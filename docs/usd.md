@@ -629,6 +629,10 @@ payloads each stage loaded that way on its prim, and holds only opinions over
 them, so opened on its own (in usdview, rray, or Imago) it gives what Imago
 shows. It repeats the first sublayered file's `upAxis` and `metersPerUnit`,
 which USD reads from the layer that is opened; with none, it is Y up in metres.
+It repeats its stages' `timeCodesPerSecond` (and `framesPerSecond`) too: USD
+scales a file's time to the layer's when they differ, so a 25 fps file under a
+layer saying nothing (24) would be read at other times than Imago shows (frame
+1008 of Imago is time code 1008 of the file).
 
 Set a path and press **Write**. The panel then says what was written, and lists
 what could not be, with the reason.

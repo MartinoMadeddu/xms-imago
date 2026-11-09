@@ -543,6 +543,7 @@ fn scene_of(
         source: layer.to_path_buf(),
         up_axis: scene.up_axis.clone(),
         meters_per_unit: scene.meters_per_unit,
+        time_codes_per_second: Some(info.time_codes_per_second),
         opinions: Default::default(),
         index: nodes_index,
         arc: None,

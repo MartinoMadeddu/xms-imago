@@ -157,6 +157,10 @@ pub struct StageTree {
     pub source: std::path::PathBuf,
     pub up_axis: String,
     pub meters_per_unit: Option<f64>,
+    /// Its time codes a second (`timeCodesPerSecond`): what an override
+    /// layer repeats, so USD does not scale the file's time to the layer's
+    /// (Imago reads a time code as a frame).
+    pub time_codes_per_second: Option<f64>,
     /// Values Set Attribute set on prims of the stage that are not geometry
     /// primitives (Xforms, cameras, lights, materials), by path. Empty as
     /// loaded: everything in it is an edit, written by Write USD as `over`s.
@@ -356,6 +360,7 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
         source: tree.source.clone(),
         up_axis: tree.up_axis.clone(),
         meters_per_unit: tree.meters_per_unit,
+        time_codes_per_second: tree.time_codes_per_second,
         render_settings: tree.render_settings.as_deref().and_then(|p| arc.place(p)),
         convert: tree.convert,
         variants: tree.variants.clone(),

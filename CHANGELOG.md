@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Frame rates:** Imago's USD layers repeat their files' `timeCodesPerSecond`, so a 25 fps file renders (and is written) at the frames Imago shows.
 - **Arnold's log in Imago:** its warnings and errors in the Image Viewer's Log (printed headless), and the reason when a scene does not load.
 
 ## [0.2.7] - 2026-11-09
