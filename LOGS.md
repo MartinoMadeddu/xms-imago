@@ -808,3 +808,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Imago 0.2.7. (Martino)
 - 09/11/2026: Arnold's warnings and errors into Imago (AiMsgRegisterCallback): the Image Viewer's Log while it renders in Imago, printed headless, and a layer that does not load says Arnold's reason. (Martino)
 - 09/11/2026: An Arnold Folder set in Settings, not the environment: ARNOLD_PATH and ARNOLD_PLUGIN_PATH (its plugins, the USD reader) set for Arnold before it starts, as a shell would. (Martino)
+- 09/11/2026: Curves' and points' points sent live as Arnold names them (points, not vlist); each edit Arnold cannot take live says why in the Log (no node of that name, point counts, motion blur keys), and points sent in memory are said too. (Martino)

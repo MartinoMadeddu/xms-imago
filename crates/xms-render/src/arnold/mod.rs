@@ -165,7 +165,11 @@ fn log_after(seen: u64) -> (Vec<(bool, String)>, u64) {
 }
 
 fn shown((error, text): &(bool, String)) -> String {
-    format!("Arnold {}: {text}", if *error { "error" } else { "warning" })
+    match text.starts_with("Imago:") {
+        // What Imago did with Arnold, as it is.
+        true => text.clone(),
+        false => format!("Arnold {}: {text}", if *error { "error" } else { "warning" }),
+    }
 }
 
 /// The image files the scene at `layer` reads at `frame`, as Arnold loads
@@ -247,6 +251,16 @@ fn tiles(file: &Path) -> Vec<PathBuf> {
 pub fn maketx(config: &Config) -> PathBuf {
     let exe = if cfg!(windows) { "maketx.exe" } else { "maketx" };
     config.sdk.join("bin").join(exe)
+}
+
+/// An edit Arnold cannot take live, said in its log: the layer is written
+/// and loaded again in its place. False.
+fn not_live(path: &str, why: &str) -> bool {
+    log(
+        false,
+        format!("Imago: {path}: not changed live ({why}), so the scene is loaded again"),
+    );
+    false
 }
 
 /// Why Arnold did not load a layer: the errors it logged since `before`,
@@ -508,16 +522,17 @@ impl Arnold {
                 _ => (ai.AiNodeLookUpByName)(self.universe, ai.string(&e.path), std::ptr::null_mut()),
             };
             if node.is_null() {
-                return false;
+                return not_live(&e.path, "Arnold has no node of that name");
             }
-            let kind = (ai.AiNodeEntryGetType)((ai.AiNodeGetNodeEntry)(node));
+            let entry = (ai.AiNodeGetNodeEntry)(node);
+            let kind = (ai.AiNodeEntryGetType)(entry);
             match &e.change {
                 Change::Transform(m) => {
                     let has = [ffi::NODE_SHAPE, ffi::NODE_LIGHT, ffi::NODE_CAMERA].contains(&kind);
                     // Motion blur's keys are the layer's to give again.
                     let keys = (ai.AiNodeGetArray)(node, ai.string("matrix"));
                     if !has || (!keys.is_null() && (ai.AiArrayGetNumKeys)(keys) > 1) {
-                        return false;
+                        return not_live(&e.path, "its transform has motion blur keys");
                     }
                     (ai.AiNodeSetMatrix)(node, ai.string("matrix"), Matrix(*m));
                     true
@@ -530,17 +545,31 @@ impl Arnold {
                     true
                 }
                 Change::Points(points) => {
-                    let vlist = (ai.AiNodeGetArray)(node, ai.string("vlist"));
-                    if kind != ffi::NODE_SHAPE
-                        || vlist.is_null()
-                        || (ai.AiArrayGetNumElements)(vlist) as usize != points.len()
-                        || (ai.AiArrayGetNumKeys)(vlist) != 1
-                    {
-                        return false;
+                    // A mesh's points are `vlist`, curves' and points' `points`.
+                    let param = match ffi::text((ai.AiNodeEntryGetName)(entry)).as_str() {
+                        "curves" | "points" => "points",
+                        _ => "vlist",
+                    };
+                    let now = (ai.AiNodeGetArray)(node, ai.string(param));
+                    let why = if kind != ffi::NODE_SHAPE || now.is_null() {
+                        Some("not a shape with points".to_string())
+                    } else if (ai.AiArrayGetNumElements)(now) as usize != points.len() {
+                        Some(format!(
+                            "Arnold has {} points, Imago {}",
+                            (ai.AiArrayGetNumElements)(now),
+                            points.len()
+                        ))
+                    } else if (ai.AiArrayGetNumKeys)(now) != 1 {
+                        Some("its points have motion blur keys".to_string())
+                    } else {
+                        None
+                    };
+                    if let Some(why) = why {
+                        return not_live(&e.path, &why);
                     }
                     let array =
                         (ai.AiArrayConvert)(points.len() as u32, 1, ffi::TYPE_VECTOR, points.as_ptr() as *const _);
-                    (ai.AiNodeSetArray)(node, ai.string("vlist"), array);
+                    (ai.AiNodeSetArray)(node, ai.string(param), array);
                     true
                 }
                 Change::Attributes(attributes) => attributes.iter().all(|(name, v)| {
@@ -747,6 +776,13 @@ impl Renderer for Arnold {
         }
         self.pause();
         let applied = edits.iter().all(|e| self.apply(e));
+        let moved = edits.iter().filter(|e| matches!(e.change, Change::Points(_))).count();
+        if applied && moved > 0 {
+            log(
+                false,
+                format!("Imago: the points of {moved} prim(s) sent to Arnold in memory"),
+            );
+        }
         if let Some(f) = edits.iter().rev().find_map(|e| match e.change {
             Change::Frame(f) => Some(f),
             _ => None,
