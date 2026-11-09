@@ -39,6 +39,72 @@ impl Config {
     }
 }
 
+/// Arnold as installed: its version, and the parameters of its `options`
+/// node (what Render Settings can set), as this version has them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Installed {
+    pub version: String,
+    pub options: Vec<ArnoldOption>,
+}
+
+/// One parameter of Arnold's `options` node, and its default.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArnoldOption {
+    pub name: String,
+    pub default: OptionDefault,
+}
+
+/// A parameter's type and default, of the types a setting can be.
+#[derive(Clone, Debug, PartialEq)]
+pub enum OptionDefault {
+    Bool(bool),
+    Int(i32),
+    Float(f32),
+    Rgb([f32; 3]),
+    Vector([f32; 3]),
+    Vector2([f32; 2]),
+    Text(String),
+    /// An enum: its default and every value it takes.
+    Choice(String, Vec<String>),
+}
+
+/// Whether Arnold renders in Imago from the SDK at `sdk`: its library loaded,
+/// as it is to render, and started; its version and options, else why not.
+/// It stays loaded and started (the system's loader is never asked to close
+/// it), so rendering later starts at no cost.
+pub fn installed(sdk: &Path) -> Result<Installed, String> {
+    let ai = Api::load(sdk)?;
+    let version = ai.version();
+    supported(&version)?;
+    begin(&ai);
+    Ok(Installed {
+        version,
+        options: ai.options(),
+    })
+}
+
+/// `AiBegin`, once while Arnold is started: by whichever comes first, a
+/// render or `installed`.
+static BEGUN: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+fn begin(ai: &Api) {
+    let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
+    if !*begun {
+        // SAFETY: before any call that needs it, once until `AiEnd`.
+        unsafe { (ai.AiBegin)(ffi::SESSION_INTERACTIVE) };
+        *begun = true;
+    }
+}
+
+/// Imago renders with Arnold 7 or later.
+fn supported(version: &str) -> Result<(), String> {
+    let major = version.split('.').next().and_then(|m| m.trim().parse::<u32>().ok());
+    match major {
+        Some(m) if m >= 7 => Ok(()),
+        _ => Err(format!("Arnold {version}: Imago renders with Arnold 7 or later")),
+    }
+}
+
 /// Arnold is started once per process.
 static STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -81,19 +147,11 @@ impl Arnold {
             }
             let ai = Api::load(&config.sdk)?;
             let version = ai.version();
-            if version
-                .split('.')
-                .next()
-                .and_then(|m| m.parse::<u32>().ok())
-                .unwrap_or(0)
-                < 7
-            {
-                return Err(format!("Arnold {version}: Imago renders with Arnold 7 or later"));
-            }
-            // SAFETY: once per process (STARTED), before any other call; the
-            // driver's table is a static, as Arnold keeps it.
+            supported(&version)?;
+            begin(&ai);
+            // SAFETY: once per process (STARTED), Arnold started; the driver's
+            // table is a static, as Arnold keeps it.
             unsafe {
-                (ai.AiBegin)(ffi::SESSION_INTERACTIVE);
                 driver::prepare(
                     pixels,
                     driver::Calls {
@@ -200,10 +258,41 @@ impl Arnold {
         }
     }
 
+    /// Render through `v`, the Viewer's view: a camera of Imago's own in the
+    /// universe, the options' camera, at the view's size.
+    fn view(&self, v: &crate::View) -> bool {
+        let ai = &self.ai;
+        // SAFETY: the loaded universe, changed while paused.
+        unsafe {
+            let options = (ai.AiUniverseGetOptions)(self.universe);
+            let mut camera = (ai.AiNodeLookUpByName)(self.universe, ai.string(VIEW_NODE), std::ptr::null_mut());
+            if camera.is_null() {
+                camera = (ai.AiNode)(
+                    self.universe,
+                    ai.string("persp_camera"),
+                    ai.string(VIEW_NODE),
+                    std::ptr::null_mut(),
+                );
+            }
+            if camera.is_null() {
+                return false;
+            }
+            (ai.AiNodeSetMatrix)(camera, ai.string("matrix"), Matrix(v.matrix));
+            (ai.AiNodeSetFlt)(camera, ai.string("fov"), v.fov);
+            (ai.AiNodeSetPtr)(options, ai.string("camera"), camera);
+            (ai.AiNodeSetInt)(options, ai.string("xres"), v.size[0].max(1) as c_int);
+            (ai.AiNodeSetInt)(options, ai.string("yres"), v.size[1].max(1) as c_int);
+        }
+        true
+    }
+
     fn apply(&self, e: &Edit) -> bool {
         let ai = &self.ai;
         // SAFETY: nodes of the loaded universe, changed while paused.
         unsafe {
+            if let Change::View(v) = &e.change {
+                return self.view(v);
+            }
             let node = match &e.change {
                 Change::Settings(_) => (ai.AiUniverseGetOptions)(self.universe),
                 _ => (ai.AiNodeLookUpByName)(self.universe, ai.string(&e.path), std::ptr::null_mut()),
@@ -255,7 +344,7 @@ impl Arnold {
                 Change::Settings(settings) => settings.iter().all(|(name, v)| {
                     settings_params(name, v).is_some_and(|ps| ps.iter().all(|(p, v)| set(ai, node, p, v)))
                 }),
-                Change::Structure => false,
+                Change::Structure | Change::View(_) => false,
             }
         }
     }
@@ -263,6 +352,8 @@ impl Arnold {
 
 /// The node of Imago's driver in each universe.
 const PIXELS_NODE: &str = "/__xms_imago_pixels";
+/// The camera of the Viewer's view, when it renders through it.
+const VIEW_NODE: &str = "/__xms_imago_view";
 
 fn driver_name() -> String {
     driver::NAME.to_string_lossy().into_owned()
@@ -481,8 +572,10 @@ impl Renderer for Arnold {
 impl Drop for Arnold {
     fn drop(&mut self) {
         self.unload();
+        let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
         // SAFETY: once, after everything Arnold made is let go.
         unsafe { (self.ai.AiEnd)() };
+        *begun = false;
         STARTED.store(false, Ordering::SeqCst);
     }
 }
@@ -490,6 +583,19 @@ impl Drop for Arnold {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arnold_7_or_later_is_supported() {
+        assert!(supported("7.5.0.0").is_ok() && supported("8.0.1").is_ok());
+        assert!(supported("6.2.1.1").unwrap_err().contains("7 or later"));
+        assert!(supported("").is_err());
+    }
+
+    #[test]
+    fn no_sdk_says_where_it_looked() {
+        let e = installed(Path::new("/nowhere/arnold")).unwrap_err();
+        assert!(e.contains("/nowhere/arnold"), "{e}");
+    }
 
     #[test]
     fn lights_and_settings_map_to_arnold_parameters() {

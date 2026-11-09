@@ -26,8 +26,8 @@ fn first_page() -> Result<PathBuf, String> {
         })
 }
 
-/// `page` in the system's browser.
-fn show(page: &Path) -> Result<(), String> {
+/// `page` in the system's browser, or a folder in its file browser.
+pub(crate) fn show(page: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut c = std::process::Command::new("open");
     #[cfg(target_os = "windows")]

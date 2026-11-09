@@ -357,13 +357,130 @@ pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Conte
 
 // Render Settings
 
+/// A renderer definition's rows, the Render Settings panel's and File >
+/// Settings > Renderers': whether it is on this machine, where its definition
+/// comes from (and what yours lacks), Make editable copy or Revert to
+/// built-in, and Reload.
+pub fn definition_rows(f: &mut Rows, d: &render::Definition) {
+    use crate::core::renderers::{self, Source};
+    let finding = renderers::found(&d.name);
+    if finding.in_imago == Some(renderers::Found::Looking) || finding.command == Some(renderers::Found::Looking) {
+        f.ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+    }
+    let here = if finding.any() { Status::Ok } else { Status::Bad };
+    f.status(here, format!("{}: {}", d.label, finding.describe()));
+    // Against the renderer as installed, and what a new version changed.
+    if let Some(c) = renderers::checked(&d.name) {
+        let some = |v: &[String]| match v.len() {
+            0 => "none".to_string(),
+            n if n > 12 => format!("{}… ({n})", v[..12].join(", ")),
+            _ => v.join(", "),
+        };
+        if let Some((was, added, gone, changed)) = &c.since {
+            f.status(Status::Bad, format!(
+                "{} {} here now (was {was}). Its options: added {}; gone {}; changed {}. Is this definition up to date?",
+                d.label, c.version, some(added), some(gone), some(changed)
+            ));
+        }
+        if !c.unknown.is_empty() {
+            f.status(
+                Status::Bad,
+                format!(
+                    "Not options of {} {}, so ignored by it: {}",
+                    d.label,
+                    c.version,
+                    some(&c.unknown)
+                ),
+            );
+        }
+        if !c.defaults.is_empty() {
+            let list: Vec<String> = c
+                .defaults
+                .iter()
+                .map(|(n, ours, theirs)| format!("{n} {ours} ({theirs})"))
+                .collect();
+            f.status(
+                Status::Info,
+                format!(
+                    "Defaults here that are not {}'s own (its in brackets): {}",
+                    d.label,
+                    some(&list)
+                ),
+            );
+        }
+    }
+    let from = match (&d.source, d.from.as_str()) {
+        (Source::Yours(_), from) if !from.is_empty() => format!("{} (copied from Imago {from})", d.source.describe()),
+        _ => d.source.describe(),
+    };
+    f.status(Status::Info, from);
+    let (params, aovs) = renderers::lacks(d);
+    if !params.is_empty() || !aovs.is_empty() {
+        let list = |v: &[String]| {
+            v.iter()
+                .map(|n| n.rsplit(':').next().unwrap_or(n))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut text = format!(
+            "The built-in definition (Imago {}) has what yours does not:",
+            env!("CARGO_PKG_VERSION")
+        );
+        if !params.is_empty() {
+            text += &format!(" {} setting(s): {}.", params.len(), list(&params));
+        }
+        if !aovs.is_empty() {
+            text += &format!(" {} AOV(s): {}.", aovs.len(), list(&aovs));
+        }
+        f.status(Status::Bad, text);
+    }
+    let built_in = renderers::is_built_in(&d.name);
+    let mut message = None;
+    f.buttons("Definition", Some("Your definitions folder is read at launch and on Reload; one of yours replaces the built-in one of its name"), |ui| {
+        match &d.source {
+            Source::BuiltIn if built_in => {
+                if ui.button("Make editable copy").on_hover_text("Write this built-in definition into your renderers folder, to change: from then on yours is read in its place").clicked() {
+                    message = Some(renderers::make_copy(&d.name).map(|p| format!("Written: {}", p.display())));
+                }
+            }
+            Source::Yours(_) if built_in => {
+                if ui.button("Revert to built-in").on_hover_text("Rename your file aside (not deleted): the built-in definition is read again").clicked() {
+                    message = Some(renderers::revert(d).map(|p| format!("Yours is now {}", p.display())));
+                }
+            }
+            _ => {}
+        }
+        if ui.button("Reload").on_hover_text("Read your renderers folder again, and look for the renderers again").clicked() {
+            renderers::reload();
+        }
+    });
+    let id = egui::Id::new(("renderer_definition_message", d.name.as_str()));
+    if let Some(m) = message {
+        f.ui.ctx().data_mut(|data| data.insert_temp(id, m));
+    }
+    if let Some(m) = f.ui.ctx().data(|data| data.get_temp::<Result<String, String>>(id)) {
+        match m {
+            Ok(t) => f.status(Status::Ok, t),
+            Err(e) => f.status(Status::Bad, e),
+        }
+    }
+}
+
 pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context, node: NodeId) {
-    let defs = render::definitions();
-    let mut options: Vec<(String, String)> = defs.iter().map(|d| (d.name.clone(), d.label.clone())).collect();
+    let defs = crate::core::renderers::definitions();
+    // Each marked with whether it is on this machine, never hidden.
+    let mut options: Vec<(String, String)> = defs
+        .iter()
+        .map(|d| {
+            let here = crate::core::renderers::found(&d.name).any();
+            let mark = if here { "" } else { "   (not found here)" };
+            (d.name.clone(), format!("{}{mark}", d.label))
+        })
+        .collect();
     options.push((CUSTOM.to_string(), "Custom".to_string()));
     let options: Vec<(String, &str)> = options.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
     let def = (r.renderer != CUSTOM)
-        .then(|| render::definition(&r.renderer))
+        .then(|| crate::core::renderers::definition(&r.renderer))
         .flatten();
 
     group(ui, "Renderer", Some("Whose settings: a definition file each (Karma and Arnold come with Imago; more go in the renderers folder), or Custom: settings you name"), |f| {
@@ -383,8 +500,16 @@ pub fn renderer_rows(ui: &mut egui::Ui, r: &mut RendererSettings, ctx: &Context,
         } else if def.is_none() {
             f.status(Status::Bad, format!("No definition named \"{}\": its settings are kept, not written", r.renderer));
         }
-        if let Some(d) = &def { if !d.about.is_empty() { f.status(Status::Info, d.about.clone()); } }
-        for e in render::definition_errors() { f.status(Status::Bad, e.clone()); }
+        if let Some(d) = &def {
+            if !d.about.is_empty() { f.status(Status::Info, d.about.clone()); }
+            definition_rows(f, d);
+            let kept = r.not_in(d);
+            if !kept.is_empty() {
+                let names: Vec<&str> = kept.iter().map(|(k, _)| *k).collect();
+                f.status(Status::Info, format!("Not in this renderer's definition, kept and written: {}", names.join(", ")));
+            }
+        }
+        for e in crate::core::renderers::errors() { f.status(Status::Bad, e); }
     });
     group(ui, "Primitive", Some("Where the settings go: the RenderSettings prim the scene names, else the first one coming in, else one made here"), |f| {
         match &ctx.settings {
@@ -731,7 +856,7 @@ pub fn variables_rows(ui: &mut egui::Ui, v: &mut Variables, ctx: &Context) {
                     v.rows.push(VarRow::default());
                 }
                 crate::menus::menu(ui, "+ From a renderer", |ui| {
-                    for d in render::definitions() {
+                    for d in crate::core::renderers::definitions() {
                         crate::menus::menu(ui, d.label.as_str(), |ui| {
                             for a in &d.aovs {
                                 let label = if a.label.is_empty() {

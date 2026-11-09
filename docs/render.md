@@ -93,12 +93,63 @@ has no standard AOVs: add them with Render Variables.
 ### Renderer definitions
 
 A renderer is a JSON file: its name, label and namespace, its settings and its
-standard AOVs. Karma's and Arnold's come with Imago
-(`assets/renderers/karma.json`, `arnold.json`). More go in the **renderers
-folder**: `$XMS_RENDERERS`, else `renderers` in Imago's config folder
-(`~/.config/xms/renderers` on Linux, `%APPDATA%\xms\renderers` on Windows). A
-file there adds a renderer to the menu, or replaces the one of the same name.
-Files that do not read are listed in the panel, with why.
+standard AOVs (the plan: [renderer-definitions.md](renderer-definitions.md)).
+
+- **Built in:** Karma's and Arnold's are compiled into Imago
+  (`assets/renderers/karma.json`, `arnold.json`): they match its version and
+  cannot go missing.
+- **Yours, over them:** your **renderers folder**, `$XMS_RENDERERS`, else
+  `renderers` in Imago's config folder (`~/.config/xms/renderers` on Linux,
+  `~/Library/Application Support/xms/renderers` on macOS,
+  `%APPDATA%\xms\renderers` on Windows), read at launch and on **Reload**. A
+  file there replaces the built-in one of its name, or adds a renderer. One
+  that does not read is listed in the panel, with why, and the built-in one is
+  used.
+- **Make editable copy** (the Render Settings panel, File > Settings >
+  Renderers) writes the built-in definition into your folder, with
+  `"from": "<Imago's version>"`, and opens the folder. The panel says where
+  each definition comes from ("Built in (Imago 0.2.5)", "Yours: …"), and,
+  when the built-in one has settings or AOVs yours lacks (a later Imago), which.
+  **Revert to built-in** renames yours aside (`arnold.json.reverted-<seconds>`).
+- **Settings kept by name:** one set on an operator that the definition no
+  longer has (under its namespace) is still written, and listed as not in the
+  definition.
+
+**Whether a renderer is on this machine**, each way Imago runs it, is shown in
+the renderer menu ("not found here"), the panel and File > Settings >
+Renderers; no renderer is ever hidden, so settings can be made for another
+machine:
+
+- **In Imago** (the `live` block): the renderer loaded and started as it is to
+  render, and its version ("Arnold 7.5.0.0 in Imago (212 options)"), or why
+  not. Not found, Render runs the command line instead, and the Viewer's
+  Arnold is greyed, saying why.
+- **Where each is installed** (a definition's `folder`): the **Arnold Folder**
+  and the **Houdini Folder** in File > Settings > Renderers. Each sets its
+  variable inside Imago (`$ARNOLD_PATH`, `$HFS`) over the environment's, for
+  finding the renderer and for command lines, which also find its `bin` on
+  their `PATH` (husk, kick). Programs opened from the Finder or the Dock on
+  macOS do not see variables set in a shell's profile, nor its `PATH`: set the
+  folders there.
+- **The definition checked against Arnold:** once Arnold is found, every
+  parameter of its `options` node is read from it (name, type, default, an
+  enum's values). The panel and Settings say which settings of the definition
+  are not Arnold options (so Arnold ignores them), and which defaults are not
+  Arnold's own (most on purpose, as Houdini's Arnold ROP has them: Camera (AA)
+  3, where Arnold's is 1). The options are kept in Imago's config folder with
+  Arnold's version (`arnold_options.txt`): when a later Arnold is found, the
+  options it added, dropped or changed are listed, to bring the definition up
+  to date. The settings listed are the definition's: the Arnold ROP's
+  Sampling, Ray Depth, Subdivision, Textures, System and Ignore, not all of
+  Arnold's options.
+- **As a command line** (`detect`): any of `env` (variables set), `programs`
+  (on the `PATH`) and `files` (variables put in). Not found is only a warning:
+  the command line still runs.
+
+```json
+"folder": { "label": "Houdini Folder", "variable": "HFS" },
+"detect": { "env": ["HFS"], "programs": ["husk"], "files": ["$HFS/bin/husk"] }
+```
 
 ```json
 {
@@ -314,6 +365,13 @@ beside it; the name field renames the one shown; **✕** lets it go. Rendering
 again shows the active render; a snapshot keeps its layers, so compare any AOV.
 They are kept while the program runs, with how much memory they take.
 
+The snapshots are the program's, not the pane's: the Viewer has the same bar,
+behind the **📷** at its bottom left (hidden to start with). There Snap keeps
+what Arnold has rendered in the Viewer, every AOV, and choosing a snapshot
+shows it in place of the scene, fitted, its aspect kept; **Viewer**, last,
+shows the scene again. Each pane shows the one it chose, so snap in the
+Viewer, then compare in the Image Viewer.
+
 With a renderer that can (Arnold, for RenderSettings with Arnold settings),
 Render renders in Imago itself, its image coming into the view bucket by
 bucket; Stop stops it. Another renderer (Karma) runs the command line.
@@ -345,6 +403,14 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
   (`color4h`, `color3h`), its data AOVs (P, N, Z, motion) float, as Karma's.
 - It renders the layer's own RenderSettings and their camera. Arnold stays
   loaded after Stop, until Imago closes, so rendering again is quick.
+
+- **In the Viewer:** the menu at the Viewer's top right, Viewport or
+  Arnold. Arnold renders the scene there with IPR, through the Viewer's
+  camera (its own, or the scene's camera looked through) at the pane's size,
+  each change and each move of the view sent as you work; the wireframe and
+  handles you work with are drawn over it. One Arnold for both panes: Render
+  in the Image Viewer takes it back to the layer's camera, and Stop stops
+  either.
 
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.

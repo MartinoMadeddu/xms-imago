@@ -35,6 +35,9 @@ pub mod reach;
 /// Rendering: the UsdRender prims (RenderSettings, RenderProduct, RenderVar)
 /// the render operators make, and renderer definitions.
 pub mod render;
+/// Renderer definitions: built in, then yours; and whether each renderer is
+/// on this machine.
+pub mod renderers;
 pub mod reparent;
 pub mod sequences;
 /// Set Attribute: one value per primitive, set by the scene graph.

@@ -1,6 +1,7 @@
 //! Which display and view each pane shows the scene in (`xms_colour`), and
 //! the menu choosing it. Remembered between sessions, by pane; a view the
-//! config does not have is its default.
+//! config does not have is its default. The Viewer shows the Image Viewer's
+//! unless it is given its own (File > Settings > Viewer).
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -36,22 +37,37 @@ impl Pane {
     }
 }
 
-static CHOSEN: Mutex<Option<BTreeMap<Pane, View>>> = Mutex::new(None);
+/// What was chosen: each pane's view, and whether the Viewer has its own.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Chosen {
+    views: BTreeMap<Pane, View>,
+    viewer_own: bool,
+}
+
+static CHOSEN: Mutex<Option<Chosen>> = Mutex::new(None);
+
+/// The key of the line saying the Viewer has its own view.
+const VIEWER_OWN: &str = "viewer_own";
 
 fn file() -> Option<std::path::PathBuf> {
     crate::file_browser::config_path("colour.txt")
 }
 
-/// One line per pane: its key, display and view, tab separated.
-fn read(text: &str) -> BTreeMap<Pane, View> {
-    let mut out = BTreeMap::new();
+/// One line per pane: its key, display and view, tab separated; a line
+/// `viewer_own` when the Viewer has its own.
+fn read(text: &str) -> Chosen {
+    let mut out = Chosen::default();
     for line in text.lines() {
+        if line.trim() == VIEWER_OWN {
+            out.viewer_own = true;
+            continue;
+        }
         let parts: Vec<&str> = line.split('\t').collect();
         let pane = [Pane::Viewer, Pane::ImageViewer]
             .into_iter()
             .find(|p| parts.first() == Some(&p.key()));
         if let (Some(pane), [_, display, view]) = (pane, parts.as_slice()) {
-            out.insert(
+            out.views.insert(
                 pane,
                 View {
                     display: display.to_string(),
@@ -63,16 +79,18 @@ fn read(text: &str) -> BTreeMap<Pane, View> {
     out
 }
 
-fn write(chosen: &BTreeMap<Pane, View>) -> String {
-    chosen
+fn write(chosen: &Chosen) -> String {
+    let views = chosen
+        .views
         .iter()
-        .map(|(p, v)| format!("{}\t{}\t{}\n", p.key(), v.display, v.view))
-        .collect()
+        .map(|(p, v)| format!("{}\t{}\t{}\n", p.key(), v.display, v.view));
+    let own = chosen.viewer_own.then(|| format!("{VIEWER_OWN}\n"));
+    views.chain(own).collect()
 }
 
-/// The display and view a pane shows: the one chosen, else the pane's own
-/// default, else the config's (when the config has neither).
-pub fn view(pane: Pane) -> View {
+/// What was chosen, read from the file the first time, changed by `f` (and
+/// saved when `f` changes it).
+fn with<T>(f: impl FnOnce(&mut Chosen) -> T) -> T {
     let mut chosen = CHOSEN.lock().unwrap_or_else(|e| e.into_inner());
     let chosen = chosen.get_or_insert_with(|| {
         file()
@@ -80,21 +98,58 @@ pub fn view(pane: Pane) -> View {
             .map(|t| read(&t))
             .unwrap_or_default()
     });
-    let v = chosen.get(&pane).cloned().unwrap_or_else(|| pane.default_view());
+    let before = chosen.clone();
+    let out = f(chosen);
+    if *chosen != before {
+        if let Some(f) = file() {
+            if let Some(dir) = f.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(f, write(chosen));
+        }
+    }
+    out
+}
+
+/// The pane whose view a pane shows: the Image Viewer's for the Viewer,
+/// unless it has its own.
+fn source(chosen: &Chosen, pane: Pane) -> Pane {
+    match pane {
+        Pane::Viewer if !chosen.viewer_own => Pane::ImageViewer,
+        p => p,
+    }
+}
+
+/// The display and view a pane shows: the one chosen, else the pane's own
+/// default, else the config's (when the config has neither).
+pub fn view(pane: Pane) -> View {
+    let v = with(|c| {
+        let pane = source(c, pane);
+        c.views.get(&pane).cloned().unwrap_or_else(|| pane.default_view())
+    });
     Colour::get().valid(&v)
 }
 
 /// Choose a pane's display and view, and remember it.
 pub fn set_view(pane: Pane, v: View) {
-    let mut chosen = CHOSEN.lock().unwrap_or_else(|e| e.into_inner());
-    let chosen = chosen.get_or_insert_with(BTreeMap::new);
-    chosen.insert(pane, v);
-    if let Some(f) = file() {
-        if let Some(dir) = f.parent() {
-            let _ = std::fs::create_dir_all(dir);
+    with(|c| c.views.insert(pane, v));
+}
+
+/// The Viewer shows the Image Viewer's view (the default).
+pub fn viewer_follows() -> bool {
+    with(|c| !c.viewer_own)
+}
+
+/// The Viewer shows the Image Viewer's view, or (`false`) its own, from
+/// what it showed: the menus start where it was.
+pub fn set_viewer_follows(follows: bool) {
+    let shown = view(Pane::Viewer);
+    with(|c| {
+        if !follows && !c.viewer_own {
+            c.views.insert(Pane::Viewer, shown);
         }
-        let _ = std::fs::write(f, write(chosen));
-    }
+        c.viewer_own = !follows;
+    });
 }
 
 /// Where the config came from, for a tooltip or a settings page.
@@ -178,15 +233,15 @@ mod tests {
 
     #[test]
     fn the_choices_are_read_back_as_written() {
-        let mut chosen = BTreeMap::new();
-        chosen.insert(
+        let mut chosen = Chosen::default();
+        chosen.views.insert(
             Pane::Viewer,
             View {
                 display: "sRGB - Display".into(),
                 view: "ACES 1.0 - SDR Video".into(),
             },
         );
-        chosen.insert(
+        chosen.views.insert(
             Pane::ImageViewer,
             View {
                 display: "Display P3 - Display".into(),
@@ -194,6 +249,18 @@ mod tests {
             },
         );
         assert_eq!(read(&write(&chosen)), chosen);
-        assert!(read("junk\nviewer\tonly two").is_empty());
+        chosen.viewer_own = true;
+        assert_eq!(read(&write(&chosen)), chosen);
+        assert_eq!(read("junk\nviewer\tonly two"), Chosen::default());
+    }
+
+    /// The Viewer shows the Image Viewer's view until it has its own.
+    #[test]
+    fn the_viewer_shows_the_image_viewers_view_unless_its_own() {
+        let mut chosen = Chosen::default();
+        assert_eq!(source(&chosen, Pane::Viewer), Pane::ImageViewer);
+        assert_eq!(source(&chosen, Pane::ImageViewer), Pane::ImageViewer);
+        chosen.viewer_own = true;
+        assert_eq!(source(&chosen, Pane::Viewer), Pane::Viewer);
     }
 }

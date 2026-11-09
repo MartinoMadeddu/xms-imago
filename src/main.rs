@@ -468,7 +468,7 @@ pub(crate) fn draw_ui(
         });
     theme::editor(ctx);
     variables::window(ctx, &mut graph.variables);
-    settings::window(ctx);
+    settings::window(ctx, nav_settings);
     // What saves, replaces or closes the graph is done on the root scene
     // graph: out of any compound first.
     if command.as_ref().is_some_and(|c| {
@@ -724,10 +724,10 @@ pub(crate) fn draw_ui(
     // File browser (on top of everything)
     browser.show(ctx);
 
-    // Viewport navigation menu and help
+    // The Viewer's menus, and the navigation keys (the style is File >
+    // Settings > Viewer's).
     let Some(vp) = vp_rect.0 else { return };
-    let before = *nav_settings;
-    let mut chosen = before;
+    let style = nav_settings.style;
     // The key list is hidden until the question mark is clicked.
     let help_id = egui::Id::new("viewport_nav_help");
     let mut nav_help = ctx.data(|d| d.get_temp::<bool>(help_id)).unwrap_or(false);
@@ -743,14 +743,7 @@ pub(crate) fn draw_ui(
                 .inner_margin(3.0)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        crate::menus::menu(ui, format!("Navigation: {} ⏷", chosen.style.label()), |ui| {
-                            for style in viewport::nav::NavStyle::ALL {
-                                if ui.radio_value(&mut chosen.style, style, style.label()).clicked() { ui.close(); }
-                            }
-                            ui.separator();
-                            ui.checkbox(&mut chosen.invert_zoom, "Invert zoom drag");
-                        });
-                        if ui.selectable_label(nav_help, "?").on_hover_text("Show the navigation keys").clicked() {
+                        if ui.selectable_label(nav_help, "?").on_hover_text(format!("Show the navigation keys ({}; File > Settings > Viewer chooses)", style.label())).clicked() {
                             nav_help = !nav_help;
                         }
                         let shown = viewport::display::mode();
@@ -825,10 +818,30 @@ pub(crate) fn draw_ui(
                     });
                 });
         });
-    if chosen != before {
-        *nav_settings = chosen;
-        chosen.save();
-    }
+    // Top right: drawn, or rendered live with Arnold through the view.
+    egui::Area::new("viewport_renderer_menu".into())
+        .order(egui::Order::Background)
+        .pivot(egui::Align2::RIGHT_TOP)
+        .fixed_pos(egui::pos2(vp.max.x - 10.0, vp.min.y + 8.0))
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(theme::c(90, 90, 90).gamma_multiply(0.92))
+                .stroke(egui::Stroke::new(1.0_f32, theme::c(70, 70, 70)))
+                .corner_radius(4.0)
+                .inner_margin(3.0)
+                .show(ui, |ui| {
+                    // One size whichever is chosen: the area keeps last
+                    // frame's width, and a narrower label would wrap.
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                    ui.set_min_width(96.0);
+                    let rendered = crate::live::in_viewer();
+                    crate::menus::menu(ui, format!("{} ⏷", if rendered { "Arnold" } else { "Viewport" }), |ui| {
+                        if ui.radio(!rendered, "Viewport").on_hover_text("The scene drawn by Imago's viewport (wgpu: Metal on macOS, Vulkan or DirectX 12 elsewhere), as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }
+                        let why = crate::live::why_not("arnold");
+                        if ui.add_enabled(why.is_none(), egui::RadioButton::new(rendered, "Arnold")).on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").on_disabled_hover_text(format!("Arnold does not render in Imago here: {}", why.unwrap_or_default())).clicked() { crate::live::set_in_viewer(true); ui.close(); }
+                    }).response.on_hover_text("Draw the scene, or render it with Arnold");
+                });
+        });
 
     ctx.data_mut(|d| d.insert_temp(help_id, nav_help));
     if nav_help {
@@ -843,12 +856,12 @@ pub(crate) fn draw_ui(
                     .corner_radius(6.0)
                     .inner_margin(8.0)
                     .show(ui, |ui| {
-                        let play = if chosen.style == viewport::nav::NavStyle::Houdini {
+                        let play = if style == viewport::nav::NavStyle::Houdini {
                             "Tap Space: play  |  Left/Right: step"
                         } else {
                             "Space: play  |  Left/Right: step"
                         };
-                        let nav_lines = chosen.style.help();
+                        let nav_lines = style.help();
                         for line in nav_lines.iter().chain(["Scroll: zoom", "F: focus", play].iter()) {
                             ui.label(egui::RichText::new(*line).color(egui::Color32::from_rgb(190, 190, 190)));
                         }

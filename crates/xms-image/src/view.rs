@@ -7,21 +7,14 @@
 //!   window, outlined when the pixels go beyond it: overscan); the wheel zooms
 //!   about the pointer, a drag pans, a double-click or F fits it; the pixel
 //!   under the pointer and its values in the corner.
-//! - **Snapshots** (`ImageView::snapshots`): the image kept, as many as wanted,
-//!   to go back and forth between them and the active one (the render coming
-//!   in), as Houdini's render view: a menu, a slider, − and +, Snap, a name, ✕
-//!   to let one go. Kept while the program runs.
+//! - **Snapshots** (`snapshots_bar`, `crate::snaps`): the image kept, as many as
+//!   wanted, to go back and forth between them and the active one (the render
+//!   coming in): a menu, a slider, − and +, Snap, a name, ✕ to let one go.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::image::{Image, Layer, Look, Show, Transform};
-
-/// An image kept: what it was, and the name it is listed by.
-pub struct Snap {
-    pub image: Arc<Image>,
-    pub title: String,
-    pub name: String,
-}
+use crate::snaps::Snaps;
 
 /// Draws an image into a rectangle of the canvas, in place of the view's own
 /// texture: the image, its layer, what of it and its look.
@@ -49,12 +42,11 @@ pub struct ImageView {
     /// What the texture holds: the image, layer, show, look and display
     /// transform it was made from.
     made: Option<(usize, String, Show, [u32; 3], Option<u64>)>,
-    /// Images kept, oldest first.
-    pub snaps: Vec<Snap>,
-    /// The snapshot shown, by index; `None`: the active image.
+    /// The images kept: the program's (`Snaps::shared`) unless given others.
+    pub snaps: Arc<Mutex<Snaps>>,
+    /// The snapshot shown, by id; `None` (or one no longer kept): the active
+    /// image.
     pub showing: Option<usize>,
-    /// The number the next snapshot is named with.
-    next_snap: usize,
 }
 
 impl Default for ImageView {
@@ -72,9 +64,8 @@ impl Default for ImageView {
             actual: false,
             texture: None,
             made: None,
-            snaps: vec![],
+            snaps: Snaps::shared(),
             showing: None,
-            next_snap: 1,
         }
     }
 }
@@ -109,56 +100,23 @@ impl ImageView {
         self.made = None;
     }
 
-    /// The image shown, and what it is: the active one, or a snapshot.
+    /// The snapshot shown, and what it is, while one is.
+    pub fn snap_shown(&self) -> Option<(Arc<Image>, String)> {
+        let snaps = self.snaps.lock().unwrap_or_else(|e| e.into_inner());
+        snaps
+            .get(self.showing)
+            .map(|s| (s.image.clone(), format!("{}   {}", s.name, s.title)))
+    }
+
+    /// The image shown, and what it is: a snapshot, or the active one.
     pub fn shown(&self) -> Option<(Arc<Image>, String)> {
-        match self.showing {
-            None => self.image.clone().map(|i| (i, self.title.clone())),
-            Some(k) => self
-                .snaps
-                .get(k)
-                .map(|s| (s.image.clone(), format!("{}   {}", s.name, s.title))),
-        }
+        self.snap_shown()
+            .or_else(|| self.image.clone().map(|i| (i, self.title.clone())))
     }
 
     /// The active image shown again (a render starting).
     pub fn show_active(&mut self) {
         self.showing = None;
-    }
-
-    /// Where what is shown is on the slider: the snapshots oldest first, then
-    /// the active image, last.
-    pub fn position(&self) -> usize {
-        self.showing
-            .filter(|k| *k < self.snaps.len())
-            .unwrap_or(self.snaps.len())
-    }
-
-    /// Shows what is at a place on the slider.
-    pub fn show_position(&mut self, p: usize) {
-        self.showing = (p < self.snaps.len()).then_some(p);
-    }
-
-    /// Keeps the active image as a snapshot, the newest, beside the active
-    /// image on the slider. Its index.
-    pub fn snap(&mut self) -> Option<usize> {
-        let image = self.image.clone()?;
-        let name = format!("Snap {}", self.next_snap);
-        self.next_snap += 1;
-        self.snaps.push(Snap {
-            image,
-            title: self.title.clone(),
-            name,
-        });
-        Some(self.snaps.len() - 1)
-    }
-
-    /// Lets the snapshot shown go; what takes its place on the slider is shown.
-    pub fn drop_snap(&mut self) {
-        let Some(k) = self.showing.filter(|k| *k < self.snaps.len()) else {
-            return;
-        };
-        self.snaps.remove(k);
-        self.showing = (k < self.snaps.len()).then_some(k);
     }
 
     fn current(&self) -> Option<(Arc<Image>, Layer)> {
@@ -252,85 +210,17 @@ impl ImageView {
         }
     }
 
-    /// The snapshots bar: which image is shown (the menu, the slider, − and +:
-    /// the snapshots oldest first, the active render last), Snap, the name of
-    /// the snapshot shown, ✕ to let it go.
+    /// The snapshots bar, the active image the view's (`snapshots_bar`).
     pub fn snapshots(&mut self, ui: &mut egui::Ui) {
-        let n = self.snaps.len();
-        let at = self.position();
-        let label = |p: usize, snaps: &[Snap]| {
-            if p >= snaps.len() {
-                "Active Render".to_string()
-            } else {
-                snaps[p].name.clone()
-            }
-        };
-        let mut pick = None;
-        egui::ComboBox::from_id_salt("xms_image_snaps")
-            .width(140.0)
-            .selected_text(label(at, &self.snaps))
-            .show_ui(ui, |ui| {
-                for p in 0..=n {
-                    if ui.selectable_label(at == p, label(p, &self.snaps)).clicked() {
-                        pick = Some(p);
-                    }
-                }
-            })
-            .response
-            .on_hover_text("The image shown: a snapshot, or the active render");
-        if let Some(p) = pick {
-            self.show_position(p);
-        }
-        if ui
-            .add_enabled(at < n, egui::Button::new("✕"))
-            .on_hover_text("Let this snapshot go")
-            .clicked()
-        {
-            self.drop_snap();
-        }
-        ui.add_enabled_ui(n > 0, |ui| {
-            ui.spacing_mut().slider_width = (ui.available_width() * 0.4).clamp(80.0, 360.0);
-            let mut p = self.position();
-            if ui
-                .add(egui::Slider::new(&mut p, 0..=n.max(1)).show_value(false))
-                .on_hover_text("The snapshots, oldest first; the active render at the right end")
-                .changed()
-            {
-                self.show_position(p.min(n));
-            }
-            if ui.small_button("−").on_hover_text("The one before").clicked() {
-                self.show_position(self.position().saturating_sub(1));
-            }
-            if ui.small_button("+").on_hover_text("The one after").clicked() {
-                self.show_position((self.position() + 1).min(n));
-            }
-        });
-        ui.separator();
-        if ui
-            .add_enabled(self.image.is_some(), egui::Button::new("📷 Snap"))
-            .on_hover_text("Keep the active image, to compare with what comes next")
-            .clicked()
-        {
-            if let Some(k) = self.snap() {
-                self.showing = Some(k);
-            }
-        }
-        if let Some(s) = self.showing.and_then(|k| self.snaps.get_mut(k)) {
-            ui.add(egui::TextEdit::singleline(&mut s.name).desired_width(140.0))
-                .on_hover_text("The snapshot's name");
-        }
-        if n > 0 {
-            let bytes: usize = self
-                .snaps
-                .iter()
-                .map(|s| s.image.channels.len() * s.image.width * s.image.height * 4)
-                .sum();
-            ui.label(
-                egui::RichText::new(format!("{n} kept, {:.0} MB", bytes as f64 / 1_048_576.0))
-                    .small()
-                    .weak(),
-            );
-        }
+        let active = self.image.clone().map(|i| (i, self.title.clone()));
+        snapshots_bar(
+            ui,
+            "xms_image_snaps",
+            &self.snaps,
+            &mut self.showing,
+            "Active Render",
+            active.map(|a| move || a),
+        );
     }
 
     /// The image in the space left, with zoom, pan and the values under the
@@ -508,5 +398,98 @@ impl ImageView {
                 );
             }
         }
+    }
+}
+
+/// A snapshots bar: which image is shown (the menu, the slider, − and +: the
+/// snapshots oldest first, the active image, `active_label`, last), Snap, the
+/// name of the one shown, ✕ to let it go. `showing`: the one this view shows,
+/// by id. `active`: the image Snap keeps, made only when Snap is pressed;
+/// `None` greys Snap.
+pub fn snapshots_bar<F: FnOnce() -> (Arc<Image>, String)>(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    snaps: &Mutex<Snaps>,
+    showing: &mut Option<usize>,
+    active_label: &str,
+    active: Option<F>,
+) {
+    let mut snaps = snaps.lock().unwrap_or_else(|e| e.into_inner());
+    let n = snaps.list.len();
+    let at = snaps.position(*showing);
+    let label = |p: usize, snaps: &Snaps| match snaps.list.get(p) {
+        Some(s) => s.name.clone(),
+        None => active_label.to_string(),
+    };
+    let mut pick = None;
+    egui::ComboBox::from_id_salt((id_salt, "menu"))
+        .width(140.0)
+        .selected_text(label(at, &*snaps))
+        .show_ui(ui, |ui| {
+            for p in 0..=n {
+                if ui.selectable_label(at == p, label(p, &*snaps)).clicked() {
+                    pick = Some(p);
+                }
+            }
+        })
+        .response
+        .on_hover_text(format!(
+            "The image shown: a snapshot, or {}",
+            active_label.to_lowercase()
+        ));
+    if let Some(p) = pick {
+        *showing = snaps.at(p);
+    }
+    if ui
+        .add_enabled(at < n, egui::Button::new("✕"))
+        .on_hover_text("Let this snapshot go (from every pane)")
+        .clicked()
+    {
+        if let Some(id) = *showing {
+            *showing = snaps.remove(id);
+        }
+    }
+    let n = snaps.list.len();
+    ui.add_enabled_ui(n > 0, |ui| {
+        ui.spacing_mut().slider_width = (ui.available_width() * 0.4).clamp(80.0, 360.0);
+        let mut p = snaps.position(*showing);
+        if ui
+            .add(egui::Slider::new(&mut p, 0..=n.max(1)).show_value(false))
+            .on_hover_text(format!(
+                "The snapshots, oldest first; {} at the right end",
+                active_label.to_lowercase()
+            ))
+            .changed()
+        {
+            *showing = snaps.at(p.min(n));
+        }
+        let p = snaps.position(*showing);
+        if ui.small_button("−").on_hover_text("The one before").clicked() {
+            *showing = snaps.at(p.saturating_sub(1));
+        }
+        if ui.small_button("+").on_hover_text("The one after").clicked() {
+            *showing = snaps.at((p + 1).min(n));
+        }
+    });
+    ui.separator();
+    let snap = ui
+        .add_enabled(active.is_some(), egui::Button::new("📷 Snap"))
+        .on_hover_text("Keep the active image, to compare with what comes next (in every pane's snapshots)")
+        .clicked();
+    if let (true, Some(active)) = (snap, active) {
+        let (image, title) = active();
+        *showing = Some(snaps.keep(image, title));
+    }
+    if let Some(s) = snaps.list.iter_mut().find(|s| Some(s.id) == *showing) {
+        ui.add(egui::TextEdit::singleline(&mut s.name).desired_width(140.0))
+            .on_hover_text("The snapshot's name");
+    }
+    if n > 0 || snap {
+        let kept = snaps.list.len();
+        ui.label(
+            egui::RichText::new(format!("{kept} kept, {:.0} MB", snaps.bytes() as f64 / 1_048_576.0))
+                .small()
+                .weak(),
+        );
     }
 }

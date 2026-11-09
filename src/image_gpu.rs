@@ -129,7 +129,7 @@ fn look_bytes(show: Show, look: &Look, place: [f32; 4]) -> [u8; 32] {
 }
 
 /// The layer as RGBA floats, as stored: a channel it lacks 0, alpha 1.
-fn layer_pixels(image: &Image, layer: &Layer) -> Vec<f32> {
+pub(crate) fn layer_pixels(image: &Image, layer: &Layer) -> Vec<f32> {
     let n = image.width * image.height;
     let channel = |k: usize| layer.rgba[k].and_then(|c| image.channels.get(c)).map(|c| &c.values);
     let (r, g, b, a) = (channel(0), channel(1), channel(2), channel(3));
@@ -215,7 +215,7 @@ impl ImageGpu {
             .as_ref()
             .filter(|u| u.key == key)
             .map(|u| u.texture.size());
-        let Some(region) = live.take(layer, size.is_none()) else {
+        let Some(region) = live.take(layer, 0, size.is_none()) else {
             return;
         };
         let (w, h) = region.frame;
@@ -223,7 +223,7 @@ impl ImageGpu {
             let all = if (region.width, region.height) == (w, h) {
                 region
             } else {
-                live.take(layer, true).unwrap_or(region)
+                live.take(layer, 0, true).unwrap_or(region)
             };
             self.upload(device, queue, key, (w, h), bytemuck::cast_slice(&all.rgba));
             return;

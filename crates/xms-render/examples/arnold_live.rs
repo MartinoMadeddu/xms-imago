@@ -81,7 +81,7 @@ fn main() {
     };
 
     println!("load {}", layer.display());
-    live.load(&layer, 1.0, progressive);
+    live.load(&layer, 1.0, progressive, None);
     until(pass);
 
     println!("\nedit while it renders: {light} intensity 4");

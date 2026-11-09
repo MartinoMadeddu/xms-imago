@@ -14,10 +14,12 @@
 
 pub mod image;
 pub mod read;
-mod write;
+pub mod snaps;
 pub mod view;
+mod write;
 
 pub use crate::image::{Channel, Image, Layer, Look, Show, Transform};
 pub use read::read;
-pub use write::write;
+pub use snaps::{Snap, Snaps};
 pub use view::{GpuDraw, ImageView};
+pub use write::write;

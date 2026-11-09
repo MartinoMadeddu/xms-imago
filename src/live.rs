@@ -1,6 +1,8 @@
 //! Live rendering: a renderer in Imago's process (`xms_render`), sent the
-//! scene once, then what changes in it as you work. A [`Session`] belongs to no
-//! pane: the Image Viewer drives one, and the Viewer can.
+//! scene once, then what changes in it as you work. One [`Session`] for the
+//! program (Arnold is started once per process), in no pane: the Image Viewer
+//! renders with it through the layer's camera, the Viewer through its own
+//! view (`in_viewer`), the last to start it having it.
 //!
 //! Its edits: what changed in the scene between two cooks, by prim path, as
 //! the renderer takes it (`xms_render::Change`). Primitives share what did not
@@ -11,7 +13,8 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use glam::Mat4;
@@ -20,13 +23,79 @@ use xms_render::{Change, Edit, Value};
 use crate::core::properties::Value as Prop;
 use crate::types::{Placement, Prim};
 
-/// How a renderer renders live, when its definition says so: Arnold's.
+/// The program's live render, once started.
+static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+
+/// Work on the program's live render (`None` until one is started).
+pub fn with<R>(f: impl FnOnce(&mut Option<Session>) -> R) -> R {
+    let mut s = SESSION.lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut s)
+}
+
+/// The Viewer renders (with Arnold) in place of drawing the scene.
+static IN_VIEWER: AtomicBool = AtomicBool::new(false);
+
+pub fn in_viewer() -> bool {
+    IN_VIEWER.load(Ordering::Relaxed)
+}
+
+/// The Viewer rendering or not; off, its render stops.
+pub fn set_in_viewer(on: bool) {
+    if IN_VIEWER.swap(on, Ordering::Relaxed) && !on {
+        with(|s| {
+            if let Some(s) = s.as_mut().filter(|s| s.through.is_some()) {
+                s.stop();
+            }
+        });
+    }
+}
+
+/// The scene the view flag shows, as primitives.
+pub fn scene(graph: &crate::node_graph::NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<Vec<Prim>> {
+    let eval = |sid: crate::types::IceGraphId,
+                mesh: &crate::core::geo::Geo,
+                template: &[crate::ice::Reference]|
+     -> crate::core::geo::Geo {
+        subnets
+            .get(sid)
+            .map(|sg| sg.evaluate(mesh, template))
+            .unwrap_or_else(|| mesh.clone())
+    };
+    match graph.evaluate_scene(&eval)?.2 {
+        crate::types::EvalResult::Named(prims) => Some(prims),
+        _ => None,
+    }
+}
+
+/// A view to render `prims` through: a camera placed at `world` (Imago's
+/// space, looking down -Z), `vertical_fov` (radians), `size` pixels.
+pub fn view(prims: &[Prim], world: Mat4, vertical_fov: f32, size: [u32; 2]) -> xms_render::View {
+    let aspect = size[0] as f32 / size[1].max(1) as f32;
+    let horizontal = 2.0 * ((vertical_fov * 0.5).tan() * aspect).atan();
+    xms_render::View {
+        matrix: (crate::usd_write::layer_axes(prims).inverse() * world).to_cols_array_2d(),
+        fov: horizontal.to_degrees(),
+        size,
+    }
+}
+
+/// How a renderer renders live, when its definition says so (Arnold's) and
+/// it was not found not to load here (still looking is a yes: a render then
+/// says what went wrong).
 pub fn renderer_for(name: &str) -> Option<crate::core::render::LiveRenderer> {
-    crate::core::render::definitions()
-        .iter()
-        .find(|d| d.name == name)
+    let found = crate::core::renderers::found(name);
+    crate::core::renderers::definition(name)
         .and_then(|d| d.live.clone())
         .filter(|l| l.backend == "arnold")
+        .filter(|_| !matches!(found.in_imago, Some(crate::core::renderers::Found::No(_))))
+}
+
+/// Why a renderer does not render in Imago, when it is one that would.
+pub fn why_not(name: &str) -> Option<String> {
+    match crate::core::renderers::found(name).in_imago {
+        Some(crate::core::renderers::Found::No(why)) => Some(why),
+        _ => None,
+    }
 }
 
 /// A live render: the renderer, the scene as last sent to it, and how it is
@@ -42,6 +111,8 @@ pub struct Session {
     /// IPR: in passes, sent each change. Else once, at the Render Settings'
     /// samples, bucket by bucket, the scene as it was.
     ipr: bool,
+    /// The view it renders through, the Viewer's; `None`, the layer's camera.
+    through: Option<xms_render::View>,
     /// Passes done of the render going, and how many it makes.
     pass: Option<(u32, u32)>,
     finished: bool,
@@ -55,14 +126,9 @@ pub struct Session {
 impl Session {
     /// The renderer started, the scene to be written in `dir` when it must be.
     pub fn start(renderer: &crate::core::render::LiveRenderer, dir: &Path) -> Result<Session, String> {
-        let sdk = crate::core::vars::expand(&renderer.sdk, &[]);
-        if sdk.trim().is_empty() || sdk.contains('$') {
-            return Err(
-                "Where is Arnold? Set ARNOLD_PATH to its SDK's folder, in File > Variables or the environment".into(),
-            );
-        }
+        let sdk = crate::core::renderers::sdk(renderer).ok_or_else(|| crate::core::renderers::where_is(renderer))?;
         let config = xms_render::arnold::Config {
-            sdk: sdk.trim().into(),
+            sdk,
             materialx: materialx_folder(dir),
             licence: renderer.licence,
         };
@@ -76,6 +142,7 @@ impl Session {
             key: (0, 0),
             rendering: false,
             ipr: true,
+            through: None,
             pass: None,
             finished: false,
             since: Instant::now(),
@@ -84,12 +151,21 @@ impl Session {
     }
 
     /// Render the scene: `prims`, of the graph's revision and frame `key`, at
-    /// `frame`. Written and loaded; `ipr`, in passes, sent each change after.
-    pub fn render(&mut self, prims: Vec<Prim>, key: (u64, u64), frame: f64, ipr: bool) -> Result<(), String> {
+    /// `frame`, through `through` (the Viewer's view), else the layer's
+    /// camera. Written and loaded; `ipr`, in passes, sent each change after.
+    pub fn render(
+        &mut self,
+        prims: Vec<Prim>,
+        key: (u64, u64),
+        frame: f64,
+        ipr: bool,
+        through: Option<xms_render::View>,
+    ) -> Result<(), String> {
         crate::usd_write::write_override(&prims, &self.layer)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
-        self.live.load(&self.layer, frame, ipr);
+        self.live.load(&self.layer, frame, ipr, through);
         self.ipr = ipr;
+        self.through = through;
         self.sent = prims;
         self.key = key;
         self.rendering = true;
@@ -105,6 +181,28 @@ impl Session {
 
     pub fn rendering(&self) -> bool {
         self.rendering
+    }
+
+    /// It renders through the Viewer's view.
+    pub fn in_viewer(&self) -> bool {
+        self.through.is_some()
+    }
+
+    /// The Viewer's view (as `view` takes it), sent if it moved, when it
+    /// renders through it.
+    pub fn look(&mut self, world: Mat4, vertical_fov: f32, size: [u32; 2]) {
+        let v = view(&self.sent, world, vertical_fov, size);
+        if self.rendering && self.through.is_some() && self.through != Some(v) {
+            self.through = Some(v);
+            let layer = self.layer.clone();
+            self.live.edit(
+                vec![xms_render::Edit {
+                    path: String::new(),
+                    change: Change::View(v),
+                }],
+                move || Ok(layer),
+            );
+        }
     }
 
     /// Its render is done (IPR: until the next change).
@@ -124,7 +222,7 @@ impl Session {
             if let Some(prims) = prims() {
                 if self.key.1 != key.1 {
                     // Another frame: loaded.
-                    if let Err(e) = self.render(prims, key, frame, true) {
+                    if let Err(e) = self.render(prims, key, frame, true, self.through) {
                         failed = Some(e);
                     }
                 } else {
@@ -506,6 +604,20 @@ mod tests {
             changes(&before, &[purpose], Mat4::IDENTITY)[0].change,
             Change::Structure
         );
+    }
+
+    #[test]
+    fn a_view_is_its_placement_and_horizontal_field_of_view() {
+        let world = Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
+        let fov = 50f32.to_radians();
+        let square = view(&[], world, fov, [400, 400]);
+        assert_eq!(square.matrix, world.to_cols_array_2d());
+        assert!((square.fov - 50.0).abs() < 1e-4);
+        // Twice as wide: the tangent of half the angle twice as large.
+        let wide = view(&[], world, fov, [800, 400]);
+        let half = |deg: f32| (deg.to_radians() * 0.5).tan();
+        assert!((half(wide.fov) - 2.0 * half(50.0)).abs() < 1e-5);
+        assert_eq!(wide.size, [800, 400]);
     }
 
     #[test]
