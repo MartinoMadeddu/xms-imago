@@ -26,6 +26,9 @@ enum Command {
         frame: f64,
         progressive: bool,
         view: Option<View>,
+        /// Edits applied before it renders, and the layer to load in its
+        /// place when they cannot be.
+        then: Option<(Vec<Edit>, Layer)>,
     },
     Edit {
         edits: Vec<Edit>,
@@ -81,6 +84,29 @@ impl Live {
             frame,
             progressive,
             view,
+            then: None,
+        });
+    }
+
+    /// `load`, `edits` applied before the first bucket: a light layer
+    /// (Imago's, without the points its deformers moved) and those points in
+    /// memory. When they cannot be applied live, the layer `full` writes is
+    /// loaded in its place.
+    pub fn load_then(
+        &self,
+        layer: impl Into<PathBuf>,
+        frame: f64,
+        progressive: bool,
+        view: Option<View>,
+        edits: Vec<Edit>,
+        full: impl FnOnce() -> Result<PathBuf, String> + Send + 'static,
+    ) {
+        self.send(Command::Load {
+            layer: layer.into(),
+            frame,
+            progressive,
+            view,
+            then: Some((edits, Box::new(full))),
         });
     }
 
@@ -169,9 +195,10 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                         frame,
                         progressive,
                         view: through,
+                        then,
                     } => {
                         view = through;
-                        reload(&mut *renderer, &layer, (frame, progressive), view, &mut send);
+                        reload(&mut *renderer, &layer, (frame, progressive), view, then, &mut send);
                         loaded = Some((frame, progressive));
                     }
                     Command::Edit { edits, layer } => {
@@ -204,7 +231,7 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                             }
                         } else {
                             match layer() {
-                                Ok(layer) => reload(&mut *renderer, &layer, at, view, &mut send),
+                                Ok(layer) => reload(&mut *renderer, &layer, at, view, None, &mut send),
                                 Err(e) => send(Event::Failed(e)),
                             }
                         }
@@ -227,6 +254,7 @@ fn reload(
     layer: &std::path::Path,
     at: (f64, bool),
     view: Option<View>,
+    then: Option<(Vec<Edit>, Layer)>,
     send: &mut impl FnMut(Event),
 ) {
     let (frame, progressive) = at;
@@ -242,6 +270,16 @@ fn reload(
                 };
                 if let Err(e) = renderer.edit(&[through]) {
                     send(Event::Failed(e));
+                }
+            }
+            // What the layer left out, before the first bucket.
+            if let Some((edits, full)) = then.filter(|(e, _)| !e.is_empty()) {
+                let applied = edits.iter().all(|e| renderer.live(&e.change)) && renderer.edit(&edits).unwrap_or(false);
+                if !applied {
+                    match full() {
+                        Ok(full) => return reload(renderer, &full, at, view, None, send),
+                        Err(e) => return send(Event::Failed(e)),
+                    }
                 }
             }
             send(Event::Loaded {
@@ -411,6 +449,36 @@ mod tests {
         assert_eq!(calls.lock().unwrap()[..], ["stop", "load scene.usda 1", "render"]);
     }
 
+    /// A light layer and what it left out, applied before the first bucket;
+    /// what cannot be applied live loads the full layer instead.
+    #[test]
+    fn a_light_layer_is_completed_before_it_renders() {
+        let (live, calls) = stand_in();
+        let moved = Edit {
+            path: "/deformed".into(),
+            change: Change::Points(Arc::new(vec![[0.0, 1.0, 0.0]])),
+        };
+        live.load_then("light.usda", 1.0, false, None, vec![moved.clone()], || {
+            Ok("full.usda".into())
+        });
+        live.wait(SECOND, |e| *e == Event::Finished);
+        {
+            let c = calls.lock().unwrap();
+            let edit = c.iter().position(|c| c.starts_with("edit /deformed")).expect("sent");
+            let render = c.iter().position(|c| c == "render").expect("rendered");
+            assert!(edit < render, "before the first bucket: {c:?}");
+            assert!(!c.iter().any(|c| c.contains("full.usda")));
+        }
+        // The stand-in has no node for /missing: the full layer is loaded.
+        let lost = Edit {
+            path: "/missing".into(),
+            change: Change::Points(Arc::new(vec![])),
+        };
+        live.load_then("light.usda", 1.0, false, None, vec![lost], || Ok("full.usda".into()));
+        live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
+        assert!(calls.lock().unwrap().iter().any(|c| c == "load full.usda 1"));
+    }
+
     /// Another frame, live (headless Imago's range): the frame edit applied
     /// with what changed; a reload after it is at that frame.
     #[test]
@@ -540,6 +608,7 @@ mod tests {
                 frame: 1.0,
                 progressive: true,
                 view: None,
+                then: None,
             },
             Command::Edit {
                 edits: vec![light(2.0)],
@@ -597,6 +666,7 @@ mod tests {
                 frame: 2.0,
                 progressive: true,
                 view: None,
+                then: None,
             },
         ]);
         assert!(matches!(&out[..], [Command::Load { frame, .. }] if *frame == 2.0));

@@ -21,7 +21,8 @@
   Custom, renderer definition files, AOVs, the Log tab), Render Variables, as
   UsdRender prims Write USD writes; rendering with Arnold in Imago (IPR, every
   AOV in the Image Viewer, in the Viewer), snapshots, renderers found on this
-  machine
+  machine; the xms command line (`--headless` `--render`, `--write`,
+  `--run`, `--tx`) for farms
 - [Native Arnold](arnold-native.md) and [renderer
   definitions](renderer-definitions.md): the plans behind rendering in Imago,
   their steps and findings

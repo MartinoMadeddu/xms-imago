@@ -422,23 +422,9 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
   in the Image Viewer takes it back to the layer's camera, and Stop stops
   either.
 
-### Headless: rendering without the window
+### Headless: Imago on the command line
 
-```
-xms --headless shot.xms --render 1-100
-xms --headless shot.xms --render 1-100x2
-xms --headless shot.xms            (the scene's range)
-```
-
-Imago opens the graph and cooks it frame by frame as in the window, ICE
-deformers and every operator included, and Arnold renders each frame in
-Imago's process at the Render Settings' samples. Arnold loads the scene once;
-each frame after is sent to it as live edits, so nothing is cached to disk
-between frames. The images are the Render Settings' products, written by
-Arnold: relative ones from the scene's folder. Each frame's files are printed
-as it is done; a frame not written, a scene with no product, or a render that
-fails ends Imago with code 1. Arnold is found as in the window (the Arnold
-Folder, else `$ARNOLD_PATH`), and the definitions of `$JOB/renderers` are read.
+See [The xms command line](#the-xms-command-line) below.
 
 Later: rray rendering straight into it, frame sequences on the timeline, a wipe
 between two images.
@@ -591,3 +577,54 @@ kick): the renderer reads the RenderSettings prim the layer names.
 - A file's products and RenderVars read as relationships
 - A camera or resolution per product
 - Settings that change over time
+
+## The xms command line
+
+```
+xms                                        the window
+xms scene.xms                              the window, the scene opened
+xms --headless scene.xms --render 1-100    Arnold in Imago, no scene file kept
+xms --headless scene.xms --write 1-100     the Write USD nodes write
+xms --headless scene.xms --run 1-100       the Render Command nodes run
+xms --headless scene.xms --tx              .tx files of the scene's textures
+```
+
+Frames are `12`, `1-100`, or `1-100x2` (every other one); none, the scene's
+range. `--node NAME` picks one Write USD or Render Command of several.
+
+- **`--render`:** Imago opens the graph and cooks it frame by frame as in the
+  window, ICE deformers and every operator included, and Arnold renders each
+  frame in Imago's process at the Render Settings' samples. Arnold is given a
+  light layer, in the temp folder and removed at the end: the scene's files
+  referenced and Imago's changes over them, but not the points deformers and
+  animation moved, which go to Arnold in memory before the first bucket, as
+  each frame after the first does, Arnold loaded once. No scene description
+  is kept, nothing cached between frames. The images are the Render
+  Settings' products, written by Arnold, relative ones from the scene's
+  folder; each frame's files are checked and printed. Arnold is found as in
+  the window (the Arnold Folder, else `$ARNOLD_PATH`).
+- **`--write`:** each Write USD writes its layer, as pressing Write does,
+  where and over the frames it says (the frames given are the scene's range):
+  the scene description for another renderer or a farm.
+- **`--run`:** each Render Command runs, as pressing Run does (its Write USD
+  written first when Write First is on), and is waited for, what it prints
+  printed: husk or kick on the scene description.
+- **`--tx`:** the textures Arnold reads in the scene (its image shaders',
+  MaterialX's, a `<UDIM>`'s tiles) made `.tx` files by Arnold's `maketx`,
+  each only when the texture is newer. Auto-generate TX is off in Imago's
+  Arnold settings, so on a farm run `--tx` once before the job rather than
+  every machine making the same files at once.
+
+**On a farm** (OpenCue, Deadline, Tractor): one task per frame, or per chunk
+(`--render 1-10`) when the graph is heavy to cook, so Arnold, its plugins, the
+textures and the stages load once a chunk. Each task writes its own light
+layer in its machine's temp folder, nothing on shared storage. Imago prints
+each step with the time since it started, and a progress line after each
+frame or node, `Imago progress: 40%` (the farm manager's progress pattern:
+`Imago progress: (\d+)%`); a Render Command's own percentages are passed on.
+It ends with code 0 when everything was written, 1 when anything failed (a
+frame not written, no render product, a node not found, a render failed).
+An ICE graph that depends on earlier frames (a simulation) cooks from the
+start on each task: write it to disk first with `--write`, or render it as
+one chunk.
+

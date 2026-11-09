@@ -1,51 +1,107 @@
-//! Imago without its window: `xms --headless scene.xms --render 1-100`. The
-//! graph is opened and cooked frame by frame as in the window, ICE deformers
-//! and every operator included, and Arnold renders each frame in Imago's
-//! process, loaded once: the first frame loads the scene, each one after is
-//! sent as live edits (moved points, transforms, lights, settings) with the
-//! frame, so nothing is cached to disk between them. The images are the
-//! RenderSettings' products, written by Arnold as it finishes each frame
-//! (relative paths are from the scene's folder).
+//! Imago without its window, for a farm or a script:
+//!
+//! ```text
+//! xms --headless shot.xms --render 1-100   Arnold in Imago, frame by frame
+//! xms --headless shot.xms --write 1-100    the Write USD nodes write
+//! xms --headless shot.xms --run 1-100      the Render Command nodes run
+//! xms --headless shot.xms --tx             .tx files of the scene's textures
+//! ```
+//!
+//! - **`--render`:** the graph cooked frame by frame as in the window (ICE
+//!   deformers and every operator), Arnold rendering in Imago's process,
+//!   loaded once. The renderer is given a light layer, in the temp folder: the
+//!   scene's files referenced, Imago's changes over them, but not the points
+//!   deformers moved, which go to Arnold in memory, as each frame after the
+//!   first does. No scene description is kept. The images are the
+//!   RenderSettings' products, written by Arnold, relative ones from the
+//!   scene's folder.
+//! - **`--write`, `--run`:** as pressing Write on each Write USD, Run on each
+//!   Render Command (its Write USD written first when it says so): the scene
+//!   description written where Write USD says, for husk, kick or a farm.
+//!   The frames given are the scene's range for them.
+//! - **`--tx`:** each texture Arnold reads in the scene made a `.tx` by
+//!   Arnold's `maketx` (only when the texture is newer), once before a farm
+//!   job, so the machines do not all make them.
+//! - **`--node NAME`:** only the Write USD or Render Command of that name.
+//!
+//! What it does is printed line by line, with a progress line a farm manager
+//! reads (`Imago progress: 40%`); it ends with code 1 when anything failed.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::ice::IceGraphStore;
 use crate::node_graph::NodeGraphState;
+use crate::types::NodeType;
+
+/// What it is asked to do.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mode {
+    Render,
+    Write,
+    Run,
+    Tx,
+}
 
 /// What was asked for on the command line.
 #[derive(Debug, PartialEq)]
 pub struct Job {
     pub scene: PathBuf,
-    /// The frames, first to last; `None`: the scene's range.
+    pub mode: Mode,
+    /// The frames, first to last and the step; `None`: the scene's range.
     pub frames: Option<(i64, i64, i64)>,
+    /// Only the node of this name (`--write`, `--run`).
+    pub node: Option<String>,
 }
 
-const USAGE: &str = "xms --headless scene.xms [--render 1-100 | 12 | 1-100x2]";
+pub const USAGE: &str =
+    "xms --headless scene.xms (--render | --write | --run | --tx) [1-100 | 12 | 1-100x2] [--node NAME]";
 
 /// Whether Imago was asked to run without its window: the job, or why the
 /// command line does not say one.
 pub fn job(args: &[String]) -> Option<Result<Job, String>> {
     let at = args.iter().position(|a| a == "--headless")?;
-    let mut scene = None;
-    let mut frames = None;
-    let mut rest = args[at + 1..].iter();
+    Some(read_job(&args[at + 1..]))
+}
+
+fn read_job(args: &[String]) -> Result<Job, String> {
+    let (mut scene, mut mode, mut frames, mut node) = (None, None, None, None);
+    let mut rest = args.iter().peekable();
     while let Some(a) = rest.next() {
-        match a.as_str() {
-            "--render" => match rest.next().map(|r| range(r)) {
-                Some(Ok(r)) => frames = Some(r),
-                Some(Err(e)) => return Some(Err(e)),
-                None => return Some(Err(format!("--render needs frames: {USAGE}"))),
-            },
-            s if !s.starts_with("--") && scene.is_none() => scene = Some(PathBuf::from(s)),
-            other => return Some(Err(format!("Not an option: {other}. {USAGE}"))),
+        let asked = match a.as_str() {
+            "--render" => Some(Mode::Render),
+            "--write" => Some(Mode::Write),
+            "--run" => Some(Mode::Run),
+            "--tx" => Some(Mode::Tx),
+            "--node" => {
+                node = Some(rest.next().ok_or(format!("--node needs a name: {USAGE}"))?.clone());
+                None
+            }
+            s if !s.starts_with("--") && scene.is_none() => {
+                scene = Some(PathBuf::from(s));
+                None
+            }
+            other => return Err(format!("Not an option: {other}. {USAGE}")),
+        };
+        if let Some(m) = asked {
+            if mode.replace(m).is_some() {
+                return Err(format!("One of --render, --write, --run or --tx: {USAGE}"));
+            }
+            // Its frames, when they follow it.
+            if let Some(r) = rest.peek().map(|r| range(r)).filter(|r| r.is_ok()) {
+                frames = r.ok();
+                rest.next();
+            }
         }
     }
-    Some(
-        scene
-            .map(|scene| Job { scene, frames })
-            .ok_or_else(|| format!("Which scene? {USAGE}")),
-    )
+    let scene = scene.ok_or_else(|| format!("Which scene? {USAGE}"))?;
+    let mode = mode.ok_or_else(|| format!("What to do with it? {USAGE}"))?;
+    Ok(Job {
+        scene,
+        mode,
+        frames,
+        node,
+    })
 }
 
 /// `12`, `1-100`, `1-100x2`: the first and last frames and the step.
@@ -71,11 +127,21 @@ fn range(text: &str) -> Result<(i64, i64, i64), String> {
     Ok((a, b, step))
 }
 
-/// Run the job: each frame rendered and written. What went wrong, if
-/// anything (Imago then ends with a code other than 0).
+/// The frames of a range, first to last.
+fn frames_of((first, last, step): (i64, i64, i64)) -> Vec<i64> {
+    (first..=last).step_by(step.max(1) as usize).collect()
+}
+
+/// The progress line a farm manager reads: `Imago progress: 40%`.
+fn progress(done: usize, of: usize) -> String {
+    format!("Imago progress: {}%", (done * 100) / of.max(1))
+}
+
+/// Run the job. What went wrong, if anything (Imago then ends with a code
+/// other than 0).
 pub fn run(job: &Job) -> Result<(), String> {
     let t0 = Instant::now();
-    let say = |s: &str| println!("[imago {:7.2}s] {s}", t0.elapsed().as_secs_f64());
+    let say = move |s: &str| println!("[imago {:8.2}s] {s}", t0.elapsed().as_secs_f64());
     let scene = job
         .scene
         .canonicalize()
@@ -83,62 +149,190 @@ pub fn run(job: &Job) -> Result<(), String> {
     let mut graph = NodeGraphState::default();
     let mut subnets = IceGraphStore::default();
     crate::graph_io::load(&mut graph, &mut subnets, &scene)?;
-    let (first, last, step) =
-        job.frames
-            .unwrap_or((graph.scene.start, graph.scene.end, 1));
-    say(&format!("{}: frames {first} to {last}, every {step}", scene.display()));
-
-    let renderer = crate::live::renderer_for("arnold")
-        .ok_or_else(|| crate::live::why_not("arnold").unwrap_or_else(|| "Arnold does not render in Imago".into()))?;
-    let mut session = crate::live::Session::start(&renderer, &crate::image_viewer::render_dir())?;
-    // The scene's layer beside it, so relative products are from its folder.
-    let stem = scene
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    session.layer = scene.with_file_name(format!(".{stem}.imago-{}.usda", std::process::id()));
-
-    let result = (|| {
-        let mut frame = first;
-        let mut loaded = false;
-        while frame <= last {
-            let started = Instant::now();
-            let prims = cook(&mut graph, &subnets, &scene, frame)?;
-            let key = (0, (frame as f64).to_bits());
-            if loaded {
-                session.frame(prims, key, frame as f64);
-            } else {
-                session.render(prims, key, frame as f64, false, None)?;
-                loaded = true;
-            }
-            let images = session.finish(Duration::from_secs(24 * 3600), |n| say(&format!("note: {n}")))?;
-            if images.is_empty() {
-                return Err("No render product: nothing would be written (Render Settings make one)".into());
-            }
-            let written: Vec<String> = images.iter().map(|p| p.display().to_string()).collect();
-            say(&format!(
-                "frame {frame} done in {:.2}s{}",
-                started.elapsed().as_secs_f64(),
-                if written.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", written.join(", "))
-                }
-            ));
-            if images.iter().any(|p| !p.exists()) {
-                return Err(format!("Frame {frame}: not written: {}", written.join(", ")));
-            }
-            frame += step;
-        }
-        Ok(())
-    })();
-    let _ = std::fs::remove_file(&session.layer);
+    let range = job.frames.unwrap_or((graph.scene.start, graph.scene.end, 1));
+    // The frames given are the scene's range, for the nodes that use it.
+    graph.scene.start = range.0;
+    graph.scene.end = range.1;
+    say(&format!(
+        "{} ({:?}): frames {} to {}, every {}",
+        scene.display(),
+        job.mode,
+        range.0,
+        range.1,
+        range.2
+    ));
+    let result = match job.mode {
+        Mode::Render => render(&mut graph, &subnets, &scene, &frames_of(range), &say),
+        Mode::Write | Mode::Run => nodes(&mut graph, &subnets, &scene, job, range.0, &say),
+        Mode::Tx => tx(&mut graph, &subnets, &scene, range.0, &say),
+    };
     crate::image_viewer::clean_up();
     match &result {
         Ok(()) => say("done"),
         Err(e) => say(&format!("failed: {e}")),
     }
     result
+}
+
+/// `--render`: each frame rendered by Arnold in Imago, loaded once.
+fn render(
+    graph: &mut NodeGraphState,
+    subnets: &IceGraphStore,
+    scene: &Path,
+    frames: &[i64],
+    say: &dyn Fn(&str),
+) -> Result<(), String> {
+    let renderer = arnold()?;
+    // The layer in the temp folder; the products from the scene's folder.
+    let outputs = scene.parent().map(Path::to_path_buf);
+    let mut session = crate::live::Session::start(&renderer, &crate::image_viewer::render_dir(), outputs)?;
+    for (k, frame) in frames.iter().enumerate() {
+        let started = Instant::now();
+        let prims = cook(graph, subnets, scene, *frame)?;
+        let key = (0, (*frame as f64).to_bits());
+        if k == 0 {
+            session.render(prims, key, *frame as f64, false, None)?;
+        } else {
+            session.frame(prims, key, *frame as f64);
+        }
+        let images = session.finish(Duration::from_secs(48 * 3600), |n| say(&format!("note: {n}")))?;
+        if images.is_empty() {
+            return Err("No render product: nothing would be written (Render Settings make one)".into());
+        }
+        let written: Vec<String> = images.iter().map(|p| p.display().to_string()).collect();
+        if let Some(missing) = images.iter().find(|p| !p.exists()) {
+            return Err(format!("Frame {frame}: {} was not written", missing.display()));
+        }
+        say(&format!(
+            "frame {frame} done in {:.2}s: {}",
+            started.elapsed().as_secs_f64(),
+            written.join(", ")
+        ));
+        println!("{}", progress(k + 1, frames.len()));
+    }
+    Ok(())
+}
+
+/// `--write`, `--run`: each Write USD written, or each Render Command run and
+/// waited for, its lines printed as it prints them.
+fn nodes(
+    graph: &mut NodeGraphState,
+    subnets: &IceGraphStore,
+    scene: &Path,
+    job: &Job,
+    first: i64,
+    say: &dyn Fn(&str),
+) -> Result<(), String> {
+    // Every stage read before anything is written.
+    cook(graph, subnets, scene, first)?;
+    let wanted = |t: &NodeType| match job.mode {
+        Mode::Write => matches!(t, NodeType::WriteUsd { .. }),
+        _ => matches!(t, NodeType::RenderCommand { .. }),
+    };
+    let ids: Vec<(crate::types::NodeId, String)> = graph
+        .nodes
+        .iter()
+        .filter(|n| wanted(&n.node_type) && job.node.as_ref().is_none_or(|w| *w == n.name))
+        .map(|n| (n.id, n.name.clone()))
+        .collect();
+    if ids.is_empty() {
+        let what = if job.mode == Mode::Write {
+            "Write USD"
+        } else {
+            "Render Command"
+        };
+        return Err(match &job.node {
+            Some(n) => format!("No {what} named {n}"),
+            None => format!("No {what} in the scene"),
+        });
+    }
+    for (k, (id, name)) in ids.iter().enumerate() {
+        if job.mode == Mode::Write {
+            crate::write_usd(graph, subnets, *id);
+            match crate::usd_write::last(*id) {
+                Some(Ok(report)) => say(&format!("{name}: written ({} frames)", report.frames.max(1))),
+                Some(Err(e)) => return Err(format!("{name}: {e}")),
+                None => return Err(format!("{name}: nothing written")),
+            }
+        } else {
+            say(&format!("{name}: run"));
+            crate::run_command(graph, subnets, *id);
+            wait_for(id.0, name, say)?;
+        }
+        println!("{}", progress(k + 1, ids.len()));
+    }
+    Ok(())
+}
+
+/// A Render Command's run, to its end: each line it prints, and its own
+/// progress (husk's percentages).
+fn wait_for(key: usize, name: &str, say: &dyn Fn(&str)) -> Result<(), String> {
+    use crate::core::command::{snapshot, State};
+    let mut shown = 0;
+    let mut told = None;
+    loop {
+        let Some(s) = snapshot(key, usize::MAX) else {
+            return Err(format!("{name}: did not start"));
+        };
+        // The lines since the last look (the run keeps the last few thousand).
+        for line in s.lines.iter().skip(shown.min(s.lines.len())) {
+            println!("{line}");
+        }
+        shown = s.lines.len();
+        if let Some(p) = s.progress.map(|p| p.round() as i64).filter(|p| Some(*p) != told) {
+            println!("Imago progress: {p}%");
+            told = Some(p);
+        }
+        match s.state {
+            State::Running => std::thread::sleep(Duration::from_millis(200)),
+            State::Done => {
+                say(&format!("{name}: done in {:.1}s", s.elapsed.as_secs_f64()));
+                return Ok(());
+            }
+            State::Failed(why) => return Err(format!("{name}: {why}")),
+            State::Stopped => return Err(format!("{name}: stopped")),
+        }
+    }
+}
+
+/// `--tx`: the scene's textures, as Arnold loads it at the first frame, made
+/// `.tx` files by `maketx`, each only when it is newer than its `.tx`.
+fn tx(
+    graph: &mut NodeGraphState,
+    subnets: &IceGraphStore,
+    scene: &Path,
+    first: i64,
+    say: &dyn Fn(&str),
+) -> Result<(), String> {
+    let renderer = arnold()?;
+    let dir = crate::image_viewer::render_dir();
+    let config = crate::live::arnold_config(&renderer, &dir, scene.parent().map(Path::to_path_buf))?;
+    let prims = cook(graph, subnets, scene, first)?;
+    let layer = dir.join("textures.usda");
+    crate::usd_write::write_override(&prims, &layer).map_err(|e| format!("The scene could not be written: {e}"))?;
+    let textures = xms_render::arnold::textures(&config, &layer, first as f64)?;
+    let maketx = xms_render::arnold::maketx(&config);
+    say(&format!("{} textures, made with {}", textures.len(), maketx.display()));
+    for (k, t) in textures.iter().enumerate() {
+        let out = std::process::Command::new(&maketx)
+            .args(["-u", "--oiio"])
+            .arg(t)
+            .output()
+            .map_err(|e| format!("{}: {e}", maketx.display()))?;
+        if !out.status.success() {
+            let why = String::from_utf8_lossy(&out.stderr);
+            return Err(format!("{}: {}", t.display(), why.trim()));
+        }
+        say(&format!("{}: .tx", t.display()));
+        println!("{}", progress(k + 1, textures.len()));
+    }
+    Ok(())
+}
+
+/// Arnold, as found here: rendering in Imago needs it.
+fn arnold() -> Result<crate::core::render::LiveRenderer, String> {
+    crate::live::renderer_for("arnold")
+        .ok_or_else(|| crate::live::why_not("arnold").unwrap_or_else(|| "Arnold does not render in Imago".into()))
 }
 
 /// The graph cooked at `frame`, every stage read: the scene's prims; with
@@ -186,23 +380,30 @@ mod tests {
             job(&args("xms --headless shot.xms --render 1-100")),
             Some(Ok(Job {
                 scene: "shot.xms".into(),
-                frames: Some((1, 100, 1))
+                mode: Mode::Render,
+                frames: Some((1, 100, 1)),
+                node: None,
             }))
         );
+        let j = job(&args("xms --headless --run 5 shot.xms --node husk_beauty"))
+            .unwrap()
+            .unwrap();
         assert_eq!(
-            job(&args("xms --headless shot.xms")).unwrap().unwrap().frames,
-            None,
-            "the scene's range"
+            (j.mode, j.frames, j.node.as_deref()),
+            (Mode::Run, Some((5, 5, 1)), Some("husk_beauty"))
         );
-        assert!(job(&args("xms --headless"))
-            .unwrap()
-            .unwrap_err()
-            .starts_with("Which scene?"));
-        assert!(job(&args("xms --headless a.xms --render")).unwrap().is_err());
-        assert!(job(&args("xms --headless a.xms --fast"))
-            .unwrap()
-            .unwrap_err()
-            .contains("--fast"));
+        let j = job(&args("xms --headless shot.xms --write")).unwrap().unwrap();
+        assert_eq!((j.mode, j.frames), (Mode::Write, None), "the scene's range");
+        assert_eq!(
+            job(&args("xms --headless shot.xms --tx")).unwrap().unwrap().mode,
+            Mode::Tx
+        );
+        let err = |line: &str| job(&args(line)).unwrap().unwrap_err();
+        assert!(err("xms --headless --render").starts_with("Which scene?"));
+        assert!(err("xms --headless a.xms").starts_with("What to do"));
+        assert!(err("xms --headless a.xms --render --write").starts_with("One of"));
+        assert!(err("xms --headless a.xms --render --node").contains("--node needs a name"));
+        assert!(err("xms --headless a.xms --fast").contains("--fast"));
     }
 
     #[test]
@@ -212,5 +413,13 @@ mod tests {
         assert_eq!(range("1-100x2"), Ok((1, 100, 2)));
         assert_eq!(range("-5-10"), Ok((-5, 10, 1)));
         assert!(range("10-1").is_err() && range("1-10x0").is_err() && range("a").is_err());
+        assert_eq!(frames_of((1, 7, 3)), [1, 4, 7]);
+    }
+
+    #[test]
+    fn progress_is_a_line_a_farm_manager_reads() {
+        assert_eq!(progress(1, 4), "Imago progress: 25%");
+        assert_eq!(progress(4, 4), "Imago progress: 100%");
+        assert_eq!(progress(0, 0), "Imago progress: 0%");
     }
 }

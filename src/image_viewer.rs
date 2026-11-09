@@ -784,7 +784,7 @@ fn render_live(
     crate::live::with(|l| {
         let live = match l.take() {
             Some(s) => s,
-            None => crate::live::Session::start(&renderer, &render_dir())?,
+            None => crate::live::Session::start(&renderer, &render_dir(), None)?,
         };
         l.insert(live)
             .render(prims, (revision, graph.frame().to_bits()), graph.frame(), ipr, None)

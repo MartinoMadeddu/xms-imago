@@ -321,24 +321,26 @@ it, the image refining as buckets come in.
 
 ### Step 6: Imago on the farm (built)
 
-Imago headless (`xms --headless scene.xms --render 1-100`, `src/headless.rs`):
-the graph opened and cooked frame by frame as in the window, the scene loaded
-in Arnold once, then frame by frame what changed sent as live edits (ICE
-deformers' and animation's points, transforms, lights, settings) with
-`Change::Frame`, which sets Arnold's frame and the products' file names
-(`Event::Images` says them); the layer written again only for a change Arnold
-cannot take live (structure, motion blur's keys). Each frame renders at the
-Render Settings' samples (IPR off), its products written by Arnold; Imago
-waits for it, checks the files are there, and goes on. ICE and Imago's other
-tools on the farm without baking to disk first.
+The xms command line (`src/headless.rs`, see [render.md](render.md#the-xms-command-line)):
+`--render` cooks the graph frame by frame and renders in Imago with Arnold
+loaded once, `--write` and `--run` go through the graph's Write USD and Render
+Command nodes, `--tx` makes `.tx` files once.
 
-- The layer is written beside the scene (a hidden
-  `.<scene>.imago-<pid>.usda`, removed at the end), so relative products are
-  from the scene's folder.
-- Renderer definitions come from `$JOB/renderers` too, so the farm renders
-  with the show's (see [renderer-definitions.md](renderer-definitions.md)).
-- Tested in the crate (a frame edit, a reload at the frame sent) and with a
-  stand-in `libai` (the products' names frame by frame); on a farm, by hand.
+- **A light layer** (`live::lighter`): the prims whose points alone moved
+  from their files (deformers, animation) are written as their files have
+  them, and their points go to Arnold before the first bucket
+  (`Live::load_then`, `Change::Points`); the full layer is written only when
+  Arnold cannot take them live. In the window too.
+- **Another frame** (`Change::Frame`): Arnold's frame and the products' file
+  names (`Event::Images` says them), what changed sent with it.
+- **Relative products** from the scene's folder (`Config::outputs`); the
+  layer in the temp folder.
+- **Textures** (`arnold::textures`): the scene loaded in a universe of its
+  own, its `image` shaders' files, UDIM tiles found; `maketx -u` on each.
+- `Event::Note` for what does not stop a render (a hint not taken).
+- Tested in the crate (a frame edit and a reload at it, a light layer
+  completed before the first bucket, UDIM tiles) and with a stand-in `libai`;
+  on a farm, by hand.
 
 ### Then: rray
 

@@ -102,9 +102,8 @@ pub fn why_not(name: &str) -> Option<String> {
 /// doing.
 pub struct Session {
     live: xms_render::Live,
-    /// Where the scene is written, when it must be (relative products are
-    /// from its folder).
-    pub layer: PathBuf,
+    /// Where the scene is written, when it must be.
+    layer: PathBuf,
     sent: Vec<Prim>,
     /// The graph's revision and the frame the scene sent is of.
     key: (u64, u64),
@@ -124,15 +123,31 @@ pub struct Session {
     taken: u64,
 }
 
+/// How Arnold is started: from where it is installed, MaterialX's libraries
+/// written in `dir`, relative products from `outputs`.
+pub fn arnold_config(
+    renderer: &crate::core::render::LiveRenderer,
+    dir: &Path,
+    outputs: Option<PathBuf>,
+) -> Result<xms_render::arnold::Config, String> {
+    let sdk = crate::core::renderers::sdk(renderer).ok_or_else(|| crate::core::renderers::where_is(renderer))?;
+    Ok(xms_render::arnold::Config {
+        sdk,
+        materialx: materialx_folder(dir),
+        licence: renderer.licence,
+        outputs,
+    })
+}
+
 impl Session {
-    /// The renderer started, the scene to be written in `dir` when it must be.
-    pub fn start(renderer: &crate::core::render::LiveRenderer, dir: &Path) -> Result<Session, String> {
-        let sdk = crate::core::renderers::sdk(renderer).ok_or_else(|| crate::core::renderers::where_is(renderer))?;
-        let config = xms_render::arnold::Config {
-            sdk,
-            materialx: materialx_folder(dir),
-            licence: renderer.licence,
-        };
+    /// The renderer started, the scene to be written in `dir` when it must be;
+    /// relative products written from `outputs`, else from `dir`.
+    pub fn start(
+        renderer: &crate::core::render::LiveRenderer,
+        dir: &Path,
+        outputs: Option<PathBuf>,
+    ) -> Result<Session, String> {
+        let config = arnold_config(renderer, dir, outputs)?;
         let live = xms_render::Live::start(move |pixels| {
             Ok(Box::new(xms_render::arnold::Arnold::new(config, pixels)?) as Box<dyn xms_render::Renderer>)
         });
@@ -162,9 +177,16 @@ impl Session {
         ipr: bool,
         through: Option<xms_render::View>,
     ) -> Result<(), String> {
-        crate::usd_write::write_override(&prims, &self.layer)
+        // Light: the points deformers moved left out, sent in memory before
+        // the first bucket; the whole layer written only if they cannot be.
+        let light = lighter(&prims);
+        crate::usd_write::write_override(&light, &self.layer)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
-        self.live.load(&self.layer, frame, ipr, through);
+        let moved = changes(&light, &prims, crate::usd_write::layer_axes(&prims));
+        let (all, layer) = (prims.clone(), self.layer.clone());
+        self.live.load_then(&self.layer, frame, ipr, through, moved, move || {
+            crate::usd_write::write_override(&all, &layer).map(|_| layer)
+        });
         self.ipr = ipr;
         self.through = through;
         self.sent = prims;
@@ -480,6 +502,27 @@ fn prim_changes(b: &Prim, p: &Prim, axes: Mat4) -> Option<Vec<Edit>> {
 }
 
 /// The points of `now`, when they are all that changed from `before`.
+/// The scene as written for the renderer to load: each prim whose points
+/// alone moved from its file (a deformer, animation) as its file has it, so
+/// the layer holds no points of them; they go to the renderer in memory
+/// (`changes` against this, `Change::Points`).
+fn lighter(prims: &[Prim]) -> Vec<Prim> {
+    prims
+        .iter()
+        .map(|p| {
+            let (Some(geo), Some(source)) = (&p.geo, &p.source) else {
+                return p.clone();
+            };
+            let only = !Arc::ptr_eq(geo, &source.geo) && points_only(&source.geo, geo).is_some();
+            let mut light = p.clone();
+            if only {
+                light.geo = Some(source.geo.clone());
+            }
+            light
+        })
+        .collect()
+}
+
 fn points_only(before: &crate::core::geo::Geo, now: &crate::core::geo::Geo) -> Option<Arc<Vec<[f32; 3]>>> {
     use crate::core::geo::Context;
     if before.topology != now.topology {
@@ -610,6 +653,53 @@ mod tests {
             place: Placement::One(Mat4::IDENTITY),
             ..Prim::new(path.into(), crate::types::MeshData::default())
         }
+    }
+
+    /// A prim whose points alone moved from its file (a deformer): its file's
+    /// points in the layer written, its own sent in memory; one whose
+    /// topology changed keeps its geometry to be written.
+    #[test]
+    fn the_layer_written_leaves_out_points_that_only_moved() {
+        use crate::core::geo::Geo;
+        let quad = |y: f32| {
+            let points = vec![[0.0, y, 0.0], [1.0, y, 0.0], [1.0, y, 1.0], [0.0, y, 1.0]];
+            Arc::new(Geo::from_polygons(points, vec![4], vec![0, 1, 2, 3]))
+        };
+        let from_file = |path: &str, now: Arc<Geo>| Prim {
+            path: path.into(),
+            geo: Some(now),
+            source: Some(Arc::new(crate::types::Source {
+                geo: quad(0.0),
+                place: Placement::One(Mat4::IDENTITY),
+                material: None,
+                purpose: Default::default(),
+            })),
+            place: Placement::One(Mat4::IDENTITY),
+            ..Prim::new(path.into(), crate::types::MeshData::default())
+        };
+        let triangle = Arc::new(Geo::from_polygons(
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            vec![3],
+            vec![0, 1, 2],
+        ));
+        let prims = vec![
+            from_file("/deformed", quad(2.0)),
+            from_file("/remeshed", triangle.clone()),
+        ];
+        let light = lighter(&prims);
+        assert_eq!(
+            light[0].geo.as_deref().unwrap().points()[0],
+            [0.0, 0.0, 0.0],
+            "as its file"
+        );
+        assert!(
+            Arc::ptr_eq(light[1].geo.as_ref().unwrap(), &triangle),
+            "written as it is"
+        );
+        let sent = changes(&light, &prims, Mat4::IDENTITY);
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(sent[0].path, "/deformed");
+        assert!(matches!(&sent[0].change, Change::Points(p) if p[0] == [0.0, 2.0, 0.0]));
     }
 
     #[test]

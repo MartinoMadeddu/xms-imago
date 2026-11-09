@@ -455,7 +455,7 @@ impl Viewer {
                     let renderer = crate::live::renderer_for("arnold").ok_or_else(|| {
                         crate::live::why_not("arnold").unwrap_or_else(|| "Arnold does not render live in Imago".into())
                     })?;
-                    crate::live::Session::start(&renderer, &crate::image_viewer::render_dir())?
+                    crate::live::Session::start(&renderer, &crate::image_viewer::render_dir(), None)?
                 }
             };
             let s = s.insert(live);

@@ -8,7 +8,9 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-- **Headless Imago:** `xms --headless scene.xms --render 1-100` renders a range with Arnold without the window: the graph cooked each frame (ICE deformers too), Arnold loaded once and each frame sent as live edits, the products written.
+- **The xms command line, headless:** `--render` (Arnold in Imago: the graph cooked each frame, ICE deformers too, Arnold loaded once, deformed points sent in memory, no scene description kept, the products written), `--write` (the Write USD nodes), `--run` (the Render Command nodes), `--tx` (`.tx` files of the scene's textures), `--node`; progress lines for farm managers and an exit code.
+- **Rendering in Imago writes a light layer:** points that only moved (deformers, animation) go to Arnold in memory, not into the layer.
+- **Auto-generate TX** is off by default in Arnold's settings.
 - **Project renderer definitions:** `$JOB/renderers`, between the built-in ones and yours, so a show pins its own.
 
 ## [0.2.6] - 2026-11-09

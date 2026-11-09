@@ -80,8 +80,27 @@ Built on:
   [changelog](CHANGELOG.md).
 - **Documentation:** [docs/](docs/README.md), or **Help > Documentation** in
   Imago.
-- **On a farm:** `xms --headless scene.xms --render 1-100` renders a range
-  with Arnold without the window (see [Rendering](docs/render.md)).
+
+
+## The command line
+
+```
+xms                                        the window
+xms scene.xms                              the window, the scene opened
+xms --headless scene.xms --render 1-100    render with Arnold in Imago
+xms --headless scene.xms --write 1-100     write the scene (Write USD nodes)
+xms --headless scene.xms --run 1-100       run the Render Command nodes
+xms --headless scene.xms --tx              make .tx files of the textures
+```
+
+`--render` cooks the graph frame by frame, ICE deformers included, and renders
+each frame with Arnold in Imago's process, loaded once: no scene description
+is kept, the deformed points go to Arnold in memory, and the images are the
+Render Settings' products. `--write` and `--run` write the scene for husk,
+kick or a farm through the graph's Write USD and Render Command nodes. Frames
+are `12`, `1-100` or `1-100x2`; `--node NAME` picks one node. For a farm it
+prints `Imago progress: 40%` lines and ends with code 1 when anything failed.
+See [The xms command line](docs/render.md#the-xms-command-line).
 
 ## How to build
 

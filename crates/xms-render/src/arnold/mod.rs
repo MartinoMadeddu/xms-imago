@@ -26,6 +26,8 @@ pub struct Config {
     /// Look for a licence; without one, renders are watermarked and start at
     /// once.
     pub licence: bool,
+    /// The folder relative products are written from; `None`, the layer's.
+    pub outputs: Option<PathBuf>,
 }
 
 impl Config {
@@ -96,6 +98,86 @@ fn begin(ai: &Api) {
     }
 }
 
+/// The image files the scene at `layer` reads at `frame`, as Arnold loads
+/// it (its `image` shaders' files, MaterialX's among them), a `<UDIM>`'s
+/// tiles found beside it: what `maketx` makes `.tx` files of. Arnold started
+/// as for `installed`; the scene loaded in a universe of its own, let go.
+pub fn textures(config: &Config, layer: &Path, frame: f64) -> Result<Vec<PathBuf>, String> {
+    let ai = Api::load(&config.sdk)?;
+    supported(&ai.version())?;
+    if let Some(dir) = &config.materialx {
+        if std::env::var_os(MTLX).is_none() {
+            std::env::set_var(MTLX, dir);
+        }
+    }
+    begin(&ai);
+    let file = CString::new(layer.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+    let mut names = vec![];
+    // SAFETY: a universe of its own, destroyed once its nodes are read.
+    unsafe {
+        let universe = (ai.AiUniverse)();
+        let params = (ai.AiParamValueMap)();
+        (ai.AiParamValueMapSetFlt)(params, ai.string("frame"), frame as f32);
+        let loaded = (ai.AiSceneLoad)(universe, file.as_ptr(), params);
+        (ai.AiParamValueMapDestroy)(params);
+        if loaded {
+            for (entry, _, node) in ai.nodes(universe, ffi::NODE_SHADER as u32) {
+                if entry == "image" {
+                    names.push(ai.str_param(node, "filename"));
+                }
+            }
+        }
+        (ai.AiUniverseDestroy)(universe);
+        if !loaded {
+            return Err(format!("Arnold could not load {}", layer.display()));
+        }
+    }
+    let folder = layer.parent().unwrap_or(Path::new("."));
+    let mut out: Vec<PathBuf> = names
+        .iter()
+        .filter(|n| !n.trim().is_empty())
+        .flat_map(|n| tiles(&folder.join(n.trim())))
+        .filter(|p| p.is_file() && !p.extension().is_some_and(|x| x.eq_ignore_ascii_case("tx")))
+        .collect();
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
+/// A texture's files: itself, or its `<UDIM>` tiles on disk (`1001`…).
+fn tiles(file: &Path) -> Vec<PathBuf> {
+    let name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Some(at) = name.find("<UDIM>").or_else(|| name.find("<udim>")) else {
+        return vec![file.to_path_buf()];
+    };
+    let (before, after) = (&name[..at], &name[at + 6..]);
+    let dir = file.parent().unwrap_or(Path::new("."));
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|read| {
+            read.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| {
+                    n.strip_prefix(before)
+                        .and_then(|r| r.strip_suffix(after))
+                        .is_some_and(|tile| tile.len() == 4 && tile.bytes().all(|b| b.is_ascii_digit()))
+                })
+                .map(|n| dir.join(n))
+                .collect()
+        })
+        .unwrap_or_default();
+    found.sort();
+    found
+}
+
+/// Arnold's `maketx`, in the SDK's `bin`.
+pub fn maketx(config: &Config) -> PathBuf {
+    let exe = if cfg!(windows) { "maketx.exe" } else { "maketx" };
+    config.sdk.join("bin").join(exe)
+}
+
 /// Imago renders with Arnold 7 or later.
 fn supported(version: &str) -> Result<(), String> {
     let major = version.split('.').next().and_then(|m| m.trim().parse::<u32>().ok());
@@ -104,6 +186,9 @@ fn supported(version: &str) -> Result<(), String> {
         _ => Err(format!("Arnold {version}: Imago renders with Arnold 7 or later")),
     }
 }
+
+/// Where Arnold's USD reader finds MaterialX's libraries.
+const MTLX: &str = "PXR_MTLX_STDLIB_SEARCH_PATHS";
 
 /// Arnold is started once per process.
 static STARTED: AtomicBool = AtomicBool::new(false);
@@ -145,7 +230,6 @@ impl Arnold {
             return Err("Arnold is already rendering in Imago".into());
         }
         let started = (|| {
-            const MTLX: &str = "PXR_MTLX_STDLIB_SEARCH_PATHS";
             if let Some(dir) = &config.materialx {
                 if std::env::var_os(MTLX).is_none() {
                     std::env::set_var(MTLX, dir);
@@ -513,7 +597,10 @@ impl Renderer for Arnold {
             (ai.AiNodeSetBool)(options, ai.string("skip_license_check"), !self.config.licence);
             // The products' frame tokens, left for the renderer, put in; the
             // folders made. Relative paths are from the layer's folder.
-            self.folder = layer.parent().unwrap_or(Path::new(".")).to_path_buf();
+            self.folder = match &self.config.outputs {
+                Some(f) => f.clone(),
+                None => layer.parent().unwrap_or(Path::new(".")).to_path_buf(),
+            };
             self.products = ai
                 .nodes(self.universe, ffi::NODE_DRIVER)
                 .into_iter()
@@ -621,6 +708,26 @@ impl Drop for Arnold {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_udim_texture_is_its_tiles_on_disk() {
+        let dir = std::env::temp_dir().join(format!("xms_tiles_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in [
+            "wood.1001.exr",
+            "wood.1002.exr",
+            "wood.10x3.exr",
+            "wood.exr",
+            "stone.1001.exr",
+        ] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let tiles = tiles(&dir.join("wood.<UDIM>.exr"));
+        assert_eq!(tiles, [dir.join("wood.1001.exr"), dir.join("wood.1002.exr")]);
+        assert_eq!(super::tiles(&dir.join("wood.exr")), [dir.join("wood.exr")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn arnold_7_or_later_is_supported() {
