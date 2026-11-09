@@ -373,7 +373,7 @@ pub fn draw(
     let (live_layers, why) = crate::live::with(|live| {
         let Some(live) = live else { return (None, None) };
         let key = (revision, graph.frame().to_bits());
-        let why = live.update(key, graph.frame(), || scene(graph, subnets));
+        let why = live.update(&graph.scene, key, graph.frame(), || scene(graph, subnets));
         // At once when it is done: what a snapshot keeps.
         // The Viewer's render is the Viewer's to show.
         let shown = !live.in_viewer() && (live.done() || due);
@@ -736,7 +736,7 @@ fn start(
         return;
     }
     let layer = dir.join("scene.usda");
-    if let Err(e) = crate::usd_write::write_override(&prims, &layer) {
+    if let Err(e) = crate::usd_write::write_override(&prims, &layer, &graph.scene) {
         st.message = format!("The scene could not be written: {e}");
         return;
     }
@@ -788,8 +788,14 @@ fn render_live(
             Some(s) => s,
             None => crate::live::Session::start(&renderer, &render_dir(), None)?,
         };
-        l.insert(live)
-            .render(prims, (revision, graph.frame().to_bits()), graph.frame(), ipr, None)
+        l.insert(live).render(
+            prims,
+            &graph.scene,
+            (revision, graph.frame().to_bits()),
+            graph.frame(),
+            ipr,
+            None,
+        )
     })?;
     st.last_live = true;
     st.view.show_active();

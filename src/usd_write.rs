@@ -31,6 +31,13 @@
 //! proxies are read-only), and point-instancer prototypes are changed through
 //! their instancer: their edits are reported, not written, for now.
 //!
+//! Every layer states the scene's up axis, unit and rate (File > Settings >
+//! Scene). Its stages are sublayered strongest first, as a later input of a
+//! Merge is stronger; each is put where Imago shows it, in the scene's axes
+//! and unit, by a transform before its root prims' own
+//! (`xformOp:transform:toScene`): USD corrects neither across a sublayer or a
+//! reference. USD retimes a stage of another rate itself, as Imago reads it.
+//!
 //! Values are written at the current frame, as single values.
 
 use crate::core::geo_mesh::GeoMesh;
@@ -44,6 +51,7 @@ use glam::{DMat4, Mat4};
 use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, POINTS, WIDTHS};
 use crate::core::properties::{written, Opinions, Value, Written};
 use crate::edits::{edit_set, PrimEdit};
+use crate::node_graph::SceneRange;
 use crate::types::{CurveBasis, CurveWrap, Placement, Prim, Purpose};
 use crate::usd_scene::{StageNode, StageTree};
 
@@ -80,6 +88,9 @@ pub struct WriteReport {
     pub skipped: Vec<String>,
     /// The frames written as time samples (0 or 1: single values).
     pub frames: usize,
+    /// What was written otherwise than the stages say, and why: a stage of
+    /// another rate than the scene's, one in two stages.
+    pub notes: Vec<String>,
 }
 
 impl WriteReport {
@@ -91,23 +102,24 @@ impl WriteReport {
         self.referenced += r.referenced;
         self.skipped
             .extend(r.skipped.into_iter().map(|s| format!("{prefix}{s}")));
+        self.notes.extend(r.notes);
     }
 }
 
-/// Write the override layer for these primitives to `out`.
-pub fn write_override(prims: &[Prim], out: &Path) -> Result<WriteReport, String> {
+/// Write the override layer for these primitives of `scene` to `out`.
+pub fn write_override(prims: &[Prim], out: &Path, scene: &SceneRange) -> Result<WriteReport, String> {
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let (text, report) = override_layer(prims, out)?;
+    let (text, report) = override_layer(prims, out, scene)?;
     std::fs::write(out, text).map_err(|e| format!("{}: {e}", out.display()))?;
     Ok(report)
 }
 
 /// The override layer as text, for a layer to be written at `out` (paths to the
 /// sources are relative to it).
-pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport), String> {
-    let (root, header, report) = specs(prims, out, None);
+pub fn override_layer(prims: &[Prim], out: &Path, scene: &SceneRange) -> Result<(String, WriteReport), String> {
+    let (root, header, report) = specs(prims, out, None, scene);
     Ok((header.text(&root, None), report))
 }
 
@@ -115,38 +127,37 @@ pub fn override_layer(prims: &[Prim], out: &Path) -> Result<(String, WriteReport
 struct Header {
     default_prim: Option<String>,
     render_settings: Option<String>,
-    /// `metersPerUnit`, `upAxis`.
-    units: Vec<String>,
-    /// The stages' time codes a second, repeated so USD does not scale their
-    /// time to this layer's (written when the layer has no time of its own).
-    rate: Option<f64>,
+    /// The scene's up axis and unit.
+    up_axis: &'static str,
+    meters_per_unit: f64,
+    /// The scene's frames a second: USD scales a stage's time of another
+    /// rate to it.
+    rate: f64,
+    /// Strongest first.
     sublayers: Vec<String>,
 }
 
 impl Header {
-    /// The layer: this header, the frames it spans (`time`: first, last,
-    /// frames per second) when it has time samples, then the prims.
-    fn text(&self, root: &Spec, time: Option<(f64, f64, f64)>) -> String {
+    /// The layer: this header, the frames it spans (`time`: first, last)
+    /// when it has time samples, then the prims.
+    fn text(&self, root: &Spec, time: Option<(f64, f64)>) -> String {
         let mut text = String::from("#usda 1.0\n(\n    doc = \"Imago override layer\"\n");
         if let Some(name) = &self.default_prim {
             let _ = writeln!(text, "    defaultPrim = \"{name}\"");
         }
-        if let Some((start, end, _)) = time {
+        if let Some((start, end)) = time {
             let _ = writeln!(text, "    startTimeCode = {}", num64(start));
             let _ = writeln!(text, "    endTimeCode = {}", num64(end));
         }
-        if let Some(rate) = time.map(|t| t.2).or(self.rate) {
-            let _ = writeln!(text, "    timeCodesPerSecond = {}", num64(rate));
-            let _ = writeln!(text, "    framesPerSecond = {}", num64(rate));
-        }
+        let _ = writeln!(text, "    timeCodesPerSecond = {}", num64(self.rate));
+        let _ = writeln!(text, "    framesPerSecond = {}", num64(self.rate));
         // The RenderSettings prim a renderer uses when told none: the one
         // Render Commons made.
         if let Some(path) = &self.render_settings {
             let _ = writeln!(text, "    renderSettingsPrimPath = \"{path}\"");
         }
-        for u in &self.units {
-            let _ = writeln!(text, "    {u}");
-        }
+        let _ = writeln!(text, "    metersPerUnit = {}", num64(self.meters_per_unit));
+        let _ = writeln!(text, "    upAxis = \"{}\"", self.up_axis);
         if !self.sublayers.is_empty() {
             let _ = writeln!(
                 text,
@@ -178,22 +189,12 @@ fn tree_key(t: &StageTree) -> String {
     )
 }
 
-/// Each stage of `prims` once.
-/// The axes and unit of the layer written for these primitives: those of the
-/// first stage it sublayers, since stage metadata only comes from the root
-/// layer; Imago's (Y up, metres) when there is none. A placement in Imago is,
-/// in the layer, this matrix's inverse times it.
-pub fn layer_axes(prims: &[Prim]) -> Mat4 {
-    trees_of(prims)
-        .iter()
-        .find(|t| t.arc.is_none())
-        .map(|t| t.root)
-        .unwrap_or(Mat4::IDENTITY)
-}
-
+/// Each stage of `prims` once, strongest first: a stage is as strong as the
+/// last of its primitives, since what comes later in a list is stronger (a
+/// later input of a Merge, `merge_prims`).
 fn trees_of(prims: &[Prim]) -> Vec<Arc<StageTree>> {
     let mut trees: Vec<Arc<StageTree>> = vec![];
-    for p in prims {
+    for p in prims.iter().rev() {
         if let Some(t) = &p.stage {
             if !trees.iter().any(|x| Arc::ptr_eq(x, t)) {
                 trees.push(t.clone());
@@ -231,23 +232,22 @@ fn widened(mut e: PrimEdit, u: &PrimEdit, p: &Prim) -> PrimEdit {
     e
 }
 
-/// The layer's prims, its header and what was written, for `prims` at one
-/// frame; with `wide`, each prim edited at any frame written as if edited at
-/// this one too.
-fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>) -> (Spec, Header, WriteReport) {
-    specs_in(prims, out, wide, None)
+/// The layer's prims, its header and what was written, for `prims` of `scene`
+/// at one frame; with `wide`, each prim edited at any frame written as if
+/// edited at this one too.
+fn specs(prims: &[Prim], out: &Path, wide: Option<&Wide>, scene: &SceneRange) -> (Spec, Header, WriteReport) {
+    specs_in(prims, out, wide, &[], scene)
 }
 
-/// What a variant's prims are written against: the layer's axes and unit, and
-/// the stages outside the variant.
-struct Outside<'a> {
-    layer_root: Mat4,
-    trees: &'a [Arc<StageTree>],
-}
-
-/// `specs`, of the layer itself, or (`outside`) of a variant's prims, written
-/// at their paths in the scene.
-fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outside>) -> (Spec, Header, WriteReport) {
+/// `specs`, of the layer itself, or of a variant's prims (`outside`: the
+/// stages outside the variant), written at their paths in the scene.
+fn specs_in(
+    all: &[Prim],
+    out: &Path,
+    wide: Option<&Wide>,
+    outside: &[Arc<StageTree>],
+    scene: &SceneRange,
+) -> (Spec, Header, WriteReport) {
     // The variant sets Create made, each with the prims of its variant shown:
     // written as the set, its variants inside it, not as prims of their own.
     let mut variant_sets: Vec<(crate::core::variant::MadeSet, Vec<&Prim>)> = vec![];
@@ -269,25 +269,34 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
     // The stages the layer sublayers: their files at their own paths. The
     // others come in by a reference or a payload on a prim.
     let sublayered: Vec<&Arc<StageTree>> = trees.iter().filter(|t| t.arc.is_none()).collect();
-    let layer_root = match outside {
-        Some(o) => o.layer_root,
-        None => layer_axes(prims),
-    };
+    // A placement in Imago is, in the layer, this matrix's inverse times it.
+    let layer_root = scene.axes();
     // The stages a prim's parent can be in: this layer's, and those outside a
     // variant.
-    let all_trees: Vec<Arc<StageTree>> = trees
-        .iter()
-        .chain(outside.map(|o| o.trees).unwrap_or_default())
-        .cloned()
-        .collect();
+    let all_trees: Vec<Arc<StageTree>> = trees.iter().chain(outside).cloned().collect();
     // A prim a file has (not one Reparent made above what it moved).
     let in_file = |t: &StageTree, path: &str| t.node(path).is_some() && !t.made.contains(path);
     let in_a_sublayer = |path: &str| sublayered.iter().any(|t| in_file(t, path));
     let dir = out.parent().unwrap_or(Path::new("."));
+    // A prim's transform is relative to its parent: where a stage has it (it
+    // can be a file's prim, or under one; in the layer, every stage is where
+    // Imago shows it), else the layer's axes.
+    let frame_of = |path: &str| {
+        crate::core::properties::parents(path)
+            .pop()
+            .and_then(|a| {
+                all_trees
+                    .iter()
+                    .find(|t| t.node(&a).is_some())
+                    .map(|t| t.world(&a, true).as_mat4())
+            })
+            .unwrap_or(layer_root)
+    };
 
     for tree in &trees {
+        stage_notes(&mut report, tree, prims, scene);
         if let Some(arc) = &tree.arc {
-            arc_prim(&mut root, tree, arc, layer_root, dir, &in_a_sublayer);
+            arc_prim(&mut root, tree, arc, dir, &in_a_sublayer);
             report.referenced += 1;
         }
         // Reparent: each prim of the file moved is a reference to it at its
@@ -379,7 +388,7 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
         }
         for path in &set.added {
             if let Some(p) = by_path.get(path.as_str()) {
-                new_prim(root.at(path), p, tree.root);
+                new_prim(root.at(path), p, frame_of(path));
                 report.added += 1;
             }
         }
@@ -397,26 +406,47 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
             report.changed += 1;
         }
     }
+    // Each stage where Imago shows it, in the scene's axes and unit: the
+    // correction from its own put before the transforms of its root prims,
+    // or of the prim its arc brings in. A root prim a stronger stage has too
+    // is as that one puts it.
+    let fix_of = |t: &StageTree| layer_root.as_dmat4().inverse() * t.root.as_dmat4();
+    for (i, tree) in trees.iter().enumerate() {
+        let fix = fix_of(tree);
+        let tops: Vec<&StageNode> = match &tree.arc {
+            Some(arc) => tree.node(&arc.at).into_iter().collect(),
+            None => tree
+                .nodes
+                .iter()
+                .filter(|n| n.depth == 1 && (!tree.made.contains(&n.path) || !in_a_sublayer(&n.path)))
+                .collect(),
+        };
+        for n in tops {
+            if let Some(stronger) = trees[..i].iter().find(|t| in_file(t, &n.path)) {
+                if !fix_of(stronger).abs_diff_eq(fix, 1e-9) {
+                    report.notes.push(format!(
+                        "{}: in stages of other axes or units: where the strongest has it",
+                        n.path
+                    ));
+                }
+            } else if fix.abs_diff_eq(DMat4::IDENTITY, 1e-9) {
+                // In the scene's axes and unit already.
+            } else if let Some(why) = read_only(n) {
+                report
+                    .skipped
+                    .push(format!("{}: not put in the scene's axes and unit: {why}", n.path));
+            } else {
+                to_scene(root.at(&n.path), &fix, n);
+            }
+        }
+    }
     // Prims that came from no stage at all (shapes, meshes made by nodes,
-    // materials), in the layer's axes and unit: those of the first stage
-    // when there is one, Imago's (Y up, metres) when not. Their parents are
-    // Xforms, except where a stage already has a prim on that path; those
-    // with materials alone below them (the Material Library Location) are
-    // Scopes.
+    // materials), in the scene's axes and unit. Their parents are Xforms,
+    // except where a stage already has a prim on that path; those with
+    // materials alone below them (the Material Library Location) are Scopes.
     let in_a_stage = |path: &str| all_trees.iter().any(|t| in_file(t, path));
     // Values set on those Xforms, carried by each primitive below them.
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
-    // A prim's transform is relative to its parent: where a stage has it (it
-    // can be a file's prim, or under one), else the layer's axes.
-    let frame_of = |path: &str| {
-        crate::core::properties::parents(path)
-            .pop()
-            .and_then(|a| {
-                let t = all_trees.iter().find(|t| t.node(&a).is_some())?;
-                Some((layer_root.as_dmat4() * t.root.as_dmat4().inverse() * t.world(&a, true)).as_mat4())
-            })
-            .unwrap_or(layer_root)
-    };
     let mut made: Vec<&Prim> = prims.iter().filter(|p| p.stage.is_none()).collect();
     made.sort_by_key(|p| p.shading.is_some() || p.render.is_some());
     for p in made {
@@ -454,12 +484,11 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
             above.entry(path.clone()).or_default().merge(o);
         }
     }
-    let inside = Outside {
-        layer_root,
-        trees: &all_trees,
-    };
     for (m, shown) in &variant_sets {
-        report.add(variant_set(&mut root, &m.0, shown, out, wide, &inside, &in_a_stage), "");
+        report.add(
+            variant_set(&mut root, &m.0, shown, out, wide, &all_trees, scene, &in_a_stage),
+            "",
+        );
         // Values set on the prim holding the set, and above it.
         for p in shown {
             for (path, o) in p.above.iter() {
@@ -499,28 +528,14 @@ fn specs_in(all: &[Prim], out: &Path, wide: Option<&Wide>, outside: Option<&Outs
                 .find_map(|p| p.path.split('/').find(|s| !s.is_empty()).map(str::to_string))
         });
 
-    // The stages' files as sublayers, their axis and unit (stage metadata
-    // only comes from the root layer).
-    let units = match sublayered.first() {
-        Some(t) => {
-            let mut u = vec![];
-            if let Some(mpu) = t.meters_per_unit {
-                u.push(format!("metersPerUnit = {}", num64(mpu)));
-            }
-            if !t.up_axis.is_empty() {
-                u.push(format!("upAxis = \"{}\"", t.up_axis));
-            }
-            u
-        }
-        // Only prims made in Imago: its own axes and unit.
-        None if !root.children.is_empty() => vec!["metersPerUnit = 1".into(), "upAxis = \"Y\"".into()],
-        None => vec![],
-    };
+    // The stages' files as sublayers, strongest first, under the scene's axis,
+    // unit and rate (stage metadata only comes from the root layer).
     let header = Header {
         default_prim,
         render_settings: crate::core::render::layer_settings(prims),
-        units,
-        rate: trees.iter().find_map(|t| t.time_codes_per_second),
+        up_axis: scene.up_axis.token(),
+        meters_per_unit: scene.meters_per_unit,
+        rate: scene.fps(),
         sublayers: sublayered
             .iter()
             .map(|t| format!("@{}@", relative(&t.source, dir).display()))
@@ -542,23 +557,27 @@ pub fn frame_list(start: f64, end: f64, step: f64) -> Vec<f64> {
 }
 
 /// Write the override layer for the primitives at each of `frames` (each its
-/// time code and what arrives then) to `out`: what changes from frame to frame
-/// as time samples, at `rate` frames per second. One frame: as
+/// time code and what arrives then) of `scene` to `out`: what changes from
+/// frame to frame as time samples, at the scene's rate. One frame: as
 /// `write_override`.
-pub fn write_frames(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Result<WriteReport, String> {
+pub fn write_frames(frames: &[(f64, Vec<Prim>)], out: &Path, scene: &SceneRange) -> Result<WriteReport, String> {
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let (text, report) = frames_layer(frames, out, rate)?;
+    let (text, report) = frames_layer(frames, out, scene)?;
     std::fs::write(out, text).map_err(|e| format!("{}: {e}", out.display()))?;
     Ok(report)
 }
 
 /// The override layer of `frames` as text (see `write_frames`).
-pub fn frames_layer(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Result<(String, WriteReport), String> {
+pub fn frames_layer(
+    frames: &[(f64, Vec<Prim>)],
+    out: &Path,
+    scene: &SceneRange,
+) -> Result<(String, WriteReport), String> {
     match frames {
         [] => return Err("No frames to write".into()),
-        [(_, prims)] => return override_layer(prims, out),
+        [(_, prims)] => return override_layer(prims, out, scene),
         _ => {}
     }
     // What any frame edits, by stage and prim, is written at every frame.
@@ -593,7 +612,7 @@ pub fn frames_layer(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Resul
     let made: Vec<(f64, Spec, Header, WriteReport)> = frames
         .iter()
         .map(|(f, prims)| {
-            let (root, header, report) = specs(prims, out, Some(&wide));
+            let (root, header, report) = specs(prims, out, Some(&wide), scene);
             (*f, root, header, report)
         })
         .collect();
@@ -602,6 +621,11 @@ pub fn frames_layer(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Resul
         for s in &r.skipped {
             if !report.skipped.contains(s) {
                 report.skipped.push(s.clone());
+            }
+        }
+        for n in &r.notes {
+            if !report.notes.contains(n) {
+                report.notes.push(n.clone());
             }
         }
         report.changed = report.changed.max(r.changed);
@@ -618,7 +642,7 @@ pub fn frames_layer(frames: &[(f64, Vec<Prim>)], out: &Path, rate: f64) -> Resul
     }
     report.frames = frames.len();
     let (first, last) = (frames[0].0, frames[frames.len() - 1].0);
-    Ok((made[0].2.text(&root, Some((first, last, rate))), report))
+    Ok((made[0].2.text(&root, Some((first, last))), report))
 }
 
 /// A line of a prim spec as its declaration, its value and the metadata after
@@ -750,15 +774,12 @@ fn merged(frames: &[(f64, &Spec)], path: &str, notes: &mut Vec<String>) -> Spec 
 }
 
 /// The prim a referenced or payloaded stage is at: `def` with no type (the
-/// file's prim gives it one), the arc to the file's prim, and, where the file's
-/// axes or unit differ from the layer's, the transform that turns one into the
-/// other, on top of the prim's own (which it replaces). Its parents are Xforms,
-/// unless a sublayered stage has them.
+/// file's prim gives it one) and the arc to the file's prim. Its parents are
+/// Xforms, unless a sublayered stage has them.
 fn arc_prim(
     root: &mut Spec,
     tree: &StageTree,
     arc: &crate::usd_scene::StageArc,
-    layer_root: Mat4,
     dir: &Path,
     in_a_sublayer: &dyn Fn(&str) -> bool,
 ) {
@@ -781,20 +802,102 @@ fn arc_prim(
         file.display(),
         arc.prim
     ));
-    let fix = layer_root.as_dmat4().inverse() * tree.root.as_dmat4();
-    if !fix.abs_diff_eq(DMat4::IDENTITY, 1e-9) {
-        let (own, reset) = tree
-            .node(&arc.at)
-            .map(|n| (n.local, n.reset_xform))
-            .unwrap_or((DMat4::IDENTITY, false));
-        spec.lines
-            .insert(0, format!("matrix4d xformOp:transform = {}", matrix(&(fix * own))));
-        let order = if reset {
-            "[\"!resetXformStack!\", \"xformOp:transform\"]"
-        } else {
-            "[\"xformOp:transform\"]"
+}
+
+/// The transform put before a prim's own to have it in the scene's axes and
+/// unit, where Imago shows it.
+const TO_SCENE: &str = "xformOp:transform:toScene";
+
+/// `fix` before the transforms of `node`, a stage's root prim (or the prim
+/// its arc brings in): its op order written again with `TO_SCENE` first
+/// (after a reset of the stack), so the file's own ops, animated or not, still
+/// apply. The order is the one this layer has for it when an edit wrote one,
+/// else the file's; a prim whose file's order was not read has its transform
+/// as read put in with `fix`. Once: one that has it is left as it is.
+fn to_scene(spec: &mut Spec, fix: &DMat4, node: &StageNode) {
+    const ORDER: &str = "uniform token[] xformOpOrder = ";
+    let written = spec.lines.iter().position(|l| l.starts_with(ORDER));
+    let ops = match written {
+        Some(i) => op_order(&spec.lines[i][ORDER.len()..]),
+        None => node.ops.clone(),
+    };
+    if ops.iter().any(|o| o == TO_SCENE) {
+        return;
+    }
+    let (value, ops) = if written.is_none() && ops.is_empty() && !node.local.abs_diff_eq(DMat4::IDENTITY, 1e-9) {
+        let reset = node.reset_xform.then(|| "!resetXformStack!".to_string());
+        (*fix * node.local, reset.into_iter().collect())
+    } else {
+        (*fix, ops)
+    };
+    let order = with_first(ops, TO_SCENE);
+    if let Some(i) = written {
+        spec.lines.remove(i);
+    }
+    spec.lines.push(format!("matrix4d {TO_SCENE} = {}", matrix(&value)));
+    spec.lines
+        .push(format!("{ORDER}{}", list(order.iter(), |o| format!("\"{o}\""))));
+}
+
+/// The ops of an `xformOpOrder` value (`["xformOp:translate", …]`).
+fn op_order(value: &str) -> Vec<String> {
+    value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .split(',')
+        .map(|o| o.trim().trim_matches('"').to_string())
+        .filter(|o| !o.is_empty())
+        .collect()
+}
+
+/// `op` first in an op order, after the stack's reset when it has one.
+fn with_first(mut ops: Vec<String>, op: &str) -> Vec<String> {
+    let at = usize::from(ops.first().is_some_and(|o| o == "!resetXformStack!"));
+    ops.insert(at, op.to_string());
+    ops
+}
+
+/// What a stage says otherwise than the scene, or has otherwise than Imago
+/// shows it, in `report.notes`: its rate (USD retimes it to the scene's, as
+/// Imago reads it), its axes and unit kept as authored, and its prims that a
+/// stronger stage's primitive took the place of (USD composes them under it;
+/// Imago shows the stronger one's alone).
+fn stage_notes(report: &mut WriteReport, tree: &StageTree, prims: &[Prim], scene: &SceneRange) {
+    let file = tree.source.file_name().map_or_else(
+        || tree.source.display().to_string(),
+        |f| f.to_string_lossy().into_owned(),
+    );
+    let fps = scene.fps();
+    if let Some(rate) = tree.time_codes_per_second.filter(|r| (r - fps).abs() > 1e-6) {
+        report.notes.push(format!(
+            "{file}: {} time codes a second, the scene {}: retimed to the scene's by seconds, as USD does (its time code {} at frame {})",
+            num64(rate),
+            num64(fps),
+            num64(rate),
+            num64(fps)
+        ));
+    }
+    let metres = tree.meters_per_unit.is_none_or(|u| (u - 1.0).abs() < 1e-9);
+    if !tree.convert && (tree.up_axis == "Z" || !metres) {
+        report.notes.push(format!(
+            "{file}: not Y-up metres, kept as authored: written as Imago shows it (Load USD's Y-up metres turns it)"
+        ));
+    }
+    let taken: Vec<&str> = prims
+        .iter()
+        .filter(|p| p.stage.as_deref().is_some_and(|t| !std::ptr::eq(t, tree)))
+        .filter(|p| tree.node(&p.path).is_some() && !tree.made.contains(&p.path))
+        .map(|p| p.path.as_str())
+        .collect();
+    if let Some(first) = taken.first() {
+        let more = match taken.len() {
+            1 => String::new(),
+            n => format!(" and {} more", n - 1),
         };
-        spec.lines.insert(1, format!("uniform token[] xformOpOrder = {order}"));
+        report.notes.push(format!(
+            "{first}{more}: also in {file}, which USD composes under the stronger stage's: Imago shows only the stronger's"
+        ));
     }
 }
 
@@ -802,13 +905,15 @@ fn arc_prim(
 /// the set, its selection and each variant, what it has below the prim: prims
 /// made in Imago as new, stages by their arcs, with what was done to them. The
 /// shown variant as it is now (`shown`, edited after the Variant too).
+#[allow(clippy::too_many_arguments)]
 fn variant_set(
     root: &mut Spec,
     m: &crate::core::variant::Made,
     shown: &[&Prim],
     out: &Path,
     wide: Option<&Wide>,
-    outside: &Outside,
+    outside: &[Arc<StageTree>],
+    scene: &SceneRange,
     in_a_stage: &dyn Fn(&str) -> bool,
 ) -> WriteReport {
     for path in crate::core::properties::parents(&m.location)
@@ -834,7 +939,7 @@ fn variant_set(
                 .map(|p| crate::core::variant::out_of_set(p, &m.location))
                 .collect()
         };
-        let (mut inner, _, r) = specs_in(&prims, out, wide, Some(outside));
+        let (mut inner, _, r) = specs_in(&prims, out, wide, outside, scene);
         report.add(r, &format!("{name}: "));
         let v = Spec {
             children: std::mem::take(&mut inner.at(&m.location).children),
@@ -1505,7 +1610,11 @@ mod tests {
     }
 
     fn prims_of(path: &Path) -> Vec<Prim> {
-        let scene = crate::usd_scene::load(path).unwrap();
+        packed(&crate::usd_scene::load(path).unwrap())
+    }
+
+    /// A stage's primitives, as Load USD gives them.
+    fn packed(scene: &crate::usd_scene::UsdScene) -> Vec<Prim> {
         scene
             .meshes
             .iter()
@@ -1553,22 +1662,36 @@ def Xform "set" {{
         )
     }
 
-    /// A stage of 25 time codes a second: the override says so too, so USD
-    /// does not scale the stage's time to the layer's 24 (frame 1008 of
-    /// Imago is time code 1008 of the file, as Imago reads it).
+    /// A stage of 25 time codes a second in a scene of 24: the layer says the
+    /// scene's rate (USD retimes the stage to it, as Imago reads it), and the
+    /// report says so.
     #[test]
-    fn an_override_keeps_its_stages_time_codes_a_second() {
+    fn an_override_has_the_scenes_rate_and_says_where_a_stage_differs() {
         let (_, prims) = load(
             "rate.usda",
             &stage_text().replace("upAxis", "timeCodesPerSecond = 25\n    upAxis"),
         );
         let out = std::env::temp_dir().join("xms_usd_write_test/rate_over.usda");
-        let (text, _) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert!(
-            text.contains("timeCodesPerSecond = 25") && text.contains("framesPerSecond = 25"),
+            text.contains("timeCodesPerSecond = 24") && text.contains("framesPerSecond = 24"),
             "{text}"
         );
         assert!(!text.contains("startTimeCode"), "no time of its own: {text}");
+        assert!(
+            report
+                .notes
+                .iter()
+                .any(|n| n.starts_with("rate.usda: 25 time codes a second, the scene 24")),
+            "{report:?}"
+        );
+        let at_25 = SceneRange {
+            fps_num: 25,
+            ..Default::default()
+        };
+        let (text, report) = override_layer(&prims, &out, &at_25).unwrap();
+        assert!(text.contains("timeCodesPerSecond = 25"), "{text}");
+        assert!(!report.notes.iter().any(|n| n.contains("time codes")), "{report:?}");
     }
 
     /// Widths one per curve (an ICE graph per curve) are written one per
@@ -1618,24 +1741,146 @@ def BasisCurves "hair" {
         g.points_mut()[1] = [0.0, 1.5, 0.0];
         hair.geo = Some(Arc::new(g));
         let out = std::env::temp_dir().join("xms_usd_write_test/curves_over.usda");
-        let (layer, _) = override_layer(&prims, &out).unwrap();
+        let (layer, _) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert!(layer.contains("int[] curveVertexCounts = [3, 2]"), "{layer}");
         assert!(layer.contains("point3f[] points"), "{layer}");
     }
 
+    /// Kept as authored (Z-up centimetres, not turned to Y-up metres): no
+    /// opinions, the scene's axes and unit, and a note that it lies as
+    /// authored.
     #[test]
     fn an_untouched_stage_writes_no_opinions() {
         let (_, prims) = load("untouched.usda", &stage_text());
         let out = std::env::temp_dir().join("xms_usd_write_test/untouched_over.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
-        assert_eq!(report, WriteReport::default());
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
+        assert_eq!(
+            WriteReport {
+                notes: vec![],
+                ..report.clone()
+            },
+            WriteReport::default()
+        );
+        assert!(
+            report.notes[0].contains("not Y-up metres, kept as authored"),
+            "{report:?}"
+        );
         assert!(!text.contains("over "), "{text}");
         assert!(
-            text.contains("upAxis = \"Z\"")
-                && text.contains("metersPerUnit = 0.01")
+            text.contains("upAxis = \"Y\"")
+                && text.contains("metersPerUnit = 1")
                 && text.contains("@./untouched.usda@"),
             "{text}"
         );
+    }
+
+    /// Turned to Y-up metres in Imago: in the layer, the scene's axes and
+    /// unit, the correction put before the root prim's own transform (kept,
+    /// animated or not), and read back where Imago shows it. Referenced, the
+    /// same on the prim the reference is on.
+    #[test]
+    fn a_stage_of_other_axes_is_written_where_imago_shows_it() {
+        use crate::usd_scene::LoadMode;
+        let (path, _) = load("turned.usda", &stage_text());
+        let scene = crate::usd_scene::load_cached(&path.to_string_lossy(), true).unwrap();
+        let out = std::env::temp_dir().join("xms_usd_write_test/turned_over.usda");
+        let check = |prims: &[Prim], out: &Path| {
+            let report = write_override(prims, out, &SceneRange::default()).unwrap();
+            assert!(report.notes.is_empty(), "turned: nothing to say {report:?}");
+            let text = std::fs::read_to_string(out).unwrap();
+            assert!(
+                text.contains("upAxis = \"Y\"") && text.contains("metersPerUnit = 1"),
+                "{text}"
+            );
+            assert!(text.contains("matrix4d xformOp:transform:toScene = "), "{text}");
+            let back = crate::usd_scene::load(out).unwrap();
+            for p in prims {
+                let m = back.meshes.iter().find(|m| m.path == p.path).expect("read back");
+                let (Placement::One(now), Placement::One(was)) = (&m.place, &p.place) else {
+                    panic!("placed")
+                };
+                assert!(now.abs_diff_eq(*was, 1e-4), "{}: {now} vs {was}", p.path);
+            }
+            text
+        };
+        let text = check(&packed(&scene), &out);
+        assert!(
+            text.contains("uniform token[] xformOpOrder = [\"xformOp:transform:toScene\", \"xformOp:translate\"]"),
+            "the file's own op after it: {text}"
+        );
+        let referenced = crate::node_graph::nodes::stage_prims(&scene, LoadMode::Reference, "/root", "").unwrap();
+        let out = std::env::temp_dir().join("xms_usd_write_test/turned_ref_over.usda");
+        let text = check(&referenced, &out);
+        assert_eq!(text.matches("xformOp:transform:toScene = ").count(), 1, "{text}");
+    }
+
+    /// Two stages with a prim on the same path, merged either way: the later
+    /// input's stage sublayered first (the stronger), neither prim
+    /// deactivated, and read back, the stronger one's prim.
+    #[test]
+    fn of_two_stages_on_a_path_the_later_input_is_stronger() {
+        // Each with `/x`, wide as `x`, and a prim of its own.
+        let stage = |name: &str, x: f32| {
+            let quad = QUAD.replace("(1, 0, 0)", &format!("({x}, 0, 0)"));
+            let text = format!("#usda 1.0\ndef Mesh \"x\" {{{quad}}}\ndef Mesh \"{name}\" {{{QUAD}}}\n");
+            load(&format!("{name}.usda"), &text).1
+        };
+        let (a, b) = (stage("weak", 1.0), stage("strong", 3.0));
+        let out = std::env::temp_dir().join("xms_usd_write_test/two_stages_over.usda");
+        for (first, second, strong, weak) in [(&a, &b, "strong", "weak"), (&b, &a, "weak", "strong")] {
+            let merged = crate::node_graph::nodes::merge_prims(first, second);
+            let report = write_override(&merged, &out, &SceneRange::default()).unwrap();
+            let text = std::fs::read_to_string(&out).unwrap();
+            let layers = format!("@./{strong}.usda@,\n        @./{weak}.usda@");
+            assert!(text.contains(&layers), "{layers} in {text}");
+            assert!(!text.contains("active = false"), "{text}");
+            assert!(report.notes.iter().any(|n| n.starts_with("/x: also in")), "{report:?}");
+            let back = crate::usd_scene::load(&out).unwrap();
+            let x = back.meshes.iter().find(|m| m.path == "/x").expect("/x read back");
+            let wide = if strong == "strong" { 3.0 } else { 1.0 };
+            assert_eq!(x.geo.as_ref().unwrap().points()[1][0], wide, "{strong}'s");
+        }
+    }
+
+    /// The correction goes before the ops this layer wrote, else the file's,
+    /// after a reset of the stack; once.
+    #[test]
+    fn the_correction_goes_before_a_prims_own_ops() {
+        let fix = DMat4::from_scale(glam::DVec3::splat(0.01));
+        let node = StageNode {
+            ops: vec!["!resetXformStack!".into(), "xformOp:translate".into()],
+            ..Default::default()
+        };
+        let mut spec = Spec::default();
+        to_scene(&mut spec, &fix, &node);
+        assert_eq!(
+            spec.lines[1],
+            "uniform token[] xformOpOrder = [\"!resetXformStack!\", \"xformOp:transform:toScene\", \"xformOp:translate\"]"
+        );
+        to_scene(&mut spec, &fix, &node);
+        assert_eq!(spec.lines.len(), 2, "once");
+        let mut edited = Spec {
+            lines: vec![
+                "matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1) )".into(),
+                "uniform token[] xformOpOrder = [\"xformOp:transform\"]".into(),
+            ],
+            ..Default::default()
+        };
+        to_scene(&mut edited, &fix, &node);
+        assert_eq!(edited.lines.len(), 3, "{:?}", edited.lines);
+        assert!(edited.lines[2].ends_with("[\"xformOp:transform:toScene\", \"xformOp:transform\"]"));
+        // Its ops not read: its transform as read, with the correction.
+        let unread = StageNode {
+            local: DMat4::from_translation(glam::DVec3::X),
+            ..Default::default()
+        };
+        let mut spec = Spec::default();
+        to_scene(&mut spec, &fix, &unread);
+        assert_eq!(
+            spec.lines[0],
+            format!("matrix4d {TO_SCENE} = {}", matrix(&(fix * unread.local)))
+        );
+        assert_eq!(op_order("[\"a\", \"b\"]"), vec!["a", "b"]);
     }
 
     #[test]
@@ -1652,7 +1897,7 @@ def BasisCurves "hair" {
         prims.truncate(2);
 
         let out = std::env::temp_dir().join("xms_usd_write_test/edited_over.usda");
-        let report = write_override(&prims, &out).unwrap();
+        let report = write_override(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!(
             (report.changed, report.deactivated, report.added),
             (2, 1, 0),
@@ -1670,8 +1915,8 @@ def BasisCurves "hair" {
         };
         assert!(now.abs_diff_eq(*was, 1e-4), "{now} vs {was}");
         assert!(find("/set/c").is_none(), "c is deactivated");
-        // The same axis and unit as the original.
-        assert_eq!((back.up_axis.as_str(), back.meters_per_unit), ("Z", Some(0.01)));
+        // The scene's axis and unit.
+        assert_eq!((back.up_axis.as_str(), back.meters_per_unit), ("Y", Some(1.0)));
     }
 
     /// Over frames, what changes is written as time samples (a prim moved by a
@@ -1690,7 +1935,7 @@ def BasisCurves "hair" {
         };
         let shown: Vec<(f64, Vec<Prim>)> = vec![(1.0, at(2.0)), (2.0, at(4.0)), (3.0, at(4.0))];
         let out = std::env::temp_dir().join("xms_usd_write_test/timed_over.usda");
-        let report = write_frames(&shown, &out, 24.0).unwrap();
+        let report = write_frames(&shown, &out, &SceneRange::default()).unwrap();
         assert_eq!(report.frames, 3, "{report:?}");
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
@@ -1784,7 +2029,7 @@ def BasisCurves "hair" {
     #[test]
     fn a_shape_is_written_as_a_mesh_under_xforms_and_is_the_default_prim() {
         let out = std::env::temp_dir().join("xms_usd_write_test/shape_over.usda");
-        let report = write_override(&[cube_at("/root/asset/cube1")], &out).unwrap();
+        let report = write_override(&[cube_at("/root/asset/cube1")], &out, &SceneRange::default()).unwrap();
         assert_eq!(report.added, 1, "{report:?}");
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
@@ -1808,7 +2053,7 @@ def BasisCurves "hair" {
         assert_eq!(cube.geo.as_ref().unwrap().points().len(), 8);
 
         // On its own at the default location, the cube is the default prim.
-        let (text, _) = override_layer(&[cube_at("/cube")], &out).unwrap();
+        let (text, _) = override_layer(&[cube_at("/cube")], &out, &SceneRange::default()).unwrap();
         assert!(
             text.contains("defaultPrim = \"cube\"") && text.contains("def Mesh \"cube\""),
             "{text}"
@@ -1848,7 +2093,7 @@ def BasisCurves "hair" {
         };
 
         let out = std::env::temp_dir().join("xms_usd_write_test/bound_over.usda");
-        let report = write_override(&bound, &out).unwrap();
+        let report = write_override(&bound, &out, &SceneRange::default()).unwrap();
         assert_eq!(
             (report.changed, report.added),
             (3, 3),
@@ -1912,7 +2157,7 @@ def BasisCurves "hair" {
         let shown: Vec<(String, Placement)> = prims.iter().map(|p| (p.path.clone(), p.place.clone())).collect();
 
         let out = std::env::temp_dir().join("xms_usd_write_test/referencing.usda");
-        let report = write_override(&prims, &out).unwrap();
+        let report = write_override(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!((report.referenced, report.changed), (1, 1), "{report:?}");
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
@@ -1942,7 +2187,7 @@ def BasisCurves "hair" {
 
         // Payload: the same, written as a payload.
         let prims = crate::node_graph::nodes::stage_prims(&scene, LoadMode::Payload, "/shot/set", "").unwrap();
-        let (text, _) = override_layer(&prims, &out).unwrap();
+        let (text, _) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert!(
             text.contains("prepend payload = @./referenced.usda@</set>") && text.contains("def Xform \"shot\""),
             "{text}"
@@ -1961,7 +2206,7 @@ def BasisCurves "hair" {
             panic!()
         };
         let out = std::env::temp_dir().join("xms_usd_write_test/camera_over.usda");
-        let report = write_override(&made, &out).unwrap();
+        let report = write_override(&made, &out, &SceneRange::default()).unwrap();
         assert_eq!(report.added, 1);
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
@@ -2014,7 +2259,7 @@ def Xform "shot" {{
             .place
             .moved(Mat4::from_translation(glam::Vec3::new(3.0, 0.0, 0.0)));
         let out = std::env::temp_dir().join("xms_usd_write_test/camera_moved.usda");
-        let report = write_override(&prims, &out).unwrap();
+        let report = write_override(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!((report.changed, report.added), (1, 0), "only its transform: {report:?}");
         let back = crate::usd_scene::load(&out).unwrap();
         let moved = back.cameras.iter().find(|c| c.path == "/shot/cam").unwrap();
@@ -2038,7 +2283,7 @@ def Xform "shot" {{
         );
         let EvalResult::Named(edited) = edited else { panic!() };
         let out = std::env::temp_dir().join("xms_usd_write_test/camera_lens.usda");
-        let report = write_override(&edited, &out).unwrap();
+        let report = write_override(&edited, &out, &SceneRange::default()).unwrap();
         assert_eq!((report.changed, report.added), (1, 0), "{report:?}");
         let text = std::fs::read_to_string(&out).unwrap();
         assert!(text.contains("float focalLength = 85"), "{text}");
@@ -2067,7 +2312,7 @@ def Xform "shot" {{
             panic!()
         };
         let out = std::env::temp_dir().join("xms_usd_write_test/render.usda");
-        let report = write_override(&prims, &out).unwrap();
+        let report = write_override(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!(
             report.added, 5,
             "cube, camera, settings, product, the C var: {report:?}"
@@ -2138,7 +2383,7 @@ def Scope "Render" {{
             panic!()
         };
         let out = std::env::temp_dir().join("xms_usd_write_test/render_over.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!(report.changed, 2, "the settings and the product: {report:?}");
         for line in [
             "over \"rs\"",
@@ -2183,7 +2428,7 @@ def Scope "Render" {{
             made.extend(p);
         }
         let out = std::env::temp_dir().join("xms_usd_write_test/lights.usda");
-        let report = write_override(&made, &out).unwrap();
+        let report = write_override(&made, &out, &SceneRange::default()).unwrap();
         assert_eq!(report.added, 3);
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
@@ -2246,7 +2491,7 @@ def Xform "set" {{
             .place
             .moved(Mat4::from_translation(glam::Vec3::new(0.0, 5.0, 0.0)));
         let out = std::env::temp_dir().join("xms_usd_write_test/light_moved.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!(
             (report.changed, report.added),
             (1, 0),
@@ -2259,18 +2504,18 @@ def Xform "set" {{
     }
 
     #[test]
-    fn a_shape_beside_a_stage_is_added_in_the_stage_axes() {
+    fn a_shape_beside_a_stage_is_added_in_the_scene_axes() {
         let (_, mut prims) = load("with_shape.usda", &stage_text());
         prims.push(cube_at("/props/cube"));
         let out = std::env::temp_dir().join("xms_usd_write_test/with_shape_over.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!((report.changed, report.added), (0, 1), "{report:?}");
         assert!(
             text.contains("defaultPrim = \"set\"") && text.contains("def Xform \"props\""),
             "{text}"
         );
         assert!(!text.contains("over \"set\""), "the stage is untouched: {text}");
-        // Written in the stage's Z-up centimetres, it reads back where Imago drew it.
+        // Written in the scene's Y-up metres, it reads back where Imago drew it.
         std::fs::write(&out, &text).unwrap();
         let back = crate::usd_scene::load(&out).unwrap();
         let cube = back
@@ -2300,7 +2545,7 @@ def Xform "set" {{
     #[test]
     fn a_prim_without_a_path_is_listed_as_not_written() {
         let out = std::env::temp_dir().join("xms_usd_write_test/no_path_over.usda");
-        let (_, report) = override_layer(&[cube_at("")], &out).unwrap();
+        let (_, report) = override_layer(&[cube_at("")], &out, &SceneRange::default()).unwrap();
         assert_eq!((report.added, report.skipped.len()), (0, 1), "{report:?}");
     }
 
@@ -2354,7 +2599,7 @@ def Xform "set" {{
         );
 
         let out = std::env::temp_dir().join("xms_usd_write_test/set_attribute_over.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!(
             (report.changed, report.deactivated, report.added),
             (3, 0, 0),
@@ -2389,7 +2634,7 @@ def Xform "set" {{
             vec!["/set/a"],
             "what is below /props left the scene"
         );
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!((report.changed, report.deactivated), (1, 0), "{report:?}\n{text}");
         assert!(
             text.contains("over \"props\" (\n    active = false\n)") && !text.contains("\"b\""),
@@ -2425,7 +2670,7 @@ def Xform "set" {{
             panic!()
         };
         let out = std::env::temp_dir().join("xms_usd_write_test/above_over.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert_eq!((report.added, report.changed), (3, 1), "once, on the Xform: {report:?}");
         assert_eq!(text.matches("primvars:displayColor").count(), 1, "{text}");
         for line in [
@@ -2493,7 +2738,7 @@ def Xform "set" {{
             ..Prim::new("/set/scatter/Prototypes/box".into(), quad.to_mesh())
         };
         let out = std::env::temp_dir().join("xms_usd_write_test/made_instancer.usda");
-        write_override(&[instancer, proto], &out).unwrap();
+        write_override(&[instancer, proto], &out, &SceneRange::default()).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
             "def PointInstancer \"scatter\"",
@@ -2579,7 +2824,7 @@ def PointInstancer "inst" {{
         assert_eq!(box_.place.matrices()[1].w_axis.x, 7.0, "the copies follow the points");
 
         let out = std::env::temp_dir().join("xms_usd_write_test/instancer_over.usda");
-        let (text, report) = override_layer(&prims, &out).unwrap();
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
         assert!(text.contains("point3f[] positions = [(0, 0, 0), (7, 0, 0)]"), "{text}");
         assert_eq!(
             text.matches("instancer.usda@").count(),
@@ -2637,7 +2882,7 @@ def Xform "set" {{
             .collect();
         assert!(shown.iter().all(|y| (y - 3.0).abs() < 1e-5), "{shown:?}");
         let out = std::env::temp_dir().join("xms_usd_write_test/group_moved_over.usda");
-        write_override(&edited, &out).unwrap();
+        write_override(&edited, &out, &SceneRange::default()).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         assert_eq!(
             text.matches("xformOp:transform =").count(),
@@ -2693,7 +2938,7 @@ def Scope "mtl" {{
             panic!()
         };
         let out = std::env::temp_dir().join("xms_usd_write_test/reparented_over.usda");
-        write_override(&moved, &out).unwrap();
+        write_override(&moved, &out, &SceneRange::default()).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
             "prepend references = @./reparented.usda@</set>",

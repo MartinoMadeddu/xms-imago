@@ -380,6 +380,9 @@ pub struct Prim {
     pub local_xform: Sampled<Mat4d>,
     /// `!resetXformStack!`: ignore the parent transforms
     pub reset_xform_stack: bool,
+    /// Its `xformOpOrder` as authored (empty when it has none): what a layer
+    /// over it re-authors to put a transform before its own.
+    pub xform_ops: Vec<String>,
     pub visible: Sampled<bool>,
     pub purpose: Purpose,
     /// `material:binding` target (resolved by inheritance at sync)
@@ -419,6 +422,7 @@ impl Prim {
             kind,
             local_xform: Sampled::default(),
             reset_xform_stack: false,
+            xform_ops: Vec::new(),
             visible: Sampled::default(),
             purpose: Purpose::Default,
             material_binding: None,

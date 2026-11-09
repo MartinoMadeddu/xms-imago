@@ -687,6 +687,7 @@ impl Walk<'_> {
             hidden,
             local,
             reset_xform: prim.reset_xform_stack,
+            ops: prim.xform_ops.clone(),
             proxy: under_instance,
             prototype: self.listing > 0,
             authored: authored(prim),

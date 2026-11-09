@@ -191,7 +191,7 @@ fn render(
         let prims = cook(graph, subnets, scene, *frame)?;
         let key = (0, (*frame as f64).to_bits());
         if k == 0 {
-            session.render(prims, key, *frame as f64, false, None)?;
+            session.render(prims, &graph.scene, key, *frame as f64, false, None)?;
         } else {
             session.frame(prims, key, *frame as f64);
         }
@@ -250,7 +250,12 @@ fn nodes(
         if job.mode == Mode::Write {
             crate::write_usd(graph, subnets, *id);
             match crate::usd_write::last(*id) {
-                Some(Ok(report)) => say(&format!("{name}: written ({} frames)", report.frames.max(1))),
+                Some(Ok(report)) => {
+                    say(&format!("{name}: written ({} frames)", report.frames.max(1)));
+                    for n in &report.notes {
+                        say(&format!("{name}: {n}"));
+                    }
+                }
                 Some(Err(e)) => return Err(format!("{name}: {e}")),
                 None => return Err(format!("{name}: nothing written")),
             }
@@ -309,7 +314,8 @@ fn tx(
     let config = crate::live::arnold_config(&renderer, &dir, scene.parent().map(Path::to_path_buf))?;
     let prims = cook(graph, subnets, scene, first)?;
     let layer = dir.join("textures.usda");
-    crate::usd_write::write_override(&prims, &layer).map_err(|e| format!("The scene could not be written: {e}"))?;
+    crate::usd_write::write_override(&prims, &layer, &graph.scene)
+        .map_err(|e| format!("The scene could not be written: {e}"))?;
     let textures = xms_render::arnold::textures(&config, &layer, first as f64)?;
     let maketx = xms_render::arnold::maketx(&config);
     say(&format!("{} textures, made with {}", textures.len(), maketx.display()));

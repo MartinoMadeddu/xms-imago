@@ -1,22 +1,25 @@
 //! File > Settings: Imago's settings in one window, a page for each part of
 //! the program, listed on its left. Each setting is kept where its part keeps
-//! it (the Viewer's colour in `colour`, its navigation in `navigation.txt`,
-//! where renderers are installed in `core::renderers`).
+//! it (the scene's up axis, unit and rate with the graph, the Viewer's colour
+//! in `colour`, its navigation in `navigation.txt`, where renderers are
+//! installed in `core::renderers`).
 
 /// A page of the Settings window.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
     #[default]
+    Scene,
     Viewer,
     Renderers,
     Interface,
 }
 
 impl Page {
-    pub const ALL: [Page; 3] = [Page::Viewer, Page::Renderers, Page::Interface];
+    pub const ALL: [Page; 4] = [Page::Scene, Page::Viewer, Page::Renderers, Page::Interface];
 
     pub fn label(self) -> &'static str {
         match self {
+            Page::Scene => "Scene",
             Page::Viewer => "Viewer",
             Page::Renderers => "Renderers",
             Page::Interface => "Interface",
@@ -33,9 +36,13 @@ pub fn open(ctx: &egui::Context, page: Page) {
     ctx.data_mut(|d| d.insert_temp(open_id(), Some(page)));
 }
 
-/// The Settings window, while it is open. `nav`: the Viewer's navigation,
-/// saved when it changes.
-pub fn window(ctx: &egui::Context, nav: &mut crate::viewport::nav::NavSettings) {
+/// The Settings window, while it is open. `scene`: the graph's, saved with
+/// it; `nav`: the Viewer's navigation, saved when it changes.
+pub fn window(
+    ctx: &egui::Context,
+    scene: &mut crate::node_graph::SceneRange,
+    nav: &mut crate::viewport::nav::NavSettings,
+) {
     let Some(mut page) = ctx.data(|d| d.get_temp::<Option<Page>>(open_id())).flatten() else {
         return;
     };
@@ -55,6 +62,7 @@ pub fn window(ctx: &egui::Context, nav: &mut crate::viewport::nav::NavSettings) 
                 });
                 ui.separator();
                 ui.vertical(|ui| match page {
+                    Page::Scene => scene_page(ui, scene),
                     Page::Viewer => viewer(ui, nav),
                     Page::Renderers => renderers(ui),
                     Page::Interface => crate::ui_scale::settings(ui),
@@ -62,6 +70,60 @@ pub fn window(ctx: &egui::Context, nav: &mut crate::viewport::nav::NavSettings) 
             });
         });
     ctx.data_mut(|d| d.insert_temp(open_id(), open.then_some(page)));
+}
+
+/// Units a scene can be in, as USD states them (`metersPerUnit`).
+const UNITS: [(f64, &str); 6] = [
+    (1.0, "Metres"),
+    (0.01, "Centimetres"),
+    (0.001, "Millimetres"),
+    (0.1, "Decimetres"),
+    (0.0254, "Inches"),
+    (0.3048, "Feet"),
+];
+
+/// The scene's up axis, unit and rate: what its layers say (Write USD's,
+/// renders'), each stage put in them where Imago shows it.
+fn scene_page(ui: &mut egui::Ui, scene: &mut crate::node_graph::SceneRange) {
+    use crate::node_graph::UpAxis;
+    let dim = crate::properties::form::ink::DIM();
+    ui.strong("Scene");
+    egui::Grid::new("settings_scene").num_columns(2).show(ui, |ui| {
+        ui.label("Up axis");
+        egui::ComboBox::from_id_salt("settings_up_axis")
+            .selected_text(scene.up_axis.token())
+            .show_ui(ui, |ui| {
+                for a in UpAxis::ALL {
+                    ui.selectable_value(&mut scene.up_axis, a, a.token());
+                }
+            });
+        ui.end_row();
+        ui.label("Unit");
+        let now = UNITS
+            .iter()
+            .find(|u| (u.0 - scene.meters_per_unit).abs() < 1e-9)
+            .map_or_else(|| format!("{} m", scene.meters_per_unit), |u| u.1.to_string());
+        egui::ComboBox::from_id_salt("settings_unit")
+            .selected_text(now)
+            .show_ui(ui, |ui| {
+                for (m, name) in UNITS {
+                    ui.selectable_value(&mut scene.meters_per_unit, m, name);
+                }
+            });
+        ui.end_row();
+        ui.label("Frames a second");
+        crate::timeline::ui::scene_rate(ui, scene, "settings_scene_rate");
+        ui.end_row();
+    });
+    ui.label(
+        egui::RichText::new(
+            "Saved with the scene. Imago works in Y-up metres; every layer it writes (Write USD, a render) says these, \
+             with each stage where Imago shows it. A stage of another rate is retimed to the scene's by seconds, as \
+             USD does, and its Load USD says so",
+        )
+        .small()
+        .color(dim),
+    );
 }
 
 fn viewer(ui: &mut egui::Ui, nav: &mut crate::viewport::nav::NavSettings) {

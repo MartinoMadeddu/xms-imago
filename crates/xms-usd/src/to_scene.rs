@@ -663,14 +663,22 @@ impl<'s> Translator<'s> {
 
     // ----- transforms --------------------------------------------------------
 
+    /// Its `xformOpOrder`, empty when it has none.
+    fn op_order(&self, prim: &Prim) -> Vec<String> {
+        match self.value(prim, "xformOpOrder") {
+            Some(Value::TokenVec(v)) => v.iter().map(|t| t.as_str().to_string()).collect(),
+            Some(Value::StringVec(v)) => v,
+            _ => Vec::new(),
+        }
+    }
+
     /// Local transform from xformOps, sampled at the union of the ops' sample
     /// times in the window, and the `resetXformStack` flag.
     fn local_xform(&self, prim: &Prim) -> (Sampled<Mat4d>, bool) {
-        let ops: Vec<String> = match self.value(prim, "xformOpOrder") {
-            Some(Value::TokenVec(v)) => v.iter().map(|t| t.as_str().to_string()).collect(),
-            Some(Value::StringVec(v)) => v,
-            _ => return (Sampled::default(), false),
-        };
+        let ops = self.op_order(prim);
+        if ops.is_empty() {
+            return (Sampled::default(), false);
+        }
         let reset = ops.iter().any(|o| o == "!resetXformStack!");
         let mut times: Vec<f64> = Vec::new();
         for op in &ops {
@@ -920,6 +928,7 @@ impl<'s> Translator<'s> {
         p.visible = visible;
         p.purpose = purpose;
         if !self.boxes_only {
+            p.xform_ops = self.op_order(prim);
             p.material_binding = binding(prim).and_then(|b| self.target_path(&b));
             p.opaque = ["primvars:rray:opaque", "rray:opaque", "primvars:arnold:opaque"]
                 .iter()

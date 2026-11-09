@@ -700,7 +700,7 @@ def Xform \"car\" (
             panic!()
         };
         let out = std::env::temp_dir().join("xms_variant_test/written.usda");
-        crate::usd_write::write_override(&after, &out).unwrap();
+        crate::usd_write::write_override(&after, &out, &Default::default()).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         assert!(text.contains(r#"variants = { string "paint" = "blue" }"#), "{text}");
         let back = crate::usd_scene::load(&out).unwrap();
@@ -761,7 +761,7 @@ def Xform \"car\" (
     fn write_usd_writes_a_made_set_with_every_variant() {
         let out = std::env::temp_dir().join("xms_variant_test/made.usda");
         std::fs::create_dir_all(out.parent().unwrap()).unwrap();
-        crate::usd_write::write_override(&made(), &out).unwrap();
+        crate::usd_write::write_override(&made(), &out, &Default::default()).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
             "def Xform \"asset\"",
@@ -858,7 +858,7 @@ def Xform \"car\" (
             panic!()
         };
         let out = std::env::temp_dir().join("xms_variant_test/stages.usda");
-        crate::usd_write::write_override(&prims, &out).unwrap();
+        crate::usd_write::write_override(&prims, &out, &Default::default()).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         for line in [
             "variantSet \"model\" = {",

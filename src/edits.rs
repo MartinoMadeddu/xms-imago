@@ -134,12 +134,10 @@ fn diff_geo(src: &Geo, cur: &Geo, e: &mut PrimEdit) {
 /// The edits of the primitives of one stage.
 pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
     let mut set = EditSet::default();
-    let mut present: HashSet<&str> = HashSet::new();
     for p in prims
         .iter()
         .filter(|p| p.stage.as_deref().is_some_and(|t| std::ptr::eq(t, tree)))
     {
-        present.insert(p.path.as_str());
         match prim_edit(p) {
             Some(e) if !e.is_empty() => set.prims.push(e),
             Some(_) => {}
@@ -159,8 +157,11 @@ pub fn edit_set(prims: &[Prim], tree: &StageTree) -> EditSet {
             .any(|g| path.strip_prefix(g).is_some_and(|rest| rest.starts_with('/')))
     };
     // Geometry the stage has (and that was drawn: hidden prims never arrive)
-    // which no longer arrives.
+    // which no longer arrives: no primitive has its path. One of another stage
+    // on its path (a later input of a Merge) leaves it, as USD composes the
+    // stronger stage over it.
     // Cameras are primitives too: a pruned one is deactivated.
+    let present: HashSet<&str> = prims.iter().map(|p| p.path.as_str()).collect();
     let geometry = [
         "Mesh",
         "BasisCurves",
@@ -331,6 +332,16 @@ mod tests {
         assert_eq!(set.removed, vec!["/c".to_string()]);
         // Not from this stage: listed by the stage it belongs to, not here.
         assert!(set.added.is_empty());
+    }
+
+    /// A prim of another stage on the path of one of this stage (a later input
+    /// of a Merge took its place): not deactivated, so USD composes the
+    /// stronger stage's over it rather than taking both away.
+    #[test]
+    fn a_prim_another_stage_took_the_place_of_is_not_removed() {
+        let (weak, strong) = (stage(), stage());
+        let set = edit_set(&[loaded("/a", &strong), loaded("/b", &weak)], &weak);
+        assert_eq!(set.removed, vec!["/c".to_string()], "only what nothing has");
     }
 
     /// An attribute set in another context than the file's (widths per curve

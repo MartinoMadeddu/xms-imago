@@ -287,6 +287,7 @@ fn keys_bounce(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         end: 96,
         fps_num: 24,
         fps_den: 1,
+        ..Default::default()
     };
     let ball = g.add_node("Ball".into(), NodeType::sphere(0.4, 24), p(40.0, 20.0));
     let grid = g.add_node("Floor".into(), NodeType::grid(8, 8, 12.0), p(260.0, 20.0));
@@ -352,6 +353,7 @@ fn local_animation(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         end: 72,
         fps_num: 24,
         fps_den: 1,
+        ..Default::default()
     };
     let cube = g.add_node(
         "Cube".into(),
@@ -2770,6 +2772,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
         end: 1025,
         fps_num: 25,
         fps_den: 1,
+        ..Default::default()
     };
     let load = |g: &mut NodeGraphState, name: &str, file: &str, location: &str, x: f32| {
         g.add_node(
@@ -2821,6 +2824,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         end: 1050,
         fps_num: 25,
         fps_den: 1,
+        ..Default::default()
     };
     let get = |name: &str, context: Option<Context>| IceGraphNodeType::GetData {
         name: name.into(),
@@ -3155,6 +3159,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         end: 1025,
         fps_num: 25,
         fps_den: 1,
+        ..Default::default()
     };
     let reference = |sub: &mut crate::ice::IceGraph, path: &str| {
         ice_add(

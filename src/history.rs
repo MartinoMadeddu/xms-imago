@@ -816,6 +816,15 @@ fn describe(a: &Doc, b: &Doc) -> (String, Kind, Vec<NodeId>) {
             ),
             Kind::Display,
         )
+    } else if (a.scene.up_axis, a.scene.meters_per_unit) != (b.scene.up_axis, b.scene.meters_per_unit) {
+        (
+            format!(
+                "Scene {}-up, {} m a unit",
+                b.scene.up_axis.token(),
+                b.scene.meters_per_unit
+            ),
+            Kind::Edit,
+        )
     } else if a.scene != b.scene {
         (
             format!(

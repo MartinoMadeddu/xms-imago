@@ -21,6 +21,7 @@ use glam::Mat4;
 use xms_render::{Change, Edit, Value};
 
 use crate::core::properties::Value as Prop;
+use crate::node_graph::SceneRange;
 use crate::types::{Placement, Prim};
 
 /// The program's live render, once started.
@@ -67,13 +68,13 @@ pub fn scene(graph: &crate::node_graph::NodeGraphState, subnets: &crate::ice::Ic
     }
 }
 
-/// A view to render `prims` through: a camera placed at `world` (Imago's
+/// A view to render `scene` through: a camera placed at `world` (Imago's
 /// space, looking down -Z), `vertical_fov` (radians), `size` pixels.
-pub fn view(prims: &[Prim], world: Mat4, vertical_fov: f32, size: [u32; 2]) -> xms_render::View {
+pub fn view(scene: &SceneRange, world: Mat4, vertical_fov: f32, size: [u32; 2]) -> xms_render::View {
     let aspect = size[0] as f32 / size[1].max(1) as f32;
     let horizontal = 2.0 * ((vertical_fov * 0.5).tan() * aspect).atan();
     xms_render::View {
-        matrix: (crate::usd_write::layer_axes(prims).inverse() * world).to_cols_array_2d(),
+        matrix: (scene.axes().inverse() * world).to_cols_array_2d(),
         fov: horizontal.to_degrees(),
         size,
     }
@@ -107,6 +108,8 @@ pub struct Session {
     sent: Vec<Prim>,
     /// The graph's revision and the frame the scene sent is of.
     key: (u64, u64),
+    /// Its up axis, unit and rate: what it is written in.
+    scene: SceneRange,
     rendering: bool,
     /// IPR: in passes, sent each change. Else once, at the Render Settings'
     /// samples, bucket by bucket, the scene as it was.
@@ -161,6 +164,7 @@ impl Session {
             layer: dir.join("live.usda"),
             sent: vec![],
             key: (0, 0),
+            scene: SceneRange::default(),
             rendering: false,
             ipr: true,
             through: None,
@@ -172,12 +176,14 @@ impl Session {
         })
     }
 
-    /// Render the scene: `prims`, of the graph's revision and frame `key`, at
-    /// `frame`, through `through` (the Viewer's view), else the layer's
-    /// camera. Written and loaded; `ipr`, in passes, sent each change after.
+    /// Render the scene: `prims` of `scene`, of the graph's revision and
+    /// frame `key`, at `frame`, through `through` (the Viewer's view), else
+    /// the layer's camera. Written and loaded; `ipr`, in passes, sent each
+    /// change after.
     pub fn render(
         &mut self,
         prims: Vec<Prim>,
+        scene: &SceneRange,
         key: (u64, u64),
         frame: f64,
         ipr: bool,
@@ -186,13 +192,21 @@ impl Session {
         // Light: the points deformers moved left out, sent in memory before
         // the first bucket; the whole layer written only if they cannot be.
         let light = lighter(&prims);
-        crate::usd_write::write_override(&light, &self.layer)
+        let written = crate::usd_write::write_override(&light, &self.layer, scene)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
-        let moved = changes(&light, &prims, crate::usd_write::layer_axes(&prims));
-        let (all, layer) = (prims.clone(), self.layer.clone());
+        // What the layer has otherwise than the stages: in the Log too, once.
+        for n in written.notes {
+            let line = format!("Imago: {n}");
+            if !self.log.contains(&line) {
+                self.logged(line);
+            }
+        }
+        let moved = changes(&light, &prims, scene.axes());
+        let (all, layer, at) = (prims.clone(), self.layer.clone(), *scene);
         self.live.load_then(&self.layer, frame, ipr, through, moved, move || {
-            crate::usd_write::write_override(&all, &layer).map(|_| layer)
+            crate::usd_write::write_override(&all, &layer, &at).map(|_| layer)
         });
+        self.scene = *scene;
         self.ipr = ipr;
         self.through = through;
         self.sent = prims;
@@ -220,7 +234,7 @@ impl Session {
     /// The Viewer's view (as `view` takes it), sent if it moved, when it
     /// renders through it.
     pub fn look(&mut self, world: Mat4, vertical_fov: f32, size: [u32; 2]) {
-        let v = view(&self.sent, world, vertical_fov, size);
+        let v = view(&self.scene, world, vertical_fov, size);
         if self.rendering && self.through.is_some() && self.through != Some(v) {
             self.through = Some(v);
             let layer = self.layer.clone();
@@ -242,25 +256,31 @@ impl Session {
     /// While it renders, each time it is looked at: the scene sent when the
     /// graph's revision or the frame (`key`) changed (`prims` gives it), what
     /// the renderer did taken in. What failed, if anything.
-    pub fn update(&mut self, key: (u64, u64), frame: f64, prims: impl FnOnce() -> Option<Vec<Prim>>) -> Option<String> {
+    pub fn update(
+        &mut self,
+        scene: &SceneRange,
+        key: (u64, u64),
+        frame: f64,
+        prims: impl FnOnce() -> Option<Vec<Prim>>,
+    ) -> Option<String> {
         if !self.rendering {
             return None;
         }
         let mut failed = None;
         if self.ipr && self.key != key && !crate::usd_scene::any_reading() {
             if let Some(prims) = prims() {
-                if self.key.1 != key.1 {
-                    // Another frame: loaded.
-                    if let Err(e) = self.render(prims, key, frame, true, self.through) {
+                if self.key.1 != key.1 || self.scene != *scene {
+                    // Another frame, or other axes, unit or rate: loaded.
+                    if let Err(e) = self.render(prims, scene, key, frame, true, self.through) {
                         failed = Some(e);
                     }
                 } else {
-                    let edits = changes(&self.sent, &prims, crate::usd_write::layer_axes(&prims));
+                    let edits = changes(&self.sent, &prims, scene.axes());
                     if !edits.is_empty() {
                         // Written only if the renderer cannot take them live.
-                        let (now, layer) = (prims.clone(), self.layer.clone());
+                        let (now, layer, at) = (prims.clone(), self.layer.clone(), *scene);
                         self.live.edit(edits, move || {
-                            crate::usd_write::write_override(&now, &layer).map(|_| layer)
+                            crate::usd_write::write_override(&now, &layer, &at).map(|_| layer)
                         });
                     }
                     self.sent = prims;
@@ -291,14 +311,14 @@ impl Session {
     /// again only when the renderer cannot take a change live (`Structure`,
     /// motion blur's keys).
     pub fn frame(&mut self, prims: Vec<Prim>, key: (u64, u64), frame: f64) {
-        let mut edits = changes(&self.sent, &prims, crate::usd_write::layer_axes(&prims));
+        let mut edits = changes(&self.sent, &prims, self.scene.axes());
         edits.push(xms_render::Edit {
             path: String::new(),
             change: Change::Frame(frame),
         });
-        let (now, layer) = (prims.clone(), self.layer.clone());
+        let (now, layer, at) = (prims.clone(), self.layer.clone(), self.scene);
         self.live.edit(edits, move || {
-            crate::usd_write::write_override(&now, &layer).map(|_| layer)
+            crate::usd_write::write_override(&now, &layer, &at).map(|_| layer)
         });
         self.sent = prims;
         self.key = key;
@@ -415,7 +435,7 @@ fn materialx_folder(dir: &Path) -> Option<PathBuf> {
 }
 
 /// The edits from `before` to `now`; one `Change::Structure` when any change
-/// is not one a renderer takes live. `axes`: the layer's (`usd_write::layer_axes`).
+/// is not one a renderer takes live. `axes`: the scene's (`SceneRange::axes`).
 pub fn changes(before: &[Prim], now: &[Prim], axes: Mat4) -> Vec<Edit> {
     let structure = || {
         vec![Edit {
@@ -783,11 +803,11 @@ mod tests {
     fn a_view_is_its_placement_and_horizontal_field_of_view() {
         let world = Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
         let fov = 50f32.to_radians();
-        let square = view(&[], world, fov, [400, 400]);
+        let square = view(&SceneRange::default(), world, fov, [400, 400]);
         assert_eq!(square.matrix, world.to_cols_array_2d());
         assert!((square.fov - 50.0).abs() < 1e-4);
         // Twice as wide: the tangent of half the angle twice as large.
-        let wide = view(&[], world, fov, [800, 400]);
+        let wide = view(&SceneRange::default(), world, fov, [800, 400]);
         let half = |deg: f32| (deg.to_radians() * 0.5).tan();
         assert!((half(wide.fov) - 2.0 * half(50.0)).abs() < 1e-5);
         assert_eq!(wide.size, [800, 400]);

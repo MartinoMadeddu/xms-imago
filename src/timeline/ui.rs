@@ -633,7 +633,7 @@ fn range_row(ui: &mut egui::Ui, pb: &mut Playback, ax: &Axis, scene: Option<&mut
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(sc) = scene {
-                scene_rate(ui, sc);
+                scene_rate(ui, sc, "scene_rate");
                 field(ui, &mut sc.end, "The scene's last frame");
             } else {
                 ui.colored_label(xsi::TEXT_DIM(), ax.full.1.to_string())
@@ -742,8 +742,9 @@ fn slider(ui: &egui::Ui, rect: egui::Rect, resp: &egui::Response, pb: &mut Playb
     }
 }
 
-/// The scene's rate: its frames are counted at it, keys are set on them.
-fn scene_rate(ui: &mut egui::Ui, scene: &mut crate::node_graph::SceneRange) {
+/// The scene's rate: its frames are counted at it, keys are set on them. `id`:
+/// the menu's, one for each place it is shown.
+pub(crate) fn scene_rate(ui: &mut egui::Ui, scene: &mut crate::node_graph::SceneRange, id: &str) {
     let rates: [(u32, u32, &str); 8] = [
         (24, 1, "24"),
         (25, 1, "25"),
@@ -759,7 +760,7 @@ fn scene_rate(ui: &mut egui::Ui, scene: &mut crate::node_graph::SceneRange) {
         .find(|r| r.0 == scene.fps_num && r.1 == scene.fps_den)
         .map(|r| r.2.to_string())
         .unwrap_or_else(|| format!("{:.3}", scene.fps()));
-    egui::ComboBox::from_id_salt("scene_rate")
+    egui::ComboBox::from_id_salt(id)
         .selected_text(format!("{now} fps"))
         .width(80.0)
         .show_ui(ui, |ui| {

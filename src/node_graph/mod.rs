@@ -332,13 +332,45 @@ pub struct NodeGraphState {
     pub make_compound_request: Option<Vec<NodeId>>,
 }
 
-/// The scene's frames: first, last and rate. Frame `f` is at `f / fps` seconds.
+/// The scene's frames (first, last and rate) and the up axis and unit its
+/// layers are written in (File > Settings > Scene). Frame `f` is at `f / fps`
+/// seconds. Imago itself is always Y-up metres: these say what every layer
+/// written states (`upAxis`, `metersPerUnit`, `timeCodesPerSecond`), and what
+/// each stage is checked against.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SceneRange {
     pub start: i64,
     pub end: i64,
     pub fps_num: u32,
     pub fps_den: u32,
+    #[serde(default)]
+    pub up_axis: UpAxis,
+    #[serde(default = "metres")]
+    pub meters_per_unit: f64,
+}
+
+fn metres() -> f64 {
+    1.0
+}
+
+/// The axis a scene's layers say is up.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum UpAxis {
+    #[default]
+    Y,
+    Z,
+}
+
+impl UpAxis {
+    pub const ALL: [UpAxis; 2] = [UpAxis::Y, UpAxis::Z];
+
+    /// As USD writes it (`upAxis`).
+    pub fn token(self) -> &'static str {
+        match self {
+            UpAxis::Y => "Y",
+            UpAxis::Z => "Z",
+        }
+    }
 }
 
 impl Default for SceneRange {
@@ -348,13 +380,16 @@ impl Default for SceneRange {
             end: 120,
             fps_num: 24,
             fps_den: 1,
+            up_axis: UpAxis::Y,
+            meters_per_unit: 1.0,
         }
     }
 }
 
 impl SceneRange {
     /// A stage's time range and time codes per second as the scene's frames
-    /// (a time code is a frame): 23.976 is 24000/1001.
+    /// (at its own rate, a time code is a frame): 23.976 is 24000/1001. The up
+    /// axis and unit are the default ones: keep the scene's with `..`.
     pub fn from_stage(start: f64, end: f64, rate: f64) -> SceneRange {
         let (fps_num, fps_den) = if (rate - rate.round()).abs() < 1e-6 {
             (rate.round().max(1.0) as u32, 1)
@@ -368,7 +403,14 @@ impl SceneRange {
             end: start.max(end).ceil() as i64,
             fps_num,
             fps_den,
+            ..Default::default()
         }
+    }
+
+    /// From the scene's layers to Imago's space (Y-up metres): what a
+    /// placement in Imago is, in a layer, the inverse of times it.
+    pub fn axes(&self) -> glam::Mat4 {
+        crate::usd_scene::axes(self.up_axis.token(), Some(self.meters_per_unit))
     }
 
     pub fn fps(&self) -> f64 {
@@ -1640,7 +1682,7 @@ impl NodeGraphState {
             // over time.
             let frame = self.node_frame(node);
             let first = inputs.first();
-            crate::usd_scene::cooking_at(frame, || {
+            crate::usd_scene::cooking_at(frame, self.scene.fps(), || {
                 first.map(|r| {
                     let s = crate::core::variant::select(r, choices);
                     crate::core::variant::noted(node.id, s.notes);
@@ -1672,7 +1714,9 @@ impl NodeGraphState {
         } else {
             // A stage that changes over time, at the frame cooked.
             let frame = self.node_frame(node);
-            crate::usd_scene::cooking_at(frame, || evaluate_node_type(node_type, &inputs, eval_subnet, output))
+            crate::usd_scene::cooking_at(frame, self.scene.fps(), || {
+                evaluate_node_type(node_type, &inputs, eval_subnet, output)
+            })
         };
         // A material is named by its operator; its files' variables are put
         // in as it cooks (renderers read `$JOB` as it is).
