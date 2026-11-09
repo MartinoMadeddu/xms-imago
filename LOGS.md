@@ -820,3 +820,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 09/11/2026: Merge and composition as USD has them: stages sublayered strongest first (the later input), a prim another stage took the place of left under it rather than deactivated, the scene's up axis, unit and rate (File > Settings > Scene, with the graph) in every layer with each stage corrected to them (xformOp:transform:toScene before its own ops), stages of another rate read at the same second as USD retimes them. (Martino)
 - 09/11/2026: Imago 0.2.9. (Martino)
 - 09/11/2026: Imago 0.2.10 (0.2.9 again: its release failed on GitHub's side). (Martino)
+- 09/11/2026: Rendering in Imago (and headless): a prim whose points moved keeps them out of the layer even when a deformer also set an attribute; what it copied unchanged is the file's again (not written), and the Log names what is written besides. (Martino)

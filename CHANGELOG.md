@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Lighter render layers:** a deformed prim's points stay in memory even when the deformer also set an attribute (only that attribute is written, and the Log names it); attributes a deformer copied unchanged are no longer written.
+
 ## [0.2.10] - 2026-11-09
 
 - 0.2.9 again: its release failed on GitHub's side.

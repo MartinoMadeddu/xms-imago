@@ -191,11 +191,11 @@ impl Session {
     ) -> Result<(), String> {
         // Light: the points deformers moved left out, sent in memory before
         // the first bucket; the whole layer written only if they cannot be.
-        let light = lighter(&prims);
+        let (light, heavier) = lighter(&prims);
         let written = crate::usd_write::write_override(&light, &self.layer, scene)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
         // What the layer has otherwise than the stages: in the Log too, once.
-        for n in written.notes {
+        for n in heavier.into_iter().chain(written.notes) {
             let line = format!("Imago: {n}");
             if !self.log.contains(&line) {
                 self.logged(line);
@@ -554,27 +554,76 @@ fn prim_changes(b: &Prim, p: &Prim, axes: Mat4) -> Option<Vec<Edit>> {
     Some(out)
 }
 
-/// The points of `now`, when they are all that changed from `before`.
 /// The scene as written for the renderer to load: each prim whose points
-/// alone moved from its file (a deformer, animation) as its file has it, so
-/// the layer holds no points of them; they go to the renderer in memory
-/// (`changes` against this, `Change::Points`).
-fn lighter(prims: &[Prim]) -> Vec<Prim> {
-    prims
+/// moved from its file (a deformer, animation) with its file's points, so the
+/// layer holds no points of them; they go to the renderer in memory
+/// (`changes` against this, `Change::Points`). What else changed of it (an
+/// attribute set, its topology unchanged) is still written, and named in the
+/// notes: the layer's weight. What a deformer copied unchanged is the file's
+/// again, so it is not written (the layer writes what is not the file's
+/// array).
+fn lighter(prims: &[Prim]) -> (Vec<Prim>, Vec<String>) {
+    use crate::core::geo::Context;
+    let mut notes = vec![];
+    let light = prims
         .iter()
         .map(|p| {
             let (Some(geo), Some(source)) = (&p.geo, &p.source) else {
                 return p.clone();
             };
-            let only = !Arc::ptr_eq(geo, &source.geo) && points_only(&source.geo, geo).is_some();
+            let file = &source.geo;
+            let moved = !Arc::ptr_eq(geo, file)
+                && geo.topology == file.topology
+                && geo.points().len() == file.points().len()
+                && geo.points() != file.points();
+            if !moved {
+                return p.clone();
+            }
             let mut light = p.clone();
-            if only {
-                light.geo = Some(source.geo.clone());
+            if points_only(file, geo).is_some() {
+                light.geo = Some(file.clone());
+            } else {
+                let mut kept = (**geo).clone();
+                kept.topology = file.topology.clone();
+                for ctx in Context::ALL {
+                    for (name, a) in file.attrs(ctx) {
+                        if name == xms_geo::POINTS || kept.attr(ctx, name) == Some(a) {
+                            kept.set(ctx, name, a.clone());
+                        }
+                    }
+                }
+                notes.push(format!(
+                    "{}: points in memory; written too, changed from its file: {}",
+                    p.path,
+                    changed_besides_points(file, &kept).join(", ")
+                ));
+                light.geo = Some(Arc::new(kept));
             }
             light
         })
-        .collect()
+        .collect();
+    (light, notes)
 }
+
+/// The attributes of `now` but its points that are not `before`'s, as
+/// `context name`.
+fn changed_besides_points(before: &crate::core::geo::Geo, now: &crate::core::geo::Geo) -> Vec<String> {
+    use crate::core::geo::Context;
+    let mut out = vec![];
+    for ctx in Context::ALL {
+        for (name, attr) in now.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS) {
+            if before.attr(ctx, name) != Some(attr) {
+                out.push(format!("{ctx:?} {name}").to_lowercase());
+            }
+        }
+        for (name, _) in before.attrs(ctx).filter(|(n, _)| now.attr(ctx, n).is_none()) {
+            out.push(format!("{ctx:?} {name} (removed)").to_lowercase());
+        }
+    }
+    out
+}
+
+/// The points of `now`, when they are all that changed from `before`.
 
 fn points_only(before: &crate::core::geo::Geo, now: &crate::core::geo::Geo) -> Option<Arc<Vec<[f32; 3]>>> {
     use crate::core::geo::Context;
@@ -739,7 +788,8 @@ mod tests {
             from_file("/deformed", quad(2.0)),
             from_file("/remeshed", triangle.clone()),
         ];
-        let light = lighter(&prims);
+        let (light, notes) = lighter(&prims);
+        assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(
             light[0].geo.as_deref().unwrap().points()[0],
             [0.0, 0.0, 0.0],
@@ -753,6 +803,54 @@ mod tests {
         assert_eq!(sent.len(), 1, "{sent:?}");
         assert_eq!(sent[0].path, "/deformed");
         assert!(matches!(&sent[0].change, Change::Points(p) if p[0] == [0.0, 2.0, 0.0]));
+    }
+
+    /// A deformer that also set an attribute (a width): its points still in
+    /// memory, the attribute alone written, and named.
+    #[test]
+    fn an_attribute_set_with_the_points_moved_keeps_them_in_memory() {
+        use crate::core::geo::{Attr, Column, Context, Geo, Role};
+        let quad = |y: f32| {
+            Geo::from_polygons(
+                vec![[0.0, y, 0.0], [1.0, y, 0.0], [1.0, y, 1.0]],
+                vec![3],
+                vec![0, 1, 2],
+            )
+        };
+        let mut now = quad(2.0);
+        now.set(
+            Context::Point,
+            "widths",
+            Attr::new(Column::Float(Arc::new(vec![0.1; 3])), Role::None),
+        );
+        let p = Prim {
+            path: "/hair".into(),
+            geo: Some(Arc::new(now)),
+            source: Some(Arc::new(crate::types::Source {
+                geo: Arc::new(quad(0.0)),
+                place: Placement::One(Mat4::IDENTITY),
+                material: None,
+                purpose: Default::default(),
+            })),
+            place: Placement::One(Mat4::IDENTITY),
+            ..Prim::new("/hair".into(), crate::types::MeshData::default())
+        };
+        let (light, notes) = lighter(std::slice::from_ref(&p));
+        let geo = light[0].geo.as_deref().unwrap();
+        assert_eq!(geo.points()[0], [0.0, 0.0, 0.0], "the file's points");
+        assert!(geo.attr(Context::Point, "widths").is_some(), "the width written");
+        let file = &p.source.as_ref().unwrap().geo;
+        assert!(
+            geo.topology.same(&file.topology),
+            "its topology the file's: not written"
+        );
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].ends_with("changed from its file: point widths"), "{notes:?}");
+        let sent = changes(&light, &[p], Mat4::IDENTITY);
+        assert!(
+            matches!(&sent[..], [e] if matches!(&e.change, Change::Points(p) if p[0] == [0.0, 2.0, 0.0])),
+            "{sent:?}"
+        );
     }
 
     #[test]
