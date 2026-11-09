@@ -419,10 +419,14 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
   `kick` has it: Imago starts itself again with Arnold's `bin` on
   `LD_LIBRARY_PATH` when it is not (once, at launch; after changing the
   Arnold Folder, start Imago again).
-- **Arnold's own log**, its warnings and errors, is the Image Viewer's
-  **Log** while it renders in Imago (headless, printed as it comes). When a
-  layer does not load, the error says Arnold's reason (a plugin that does not
-  load, a file it cannot open), not only that it failed.
+- **Arnold's own log**, its warnings, errors and plugin loading, is the Image
+  Viewer's **Log** while it renders in Imago (headless, printed as it comes),
+  with Imago's own lines: which changes went to Arnold live (`Imago: the
+  points of 3 prim(s) sent to Arnold in memory`) and which made it load the
+  scene again, and why. When a layer does not load, the error says Arnold's
+  reason (a plugin that does not load, a file it cannot open).
+- **Hair and curves:** widths set in ICE (`widths`, per point or per curve)
+  are what Arnold reads; set per curve, they are written per point.
 - It renders the layer's own RenderSettings and their camera. Arnold stays
   loaded after Stop, until Imago closes, so rendering again is quick.
 

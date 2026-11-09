@@ -102,6 +102,11 @@ are `12`, `1-100` or `1-100x2`; `--node NAME` picks one node. For a farm it
 prints `Imago progress: 40%` lines and ends with code 1 when anything failed.
 See [The xms command line](docs/render.md#the-xms-command-line).
 
+**Arnold** is loaded from your Arnold SDK when Imago runs, nothing to build:
+set its folder in File > Settings > Renderers (or `$ARNOLD_PATH`). On Linux,
+Imago puts the SDK's `bin` on the library path itself, as Arnold's plugins
+need. Without a licence, Arnold's images are watermarked.
+
 ## How to build
 
 With [Rust](https://rustup.rs) 1.95 or newer (`rustup update` brings it):

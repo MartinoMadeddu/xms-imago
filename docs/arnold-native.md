@@ -342,6 +342,25 @@ Command nodes, `--tx` makes `.tx` files once.
   completed before the first bucket, UDIM tiles) and with a stand-in `libai`;
   on a farm, by hand.
 
+Findings on Linux and with Alembic hair (9 November):
+
+- **Arnold's plugins need `libai.so` on the library path** (`usd_proc.so:
+  libai.so: cannot open shared object file`, then every layer "unknown
+  format"): `kick` has it, a program loading `libai` by its path does not.
+  Imago starts itself again with Arnold's `bin` on `LD_LIBRARY_PATH`.
+- **An Arnold Folder from Settings** is given to Arnold as `ARNOLD_PATH` and
+  its `plugins` on `ARNOLD_PLUGIN_PATH` before `AiBegin`.
+- **Frame rates:** USD scales a file's time to the root layer's; a 25 fps
+  Alembic under a layer saying nothing (24) rendered at other frames. The
+  layer repeats its stages' `timeCodesPerSecond`.
+- **Curves:** their points are Arnold's `points`, not `vlist`; written with
+  their counts (USD's Alembic reader may lay curves out otherwise), widths
+  per point, never blocked by the file's.
+- **References vs sublayers:** a stage loaded as a reference placed its hair
+  elsewhere in Arnold than in Imago; as sublayers it matched. To look at.
+- **Merge order** changed what reached Arnold (the animated branch had to be
+  first). To look at.
+
 ### Then: rray
 
 - rray as the second backend, through the same interface, natively in Rust.

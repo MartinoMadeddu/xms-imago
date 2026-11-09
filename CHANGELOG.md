@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Arnold on Linux:** Imago starts with Arnold's `bin` on the library path, so Arnold's USD reader loads (it was "unknown format"); Arnold's plugin loading is in the Log.
+
 ## [0.2.8] - 2026-11-09
 
 - **Frame rates:** Imago's USD layers repeat their files' `timeCodesPerSecond`, so a 25 fps file renders (and is written) at the frames Imago shows.

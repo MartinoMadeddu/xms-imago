@@ -110,6 +110,13 @@ Principles:
   left out.
 - Animation is written as `timeSamples` where it changes, one value where it
   does not.
+- The layer repeats its stages' `upAxis`, `metersPerUnit` and
+  `timeCodesPerSecond` (USD scales a file's time to the layer's: a 25 fps
+  Alembic under a layer saying nothing would be read at other frames).
+- Curves whose points moved are written with their counts, type, basis and
+  wrap (USD's Alembic reader may lay a file's curves out otherwise); widths set
+  per curve are written per point, and an attribute moved to another context
+  is written, not blocked.
 
 ## 7. Viewer
 
@@ -124,6 +131,35 @@ Principles:
   ACEScg, then a view and display, on the GPU in the Viewer and on the CPU in
   the Image Viewer.
 - Redraws on demand: an idle window costs nothing.
+
+## 7b. Rendering in Imago
+
+- **The renderer interface** (`crates/xms-render`): `Renderer` loads a USD
+  layer, renders (in passes for IPR, or once at the Render Settings'
+  samples), takes edits by prim path (`Change`: transform, attributes,
+  settings, visibility, points, view, frame; `Structure` reloads), and is run
+  on a thread of its own by `Live`, which merges edits that come together.
+  `Pixels` holds every AOV as buckets come in, each reader (the Image Viewer,
+  the Viewer) taking only what changed, and the buckets being rendered.
+- **Arnold** (`xms_render::arnold`): `libai` opened at run time, nothing linked;
+  Arnold reads the layer with its own USD reader (`AiSceneLoad`), its nodes
+  named by prim path. Imago's own display driver takes each bucket into
+  memory. Arnold's log (warnings, errors, plugin loading) comes back as
+  `Event::Log`. Started with its environment (`ARNOLD_PATH`, plugins; on
+  Linux Imago starts again with its `bin` on `LD_LIBRARY_PATH`).
+- **A session** (`src/live.rs`): one for the program, used by the Image Viewer
+  and the Viewer. The layer written for Arnold is light: points that only
+  moved (deformers, animation) are left out and sent in memory before the
+  first bucket; each cook after is diffed (`changes`) into edits, the layer
+  written again only for what Arnold cannot take live.
+- **Renderer definitions** (`src/core/renderers.rs`): built in, then
+  `$JOB/renderers`, then yours; each renderer looked for on the machine (in
+  Imago, by loading it; as a command line, by `detect`), and the definition
+  checked against Arnold's own options.
+- **Headless** (`src/headless.rs`): `xms --headless scene.xms --render`
+  cooks frame by frame and renders with Arnold loaded once, each frame after
+  the first sent as edits with `Change::Frame`; `--write`, `--run` and `--tx`
+  through Write USD, Render Command and `maketx`.
 
 ## 8. ICE
 
@@ -156,10 +192,8 @@ Principles:
 1. The Viewer drawing straight from `Geo`, retiring the `MeshData` view.
 2. The rest of the ICE engine: arrays, merge modes on writes elsewhere, a
    Snippet node compiling to the same instructions, simulation.
-3. Rendering inside Imago through one renderer interface (load a layer, render
-   progressively, edit by prim path, reload, stop): Arnold first, loading
-   `libai` at run time (`docs/arnold-native.md`), then rray; `xms-scene` and
-   rray's merge.
+3. Rendering inside Imago: Arnold is in (section 7b); rray next through the
+   same interface, Karma through husk, and `xms-scene` and rray's merge.
 4. Write USD: de-instancing, flattening, instancer edits.
 
 ## Module map
@@ -168,10 +202,11 @@ Principles:
 |---|---|
 | `src/app.rs`, `src/eframe_app.rs` | the program's state, and the window that owns it |
 | `src/node_graph/` | the scene graph: operators, cooking, compounds, references, variables down the wires |
-| `src/core/` | operators' work: properties, Set Attribute, Edit Primitive, Reparent, locations, lights, rendering, command lines, variables |
+| `src/core/` | operators' work: properties, Set Attribute, Edit Primitive, Reparent, locations, lights, rendering, renderer definitions (`renderers.rs`), command lines, variables |
 | `src/types.rs`, `src/edits.rs` | `Prim`, `Placement`, `EvalResult`; edits against the source |
 | `src/usd_stage.rs`, `src/usd_scene.rs`, `src/usd_write.rs` | USD in (stage to primitives, loading and caching) and out |
-| `src/live.rs` | Live rendering's edits: what changed between two cooks, by prim path |
+| `src/live.rs` | Rendering in Imago: the session, the light layer, what changed between two cooks, by prim path |
+| `src/headless.rs` | The xms command line without the window: `--render`, `--write`, `--run`, `--tx` |
 | `src/viewer/` | the Viewer on wgpu, Edit Poly's picking and handles, Export Movie |
 | `src/scene_explorer/`, `src/prim_inspector/` | the scene as a tree; the selected prims' values |
 | `src/ice/`, `src/materialx/` | the ICE and MaterialX editors |
@@ -183,8 +218,8 @@ Principles:
 | `crates/xms-alembic` | Alembic in pure Rust |
 | `crates/xms-ice` | the ICE engine: graph, compiler, executor, spatial search |
 | `crates/xms-matx` | MaterialX node libraries and documents |
-| `crates/xms-image` | images as layers of float channels, OpenEXR |
+| `crates/xms-image` | images as layers of float channels, OpenEXR; the snapshots both viewers share |
 | `crates/xms-colour` | OpenColorIO config, views and transforms |
 | `crates/xms-docs` | the HTML documentation from the Markdown |
-| `crates/xms-render` | the renderer interface, run live on a thread; the Arnold backend, `libai` opened at run time |
+| `crates/xms-render` | the renderer interface, run live on a thread, the pixels as they come; the Arnold backend (`libai` opened at run time, its display driver, its log, its options) |
 | `crates/ragdoll` | collision cleanup for motion capture |
