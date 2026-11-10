@@ -243,8 +243,10 @@ such a file:
   whose purpose is not obvious from its names has a comment saying why.
 - **Less is better.** Clean, idiomatic Rust; the standard library before a new
   dependency.
-- **No thin delegating wrappers.** A function whose body is only a call to
-  another free function is not written: call that function where it is needed.
+- **No thin delegating wrappers.** A function or method whose body is only a
+  call to another free function is not written: call that function where it
+  is needed. A method adds something of its own: private state, a default
+  that is not trivial, an invariant it keeps.
 - **Order a file top-down by importance**, so the first thing a reader sees is
   the main type, not a helper: the primary type (and the structs it depends on),
   then its `impl` blocks, then free-standing helper functions, then

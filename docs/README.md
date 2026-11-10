@@ -27,6 +27,9 @@
   definitions](renderer-definitions.md): the plans behind rendering in Imago,
   their steps and findings; [native edits](native-edits.md), a plan not yet
   agreed: what Imago computes sent to the renderer natively
+- [Paint](paint.md): planned work, not built yet: painting attributes on
+  geometry (per point, or as Mesh Colors per face), read by scatters, groom,
+  crowds and deformers
 - [Colour](colour.md): OpenColorIO, `$OCIO`'s config or Imago's own, the
   Viewer's and the Image Viewer's displays and views
 - [Geometry](geometry.md): how geometry is held and passed between nodes, and
