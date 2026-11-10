@@ -2384,15 +2384,23 @@ pub struct InspectorTable {
     /// Column group name and its values per row. A group wider than one is
     /// shown as name.X, name.Y, name.Z, unless it is an array.
     pub cols: Vec<(String, Vec<Vec<f32>>)>,
-    /// Columns whose values are arrays of whole numbers of any length (the
-    /// points of a face or an edge), each shown in one cell as `[0, 3, 2, 1]`,
+    /// Columns whose values are arrays of any length (the points of a face or
+    /// an edge, a list attribute's), each shown in one cell as `[0, 3, 2, 1]`,
     /// with the length in characters of their widest cell.
     pub arrays: Vec<(String, usize)>,
 }
 
-/// An array of whole numbers as one cell shows it: `[0, 3, 2, 1]`.
+/// An array as one cell shows it: whole numbers as they are (`[0, 3, 2, 1]`),
+/// any other as every number is shown (`[0.2500, 1.0000]`).
 pub fn array_text(values: &[f32]) -> String {
-    let items: Vec<String> = values.iter().map(|v| format!("{}", *v as i64)).collect();
+    let whole = values.iter().all(|v| v.fract() == 0.0);
+    let items: Vec<String> = values
+        .iter()
+        .map(|v| match whole {
+            true => format!("{}", *v as i64),
+            false => format!("{v:.4}"),
+        })
+        .collect();
     format!("[{}]", items.join(", "))
 }
 
@@ -2421,9 +2429,6 @@ pub struct PrimInspectorState {
     /// Selected (right-click): an Edit Primitive naming it is added after the
     /// viewed operator.
     pub edit_request: Option<Vec<String>>,
-    /// Number of edges of the cached primitives: polygon edges and curve
-    /// segments.
-    pub edge_count: usize,
     // The open tab, built once per cached data (and per frame for a clip).
     table_key: Option<(PrimInspectorTab, usize)>,
     table: InspectorTable,
@@ -2450,7 +2455,6 @@ impl PrimInspectorState {
     ) {
         self.cached_props = std::sync::Arc::new(props);
         self.summary = summary;
-        self.edge_count = 0;
         self.cached_parts = None;
         self.parts_loaded = false;
         self.cached_clip = clip;
@@ -2463,10 +2467,6 @@ impl PrimInspectorState {
 
     /// The geometry, made when a geometry tab first asks for it.
     pub fn set_parts(&mut self, parts: Vec<crate::prim_inspector::Part>) {
-        self.edge_count = parts
-            .iter()
-            .map(|m| crate::core::poly::PolyMesh::from_mesh(&m.mesh).edges().len() + m.curve_segments().len())
-            .sum();
         self.cached_parts = Some(std::sync::Arc::new(parts)).filter(|p| !p.is_empty());
         self.parts_loaded = true;
         self.table_key = None;

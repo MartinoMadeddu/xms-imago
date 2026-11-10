@@ -828,3 +828,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 10/11/2026: ICE: Closest Point on Surface's Polygon output named Face Index, Scatter on Surface's too to match. (Martino)
 - 10/11/2026: ICE: lists stored with Set Data (Attr::element_size, fixed length, padded; USD elementSize written and read for floats); Get Array Data at an Index alone; Cage deform template as CageCapture and CageDeform. Imago 0.2.11. (Martino)
 - 10/11/2026: Arnold ended before the program exits (live::end on closing, on_exit, after --headless; arnold::end when only asked about): no heap corruption at "releasing resources". (Martino)
+- 10/11/2026: Primitive Inspector: list attributes listed as one array per row (Part.lists, array_text keeps decimals unless all whole); the context tabs count attributes by name (Summary.attributes), Edge with no count, edge_count dropped. (Martino)

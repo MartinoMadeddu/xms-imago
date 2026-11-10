@@ -173,30 +173,21 @@ pub fn draw_prim_inspector(
                     tab_btn(ui, state, Tab::Joint, &format!("Joint ({})", c.joints.len()));
                     tab_btn(ui, state, Tab::Bone, &format!("Bone ({})", bones(c).len()));
                 } else if summary.any() {
-                    // Edges and Object rows are counted once the
-                    // geometry is made (a geometry tab opened).
-                    let loaded = |n: usize| {
-                        if state.parts_loaded() {
-                            format!(" ({n})")
-                        } else {
-                            String::new()
-                        }
-                    };
-                    let (edges, objects) = (
-                        loaded(state.edge_count),
-                        loaded(mesh.as_deref().map_or(0, |p| object_rows(p))),
-                    );
-                    // Imago's contexts; USD's interpolations in the tooltips.
-                    tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", summary.points))
-                        .on_hover_text("One row per point (USD: vertex)");
-                    tab_btn(ui, state, Tab::Edge, &format!("Edge{edges}"))
+                    // Imago's contexts, with how many attributes each holds
+                    // (how many points, faces and corners: intrinsics, in
+                    // the Object tab); USD's interpolations in the tooltips.
+                    use crate::core::geo::Context;
+                    let n = |ctx: Context| summary.attributes(ctx);
+                    tab_btn(ui, state, Tab::Vertex, &format!("Point ({})", n(Context::Point)))
+                        .on_hover_text("One row per point (USD: vertex). In brackets, how many attributes points hold");
+                    tab_btn(ui, state, Tab::Edge, "Edge")
                         .on_hover_text("One row per edge: not a context, worked out from the topology");
-                    tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", summary.faces))
-                        .on_hover_text("One row per polygon or curve (USD: uniform)");
-                    tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", summary.corners))
-                        .on_hover_text("One row per corner: a polygon's, or a curve's control point (USD: faceVarying)");
-                    tab_btn(ui, state, Tab::Constant, &format!("Object{objects}"))
-                        .on_hover_text("One row per primitive (USD: constant)");
+                    tab_btn(ui, state, Tab::Uniform, &format!("Face ({})", n(Context::Face)))
+                        .on_hover_text("One row per polygon or curve (USD: uniform). In brackets, how many attributes faces hold");
+                    tab_btn(ui, state, Tab::FaceVarying, &format!("Corner ({})", n(Context::Corner)))
+                        .on_hover_text("One row per corner: a polygon's, or a curve's control point (USD: faceVarying). In brackets, how many attributes corners hold");
+                    tab_btn(ui, state, Tab::Constant, &format!("Object ({})", n(Context::Object)))
+                        .on_hover_text("One row per primitive (USD: constant). In brackets, how many attributes primitives hold");
                 }
                 if clip.is_none() && !props.is_empty() {
                     let prims = props
@@ -495,11 +486,6 @@ pub fn mesh_table(mesh: &MeshData, tab: &PrimInspectorTab) -> InspectorTable {
     parts_table(&[Part::from(mesh.clone())], tab)
 }
 
-/// Rows of the Object tab: one per primitive.
-pub fn object_rows(parts: &[Part]) -> usize {
-    parts.len()
-}
-
 /// One component tab of some primitives, each where it is drawn: the rows of
 /// each primitive in turn, with point, face and corner numbers counted
 /// across all of them. Stored attributes first, then the intrinsics
@@ -543,12 +529,13 @@ pub fn parts_table(parts: &[Part], tab: &PrimInspectorTab) -> InspectorTable {
         first.face += m.polygons().len() + m.curve_counts.len();
         first.corner += m.corner_count() + m.curve_points.len();
     }
-    // Lists of element numbers, one array each (a face's or an edge's points,
-    // a point's faces), as wide as their widest cell.
+    // Lists, one array each (a face's or an edge's points, a point's faces,
+    // a stored list attribute's), as wide as their widest cell.
     let lists = ["intrinsic:ptIndices", "intrinsic:faceIndices"];
+    let listed = |name: &str| lists.contains(&name) || parts.iter().any(|m| m.lists.iter().any(|l| l == name));
     let arrays = cols
         .iter()
-        .filter(|c| lists.contains(&c.0.as_str()))
+        .filter(|c| listed(&c.0))
         .map(|c| (c.0.clone(), c.1.iter().map(|v| array_text(v).len()).max().unwrap_or(2)))
         .collect();
     InspectorTable {

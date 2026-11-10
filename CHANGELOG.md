@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Primitive Inspector:** list attributes (ICE's lists stored with Set Data) shown, one `[a, b, c]` cell per row; the Point, Face, Corner and Object tabs count the attributes they hold, not the elements (those are intrinsics, in the Object tab).
 - **Arnold ends cleanly** when Imago closes or quits (and after `--headless`): the live render stopped and let go before Arnold releases its resources, no more heap corruption ("Incorrect checksum for freed object") at exit.
 
 ## [0.2.11] - 2026-11-10

@@ -259,7 +259,7 @@ everything.
 
 | Tab | Rows |
 |---|---|
-| Point, Edge, Face, Corner, Object | The geometry's attributes in that context, then its `intrinsic:` values (**Show**: All, Stored or Intrinsics) |
+| Point, Edge, Face, Corner, Object | The geometry's attributes in that context, then its `intrinsic:` values (**Show**: All, Stored or Intrinsics). In brackets, how many attributes the context holds; how many points, faces and corners there are is in the Object tab (`intrinsic:pointCount`…). A list per element (ICE's lists stored with Set Data) is one cell, `[3, 7, 12]` |
 | Properties | The selected prims themselves: type, purpose, binding, visibility, what the file authors and what operators set, with where each comes from; right-click, **Go to Operator** |
 | Joint, Bone | A clip's joints and bones at the current frame |
 

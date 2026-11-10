@@ -1,5 +1,8 @@
 pub mod ui;
 
+use std::collections::BTreeSet;
+
+use crate::core::geo::Context;
 use crate::types::{EvalResult, MeshData, NodeId, Prim, PrimVar, PrimVarInterp};
 
 /// What the Primitive Inspector shows: the scene at the operator with the view
@@ -19,6 +22,9 @@ pub struct Part {
     pub mesh: MeshData,
     pub path: String,
     pub transform: [f64; 16],
+    /// Its primvars that are a list per element (ICE's lists stored with Set
+    /// Data), shown `[a, b, c]` in one cell.
+    pub lists: Vec<String>,
 }
 
 impl From<MeshData> for Part {
@@ -28,6 +34,7 @@ impl From<MeshData> for Part {
             mesh,
             path: String::new(),
             transform: glam::Mat4::IDENTITY.to_cols_array().map(|x| x as f64),
+            lists: vec![],
         }
     }
 }
@@ -57,10 +64,12 @@ pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<Part> {
                     [one] if placed => *one,
                     _ => glam::Mat4::IDENTITY,
                 };
+                let (mesh, lists) = part(p, placed);
                 Part {
-                    mesh: part(p, placed),
+                    mesh,
                     path: p.path.clone(),
                     transform: at.to_cols_array().map(|x| x as f64),
+                    lists,
                 }
             })
             .collect(),
@@ -68,14 +77,16 @@ pub fn scene_parts(scene: EvalResult, paths: &[String]) -> Vec<Part> {
     }
 }
 
-/// How much geometry the inspector would list: what its tabs count, worked out
-/// from the primitives as they are, without copying or placing any of them. The
+/// What the inspector would list, as its tabs count it: worked out from the
+/// primitives as they are, without copying or placing any of them. The
 /// geometry itself (`scene_parts`) is made only when a geometry tab is opened.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     pub points: usize,
-    pub faces: usize,
-    pub corners: usize,
+    /// How many attributes each context holds (in `Context::ALL`'s order),
+    /// told apart by name across the primitives listed: what its tab shows
+    /// besides the intrinsics.
+    pub attributes: [usize; 4],
 }
 
 impl Summary {
@@ -83,29 +94,91 @@ impl Summary {
     pub fn any(&self) -> bool {
         self.points > 0
     }
+
+    /// How many attributes `ctx` holds.
+    pub fn attributes(&self, ctx: Context) -> usize {
+        Context::ALL
+            .iter()
+            .position(|c| *c == ctx)
+            .map_or(0, |i| self.attributes[i])
+    }
 }
 
 /// The counts of what `scene_parts` would list.
 pub fn scene_summary(scene: &EvalResult, paths: &[String]) -> Summary {
-    let of = |m: &MeshData| Summary {
-        points: m.point_count(),
-        faces: m.num_faces() + m.curve_counts.len(),
-        // A curve's control points are its corners.
-        corners: m.corner_count() + m.curve_points.len(),
-    };
-    let add = |a: Summary, b: Summary| Summary {
-        points: a.points + b.points,
-        faces: a.faces + b.faces,
-        corners: a.corners + b.corners,
-    };
-    match scene {
+    let mut names: [BTreeSet<String>; 4] = Default::default();
+    let points = match scene {
         // Listed once each: placing a primitive does not change its counts.
         EvalResult::Named(prims) => shown(prims, paths)
             .into_iter()
-            .map(|(p, _)| of(&p.mesh))
-            .fold(Summary::default(), add),
-        EvalResult::Single(m) => of(m),
-        EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(..) => Summary::default(),
+            .map(|(p, _)| {
+                attribute_names(Some(p), &p.mesh, &mut names);
+                p.mesh.point_count()
+            })
+            .sum(),
+        EvalResult::Single(m) => {
+            attribute_names(None, m, &mut names);
+            m.point_count()
+        }
+        EvalResult::Anim(_) | EvalResult::Material(_) | EvalResult::Image(..) => 0,
+    };
+    Summary {
+        points,
+        attributes: names.map(|n| n.len()),
+    }
+}
+
+/// The names of the attributes `mesh` (of `prim`, when it is one) holds, into
+/// `names` by context (`Context::ALL`'s order), as its tabs list them: from
+/// its geometry when that is what the mesh views (`part`), else the mesh's
+/// own; the Object values it inherits too.
+fn attribute_names(prim: Option<&Prim>, mesh: &MeshData, names: &mut [BTreeSet<String>; 4]) {
+    use crate::core::geo::{NORMALS, POINTS, UV_NAMES};
+    let slot = |ctx: Context| Context::ALL.iter().position(|c| *c == ctx).unwrap_or(0);
+    let geo = prim.and_then(|p| p.geo.as_deref());
+    match geo.filter(|g| g.point_count() == mesh.point_count()) {
+        Some(g) => {
+            for ctx in Context::ALL {
+                for (name, _) in g.attrs(ctx) {
+                    // Named as the tabs name them: UVs are listed per corner.
+                    let (name, ctx) = match name {
+                        POINTS => ("P", ctx),
+                        NORMALS => ("N", ctx),
+                        n if UV_NAMES.contains(&n) => ("uv", Context::Corner),
+                        n => (n, ctx),
+                    };
+                    names[slot(ctx)].insert(name.to_string());
+                }
+            }
+        }
+        None => {
+            let point = &mut names[slot(Context::Point)];
+            point.insert("P".into());
+            if !mesh.normals.is_empty() {
+                point.insert("N".into());
+            }
+            if !mesh.widths.is_empty() && !mesh.points.is_empty() {
+                point.insert("widths".into());
+            }
+            if !mesh.uvs.is_empty() {
+                names[slot(Context::Corner)].insert("uv".into());
+            }
+            for pv in &mesh.primvars {
+                let ctx = match pv.interp {
+                    PrimVarInterp::Vertex => Context::Point,
+                    PrimVarInterp::Uniform => Context::Face,
+                    PrimVarInterp::FaceVarying => Context::Corner,
+                    PrimVarInterp::Constant => Context::Object,
+                };
+                names[slot(ctx)].insert(pv.name.clone());
+            }
+        }
+    }
+    let inherited = prim.map(crate::core::properties::inherited_primvars);
+    for (name, value) in inherited.unwrap_or_default() {
+        if value.numbers().is_some() {
+            names[slot(Context::Object)].insert(name);
+        }
     }
 }
 
@@ -179,16 +252,30 @@ pub fn copies(p: &Prim, scene: &[Prim]) -> usize {
 /// One primitive, where it is drawn (`placed`) or in its own space, with the
 /// Object values it inherits from the prims above it (Set Attribute on a group)
 /// among its Object attributes.
-fn part(p: &Prim, placed: bool) -> MeshData {
+/// Its list attributes' names too.
+fn part(p: &Prim, placed: bool) -> (MeshData, Vec<String>) {
     // What each element carries, from the geometry itself: the mesh view a
     // stage loads does not hold it (made here, when a tab asks for it).
     let with_attrs;
+    let mut lists = vec![];
     let p = match &p.geo {
         // The same points: the geometry is the one the mesh views.
         Some(g) if g.point_count() == p.mesh.point_count() => {
             use crate::core::geo_mesh::GeoMesh;
             let mut mesh = (*p.mesh).clone();
             mesh.primvars = g.primvars_view();
+            for ctx in Context::ALL {
+                for (name, attr) in g.attrs(ctx).filter(|(_, a)| a.is_list()) {
+                    if let Some(values) = list_rows(attr) {
+                        lists.push(name.to_string());
+                        mesh.primvars.push(PrimVar {
+                            name: name.to_string(),
+                            interp: interp_of(ctx),
+                            values,
+                        });
+                    }
+                }
+            }
             with_attrs = Prim {
                 mesh: std::sync::Arc::new(mesh),
                 ..p.clone()
@@ -211,7 +298,33 @@ fn part(p: &Prim, placed: bool) -> MeshData {
             });
         }
     }
-    m
+    (m, lists)
+}
+
+/// Each element's list, of a list attribute: its values one after another (a
+/// vector's components in turn). Text has none to show.
+fn list_rows(a: &crate::core::geo::Attr) -> Option<Vec<Vec<f32>>> {
+    use crate::core::geo::Column;
+    let flat: Vec<f32> = match &a.column {
+        Column::Bool(v) => v.iter().map(|x| *x as u8 as f32).collect(),
+        Column::Int(v) => v.iter().map(|x| *x as f32).collect(),
+        Column::Float(v) => v.to_vec(),
+        Column::Vec2(v) => v.iter().flatten().copied().collect(),
+        Column::Vec3(v) => v.iter().flatten().copied().collect(),
+        Column::Vec4(v) | Column::Quat(v) => v.iter().flatten().copied().collect(),
+        Column::Mat4(_) | Column::Token(_) => return None,
+    };
+    let per = flat.len() / a.len().max(1);
+    Some(flat.chunks(per.max(1)).take(a.len()).map(<[f32]>::to_vec).collect())
+}
+
+fn interp_of(ctx: Context) -> PrimVarInterp {
+    match ctx {
+        Context::Object => PrimVarInterp::Constant,
+        Context::Point => PrimVarInterp::Vertex,
+        Context::Face => PrimVarInterp::Uniform,
+        Context::Corner => PrimVarInterp::FaceVarying,
+    }
 }
 
 // Properties
@@ -804,9 +917,12 @@ mod tests {
         let parts = scene_parts(scene.clone(), &[]);
         let summary = scene_summary(&scene, &[]);
         assert_eq!(summary.points, parts.iter().map(|m| m.point_count()).sum::<usize>());
-        assert_eq!(summary.faces, parts.iter().map(|m| m.num_faces()).sum::<usize>());
-        assert_eq!(summary.corners, parts.iter().map(|m| m.corner_count()).sum::<usize>());
-        assert_eq!((summary.points, summary.faces, summary.corners), (8, 2, 8));
+        assert_eq!(summary.points, 8);
+        // The tabs count attributes, by name across the primitives: P, heat.
+        assert_eq!(summary.attributes(Context::Point), 2);
+        assert_eq!(summary.attributes(Context::Face), 0);
+        assert_eq!(summary.attributes(Context::Corner), 0);
+        assert_eq!(summary.attributes(Context::Object), 0);
         let heat = parts[0]
             .primvars
             .iter()
@@ -814,6 +930,34 @@ mod tests {
             .expect("heat, from the geometry");
         assert_eq!(heat.values, vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0]]);
         assert_eq!(scene_summary(&scene, &["/b".to_string()]).points, 4);
+    }
+
+    /// A list per element (ICE's lists stored with Set Data) is listed as one
+    /// array per row, counted as one attribute.
+    #[test]
+    fn list_attributes_are_one_array_per_row() {
+        use crate::core::geo::{Attr, Column, Geo, Role};
+        use crate::core::geo_mesh::GeoMesh;
+        use std::sync::Arc;
+        let mut geo = Geo::from_polygons(vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], vec![3], vec![0, 1, 2]);
+        let near = Column::Int(Arc::new(vec![1, 2, 0, 2, 0, -1]));
+        geo.set(Context::Point, "near", Attr::lists(near, 2, Role::None));
+        let weight = Column::Float(Arc::new(vec![0.25, 0.75, 1.0, 0.0, 0.5, 0.5]));
+        geo.set(Context::Point, "weight", Attr::lists(weight, 2, Role::None));
+        let prim = Prim {
+            geo: Some(Arc::new(geo.clone())),
+            ..Prim::new("/a".into(), geo.to_mesh_lean())
+        };
+        let scene = EvalResult::Named(vec![prim]);
+        assert_eq!(scene_summary(&scene, &[]).attributes(Context::Point), 3);
+        let parts = scene_parts(scene, &[]);
+        assert_eq!(parts[0].lists, vec!["near".to_string(), "weight".to_string()]);
+        let table = ui::parts_table(&parts, &crate::types::PrimInspectorTab::Vertex);
+        let col = |name: &str| &table.cols.iter().find(|c| c.0 == name).unwrap().1;
+        assert_eq!(col("near")[2], vec![0.0, -1.0]);
+        assert!(table.arrays.iter().any(|a| a.0 == "near") && table.arrays.iter().any(|a| a.0 == "weight"));
+        assert_eq!(crate::types::array_text(&col("near")[2]), "[0, -1]");
+        assert_eq!(crate::types::array_text(&col("weight")[0]), "[0.2500, 0.7500]");
     }
 
     /// The Properties tab of a group Imago made, and of a cube below it: what
