@@ -584,7 +584,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
 
             // Draw the marquee rectangle in screen space
             let sr = egui::Rect::from_two_pos(to_screen(start), to_screen(cur));
-            crate::graph_ports::draw_marquee(&painter, sr);
+            crate::graph_ports::draw_marquee(&painter, sr, false);
         }
     }
 

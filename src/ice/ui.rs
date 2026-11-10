@@ -1517,7 +1517,11 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
                 .collect();
             graph.selected_node = graph.selected_nodes.first().copied();
             graph.selected_wire = None;
-            crate::graph_ports::draw_marquee(&painter, egui::Rect::from_two_pos(to_screen(start), to_screen(cur)));
+            crate::graph_ports::draw_marquee(
+                &painter,
+                egui::Rect::from_two_pos(to_screen(start), to_screen(cur)),
+                false,
+            );
         }
     }
     if response.drag_stopped() {

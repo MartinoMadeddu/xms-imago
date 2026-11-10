@@ -57,11 +57,21 @@ pub fn draw_picked(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
     );
 }
 
-/// The box being dragged out to select nodes, in screen space: the graphs'
-/// selection blue, see-through inside.
-pub fn draw_marquee(painter: &egui::Painter, r: egui::Rect) {
-    let edge = crate::theme::graph_selection();
-    painter.rect_filled(r, 2.0, edge.gamma_multiply(0.25));
+/// The box being dragged out to select nodes, in screen space. `light`: over a
+/// light canvas, where the dark schemes' tint would not show (ICE's and
+/// MaterialX's go dark with the theme, as the scene graph's, and pass false).
+pub fn draw_marquee(painter: &egui::Painter, r: egui::Rect, light: bool) {
+    let (fill, edge) = if light || !crate::theme::is_dark() {
+        crate::theme::marquee_light()
+    } else {
+        (
+            // A see-through tint: unmultiplied, so its alpha scales the
+            // colour down rather than adding a bright blue to the canvas.
+            egui::Color32::from_rgba_unmultiplied(100, 140, 200, 40),
+            crate::theme::c(120, 160, 220),
+        )
+    };
+    painter.rect_filled(r, 2.0, fill);
     painter.rect_stroke(r, 2.0, egui::Stroke::new(1.0, edge), egui::StrokeKind::Middle);
 }
 

@@ -423,13 +423,20 @@ pub fn selection() -> Color32 {
 }
 
 /// What is selected in the graphs (scene graph, ICE, MaterialX): the ring
-/// around a node, a wire's band, a port's ring, the box dragged to select.
-/// Halfway between `selection` and the view flag's saturated blue: bright
-/// enough to stand out on a canvas, not glaring.
+/// around a node, a wire's band, a port's ring. A quarter of the way from
+/// `selection` to the view flag's saturated blue: brighter than the rows' blue
+/// on a canvas, not glaring.
 pub fn graph_selection() -> Color32 {
     let (a, b) = (selection(), Color32::from_rgb(0, 100, 255));
-    let mid = |x: u8, y: u8| ((x as u16 + y as u16) / 2) as u8;
-    Color32::from_rgb(mid(a.r(), b.r()), mid(a.g(), b.g()), mid(a.b(), b.b()))
+    let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * 0.25).round() as u8;
+    Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+}
+
+/// A box being dragged to select, in Light: the selection blue, its inside
+/// see-through. The dark schemes keep their own (see the callers).
+pub fn marquee_light() -> (Color32, Color32) {
+    let edge = selection();
+    (edge.gamma_multiply(0.3), edge)
 }
 
 /// Style egui's own widgets for the current scheme.
