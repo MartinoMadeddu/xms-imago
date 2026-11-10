@@ -19,14 +19,137 @@ pub mod ui;
 
 pub use from_usd::from_usd;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, RwLock};
+
 use xms_matx::{Graph, Library};
 
 use crate::core::material::PreviewSurface;
 use crate::types::NodeId;
 
-/// MaterialX's node library, read once.
+/// The node library: MaterialX's, the shaders each renderer's definition
+/// ships (`ai_standard_volume`), and, once renderer shaders are turned on
+/// (`renderer_shaders`), each renderer's SDK's own definitions. Made at the
+/// first call, made again once when the SDKs' are first loaded; a library
+/// stays for the program's life, so graphs read with it keep their
+/// definitions, and turning renderer shaders off only takes the SDKs' out of
+/// the add menu (`offered`).
 pub fn lib() -> &'static Library {
-    Library::standard()
+    if let Some(l) = *LIB.read().unwrap_or_else(|e| e.into_inner()) {
+        return l;
+    }
+    let mut w = LIB.write().unwrap_or_else(|e| e.into_inner());
+    *w.get_or_insert_with(|| {
+        let (lib, notes) = with_renderers(Library::standard(), Files::Shipped);
+        note(notes);
+        let lib: &'static Library = Box::leak(Box::new(lib));
+        lib
+    })
+}
+
+static LIB: RwLock<Option<&'static Library>> = RwLock::new(None);
+/// Renderer shaders on: the SDKs' definitions offered, loaded once.
+static SDK_ON: AtomicBool = AtomicBool::new(false);
+static SDK_LOADED: AtomicBool = AtomicBool::new(false);
+/// The SDKs' files read, by their paths.
+static SDK_FILES: Mutex<Vec<String>> = Mutex::new(vec![]);
+static NOTES: Mutex<Vec<String>> = Mutex::new(vec![]);
+
+/// The environment variable that turns renderer shaders on for every graph
+/// (`1`), whatever the graph says: for a wrapper launching Imago.
+pub const RENDERER_SHADERS: &str = "XMS_RENDERER_SHADERS";
+
+/// Whether the environment turns renderer shaders on: read once, at launch.
+pub fn renderer_shaders_from_env() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var(RENDERER_SHADERS).is_ok_and(|v| v.trim() == "1"))
+}
+
+/// Renderer shaders on or off: on, each renderer's SDK's definitions are read
+/// (the first time) and offered. Cheap to call every frame.
+pub fn renderer_shaders(on: bool) {
+    SDK_ON.store(on, Ordering::Relaxed);
+    if !on || SDK_LOADED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (lib, notes) = with_renderers(lib(), Files::Sdk);
+    note(notes);
+    let lib: &'static Library = Box::leak(Box::new(lib));
+    *LIB.write().unwrap_or_else(|e| e.into_inner()) = Some(lib);
+}
+
+/// Whether a node is listed in the add menu: not a renderer's hidden one, and
+/// not an SDK's while renderer shaders are off.
+pub fn offered(def: &xms_matx::NodeDef) -> bool {
+    if def.hidden {
+        return false;
+    }
+    let sdk = SDK_FILES.lock().is_ok_and(|f| f.contains(&def.file));
+    !sdk || SDK_ON.load(Ordering::Relaxed)
+}
+
+/// What loading the renderers' shaders said: each file read, each
+/// definition left out.
+pub fn shader_notes() -> Vec<String> {
+    NOTES.lock().map(|n| n.clone()).unwrap_or_default()
+}
+
+fn note(notes: Vec<String>) {
+    if let Ok(mut n) = NOTES.lock() {
+        n.extend(notes);
+    }
+}
+
+/// Which of a renderer's shader files.
+#[derive(Clone, Copy)]
+enum Files {
+    Shipped,
+    Sdk,
+}
+
+/// `base` with the shaders of every renderer definition that has some: those
+/// it ships, or its SDK's file.
+fn with_renderers(base: &Library, files: Files) -> (Library, Vec<String>) {
+    let mut lib = base.clone();
+    let mut notes = vec![];
+    for d in crate::core::renderers::definitions() {
+        let Some(s) = &d.shaders else { continue };
+        let renderer = xms_matx::Renderer {
+            prefix: s.prefix.clone(),
+            context: s.context.clone(),
+            label: d.label.clone(),
+        };
+        let file = match files {
+            Files::Shipped => crate::core::renderers::shipped_shaders(&d),
+            Files::Sdk => {
+                let path = crate::core::vars::expand(s.sdk.trim(), &[]);
+                match std::fs::read_to_string(&path) {
+                    Ok(text) => Some((path, text)),
+                    Err(e) if !path.is_empty() => {
+                        notes.push(format!("{}: {path}: {e}: its shaders are those Imago ships", d.label));
+                        None
+                    }
+                    Err(_) => None,
+                }
+            }
+        };
+        let Some((path, text)) = file else { continue };
+        match lib.with_renderer(&renderer, &path, &text) {
+            Ok((with, left_out)) => {
+                let count = with.defs().iter().filter(|x| x.file == path).count();
+                notes.push(format!("{}: {count} shader definitions from {path}", d.label));
+                notes.extend(left_out);
+                if matches!(files, Files::Sdk) {
+                    if let Ok(mut f) = SDK_FILES.lock() {
+                        f.push(path);
+                    }
+                }
+                lib = with;
+            }
+            Err(e) => notes.push(format!("{}: {e}", d.label)),
+        }
+    }
+    (lib, notes)
 }
 
 /// A new graph: a `standard_surface` into a `surfacematerial`.
@@ -197,6 +320,27 @@ mod tests {
             panic!()
         };
         assert_eq!(graph, g);
+    }
+
+    /// The renderers' shipped shaders are in the library from the start:
+    /// Arnold's volume, named apart, written as Arnold's; an SDK's are offered
+    /// only while renderer shaders are on.
+    #[test]
+    fn the_shipped_renderer_shaders_are_there() {
+        let vol = lib()
+            .default_def("ai_standard_volume")
+            .expect("Arnold's shipped volume");
+        let t = vol.target.as_ref().unwrap();
+        assert_eq!((t.context.as_str(), t.shader.as_str()), ("arnold", "standard_volume"));
+        assert_eq!(vol.group, "Arnold/Volume");
+        assert!(offered(vol), "shipped: offered with renderer shaders off");
+        let sdk = xms_matx::NodeDef {
+            file: "/sdk/nodedefs.mtlx".into(),
+            ..vol.clone()
+        };
+        SDK_FILES.lock().unwrap().push(sdk.file.clone());
+        assert!(!offered(&sdk));
+        assert!(lib().default_def("standard_surface").unwrap().target.is_none());
     }
 
     #[test]

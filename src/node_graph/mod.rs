@@ -347,6 +347,11 @@ pub struct SceneRange {
     pub up_axis: UpAxis,
     #[serde(default = "metres")]
     pub meters_per_unit: f64,
+    /// Renderers' shaders from their SDKs' own MaterialX definitions (File >
+    /// Settings > Renderers), not only those Imago ships. On for every graph
+    /// when `XMS_RENDERER_SHADERS=1` (`crate::materialx::renderer_shaders`).
+    #[serde(default)]
+    pub renderer_shaders: bool,
 }
 
 fn metres() -> f64 {
@@ -382,6 +387,7 @@ impl Default for SceneRange {
             fps_den: 1,
             up_axis: UpAxis::Y,
             meters_per_unit: 1.0,
+            renderer_shaders: false,
         }
     }
 }

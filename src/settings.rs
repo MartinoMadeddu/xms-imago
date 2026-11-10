@@ -64,7 +64,7 @@ pub fn window(
                 ui.vertical(|ui| match page {
                     Page::Scene => scene_page(ui, scene),
                     Page::Viewer => viewer(ui, nav),
-                    Page::Renderers => renderers(ui),
+                    Page::Renderers => renderers(ui, scene),
                     Page::Interface => crate::ui_scale::settings(ui),
                 });
             });
@@ -180,11 +180,27 @@ fn viewer(ui: &mut egui::Ui, nav: &mut crate::viewport::nav::NavSettings) {
 
 /// Each renderer: whether it is on this machine, where it is installed (for
 /// one rendering in Imago), where its definition comes from; your folder.
-fn renderers(ui: &mut egui::Ui) {
+fn renderers(ui: &mut egui::Ui, scene: &mut crate::node_graph::SceneRange) {
     use crate::core::renderers;
     use crate::properties::form::{group, Status};
     let dim = crate::properties::form::ink::DIM();
     egui::ScrollArea::vertical().show(ui, |ui| {
+        let env = crate::materialx::renderer_shaders_from_env();
+        group(ui, "Shaders", Some("Renderers' own shaders as MaterialX nodes, in MaterialX graphs: those Imago ships (ai_standard_volume), and, from the SDK, every one the renderer's MaterialX definitions have (Arnold's materialx/arnold/nodedefs.mtlx), named with its prefix (ai_) and listed under the renderer in the add menu"), |f| {
+            let hint = format!("Saved with the graph. {}=1 in the environment turns it on for every graph, as a wrapper launching Imago would", crate::materialx::RENDERER_SHADERS);
+            f.enabled(!env, |f| {
+                let mut on = scene.renderer_shaders || env;
+                if f.toggle("Load Shader Definitions from SDK", Some(hint.as_str()), &mut on).changed() {
+                    scene.renderer_shaders = on;
+                }
+            });
+            if env {
+                f.status(Status::Info, format!("On: {}=1", crate::materialx::RENDERER_SHADERS));
+            }
+            for n in crate::materialx::shader_notes() {
+                f.status(Status::Info, n);
+            }
+        });
         for d in renderers::definitions() {
             group(ui, &d.label, Some(d.about.as_str()), |f| {
                 if let Some(folder) = &d.folder {

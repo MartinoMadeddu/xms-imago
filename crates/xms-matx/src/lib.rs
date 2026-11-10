@@ -34,7 +34,7 @@ pub mod usd;
 pub mod xml;
 
 pub use graph::{Binding, Graph, Node};
-pub use library::{Input, Library, LoadError, NodeDef, Output, Ui, FILES, MATERIALX_VERSION};
+pub use library::{Input, Library, LoadError, NodeDef, Output, Renderer, Target, Ui, FILES, MATERIALX_VERSION};
 pub use preview::{preview, Preview};
 pub use types::{Type, Value};
 

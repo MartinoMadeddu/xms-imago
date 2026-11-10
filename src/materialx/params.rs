@@ -87,13 +87,16 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
         return;
     };
     let Some(def) = graph.def(lib, id) else {
+        let name = graph.node(id).map(|n| n.def.clone()).unwrap_or_default();
+        let kept = graph.missing.iter().any(|m| m.name == name);
         group(ui, "Node", None, |f| {
             f.status(
                 Status::Bad,
-                format!(
-                    "{} is not in the MaterialX library",
-                    graph.node(id).map(|n| n.def.as_str()).unwrap_or("")
-                ),
+                match kept {
+                    // A renderer's shader from its SDK, the SDK's not loaded.
+                    true => format!("{name}: its definition is not loaded (Settings > Renderers > Shaders from the SDK, or its renderer not installed here): its values and wires are kept, and written as they were"),
+                    false => format!("{name} is not in the MaterialX library"),
+                },
             )
         });
         return;

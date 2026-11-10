@@ -733,12 +733,36 @@ pub struct Definition {
     /// Where it is installed, set in File > Settings > Renderers.
     #[serde(default)]
     pub folder: Option<super::renderers::Folder>,
+    /// Its own shaders as MaterialX nodes, in MaterialX graphs.
+    #[serde(default)]
+    pub shaders: Option<Shaders>,
     /// The version of Imago a copy of a built-in definition was made from.
     #[serde(default)]
     pub from: String,
     /// Where it was read from.
     #[serde(skip)]
     pub source: super::renderers::Source,
+}
+
+/// A renderer's own shaders as MaterialX nodes (`xms_matx::Renderer`): those
+/// Imago ships, and its SDK's own definitions when File > Settings >
+/// Renderers > Shaders from the SDK is on. Listed under the renderer's label
+/// in a MaterialX graph's add menu.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct Shaders {
+    /// Before each node's name (`ai_`): they are named apart from MaterialX's.
+    pub prefix: String,
+    /// Its USD render context and shader namespace: `arnold` writes
+    /// `arnold:standard_volume`, by `outputs:arnold:volume`.
+    pub context: String,
+    /// The definitions Imago ships, always there: a file beside the definition
+    /// (Imago's own: `assets/renderers`).
+    #[serde(default)]
+    pub shipped: String,
+    /// The SDK's MaterialX definitions file, its variables put in
+    /// (`$ARNOLD_PATH/materialx/arnold/nodedefs.mtlx`).
+    #[serde(default)]
+    pub sdk: String,
 }
 
 /// A renderer Imago drives in its own process (`xms_render`).

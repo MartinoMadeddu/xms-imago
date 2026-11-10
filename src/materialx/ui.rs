@@ -149,7 +149,9 @@ fn shows_all(def: &NodeDef, id: u32, view: &View) -> bool {
 
 fn layout(graph: &Graph, id: u32, view: &View) -> Layout {
     let lib = lib();
-    let (Some(node), Some(def)) = (graph.node(id), graph.def(lib, id)) else {
+    // A node whose definition is not loaded: its ports as its graph was read.
+    let def = graph.node(id).and_then(|n| graph.find_def(lib, &n.def));
+    let (Some(node), Some(def)) = (graph.node(id), def) else {
         return Layout {
             size: egui::vec2(MIN_W, FOLDED_H),
             outputs: vec![],
@@ -636,12 +638,15 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<String> {
             None => node.to_string(),
         }
     };
+    // A renderer's hidden nodes, and its SDK's while renderer shaders are
+    // off, are not offered.
+    let offered = |node: &str| lib.default_def(node).is_some_and(super::offered);
     let s = search.trim().to_lowercase();
     if !s.is_empty() {
         let found: Vec<&String> = lib
             .nodes()
             .iter()
-            .filter(|n| n.to_lowercase().contains(&s))
+            .filter(|n| n.to_lowercase().contains(&s) && offered(n))
             .take(60)
             .collect();
         // ↓ and ↑ move through what is found, Enter takes it.
@@ -683,16 +688,39 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<String> {
         }
     }
     ui.separator();
-    for group in groups() {
-        ui.menu_button(group_label(group), |ui| {
-            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
-                for node in lib.nodes().iter().filter(|n| lib.group(n) == Some(group)) {
-                    if ui.button(label(node.as_str())).clicked() {
-                        chosen = Some(node.clone());
-                        ui.close();
-                    }
+    let mut nodes_of = |ui: &mut egui::Ui, group: &str| {
+        egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+            for node in lib.nodes().iter().filter(|n| lib.group(n) == Some(group) && offered(n)) {
+                if ui.button(label(node.as_str())).clicked() {
+                    chosen = Some(node.clone());
+                    ui.close();
                 }
-            });
+            }
+        });
+    };
+    let groups: Vec<&str> = groups()
+        .into_iter()
+        .filter(|g| lib.nodes().iter().any(|n| lib.group(n) == Some(*g) && offered(n)))
+        .collect();
+    for group in groups.iter().copied().filter(|g| !g.contains('/')) {
+        ui.menu_button(group_label(group), |ui| nodes_of(ui, group));
+    }
+    // A renderer's shaders (`Arnold/Volume`): a menu of the renderer, a menu of
+    // each of its groups in it.
+    let mut renderers: Vec<&str> = vec![];
+    for r in groups.iter().filter_map(|g| g.split_once('/').map(|(r, _)| r)) {
+        if !renderers.contains(&r) {
+            renderers.push(r);
+        }
+    }
+    for r in renderers {
+        ui.menu_button(r, |ui| {
+            for group in groups.iter().copied() {
+                let Some((_, own)) = group.split_once('/').filter(|(o, _)| *o == r) else {
+                    continue;
+                };
+                ui.menu_button(own, |ui| nodes_of(ui, group));
+            }
         });
     }
     chosen
@@ -778,7 +806,13 @@ fn draw_node(
     let rect = egui::Rect::from_min_size(np, lay.size * z);
     let font = |pt: f32| egui::FontId::proportional(pt * z);
     let selected = view.selected == Some(id) || view.selected_nodes.contains(&id);
-    let body = tint(lib.group(&node.node).unwrap_or(""));
+    // A renderer's node: a shader's colour when it gives a shader, else the
+    // neutral grey.
+    let shader = def.is_some_and(|d| d.out_type().is_shading());
+    let body = match lib.group(&node.node).unwrap_or("") {
+        g if g.contains('/') => tint(if shader { "shader" } else { "" }),
+        g => tint(g),
+    };
     let (ink, ink_type) = inks(body);
 
     let w = crate::node_graph::ui::ring_width(z, selected);

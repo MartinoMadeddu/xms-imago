@@ -648,8 +648,8 @@ renderer reads the file itself.
 - **The Primitive Inspector**'s Properties tab lists its file and each grid.
 - **Rendering:** Arnold's USD reader renders the `Volume` from the file. Its
   shading is a MaterialX operator's `ai_standard_volume` into a
-  `volumematerial`, bound with Material Binding (see [Arnold's
-  shaders](materialx.md#arnolds-shaders)).
+  `volumematerial`, bound with Material Binding (see [Renderers'
+  shaders](materialx.md#renderers-shaders)).
 
 The file is read with [OpenVDB-rs](https://github.com/OxidePicturesAlliance/vdb),
 a Rust port of OpenVDB, pinned to a commit.

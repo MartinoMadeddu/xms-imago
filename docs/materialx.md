@@ -22,7 +22,6 @@ beside it.
 | cmlib | colour space conversions |
 | nprlib | non-photorealistic nodes (`gooch_shade`, ...) |
 | lights | light shaders |
-| arnold | Imago's own, not MaterialX's: Arnold's shaders as nodes, named `ai_` and the shader (`ai_standard_volume`), for graphs rendered with Arnold (see [Arnold's shaders](#arnolds-shaders)) |
 
 MaterialX's libraries are 824 node definitions of 226 nodes. A node has one definition per set of
 types it works on: `add` is `ND_add_float`, `ND_add_color3`, `ND_add_color3FA`
@@ -104,26 +103,53 @@ The graph is saved in the graph file as the MaterialX document it is (`.mtlx`
 text, with each node's place as `xpos` and `ypos`), and goes with its operator
 when copied, pasted, undone and redone.
 
-## Arnold's shaders
+## Renderers' shaders
 
 Some shading MaterialX has no node for: a volume read from its VDB grids by
-name is one. For those, Imago has Arnold's own shaders as nodes, under
-**Arnold** in the add menu, each named `ai_` and the shader:
+name is one. For those, a renderer's own shaders are nodes too, named with the
+renderer's prefix and listed under the renderer in the add menu, each group of
+its own below (**Arnold > Volume**). Only that renderer renders them; a `.mtlx`
+saved with one opens in Imago, not in other MaterialX tools.
 
-| Node | Arnold's | What it is |
-|---|---|---|
-| `ai_standard_volume` | `standard_volume` | A volume's density, scattering, anisotropy, transparency and emission (none, a grid, the density, or black body from the temperature), each read from a grid by name (Density Channel `density`, Temperature Channel `temperature`, Emission Channel `heat`) |
+- **Shipped with Imago:** the few its renderer definitions ship, always there.
+  Arnold's: `ai_standard_volume` (`assets/renderers/arnold_shaders.mtlx`,
+  written for Imago from what `kick -info standard_volume` reports of Arnold
+  7.5, not copied from Arnold's files): a volume's density, scattering,
+  anisotropy, transparency and emission (none, a grid, the density, or black
+  body from the temperature), each read from a grid by name (Density Channel
+  `density`, Temperature Channel `temperature`, Emission Channel `heat`).
+- **From the SDK:** with **Load Shader Definitions from SDK** on (File >
+  Settings > Renderers > Shaders, saved with the graph), every shader of the
+  renderer's own MaterialX definitions is offered too, read from its SDK
+  (Arnold's `$ARNOLD_PATH/materialx/arnold/nodedefs.mtlx`: 140 nodes, among
+  them `standard_surface`, `standard_volume`, `image`, its maths), each named
+  with the prefix (`ai_standard_surface`, apart from MaterialX's
+  `standard_surface`), its definition `ND_ai_…`. They replace the shipped ones
+  of the same name. `XMS_RENDERER_SHADERS=1` in the environment turns it on
+  for every graph, as a wrapper launching Imago would. Settings lists what was
+  read, and any definition left out (a type Imago does not know). Read the
+  first time it is turned on; turned off, the SDK's nodes are no longer
+  offered, those in graphs stay.
+- **A node whose definition is not loaded** (a graph made with the SDK's
+  shaders, opened where they are off or the renderer is not installed) is
+  kept: its values and wires, written to the graph file and to USD as they
+  were read; its parameters say why they cannot be edited.
+- **A choice** (Arnold's Interpolation, Emission Mode) is read by its name or
+  its number, whichever the definition takes: Arnold's own definitions take
+  numbers, Imago's shipped ones some names.
 
-Wire it into a `volumematerial` (Material, beside `surfacematerial`), and bind
-the material to a volume (Load VDB) with Material Binding. A graph may hold a
-`surfacematerial` and a `volumematerial`: one material, with a surface and a
-volume.
+Wire `ai_standard_volume` into a `volumematerial` (Material, beside
+`surfacematerial`), and bind the material to a volume (Load VDB) with Material
+Binding. A graph may hold a `surfacematerial` and a `volumematerial`: one
+material, with a surface and a volume.
 
-Their definitions are Imago's, in `crates/xms-matx/libraries/arnold`, written
-from the parameters Arnold 7.5 reports (`kick -info standard_volume`): names,
-types, defaults and limits, Arnold's not-linkable parameters as uniform
-inputs. They are not Arnold's own MaterialX files. Only Arnold renders them;
-a `.mtlx` saved with one opens in Imago, not in other MaterialX tools.
+A renderer definition says how (its `shaders` block, see [renderer
+definitions](renderer-definitions.md)):
+
+```json
+"shaders": { "prefix": "ai_", "context": "arnold", "shipped": "arnold_shaders.mtlx",
+             "sdk": "$ARNOLD_PATH/materialx/arnold/nodedefs.mtlx" }
+```
 
 ## MaterialX files
 
@@ -165,7 +191,7 @@ by the tests, every wire between types that join: the files are in
 
 Load USD reads the materials of its stage as MaterialX graphs too, when every
 shader they read is a MaterialX one (an `info:id` such as
-`ND_standard_surface_surfaceshader`), one of Arnold's Imago has a node for
+`ND_standard_surface_surfaceshader`), a renderer's Imago has a node for
 (`arnold:standard_volume`, read as `ai_standard_volume`, its volume into a
 `volumematerial`), or of the UsdPreviewSurface family
 (`UsdPreviewSurface`, `UsdUVTexture`, `UsdPrimvarReader_*`, `UsdTransform2d`,
@@ -203,10 +229,11 @@ read) and its outputs. A `volumematerial` gives the Material its
 `outputs:mtlx:volume`, beside the surface of a `surfacematerial` in the same
 graph.
 
-Arnold's shaders are written as Arnold's USD reader reads them, as Solaris
-writes them: `uniform token info:id = "arnold:standard_volume"`, Arnold's
-parameter names as inputs, and the Material's terminal in Arnold's render
-context, which other renderers leave alone:
+A renderer's shaders are written as its USD reader reads them, as Solaris
+writes them: `uniform token info:id = "arnold:standard_volume"` (the
+definition's `context` and the shader's own name), the renderer's parameter
+names as inputs, and the Material's terminal in the renderer's render context,
+which other renderers leave alone:
 
 ```
 def Material "smoke"
@@ -253,8 +280,10 @@ to it on the way is not shown. Another shader shows grey.
 - Nodes a `.mtlx` file defines itself (its own `nodedef`s and their node graphs)
 - A `.mtlx` file's `volumematerial`s on import (its `surfacematerial`s are
   read)
-- Arnold's shaders other than `standard_volume`; Emission Scaling's choices
-  (typed as text, `none` by default)
+- Emission Scaling's choices in the shipped `ai_standard_volume` (text, `none`
+  by default; the SDK's definition has them)
+- A node whose definition is not loaded is drawn with the ports its graph was
+  read with, and its parameters are not editable
 - Node graph interfaces kept as such: their inputs are laid out flat into the
   nodes that read them
 - Looks and material assignments of `.mtlx` files

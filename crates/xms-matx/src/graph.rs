@@ -62,6 +62,11 @@ impl Node {
 pub struct Graph {
     pub nodes: Vec<Node>,
     next: u32,
+    /// Definitions its nodes name that the library did not have when it was
+    /// read (a renderer's shader, its SDK's definitions not loaded), as the
+    /// document described them: its nodes keep their values and wires, and
+    /// are written out as they were read.
+    pub missing: Vec<NodeDef>,
 }
 
 /// A name MaterialX and USD take: letters, digits and `_`, not starting with a
@@ -113,6 +118,12 @@ impl Graph {
     /// The definition a node is.
     pub fn def<'l>(&self, lib: &'l Library, id: u32) -> Option<&'l NodeDef> {
         lib.def(&self.node(id)?.def)
+    }
+
+    /// The definition named `name`: the library's, else as the document
+    /// described a missing one.
+    pub fn find_def<'a>(&'a self, lib: &'a Library, name: &str) -> Option<&'a NodeDef> {
+        lib.def(name).or_else(|| self.missing.iter().find(|d| d.name == name))
     }
 
     /// `base` if no node has it, else `base` followed by the first number that

@@ -1,20 +1,21 @@
 <?xml version="1.0"?>
 <materialx version="1.39">
   <!--
-    Arnold's shaders as MaterialX nodes, for graphs rendered with Arnold.
-    Written for XMS | Imago from the parameters Arnold reports (kick -info),
-    not copied from Arnold's own files. Each node is named after its Arnold
-    shader with "ai_" before it; written to USD as "arnold:<shader>", with
-    Arnold's parameter names as its inputs. Other renderers do not read them.
+    The Arnold shaders XMS | Imago ships, as MaterialX nodes, for graphs
+    rendered with Arnold when Arnold's own definitions are not loaded
+    (arnold.json's "shaders"). Written for Imago from the parameters Arnold
+    reports (kick -info), not copied from Arnold's files. Named as Arnold
+    names its nodes: Imago puts "ai_" before each, and writes it to USD as
+    "arnold:<node>", Arnold's parameter names as its inputs.
   -->
 
-  <nodedef name="ND_ai_standard_volume" node="ai_standard_volume" nodegroup="arnold"
+  <nodedef name="ND_standard_volume" node="standard_volume" nodegroup="Volume"
            doc="Arnold's standard_volume: a volume's density, scattering, transparency and emission, read from its grids by name. Arnold only.">
     <input name="density" type="float" value="1" uimin="0" uisoftmax="10" uiname="Density" uifolder="Volume"
            doc="How dense the volume is, times the density grid." />
     <input name="density_channel" type="string" value="density" uniform="true" uiname="Density Channel" uifolder="Volume"
            doc="The grid density is read from." />
-    <input name="interpolation" type="string" value="trilinear" enum="closest,trilinear,tricubic" uniform="true" uiname="Interpolation" uifolder="Volume"
+    <input name="interpolation" type="integer" value="1" enum="closest,trilinear,tricubic" enumvalues="0,1,2" uniform="true" uiname="Interpolation" uifolder="Volume"
            doc="How the grids are sampled between voxels." />
     <input name="displacement" type="vector3" value="0, 0, 0" uiname="Displacement" uifolder="Volume"
            doc="Moves where the volume is looked up." />

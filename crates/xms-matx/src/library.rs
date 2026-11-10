@@ -134,12 +134,30 @@ pub const FILES: &[(&str, &str)] = &[
         "lights/lights_defs.mtlx",
         include_str!("../libraries/lights/lights_defs.mtlx"),
     ),
-    // Imago's own, not MaterialX's: Arnold's shaders as nodes.
-    (
-        "arnold/arnold_defs.mtlx",
-        include_str!("../libraries/arnold/arnold_defs.mtlx"),
-    ),
 ];
+
+/// A renderer's own shaders as nodes, named apart from MaterialX's: how
+/// `Library::with_renderer` reads its definitions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Renderer {
+    /// Before each node's own name: `ai_` makes `ai_standard_volume`.
+    pub prefix: String,
+    /// Its USD render context, and the namespace of its shaders' `info:id`
+    /// (`arnold`: `arnold:standard_volume`, `outputs:arnold:volume`).
+    pub context: String,
+    /// The add menu group they are listed under (`Arnold`), each node's own
+    /// group below it.
+    pub label: String,
+}
+
+/// The renderer shader a definition is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Target {
+    /// The renderer's render context (`arnold`).
+    pub context: String,
+    /// The shader's own name (`standard_volume`).
+    pub shader: String,
+}
 
 /// The MaterialX version the vendored libraries are.
 pub const MATERIALX_VERSION: &str = "1.39";
@@ -188,6 +206,38 @@ pub struct Input {
 }
 
 impl Input {
+    /// A value of it from text, as a document or USD has it: of its type; for
+    /// an input with choices, also a choice by its name where it takes a
+    /// number, or by its number where it takes a name (a renderer's choice,
+    /// an integer in its own definitions, a name in Imago's).
+    pub fn parse(&self, text: &str) -> Option<Value> {
+        let not_a_choice =
+            self.ty == Type::String && !self.choices.is_empty() && !self.choices.iter().any(|c| c == text);
+        if let Some(v) = Value::parse(self.ty, text).filter(|_| !not_a_choice) {
+            return Some(v);
+        }
+        let values: Vec<&str> = match &self.choice_values {
+            Some(v) => v.split(',').map(str::trim).collect(),
+            None => vec![],
+        };
+        match self.ty {
+            Type::Integer => {
+                let k = self.choices.iter().position(|c| c == text.trim())?;
+                let v = values.get(k).and_then(|v| v.parse().ok()).unwrap_or(k as i32);
+                Some(Value::Integer(v))
+            }
+            Type::String if !self.choices.is_empty() => {
+                let n = text.trim();
+                let k = match values.is_empty() {
+                    true => n.parse::<usize>().ok()?,
+                    false => values.iter().position(|v| *v == n)?,
+                };
+                self.choices.get(k).map(|c| Value::String(c.clone()))
+            }
+            _ => None,
+        }
+    }
+
     /// Its label: `uiname`, or the name.
     pub fn label(&self) -> &str {
         self.ui.name.as_deref().unwrap_or(&self.name)
@@ -229,6 +279,11 @@ pub struct NodeDef {
     pub outputs: Vec<Output>,
     /// The library file it was read from (`stdlib/stdlib_defs.mtlx`).
     pub file: String,
+    /// A renderer's shader (`Library::with_renderer`): written to USD as the
+    /// renderer has it. `None` for MaterialX's own.
+    pub target: Option<Target>,
+    /// Not listed in the add menu (`ldx_hide`): a renderer's internal nodes.
+    pub hidden: bool,
 }
 
 impl NodeDef {
@@ -273,6 +328,8 @@ pub struct Library {
     default_version: HashMap<String, String>,
     /// The data types declared (`typedef`).
     pub typedefs: Vec<String>,
+    /// The renderers whose shaders it has.
+    pub renderers: Vec<Renderer>,
 }
 
 impl Library {
@@ -315,6 +372,86 @@ impl Library {
         }
         lib.inherit()?;
         Ok(lib)
+    }
+
+    /// This library with a renderer's definitions added, from `text` (the file
+    /// `file`): each node named `prefix` and its own name, its definition
+    /// `ND_` and that (`ND_ai_standard_volume`, whatever the file calls it),
+    /// listed under the renderer's label, its own group below
+    /// (`Arnold/Volume`), written to USD as the renderer's (`target`). Each
+    /// replaces a definition of the same name: an SDK's over the one Imago
+    /// ships. A definition that does not read (of a type Imago does not know)
+    /// is left out, and said in the notes.
+    pub fn with_renderer(&self, r: &Renderer, file: &str, text: &str) -> Result<(Library, Vec<String>), LoadError> {
+        let err = |what: String| LoadError {
+            file: file.to_string(),
+            what,
+        };
+        let root = xml::parse(text).map_err(|e| err(e.to_string()))?;
+        if root.name != "materialx" {
+            return Err(err(format!("root is <{}>, not <materialx>", root.name)));
+        }
+        let mut notes = vec![];
+        let mut theirs: Vec<NodeDef> = vec![];
+        let mut renamed: HashMap<String, String> = HashMap::new();
+        for el in root.children.iter().filter(|e| e.name == "nodedef") {
+            let mut def = match read_nodedef(el, file) {
+                Ok(d) => d,
+                Err(why) => {
+                    notes.push(format!("{file}: {why}: left out"));
+                    continue;
+                }
+            };
+            let own = def.name.rsplit_once("ND_").map_or(def.name.as_str(), |(_, n)| n);
+            let mut name = format!("ND_{}{own}", r.prefix);
+            if theirs.iter().any(|d| d.name == name) {
+                name = format!("{name}_{}", theirs.len());
+            }
+            renamed.insert(def.name.clone(), name.clone());
+            def.target = Some(Target {
+                context: r.context.clone(),
+                shader: def.node.clone(),
+            });
+            def.group = match def.group.as_str() {
+                "" => r.label.clone(),
+                g => format!("{}/{g}", r.label),
+            };
+            def.node = format!("{}{}", r.prefix, def.node);
+            def.name = name;
+            theirs.push(def);
+        }
+        for d in &mut theirs {
+            if let Some(n) = d.inherit.as_ref().and_then(|i| renamed.get(i)) {
+                d.inherit = Some(n.clone());
+            }
+        }
+        let mut lib = Library {
+            typedefs: self.typedefs.clone(),
+            renderers: self.renderers.clone(),
+            ..Default::default()
+        };
+        if !lib.renderers.contains(r) {
+            lib.renderers.push(r.clone());
+        }
+        let names: Vec<String> = theirs.iter().map(|t| t.name.clone()).collect();
+        for d in self
+            .defs
+            .iter()
+            .filter(|d| !names.contains(&d.name))
+            .cloned()
+            .chain(theirs)
+        {
+            lib.add(d).map_err(err)?;
+        }
+        lib.inherit()?;
+        Ok((lib, notes))
+    }
+
+    /// The renderer a node is one of, by its prefix, and its shader's own name.
+    pub fn renderer_of<'a>(&self, node: &'a str) -> Option<(&Renderer, &'a str)> {
+        self.renderers
+            .iter()
+            .find_map(|r| node.strip_prefix(r.prefix.as_str()).map(|s| (r, s)))
     }
 
     fn add(&mut self, def: NodeDef) -> Result<(), String> {
@@ -469,6 +606,8 @@ fn read_nodedef(el: &Element, file: &str) -> Result<NodeDef, String> {
         inputs: vec![],
         outputs: vec![],
         file: file.to_string(),
+        target: None,
+        hidden: el.attr("ldx_hide") == Some("true"),
         name,
         node,
     };

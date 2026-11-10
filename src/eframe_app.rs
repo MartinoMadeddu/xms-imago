@@ -68,6 +68,10 @@ impl eframe::App for ImagoApp {
         self.last_frame = now;
         let ctx = ui.ctx().clone();
         crate::ui_scale::frame(&ctx);
+        // Renderers' shaders from their SDKs, as the graph or the environment
+        // says, before anything lists the MaterialX nodes.
+        let sdk_shaders = self.app.graph.scene.renderer_shaders || crate::materialx::renderer_shaders_from_env();
+        crate::materialx::renderer_shaders(sdk_shaders);
 
         // The interface, undo, what changed, questions before closing, then
         // what the panes show.

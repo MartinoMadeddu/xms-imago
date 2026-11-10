@@ -26,6 +26,30 @@ const BUILT_IN: [&str; 2] = [
     include_str!("../../assets/renderers/arnold.json"),
 ];
 
+/// The shader files Imago ships beside its built-in definitions.
+const BUILT_IN_SHADERS: [(&str, &str); 1] = [(
+    "arnold_shaders.mtlx",
+    include_str!("../../assets/renderers/arnold_shaders.mtlx"),
+)];
+
+/// The shaders a definition ships (`shaders.shipped`): Imago's own, else the
+/// file beside the definition's. With its file's name.
+pub fn shipped_shaders(d: &Definition) -> Option<(String, String)> {
+    let name = d.shaders.as_ref()?.shipped.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let beside = match &d.source {
+        Source::Project(p) | Source::Yours(p) => p.parent().map(|dir| dir.join(name)),
+        Source::BuiltIn => None,
+    };
+    if let Some(text) = beside.as_ref().and_then(|f| std::fs::read_to_string(f).ok()) {
+        return Some((beside?.display().to_string(), text));
+    }
+    let (_, text) = BUILT_IN_SHADERS.iter().find(|(n, _)| *n == name)?;
+    Some((name.to_string(), text.to_string()))
+}
+
 /// Where a definition was read from.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Source {
@@ -710,6 +734,21 @@ pub fn sdk(live: &LiveRenderer) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arnold_ships_its_volume_shader_and_names_its_sdk_s() {
+        let arnold = BUILT_IN
+            .iter()
+            .map(|t| serde_json::from_str::<Definition>(t).unwrap())
+            .find(|d| d.name == "arnold")
+            .unwrap();
+        let s = arnold.shaders.as_ref().unwrap();
+        assert_eq!((s.prefix.as_str(), s.context.as_str()), ("ai_", "arnold"));
+        assert!(s.sdk.ends_with("materialx/arnold/nodedefs.mtlx"));
+        let (name, text) = shipped_shaders(&arnold).unwrap();
+        assert_eq!(name, "arnold_shaders.mtlx");
+        assert!(text.contains("node=\"standard_volume\""));
+    }
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("xms-renderers-{name}-{}", std::process::id()));

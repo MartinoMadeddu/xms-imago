@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Renderers' shaders from their SDKs:** File > Settings > Renderers > **Load Shader Definitions from SDK** (saved with the graph; `XMS_RENDERER_SHADERS=1` turns it on for every graph) offers every shader of a renderer's own MaterialX definitions in MaterialX graphs: Arnold's 140, as `ai_standard_surface`, `ai_image`…, under Arnold in the add menu. Generalised through the renderer definitions' `shaders` block, so other renderers shipping MaterialX definitions work the same way. A node whose definition is not loaded is kept, values and wires, and written out as it was.
 - **Volume shading:** MaterialX graphs can put out a volume (`volumematerial`, beside a surface), and have Arnold's `standard_volume` as a node, `ai_standard_volume`, under Arnold in the add menu: written to USD as Arnold reads it (`arnold:standard_volume`, `outputs:arnold:volume`), so a Load VDB volume renders with its density, scatter and emission; read back from a stage too.
 - **Load VDB:** an OpenVDB file or sequence in the scene as a USD Volume, a field per grid; its box in the Viewer, its grids in the Primitive Inspector; Write USD writes it for Arnold and any renderer to read the file (read with OpenVDB-rs, a Rust port of OpenVDB).
 - **Primitive Inspector:** list attributes (ICE's lists stored with Set Data) shown, one `[a, b, c]` cell per row; the Point, Face, Corner and Object tabs count the attributes they hold, not the elements (those are intrinsics, in the Object tab).

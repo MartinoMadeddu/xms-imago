@@ -73,6 +73,27 @@ husk and not in Imago, or the reverse.
   - The command line: never disabled, only warned about (detection can be
     wrong: farm wrapper scripts, an unusual `PATH`).
 
+### Shaders
+
+A definition's `shaders` block makes the renderer's own shaders nodes of
+MaterialX graphs (see [MaterialX](materialx.md#renderers-shaders)):
+
+```json
+"shaders": { "prefix": "ai_", "context": "arnold", "shipped": "arnold_shaders.mtlx",
+             "sdk": "$ARNOLD_PATH/materialx/arnold/nodedefs.mtlx" }
+```
+
+- `prefix`: before each node's name, apart from MaterialX's (`ai_add` is not
+  `add`).
+- `context`: the USD render context and shader namespace they are written in
+  (`arnold:standard_volume`, `outputs:arnold:volume`).
+- `shipped`: the definitions always there, a MaterialX file beside the
+  definition (Imago's own: `assets/renderers`).
+- `sdk`: the renderer's own MaterialX definitions, read when Load Shader
+  Definitions from SDK is on (File > Settings > Renderers, or
+  `XMS_RENDERER_SHADERS=1`). Any renderer shipping a MaterialX file of its
+  shaders works the same way.
+
 ### Reloading
 
 - **Reload** (the panel, and Settings) reads your folder again and finds the
