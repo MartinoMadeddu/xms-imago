@@ -50,23 +50,18 @@ impl<N: Copy + PartialEq, P: PartialEq> Picked<N, P> {
 /// The ring around a picked port: in the selection colour, a little wider than
 /// the port.
 pub fn draw_picked(painter: &egui::Painter, at: egui::Pos2, radius: f32) {
-    painter.circle_stroke(at, radius + 3.0, egui::Stroke::new(2.0, crate::theme::selection()));
+    painter.circle_stroke(
+        at,
+        radius + 3.0,
+        egui::Stroke::new(2.0, crate::theme::graph_selection()),
+    );
 }
 
-/// The box being dragged out to select nodes, in screen space. `light`: over a
-/// light canvas (ICE, MaterialX), where the dark schemes' tint would not show.
-pub fn draw_marquee(painter: &egui::Painter, r: egui::Rect, light: bool) {
-    let (fill, edge) = if light || !crate::theme::is_dark() {
-        crate::theme::marquee_light()
-    } else {
-        (
-            // A see-through tint: unmultiplied, so its alpha scales the
-            // colour down rather than adding a bright blue to the canvas.
-            egui::Color32::from_rgba_unmultiplied(100, 140, 200, 40),
-            crate::theme::c(120, 160, 220),
-        )
-    };
-    painter.rect_filled(r, 2.0, fill);
+/// The box being dragged out to select nodes, in screen space: the graphs'
+/// selection blue, see-through inside.
+pub fn draw_marquee(painter: &egui::Painter, r: egui::Rect) {
+    let edge = crate::theme::graph_selection();
+    painter.rect_filled(r, 2.0, edge.gamma_multiply(0.25));
     painter.rect_stroke(r, 2.0, egui::Stroke::new(1.0, edge), egui::StrokeKind::Middle);
 }
 

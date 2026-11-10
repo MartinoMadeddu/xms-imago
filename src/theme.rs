@@ -417,16 +417,19 @@ pub fn accent() -> Color32 {
 }
 
 /// What is selected: the blue of a selected row in the Scene Explorer and the
-/// Operator Stack, also around selected nodes.
+/// Operator Stack (the graphs' is `graph_selection`).
 pub fn selection() -> Color32 {
     c(90, 105, 120)
 }
 
-/// A box being dragged to select, in Light: the selection blue, its inside
-/// see-through. The dark schemes keep their own (see the callers).
-pub fn marquee_light() -> (Color32, Color32) {
-    let edge = selection();
-    (edge.gamma_multiply(0.3), edge)
+/// What is selected in the graphs (scene graph, ICE, MaterialX): the ring
+/// around a node, a wire's band, a port's ring, the box dragged to select.
+/// Halfway between `selection` and the view flag's saturated blue: bright
+/// enough to stand out on a canvas, not glaring.
+pub fn graph_selection() -> Color32 {
+    let (a, b) = (selection(), Color32::from_rgb(0, 100, 255));
+    let mid = |x: u8, y: u8| ((x as u16 + y as u16) / 2) as u8;
+    Color32::from_rgb(mid(a.r(), b.r()), mid(a.g(), b.g()), mid(a.b(), b.b()))
 }
 
 /// Style egui's own widgets for the current scheme.

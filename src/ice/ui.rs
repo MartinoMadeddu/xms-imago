@@ -66,7 +66,7 @@ mod pal {
         Color32::from_rgb(105, 105, 105)
     } // the grey ring around it
     pub fn SELECTED() -> Color32 {
-        crate::theme::selection()
+        crate::theme::graph_selection()
     } // the ring of a selected node
     pub fn PORT_RIM() -> Color32 {
         Color32::from_rgb(30, 30, 30)
@@ -1517,11 +1517,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
                 .collect();
             graph.selected_node = graph.selected_nodes.first().copied();
             graph.selected_wire = None;
-            crate::graph_ports::draw_marquee(
-                &painter,
-                egui::Rect::from_two_pos(to_screen(start), to_screen(cur)),
-                true,
-            );
+            crate::graph_ports::draw_marquee(&painter, egui::Rect::from_two_pos(to_screen(start), to_screen(cur)));
         }
     }
     if response.drag_stopped() {
@@ -2220,7 +2216,7 @@ pub(crate) fn draw_selected_wire_h(painter: &egui::Painter, from: egui::Pos2, to
     let pts: Vec<egui::Pos2> = (0..=24).map(|i| bezier(from, c1, c2, to, i as f32 / 24.0)).collect();
     painter.add(egui::Shape::line(
         pts,
-        egui::Stroke::new(6.0 * z.clamp(0.7, 1.5), crate::theme::selection()),
+        egui::Stroke::new(6.0 * z.clamp(0.7, 1.5), crate::theme::graph_selection()),
     ));
 }
 

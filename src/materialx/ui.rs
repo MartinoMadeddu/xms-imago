@@ -436,11 +436,7 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
                 .collect();
             view.selected = view.selected_nodes.first().copied();
             view.selected_wire = None;
-            crate::graph_ports::draw_marquee(
-                &painter,
-                egui::Rect::from_two_pos(to_screen(start), to_screen(cur)),
-                true,
-            );
+            crate::graph_ports::draw_marquee(&painter, egui::Rect::from_two_pos(to_screen(start), to_screen(cur)));
         }
     }
     if response.drag_stopped() {
@@ -611,7 +607,7 @@ fn draw_selected_wire(painter: &egui::Painter, from: egui::Pos2, to: egui::Pos2,
         .collect();
     painter.add(egui::Shape::line(
         pts,
-        egui::Stroke::new(6.0 * z.clamp(0.7, 1.5), crate::theme::selection()),
+        egui::Stroke::new(6.0 * z.clamp(0.7, 1.5), crate::theme::graph_selection()),
     ));
 }
 
@@ -820,7 +816,7 @@ fn draw_node(
         rect.expand(w),
         ROUNDING * z + w,
         if selected {
-            crate::theme::selection()
+            crate::theme::graph_selection()
         } else {
             pal::FRAME()
         },

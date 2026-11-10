@@ -93,9 +93,8 @@ mod xsi {
     pub fn SOCK_OUT_DRAG() -> Color32 {
         crate::theme::c(230, 195, 100)
     }
-    /// The view flag's eye, and the ring around selected nodes: one saturated
-    /// blue in every theme, dark enough for Light's titles and bright enough
-    /// for Dark's.
+    /// The view flag's eye: one saturated blue in every theme, dark enough for
+    /// Light's titles and bright enough for Dark's.
     pub fn VIEW_FLAG() -> Color32 {
         Color32::from_rgb(0, 100, 255)
     }
@@ -585,7 +584,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
 
             // Draw the marquee rectangle in screen space
             let sr = egui::Rect::from_two_pos(to_screen(start), to_screen(cur));
-            crate::graph_ports::draw_marquee(&painter, sr, false);
+            crate::graph_ports::draw_marquee(&painter, sr);
         }
     }
 
@@ -722,7 +721,7 @@ fn draw_node(
         let band = ring_width(zoom, true);
         let r = rounding * zoom;
         if is_sel {
-            painter.rect_filled(rect.expand(band + w), r + band + w, xsi::VIEW_FLAG());
+            painter.rect_filled(rect.expand(band + w), r + band + w, crate::theme::graph_selection());
         } else {
             // A hair of dark outside the band, so it reads on the canvas.
             painter.rect_filled(
@@ -738,7 +737,7 @@ fn draw_node(
             ring,
             rounding * zoom + w,
             if is_sel {
-                xsi::VIEW_FLAG()
+                crate::theme::graph_selection()
             } else {
                 egui::Color32::from_rgb(105, 105, 105)
             },
@@ -1286,7 +1285,7 @@ fn draw_node(
             painter.rect_stroke(
                 rect.expand(3.0),
                 6.0 * zoom,
-                egui::Stroke::new(2.0, crate::theme::selection()),
+                egui::Stroke::new(2.0, crate::theme::graph_selection()),
                 egui::StrokeKind::Outside,
             );
             if ui.input(|i| i.pointer.any_released()) {
