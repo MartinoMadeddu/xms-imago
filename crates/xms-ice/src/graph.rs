@@ -138,6 +138,16 @@ pub enum Op {
     /// Array Data at them, or to store. Nothing within the radius: Polygon
     /// -1 (it reads as zero), at the radius's distance.
     ClosestPoint,
+    /// The points nearest each origin, Houdini's `nearpoints`: input 0 the
+    /// prims searched (Get Reference's paths; a group names those below it),
+    /// unwired the graph's own points; input 1 the origin (a 3D vector: per
+    /// element, P, or one); input 2 the radius searched within (a number for
+    /// all or per element; 0, anywhere); input 3 how many (an int; 0, every
+    /// one within the radius). Two outputs, a list per element (one origin:
+    /// an array), nearest first: 0 the points' numbers (the graph's own
+    /// `ptIndex`; across the reference prims in order), 1 how far each is. A
+    /// point searching its own points finds itself first, at 0.
+    ClosestPoints,
     /// At places on a surface (a Polygon and Param UV per element, as Get Data at
     /// them takes, its Geometry too), the values of the face (or curve) each is
     /// on, kept as a list: its points' (P, `ptIndices` their numbers), its
@@ -487,6 +497,7 @@ impl Op {
             Op::Decompose(_) => Some(1),
             Op::Scatter { .. } => Some(1),
             Op::ClosestPoint => Some(3),
+            Op::ClosestPoints => Some(4),
             Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } => Some(0),
             Op::Instancer { .. } => Some(5),
@@ -504,6 +515,10 @@ pub const SCATTER_PARAM_UVS: usize = 3;
 pub const CLOSEST_POLYGONS: usize = 0;
 pub const CLOSEST_DISTANCE: usize = 1;
 pub const CLOSEST_PARAM_UVS: usize = 2;
+
+/// Closest Points' outputs (see `Op::ClosestPoints`).
+pub const NEAR_POINTS: usize = 0;
+pub const NEAR_DISTANCES: usize = 1;
 
 impl Op {
     /// Get Data of an attribute in the graph's own context.

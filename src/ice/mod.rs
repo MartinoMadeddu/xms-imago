@@ -442,6 +442,27 @@ impl IceGraph {
                     output("Param UV", "Any"),
                 ],
             ),
+            // Outputs in `xms_ice::NEAR_*`'s order. The Geometry unwired: the
+            // graph's own points; a radius of 0: anywhere; a count of 0: all
+            // within the radius.
+            IceGraphNodeType::ClosestPoints => (
+                vec![
+                    IceGraphInputSocket {
+                        value: None,
+                        ..input("Geometry", 0.0)
+                    },
+                    IceGraphInputSocket {
+                        value: Some(Value::Vec3([0.0; 3])),
+                        ..input("Origin", 0.0)
+                    },
+                    input("Radius", 0.0),
+                    IceGraphInputSocket {
+                        value: Some(Value::Int(1)),
+                        ..input("Count", 0.0)
+                    },
+                ],
+                vec![output("Points", "Any"), output("Distances", "Any")],
+            ),
             // Normals +Y (none) and a random turn about it, when not wired;
             // a count of 0, one per element (or per normal of an array).
             IceGraphNodeType::RandomOrientation { .. } => (
@@ -706,6 +727,7 @@ impl IceGraph {
                         weight: weight.clone(),
                     },
                     IceGraphNodeType::ClosestPoint => Op::ClosestPoint,
+                    IceGraphNodeType::ClosestPoints => Op::ClosestPoints,
                     IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData {
                         name: name.clone(),
                         context: *context,
@@ -936,6 +958,11 @@ impl IceGraph {
                 IceGraphNodeType::ClosestPoint => Some(match output {
                     xms_ice::CLOSEST_DISTANCE => xms_ice::Ty::Float,
                     xms_ice::CLOSEST_PARAM_UVS => xms_ice::Ty::Vec2,
+                    _ => xms_ice::Ty::Int,
+                }),
+                // The points' numbers, their distances.
+                IceGraphNodeType::ClosestPoints => Some(match output {
+                    xms_ice::NEAR_DISTANCES => xms_ice::Ty::Float,
                     _ => xms_ice::Ty::Int,
                 }),
                 // Each part its own type, whatever comes in.

@@ -178,6 +178,21 @@ the tree's parameters).
   Data there (`P`, context Point) gives the curve's points as a list. Hair is
   carried by its guides this way (the "Bind simple hair deform by guides"
   template).
+- **Closest Points** finds, for each **Origin** (a 3D vector: `P` per point,
+  or one for all), the nearest points, Houdini's `nearpoints`: of the prims
+  its **Geometry** names (Get Reference's paths, taken into the graph's space
+  as Closest Point on Surface's meshes are), or, unwired, of the graph's own
+  points. Up to its **Count** (0: every one within the Radius), within its
+  **Radius** (0: anywhere; a point at the radius is in), nearest first. It
+  gives a list per element (one origin: an array): the **Points**' numbers
+  (the graph's own `ptIndex`; numbered across the reference prims in order)
+  and their **Distances**. Select in Array, Array Size, Sum and Average make
+  one value of each; maths works item by item, the two lists together. A
+  point searching its own points finds itself first, at 0: Select in Array 1
+  is its nearest other. The points are put in a k-d tree (kiddo's, built in
+  parallel) once per run, the first time they are searched. What it makes
+  possible: smoothing and relaxing by neighbours, clumping hair to its
+  nearest guides, falloffs by distance to points.
 - **`intrinsic:curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.
@@ -430,9 +445,9 @@ parameters.
   as lists (a point's neighbouring points)
 - Neighbours in the same context (a point's neighbouring points, through the
   faces)
-- Closest Point on the graph's own surface, and on points (a point cloud's
-  nearest points, by a kd-tree); ray casts (Raycast on Surface); Get Array Data
-  on an array of places
+- Closest Point on the graph's own surface; ray casts (Raycast on Surface); Get
+  Array Data on an array of places; Closest Points from an array of origins (a
+  list each)
 - Cubic curves searched along the curve they draw (today along their control
   points), and a curve's Param UV by length as an option (Houdini's `primuvconvert`)
 - Reading at a place on a reference mesh in the editor's types: the port shows

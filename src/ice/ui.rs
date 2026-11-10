@@ -191,6 +191,7 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::Scatter { seed, weight } if weight.trim().is_empty() => Some(format!("seed {seed}")),
         IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
         IceGraphNodeType::ClosestPoint => None,
+        IceGraphNodeType::ClosestPoints => None,
         IceGraphNodeType::GetArrayData { name, context: Some(c) } => Some(format!("{}.{name}[]", context_word(*c))),
         IceGraphNodeType::GetArrayData { name, context: None } => Some(format!("{name}[]")),
         IceGraphNodeType::RandomOrientation { seed } => Some(format!("seed {seed}")),
@@ -343,9 +344,10 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         | IceGraphNodeType::Decompose { .. } => pal::GREEN(),
         IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
         // The Geometry category: what makes or queries geometry.
-        IceGraphNodeType::Scatter { .. } | IceGraphNodeType::Instancer { .. } | IceGraphNodeType::ClosestPoint => {
-            pal::ORANGE()
-        }
+        IceGraphNodeType::Scatter { .. }
+        | IceGraphNodeType::Instancer { .. }
+        | IceGraphNodeType::ClosestPoint
+        | IceGraphNodeType::ClosestPoints => pal::ORANGE(),
         IceGraphNodeType::Compound { .. } => pal::COMPOUND(),
         IceGraphNodeType::CompoundInput { .. } | IceGraphNodeType::CompoundOutput { .. } => pal::PORTS(),
         IceGraphNodeType::Parameter { .. } => pal::GREEN(),
@@ -744,7 +746,8 @@ pub fn draw_subnet_node_properties(
         IceGraphNodeType::Math { .. }
         | IceGraphNodeType::Array { .. }
         | IceGraphNodeType::Concat
-        | IceGraphNodeType::ClosestPoint => {}
+        | IceGraphNodeType::ClosestPoint
+        | IceGraphNodeType::ClosestPoints => {}
     }
     if let Some(probe) = crate::properties::form::probed() {
         let now = serde_json::to_value(&node.node_type).unwrap_or_default();
@@ -1611,6 +1614,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Geometry", IceGraphNodeType::Scatter { seed: 0, weight: String::new() }, "Places on the surface, spread evenly by area (or by a weight attribute), in an Object graph: their positions, the normals there, and each place as its Polygon and Param UV (Houdini's parametric coordinates), each an array"),
         ("Data Access", IceGraphNodeType::GetArrayData { name: "intrinsic:ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire a Polygon and Param UV into it to read, at each, the values of the face (or curve) it is on: its points' P, ptIndices, its corners' uv; triP and bary are the corners the place is made from and their weights"),
         ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes and curves (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): each as its Polygon and Param UV (Houdini's xyzdist), to read with Get Data or store, and how far each is. For deformers: shrink-wrap, stick to a body, bind and carry, blend by distance"),
+        ("Geometry", IceGraphNodeType::ClosestPoints, "The points nearest each Origin (P, per point), of reference prims (Geometry: Get Reference) or, unwired, the graph's own: up to a Count (0: every one within the Radius), within a Radius (0: anywhere), nearest first (Houdini's nearpoints). A list per point of their numbers (ptIndex) and how far each is: Select in Array, Array Size, Sum and Average make one value; searching its own points, a point finds itself first. For neighbours: smoothing, relaxing, clumping, falloffs"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),

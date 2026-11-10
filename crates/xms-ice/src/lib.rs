@@ -24,8 +24,10 @@
 //!   `xms_geo::intrinsics`'s: the one list ICE and the Primitive Inspector
 //!   share.
 //! - `surface`: the reference inputs' meshes a graph queries (Closest Point on
-//!   Surface), taken into the graph's space, and read at samples.
-//! - `spatial`: a BVH (rray's builder) and the closest point on a triangle.
+//!   Surface, Closest Points), taken into the graph's space, and read at
+//!   samples.
+//! - `spatial`: a BVH (rray's builder), the closest point on a triangle, and a
+//!   k-d tree over points (`KdPointTree`, kiddo's).
 
 pub mod compile;
 pub mod exec;
@@ -38,7 +40,8 @@ pub use compile::{compile, compile_with, output_arrays, output_types, CompileErr
 pub use exec::{run, run_in, Instances, Ran, BATCH};
 pub use graph::{
     ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PARAM_UVS,
-    CLOSEST_POLYGONS, SCATTER_NORMALS, SCATTER_PARAM_UVS, SCATTER_POLYGONS, SCATTER_POSITIONS,
+    CLOSEST_POLYGONS, NEAR_DISTANCES, NEAR_POINTS, SCATTER_NORMALS, SCATTER_PARAM_UVS, SCATTER_POLYGONS,
+    SCATTER_POSITIONS,
 };
 pub use surface::{RefGeo, RefMesh, Reference};
 pub use types::{Loc, Ty, Value};

@@ -1,4 +1,5 @@
-//! Spatial queries: a BVH over boxes, and the closest point on triangles.
+//! Spatial queries: a BVH over boxes, the closest point on triangles, and a
+//! k-d tree over points (`KdPointTree`).
 //!
 //! The builder is rray's (`rray-render`'s `accel::bvh`, Martino's renderer):
 //! binned SAH, 16 bins, up to four primitives a leaf, subtrees of more than
@@ -477,6 +478,51 @@ impl Bvh {
     }
 }
 
+/// Points searched for the nearest ones (Closest Points): a k-d tree over them,
+/// kiddo's immutable one, built in parallel. Kiddo is used here alone, so a
+/// new version of it changes this and nothing else.
+pub struct KdPointTree {
+    /// `None` with no points.
+    tree: Option<kiddo::ImmutableKdTree<f32, 3>>,
+}
+
+impl KdPointTree {
+    /// Over `points`, numbered as they are given.
+    pub fn build(points: &[[f32; 3]]) -> KdPointTree {
+        let tree = if points.is_empty() {
+            None
+        } else {
+            kiddo::ImmutableKdTree::new_from_slice_parallel(points).ok()
+        };
+        KdPointTree { tree }
+    }
+
+    /// The points nearest `p`, nearest first, as their numbers and how far
+    /// each is, into `out`: `count` of them (0: every one within the radius),
+    /// within `radius` (0 or less: anywhere; a point at the radius is in).
+    pub fn closest(&self, p: [f32; 3], count: usize, radius: f32, out: &mut Vec<(u32, f32)>) {
+        use kiddo::SquaredEuclidean;
+        out.clear();
+        let Some(tree) = &self.tree else {
+            return;
+        };
+        let within = radius > 0.0;
+        // Squared, as the distances are.
+        let r2 = radius * radius;
+        let found = match (std::num::NonZeroUsize::new(count), within) {
+            (Some(n), false) => tree.query(&p).nearest_n::<SquaredEuclidean<f32>>(n).execute(),
+            (Some(n), true) => tree
+                .query(&p)
+                .nearest_n::<SquaredEuclidean<f32>>(n)
+                .within(r2)
+                .execute(),
+            (None, true) => tree.query(&p).within::<SquaredEuclidean<f32>>(r2).execute(),
+            (None, false) => return,
+        };
+        out.extend(found.into_iter().map(|r| (r.item, r.distance.sqrt())));
+    }
+}
+
 /// The point of triangle `a b c` nearest `p`, as weights on its corners (they
 /// sum to 1). Ericson, Real-Time Collision Detection, 5.1.5.
 pub fn closest_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> [f32; 3] {
@@ -521,6 +567,67 @@ pub fn closest_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a search over every point finds: the `count` nearest (0: all)
+    /// within the radius (0: anywhere), nearest first.
+    fn brute(points: &[[f32; 3]], p: [f32; 3], count: usize, radius: f32) -> Vec<(u32, f32)> {
+        let mut all: Vec<(u32, f32)> = points
+            .iter()
+            .enumerate()
+            .map(|(i, q)| (i as u32, (Vec3::from(*q) - Vec3::from(p)).length()))
+            .filter(|(_, d)| radius <= 0.0 || *d <= radius)
+            .collect();
+        all.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+        if count > 0 {
+            all.truncate(count);
+        }
+        all
+    }
+
+    /// The nearest points, by count, within a radius, both, and every one
+    /// within a radius, as a search over them all finds them; none from an
+    /// empty tree, or with neither a count nor a radius.
+    #[test]
+    fn closest_points_match_brute_force() {
+        let points: Vec<[f32; 3]> = (0..5000)
+            .map(|i| {
+                let i = i as f32;
+                [
+                    (i * 0.37).sin() * 3.0,
+                    (i * 0.11).cos() * 2.0,
+                    (i * 0.07).sin() * (i * 0.013),
+                ]
+            })
+            .collect();
+        let tree = KdPointTree::build(&points);
+        let mut out = vec![];
+        for k in 0..100 {
+            let p = [
+                (k as f32 * 0.31).cos() * 3.0,
+                (k as f32 * 0.17).sin() * 2.0,
+                k as f32 * 0.05 - 2.5,
+            ];
+            for (count, radius) in [(1, 0.0), (8, 0.0), (8, 0.4), (0, 0.4), (3, 1e-6)] {
+                tree.closest(p, count, radius, &mut out);
+                let want = brute(&points, p, count, radius);
+                assert_eq!(out.len(), want.len(), "count {count} radius {radius} at {p:?}");
+                for (got, want) in out.iter().zip(&want) {
+                    assert!((got.1 - want.1).abs() < 1e-4, "{got:?} vs {want:?}");
+                }
+            }
+        }
+        // A point searching the points it is one of: itself first, at 0.
+        tree.closest(points[42], 2, 0.0, &mut out);
+        assert_eq!(out[0], (42, 0.0));
+        // At the radius exactly: in.
+        let line = KdPointTree::build(&[[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+        line.closest([0.0; 3], 0, 1.0, &mut out);
+        assert_eq!(out, vec![(0, 0.0), (1, 1.0)]);
+        KdPointTree::build(&[]).closest([0.0; 3], 4, 0.0, &mut out);
+        assert!(out.is_empty());
+        line.closest([0.0; 3], 0, 0.0, &mut out);
+        assert!(out.is_empty(), "no count, no radius: nothing");
+    }
 
     /// The nearest of many triangles, found through the tree, is the one a
     /// search over all of them finds; and nothing past the radius.

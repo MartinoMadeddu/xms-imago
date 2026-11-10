@@ -8,4 +8,6 @@ description = "XMS | Imago's ICE engine: graphs compiled into plans, run over a 
 xms-geo = { path = "../xms-geo" }
 glam = "0.27"
 rayon = "1"
+# Closest Points' k-d tree, behind `spatial::KdPointTree`.
+kiddo = { version = "6.3", default-features = false, features = ["multi-threaded"] }
 serde = { version = "1", features = ["derive"] }

@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Closest Points** (ICE): the points nearest each origin, of reference prims or the graph's own, up to a count within a radius (0: anywhere), as a list per point of their numbers and distances: neighbours for smoothing, relaxing, clumping. A k-d tree over the points (kiddo).
 - **Lighter render layers:** a deformed prim's points stay in memory even when the deformer also set an attribute (only that attribute is written, and the Log names it); attributes a deformer copied unchanged are no longer written.
 
 ## [0.2.10] - 2026-11-09

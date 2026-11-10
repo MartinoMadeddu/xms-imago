@@ -223,7 +223,7 @@ Principles:
 | `crates/xms-geo` | `Geo`, columns, topology, intrinsics |
 | `crates/xms-scene`, `crates/xms-usd` | the scene layer and USD into it |
 | `crates/xms-alembic` | Alembic in pure Rust |
-| `crates/xms-ice` | the ICE engine: graph, compiler, executor, spatial search |
+| `crates/xms-ice` | the ICE engine: graph, compiler, executor, spatial search (rray's BVH, a k-d tree over points: kiddo behind `KdPointTree`) |
 | `crates/xms-matx` | MaterialX node libraries and documents |
 | `crates/xms-image` | images as layers of float channels, OpenEXR; the snapshots both viewers share |
 | `crates/xms-colour` | OpenColorIO config, views and transforms |

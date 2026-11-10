@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use xms_geo::{Column, Context, Geo, Role, POINTS};
 
 use super::graph::{
-    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PARAM_UVS,
+    ArrayOp, Compose, Decompose, Graph, Input, Math, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PARAM_UVS, NEAR_DISTANCES,
     SCATTER_NORMALS, SCATTER_PARAM_UVS, SCATTER_POLYGONS, SCATTER_POSITIONS,
 };
 use super::surface::Reference;
@@ -36,8 +36,9 @@ pub struct Plan {
     pub(crate) writes: Vec<Write>,
     /// Instancers, made from uniform registers once the plan has run.
     pub(crate) instancers: Vec<InstancerPlan>,
-    /// Surfaces Closest Point on Surface searches: the uniform register of each
-    /// one's paths (Get Reference's), made into a BVH when first run.
+    /// Surfaces Closest Point on Surface and Closest Points search: the
+    /// uniform register of each one's paths (Get Reference's), made into a BVH
+    /// (or a k-d tree of its points) when first run.
     pub(crate) surfaces: Vec<usize>,
 }
 
@@ -211,6 +212,20 @@ pub(crate) enum Ins {
         origin: usize,
         radius: usize,
     },
+    /// The points of surface `points` (`None`: the graph's own) nearest the
+    /// positions in `origin`, `count` of them (0: all within the radius),
+    /// within `radius` (0: anywhere): their numbers into `dst`, how far each
+    /// is into `dist`, a list per element, nearest first (`flat`: one origin's,
+    /// as an array).
+    ClosestPoints {
+        dst: usize,
+        dist: usize,
+        points: Option<usize>,
+        origin: usize,
+        radius: usize,
+        count: usize,
+        flat: bool,
+    },
     /// Read number `read` (a `sampled` one) at the samples in `loc`, on surface
     /// `surface` (`None`: the graph's own geometry).
     AtSurface {
@@ -313,6 +328,8 @@ enum ListOf {
     /// The corners the place at each Polygon in a register is made from
     /// (`triP`, `bary` as a list): as many as its face's kind has.
     Tri(usize),
+    /// The points Closest Points node `n` found for each element.
+    Near(usize),
 }
 
 /// The contexts an attribute read at samples is looked for in: the one asked
@@ -602,6 +619,14 @@ impl Lower<'_> {
                     message: format!("No output {output}"),
                 });
             }
+            // The points' numbers are its value; their distances kept in `outs`.
+            Some(Op::ClosestPoints) if output == NEAR_DISTANCES => {
+                self.value(node)?;
+                return self.outs.get(&(node, output)).copied().ok_or(CompileError {
+                    node,
+                    message: format!("No output {output}"),
+                });
+            }
             Some(Op::Scatter { .. }) => {}
             _ => return self.value(node),
         }
@@ -775,6 +800,7 @@ impl Lower<'_> {
             }
             Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
             Op::ClosestPoint => self.closest(node)?,
+            Op::ClosestPoints => self.closest_points(node)?,
             Op::GetArrayDataAt { name, context } => self.array_at(node, name, *context)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
@@ -1541,6 +1567,86 @@ impl Lower<'_> {
         Ok(prim)
     }
 
+    /// Closest Points: the points nearest each origin (input 1), of the
+    /// reference prims (input 0, their paths) or, unwired, of the graph's own
+    /// geometry; up to the count (input 3; 0, every one within the radius),
+    /// within the radius (input 2; 0, anywhere), nearest first. Their numbers
+    /// (its value) and how far each is (kept in `outs`), a list per element;
+    /// one origin in all, an array.
+    fn closest_points(&mut self, node: usize) -> Result<Val, CompileError> {
+        let points = match self.graph.nodes[node].inputs.first() {
+            Some(Input::Wire { .. }) => {
+                let paths = self.input(node, 0, None)?;
+                if paths.ty != Ty::Token || !paths.uniform {
+                    return error(
+                        node,
+                        "The Geometry is the paths of prims on a reference input: wire Get Reference, or leave it for the graph's own points",
+                    );
+                }
+                Some(paths.reg)
+            }
+            _ => None,
+        };
+        let origin = self.input(node, 1, Some(Ty::Vec3))?;
+        if origin.ty != Ty::Vec3 || origin.array {
+            return error(
+                node,
+                "The Origin is a 3D vector, one per element (P) or one for all: an array of them would give a list each, not yet",
+            );
+        }
+        let mut radius = self.input(node, 2, Some(Ty::Float))?;
+        if radius.ty == Ty::Int {
+            let src = radius.reg;
+            radius = self.emit(radius.uniform, Ty::Float, |dst| Ins::ToFloat { dst, src });
+        }
+        if radius.ty != Ty::Float || radius.array {
+            return error(
+                node,
+                "The Radius is one number, for all or per element; 0 searches without a limit",
+            );
+        }
+        let count = self.input(node, 3, Some(Ty::Int))?;
+        if count.ty != Ty::Int || count.array {
+            return error(
+                node,
+                "The Count is an integer, for all or per element; 0 finds every point within the Radius",
+            );
+        }
+        let points = points.map(|reg| {
+            self.plan.surfaces.push(reg);
+            self.plan.surfaces.len() - 1
+        });
+        let flat = origin.uniform && radius.uniform && count.uniform;
+        let (o, r, c) = if flat {
+            (origin.reg, radius.reg, count.reg)
+        } else {
+            (self.varying(origin), self.varying(radius), self.varying(count))
+        };
+        let dist = self.alloc(flat, Ty::Float);
+        let mut v = self.emit(flat, Ty::Int, |dst| Ins::ClosestPoints {
+            dst,
+            dist,
+            points,
+            origin: o,
+            radius: r,
+            count: c,
+            flat,
+        });
+        v.array = true;
+        if !flat {
+            v.of = Some(ListOf::Near(node));
+        }
+        self.outs.insert(
+            (node, NEAR_DISTANCES),
+            Val {
+                reg: dist,
+                ty: Ty::Float,
+                ..v
+            },
+        );
+        Ok(v)
+    }
+
     /// Get Array Data at Samples: at each sample, the values of the face it is
     /// on, kept as a list: its points' positions (P), their numbers
     /// (ptIndices), its corners' UVs. One sample per element gives a list per
@@ -2134,6 +2240,8 @@ fn type_of(
         Op::Scatter { .. } => Some(Ty::Vec3),
         // Its Polygons; its other outputs by `wire_ty`.
         Op::ClosestPoint => Some(Ty::Int),
+        // Its points' numbers; their distances by `wire_ty`.
+        Op::ClosestPoints => Some(Ty::Int),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
         Op::GetArrayDataAt { name, .. } if name.trim() == TRI_P => Some(Ty::Vec3),
@@ -2198,6 +2306,7 @@ fn wire_ty(
         }),
         Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => Some(Ty::Float),
         Some(Op::ClosestPoint) if output == CLOSEST_PARAM_UVS => Some(Ty::Vec2),
+        Some(Op::ClosestPoints) if output == NEAR_DISTANCES => Some(Ty::Float),
         Some(Op::Decompose(d)) => d.outputs().get(output).map(|o| o.1),
         _ => type_of(graph, geo, context, node, memo, depth),
     }
@@ -2229,7 +2338,8 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
         | Op::GetReference { .. }
         | Op::Concat
         | Op::GetArrayData { .. }
-        | Op::GetArrayDataAt { .. } => true,
+        | Op::GetArrayDataAt { .. }
+        | Op::ClosestPoints => true,
         // As its origins: an array of them, an array of samples.
         Op::ClosestPoint => match n.inputs.get(1) {
             Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),

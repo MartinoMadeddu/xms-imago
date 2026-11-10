@@ -1223,6 +1223,49 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 *locs(&mut regs[dst]) = found;
                 *floats(&mut regs[dist]) = far;
             }
+            Ins::ClosestPoints {
+                dst,
+                dist,
+                points,
+                origin,
+                radius,
+                count,
+                flat,
+            } => {
+                let (mut offsets, mut found, mut far) = (vec![0u32], vec![], vec![]);
+                {
+                    // Made before the batches when they search it.
+                    let s = env.surface_of(points, regs, uniform).points_searchable();
+                    let o: &[Vec3] = match &regs[origin] {
+                        Reg::Vec3(v) => v,
+                        _ => &[],
+                    };
+                    let r: &[f32] = match &regs[radius] {
+                        Reg::Float(v) => v,
+                        _ => &[],
+                    };
+                    let c: &[i32] = match &regs[count] {
+                        Reg::Int(v) => v,
+                        _ => &[],
+                    };
+                    let mut near = vec![];
+                    for (i, &p) in o.iter().enumerate() {
+                        let within = r.get(i).or(r.first()).copied().unwrap_or(0.0);
+                        let many = c.get(i).or(c.first()).copied().unwrap_or(0).max(0) as usize;
+                        s.closest_points(p, many, within, &mut near);
+                        found.extend(near.iter().map(|&(k, _)| k as i32));
+                        far.extend(near.iter().map(|&(_, d)| d));
+                        offsets.push(found.len() as u32);
+                    }
+                }
+                if flat {
+                    regs[dst] = Reg::Int(found);
+                    regs[dist] = Reg::Float(far);
+                } else {
+                    regs[dst] = Reg::List(offsets.clone(), Box::new(Reg::Int(found)));
+                    regs[dist] = Reg::List(offsets, Box::new(Reg::Float(far)));
+                }
+            }
             Ins::AtSurface {
                 dst,
                 read,
@@ -2044,8 +2087,14 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
     // The surfaces the batches search, made searchable here, in parallel, not
     // by a batch (`Surface::index`).
     for ins in &plan.batch.code {
-        if let Ins::Closest { surface, .. } = *ins {
-            env.surface(surface, &[], false).searchable();
+        match *ins {
+            Ins::Closest { surface, .. } => {
+                env.surface(surface, &[], false).searchable();
+            }
+            Ins::ClosestPoints { points, .. } => {
+                env.surface_of(points, &[], false).points_searchable();
+            }
+            _ => {}
         }
     }
     let env = &env;

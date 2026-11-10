@@ -1777,6 +1777,100 @@ fn floor_input(world: glam::Mat4) -> Vec<Reference> {
     }]
 }
 
+/// Closest Points on the graph's own points: each point's nearest other (the
+/// second found, itself the first) and how far it is; how many within a
+/// radius; and one origin for all in an Object graph, an array.
+#[test]
+fn closest_points_among_its_own() {
+    use super::NEAR_DISTANCES;
+    // Along X at 0, 1, 4, 9, 16, 25: each one's nearest other is the one
+    // before it (0's is 1).
+    let geo = Geo::from_points((0..6).map(|i| [(i * i) as f32, 0.0, 0.0]).collect());
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(
+        Op::ClosestPoints,
+        vec![
+            Input::Value(Value::Float(0.0)),
+            wire(p),
+            Input::Value(Value::Float(0.0)),
+            Input::Value(Value::Int(3)),
+        ],
+    );
+    let other = g.add(
+        Op::Array(ArrayOp::Element),
+        vec![wire(near), Input::Value(Value::Int(1))],
+    );
+    let how_far = g.add(
+        Op::Array(ArrayOp::Element),
+        vec![
+            Input::Wire {
+                node: near,
+                output: NEAR_DISTANCES,
+            },
+            Input::Value(Value::Int(1)),
+        ],
+    );
+    let within = g.add(
+        Op::ClosestPoints,
+        vec![
+            Input::Value(Value::Float(0.0)),
+            wire(p),
+            Input::Value(Value::Float(3.5)),
+            Input::Value(Value::Int(0)),
+        ],
+    );
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(within)]);
+    let sets =
+        [("other", other), ("far", how_far), ("within", size)].map(|(name, v)| g.add(Op::set(name), vec![wire(v)]));
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        sets.iter().map(|&s| wire(s)).collect(),
+    );
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    let ints = |name: &str| {
+        out.attr(Context::Point, name)
+            .and_then(|a| a.column.ints())
+            .unwrap()
+            .to_vec()
+    };
+    assert_eq!(ints("other"), vec![1, 0, 1, 2, 3, 4]);
+    let far = out.attr(Context::Point, "far").and_then(|a| a.column.floats()).unwrap();
+    assert_eq!(far, &[1.0, 1.0, 3.0, 5.0, 7.0, 9.0]);
+    // Within 3.5: 0 has 0 and 1; 1 has 0, 1 and 4; 4 has 1 and 4; the rest
+    // themselves.
+    assert_eq!(ints("within"), vec![2, 3, 2, 1, 1, 1]);
+
+    // In an Object graph, one origin: the two nearest, an array.
+    let mut g = Graph::default();
+    let near = g.add(
+        Op::ClosestPoints,
+        vec![
+            Input::Value(Value::Float(0.0)),
+            Input::Value(Value::Vec3([10.0, 0.0, 0.0])),
+            Input::Value(Value::Float(0.0)),
+            Input::Value(Value::Int(2)),
+        ],
+    );
+    let first = g.add(
+        Op::Array(ArrayOp::Element),
+        vec![wire(near), Input::Value(Value::Int(0))],
+    );
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(near)]);
+    let sets = [("first", first), ("n", size)].map(|(name, v)| g.add(Op::set(name), vec![wire(v)]));
+    g.add(
+        Op::Root {
+            context: Context::Object,
+        },
+        sets.iter().map(|&s| wire(s)).collect(),
+    );
+    let out = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    let one = |name: &str| out.attr(Context::Object, name).and_then(|a| a.column.ints()).unwrap()[0];
+    assert_eq!((one("first"), one("n")), (3, 2), "9 is nearest 10, then 16");
+}
+
 /// Each point to the nearest place on the floor: Closest Point on Surface (the
 /// group names the mesh below it), then P read there, in the graph's space, the
 /// floor's placement taken in.

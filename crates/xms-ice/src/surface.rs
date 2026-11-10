@@ -15,7 +15,7 @@ use rayon::prelude::*;
 
 use xms_geo::{Geo, Topology};
 
-use super::spatial::{closest_on_triangle, Aabb, Bvh};
+use super::spatial::{closest_on_triangle, Aabb, Bvh, KdPointTree};
 use super::types::Loc;
 
 /// What one of the operator's reference inputs holds: the prims wired there by
@@ -320,6 +320,10 @@ pub(crate) struct Surface {
     /// Its triangles and a BVH over them: made the first time it is searched,
     /// not for reading alone.
     index: OnceLock<(Vec<Tri>, Option<Bvh>)>,
+    /// Its points, every mesh's in the graph's space, numbered across the
+    /// meshes in order, in a k-d tree: made the first time Closest Points
+    /// searches it.
+    points: OnceLock<KdPointTree>,
 }
 
 impl Surface {
@@ -332,6 +336,7 @@ impl Surface {
             meshes,
             first_face,
             index: OnceLock::new(),
+            points: OnceLock::new(),
         }
     }
 
@@ -433,6 +438,39 @@ impl Surface {
     pub fn searchable(&self) -> &Surface {
         self.index();
         self
+    }
+
+    /// Its points' k-d tree, made once, as `index` (and before rayon tasks
+    /// search it, for the same reason: the tree is built in parallel).
+    fn point_tree(&self) -> &KdPointTree {
+        self.points.get_or_init(|| {
+            let points: Vec<[f32; 3]> = self
+                .meshes
+                .iter()
+                .flat_map(|m| {
+                    m.geo.points().iter().map(move |p| {
+                        if m.moved {
+                            m.to_graph.transform_point3(Vec3::from(*p)).to_array()
+                        } else {
+                            *p
+                        }
+                    })
+                })
+                .collect();
+            KdPointTree::build(&points)
+        })
+    }
+
+    /// Itself with its points' k-d tree made, for searching from rayon tasks.
+    pub fn points_searchable(&self) -> &Surface {
+        self.point_tree();
+        self
+    }
+
+    /// The points nearest `p`, nearest first (see `KdPointTree::closest`):
+    /// their numbers across the meshes, and how far each is, into `out`.
+    pub fn closest_points(&self, p: Vec3, count: usize, radius: f32, out: &mut Vec<(u32, f32)>) {
+        self.point_tree().closest(p.to_array(), count, radius, out);
     }
 
     /// The sample nearest `p` within `radius` (0 or less: anywhere), and how
