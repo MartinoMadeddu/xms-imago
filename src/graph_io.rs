@@ -75,6 +75,10 @@ struct SavedGraph {
     /// there are none.
     #[serde(default, skip_serializing_if = "crate::core::vars::Variables::is_empty")]
     variables: crate::core::vars::Variables,
+    /// The attributes the Viewer's Attributes menu lists, in a graph file
+    /// (`save`): not whether they are shown. Left out when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    display_attributes: Vec<crate::viewer::attributes::Shown>,
 }
 
 /// The graphs inside these nodes' ICE nodes, as saved: as they are at the top,
@@ -130,6 +134,15 @@ pub fn ice_from_value(v: &serde_json::Value) -> Result<crate::ice::IceGraph, Str
 /// The graph as a file's text: its nodes, wires and the graph of each ICE node,
 /// from `subnets`.
 pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
+    json_listing(graph, subnets, vec![])
+}
+
+/// `to_json`, with the attributes the Viewer lists.
+fn json_listing(
+    graph: &NodeGraphState,
+    subnets: &IceGraphStore,
+    display_attributes: Vec<crate::viewer::attributes::Shown>,
+) -> String {
     let all: Vec<&crate::node_graph::GraphNode> = graph.nodes.iter().collect();
     let saved = SavedGraph {
         trees: saved_trees(&all, subnets),
@@ -161,6 +174,7 @@ pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
         view_output: graph.view_output,
         scene: graph.scene,
         variables: graph.variables.clone(),
+        display_attributes,
     };
     serde_json::to_string_pretty(&saved).unwrap_or_default()
 }
@@ -405,13 +419,25 @@ fn upgrade(saved: &mut SavedGraph) {
     }
 }
 
+/// The graph file: the graph, and the attributes the Viewer's Attributes menu
+/// lists (`display_attributes`, not whether they are shown).
 pub fn save(graph: &NodeGraphState, subnets: &IceGraphStore, path: &Path) -> Result<(), String> {
-    std::fs::write(path, to_json(graph, subnets)).map_err(|e| e.to_string())
+    let json = json_listing(graph, subnets, crate::viewer::attributes::settings().list);
+    std::fs::write(path, json).map_err(|e| e.to_string())
 }
 
+/// A graph file read into `graph`, and the attributes it lists put in the
+/// Viewer's Attributes menu (shown only once ticked).
 pub fn load(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, path: &Path) -> Result<(), String> {
     let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    from_json(graph, subnets, &json)
+    from_json(graph, subnets, &json)?;
+    let listed = serde_json::from_str::<serde_json::Value>(&json)
+        .ok()
+        .and_then(|v| v.get("display_attributes").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    crate::viewer::attributes::set_list(listed);
+    Ok(())
 }
 
 // Copy, paste, and adding one graph to another
@@ -541,6 +567,7 @@ pub fn paste(
         scene: Default::default(),
         trees: vec![],
         variables: Default::default(),
+        display_attributes: vec![],
     };
     upgrade(&mut saved);
     let corner = saved.nodes.iter().fold(egui::pos2(f32::MAX, f32::MAX), |c, n| {
@@ -950,8 +977,9 @@ pub fn remembered() -> Option<Fragment> {
     Fragment::from_text(&std::fs::read_to_string(file).ok()?)
 }
 
-/// Remove every operator.
+/// Remove every operator, and the attributes the Viewer lists.
 pub(crate) fn clear(graph: &mut NodeGraphState) {
+    crate::viewer::attributes::set_list(vec![]);
     graph.connections.clear();
     graph.nodes.clear();
     graph.selected_node = None;
@@ -1399,6 +1427,19 @@ mod tests {
         );
         // None set: none written.
         assert!(!to_json(&NodeGraphState::default(), &IceGraphStore::default()).contains("variables"));
+    }
+
+    /// A graph file lists the Viewer's attributes (not whether they are
+    /// shown); the graph's text elsewhere (compounds, history) does not.
+    #[test]
+    fn a_graph_file_lists_the_viewer_s_attributes() {
+        use crate::viewer::attributes::Shown;
+        let (g, store) = (NodeGraphState::default(), IceGraphStore::default());
+        let json = json_listing(&g, &store, vec![Shown::new("density"), Shown::new("intrinsic:ptIndex")]);
+        let back: SavedGraph = serde_json::from_str(&json).unwrap();
+        let names: Vec<String> = back.display_attributes.iter().map(|a| a.name.clone()).collect();
+        assert_eq!(names, ["density", "intrinsic:ptIndex"]);
+        assert!(!to_json(&g, &store).contains("display_attributes"));
     }
 
     /// A graph file keeps each ICE node's graph: saved and opened again, the

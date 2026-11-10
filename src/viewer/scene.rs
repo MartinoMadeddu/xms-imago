@@ -595,7 +595,10 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         [c[0], c[1], c[2], 1.0]
     };
     // The selected prims' wireframe, in the selection's colour, in every mode.
-    let selected_ink = super::edit::colour(1.0, 0.75, 0.2, 1.0);
+    let selected_ink = {
+        let c = ink(crate::theme::selection());
+        [c[0], c[1], c[2], 1.0]
+    };
     let selected = input.hierarchy.selected_paths();
     let bg_lin = {
         let c = linear(bg);

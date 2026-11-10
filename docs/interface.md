@@ -178,8 +178,10 @@ name. **Pick** lists the names coming in; under the field, how many match.
 - **🎥** at the top lists the scene's cameras to look through; navigating
   leaves the camera where it is.
 - **Click** a primitive to select it (Ctrl+click adds); F frames the selection,
-  A everything. A selected prim is outlined by its box and its wireframe is
-  drawn over it, in the selection's colour, whatever the shading.
+  A everything (F frames the prims selected, and those below them). A
+  selected prim is outlined by its box (hidden behind what is in front) and
+  its wireframe is drawn over it, in Imago's selection blue, whatever the
+  shading.
 - A selected Transform, Camera or Edit Primitive has handles: W move, E rotate,
   R scale, Q select. A drag is one undo step.
 - Past 20 million triangles a frame, the heaviest prims are drawn as boxes,
@@ -216,8 +218,8 @@ triangles; other prims do not hide them yet), and those on faces turned away
 are left out. Within limits, on both: a million lines, 20 million coloured
 corners, and labels on screen only, nearest the camera first, at most 5,000
 (made from 200,000 at most, 10,000 tested a frame). Past a limit the Viewer
-says what it left out. The menu starts off and empty whenever Imago starts: it
-is kept neither with the graph nor between sessions.
+says what it left out. The attributes listed are saved with the graph file;
+**Show attributes** is off whenever Imago starts or a graph is opened.
 
 ### Manipulators
 

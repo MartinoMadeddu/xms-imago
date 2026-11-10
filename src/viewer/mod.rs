@@ -376,7 +376,9 @@ impl Viewer {
             }
         }
         if !input.hierarchy.selected_paths().is_empty() {
-            let c = edit::colour(1.0, 0.75, 0.2, 1.0);
+            // Imago's selection blue; the boxes hidden by what is in front.
+            let s = crate::theme::selection();
+            let c = edit::colour(s.r() as f32 / 255.0, s.g() as f32 / 255.0, s.b() as f32 / 255.0, 1.0);
             for (lo, hi) in pick::selected_bounds(&prims, input.hierarchy.selected_paths()) {
                 let p = |x: f32, y: f32, z: f32| glam::Vec3::new(x, y, z);
                 let corners = [
@@ -403,7 +405,7 @@ impl Viewer {
                     (2, 6),
                     (3, 7),
                 ] {
-                    edit::line(&mut overlay.top, corners[a], corners[b], c);
+                    edit::line(&mut overlay.depth, corners[a], corners[b], c);
                 }
             }
             // Lights and cameras: their own lines, in the selection's colour.
@@ -658,6 +660,20 @@ impl Viewer {
             }
             if target.is_none() {
                 target = camera::bounds_of(stage.mesh.verts.iter().copied());
+            }
+        }
+        // The prims selected (and those below them), by their boxes.
+        let selected = input.hierarchy.selected_paths();
+        if target.is_none() && selection && !selected.is_empty() {
+            if let Some(crate::types::EvalResult::Named(prims)) = input.graph.evaluate_for_viewport_packed(&eval) {
+                let mut points: Vec<Vec3> = vec![];
+                let picked = prims
+                    .iter()
+                    .filter(|p| attributes::in_scope(attributes::Scope::Selected, &p.path, selected));
+                for (lo, hi) in picked.filter_map(crate::viewport::bounds::world_bounds) {
+                    points.extend([lo, hi]);
+                }
+                target = camera::bounds_of(points.into_iter());
             }
         }
         if target.is_none() {

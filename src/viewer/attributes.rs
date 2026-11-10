@@ -121,8 +121,8 @@ impl Settings {
 static SETTINGS: Mutex<Option<Settings>> = Mutex::new(None);
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
-/// What the menu says: off, with nothing listed, whenever Imago starts; kept
-/// neither with the graph nor between sessions.
+/// What the menu says: off whenever Imago starts or a graph is opened. The
+/// attributes listed are saved with the graph file (`graph_io::save`).
 pub fn settings() -> Settings {
     SETTINGS
         .lock()
@@ -138,6 +138,16 @@ pub fn set(new: Settings) {
     }
     *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = Some(new);
     REVISION.fetch_add(1, Ordering::Relaxed);
+}
+
+/// The attributes a graph file lists, in place of those listed: shown once
+/// Show attributes is ticked.
+pub fn set_list(listed: Vec<Shown>) {
+    set(Settings {
+        on: false,
+        list: listed,
+        ..settings()
+    });
 }
 
 /// Changes whenever the settings do.
