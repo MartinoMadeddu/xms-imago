@@ -8,7 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-- **The Viewer starts Shaded**, its shading not remembered between sessions. **Display Attribute**'s list is saved with the graph file, Show attributes off when it opens. **A selected prim's wireframe** is drawn over it in Imago's selection blue, whatever the shading, its box hidden behind what is in front; **F frames the prims selected**.
+- **The Viewer starts Shaded**, its shading not remembered between sessions. **Display Attribute**'s list is saved with the graph file, Show attributes off when it opens. **A selected prim's wireframe** is drawn over it in a bright blue, whatever the shading, its box hidden behind what is in front; **F frames the prims selected**.
 - **Display Attribute** (the Viewer's Attributes menu): attributes drawn over the prims, each as its type is: floats as colours through a ramp (automatic range, or Min and Max typed), colours and UVs as themselves, vectors and normals as lines, integers, text and lists as labels; intrinsics (point, face and corner numbers, normals, areas) from a list; several at once; on the Selected prims or All, within limits the Viewer says it reached.
 ## [0.2.12] - 2026-11-10
 

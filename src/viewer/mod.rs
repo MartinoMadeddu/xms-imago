@@ -376,9 +376,10 @@ impl Viewer {
             }
         }
         if !input.hierarchy.selected_paths().is_empty() {
-            // Imago's selection blue; the boxes hidden by what is in front.
-            let s = crate::theme::selection();
-            let c = edit::colour(s.r() as f32 / 255.0, s.g() as f32 / 255.0, s.b() as f32 / 255.0, 1.0);
+            // The Viewer's selection colour; the boxes hidden by what is in
+            // front.
+            let [r, g, b] = edit::SELECTION;
+            let c = edit::colour(r, g, b, 1.0);
             for (lo, hi) in pick::selected_bounds(&prims, input.hierarchy.selected_paths()) {
                 let p = |x: f32, y: f32, z: f32| glam::Vec3::new(x, y, z);
                 let corners = [

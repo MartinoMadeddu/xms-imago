@@ -40,6 +40,10 @@ pub(super) fn line(out: &mut Vec<f32>, a: Vec3, b: Vec3, c: [f32; 4]) {
 }
 
 /// An sRGB colour with alpha, as the overlay's linear colour.
+/// What is selected in the Viewer (its box, its wireframe): the bright yellow
+/// it was drawn in, as blue (sRGB).
+pub(super) const SELECTION: [f32; 3] = [0.2, 0.75, 1.0];
+
 pub(super) fn colour(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
     let c = linear_f([r, g, b]);
     [c[0], c[1], c[2], a]
