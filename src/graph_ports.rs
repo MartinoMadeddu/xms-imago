@@ -60,7 +60,9 @@ pub fn draw_marquee(painter: &egui::Painter, r: egui::Rect, light: bool) {
         crate::theme::marquee_light()
     } else {
         (
-            egui::Color32::from_rgba_premultiplied(100, 140, 200, 40),
+            // A see-through tint: unmultiplied, so its alpha scales the
+            // colour down rather than adding a bright blue to the canvas.
+            egui::Color32::from_rgba_unmultiplied(100, 140, 200, 40),
             crate::theme::c(120, 160, 220),
         )
     };

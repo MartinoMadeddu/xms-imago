@@ -39,11 +39,27 @@ pub(super) fn line(out: &mut Vec<f32>, a: Vec3, b: Vec3, c: [f32; 4]) {
     out.extend_from_slice(&c);
 }
 
-/// An sRGB colour with alpha, as the overlay's linear colour.
 /// What is selected in the Viewer (its box, its wireframe): the bright yellow
 /// it was drawn in, as blue (sRGB).
 pub(super) const SELECTION: [f32; 3] = [0.2, 0.75, 1.0];
 
+/// A box being dragged in the Viewer to select (prims, or components in Edit
+/// Poly), over the picture within `clip`: the selection's blue, see-through
+/// inside.
+pub(super) fn draw_marquee(ctx: &egui::Context, clip: egui::Rect, r: egui::Rect) {
+    let [red, green, blue] = SELECTION.map(|x| (x * 255.0) as u8);
+    let painter = ctx
+        .layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("viewer_marquee"),
+        ))
+        .with_clip_rect(clip);
+    painter.rect_filled(r, 0.0, egui::Color32::from_rgba_unmultiplied(red, green, blue, 30));
+    let edge = egui::Color32::from_rgb(red, green, blue);
+    painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, edge), egui::StrokeKind::Middle);
+}
+
+/// An sRGB colour with alpha, as the overlay's linear colour.
 pub(super) fn colour(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
     let c = linear_f([r, g, b]);
     [c[0], c[1], c[2], a]
@@ -263,21 +279,7 @@ pub fn run(
             if down {
                 if boxed {
                     let r = egui::Rect::from_two_pos(egui::pos2(start.x, start.y), egui::pos2(now.x, now.y));
-                    let painter = ctx.layer_painter(egui::LayerId::new(
-                        egui::Order::Foreground,
-                        egui::Id::new("poly_marquee"),
-                    ));
-                    // Light: the selection blue; the dark schemes keep their pale blue.
-                    let (fill, edge) = if crate::theme::is_dark() {
-                        (
-                            egui::Color32::from_rgba_unmultiplied(120, 170, 255, 30),
-                            egui::Color32::from_rgb(150, 190, 255),
-                        )
-                    } else {
-                        crate::theme::marquee_light()
-                    };
-                    painter.rect_filled(r, 0.0, fill);
-                    painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, edge), egui::StrokeKind::Middle);
+                    draw_marquee(ctx, rect, r);
                 }
             } else {
                 // Released: apply.

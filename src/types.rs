@@ -3187,6 +3187,23 @@ impl SceneHierarchy {
         self.anchor = Some(path.to_string());
     }
 
+    /// A box dragged in the Viewer over `paths`: they are the selection; with
+    /// `add`, added to it; with `remove`, taken out of it.
+    pub fn select_boxed(&mut self, paths: Vec<String>, add: bool, remove: bool) {
+        if remove {
+            self.selected_paths.retain(|p| !paths.contains(p));
+        } else if add {
+            for p in paths {
+                if !self.is_selected(Some(&p)) {
+                    self.selected_paths.push(p);
+                }
+            }
+        } else {
+            self.selected_paths = paths;
+        }
+        self.anchor = self.selected_paths.last().cloned();
+    }
+
     /// Select nothing: the Primitive Inspector shows the whole scene.
     pub fn clear_selection(&mut self) {
         self.selected_paths.clear();
@@ -3800,5 +3817,19 @@ mod location_tests {
         assert_eq!(h.selected_paths(), &["/a".to_string()], "a plain click: that one only");
         h.click("/a", false, false, &listed);
         assert!(h.selected_paths().is_empty(), "clicked again: nothing");
+    }
+
+    #[test]
+    fn a_box_selects_adds_or_takes_away() {
+        let mut h = SceneHierarchy::default();
+        let paths = |ps: &[&str]| ps.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        h.select_boxed(paths(&["/a", "/b"]), false, false);
+        assert_eq!(h.selected_paths(), paths(&["/a", "/b"]));
+        h.select_boxed(paths(&["/b", "/c"]), true, false);
+        assert_eq!(h.selected_paths(), paths(&["/a", "/b", "/c"]), "Ctrl: added, once");
+        h.select_boxed(paths(&["/a", "/c"]), false, true);
+        assert_eq!(h.selected_paths(), paths(&["/b"]), "Shift: taken away");
+        h.select_boxed(vec![], false, false);
+        assert!(h.selected_paths().is_empty(), "a box over nothing: nothing");
     }
 }

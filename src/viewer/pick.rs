@@ -8,6 +8,9 @@
 //! their bounds first, then the triangles of those the ray enters, nearest hit
 //! wins. A primitive under a closed row of the Scene Explorer is still picked
 //! by its own geometry.
+//!
+//! A box dragged over the picture selects every primitive it touches, behind
+//! others too: a triangle of a mesh, or a line of a light or a camera, in it.
 
 use glam::{Mat4, Vec2, Vec3};
 
@@ -140,16 +143,136 @@ pub fn prim_at_drawn(
             }
         }
     }
-    best.map(|(_, p, copy)| {
-        match p
-            .instanced_by
-            .as_ref()
-            .and_then(|by| crate::core::instancing::point_of_copy(by, copy).map(|i| (by, i)))
-        {
-            Some((by, i)) => crate::core::instancing::instance_name(&by.instancer, i),
-            None => p.path.clone(),
+    best.map(|(_, p, copy)| copy_path(p, copy))
+}
+
+/// What selecting copy `copy` of `p` selects: a point instancer's instance
+/// (`/forest/trees[12]`) for a copy of its prototype, else the prim.
+fn copy_path(p: &Prim, copy: usize) -> String {
+    match p
+        .instanced_by
+        .as_ref()
+        .and_then(|by| crate::core::instancing::point_of_copy(by, copy).map(|i| (by, i)))
+    {
+        Some((by, i)) => crate::core::instancing::instance_name(&by.instancer, i),
+        None => p.path.clone(),
+    }
+}
+
+/// Whether the convex shape `points` (a triangle, a segment) and the box `lo`
+/// to `hi` overlap, in 2D: no side of either separates them.
+fn overlaps(points: &[Vec2], lo: Vec2, hi: Vec2) -> bool {
+    let corners = [lo, Vec2::new(hi.x, lo.y), hi, Vec2::new(lo.x, hi.y)];
+    let apart = |axis: Vec2| {
+        let span = |ps: &[Vec2]| {
+            ps.iter()
+                .map(|p| p.dot(axis))
+                .fold((f32::MAX, f32::MIN), |(a, b), x| (a.min(x), b.max(x)))
+        };
+        let ((a0, a1), (b0, b1)) = (span(points), span(&corners[..]));
+        a1 < b0 || b1 < a0
+    };
+    let sides = (0..points.len()).map(|k| (points[(k + 1) % points.len()] - points[k]).perp());
+    !(apart(Vec2::X) || apart(Vec2::Y) || sides.into_iter().any(|n| n != Vec2::ZERO && apart(n)))
+}
+
+/// The paths of the primitives the box from `a` to `b` (pixels) touches, as
+/// drawn (`standins` by their boxes, copies of a point instancer's prototype
+/// as its instances), behind others too. A triangle partly behind the camera
+/// does not count.
+pub fn prims_in_rect(
+    view: &PickView,
+    a: Vec2,
+    b: Vec2,
+    prims: &[Prim],
+    standins: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let (lo, hi) = (a.min(b), a.max(b));
+    let mut out: Vec<String> = vec![];
+    let mut take = |path: String| {
+        if !out.contains(&path) {
+            out.push(path);
         }
-    })
+    };
+    for p in prims.iter().filter(|p| p.light.is_some() || p.camera.is_some()) {
+        let touched = glyph_lines(p)
+            .iter()
+            .any(|[a, b]| match (view.project(*a), view.project(*b)) {
+                (Some(sa), Some(sb)) => overlaps(&[sa, sb], lo, hi),
+                _ => false,
+            });
+        if touched {
+            take(p.path.clone());
+        }
+    }
+    for p in prims {
+        if p.mesh.indices.is_empty() {
+            continue;
+        }
+        let Some(local) = bounds::local_bounds(&p.mesh) else {
+            continue;
+        };
+        let matrices: &[Mat4] = if p.place.is_placed() {
+            p.place.matrices()
+        } else {
+            &[Mat4::IDENTITY]
+        };
+        let boxed = standins.contains(&p.path);
+        for (k, m) in matrices.iter().enumerate() {
+            let (b0, b1) = bounds::moved_bounds(local, m);
+            let corner = |i: usize| {
+                Vec3::new(
+                    if i & 1 == 0 { b0.x } else { b1.x },
+                    if i & 2 == 0 { b0.y } else { b1.y },
+                    if i & 4 == 0 { b0.z } else { b1.z },
+                )
+            };
+            let screen: Vec<Option<Vec2>> = (0..8).map(|i| view.project(corner(i))).collect();
+            // Cheap first: a copy wholly in front whose box on screen misses.
+            if screen.iter().all(Option::is_some) {
+                let (s0, s1) = screen
+                    .iter()
+                    .flatten()
+                    .fold((Vec2::MAX, Vec2::MIN), |(a, b), s| (a.min(*s), b.max(*s)));
+                if s1.cmplt(lo).any() || s0.cmpgt(hi).any() {
+                    continue;
+                }
+            }
+            let touched = if boxed {
+                // The box's faces, as the corners' quads.
+                [
+                    [0, 1, 3, 2],
+                    [4, 5, 7, 6],
+                    [0, 1, 5, 4],
+                    [2, 3, 7, 6],
+                    [0, 2, 6, 4],
+                    [1, 3, 7, 5],
+                ]
+                .iter()
+                .any(|face| {
+                    let q: Option<Vec<Vec2>> = face.iter().map(|i| screen[*i]).collect();
+                    q.is_some_and(|q| overlaps(&q, lo, hi))
+                })
+            } else {
+                let at: Vec<Option<Vec2>> = p
+                    .mesh
+                    .vertices
+                    .iter()
+                    .map(|v| view.project(m.transform_point3(Vec3::from_array(*v))))
+                    .collect();
+                p.mesh.indices.chunks_exact(3).any(|t| {
+                    match (at[t[0] as usize], at[t[1] as usize], at[t[2] as usize]) {
+                        (Some(x), Some(y), Some(z)) => overlaps(&[x, y, z], lo, hi),
+                        _ => false,
+                    }
+                })
+            };
+            if touched {
+                take(copy_path(p, k));
+            }
+        }
+    }
+    out
 }
 
 /// The lines of the selected lights and cameras, drawn in the selection's
@@ -274,6 +397,62 @@ mod tests {
         let b = selected_bounds(&three, &["/right".into(), "/front".into()]);
         assert_eq!(b.len(), 2);
         assert!((b[0].1.y - 3.5).abs() < 1e-5, "{:?}", b[0]);
+    }
+
+    /// A box touching a cube's corner selects it, one between the cubes
+    /// nothing, one around both both; a light by its lines.
+    #[test]
+    fn a_box_selects_what_it_touches() {
+        let cube = std::sync::Arc::new(crate::node_graph::nodes::create_cube(1.0));
+        let at = |x: f32| Prim {
+            mesh: cube.clone(),
+            place: Placement::One(Mat4::from_translation(Vec3::new(x, 0.0, 0.0))),
+            ..Prim::new(format!("/c{x}"), MeshData::default())
+        };
+        let light = crate::core::light::light_prim(
+            "/lights/rect",
+            crate::core::light::Light::new(crate::core::light::LightType::Rect),
+            Placement::One(Mat4::from_translation(Vec3::new(0.0, 3.0, 0.0))),
+        );
+        let shown = [at(-2.0), at(2.0), light];
+        let v = view();
+        let s = |p: Vec3| v.project(p).unwrap();
+        let none = Default::default();
+        let boxed = |a: Vec3, b: Vec3| prims_in_rect(&v, s(a), s(b), &shown, &none);
+        // Over the left cube's right edge only.
+        assert_eq!(
+            boxed(Vec3::new(-1.6, -0.1, 0.5), Vec3::new(-1.0, 0.1, 0.5)),
+            vec!["/c-2"]
+        );
+        assert!(boxed(Vec3::new(-0.5, -0.1, 0.0), Vec3::new(0.5, 0.1, 0.0)).is_empty());
+        assert_eq!(
+            boxed(Vec3::new(-3.0, -1.0, 0.0), Vec3::new(3.0, 1.0, 0.0)),
+            vec!["/c-2", "/c2"]
+        );
+        // Inside the light's rectangle, between its lines: not it; across its
+        // edge: it.
+        assert!(boxed(Vec3::new(-0.2, 3.35, 0.0), Vec3::new(0.2, 3.45, 0.0)).is_empty());
+        assert_eq!(
+            boxed(Vec3::new(0.4, 2.9, 0.0), Vec3::new(0.6, 3.1, 0.0)),
+            vec!["/lights/rect"]
+        );
+        // The box's corners either way round.
+        assert_eq!(boxed(Vec3::new(3.0, 1.0, 0.0), Vec3::new(1.0, -1.0, 0.0)), vec!["/c2"]);
+    }
+
+    #[test]
+    fn shapes_and_boxes_overlap_as_they_should() {
+        let (lo, hi) = (Vec2::ZERO, Vec2::splat(10.0));
+        let tri = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| [a, b, c].map(|(x, y)| Vec2::new(x, y));
+        assert!(overlaps(&tri((2.0, 2.0), (3.0, 2.0), (2.0, 3.0)), lo, hi));
+        // Around the box: overlaps though no corner is in it.
+        assert!(overlaps(&tri((-50.0, -50.0), (50.0, -50.0), (0.0, 50.0)), lo, hi));
+        // Its long side passing a corner of the box without touching it, the
+        // boxes around the two overlapping.
+        assert!(!overlaps(&tri((0.0, 21.0), (21.0, 0.0), (30.0, 30.0)), lo, hi));
+        // A segment across the box, and one beside it.
+        assert!(overlaps(&[Vec2::new(-5.0, 5.0), Vec2::new(15.0, 5.0)], lo, hi));
+        assert!(!overlaps(&[Vec2::new(-5.0, 11.0), Vec2::new(15.0, 11.0)], lo, hi));
     }
 
     /// A light is picked by its lines: the pointer on its rectangle's edge, not

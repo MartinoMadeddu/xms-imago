@@ -177,7 +177,9 @@ name. **Pick** lists the names coming in; under the field, how many match.
   Textured. Shaded whenever Imago starts: the choice is not kept.
 - **🎥** at the top lists the scene's cameras to look through; navigating
   leaves the camera where it is.
-- **Click** a primitive to select it (Ctrl+click adds); F frames the selection,
+- **Click** a primitive to select it (Ctrl+click adds); **drag a box** to
+  select every primitive it touches, behind others too (Ctrl adds, Shift
+  takes away); F frames the selection,
   A everything (F frames the prims selected, and those below them). A
   selected prim is outlined by its box (hidden behind what is in front) and
   its wireframe is drawn over it, in the Viewer's selection blue, whatever the

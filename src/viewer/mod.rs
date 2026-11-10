@@ -316,9 +316,10 @@ impl Viewer {
     }
 
     /// A click on a primitive selects it in the Scene Explorer (Ctrl adds or
-    /// takes away, a click on nothing clears), and the selected primitives are
+    /// takes away, a click on nothing clears); a box dragged selects what it
+    /// touches (Ctrl adds, Shift takes away). The selected primitives are
     /// outlined by their bounds. Not while an Edit Poly node is selected, whose
-    /// clicks pick components, nor on a handle.
+    /// clicks and boxes pick components, nor on a handle.
     fn pick_prims(
         &mut self,
         ctx: &egui::Context,
@@ -333,12 +334,14 @@ impl Viewer {
             .selected_node
             .and_then(|id| input.graph.nodes.iter().find(|n| n.id == id))
             .is_some_and(|n| matches!(n.node_type, crate::types::NodeType::EditPoly { .. }));
-        let (pressed, released, pos, ctrl) = ctx.input(|i| {
+        let (pressed, released, down, pos, ctrl, shift) = ctx.input(|i| {
             (
                 i.pointer.button_pressed(egui::PointerButton::Primary),
                 i.pointer.button_released(egui::PointerButton::Primary),
+                i.pointer.button_down(egui::PointerButton::Primary),
                 i.pointer.latest_pos(),
                 i.modifiers.ctrl || i.modifiers.mac_cmd,
+                i.modifiers.shift,
             )
         });
         if pressed {
@@ -359,10 +362,22 @@ impl Viewer {
             Some(crate::types::EvalResult::Named(p)) => p,
             _ => vec![],
         };
+        let origin = Vec2::new(rect.min.x, rect.min.y);
+        let boxed = |start: egui::Pos2, end: egui::Pos2| start.distance(end) > 4.0;
+        if let (Some(start), Some(now), true) = (self.press, pos, down) {
+            if boxed(start, now) {
+                edit::draw_marquee(ctx, rect, egui::Rect::from_two_pos(start, now));
+                ctx.request_repaint();
+            }
+        }
         if released {
             if let (Some(start), Some(end)) = (self.press.take(), pos) {
-                if start.distance(end) <= 4.0 && free {
-                    let origin = Vec2::new(rect.min.x, rect.min.y);
+                if boxed(start, end) {
+                    let at = |p: egui::Pos2| Vec2::new(p.x, p.y) - origin;
+                    let paths = pick::prims_in_rect(view, at(start), at(end), &prims, &self.scene.standins);
+                    input.hierarchy.select_boxed(paths, ctrl, shift);
+                    ctx.request_repaint();
+                } else if free {
                     match pick::prim_at_drawn(view, Vec2::new(end.x, end.y) - origin, &prims, &self.scene.standins) {
                         Some(path) => input.hierarchy.click(&path, ctrl, false, &[]),
                         None => {

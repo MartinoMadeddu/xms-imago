@@ -93,14 +93,9 @@ mod xsi {
     pub fn SOCK_OUT_DRAG() -> Color32 {
         crate::theme::c(230, 195, 100)
     }
-    pub fn SEL_RECT() -> Color32 {
-        Color32::from_rgba_premultiplied(100, 140, 200, 40)
-    }
-    pub fn SEL_RECT_BORDER() -> Color32 {
-        crate::theme::c(120, 160, 220)
-    }
-    /// The view flag's eye: one saturated blue in every theme, dark enough for
-    /// Light's titles and bright enough for Dark's.
+    /// The view flag's eye, and the ring around selected nodes: one saturated
+    /// blue in every theme, dark enough for Light's titles and bright enough
+    /// for Dark's.
     pub fn VIEW_FLAG() -> Color32 {
         Color32::from_rgb(0, 100, 255)
     }
@@ -590,15 +585,7 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
 
             // Draw the marquee rectangle in screen space
             let sr = egui::Rect::from_two_pos(to_screen(start), to_screen(cur));
-            // Light: the selection blue (the dark schemes' tint, added to a
-            // pale canvas, came out white).
-            let (fill, edge) = if crate::theme::is_dark() {
-                (xsi::SEL_RECT(), xsi::SEL_RECT_BORDER())
-            } else {
-                crate::theme::marquee_light()
-            };
-            painter.rect_filled(sr, 2.0, fill);
-            painter.rect_stroke(sr, 2.0, egui::Stroke::new(1.0, edge), egui::StrokeKind::Middle);
+            crate::graph_ports::draw_marquee(&painter, sr, false);
         }
     }
 
@@ -735,7 +722,7 @@ fn draw_node(
         let band = ring_width(zoom, true);
         let r = rounding * zoom;
         if is_sel {
-            painter.rect_filled(rect.expand(band + w), r + band + w, crate::theme::selection());
+            painter.rect_filled(rect.expand(band + w), r + band + w, xsi::VIEW_FLAG());
         } else {
             // A hair of dark outside the band, so it reads on the canvas.
             painter.rect_filled(
@@ -751,7 +738,7 @@ fn draw_node(
             ring,
             rounding * zoom + w,
             if is_sel {
-                crate::theme::selection()
+                xsi::VIEW_FLAG()
             } else {
                 egui::Color32::from_rgb(105, 105, 105)
             },
@@ -1927,7 +1914,17 @@ pub fn output_info(r: &Option<crate::types::EvalResult>) -> Vec<String> {
             out
         }
         Some(EvalResult::Material(m)) => vec![format!("Material {}", m.name)],
-        Some(EvalResult::Image(img, space)) => vec![format!("Image {} × {}, {} channels, {}", img.width, img.height, img.channels.len(), if space.is_empty() { "rendering space" } else { space.as_str() })],
+        Some(EvalResult::Image(img, space)) => vec![format!(
+            "Image {} × {}, {} channels, {}",
+            img.width,
+            img.height,
+            img.channels.len(),
+            if space.is_empty() {
+                "rendering space"
+            } else {
+                space.as_str()
+            }
+        )],
     }
 }
 
