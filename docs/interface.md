@@ -219,7 +219,10 @@ and Display. Stop keeps the frames so far.
 - **Renderers:** each renderer as found on this machine, the **Arnold
   Folder** and **Houdini Folder** (`$ARNOLD_PATH`, `$HFS` inside Imago), where
   each definition comes from, Make editable copy, Revert to built-in, Reload
-  (see [Rendering](render.md#renderer-definitions)).
+  (see [Rendering](render.md#renderer-definitions)); and **Load Shader
+  Definitions from SDK**, saved with the graph (`XMS_RENDERER_SHADERS=1` for
+  every graph): the renderers' own shaders in MaterialX graphs (see
+  [MaterialX](materialx.md#renderers-shaders)).
 - **Interface:** the size of everything but the Viewer's picture: Auto (from
   the screen's height) or 60% to 160%, also Ctrl+= and Ctrl+-, Ctrl+0 for Auto.
 

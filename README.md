@@ -37,6 +37,8 @@ One program, a few crates of its own, and open libraries under them.
 - **Rendering:** UsdRender prims from the graph; Arnold renders in Imago itself
   (IPR, every AOV bucket by bucket into the Image Viewer, or live in the
   Viewer), Karma and others through their command lines.
+- **Shading:** MaterialX graphs, surfaces and volumes, with a renderer's own
+  shaders as nodes (Arnold's, from its SDK); OpenVDB volumes as USD Volumes.
 
 Its crates:
 
@@ -46,7 +48,7 @@ Its crates:
 - `xms-geo`: the geometry, a topology and typed attribute columns, shared
   copy-on-write.
 - `xms-ice`: the ICE engine.
-- `xms-matx`: the MaterialX node libraries.
+- `xms-matx`: the MaterialX node libraries, and renderers' shaders as nodes.
 - `xms-image`: renders and images as layers of float channels, and the
   snapshots both viewers share.
 - `xms-render`: rendering in Imago: the renderer interface, live edits by prim
@@ -64,6 +66,9 @@ Built on:
   (Imago's fork).
 - [ocio](https://crates.io/crates/ocio), pure-Rust OpenColorIO.
 - [rayon](https://github.com/rayon-rs/rayon), to use every core.
+- [OpenVDB-rs](https://github.com/OxidePicturesAlliance/vdb), a Rust port of
+  OpenVDB, to read VDB files.
+- [kiddo](https://github.com/sdd/kiddo), k-d trees, for ICE's Near Points.
 - [ufbx](https://github.com/ufbx/ufbx) for FBX, and
   [image](https://github.com/image-rs/image) for PNG, JPEG, OpenEXR and more.
 - [Arnold](https://www.autodesk.com/products/arnold), loaded from your SDK

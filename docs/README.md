@@ -9,11 +9,12 @@
 - [Edit Poly](edit-poly.md): polygon modelling in one node
 - [UV](uv.md): unwrapping, island editing, the UV Editor pane
 - [USD](usd.md): composed stages, primitives and instancing, the Scene Explorer
-  and the Viewer, Write USD
+  and the Viewer, volumes (Load VDB), Write USD
 - [ICE graphs](ice.md): Get Data, Set Data and maths run by the Execution Ports
   over every point, face or corner, compiled and run in parallel
 - [MaterialX](materialx.md): the MaterialX node library and the MaterialX
-  operator
+  operator, surfaces and volumes, renderers' own shaders as nodes (Arnold's,
+  from its SDK)
 - [Compounds](compounds.md): a piece of graph as one reusable operator, made
   from a selection with Make Compound, gone inside, saved as an `.icd` file
   definition in a library; promotion, references and ICE compounds being built

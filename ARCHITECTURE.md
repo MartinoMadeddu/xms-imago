@@ -74,8 +74,9 @@ itself, each with what it holds](docs/imago_geo_parts_v3.png)
 
 ## 5. Primitives
 
-A `Prim` is one mesh, curves or points prim (or a light, camera, material or
-render prim with no geometry), passed between operators without copying:
+A `Prim` is one mesh, curves or points prim (or a light, camera, material,
+render prim or volume with no geometry), passed between operators without
+copying:
 
 - `path`, `geo` in its **own space**, and `place`: `InPlace`, one matrix, or
   many (instancer copies).
@@ -95,7 +96,16 @@ Principles:
   prims of any type, without geometry too, through the stage's `opinions`.
 - **Shapes are primitives** at their Primitive Location, written as `def`.
 - **Materials are values** (`EvalResult::Material`), bound by Material Binding
-  as prims at their library location.
+  as prims at their library location. A MaterialX graph's material nodes
+  (`surfacematerial`, `volumematerial`) are one USD Material; a renderer's
+  shaders are nodes too (`ai_standard_volume`), written in its render context
+  (`arnold:standard_volume`, `outputs:arnold:volume`): those its definition
+  ships, and its SDK's own MaterialX definitions when they are turned on
+  (`xms_matx::Library::with_renderer`). A node whose definition is not loaded
+  is kept as it was read (`Graph::missing`).
+- **Volumes are files:** Load VDB reads an OpenVDB file's grids (names, types,
+  bounds; OpenVDB-rs, no voxels) into a prim written as a USD `Volume`, a
+  field per grid; renderers read the file itself.
 - **Load modes:** sublayered stages keep their paths; referenced or payloaded
   ones are rebased to their Primitive Location.
 
@@ -162,7 +172,11 @@ Principles:
 - **Renderer definitions** (`src/core/renderers.rs`): built in, then
   `$JOB/renderers`, then yours; each renderer looked for on the machine (in
   Imago, by loading it; as a command line, by `detect`), and the definition
-  checked against Arnold's own options.
+  checked against Arnold's own options. A definition's `shaders` block makes
+  the renderer's shaders MaterialX nodes (its prefix, its render context, the
+  file it ships, its SDK's definitions file).
+- **Shutdown:** Arnold is ended (`AiEnd`) before the program exits, the live
+  render's thread joined first (`live::end`), never left to the exit.
 - **Headless** (`src/headless.rs`): `xms --headless scene.xms --render`
   cooks frame by frame and renders with Arnold loaded once, each frame after
   the first sent as edits with `Change::Frame`; `--write`, `--run` and `--tx`
@@ -209,14 +223,14 @@ Principles:
 |---|---|
 | `src/app.rs`, `src/eframe_app.rs` | the program's state, and the window that owns it |
 | `src/node_graph/` | the scene graph: operators, cooking, compounds, references, variables down the wires |
-| `src/core/` | operators' work: properties, Set Attribute, Edit Primitive, Reparent, locations, lights, rendering, renderer definitions (`renderers.rs`), command lines, variables |
+| `src/core/` | operators' work: properties, Set Attribute, Edit Primitive, Reparent, locations, lights, volumes (`volume.rs`), rendering, renderer definitions (`renderers.rs`), command lines, variables |
 | `src/types.rs`, `src/edits.rs` | `Prim`, `Placement`, `EvalResult`; edits against the source |
 | `src/usd_stage.rs`, `src/usd_scene.rs`, `src/usd_write.rs` | USD in (stage to primitives, loading and caching) and out |
 | `src/live.rs` | Rendering in Imago: the session, the light layer, what changed between two cooks, by prim path |
 | `src/headless.rs` | The xms command line without the window: `--render`, `--write`, `--run`, `--tx` |
 | `src/viewer/` | the Viewer on wgpu, Edit Poly's picking and handles, Export Movie |
 | `src/scene_explorer/`, `src/prim_inspector/` | the scene as a tree; the selected prims' values |
-| `src/ice/`, `src/materialx/` | the ICE and MaterialX editors |
+| `src/ice/`, `src/materialx/` | the ICE and MaterialX editors; the MaterialX library with the renderers' shaders (`materialx::lib`) |
 | `src/image_viewer.rs`, `src/colour.rs`, `src/settings.rs` | renders, colour menus, File > Settings |
 | `src/compounds.rs`, `src/inside_compound.rs` | compound definitions and going inside them |
 | `src/docs.rs` | Help > Documentation |
@@ -224,7 +238,7 @@ Principles:
 | `crates/xms-scene`, `crates/xms-usd` | the scene layer and USD into it |
 | `crates/xms-alembic` | Alembic in pure Rust |
 | `crates/xms-ice` | the ICE engine: graph, compiler, executor, spatial search (rray's BVH, a k-d tree over points: kiddo behind `KdPointTree`) |
-| `crates/xms-matx` | MaterialX node libraries and documents |
+| `crates/xms-matx` | MaterialX node libraries and documents; renderers' shaders as nodes (`Library::with_renderer`) |
 | `crates/xms-image` | images as layers of float channels, OpenEXR; the snapshots both viewers share |
 | `crates/xms-colour` | OpenColorIO config, views and transforms |
 | `crates/xms-docs` | the HTML documentation from the Markdown |
