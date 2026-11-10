@@ -18,7 +18,7 @@ use std::sync::Arc;
 use glam::DMat4;
 
 use crate::core::locations;
-use crate::types::{EvalResult, Placement, Prim, Source};
+use crate::types::{EvalResult, Placement, Prim};
 use crate::usd_scene::{Moved, StageNode, StageTree};
 
 /// What a Reparent moves.
@@ -451,7 +451,7 @@ fn depth_first(nodes: Vec<StageNode>) -> Vec<StageNode> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::MeshData;
+    use crate::types::{MeshData, Source};
 
     fn node(path: &str, local: DMat4) -> StageNode {
         StageNode {

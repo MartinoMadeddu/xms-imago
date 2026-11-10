@@ -134,6 +134,11 @@ pub const FILES: &[(&str, &str)] = &[
         "lights/lights_defs.mtlx",
         include_str!("../libraries/lights/lights_defs.mtlx"),
     ),
+    // Imago's own, not MaterialX's: Arnold's shaders as nodes.
+    (
+        "arnold/arnold_defs.mtlx",
+        include_str!("../libraries/arnold/arnold_defs.mtlx"),
+    ),
 ];
 
 /// The MaterialX version the vendored libraries are.

@@ -14,6 +14,10 @@ Copied: every `.mtlx` file of `bxdf`, `cmlib`, `lights`, `nprlib`, `pbrlib` and
 the shader code folders (`genglsl`, `genmsl`, `genosl`, `genmdl`, `genslang`)
 and `targets`.
 
+Not MaterialX's: `arnold/`, Imago's own definitions of Arnold's shaders as
+MaterialX nodes (`ai_standard_volume`), written for Imago from what Arnold
+reports of them (`kick -info`). Leave it when updating.
+
 To update: copy the same files from a newer MaterialX over these, change the
 version and commit above, add a new file to `FILES` in `src/library.rs` if there
 is one, and run `cargo test -p xms-matx`.

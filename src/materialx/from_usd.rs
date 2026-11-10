@@ -6,12 +6,12 @@ use xms_matx::Graph;
 use xms_scene as rs;
 
 /// The graph of a material read from a stage, and what of it was left out.
-/// Refused when it has no surface, or a shader that is not a MaterialX or
-/// UsdPreviewSurface one.
+/// Refused when it has no surface and no volume, or a shader that is not a
+/// MaterialX, UsdPreviewSurface or Arnold one (of Imago's `ai_` nodes).
 pub fn from_usd(m: &rs::Material) -> Result<(Graph, Vec<String>), String> {
-    let Some((surface, output)) = &m.surface else {
-        return Err("no surface shader".into());
-    };
+    if m.surface.is_none() && m.volume.is_none() {
+        return Err("no surface or volume shader".into());
+    }
     let shaders: Vec<UsdShader> = m
         .nodes
         .iter()
@@ -21,11 +21,11 @@ pub fn from_usd(m: &rs::Material) -> Result<(Graph, Vec<String>), String> {
             inputs: n.inputs.iter().map(|i| (i.name.clone(), value(&i.value))).collect(),
         })
         .collect();
-    let displacement = m.displacement.as_ref().map(|(p, o)| (p.as_str(), o.as_str()));
     read_network(
         &shaders,
-        Some((surface.as_str(), output.as_str())),
-        displacement,
+        terminal(&m.surface),
+        terminal(&m.displacement),
+        terminal(&m.volume),
         super::lib(),
     )
 }
@@ -44,4 +44,9 @@ fn value(v: &rs::ShaderValue) -> UsdValue {
             output: output.clone(),
         },
     }
+}
+
+/// A material's terminal as the reader takes it: the shader's path and output.
+fn terminal(t: &Option<(rs::Path, String)>) -> Option<(&str, &str)> {
+    t.as_ref().map(|(p, o)| (p.as_str(), o.as_str()))
 }

@@ -1,12 +1,17 @@
 //! A graph's material as USD has it: a MaterialX shading network.
 //!
-//! The `surfacematerial` node is the USD `Material`; every node it reads is a
-//! `Shader` under it, its `info:id` its MaterialX definition
-//! (`ND_standard_surface_surfaceshader`), with the inputs set on it and its
-//! outputs. The Material's `outputs:mtlx:surface` (and
-//! `outputs:mtlx:displacement`) connect to the shaders feeding it. This is the
-//! network usdMtlx makes from a `.mtlx` file, and what Hydra render delegates
-//! read MaterialX from.
+//! The material nodes, `surfacematerial` and `volumematerial`, are one USD
+//! `Material`; every node they read is a `Shader` under it, its `info:id` its
+//! MaterialX definition (`ND_standard_surface_surfaceshader`), with the inputs
+//! set on it and its outputs. The Material's `outputs:mtlx:surface`,
+//! `outputs:mtlx:displacement` and `outputs:mtlx:volume` connect to the shaders
+//! feeding them. This is the network usdMtlx makes from a `.mtlx` file, and
+//! what Hydra render delegates read MaterialX from.
+//!
+//! Arnold's shaders (`ai_standard_volume`, Imago's own definitions) are written
+//! as Arnold's USD reader reads them: `info:id = "arnold:standard_volume"`,
+//! Arnold's parameter names as inputs, connected by the Arnold render context
+//! (`outputs:arnold:volume`), which other renderers do not read.
 //!
 //! The UsdPreviewSurface family (`UsdPreviewSurface`, `UsdUVTexture`,
 //! `UsdPrimvarReader`, `UsdTransform2d`) is written as USD has it, as any USD
@@ -32,9 +37,19 @@ fn usd_family(node: &str) -> bool {
     )
 }
 
-/// The `info:id` a node is written with: its definition, or, for the
-/// UsdPreviewSurface family, USD's own name.
+/// The Arnold shader a node is (`standard_volume` for `ai_standard_volume`),
+/// when it is one of Arnold's.
+pub fn arnold_shader(node: &str) -> Option<&str> {
+    node.strip_prefix("ai_")
+}
+
+/// The `info:id` a node is written with: its definition; for the
+/// UsdPreviewSurface family, USD's own name; for Arnold's shaders, Arnold's
+/// (`arnold:standard_volume`).
 pub fn usd_id(def: &NodeDef) -> String {
+    if let Some(shader) = arnold_shader(&def.node) {
+        return format!("arnold:{shader}");
+    }
     match def.node.as_str() {
         "UsdPreviewSurface" | "UsdUVTexture" | "UsdTransform2d" => def.node.clone(),
         "UsdPrimvarReader" => {
@@ -59,6 +74,9 @@ pub fn usd_id(def: &NodeDef) -> String {
 pub fn def_of_usd_id<'l>(lib: &'l Library, id: &str) -> Option<&'l NodeDef> {
     if let Some(d) = lib.def(id) {
         return Some(d);
+    }
+    if let Some(shader) = id.strip_prefix("arnold:") {
+        return lib.default_def(&format!("ai_{shader}"));
     }
     let nd = match id {
         "UsdPreviewSurface" => "ND_UsdPreviewSurface_surfaceshader",
@@ -194,21 +212,30 @@ pub fn usd_value(t: Type, v: &Value) -> String {
 }
 
 /// The material of `graph` at the USD path `path`: the Material's own lines,
-/// and its shaders. None when the graph has no `surfacematerial` or nothing
-/// goes into it.
+/// and its shaders. None when the graph has no material node
+/// (`surfacematerial`, `volumematerial`) or nothing goes into one.
 pub fn network(graph: &Graph, lib: &Library, path: &str) -> Option<(Vec<String>, Vec<Shader>)> {
-    let material = graph.material()?;
     let mut lines = vec![];
     let mut feeding = vec![];
-    for (input, terminal) in [
-        ("surfaceshader", "surface"),
-        ("displacementshader", "displacement"),
-        ("volumeshader", "volume"),
+    for (material, input, terminal) in [
+        ("surfacematerial", "surfaceshader", "surface"),
+        ("surfacematerial", "displacementshader", "displacement"),
+        ("volumematerial", "volumeshader", "volume"),
     ] {
+        let Some(material) = graph.first(material) else {
+            continue;
+        };
         if let Some((src, output)) = graph.source(material, input) {
             let node = graph.node(src)?;
-            // A UsdPreviewSurface is a material's plain surface, as USD has it.
-            let prefix = if usd_family(&node.node) { "" } else { "mtlx:" };
+            // A UsdPreviewSurface is a material's plain surface, as USD has
+            // it; Arnold's shaders are Arnold's render context.
+            let prefix = if usd_family(&node.node) {
+                ""
+            } else if arnold_shader(&node.node).is_some() {
+                "arnold:"
+            } else {
+                "mtlx:"
+            };
             lines.push(format!(
                 "token outputs:{prefix}{terminal}.connect = <{path}/{}.outputs:{}>",
                 node.name,
@@ -304,13 +331,14 @@ pub struct UsdShader {
 /// its definition from its `info:id` (`def_of_usd_id`), its inputs and
 /// connections as they are; a `surfacematerial` reading the shaders at the
 /// material's terminals (`surface`, `displacement`: the shader's path and
-/// output). Refused when a shader the material reads has an `info:id` the
+/// output), a `volumematerial` reading its `volume`. Refused when a shader the material reads has an `info:id` the
 /// library does not know. What does not fit (an input the definition does not
 /// have, a value not of its type) is left out, and said in the notes.
 pub fn read_network(
     shaders: &[UsdShader],
     surface: Option<(&str, &str)>,
     displacement: Option<(&str, &str)>,
+    volume: Option<(&str, &str)>,
     lib: &Library,
 ) -> Result<(Graph, Vec<String>), String> {
     let mut g = Graph::new();
@@ -418,11 +446,23 @@ pub fn read_network(
             }
         }
     }
-    let material = g
-        .add(lib, "surfacematerial", [0.0, 0.0])
-        .ok_or("surfacematerial is not in the library")?;
-    for (terminal, input) in [(surface, "surfaceshader"), (displacement, "displacementshader")] {
+    let mut made: Vec<(&str, u32)> = vec![];
+    for (terminal, material, input) in [
+        (surface, "surfacematerial", "surfaceshader"),
+        (displacement, "surfacematerial", "displacementshader"),
+        (volume, "volumematerial", "volumeshader"),
+    ] {
         let Some((path, output)) = terminal else { continue };
+        let material = match made.iter().find(|(m, _)| *m == material) {
+            Some((_, id)) => *id,
+            None => {
+                let id = g
+                    .add(lib, material, [0.0, 0.0])
+                    .ok_or_else(|| format!("{material} is not in the library"))?;
+                made.push((material, id));
+                id
+            }
+        };
         match ids.get(path) {
             Some(&src) => g.bind(
                 material,
@@ -570,7 +610,7 @@ mod tests {
                 inputs: vec![("varname".into(), UsdValue::Text("st".into()))],
             },
         ];
-        let (back, notes) = read_network(&usd, Some(("/m/surface", "surface")), None, lib).unwrap();
+        let (back, notes) = read_network(&usd, Some(("/m/surface", "surface")), None, None, lib).unwrap();
         assert_eq!(notes.len(), 1, "{notes:?}");
         let s = back.surface_shader().unwrap();
         assert_eq!(back.node(s).unwrap().def, "ND_UsdPreviewSurface_surfaceshader");
@@ -596,7 +636,7 @@ mod tests {
             id: "ND_standard_surface_surfaceshader".into(),
             inputs: vec![("base_color".into(), UsdValue::Floats(vec![1.0, 0.0, 0.0]))],
         }];
-        let (g, _) = read_network(&mx, Some(("/x/sr", "out")), None, lib).unwrap();
+        let (g, _) = read_network(&mx, Some(("/x/sr", "out")), None, None, lib).unwrap();
         assert_eq!(
             g.value(lib, g.surface_shader().unwrap(), "base_color"),
             Some(&Value::Floats(vec![1.0, 0.0, 0.0]))
@@ -607,7 +647,65 @@ mod tests {
             id: "ArnoldStandard".into(),
             inputs: vec![],
         }];
-        assert!(read_network(&bad, Some(("/x/s", "out")), None, lib).is_err());
+        assert!(read_network(&bad, Some(("/x/s", "out")), None, None, lib).is_err());
+    }
+
+    /// Arnold's standard_volume into a `volumematerial`: written as Arnold's
+    /// USD reader reads it, by the Arnold render context, beside a MaterialX
+    /// surface of the same material; and read back.
+    #[test]
+    fn an_arnold_volume_is_written_as_arnold_s() {
+        let lib = Library::standard();
+        let vol = lib
+            .default_def("ai_standard_volume")
+            .expect("Imago's Arnold definitions");
+        assert_eq!((vol.group.as_str(), vol.out_type()), ("arnold", Type::VolumeShader));
+        assert_eq!(vol.inputs.len(), 29, "kick -info's 30, less its name");
+        let mut g = Graph::new();
+        let v = g.add(lib, "ai_standard_volume", [0.0, 0.0]).unwrap();
+        let m = g.add(lib, "volumematerial", [300.0, 0.0]).unwrap();
+        g.connect(lib, v, "out", m, "volumeshader").unwrap();
+        g.set_value(v, "density", Value::Floats(vec![2.5]));
+        g.set_value(v, "emission_mode", Value::String("channel".into()));
+        let (lines, shaders) = network(&g, lib, "/mtl/smoke").unwrap();
+        assert_eq!(
+            lines,
+            ["token outputs:arnold:volume.connect = </mtl/smoke/ai_standard_volume1.outputs:out>"]
+        );
+        let l = &shaders[0].lines;
+        for line in [
+            "uniform token info:id = \"arnold:standard_volume\"",
+            "float inputs:density = 2.5",
+            "uniform string inputs:emission_mode = \"channel\"",
+            "token outputs:out",
+        ] {
+            assert!(l.contains(&line.to_string()), "{line} missing in {l:?}");
+        }
+        // A surface beside it: one Material, both terminals.
+        let s = g.add(lib, "standard_surface", [0.0, 200.0]).unwrap();
+        let sm = g.add(lib, "surfacematerial", [300.0, 200.0]).unwrap();
+        g.connect(lib, s, "out", sm, "surfaceshader").unwrap();
+        let (lines, shaders) = network(&g, lib, "/mtl/smoke").unwrap();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with("token outputs:mtlx:surface.connect"));
+        assert_eq!(shaders.len(), 2);
+        // Back from USD: the Arnold shader by its definition, into a
+        // volumematerial.
+        let usd = vec![UsdShader {
+            path: "/mtl/smoke/vol".into(),
+            id: "arnold:standard_volume".into(),
+            inputs: vec![("density_channel".into(), UsdValue::Text("smoke".into()))],
+        }];
+        let (back, notes) = read_network(&usd, None, None, Some(("/mtl/smoke/vol", "out")), lib).unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(back.material().is_none(), "no surface, no surfacematerial");
+        let m = back.first("volumematerial").unwrap();
+        let (src, _) = back.source(m, "volumeshader").unwrap();
+        assert_eq!(back.node(src).unwrap().def, "ND_ai_standard_volume");
+        assert_eq!(
+            back.value(lib, src, "density_channel"),
+            Some(&Value::String("smoke".into()))
+        );
     }
 
     #[test]

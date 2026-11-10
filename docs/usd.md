@@ -646,9 +646,10 @@ renderer reads the file itself.
 - **The Viewer** draws its box, in light blue. Transform moves it. A file written without
   OpenVDB's statistics does not say its bounds: no box, no `extent`.
 - **The Primitive Inspector**'s Properties tab lists its file and each grid.
-- **Rendering:** Arnold's USD reader renders the `Volume` from the file. A
-  volume needs a volume shader to be seen (Arnold's `standard_volume`), bound
-  with Material Binding.
+- **Rendering:** Arnold's USD reader renders the `Volume` from the file. Its
+  shading is a MaterialX operator's `ai_standard_volume` into a
+  `volumematerial`, bound with Material Binding (see [Arnold's
+  shaders](materialx.md#arnolds-shaders)).
 
 The file is read with [OpenVDB-rs](https://github.com/OxidePicturesAlliance/vdb),
 a Rust port of OpenVDB, pinned to a commit.

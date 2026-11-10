@@ -458,7 +458,13 @@ impl Graph {
 
     /// The material the graph puts out: its first `surfacematerial` node.
     pub fn material(&self) -> Option<u32> {
-        self.nodes.iter().find(|n| n.node == "surfacematerial").map(|n| n.id)
+        self.first("surfacematerial")
+    }
+
+    /// Its first node of `node` (a material node: `surfacematerial`,
+    /// `volumematerial`).
+    pub fn first(&self, node: &str) -> Option<u32> {
+        self.nodes.iter().find(|n| n.node == node).map(|n| n.id)
     }
 
     /// The node feeding a material's surface: its `surfaceshader` input.

@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<materialx version="1.39">
+  <!--
+    Arnold's shaders as MaterialX nodes, for graphs rendered with Arnold.
+    Written for XMS | Imago from the parameters Arnold reports (kick -info),
+    not copied from Arnold's own files. Each node is named after its Arnold
+    shader with "ai_" before it; written to USD as "arnold:<shader>", with
+    Arnold's parameter names as its inputs. Other renderers do not read them.
+  -->
+
+  <nodedef name="ND_ai_standard_volume" node="ai_standard_volume" nodegroup="arnold"
+           doc="Arnold's standard_volume: a volume's density, scattering, transparency and emission, read from its grids by name. Arnold only.">
+    <input name="density" type="float" value="1" uimin="0" uisoftmax="10" uiname="Density" uifolder="Volume"
+           doc="How dense the volume is, times the density grid." />
+    <input name="density_channel" type="string" value="density" uniform="true" uiname="Density Channel" uifolder="Volume"
+           doc="The grid density is read from." />
+    <input name="interpolation" type="string" value="trilinear" enum="closest,trilinear,tricubic" uniform="true" uiname="Interpolation" uifolder="Volume"
+           doc="How the grids are sampled between voxels." />
+    <input name="displacement" type="vector3" value="0, 0, 0" uiname="Displacement" uifolder="Volume"
+           doc="Moves where the volume is looked up." />
+    <input name="scatter" type="float" value="1" uimin="0" uimax="1" uiname="Scatter" uifolder="Scatter"
+           doc="How much light the volume scatters." />
+    <input name="scatter_color" type="color3" value="0.5, 0.5, 0.5" uiname="Scatter Color" uifolder="Scatter"
+           doc="The colour of the light scattered." />
+    <input name="scatter_color_channel" type="string" value="" uniform="true" uiname="Scatter Color Channel" uifolder="Scatter"
+           doc="A grid the scatter colour is read from; empty, none." />
+    <input name="scatter_diffusion" type="float" value="0" uimin="0" uimax="1" uniform="true" uiname="Scatter Diffusion" uifolder="Scatter" uiadvanced="true" />
+    <input name="scatter_diffusion_gain" type="float" value="0.5" uimin="0" uimax="1" uniform="true" uiname="Scatter Diffusion Gain" uifolder="Scatter" uiadvanced="true" />
+    <input name="scatter_diffusion_bias" type="float" value="0.15" uimin="0" uimax="1" uniform="true" uiname="Scatter Diffusion Bias" uifolder="Scatter" uiadvanced="true" />
+    <input name="scatter_anisotropy" type="float" value="0" uimin="-1" uimax="1" uiname="Anisotropy" uifolder="Anisotropy"
+           doc="Which way light scatters: forward above 0, back below." />
+    <input name="scatter_secondary_anisotropy_mix" type="float" value="0" uimin="0" uimax="1" uiname="Secondary Anisotropy Mix" uifolder="Anisotropy" uiadvanced="true" />
+    <input name="scatter_secondary_anisotropy" type="float" value="0" uimin="-1" uimax="1" uiname="Secondary Anisotropy" uifolder="Anisotropy" uiadvanced="true" />
+    <input name="scatter_diffusion_roughness" type="float" value="0" uimin="0" uimax="1" uniform="true" uiname="Diffusion Roughness" uifolder="Anisotropy" uiadvanced="true" />
+    <input name="scatter_diffusion_roughness_gain" type="float" value="0.5" uimin="0" uimax="1" uniform="true" uiname="Diffusion Roughness Gain" uifolder="Anisotropy" uiadvanced="true" />
+    <input name="scatter_diffusion_roughness_bias" type="float" value="0.15" uimin="0" uimax="1" uniform="true" uiname="Diffusion Roughness Bias" uifolder="Anisotropy" uiadvanced="true" />
+    <input name="transparent" type="color3" value="0.3679, 0.3679, 0.3679" uiname="Transparent" uifolder="Transparent"
+           doc="How much light passes through a depth of Transparent Depth." />
+    <input name="transparent_depth" type="float" value="1" uniform="true" uiname="Transparent Depth" uifolder="Transparent" />
+    <input name="transparent_channel" type="string" value="" uniform="true" uiname="Transparent Channel" uifolder="Transparent"
+           doc="A grid transparency is read from; empty, none." />
+    <input name="emission_mode" type="string" value="blackbody" enum="none,channel,density,blackbody" uniform="true" uiname="Emission Mode" uifolder="Emission"
+           doc="Where light emitted comes from: none, a grid (Emission Channel), the density, or the temperature as a black body." />
+    <input name="emission_scaling" type="string" value="none" uniform="true" uiname="Emission Scaling" uifolder="Emission" uiadvanced="true" />
+    <input name="emission" type="float" value="1" uimin="0" uisoftmax="10" uiname="Emission" uifolder="Emission"
+           doc="How much light is emitted." />
+    <input name="emission_color" type="color3" value="1, 1, 1" uiname="Emission Color" uifolder="Emission" />
+    <input name="emission_channel" type="string" value="heat" uniform="true" uiname="Emission Channel" uifolder="Emission"
+           doc="The grid emission is read from, in channel mode." />
+    <input name="temperature" type="float" value="1" uiname="Temperature" uifolder="Temperature"
+           doc="A multiplier on the temperature grid." />
+    <input name="temperature_channel" type="string" value="temperature" uniform="true" uiname="Temperature Channel" uifolder="Temperature"
+           doc="The grid temperature is read from, in black body mode." />
+    <input name="blackbody_kelvin" type="float" value="5000" uimin="0" uisoftmax="12000" uiname="Kelvin" uifolder="Temperature"
+           doc="The temperature, in kelvin, a temperature of 1 is." />
+    <input name="blackbody_intensity" type="float" value="1" uimin="0" uisoftmax="10" uiname="Blackbody Intensity" uifolder="Temperature" />
+    <input name="blackbody_contrast" type="float" value="1" uimin="0" uisoftmax="10" uiname="Blackbody Contrast" uifolder="Temperature" />
+    <output name="out" type="volumeshader" />
+  </nodedef>
+</materialx>

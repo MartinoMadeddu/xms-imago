@@ -81,7 +81,7 @@ mod pal {
 fn tint(group: &str) -> egui::Color32 {
     let (r, g, b) = match group {
         // Shaders: the purple of material sockets.
-        "pbr" | "shader" | "light" | "npr" => (176, 146, 214),
+        "pbr" | "shader" | "light" | "npr" | "arnold" => (176, 146, 214),
         // The material, where the graph ends: dark grey.
         "material" => (52, 52, 52),
         "texture2d" | "texture3d" => (102, 150, 204),
@@ -674,6 +674,7 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<String> {
         "UsdPreviewSurface",
         "gltf_pbr",
         "surfacematerial",
+        "volumematerial",
         "image",
         "tiledimage",
     ] {
@@ -699,9 +700,10 @@ fn add_menu(ui: &mut egui::Ui, opened_now: bool) -> Option<String> {
 
 /// The library's node groups, in the order a material is built.
 fn groups() -> Vec<&'static str> {
-    const ORDER: [&str; 21] = [
+    const ORDER: [&str; 22] = [
         "pbr",
         "material",
+        "arnold",
         "texture2d",
         "texture3d",
         "procedural2d",
