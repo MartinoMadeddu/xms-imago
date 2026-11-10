@@ -226,13 +226,13 @@ pub(crate) enum Ins {
         count: usize,
         flat: bool,
     },
-    /// Read `read` (a point attribute) at the point numbers in `at` (ints, or
-    /// a list per element), of surface `points` (`None`: the graph's own):
-    /// into `dst`, a list where they are.
-    LoadAtPoints {
+    /// Read `read` at the element numbers in `at` (ints, or a list per
+    /// element), of `surface` (`None`: the graph's own; numbered across its
+    /// meshes in order): into `dst`, a list where they are.
+    LoadAtIndex {
         dst: usize,
         read: usize,
-        points: Option<usize>,
+        surface: Option<usize>,
         at: usize,
     },
     /// Read number `read` (a `sampled` one) at the samples in `loc`, on surface
@@ -714,14 +714,25 @@ impl Lower<'_> {
             return error(
                 node,
                 format!(
-                    "{what}'s Polygon is an int: Closest Point on Surface's or Scatter on Surface's, or one stored"
+                    "{what}'s Index is a Polygon, an int: Closest Point on Surface's or Scatter on Surface's, or one stored"
                 ),
             );
         }
+        // An Index alone comes as a Get Data at an Index; Get Array Data has
+        // no such read yet.
+        let alone = || {
+            error(
+                node,
+                format!("{what} reads at a place: an Index (a Polygon) with its Param UV. An Index alone (element numbers) reads with Get Data"),
+            )
+        };
         let uv = match self.graph.nodes[node].inputs.get(1) {
             Some(_) => self.input(node, 1, Some(Ty::Vec2))?,
-            None => self.constant(Value::Vec2([0.0; 2])),
+            None => return alone(),
         };
+        if uv.ty == Ty::Token {
+            return alone();
+        }
         if uv.ty != Ty::Vec2 || uv.is_list() {
             return error(
                 node,
@@ -810,7 +821,7 @@ impl Lower<'_> {
             Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
             Op::ClosestPoint => self.closest(node)?,
             Op::NearPoints => self.near_points(node)?,
-            Op::GetDataAtPoints { name } => self.get_data_at_points(node, name)?,
+            Op::GetDataAtIndex { name, context } => self.get_data_at_index(node, name, *context)?,
             Op::GetArrayDataAt { name, context } => self.array_at(node, name, *context)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
@@ -1657,67 +1668,55 @@ impl Lower<'_> {
         Ok(v)
     }
 
-    /// Get Data at Points: point attribute `name` at the numbers input 1 gives
-    /// (an int, or a list per element), of the prims input 0 names or,
-    /// unwired, the graph's own (numbered as Near Points numbers them): a
-    /// value per number, a list where they are.
-    fn get_data_at_points(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
+    /// Get Data at an Index: attribute `name` at the elements numbered by
+    /// input 0 (an int, or a list per element: Near Points' Points), of the
+    /// prims input 1 names (Get Reference's paths, numbered across them in
+    /// order) or, without it, of the graph's own; in `from`'s context (None:
+    /// where the attribute is, points first). A value per number, a list where
+    /// they are.
+    fn get_data_at_index(&mut self, node: usize, name: &str, from: Option<Context>) -> Result<Val, CompileError> {
         let name = name.trim();
         if name.is_empty() {
-            return error(
-                node,
-                "Get Data at Points needs the name of the point attribute it reads",
-            );
+            return error(node, "Get Data needs the name of the attribute it reads");
         }
-        let (from, found) = match self.graph.nodes[node].inputs.first() {
-            Some(Input::Wire { .. }) => {
-                let paths = self.input(node, 0, None)?;
-                if paths.ty != Ty::Token || !paths.uniform {
-                    return error(
-                        node,
-                        "The Geometry is the paths of prims on a reference input: wire Get Reference, or leave it for the graph's own points",
-                    );
-                }
-                let Some((_, found, _)) = self.on_refs(name, &[Context::Point]) else {
-                    return error(node, format!("No point attribute '{name}' on the Geometry's prims"));
-                };
-                (Some(paths.reg), found)
-            }
-            _ => {
-                let Some(found) = find_in(self.geo, Context::Point, name) else {
-                    return error(node, format!("No point attribute '{name}' on this geometry"));
-                };
-                (None, found)
-            }
+        let contexts = match from {
+            Some(c) => vec![c],
+            None => vec![Context::Point, Context::Face, Context::Corner, Context::Object],
+        };
+        let surface = self.geometry_input(node, 1)?;
+        let found = match surface {
+            Some(_) => self.on_refs(name, &contexts).map(|(c, f, _)| (c, f)),
+            None => contexts
+                .iter()
+                .find_map(|&c| find_in(self.geo, c, name).map(|f| (c, f))),
+        };
+        let Some((context, found)) = found else {
+            return error(node, format!("No attribute '{name}' to read at an Index"));
         };
         let Some(ty) = found.ty else {
             return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
         };
-        let at = self.input(node, 1, Some(Ty::Int))?;
+        let at = self.input(node, 0, Some(Ty::Int))?;
         if at.ty != Ty::Int {
             return error(
                 node,
-                "The Points are point numbers: an int, or a list per element (Near Points' Points)",
+                "The Index is element numbers: an int, or a list per element (Near Points' Points); a Polygon with a Param UV reads at a place",
             );
         }
-        let points = from.map(|reg| {
-            self.plan.surfaces.push(reg);
-            self.plan.surfaces.len() - 1
-        });
         self.plan.reads.push(Read {
             name: name.to_string(),
-            context: Context::Point,
+            context,
             resample: Resample::Average,
             derived: found.derived,
             at_location: false,
             sampled: None,
-            from: points,
+            from: surface,
         });
         let read = self.plan.reads.len() - 1;
-        let mut v = self.emit(at.uniform, ty, |dst| Ins::LoadAtPoints {
+        let mut v = self.emit(at.uniform, ty, |dst| Ins::LoadAtIndex {
             dst,
             read,
-            points,
+            surface,
             at: at.reg,
         });
         v.array = at.array;
@@ -2320,9 +2319,15 @@ fn type_of(
         Op::ClosestPoint => Some(Ty::Int),
         // Its points' numbers; their distances by `wire_ty`.
         Op::NearPoints => Some(Ty::Int),
-        // Of the graph's own points when it has it; a reference prim's is
+        // Of the graph's own geometry when it has it; a reference prim's is
         // known when the graph runs.
-        Op::GetDataAtPoints { name } => find_in(geo, Context::Point, name.trim()).and_then(|f| f.ty),
+        Op::GetDataAtIndex { name, context: from } => match from {
+            Some(c) => find_in(geo, *c, name.trim()),
+            None => [Context::Point, Context::Face, Context::Corner, Context::Object]
+                .into_iter()
+                .find_map(|c| find_in(geo, c, name.trim())),
+        }
+        .and_then(|f| f.ty),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
         Op::GetArrayDataAt { name, .. } if name.trim() == TRI_P => Some(Ty::Vec3),
@@ -2422,7 +2427,7 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
         | Op::GetArrayDataAt { .. }
         | Op::NearPoints => true,
         // As its numbers: a list of them, a list of values.
-        Op::GetDataAtPoints { .. } => match n.inputs.get(1) {
+        Op::GetDataAtIndex { .. } => match n.inputs.first() {
             Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),
             _ => false,
         },

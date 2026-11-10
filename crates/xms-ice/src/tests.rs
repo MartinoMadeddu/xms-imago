@@ -1821,17 +1821,15 @@ fn near_points_among_its_own() {
         ],
     );
     let size = g.add(Op::Array(ArrayOp::Size), vec![wire(within)]);
-    // Where each one found is (Get Data at Points, at the list), the nearest
-    // other's; and at one number, the last point's.
-    let at = g.add(
-        Op::GetDataAtPoints { name: "P".into() },
-        vec![Input::Value(Value::Float(0.0)), wire(near)],
-    );
+    // Where each one found is (Get Data at the list as its Index), the
+    // nearest other's; and at one number, the last point's.
+    let at_index = || Op::GetDataAtIndex {
+        name: "P".into(),
+        context: None,
+    };
+    let at = g.add(at_index(), vec![wire(near)]);
     let other_p = g.add(Op::Array(ArrayOp::Element), vec![wire(at), Input::Value(Value::Int(1))]);
-    let last = g.add(
-        Op::GetDataAtPoints { name: "P".into() },
-        vec![Input::Value(Value::Float(0.0)), Input::Value(Value::Int(5))],
-    );
+    let last = g.add(at_index(), vec![Input::Value(Value::Int(5))]);
     let sets = [
         ("other", other),
         ("far", how_far),

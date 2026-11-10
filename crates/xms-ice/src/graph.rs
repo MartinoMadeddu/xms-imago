@@ -148,14 +148,18 @@ pub enum Op {
     /// `ptIndex`; across the reference prims in order), 1 how far each is. A
     /// point searching its own points finds itself first, at 0.
     NearPoints,
-    /// A point attribute at points by their numbers, Houdini's `point()`:
-    /// `name`; input 0 the prims (Get Reference's paths; numbered across them
-    /// in order, as Near Points numbers them), unwired the graph's own; input
-    /// 1 the numbers (an int, or a list per element: Near Points' Points). A
-    /// value per number, a list where they are; a position, normal or vector
-    /// taken into the graph's space; a number no point has reads as zero.
-    GetDataAtPoints {
+    /// An attribute at elements by their numbers, Houdini's `point()` and
+    /// `prim()`: `name`, in `context` (None: where the attribute is, points
+    /// first); input 0 the numbers (an int, or a list per element: Near
+    /// Points' Points), input 1 if any the prims (Get Reference's paths;
+    /// numbered across them in order, as Near Points numbers them), else the
+    /// graph's own. A value per number, a list where they are; a position,
+    /// normal or vector taken into the graph's space; a number no element has
+    /// reads as zero. (The editor's Get Data, its Index wired and no Param
+    /// UV.)
+    GetDataAtIndex {
         name: String,
+        context: Option<Context>,
     },
     /// At places on a surface (a Polygon and Param UV per element, as Get Data at
     /// them takes, its Geometry too), the values of the face (or curve) each is
@@ -495,7 +499,11 @@ impl Op {
             Op::Root { .. } => None,
             Op::Parameter { .. } | Op::Constant(_) => Some(0),
             // A Geometry, a Polygon and Param UV (and a Geometry), or nothing.
-            Op::GetData { .. } | Op::GetArrayData { .. } | Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => None,
+            Op::GetData { .. }
+            | Op::GetArrayData { .. }
+            | Op::GetDataAt { .. }
+            | Op::GetArrayDataAt { .. }
+            | Op::GetDataAtIndex { .. } => None,
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
             Op::Random { .. } => Some(4),
@@ -507,7 +515,6 @@ impl Op {
             Op::Scatter { .. } => Some(1),
             Op::ClosestPoint => Some(3),
             Op::NearPoints => Some(4),
-            Op::GetDataAtPoints { .. } => Some(2),
             Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } => Some(0),
             Op::Instancer { .. } => Some(5),

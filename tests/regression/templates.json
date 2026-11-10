@@ -23,7 +23,7 @@
     "triangles": 0,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 13
+    "cook_ms": 11
   },
   "Bind simple point deformer": {
     "nodes": 6,
@@ -36,7 +36,7 @@
     "triangles": 533768,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 87
+    "cook_ms": 96
   },
   "Body Collide: into the car": {
     "nodes": 4,
@@ -60,7 +60,7 @@
         -1.104
       ]
     },
-    "cook_ms": 1540,
+    "cook_ms": 1444,
     "solved": true
   },
   "Body Collide: obstacle course": {
@@ -87,6 +87,19 @@
     },
     "cook_ms": 1,
     "solved": true
+  },
+  "Cage deform by near points": {
+    "nodes": 7,
+    "viewed": "Result",
+    "output": 0,
+    "kind": "prims",
+    "prims": 2,
+    "copies": 2,
+    "points": 1097,
+    "triangles": 2060,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 0
   },
   "Cameras": {
     "nodes": 8,
@@ -123,7 +136,7 @@
         1.057
       ]
     },
-    "cook_ms": 939
+    "cook_ms": 1057
   },
   "Clip basics": {
     "nodes": 5,
@@ -160,7 +173,7 @@
     "triangles": 282,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 5
+    "cook_ms": 4
   },
   "Curves and points": {
     "nodes": 1,
@@ -314,7 +327,7 @@
         1.028
       ]
     },
-    "cook_ms": 68
+    "cook_ms": 65
   },
   "Human Limits": {
     "nodes": 3,
@@ -338,7 +351,7 @@
         0.0
       ]
     },
-    "cook_ms": 5
+    "cook_ms": 6
   },
   "ICE graph: spherify": {
     "nodes": 3,
@@ -364,7 +377,7 @@
     "triangles": 35624231,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 43
+    "cook_ms": 81
   },
   "ICE: shrink-wrap": {
     "nodes": 5,
@@ -403,7 +416,7 @@
     "triangles": 14,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 0
   },
   "Local Animation and Merge Animation": {
     "nodes": 8,
@@ -466,7 +479,7 @@
         1.057
       ]
     },
-    "cook_ms": 45,
+    "cook_ms": 48,
     "solved": true
   },
   "Mocap split": {
@@ -528,7 +541,7 @@
         1.026
       ]
     },
-    "cook_ms": 1
+    "cook_ms": 2
   },
   "Native instances: a hall of tables": {
     "nodes": 1,
@@ -565,7 +578,7 @@
         0.062
       ]
     },
-    "cook_ms": 400
+    "cook_ms": 376
   },
   "Novasci clip: thumbs up (download)": {
     "nodes": 3,
@@ -589,7 +602,7 @@
         0.062
       ]
     },
-    "cook_ms": 391
+    "cook_ms": 382
   },
   "Open assets: carbon frame bike (download)": {
     "nodes": 1,
@@ -602,7 +615,7 @@
     "triangles": 135648,
     "materials": 31,
     "cameras": 0,
-    "cook_ms": 238
+    "cook_ms": 421
   },
   "Open assets: elephant with monochord (download)": {
     "nodes": 1,
@@ -615,7 +628,7 @@
     "triangles": 2762,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 15
+    "cook_ms": 7
   },
   "Open assets: teapot and car kit": {
     "nodes": 4,
@@ -641,7 +654,7 @@
     "triangles": 415006,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 5
+    "cook_ms": 6
   },
   "Purposes: street lamps": {
     "nodes": 1,
@@ -654,7 +667,7 @@
     "triangles": 1218,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 2
   },
   "Retarget": {
     "nodes": 5,
@@ -702,7 +715,7 @@
         1.057
       ]
     },
-    "cook_ms": 94
+    "cook_ms": 99
   },
   "Rig: aeroplane": {
     "nodes": 5,
@@ -715,7 +728,7 @@
     "triangles": 448,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 2
   },
   "Rig: car (DeLorean)": {
     "nodes": 6,
@@ -728,7 +741,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 222
+    "cook_ms": 268
   },
   "Rig: full human": {
     "nodes": 8,
@@ -752,7 +765,7 @@
         0.02
       ]
     },
-    "cook_ms": 477
+    "cook_ms": 542
   },
   "Rig: gears and a piston": {
     "nodes": 5,
@@ -802,7 +815,7 @@
         0.02
       ]
     },
-    "cook_ms": 449
+    "cook_ms": 505
   },
   "Rig: human leg": {
     "nodes": 9,
@@ -826,7 +839,7 @@
         0.02
       ]
     },
-    "cook_ms": 463
+    "cook_ms": 502
   },
   "Rig: quadruped": {
     "nodes": 5,
@@ -839,7 +852,7 @@
     "triangles": 456,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 1
+    "cook_ms": 2
   },
   "Rig: robot arm": {
     "nodes": 5,
@@ -852,7 +865,7 @@
     "triangles": 200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 0
+    "cook_ms": 1
   },
   "Rig: spine and neck": {
     "nodes": 9,
@@ -876,7 +889,7 @@
         0.02
       ]
     },
-    "cook_ms": 460
+    "cook_ms": 507
   },
   "Rig: tank": {
     "nodes": 5,
@@ -1017,7 +1030,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 3
+    "cook_ms": 4
   },
   "USD: prune": {
     "nodes": 2,
@@ -1030,7 +1043,7 @@
     "triangles": 72240,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 35
+    "cook_ms": 78
   },
   "USD: set attribute": {
     "nodes": 3,
@@ -1056,7 +1069,7 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 223
+    "cook_ms": 242
   },
   "Variant set: cube or sphere": {
     "nodes": 6,
@@ -1082,6 +1095,6 @@
     "triangles": 2472,
     "materials": 1,
     "cameras": 0,
-    "cook_ms": 17
+    "cook_ms": 18
   }
 }

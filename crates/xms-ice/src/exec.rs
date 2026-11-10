@@ -1223,17 +1223,17 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 *locs(&mut regs[dst]) = found;
                 *floats(&mut regs[dist]) = far;
             }
-            Ins::LoadAtPoints { dst, read, points, at } => {
+            Ins::LoadAtIndex { dst, read, surface, at } => {
                 let ty = program.regs[dst];
                 let made = {
-                    let s = env.surface_of(points, regs, uniform);
+                    let s = env.surface_of(surface, regs, uniform);
                     let cols = env.cols(read, s);
                     // Numbered across the meshes in order.
                     let mut first = Vec::with_capacity(s.meshes.len());
                     let mut n = 0;
                     for m in &s.meshes {
                         first.push(n);
-                        n += m.geo.count(Context::Point);
+                        n += m.geo.count(env.reads[read].context);
                     }
                     let value = |k: i32| {
                         let Some(k) = usize::try_from(k).ok().filter(|&k| k < n) else {

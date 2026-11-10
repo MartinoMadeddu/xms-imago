@@ -463,20 +463,6 @@ impl IceGraph {
                 ],
                 vec![output("Points", "Any"), output("Distances", "Any")],
             ),
-            // The Geometry unwired: the graph's own points.
-            IceGraphNodeType::GetDataAtPoints { .. } => (
-                vec![
-                    IceGraphInputSocket {
-                        value: None,
-                        ..input("Geometry", 0.0)
-                    },
-                    IceGraphInputSocket {
-                        value: Some(Value::Int(0)),
-                        ..input("Points", 0.0)
-                    },
-                ],
-                vec![output("Value", "Any")],
-            ),
             // Normals +Y (none) and a random turn about it, when not wired;
             // a count of 0, one per element (or per normal of an array).
             IceGraphNodeType::RandomOrientation { .. } => (
@@ -692,19 +678,29 @@ impl IceGraph {
             .iter()
             .map(|n| {
                 let root = matches!(n.node_type, IceGraphNodeType::Root { .. });
-                // Get Data and Get Array Data read at samples when their
-                // Polygon input is wired, from another prim when their
-                // Geometry is. The engine takes [Polygon, Param UV, Geometry],
-                // [Polygon, Param UV] or [Geometry]: an unwired Param UV is (0, 0), an
-                // unwired Geometry is not an input to run.
+                // Get Data and Get Array Data read where `read_at` says, from
+                // another prim when their Geometry is wired. The engine takes
+                // [Index, Param UV, Geometry], [Index, Param UV], [Index,
+                // Geometry], [Index] or [Geometry]: an unwired input is not
+                // one to run, a Param UV given as a value is.
                 let reads = matches!(
                     n.node_type,
                     IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
                 );
-                let sampled = reads && n.inputs.first().is_some_and(|i| i.connected_output.is_some());
+                let at = read_at(n);
+                let sampled = at == ReadAt::Place;
                 let op = match &n.node_type {
                     IceGraphNodeType::Root { context } => Op::Root { context: *context },
                     IceGraphNodeType::GetData { name, context, .. } if sampled => Op::GetDataAt {
+                        name: name.clone(),
+                        context: *context,
+                    },
+                    IceGraphNodeType::GetData { name, context, .. } if at == ReadAt::Index => Op::GetDataAtIndex {
+                        name: name.clone(),
+                        context: *context,
+                    },
+                    // An Index alone: the engine says it reads at a place.
+                    IceGraphNodeType::GetArrayData { name, context } if at == ReadAt::Index => Op::GetArrayDataAt {
                         name: name.clone(),
                         context: *context,
                     },
@@ -742,7 +738,6 @@ impl IceGraph {
                     },
                     IceGraphNodeType::ClosestPoint => Op::ClosestPoint,
                     IceGraphNodeType::NearPoints => Op::NearPoints,
-                    IceGraphNodeType::GetDataAtPoints { name } => Op::GetDataAtPoints { name: name.clone() },
                     IceGraphNodeType::GetArrayData { name, context } => Op::GetArrayData {
                         name: name.clone(),
                         context: *context,
@@ -781,7 +776,7 @@ impl IceGraph {
                         });
                         match wired {
                             Some(w) => Some(w),
-                            None if sampled && k == READ_PARAM_UV => Some(Input::Value(Value::Vec2([0.0; 2]))),
+                            None if sampled && k == READ_PARAM_UV => i.value.map(Input::Value),
                             // The root's free Execute ports are not inputs to run,
                             // nor a read's unwired ones.
                             None if root || reads => None,
@@ -1145,15 +1140,48 @@ pub fn upgrade_intrinsic_names(nodes: &mut [serde_json::Value]) {
 }
 
 /// Get Data's and Get Array Data's inputs, by number.
-pub const READ_POLYGON: usize = 0;
+pub const READ_INDEX: usize = 0;
 pub const READ_PARAM_UV: usize = 1;
 pub const READ_GEOMETRY: usize = 2;
 
-/// Get Data's and Get Array Data's inputs: a Polygon and its Param UV (Closest
-/// Point on Surface's, Scatter on Surface's, or stored) to read at, and a
-/// Geometry (Get Reference's paths) to read on. None holds a value.
+/// Where a Get Data or Get Array Data reads (see `read_at`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadAt {
+    /// At its own elements: no Index wired (and not a read).
+    Own,
+    /// At a place on a face: an Index (a Polygon) and its Param UV, wired or
+    /// given as a value, as Houdini's `primuv()`.
+    Place,
+    /// At the elements the Index numbers (a point's, a face's: its Context
+    /// says which), as Houdini's `point()` and `prim()`.
+    Index,
+}
+
+/// Where a Get Data or Get Array Data reads: at an Index wired with a Param
+/// UV, a place; an Index alone, the elements it numbers; else its own.
+pub fn read_at(n: &IceGraphNode) -> ReadAt {
+    let reads = matches!(
+        n.node_type,
+        IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
+    );
+    let wired = |k: usize| n.inputs.get(k).is_some_and(|i| i.connected_output.is_some());
+    let uv = n
+        .inputs
+        .get(READ_PARAM_UV)
+        .is_some_and(|i| i.connected_output.is_some() || i.value.is_some());
+    match (reads && wired(READ_INDEX), uv) {
+        (false, _) => ReadAt::Own,
+        (true, true) => ReadAt::Place,
+        (true, false) => ReadAt::Index,
+    }
+}
+
+/// Get Data's and Get Array Data's inputs: an Index to read at (element
+/// numbers, or a Polygon with its Param UV: Closest Point on Surface's,
+/// Scatter on Surface's, or stored), and a Geometry (Get Reference's paths) to
+/// read on. None holds a value.
 fn read_inputs() -> Vec<IceGraphInputSocket> {
-    ["Polygon", "Param UV", "Geometry"]
+    ["Index", "Param UV", "Geometry"]
         .into_iter()
         .map(|name| IceGraphInputSocket {
             name: name.into(),
@@ -1607,7 +1635,7 @@ mod tests {
             let set = g.add_node("Set".into(), IceGraphNodeType::set("P"), egui::pos2(0.0, 0.0));
             g.add_connection(refs, 0, near, 0);
             g.add_connection(p, 0, near, 1);
-            g.add_connection(near, xms_ice::CLOSEST_POLYGONS, at, READ_POLYGON);
+            g.add_connection(near, xms_ice::CLOSEST_POLYGONS, at, READ_INDEX);
             g.add_connection(near, xms_ice::CLOSEST_PARAM_UVS, at, READ_PARAM_UV);
             g.add_connection(at, 0, set, 0);
             g.add_connection(set, 0, root, 0);

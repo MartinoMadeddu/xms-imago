@@ -134,16 +134,16 @@ fn from_geometry(node: &IceGraphNode) -> bool {
         .is_some_and(|i| i.connected_output.is_some())
 }
 
-/// A Get Data or Get Array Data reading at places on a surface: its Polygon
-/// input wired.
+/// A Get Data or Get Array Data reading at places on a surface: its Index
+/// wired with a Param UV.
 fn sampled(node: &IceGraphNode) -> bool {
-    matches!(
-        node.node_type,
-        IceGraphNodeType::GetData { .. } | IceGraphNodeType::GetArrayData { .. }
-    ) && node
-        .inputs
-        .get(super::READ_POLYGON)
-        .is_some_and(|i| i.connected_output.is_some())
+    super::read_at(node) == super::ReadAt::Place
+}
+
+/// A Get Data reading at the elements its Index numbers: its Index wired
+/// alone.
+fn indexed(node: &IceGraphNode) -> bool {
+    super::read_at(node) == super::ReadAt::Index
 }
 
 /// A constant's value, or the attribute a Get or Set Data names, shown in a row
@@ -171,6 +171,10 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::GetArrayData { name, .. } if sampled(node) && from_geometry(node) => {
             Some(format!("geometry.{name}[] at Param UV"))
         }
+        IceGraphNodeType::GetData { name, .. } if indexed(node) && from_geometry(node) => {
+            Some(format!("geometry.{name} at Index"))
+        }
+        IceGraphNodeType::GetData { name, .. } if indexed(node) => Some(format!("{name} at Index")),
         IceGraphNodeType::GetData { name, .. } if sampled(node) => Some(format!("{name} at Param UV")),
         IceGraphNodeType::GetArrayData { name, .. } if sampled(node) => Some(format!("{name}[] at Param UV")),
         IceGraphNodeType::GetData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}")),
@@ -192,7 +196,6 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::Scatter { seed, weight } => Some(format!("seed {seed}, by {weight}")),
         IceGraphNodeType::ClosestPoint => None,
         IceGraphNodeType::NearPoints => None,
-        IceGraphNodeType::GetDataAtPoints { name } => Some(format!("point.{name} at numbers")),
         IceGraphNodeType::GetArrayData { name, context: Some(c) } => Some(format!("{}.{name}[]", context_word(*c))),
         IceGraphNodeType::GetArrayData { name, context: None } => Some(format!("{name}[]")),
         IceGraphNodeType::RandomOrientation { seed } => Some(format!("seed {seed}")),
@@ -334,9 +337,7 @@ fn inks(body: egui::Color32) -> (egui::Color32, egui::Color32) {
 fn tint(t: &IceGraphNodeType) -> egui::Color32 {
     match t {
         IceGraphNodeType::Root { .. } => pal::PORTS(),
-        IceGraphNodeType::GetData { .. }
-        | IceGraphNodeType::SetData { .. }
-        | IceGraphNodeType::GetDataAtPoints { .. } => pal::BLUE(),
+        IceGraphNodeType::GetData { .. } | IceGraphNodeType::SetData { .. } => pal::BLUE(),
         IceGraphNodeType::Constant { .. }
         | IceGraphNodeType::Math { .. }
         | IceGraphNodeType::Random { .. }
@@ -536,6 +537,7 @@ pub fn draw_subnet_node_properties(
     }
     // Get Data and Get Array Data with a Polygon wired read there.
     let at_samples = sampled(node);
+    let at_index = indexed(node);
     // A compound's promoted parameters.
     let compound_params = super::compound::definition(&node.node_type)
         .map(|d| d.parameters.clone())
@@ -590,12 +592,17 @@ pub fn draw_subnet_node_properties(
                         },
                     );
                 }
-                if at_samples {
-                    f.choice("Context", Some("Read at the Polygon and Param UV wired in (Houdini's primuv): a point's or a corner's attribute blended from the corners the place is made from, a face's that face's, the object's its one value. Auto: the first that has it, point, corner, face, object"),
+                if at_index {
+                    f.choice("Context", Some("Read at the elements the Index numbers (Houdini's point() and prim()): point numbers, face numbers, corner numbers. Auto: where the attribute is, points first. Near Points' Points are point numbers"),
                              context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                     return;
                 }
-                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire a Polygon and its Param UV (Closest Point on Surface's, Scatter on Surface's, or stored) to read at that place instead; wire a Geometry (Get Reference) to read it from that prim, element by element (it has the same topology: a rest mesh and its animated copy)"),
+                if at_samples {
+                    f.choice("Context", Some("Read at the Polygon (the Index) and Param UV wired in (Houdini's primuv): a point's or a corner's attribute blended from the corners the place is made from, a face's that face's, the object's its one value. Auto: the first that has it, point, corner, face, object"),
+                             context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
+                    return;
+                }
+                f.choice("Context", Some("Where the attribute is read from. Auto: the graph's own context, or Object. Another context is read across: a face reads its points, a corner its point or face, a point the faces or corners around it. Wire an Index alone (Near Points' Points, element numbers) to read at those elements; an Index with its Param UV (a Polygon: Closest Point on Surface's, Scatter on Surface's, or stored) to read at that place; wire a Geometry (Get Reference) to read it from that prim, element by element (it has the same topology: a rest mesh and its animated copy)"),
                          context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
                 if context.is_some_and(|c| c != Context::Object) {
                     f.choice("Resample", Some("Reading from another context resamples it: when an element touches several of the context read (a face's points, the faces around a point), how they become one value"),
@@ -648,9 +655,6 @@ pub fn draw_subnet_node_properties(
             f.text("Name", Some("The attribute each element reads as a list, every value it touches kept: P from Point, a face's points' positions; intrinsic:ptIndices, a face's point numbers; intrinsic:faceIndices, a point's faces"), name, "intrinsic:ptIndices");
             f.choice("Context", Some("Where the values are read from. Auto: where the attribute is (intrinsic:ptIndices: Point, intrinsic:faceIndices: Face). A face reads its points or corners, a point the faces or corners around it, a corner its point or face (a list of one); in an Object graph, every one, as the graph's array"),
                      context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
-        }),
-        IceGraphNodeType::GetDataAtPoints { name } => group(ui, "Attribute", None, |f| {
-            f.text("Name", Some("The point attribute read at each number the Points give: P their positions (in the graph's space), N their normals, any other by name"), name, "P");
         }),
         IceGraphNodeType::RandomOrientation { seed } => group(ui, "Random", None, |f| {
             f.row(
@@ -1606,7 +1610,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
 fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
     use xms_ice::{Math, Value};
     let mut out = vec![
-        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points). Wire a Polygon and Param UV into it (Scatter on Surface's, Closest Point on Surface's, or stored) to read it at that place instead, blended from the corners there, in the graph's space"),
+        ("Data Access", IceGraphNodeType::get("P"), "Read an attribute of the geometry: P (the points) or any other by name, in the graph's context or from another (a face reading its points). Wire an Index alone (element numbers: Near Points' Points) to read at those elements, Houdini's point(); an Index (a Polygon: Scatter on Surface's, Closest Point on Surface's, or stored) with its Param UV to read at that place instead, blended from the corners there, Houdini's primuv(); in the graph's space"),
         ("Data Access", IceGraphNodeType::set("P"), "Write an attribute; its Execute goes into the Execution Ports"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Float(0.0) }, "A number"),
         ("Constants", IceGraphNodeType::Constant { value: Value::Int(0) }, "A whole number"),
@@ -1621,7 +1625,6 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Data Access", IceGraphNodeType::GetArrayData { name: "intrinsic:ptIndices".into(), context: None }, "Read an attribute as a list per element, every value it touches kept: a face's point numbers (ptIndices), its points' positions (P from Point), a point's faces (faceIndices). Array Size, Select in Array, Sum and Average make one value of each; maths works item by item. Wire a Polygon and Param UV into it to read, at each, the values of the face (or curve) it is on: its points' P, ptIndices, its corners' uv; triP and bary are the corners the place is made from and their weights"),
         ("Geometry", IceGraphNodeType::ClosestPoint, "The nearest places on reference meshes and curves (Geometry: Get Reference) to each Origin (P, per point), within a Radius (0: anywhere): each as its Polygon and Param UV (Houdini's xyzdist), to read with Get Data or store, and how far each is. For deformers: shrink-wrap, stick to a body, bind and carry, blend by distance"),
         ("Geometry", IceGraphNodeType::NearPoints, "The points nearest each Origin (P, per point), of reference prims (Geometry: Get Reference) or, unwired, the graph's own: up to a Count (0: every one within the Radius), within a Radius (0: anywhere), nearest first (Houdini's nearpoints). A list per point of their numbers (ptIndex) and how far each is: Select in Array, Array Size, Sum and Average make one value; searching its own points, a point finds itself first. For neighbours: smoothing, relaxing, clumping, falloffs"),
-        ("Data Access", IceGraphNodeType::GetDataAtPoints { name: "P".into() }, "Read a point attribute at points by their numbers (Houdini's point()): of reference prims (Geometry: Get Reference, numbered across them in order) or, unwired, the graph's own. Wire Near Points' Points in to read each one found, a list per element; one number, one value. P is taken into the graph's space"),
         ("Random", IceGraphNodeType::RandomOrientation { seed: 0 }, "Random rotations up along the normals given and turned at random: one per point or face (an orient attribute), or an array of them from Scatter's normals (an Instancer's orientations). Wire a Seed to say what each is drawn for"),
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),

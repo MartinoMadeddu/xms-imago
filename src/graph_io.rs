@@ -47,7 +47,9 @@ struct SavedNode {
 
 #[derive(Serialize, Deserialize)]
 struct SavedGraph {
-    /// The file's layout, for reading older files (not Imago's version).
+    /// The file's layout, for reading older files (not Imago's version): 2
+    /// since Get Data's Index alone reads elements by number (before it, at
+    /// the place (0, 0) of that Polygon).
     version: u32,
     /// The Imago that wrote it (`crate::version`), to tell later which build
     /// a file came from. Files written before it have none.
@@ -131,7 +133,7 @@ pub fn to_json(graph: &NodeGraphState, subnets: &IceGraphStore) -> String {
     let all: Vec<&crate::node_graph::GraphNode> = graph.nodes.iter().collect();
     let saved = SavedGraph {
         trees: saved_trees(&all, subnets),
-        version: 1,
+        version: 2,
         saved_with: crate::version(),
         nodes: graph
             .nodes
@@ -179,7 +181,7 @@ pub fn from_json(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, json: 
                 .trees
                 .iter()
                 .find(|t| t.node == n.id)
-                .map(|t| restore_tree(t, name, subnets))
+                .map(|t| restore_tree(t, name, subnets, saved.version < 2))
                 .unwrap_or(IceGraphId(usize::MAX));
         }
         let id = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]));
@@ -555,7 +557,7 @@ pub fn paste(
             *id = trees
                 .iter()
                 .find(|t| t.node == n.id)
-                .map(|t| restore_tree(t, name, subnets))
+                .map(|t| restore_tree(t, name, subnets, false))
                 .unwrap_or(IceGraphId(usize::MAX));
         }
         let new = graph.add_node(n.name, node_type, egui::pos2(n.position[0], n.position[1]) + shift);
@@ -602,10 +604,36 @@ pub fn paste(
     placed
 }
 
-fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore) -> IceGraphId {
+/// `before_index`: saved before Get Data's Index alone read elements by number
+/// (see `graph_of`).
+fn restore_tree(t: &SavedTree, name: &str, subnets: &mut IceGraphStore, before_index: bool) -> IceGraphId {
     let sid = subnets.create_subnet(name.to_string());
-    subnets.subnets.insert(sid, graph_of(t, sid, true));
+    let mut sg = graph_of(t, sid, true);
+    if before_index {
+        keep_reading_at_places(&mut sg);
+    }
+    subnets.subnets.insert(sid, sg);
     sid
+}
+
+/// A graph saved before Get Data's Index alone read elements by number: then a
+/// Get Data or Get Array Data with its Polygon wired and no Param UV read at
+/// the place (0, 0) of that Polygon. It still does: its Param UV is given that
+/// value.
+fn keep_reading_at_places(sg: &mut crate::ice::IceGraph) {
+    use crate::ice::{READ_INDEX, READ_PARAM_UV};
+    for n in sg.nodes.iter_mut() {
+        let reads = matches!(
+            n.node_type,
+            crate::types::IceGraphNodeType::GetData { .. } | crate::types::IceGraphNodeType::GetArrayData { .. }
+        );
+        let wired = |k: usize| n.inputs.get(k).is_some_and(|i| i.connected_output.is_some());
+        if reads && wired(READ_INDEX) && !wired(READ_PARAM_UV) {
+            if let Some(uv) = n.inputs.get_mut(READ_PARAM_UV).filter(|i| i.value.is_none()) {
+                uv.value = Some(xms_ice::Value::Vec2([0.0; 2]));
+            }
+        }
+    }
 }
 
 /// The ICE graph a saved tree holds, as graph `sid`. `root`: one with no
@@ -708,7 +736,7 @@ fn sample_wires_upgraded(t: &SavedTree) -> Vec<[usize; 4]> {
         match input {
             1 => out.push([from, output, to, crate::ice::READ_GEOMETRY]),
             0 => {
-                out.push([from, output, to, crate::ice::READ_POLYGON]);
+                out.push([from, output, to, crate::ice::READ_INDEX]);
                 let uv = match kind(from) {
                     Some(T::ClosestPoint) => Some(xms_ice::CLOSEST_PARAM_UVS),
                     Some(T::Scatter { .. }) => Some(xms_ice::SCATTER_PARAM_UVS),
@@ -1326,7 +1354,7 @@ mod tests {
                 .find(|c| c.to_node == NodeId(to) && c.to_input == input)
                 .map(|c| (c.from_node.0, c.from_output))
         };
-        assert_eq!(wire(4, crate::ice::READ_POLYGON), Some((2, xms_ice::CLOSEST_POLYGONS)));
+        assert_eq!(wire(4, crate::ice::READ_INDEX), Some((2, xms_ice::CLOSEST_POLYGONS)));
         assert_eq!(
             wire(4, crate::ice::READ_PARAM_UV),
             Some((2, xms_ice::CLOSEST_PARAM_UVS))
@@ -2032,6 +2060,45 @@ mod tests {
         assert_eq!((rows.len(), rows[1].value.clone()), (2, Value::Token("proxy".into())));
     }
 
+    /// A Get Data with its Index wired and no Param UV: saved before an Index
+    /// alone read elements by number (file layout 1), it still reads at the
+    /// place (0, 0) of that Polygon (its Param UV given that value); saved
+    /// since, it reads the elements the Index numbers.
+    #[test]
+    fn an_index_alone_saved_before_it_read_by_number_still_reads_at_a_place() {
+        use crate::ice::{read_at, ReadAt, READ_INDEX, READ_PARAM_UV};
+        let node = |id: usize, t: crate::types::IceGraphNodeType| SavedTreeNode {
+            id,
+            name: format!("n{id}"),
+            position: [0.0, 0.0],
+            node_type: serde_json::to_value(t).unwrap(),
+            values: vec![None, None, None],
+        };
+        let t = SavedTree {
+            node: 0,
+            name: "Reads".into(),
+            nodes: vec![
+                node(
+                    0,
+                    crate::types::IceGraphNodeType::Constant {
+                        value: xms_ice::Value::Int(3),
+                    },
+                ),
+                node(1, crate::types::IceGraphNodeType::get("P")),
+            ],
+            connections: vec![[0, 0, 1, READ_INDEX]],
+            parameters: vec![],
+        };
+        for (before, want) in [(true, ReadAt::Place), (false, ReadAt::Index)] {
+            let mut subnets = IceGraphStore::default();
+            let sid = restore_tree(&t, "Reads", &mut subnets, before);
+            let read = subnets.get(sid).unwrap().nodes.iter().find(|n| n.name == "n1").unwrap();
+            assert_eq!(read_at(read), want, "saved before: {before}");
+            let uv = read.inputs[READ_PARAM_UV].value;
+            assert_eq!(uv, before.then_some(xms_ice::Value::Vec2([0.0; 2])));
+        }
+    }
+
     /// A root saved under an old name (ICE Tree, ICEExectPorts) is named
     /// ExecutionPorts when read; any other node keeps its name.
     #[test]
@@ -2057,7 +2124,7 @@ mod tests {
                 parameters: vec![],
             };
             let mut subnets = IceGraphStore::default();
-            let sid = restore_tree(&t, "Spherify", &mut subnets);
+            let sid = restore_tree(&t, "Spherify", &mut subnets, false);
             let names: Vec<String> = subnets.get(sid).unwrap().nodes.iter().map(|n| n.name.clone()).collect();
             assert_eq!(
                 names,

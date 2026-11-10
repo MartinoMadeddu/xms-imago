@@ -194,22 +194,27 @@ the tree's parameters).
   possible: smoothing and relaxing by neighbours, clumping hair to its
   nearest guides, falloffs by distance to points. (In the snippet language to
   come: `nearpoints()`.)
-- **Get Data at Points** reads a point attribute at points by their numbers,
-  Houdini's `point()`: of the prims its **Geometry** names (numbered across
-  them in order, as Near Points numbers them), or, unwired, of the graph's own.
-  Wire Near Points' Points into its **Points** to read each one found, a list
-  per element that meets the Distances item by item; one number gives one
-  value. P, normals and vectors are taken into the graph's space; a number no
-  point has reads as zero. The "Point deform by near points" template carries
-  spheres by the points of a head this way.
+- **Get Data at an Index.** Wire an **Index** alone (no Param UV) into a Get
+  Data and it reads its attribute at the elements that Index numbers,
+  Houdini's `point()` and `prim()`: an int, or a list per element (Near
+  Points' Points), giving a value per number, a list that meets the
+  Distances item by item. Its **Context** says what the numbers count
+  (Auto: where the attribute is, points first): points, faces, corners. On
+  the prims its **Geometry** names they are numbered across them in order, as
+  Near Points numbers them; unwired, the graph's own. P, normals and vectors
+  are taken into the graph's space; a number no element has reads as zero.
+  The "Cage deform by near points" template carries a sphere by the points of
+  a cube around it this way. (Get Array Data at an Index alone: not yet.)
 - **`intrinsic:curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.
 - **Get Data at a Polygon and Param UV.** Wire a Polygon and Param UV (Closest Point on
   Surface's, Scatter on Surface's, or stored attributes) into a Get Data's
-  **Polygon** and **Param UV** inputs and it reads its attribute there instead of
-  per element (unwired, it reads as above; graphs saved when it read at
-  **Samples** open with the Polygon and Param UV wired in their place): `uv`, a
+  **Index** and **Param UV** inputs and it reads its attribute there instead of
+  per element, Houdini's `primuv()` (unwired, it reads as above; graphs saved
+  when it read at **Samples** open with the Polygon and Param UV wired in their
+  place, and those saved when an Index without a Param UV read at the place
+  (0, 0) of its Polygon keep doing so, the Param UV given that value): `uv`, a
   colour, or any other, `P` and `N` too. On a reference mesh it reads that
   mesh's attribute, taken into the graph's space by its role: a position moved,
   a normal turned, a vector turned. A point's or a corner's attribute is
@@ -306,7 +311,7 @@ the tree's parameters).
   is; Select in Array 0, 1 and 2 gives three corners in order, for a frame's
   edges (tangent `p1 - p0`, normal `(p1 - p0) × (p2 - p0)`, both normalised,
   bitangent normal × tangent).
-- **Get Array Data at a Polygon and Param UV.** Wired through its **Polygon** and
+- **Get Array Data at a Polygon and Param UV.** Wired through its **Index** and
   **Param UV** inputs, a Get Array Data reads, at each place, the values of the
   **face** (or curve) it is on, kept as a list: its points' positions (`P`),
   their numbers (`intrinsic:ptIndices`), its corners' UVs (`uv`); a face's own attribute
