@@ -594,6 +594,9 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         let c = ink(crate::theme::c(225, 225, 225));
         [c[0], c[1], c[2], 1.0]
     };
+    // The selected prims' wireframe, in the selection's colour, in every mode.
+    let selected_ink = super::edit::colour(1.0, 0.75, 0.2, 1.0);
+    let selected = input.hierarchy.selected_paths();
     let bg_lin = {
         let c = linear(bg);
         [c[0], c[1], c[2], 1.0]
@@ -830,9 +833,12 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                         push_instance_with(&mut groups[at].2, m, colour, flags);
                     }
                 };
+                let is_selected = !selected.is_empty()
+                    && super::attributes::in_scope(super::attributes::Scope::Selected, &p.path, selected);
                 // Curves and points, as lines, at every copy.
                 if crate::strands::has_strands(&p.mesh) {
                     let c = match look {
+                        _ if is_selected => selected_ink,
                         Some(l) => {
                             let c = linear_f(l.color);
                             [c[0], c[1], c[2], 1.0]
@@ -847,7 +853,9 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 if p.mesh.vertices.is_empty() {
                     continue;
                 }
-                if matches!(mode, DisplayMode::HiddenLine | DisplayMode::Wireframe) {
+                if is_selected {
+                    add(Kind::Edges, selected_ink, [0.0; 4], 0, None, false);
+                } else if matches!(mode, DisplayMode::HiddenLine | DisplayMode::Wireframe) {
                     add(Kind::Edges, wire_ink, [0.0; 4], 0, None, false);
                 }
                 match (mode, look) {

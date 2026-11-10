@@ -121,34 +121,20 @@ impl Settings {
 static SETTINGS: Mutex<Option<Settings>> = Mutex::new(None);
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
-fn file() -> Option<std::path::PathBuf> {
-    crate::file_browser::config_path("display_attributes.json")
-}
-
-/// What the menu says, as last remembered (read from Imago's config folder
-/// the first time).
+/// What the menu says: off, with nothing listed, whenever Imago starts; kept
+/// neither with the graph nor between sessions.
 pub fn settings() -> Settings {
-    let mut s = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-    s.get_or_insert_with(|| {
-        file()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
-    })
-    .clone()
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(Settings::default)
+        .clone()
 }
 
-/// Change what is shown, remember it, and have the Viewer build its scene
-/// again.
+/// Change what is shown, and have the Viewer build its scene again.
 pub fn set(new: Settings) {
     if settings() == new {
         return;
-    }
-    if let (Some(f), Ok(text)) = (file(), serde_json::to_string_pretty(&new)) {
-        if let Some(dir) = f.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(f, text);
     }
     *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = Some(new);
     REVISION.fetch_add(1, Ordering::Relaxed);
@@ -647,7 +633,7 @@ pub fn draw_labels(
         .collect();
     on_screen.sort_by(|a, b| a.0.total_cmp(&b.0));
     let painter = ui.painter_at(rect);
-    let font = egui::FontId::monospace(8.5);
+    let font = egui::FontId::monospace(10.0);
     let (mut drawn, mut tested) = (0, 0);
     for (_, at, l) in &on_screen {
         if drawn == LABELS_DRAWN || tested == LABELS_TESTED {
@@ -668,14 +654,12 @@ pub fn draw_labels(
     None
 }
 
-/// The Attributes button at the Viewer's bottom left, above `above` (the
-/// snapshots bar's top): a square A, lit while attributes are shown, opening
-/// the Attributes menu. Where its top is.
-pub fn button(ctx: &egui::Context, rect: egui::Rect, above: f32, names: impl FnOnce() -> Vec<String>) -> f32 {
-    let shown = egui::Area::new(egui::Id::new("viewer_attributes"))
+/// The Attributes button at the Viewer's top left, under its bar: a square
+/// A, lit while attributes are shown, opening the Attributes menu.
+pub fn button(ctx: &egui::Context, rect: egui::Rect, names: impl FnOnce() -> Vec<String>) {
+    egui::Area::new(egui::Id::new("viewer_attributes"))
         .order(egui::Order::Background)
-        .pivot(egui::Align2::LEFT_BOTTOM)
-        .fixed_pos(egui::pos2(rect.min.x + 10.0, above - 6.0))
+        .fixed_pos(egui::pos2(rect.min.x + 10.0, rect.min.y + 42.0))
         .show(ctx, |ui| {
             egui::Frame::NONE
                 .fill(crate::theme::c(90, 90, 90).gamma_multiply(0.92))
@@ -697,7 +681,6 @@ pub fn button(ctx: &egui::Context, rect: egui::Rect, above: f32, names: impl FnO
                     );
                 });
         });
-    shown.response.rect.top()
 }
 
 /// The Attributes menu, from the Viewer's A: on or off, the scope, and the

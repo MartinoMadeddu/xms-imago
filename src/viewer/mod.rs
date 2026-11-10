@@ -138,13 +138,10 @@ impl Viewer {
             crate::theme::revision()
                 ^ crate::viewport::textures::generation().rotate_left(32)
                 ^ crate::core::rig::view::revision().rotate_left(16)
-                // Attributes shown: what the menu says, and on the selected
-                // prims, which they are.
+                // Attributes shown, and the selection: its wireframe is drawn,
+                // and attributes may be shown on it.
                 ^ attributes::revision().rotate_left(48)
-                ^ attributes::settings()
-                    .on
-                    .then(|| hash_of(&input.hierarchy.selected_paths().join("\n")).rotate_left(8))
-                    .unwrap_or(0),
+                ^ hash_of(&input.hierarchy.selected_paths().join("\n")).rotate_left(8),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
             crate::viewport::display::mode() as u64 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
@@ -264,9 +261,9 @@ impl Viewer {
             gate(ui, rect, &path, cam);
         }
         let bar = self.snaps_bar(ui.ctx(), rect);
-        // Attributes, above the snapshots: the names of the attributes of the
-        // prims shown, made only while its menu is open.
-        let bar = attributes::button(ui.ctx(), rect, bar, || {
+        // Attributes, at the top left under the Viewer's bar: the names of
+        // the attributes of the prims shown, made only while its menu is open.
+        attributes::button(ui.ctx(), rect, || {
             let subnets = input.subnets;
             let eval =
                 |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {

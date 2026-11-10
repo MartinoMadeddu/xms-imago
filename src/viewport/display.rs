@@ -32,49 +32,26 @@ impl DisplayMode {
         Self::ALL.iter().position(|m| *m == self).unwrap_or(3) as u8
     }
     fn from_code(c: u8) -> Self {
-        Self::ALL.get(c as usize).copied().unwrap_or(DisplayMode::Textured)
-    }
-    fn key(self) -> &'static str {
-        match self {
-            DisplayMode::HiddenLine => "hidden_line",
-            DisplayMode::Wireframe => "wireframe",
-            DisplayMode::Shaded => "shaded",
-            DisplayMode::Textured => "textured",
-        }
+        Self::ALL.get(c as usize).copied().unwrap_or(DisplayMode::Shaded)
     }
 }
 
-static MODE: AtomicU8 = AtomicU8::new(3);
-static LOADED: std::sync::Once = std::sync::Once::new();
+/// Shaded whenever Imago starts: the mode is kept neither with the graph nor
+/// between sessions.
+static MODE: AtomicU8 = AtomicU8::new(2);
 
-fn file() -> Option<std::path::PathBuf> {
-    crate::file_browser::config_path("display.txt")
-}
-
-/// The current mode. The remembered one is read the first time.
+/// The current mode.
 pub fn mode() -> DisplayMode {
-    LOADED.call_once(|| {
-        let saved = file().and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
-        if let Some(m) = DisplayMode::ALL.iter().find(|m| m.key() == saved.trim()) {
-            MODE.store(m.code(), Ordering::Relaxed);
-        }
-    });
     DisplayMode::from_code(MODE.load(Ordering::Relaxed))
 }
 
-/// Switch mode, remember it, and have the viewport redraw.
+/// Switch mode, and have the viewport redraw.
 pub fn set_mode(m: DisplayMode) {
     if mode() == m {
         return;
     }
     MODE.store(m.code(), Ordering::Relaxed);
     super::textures::touch();
-    if let Some(f) = file() {
-        if let Some(dir) = f.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(f, m.key());
-    }
 }
 
 /// The edges to draw for a mesh, as pairs of vertex indices: the sides of its

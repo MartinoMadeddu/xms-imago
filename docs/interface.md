@@ -173,10 +173,13 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 ## Viewer
 
+- **Shading** at the top: Wireframe, Hidden Line Removal, Shaded or
+  Textured. Shaded whenever Imago starts: the choice is not kept.
 - **🎥** at the top lists the scene's cameras to look through; navigating
   leaves the camera where it is.
 - **Click** a primitive to select it (Ctrl+click adds); F frames the selection,
-  A everything.
+  A everything. A selected prim is outlined by its box and its wireframe is
+  drawn over it, in the selection's colour, whatever the shading.
 - A selected Transform, Camera or Edit Primitive has handles: W move, E rotate,
   R scale, Q select. A drag is one undo step.
 - Past 20 million triangles a frame, the heaviest prims are drawn as boxes,
@@ -186,7 +189,7 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 ### Display Attribute
 
-**A**, at the Viewer's bottom left above 📷, draws attributes over the prims,
+**A**, at the Viewer's top left under its bar, draws attributes over the prims,
 each as its type is, as Houdini's visualizers and Gaffer's viewer show them; it
 is lit while they are shown. Tick **Show attributes**, add one with **+ Attribute**, and type its name or pick it from
 ⏷: the attributes of the prims shown, and intrinsics (point, face and corner
@@ -213,8 +216,8 @@ triangles; other prims do not hide them yet), and those on faces turned away
 are left out. Within limits, on both: a million lines, 20 million coloured
 corners, and labels on screen only, nearest the camera first, at most 5,000
 (made from 200,000 at most, 10,000 tested a frame). Past a limit the Viewer
-says what it left out. The menu's settings are the Viewer's, kept in Imago's
-config folder, not the graph's.
+says what it left out. The menu starts off and empty whenever Imago starts: it
+is kept neither with the graph nor between sessions.
 
 ### Manipulators
 
