@@ -39,11 +39,11 @@ mod xsi {
     pub fn TEXT_DIM() -> Color32 {
         crate::theme::c(210, 210, 210)
     }
-    /// Row numbers: a muted blue. On the light greys of Light, a dark navy, so
-    /// they read against the rows.
+    /// Row numbers and the intrinsics' headers: a soft blue in the dark themes;
+    /// on the light greys of Light, a dark navy, so they read against the rows.
     pub fn TEXT_IDX() -> Color32 {
         if crate::theme::is_dark() {
-            crate::theme::c(120, 130, 145)
+            Color32::from_rgb(140, 170, 215)
         } else {
             Color32::from_rgb(28, 52, 104)
         }

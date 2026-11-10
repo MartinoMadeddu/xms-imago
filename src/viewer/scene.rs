@@ -590,8 +590,14 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         let c = linear_f([0.6, 0.6, 0.6]);
         [c[0], c[1], c[2], 1.0]
     };
+    // Hidden Line and Wireframe's wires: near white on Light's mid grey, a
+    // mid grey on the dark themes' dark grey (white glares on it).
     let wire_ink = {
-        let c = ink(crate::theme::c(225, 225, 225));
+        let c = ink(if crate::theme::viewport_bg()[0] < 100 {
+            egui::Color32::from_gray(150)
+        } else {
+            crate::theme::c(225, 225, 225)
+        });
         [c[0], c[1], c[2], 1.0]
     };
     // The selected prims' wireframe, in the selection's colour, in every mode.
