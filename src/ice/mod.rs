@@ -418,7 +418,7 @@ impl IceGraph {
                 vec![
                     output("Positions", "Any"),
                     output("Normals", "Any"),
-                    output("Polygon", "Any"),
+                    output("Face Index", "Any"),
                     output("Param UV", "Any"),
                 ],
             ),
@@ -437,7 +437,7 @@ impl IceGraph {
                     input("Radius", 0.0),
                 ],
                 vec![
-                    output("Polygon", "Any"),
+                    output("Face Index", "Any"),
                     output("Distance", "Any"),
                     output("Param UV", "Any"),
                 ],

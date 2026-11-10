@@ -141,11 +141,11 @@ the tree's parameters).
   twice as many. In an Object graph (one array for the whole primitive) it gives
   three arrays: **Positions** (where they are: what a PointInstancer's
   `positions` takes), **Normals** (the surface's there: the mesh's normals, or
-  each face's own), and each place as its **Polygon** and **Param UV** (see below),
+  each face's own), and each place as its **Face Index** and **Param UV** (see below),
   to read anything else there with a Get Data wired to them. Each place is its
   own hash of the seed: made in parallel, the same every time.
-- **A place on a surface is a Polygon and a Param UV**, as Houdini's `xyzdist`
-  and `primuv` have it: the Polygon is a face's (or a curve's) number, counted
+- **A place on a surface is a Face Index and a Param UV**, as Houdini's `xyzdist`
+  and `primuv` have it: the Face Index (a Polygon) is a face's (or a curve's) number, counted
   across the Geometry's prims in order, and the Param UV its parametric coordinates
   on it, by Houdini's rules. On a **triangle**, u and v are the weights of
   corners 1 and 2 (corner 0's is 1 - u - v); a **quad** is a bilinear patch
@@ -164,8 +164,8 @@ the tree's parameters).
   0 searches without a limit). The meshes are taken from where they are in the
   world into the space of the primitive the graph runs on, so what is read there
   lines up with the primitive where the Viewer shows both. It gives each place's
-  **Polygon** and **Param UV**, and the **Distance** to it. Nothing within the
-  radius: Polygon -1, which reads as zero, at the radius's distance
+  **Face Index** and **Param UV**, and the **Distance** to it. Nothing within the
+  radius: Face Index -1, which reads as zero, at the radius's distance
   (use the Distance to blend: Linear Interpolate from `P` to the place found by
   `1 - Distance / Radius`). A BVH over the meshes' faces, cut into the triangles
   their Param UVs are made on (a quad's two, a larger polygon's fan around its middle,
