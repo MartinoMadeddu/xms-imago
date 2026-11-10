@@ -57,6 +57,11 @@ impl ImagoApp {
 }
 
 impl eframe::App for ImagoApp {
+    /// Quit without closing the window (Cmd+Q on macOS) too.
+    fn on_exit(&mut self) {
+        crate::live::end();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.25);
@@ -133,6 +138,8 @@ impl eframe::App for ImagoApp {
             self.closing = true;
             // Renders started from Render Command end with the program.
             crate::core::command::stop_all();
+            // Arnold ended before the files it renders from are taken away.
+            crate::live::end();
             // The Image Viewer's temporary layers and renders go with it.
             crate::image_viewer::clean_up();
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

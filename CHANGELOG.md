@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Arnold ends cleanly** when Imago closes or quits (and after `--headless`): the live render stopped and let go before Arnold releases its resources, no more heap corruption ("Incorrect checksum for freed object") at exit.
+
 ## [0.2.11] - 2026-11-10
 
 - **Near Points** (ICE): the points nearest each origin, of reference prims or the graph's own, up to a count within a radius (0: anywhere), as a list per point of their numbers and distances: neighbours for smoothing, relaxing, clumping. A k-d tree over the points (kiddo).

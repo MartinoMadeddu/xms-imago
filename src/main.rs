@@ -81,7 +81,9 @@ fn main() {
     // `--headless`: a scene rendered without the window.
     let args: Vec<String> = std::env::args().collect();
     if let Some(job) = headless::job(&args) {
-        if let Err(e) = job.and_then(|j| headless::run(&j)) {
+        let done = job.and_then(|j| headless::run(&j));
+        live::end();
+        if let Err(e) = done {
             eprintln!("{e}");
             std::process::exit(1);
         }
@@ -90,6 +92,7 @@ fn main() {
     if let Err(e) = eframe_app::run() {
         eprintln!("{e}");
     }
+    live::end();
 }
 
 /// Linux: Arnold's plugins (its USD reader) find `libai.so` only on the

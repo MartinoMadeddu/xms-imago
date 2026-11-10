@@ -170,6 +170,12 @@ images and when each was written, and the edit and how long it took to show.
 - A light's intensity changed while it renders shows in the next pass, about
   0.03 s after: Arnold updates only the nodes changed, no reload.
 - Pausing (`AiRenderInterrupt`, blocking) waits for the pass running to end.
+- Arnold is ended (`AiEnd`) before the program exits: the live render's
+  thread joined and its session and universe destroyed first
+  (`live::end`, on closing, quitting and after `--headless`). Left to the
+  exit, Arnold released its resources while its threads and the render's
+  still ran, and macOS reported the heap corrupted ("Incorrect checksum
+  for freed object").
 - Arnold makes `.tx` files of the textures as it first meets them, which can
   hold the first passes for many seconds; once made, they stay beside the
   textures. Whether Live makes them or uses only those made is to decide.

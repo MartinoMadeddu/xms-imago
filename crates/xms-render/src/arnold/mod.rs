@@ -86,12 +86,12 @@ pub fn installed(sdk: &Path) -> Result<Installed, String> {
 }
 
 /// `AiBegin`, once while Arnold is started: by whichever comes first, a
-/// render or `installed`.
-static BEGUN: Mutex<bool> = Mutex::new(false);
+/// render, `installed` or `textures`; the SDK it was started from.
+static BEGUN: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 fn begin(ai: &Api, sdk: &Path) {
     let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
-    if !*begun {
+    if begun.is_none() {
         environment(sdk);
         // SAFETY: before any call that needs it, once until `AiEnd`; the
         // callback is a function of this crate, its data none.
@@ -99,8 +99,23 @@ fn begin(ai: &Api, sdk: &Path) {
             (ai.AiBegin)(ffi::SESSION_INTERACTIVE);
             (ai.AiMsgRegisterCallback)(Some(logged), ffi::LOG_MASK, std::ptr::null_mut());
         }
-        *begun = true;
+        *begun = Some(sdk.to_path_buf());
     }
+}
+
+/// `AiEnd`, when Arnold was started and no backend lives (a backend ends it
+/// when dropped): before the process exits. Left to the exit, Arnold ends
+/// while threads still use it, and the heap is corrupted.
+pub fn end() {
+    if STARTED.load(Ordering::SeqCst) {
+        return;
+    }
+    let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(ai) = begun.as_deref().and_then(|sdk| Api::load(sdk).ok()) {
+        // SAFETY: started, nothing of Arnold's left (no backend).
+        unsafe { (ai.AiEnd)() };
+    }
+    *begun = None;
 }
 
 /// Arnold's environment, as its own programs (kick) have it from a shell,
@@ -829,7 +844,7 @@ impl Drop for Arnold {
         let mut begun = BEGUN.lock().unwrap_or_else(|e| e.into_inner());
         // SAFETY: once, after everything Arnold made is let go.
         unsafe { (self.ai.AiEnd)() };
-        *begun = false;
+        *begun = None;
         STARTED.store(false, Ordering::SeqCst);
     }
 }
@@ -904,6 +919,12 @@ mod tests {
         assert!(supported("7.5.0.0").is_ok() && supported("8.0.1").is_ok());
         assert!(supported("6.2.1.1").unwrap_err().contains("7 or later"));
         assert!(supported("").is_err());
+    }
+
+    #[test]
+    fn ending_arnold_not_started_does_nothing() {
+        end();
+        assert!(BEGUN.lock().unwrap().is_none());
     }
 
     #[test]

@@ -33,6 +33,15 @@ pub fn with<R>(f: impl FnOnce(&mut Option<Session>) -> R) -> R {
     f(&mut s)
 }
 
+/// Before the program exits: the live render ended (its thread joined, the
+/// renderer let go), then Arnold, started to render or to be asked about.
+pub fn end() {
+    // Dropped outside the lock: the render's thread is joined.
+    let session = with(|s| s.take());
+    drop(session);
+    xms_render::arnold::end();
+}
+
 /// The Viewer renders (with Arnold) in place of drawing the scene.
 static IN_VIEWER: AtomicBool = AtomicBool::new(false);
 
