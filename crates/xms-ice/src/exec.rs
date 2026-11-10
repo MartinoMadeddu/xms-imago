@@ -1223,7 +1223,51 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 *locs(&mut regs[dst]) = found;
                 *floats(&mut regs[dist]) = far;
             }
-            Ins::ClosestPoints {
+            Ins::LoadAtPoints { dst, read, points, at } => {
+                let ty = program.regs[dst];
+                let made = {
+                    let s = env.surface_of(points, regs, uniform);
+                    let cols = env.cols(read, s);
+                    // Numbered across the meshes in order.
+                    let mut first = Vec::with_capacity(s.meshes.len());
+                    let mut n = 0;
+                    for m in &s.meshes {
+                        first.push(n);
+                        n += m.geo.count(Context::Point);
+                    }
+                    let value = |k: i32| {
+                        let Some(k) = usize::try_from(k).ok().filter(|&k| k < n) else {
+                            return zero(ty);
+                        };
+                        let j = first.partition_point(|&f| f <= k) - 1;
+                        match &cols[j] {
+                            Some(c) => item(&s.meshes[j], c, k - first[j], ty),
+                            None => zero(ty),
+                        }
+                    };
+                    let mut out = Reg::Bool(vec![]);
+                    match &regs[at] {
+                        Reg::List(offsets, items) => {
+                            let ks: &[i32] = match &**items {
+                                Reg::Int(v) => v,
+                                _ => &[],
+                            };
+                            into_reg(ty, ks.iter().map(|&k| value(k)), &mut out);
+                            Reg::List(offsets.clone(), Box::new(out))
+                        }
+                        Reg::Int(ks) => {
+                            into_reg(ty, ks.iter().map(|&k| value(k)), &mut out);
+                            out
+                        }
+                        _ => {
+                            fill(&mut out, zero(ty), len);
+                            out
+                        }
+                    }
+                };
+                regs[dst] = made;
+            }
+            Ins::NearPoints {
                 dst,
                 dist,
                 points,
@@ -1252,7 +1296,7 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                     for (i, &p) in o.iter().enumerate() {
                         let within = r.get(i).or(r.first()).copied().unwrap_or(0.0);
                         let many = c.get(i).or(c.first()).copied().unwrap_or(0).max(0) as usize;
-                        s.closest_points(p, many, within, &mut near);
+                        s.near_points(p, many, within, &mut near);
                         found.extend(near.iter().map(|&(k, _)| k as i32));
                         far.extend(near.iter().map(|&(_, d)| d));
                         offsets.push(found.len() as u32);
@@ -2091,7 +2135,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
             Ins::Closest { surface, .. } => {
                 env.surface(surface, &[], false).searchable();
             }
-            Ins::ClosestPoints { points, .. } => {
+            Ins::NearPoints { points, .. } => {
                 env.surface_of(points, &[], false).points_searchable();
             }
             _ => {}

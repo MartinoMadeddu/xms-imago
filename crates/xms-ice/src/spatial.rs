@@ -478,7 +478,7 @@ impl Bvh {
     }
 }
 
-/// Points searched for the nearest ones (Closest Points): a k-d tree over them,
+/// Points searched for the nearest ones (Near Points): a k-d tree over them,
 /// kiddo's immutable one, built in parallel. Kiddo is used here alone, so a
 /// new version of it changes this and nothing else.
 pub struct KdPointTree {
@@ -500,7 +500,7 @@ impl KdPointTree {
     /// The points nearest `p`, nearest first, as their numbers and how far
     /// each is, into `out`: `count` of them (0: every one within the radius),
     /// within `radius` (0 or less: anywhere; a point at the radius is in).
-    pub fn closest(&self, p: [f32; 3], count: usize, radius: f32, out: &mut Vec<(u32, f32)>) {
+    pub fn near(&self, p: [f32; 3], count: usize, radius: f32, out: &mut Vec<(u32, f32)>) {
         use kiddo::SquaredEuclidean;
         out.clear();
         let Some(tree) = &self.tree else {
@@ -588,7 +588,7 @@ mod tests {
     /// within a radius, as a search over them all finds them; none from an
     /// empty tree, or with neither a count nor a radius.
     #[test]
-    fn closest_points_match_brute_force() {
+    fn near_points_match_brute_force() {
         let points: Vec<[f32; 3]> = (0..5000)
             .map(|i| {
                 let i = i as f32;
@@ -608,7 +608,7 @@ mod tests {
                 k as f32 * 0.05 - 2.5,
             ];
             for (count, radius) in [(1, 0.0), (8, 0.0), (8, 0.4), (0, 0.4), (3, 1e-6)] {
-                tree.closest(p, count, radius, &mut out);
+                tree.near(p, count, radius, &mut out);
                 let want = brute(&points, p, count, radius);
                 assert_eq!(out.len(), want.len(), "count {count} radius {radius} at {p:?}");
                 for (got, want) in out.iter().zip(&want) {
@@ -617,15 +617,15 @@ mod tests {
             }
         }
         // A point searching the points it is one of: itself first, at 0.
-        tree.closest(points[42], 2, 0.0, &mut out);
+        tree.near(points[42], 2, 0.0, &mut out);
         assert_eq!(out[0], (42, 0.0));
         // At the radius exactly: in.
         let line = KdPointTree::build(&[[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
-        line.closest([0.0; 3], 0, 1.0, &mut out);
+        line.near([0.0; 3], 0, 1.0, &mut out);
         assert_eq!(out, vec![(0, 0.0), (1, 1.0)]);
-        KdPointTree::build(&[]).closest([0.0; 3], 4, 0.0, &mut out);
+        KdPointTree::build(&[]).near([0.0; 3], 4, 0.0, &mut out);
         assert!(out.is_empty());
-        line.closest([0.0; 3], 0, 0.0, &mut out);
+        line.near([0.0; 3], 0, 0.0, &mut out);
         assert!(out.is_empty(), "no count, no radius: nothing");
     }
 

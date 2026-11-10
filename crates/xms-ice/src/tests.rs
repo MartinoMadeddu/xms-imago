@@ -1777,11 +1777,11 @@ fn floor_input(world: glam::Mat4) -> Vec<Reference> {
     }]
 }
 
-/// Closest Points on the graph's own points: each point's nearest other (the
+/// Near Points on the graph's own points: each point's nearest other (the
 /// second found, itself the first) and how far it is; how many within a
 /// radius; and one origin for all in an Object graph, an array.
 #[test]
-fn closest_points_among_its_own() {
+fn near_points_among_its_own() {
     use super::NEAR_DISTANCES;
     // Along X at 0, 1, 4, 9, 16, 25: each one's nearest other is the one
     // before it (0's is 1).
@@ -1789,7 +1789,7 @@ fn closest_points_among_its_own() {
     let mut g = Graph::default();
     let p = g.add(Op::get("P"), vec![]);
     let near = g.add(
-        Op::ClosestPoints,
+        Op::NearPoints,
         vec![
             Input::Value(Value::Float(0.0)),
             wire(p),
@@ -1812,7 +1812,7 @@ fn closest_points_among_its_own() {
         ],
     );
     let within = g.add(
-        Op::ClosestPoints,
+        Op::NearPoints,
         vec![
             Input::Value(Value::Float(0.0)),
             wire(p),
@@ -1821,8 +1821,25 @@ fn closest_points_among_its_own() {
         ],
     );
     let size = g.add(Op::Array(ArrayOp::Size), vec![wire(within)]);
-    let sets =
-        [("other", other), ("far", how_far), ("within", size)].map(|(name, v)| g.add(Op::set(name), vec![wire(v)]));
+    // Where each one found is (Get Data at Points, at the list), the nearest
+    // other's; and at one number, the last point's.
+    let at = g.add(
+        Op::GetDataAtPoints { name: "P".into() },
+        vec![Input::Value(Value::Float(0.0)), wire(near)],
+    );
+    let other_p = g.add(Op::Array(ArrayOp::Element), vec![wire(at), Input::Value(Value::Int(1))]);
+    let last = g.add(
+        Op::GetDataAtPoints { name: "P".into() },
+        vec![Input::Value(Value::Float(0.0)), Input::Value(Value::Int(5))],
+    );
+    let sets = [
+        ("other", other),
+        ("far", how_far),
+        ("within", size),
+        ("otherP", other_p),
+        ("last", last),
+    ]
+    .map(|(name, v)| g.add(Op::set(name), vec![wire(v)]));
     g.add(
         Op::Root {
             context: Context::Point,
@@ -1842,11 +1859,21 @@ fn closest_points_among_its_own() {
     // Within 3.5: 0 has 0 and 1; 1 has 0, 1 and 4; 4 has 1 and 4; the rest
     // themselves.
     assert_eq!(ints("within"), vec![2, 3, 2, 1, 1, 1]);
+    let xs = |name: &str| -> Vec<f32> {
+        out.attr(Context::Point, name)
+            .and_then(|a| a.column.vec3s())
+            .unwrap()
+            .iter()
+            .map(|v| v[0])
+            .collect()
+    };
+    assert_eq!(xs("otherP"), vec![1.0, 0.0, 1.0, 4.0, 9.0, 16.0]);
+    assert_eq!(xs("last"), vec![25.0; 6]);
 
     // In an Object graph, one origin: the two nearest, an array.
     let mut g = Graph::default();
     let near = g.add(
-        Op::ClosestPoints,
+        Op::NearPoints,
         vec![
             Input::Value(Value::Float(0.0)),
             Input::Value(Value::Vec3([10.0, 0.0, 0.0])),
@@ -2513,7 +2540,7 @@ fn rest_and_animated_curves() -> Vec<Reference> {
 /// its curve (`faceIndex` there), and P read there on the curves at rest and on
 /// the animated ones of the same topology (how guides carry hair).
 #[test]
-fn closest_points_on_curves_are_read_on_their_animated_copy() {
+fn near_points_on_curves_are_read_on_their_animated_copy() {
     let geo = Geo::from_points(vec![[1.5, 0.25, 0.0], [0.5, 1.75, 1.0], [-1.0, 0.0, 0.0]]);
     let mut g = Graph::default();
     let rest = g.add(

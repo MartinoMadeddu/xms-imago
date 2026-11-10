@@ -321,7 +321,7 @@ pub(crate) struct Surface {
     /// not for reading alone.
     index: OnceLock<(Vec<Tri>, Option<Bvh>)>,
     /// Its points, every mesh's in the graph's space, numbered across the
-    /// meshes in order, in a k-d tree: made the first time Closest Points
+    /// meshes in order, in a k-d tree: made the first time Near Points
     /// searches it.
     points: OnceLock<KdPointTree>,
 }
@@ -467,10 +467,10 @@ impl Surface {
         self
     }
 
-    /// The points nearest `p`, nearest first (see `KdPointTree::closest`):
+    /// The points nearest `p`, nearest first (see `KdPointTree::near`):
     /// their numbers across the meshes, and how far each is, into `out`.
-    pub fn closest_points(&self, p: Vec3, count: usize, radius: f32, out: &mut Vec<(u32, f32)>) {
-        self.point_tree().closest(p.to_array(), count, radius, out);
+    pub fn near_points(&self, p: Vec3, count: usize, radius: f32, out: &mut Vec<(u32, f32)>) {
+        self.point_tree().near(p.to_array(), count, radius, out);
     }
 
     /// The sample nearest `p` within `radius` (0 or less: anywhere), and how

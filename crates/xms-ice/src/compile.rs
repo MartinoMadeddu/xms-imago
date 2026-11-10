@@ -36,7 +36,7 @@ pub struct Plan {
     pub(crate) writes: Vec<Write>,
     /// Instancers, made from uniform registers once the plan has run.
     pub(crate) instancers: Vec<InstancerPlan>,
-    /// Surfaces Closest Point on Surface and Closest Points search: the
+    /// Surfaces Closest Point on Surface and Near Points search: the
     /// uniform register of each one's paths (Get Reference's), made into a BVH
     /// (or a k-d tree of its points) when first run.
     pub(crate) surfaces: Vec<usize>,
@@ -217,7 +217,7 @@ pub(crate) enum Ins {
     /// within `radius` (0: anywhere): their numbers into `dst`, how far each
     /// is into `dist`, a list per element, nearest first (`flat`: one origin's,
     /// as an array).
-    ClosestPoints {
+    NearPoints {
         dst: usize,
         dist: usize,
         points: Option<usize>,
@@ -225,6 +225,15 @@ pub(crate) enum Ins {
         radius: usize,
         count: usize,
         flat: bool,
+    },
+    /// Read `read` (a point attribute) at the point numbers in `at` (ints, or
+    /// a list per element), of surface `points` (`None`: the graph's own):
+    /// into `dst`, a list where they are.
+    LoadAtPoints {
+        dst: usize,
+        read: usize,
+        points: Option<usize>,
+        at: usize,
     },
     /// Read number `read` (a `sampled` one) at the samples in `loc`, on surface
     /// `surface` (`None`: the graph's own geometry).
@@ -328,7 +337,7 @@ enum ListOf {
     /// The corners the place at each Polygon in a register is made from
     /// (`triP`, `bary` as a list): as many as its face's kind has.
     Tri(usize),
-    /// The points Closest Points node `n` found for each element.
+    /// The points Near Points node `n` found for each element.
     Near(usize),
 }
 
@@ -620,7 +629,7 @@ impl Lower<'_> {
                 });
             }
             // The points' numbers are its value; their distances kept in `outs`.
-            Some(Op::ClosestPoints) if output == NEAR_DISTANCES => {
+            Some(Op::NearPoints) if output == NEAR_DISTANCES => {
                 self.value(node)?;
                 return self.outs.get(&(node, output)).copied().ok_or(CompileError {
                     node,
@@ -800,7 +809,8 @@ impl Lower<'_> {
             }
             Op::GetArrayData { name, context } => self.get_array_data(node, name, *context)?,
             Op::ClosestPoint => self.closest(node)?,
-            Op::ClosestPoints => self.closest_points(node)?,
+            Op::NearPoints => self.near_points(node)?,
+            Op::GetDataAtPoints { name } => self.get_data_at_points(node, name)?,
             Op::GetArrayDataAt { name, context } => self.array_at(node, name, *context)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
@@ -1567,13 +1577,13 @@ impl Lower<'_> {
         Ok(prim)
     }
 
-    /// Closest Points: the points nearest each origin (input 1), of the
+    /// Near Points: the points nearest each origin (input 1), of the
     /// reference prims (input 0, their paths) or, unwired, of the graph's own
     /// geometry; up to the count (input 3; 0, every one within the radius),
     /// within the radius (input 2; 0, anywhere), nearest first. Their numbers
     /// (its value) and how far each is (kept in `outs`), a list per element;
     /// one origin in all, an array.
-    fn closest_points(&mut self, node: usize) -> Result<Val, CompileError> {
+    fn near_points(&mut self, node: usize) -> Result<Val, CompileError> {
         let points = match self.graph.nodes[node].inputs.first() {
             Some(Input::Wire { .. }) => {
                 let paths = self.input(node, 0, None)?;
@@ -1623,7 +1633,7 @@ impl Lower<'_> {
             (self.varying(origin), self.varying(radius), self.varying(count))
         };
         let dist = self.alloc(flat, Ty::Float);
-        let mut v = self.emit(flat, Ty::Int, |dst| Ins::ClosestPoints {
+        let mut v = self.emit(flat, Ty::Int, |dst| Ins::NearPoints {
             dst,
             dist,
             points,
@@ -1644,6 +1654,74 @@ impl Lower<'_> {
                 ..v
             },
         );
+        Ok(v)
+    }
+
+    /// Get Data at Points: point attribute `name` at the numbers input 1 gives
+    /// (an int, or a list per element), of the prims input 0 names or,
+    /// unwired, the graph's own (numbered as Near Points numbers them): a
+    /// value per number, a list where they are.
+    fn get_data_at_points(&mut self, node: usize, name: &str) -> Result<Val, CompileError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return error(
+                node,
+                "Get Data at Points needs the name of the point attribute it reads",
+            );
+        }
+        let (from, found) = match self.graph.nodes[node].inputs.first() {
+            Some(Input::Wire { .. }) => {
+                let paths = self.input(node, 0, None)?;
+                if paths.ty != Ty::Token || !paths.uniform {
+                    return error(
+                        node,
+                        "The Geometry is the paths of prims on a reference input: wire Get Reference, or leave it for the graph's own points",
+                    );
+                }
+                let Some((_, found, _)) = self.on_refs(name, &[Context::Point]) else {
+                    return error(node, format!("No point attribute '{name}' on the Geometry's prims"));
+                };
+                (Some(paths.reg), found)
+            }
+            _ => {
+                let Some(found) = find_in(self.geo, Context::Point, name) else {
+                    return error(node, format!("No point attribute '{name}' on this geometry"));
+                };
+                (None, found)
+            }
+        };
+        let Some(ty) = found.ty else {
+            return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
+        };
+        let at = self.input(node, 1, Some(Ty::Int))?;
+        if at.ty != Ty::Int {
+            return error(
+                node,
+                "The Points are point numbers: an int, or a list per element (Near Points' Points)",
+            );
+        }
+        let points = from.map(|reg| {
+            self.plan.surfaces.push(reg);
+            self.plan.surfaces.len() - 1
+        });
+        self.plan.reads.push(Read {
+            name: name.to_string(),
+            context: Context::Point,
+            resample: Resample::Average,
+            derived: found.derived,
+            at_location: false,
+            sampled: None,
+            from: points,
+        });
+        let read = self.plan.reads.len() - 1;
+        let mut v = self.emit(at.uniform, ty, |dst| Ins::LoadAtPoints {
+            dst,
+            read,
+            points,
+            at: at.reg,
+        });
+        v.array = at.array;
+        v.of = at.of;
         Ok(v)
     }
 
@@ -2241,7 +2319,10 @@ fn type_of(
         // Its Polygons; its other outputs by `wire_ty`.
         Op::ClosestPoint => Some(Ty::Int),
         // Its points' numbers; their distances by `wire_ty`.
-        Op::ClosestPoints => Some(Ty::Int),
+        Op::NearPoints => Some(Ty::Int),
+        // Of the graph's own points when it has it; a reference prim's is
+        // known when the graph runs.
+        Op::GetDataAtPoints { name } => find_in(geo, Context::Point, name.trim()).and_then(|f| f.ty),
         // Of the graph's own geometry when it has it; a reference mesh's is
         // known when the graph runs.
         Op::GetArrayDataAt { name, .. } if name.trim() == TRI_P => Some(Ty::Vec3),
@@ -2306,7 +2387,7 @@ fn wire_ty(
         }),
         Some(Op::ClosestPoint) if output == CLOSEST_DISTANCE => Some(Ty::Float),
         Some(Op::ClosestPoint) if output == CLOSEST_PARAM_UVS => Some(Ty::Vec2),
-        Some(Op::ClosestPoints) if output == NEAR_DISTANCES => Some(Ty::Float),
+        Some(Op::NearPoints) if output == NEAR_DISTANCES => Some(Ty::Float),
         Some(Op::Decompose(d)) => d.outputs().get(output).map(|o| o.1),
         _ => type_of(graph, geo, context, node, memo, depth),
     }
@@ -2339,7 +2420,12 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
         | Op::Concat
         | Op::GetArrayData { .. }
         | Op::GetArrayDataAt { .. }
-        | Op::ClosestPoints => true,
+        | Op::NearPoints => true,
+        // As its numbers: a list of them, a list of values.
+        Op::GetDataAtPoints { .. } => match n.inputs.get(1) {
+            Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),
+            _ => false,
+        },
         // As its origins: an array of them, an array of samples.
         Op::ClosestPoint => match n.inputs.get(1) {
             Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),

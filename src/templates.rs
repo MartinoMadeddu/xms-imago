@@ -65,6 +65,8 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A subdivided cube wrapped onto a squashed sphere by an ICE graph: Closest Point on Surface on the reference input, P read there, blended from where each point was" },
     Template { by: MARTINO, group: "ICE", name: "Bind simple point deformer", build: ice_binding_alembic,
         hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, Alembic caches from Houdini loaded as USD, in two ICE graphs as Houdini's capture and deform: Capture stores each point's place on the rest head (Polygon and Param UV) and where it is in the frame there; Deform builds that frame on the animated head and puts the point back through it" },
+    Template { by: MARTINO, group: "ICE", name: "Point deform by near points", build: ice_point_deform,
+        hint: "1,000 spheres over a pig's head carried by the head's points, Alembic caches from Houdini loaded as USD, as a simple Houdini Point Deform: each sphere point finds the head's 8 nearest points at rest (Near Points), reads them at rest and animated (Get Data at Points), and moves by their moves, the nearer weighing more" },
     Template { by: MARTINO, group: "ICE", name: "Bind simple hair deform by guides", build: ice_guide_deform,
         hint: "9,534 hairs carried by 314 animated guides, Alembic caches from Houdini loaded as USD: each hair bound to the guide nearest its root, each point read on that guide at its u along the hair, moved and turned with it" },
     Template { by: MARTINO, group: "ICE", name: "Bind rigid hair deform by skin", build: ice_rigid_hair,
@@ -2805,6 +2807,141 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (intrinsic:triP and intrinsic:bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
 }
 
+/// A simple point deformer, as Houdini's Point Deform without its rotations:
+/// the pig's head at rest and animated (one Merge on Reference 1, the
+/// lattice), the spheres over it the scene. Per point, every frame: Near
+/// Points on the rest head (the 8 nearest of its points), Get Data at Points
+/// reading them at rest and animated, and the point moved by their moves
+/// averaged, each weighing `1 - d / (1.01 × the farthest's d)`, so one coming
+/// into or leaving the nearest weighs nothing.
+fn ice_point_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    use xms_ice::{ArrayOp, Math, Value};
+    crate::graph_io::clear(g);
+    g.scene = crate::node_graph::SceneRange {
+        start: 1001,
+        end: 1025,
+        fps_num: 25,
+        fps_den: 1,
+        ..Default::default()
+    };
+    let load = |g: &mut NodeGraphState, name: &str, file: &str, location: &str, x: f32| {
+        g.add_node(
+            name.into(),
+            NodeType::LoadUsd {
+                path: examples::path(file),
+                mode: crate::usd_scene::LoadMode::Reference,
+                location: location.into(),
+                prim: String::new(),
+                convert: false,
+            },
+            p(x, 20.0),
+        )
+    };
+    let rest = load(g, "RestHead", examples::PIG_REST_ABC, "/rest", 40.0);
+    let anim = load(g, "AnimatedHead", examples::PIG_ANIM_ABC, "/anim", 240.0);
+    let spheres = load(g, "Spheres", examples::PIG_SPHERES_ABC, "/spheres", 440.0);
+    let lattice = g.add_node("Lattice".into(), NodeType::merge(), p(140.0, 160.0));
+    g.add_connection(rest, 0, lattice, 0);
+    g.add_connection(anim, 0, lattice, 1);
+    let graph = store.create_subnet("PointDeform".into());
+    if let Some(sub) = store.get_mut(graph) {
+        let root = sub.root().expect("every ICE graph has a root");
+        let reference = |sub: &mut crate::ice::IceGraph, path: &str, y: f32| {
+            ice_add(
+                &mut *sub,
+                IceGraphNodeType::GetReference {
+                    input: 1,
+                    paths: vec![path.into()],
+                },
+                p(40.0, y),
+            )
+        };
+        let math = |sub: &mut crate::ice::IceGraph, op: Math, x: f32, y: f32| {
+            ice_add(&mut *sub, IceGraphNodeType::Math { op }, p(x, y))
+        };
+        let array = |sub: &mut crate::ice::IceGraph, op: ArrayOp, x: f32, y: f32| {
+            ice_add(&mut *sub, IceGraphNodeType::Array { op }, p(x, y))
+        };
+        let at_rest = reference(&mut *sub, "/rest/geo/pighead", 40.0);
+        let moving = reference(&mut *sub, "/anim/geo/pighead", 400.0);
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 220.0));
+        // The head's 8 points nearest each point, at rest.
+        let near = ice_add(&mut *sub, IceGraphNodeType::NearPoints, p(260.0, 120.0));
+        sub.add_connection(at_rest, 0, near, 0);
+        sub.add_connection(pos, 0, near, 1);
+        ice_value(&mut *sub, near, 3, Value::Int(8));
+        // Where they are at rest and now, and how far each moved.
+        let read = |sub: &mut crate::ice::IceGraph, on: NodeId, y: f32| {
+            let n = ice_add(
+                &mut *sub,
+                IceGraphNodeType::GetDataAtPoints { name: "P".into() },
+                p(480.0, y),
+            );
+            sub.add_connection(on, 0, n, 0);
+            sub.add_connection(near, xms_ice::NEAR_POINTS, n, 1);
+            n
+        };
+        let (was, now) = (read(&mut *sub, at_rest, 40.0), read(&mut *sub, moving, 160.0));
+        let moved = math(&mut *sub, Math::Subtract, 700.0, 100.0);
+        sub.add_connection(now, 0, moved, 0);
+        sub.add_connection(was, 0, moved, 1);
+        // Weights: 1 - d / (1.01 × the farthest's d), from 1 at the point to
+        // about 0 at the farthest.
+        let farthest = array(&mut *sub, ArrayOp::Element, 480.0, 300.0);
+        sub.add_connection(near, xms_ice::NEAR_DISTANCES, farthest, 0);
+        ice_value(&mut *sub, farthest, 1, Value::Int(8));
+        let reach = math(&mut *sub, Math::Multiply, 700.0, 300.0);
+        sub.add_connection(farthest, 0, reach, 0);
+        ice_value(&mut *sub, reach, 1, Value::Float(1.01));
+        let ratio = math(&mut *sub, Math::Divide, 920.0, 260.0);
+        sub.add_connection(near, xms_ice::NEAR_DISTANCES, ratio, 0);
+        sub.add_connection(reach, 0, ratio, 1);
+        let weight = math(&mut *sub, Math::Subtract, 1140.0, 260.0);
+        ice_value(&mut *sub, weight, 0, Value::Float(1.0));
+        sub.add_connection(ratio, 0, weight, 1);
+        // Their moves averaged by the weights.
+        let weighed = math(&mut *sub, Math::Multiply, 1360.0, 120.0);
+        sub.add_connection(moved, 0, weighed, 0);
+        sub.add_connection(weight, 0, weighed, 1);
+        let total = array(&mut *sub, ArrayOp::Sum, 1580.0, 120.0);
+        sub.add_connection(weighed, 0, total, 0);
+        let weights = array(&mut *sub, ArrayOp::Sum, 1580.0, 260.0);
+        sub.add_connection(weight, 0, weights, 0);
+        let some = math(&mut *sub, Math::Add, 1800.0, 260.0);
+        sub.add_connection(weights, 0, some, 0);
+        ice_value(&mut *sub, some, 1, Value::Float(1e-6));
+        let offset = math(&mut *sub, Math::Divide, 2020.0, 160.0);
+        sub.add_connection(total, 0, offset, 0);
+        sub.add_connection(some, 0, offset, 1);
+        let out = math(&mut *sub, Math::Add, 2240.0, 200.0);
+        sub.add_connection(pos, 0, out, 0);
+        sub.add_connection(offset, 0, out, 1);
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(2460.0, 200.0));
+        sub.add_connection(out, 0, set, 0);
+        sub.add_connection(set, 0, root, 0);
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.position = p(2680.0, 200.0);
+        }
+    }
+    let deform = g.add_node(
+        "PointDeform".into(),
+        NodeType::Ice {
+            id: graph,
+            name: "PointDeform".into(),
+            references: 1,
+            params: Default::default(),
+        },
+        p(300.0, 300.0),
+    );
+    g.add_connection(spheres, 0, deform, 0);
+    g.add_connection(lattice, 0, deform, 1);
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
+    g.add_connection(deform, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, deform);
+    "Point deform by near points, a simple Houdini Point Deform (no rotations), on Alembic caches from Houdini loaded as USD: the spheres over the pig's head (Spheres, at /spheres) carried by the head's points, at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim), merged as the lattice on Reference 1. Inside PointDeform (down arrow), per point and every frame: Near Points finds the rest head's 8 points nearest it; Get Data at Points reads where they are at rest and now; their moves are averaged, each weighing 1 - d / (1.01 x the farthest's d), and the point moved by it. Change the Count (8) for a smoother or a closer hold. Space plays frames 1001 to 1025.".into()
+}
+
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:
 /// 9,534 hairs and 314 guides of 13 points each over the pig's head, the
 /// guides at rest and animated (frames 1001 to 1050 at 25 fps). Each curves
@@ -4286,6 +4423,45 @@ mod tests {
         assert_eq!(carried.len(), start.len());
         assert!(
             most(&still, &start) < 1e-3,
+            "carried by the rest head: {}",
+            most(&still, &start)
+        );
+        // The animated head is up to 1.43 from the rest head (frame 1001).
+        let moved = most(&carried, &start);
+        assert!(moved > 0.1 && moved < 3.0, "{moved}");
+    }
+
+    /// The point deform by near points: the spheres move with the animated
+    /// head; with the rest head as the moving one too, every point stays
+    /// where it was (no point of the lattice moved).
+    #[test]
+    fn the_point_deform_template_carries_the_spheres_with_the_head() {
+        let name = "Point deform by near points";
+        let spheres = |prims: &[(String, Vec<Vec3>)]| {
+            prims
+                .iter()
+                .find(|(p, _)| p.starts_with("/spheres"))
+                .unwrap_or_else(|| panic!("no spheres in {:?}", prims.iter().map(|(p, _)| p).collect::<Vec<_>>()))
+                .1
+                .clone()
+        };
+        let start = spheres(&ice_points(name, Some("Spheres"), |_, _| {}));
+        let carried = spheres(&ice_points(name, None, |_, _| {}));
+        let still = spheres(&ice_points(name, None, |_, store| {
+            for sg in store.subnets.values_mut().filter(|sg| sg.name == "PointDeform") {
+                for n in sg.nodes.iter_mut() {
+                    if let IceGraphNodeType::GetReference { paths, .. } = &mut n.node_type {
+                        if paths.iter().any(|p| p == "/anim/geo/pighead") {
+                            *paths = vec!["/rest/geo/pighead".into()];
+                        }
+                    }
+                }
+            }
+        }));
+        let most = |a: &[Vec3], b: &[Vec3]| a.iter().zip(b).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+        assert_eq!((carried.len(), still.len()), (start.len(), start.len()));
+        assert!(
+            most(&still, &start) < 1e-5,
             "carried by the rest head: {}",
             most(&still, &start)
         );

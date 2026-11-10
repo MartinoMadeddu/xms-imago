@@ -178,7 +178,7 @@ the tree's parameters).
   Data there (`P`, context Point) gives the curve's points as a list. Hair is
   carried by its guides this way (the "Bind simple hair deform by guides"
   template).
-- **Closest Points** finds, for each **Origin** (a 3D vector: `P` per point,
+- **Near Points** finds, for each **Origin** (a 3D vector: `P` per point,
   or one for all), the nearest points, Houdini's `nearpoints`: of the prims
   its **Geometry** names (Get Reference's paths, taken into the graph's space
   as Closest Point on Surface's meshes are), or, unwired, of the graph's own
@@ -192,7 +192,16 @@ the tree's parameters).
   is its nearest other. The points are put in a k-d tree (kiddo's, built in
   parallel) once per run, the first time they are searched. What it makes
   possible: smoothing and relaxing by neighbours, clumping hair to its
-  nearest guides, falloffs by distance to points.
+  nearest guides, falloffs by distance to points. (In the snippet language to
+  come: `nearpoints()`.)
+- **Get Data at Points** reads a point attribute at points by their numbers,
+  Houdini's `point()`: of the prims its **Geometry** names (numbered across
+  them in order, as Near Points numbers them), or, unwired, of the graph's own.
+  Wire Near Points' Points into its **Points** to read each one found, a list
+  per element that meets the Distances item by item; one number gives one
+  value. P, normals and vectors are taken into the graph's space; a number no
+  point has reads as zero. The "Point deform by near points" template carries
+  spheres by the points of a head this way.
 - **`intrinsic:curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.
@@ -446,7 +455,7 @@ parameters.
 - Neighbours in the same context (a point's neighbouring points, through the
   faces)
 - Closest Point on the graph's own surface; ray casts (Raycast on Surface); Get
-  Array Data on an array of places; Closest Points from an array of origins (a
+  Array Data on an array of places; Near Points from an array of origins (a
   list each)
 - Cubic curves searched along the curve they draw (today along their control
   points), and a curve's Param UV by length as an option (Houdini's `primuvconvert`)

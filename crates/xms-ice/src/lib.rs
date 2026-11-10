@@ -24,7 +24,7 @@
 //!   `xms_geo::intrinsics`'s: the one list ICE and the Primitive Inspector
 //!   share.
 //! - `surface`: the reference inputs' meshes a graph queries (Closest Point on
-//!   Surface, Closest Points), taken into the graph's space, and read at
+//!   Surface, Near Points), taken into the graph's space, and read at
 //!   samples.
 //! - `spatial`: a BVH (rray's builder), the closest point on a triangle, and a
 //!   k-d tree over points (`KdPointTree`, kiddo's).

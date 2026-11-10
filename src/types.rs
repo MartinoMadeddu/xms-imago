@@ -1358,11 +1358,19 @@ pub enum IceGraphNodeType {
     /// curves (Geometry, Get Reference's paths) to each Origin, within a Radius, and
     /// how far each is (see `xms_ice::Op::ClosestPoint`).
     ClosestPoint,
-    /// Closest Points: the points nearest each Origin, of reference prims
+    /// Near Points: the points nearest each Origin, of reference prims
     /// (Geometry) or the graph's own, up to a Count within a Radius, as a list
     /// per element of their numbers and distances (see
-    /// `xms_ice::Op::ClosestPoints`).
-    ClosestPoints,
+    /// `xms_ice::Op::NearPoints`). Saved as `ClosestPoints` before its
+    /// name changed.
+    #[serde(alias = "ClosestPoints")]
+    NearPoints,
+    /// Get Data at Points: point attribute `name` at points by their numbers
+    /// (Near Points' Points), of reference prims or the graph's own (see
+    /// `xms_ice::Op::GetDataAtPoints`).
+    GetDataAtPoints {
+        name: String,
+    },
     /// Random rotations up along normals, one per element or an array (see
     /// `xms_ice::Op::RandomOrientation`).
     RandomOrientation {
@@ -1503,7 +1511,8 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
         IceGraphNodeType::ClosestPoint => "Closest Point on Surface",
-        IceGraphNodeType::ClosestPoints => "Closest Points",
+        IceGraphNodeType::NearPoints => "Near Points",
+        IceGraphNodeType::GetDataAtPoints { .. } => "Get Data at Points",
         IceGraphNodeType::GetArrayData { .. } => "Get Array Data",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::Concat => "Concatenate Arrays",
@@ -1540,7 +1549,8 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Random { .. } => "⚂",
         IceGraphNodeType::Scatter { .. } => "⁘",
         IceGraphNodeType::ClosestPoint => "⌖",
-        IceGraphNodeType::ClosestPoints => "⁙",
+        IceGraphNodeType::NearPoints => "⁙",
+        IceGraphNodeType::GetDataAtPoints { .. } => "▷",
         IceGraphNodeType::GetArrayData { .. } => "▶",
         IceGraphNodeType::RandomOrientation { .. } => "⟳",
         IceGraphNodeType::Concat => "⧺",
