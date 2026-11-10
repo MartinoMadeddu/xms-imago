@@ -8,11 +8,59 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-- **The Viewer starts Shaded**, its shading not remembered between sessions. **Display Attribute**'s list is saved with the graph file, Show attributes off when it opens. **A selected prim's wireframe** is drawn over it in a bright blue, whatever the shading, its box hidden behind what is in front; **F frames the prims selected**.
-- **Box selection in the Viewer:** drag a box to select every prim it touches (a mesh's triangle, a light's or camera's lines), behind others too; Ctrl adds, Shift takes away, as in Edit Poly. Drawn in the Viewer's selection blue, Edit Poly's box too.
-- **Graphs (scene graph, ICE, MaterialX):** one selection blue, a quarter of the way from the old muted one to the view flag's: around selected nodes, under selected wires, around picked ports. The box dragged to select keeps its look, see-through in the dark themes (no longer a bright wash), the same in ICE and MaterialX as in the scene graph.
-- **Dark themes:** Hidden Line Removal and Wireframe's wires a mid grey, not white; the Primitive Inspector's row numbers and intrinsics' headers a brighter blue, easier to read.
-- **Display Attribute** (the Viewer's Attributes menu): attributes drawn over the prims, each as its type is: floats as colours through a ramp (automatic range, or Min and Max typed), colours and UVs as themselves, vectors and normals as lines, integers, text and lists as labels; intrinsics (point, face and corner numbers, normals, areas) from a list; several at once; on the Selected prims or All, within limits the Viewer says it reached.
+## [0.3.0] - 2026-11-10
+
+A milestone: the Viewer becomes a place to look at data, not only shapes, and
+the 0.2 series (rendering with Arnold in Imago, volumes, renderers' shaders,
+the scene's units and rate) is gathered into one release.
+
+### New in 0.3.0
+
+- **Display Attribute** (the Viewer's **A** button, top left): attributes drawn
+  over the prims, each as its type asks. Floats as colours through a ramp
+  (automatic range, or Min and Max typed), colours and UVs as themselves,
+  vectors and normals as lines, integers, text and lists as labels hidden
+  behind what is in front; intrinsics (point, face and corner numbers,
+  normals, areas) from a list. Several at once, on the Selected prims or All,
+  within limits the Viewer says it reached. The list is saved with the graph,
+  Show off when it opens.
+- **Box selection in the Viewer:** drag a box to select every prim it touches
+  (a mesh's triangles, a light's or camera's lines), behind others too; Ctrl
+  adds, Shift takes away, as in Edit Poly.
+- **Selection you can see:** a selected prim's wireframe drawn over it in a
+  bright blue of the Viewer's own, whatever the shading, its box hidden behind
+  what is in front; **F** frames the prims selected.
+- **The Viewer starts Shaded**; its shading is no longer kept between sessions.
+- **Graphs (scene graph, ICE, MaterialX):** one selection blue for selected
+  nodes, wires and picked ports; the box dragged to select nodes is the same in
+  all three, and see-through in the dark themes (it was a bright wash).
+- **Dark themes:** Hidden Line Removal and Wireframe's wires a mid grey, not
+  white; the Primitive Inspector's row numbers and intrinsics' headers a
+  brighter blue.
+
+### The 0.2 series in short
+
+- **Rendering with Arnold in Imago** (0.2.5 to 0.2.9): loaded from your SDK at
+  run time, nothing to build; IPR into the Image Viewer, every AOV bucket by
+  bucket, or live in the Viewer; changes sent to Arnold as you work; the
+  `xms` command line headless for farms (`--render`, `--write`, `--run`,
+  `--tx`); Arnold's log in Imago; it ends cleanly when Imago quits (0.2.12).
+- **Shading** (0.2.12): MaterialX graphs put out volumes as well as surfaces;
+  a renderer's own MaterialX definitions (Arnold's 140 shaders, from its SDK)
+  offered as nodes, turned on in File > Settings > Renderers.
+- **Volumes** (0.2.12): Load VDB brings OpenVDB files and sequences in as USD
+  Volumes, a field per grid, rendered by Arnold with `ai_standard_volume`.
+- **The scene's up axis, unit and rate** (0.2.9), saved with the graph, and
+  composition as USD has it: a Merge's later input the stronger.
+- **ICE** (0.2.11): Near Points (a k-d tree over the points), Get Data at an
+  index, lists stored per element and read back: capture once, deform every
+  frame.
+- **Images** (0.2.2, 0.2.3): Load Image and image operators (Merge, Colour
+  Correct, Shuffle, Crop, Reformat, Blur, Write Image…) in ACEScg; the Image
+  Viewer on the GPU.
+- **Releases** (0.2.1): versioned downloads side by side, the version and
+  build shown in Imago and written into saved graphs.
+
 ## [0.2.12] - 2026-11-10
 
 - **Renderers' shaders from their SDKs:** File > Settings > Renderers > **Load Shader Definitions from SDK** (saved with the graph; `XMS_RENDERER_SHADERS=1` turns it on for every graph) offers every shader of a renderer's own MaterialX definitions in MaterialX graphs: Arnold's 140, as `ai_standard_surface`, `ai_image`…, under Arnold in the add menu. Generalised through the renderer definitions' `shaders` block, so other renderers shipping MaterialX definitions work the same way. A node whose definition is not loaded is kept, values and wires, and written out as it was.

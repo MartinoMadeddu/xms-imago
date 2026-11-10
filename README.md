@@ -33,7 +33,8 @@ One program, a few crates of its own, and open libraries under them.
 - **Edit Poly:** a whole modelling session in one node.
 - **Rigging-Mocap:** procedural rigging and dynamic/ragdoll mo-cap clean up and
   process.
-- **The Viewer and the Image Viewer:** wgpu, colour managed with OpenColorIO.
+- **The Viewer and the Image Viewer:** wgpu, colour managed with OpenColorIO;
+  attributes drawn over the prims in the Viewer (Display Attribute).
 - **Rendering:** UsdRender prims from the graph; Arnold renders in Imago itself
   (IPR, every AOV bucket by bucket into the Image Viewer, or live in the
   Viewer), Karma and others through their command lines.
