@@ -88,6 +88,14 @@ pub enum NodeType {
         #[serde(default)]
         light: crate::core::light::Light,
     },
+    /// An OpenVDB file, or one of a sequence (`smoke.$F4.vdb`, `####`): a
+    /// USD `Volume` at its Primitive Location (`/volumes/$OPNAME` by
+    /// default), a field per grid. See `core::volume`.
+    LoadVdb {
+        path: String,
+        #[serde(default)]
+        location: String,
+    },
     /// An image file, or one of a sequence (`plate.####.exr`, `$F4`): its
     /// pixels, every layer of an EXR. What the Image Viewer shows when it is
     /// viewed. `colour`: the colour space it is in, from the config; empty, by
@@ -1085,6 +1093,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Light { .. } => "💡",
         NodeType::LoadUsd { .. } => "📂",
         NodeType::LoadImage { .. } => "🖼",
+        NodeType::LoadVdb { .. } => "☁",
         NodeType::ImageMerge { .. } => "⧉",
         NodeType::ColourCorrect { .. } => "🎚",
         NodeType::Shuffle { .. } => "⇄",
@@ -1178,6 +1187,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Light { light, .. } => light.label(),
         NodeType::LoadUsd { .. } => "Load USD",
         NodeType::LoadImage { .. } => "Load Image",
+        NodeType::LoadVdb { .. } => "Load VDB",
         NodeType::ImageMerge { .. } => "Image Merge",
         NodeType::ColourCorrect { .. } => "Colour Correct",
         NodeType::Shuffle { .. } => "Shuffle",
@@ -1919,6 +1929,9 @@ pub struct Prim {
     /// A light: this prim is one (a UsdLux light), with no geometry; where it
     /// is and which way it faces is its placement. `None` for the rest.
     pub light: Option<std::sync::Arc<crate::core::light::Light>>,
+    /// A volume: this prim is one (a USD `Volume`, its fields in a VDB file),
+    /// with no geometry of its own. `None` for the rest.
+    pub volume: Option<std::sync::Arc<crate::core::volume::Volume>>,
 }
 
 /// Which instancer a prototype mesh is drawn by, and what its placements were
@@ -2065,13 +2078,18 @@ impl Prim {
             camera: None,
             render: None,
             light: None,
+            volume: None,
         }
     }
 
     /// Whether it is geometry, drawn and bound to materials: not a material, a
-    /// camera, a render prim or a light.
+    /// camera, a render prim, a light or a volume (bound to materials too).
     pub fn is_geometry(&self) -> bool {
-        self.shading.is_none() && self.camera.is_none() && self.render.is_none() && self.light.is_none()
+        self.shading.is_none()
+            && self.camera.is_none()
+            && self.render.is_none()
+            && self.light.is_none()
+            && self.volume.is_none()
     }
 
     /// The mesh where it is drawn: as it is when in place, else every copy
@@ -2304,6 +2322,7 @@ impl EvalResult {
                             camera: p.camera.clone(),
                             render: p.render.clone(),
                             light: p.light.clone(),
+                            volume: p.volume.clone(),
                         });
                     }
                 }
@@ -2945,6 +2964,8 @@ impl SceneHierarchy {
                             "🎥"
                         } else if prim.light.is_some() {
                             "💡"
+                        } else if prim.volume.is_some() {
+                            "☁"
                         } else if prim.instancing.is_some() {
                             "⁘"
                         } else if let Some(r) = &prim.render {
@@ -2969,6 +2990,7 @@ impl SceneHierarchy {
                             _ if prim.render.is_some() => {
                                 prim.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into()
                             }
+                            _ if prim.volume.is_some() => "Volume".into(),
                             Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                             Some(crate::core::geo::Topology::Points) => "Points".into(),
                             _ => "Mesh".into(),

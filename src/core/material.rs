@@ -477,7 +477,10 @@ pub fn bind(
         .filter(|(_, row)| !row.trim().is_empty())
         .filter_map(|(k, row)| chosen(k, to, &places).map(|m| (row.as_str(), m)))
         .collect();
-    for p in prims.iter_mut().filter(|p| p.is_geometry() && p.instancing.is_none()) {
+    for p in prims
+        .iter_mut()
+        .filter(|p| (p.is_geometry() || p.volume.is_some()) && p.instancing.is_none())
+    {
         if let Some((_, m)) = wanted
             .iter()
             .rev()

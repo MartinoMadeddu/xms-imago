@@ -1198,6 +1198,51 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
         }
         return;
     }
+    // A volume: where it is, its box, its material, and a field per grid,
+    // each an OpenVDBAsset below it naming the file and the grid.
+    if let Some(v) = &p.volume {
+        spec.def = Some("Volume");
+        let place = match &p.place {
+            Placement::One(m) => root.as_dmat4().inverse() * m.as_dmat4(),
+            _ => root.as_dmat4().inverse(),
+        };
+        if place != DMat4::IDENTITY {
+            spec.lines
+                .push(format!("matrix4d xformOp:transform = {}", matrix(&place)));
+            spec.lines
+                .push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
+        }
+        if p.purpose != Purpose::Default {
+            spec.lines
+                .push(format!("uniform token purpose = \"{}\"", purpose_token(p.purpose)));
+        }
+        if let Some((lo, hi)) = v.bounds() {
+            let f = |x: [f64; 3]| v3(&x.map(|c| c as f32));
+            spec.lines.push(format!("float3[] extent = [{}, {}]", f(lo), f(hi)));
+        }
+        if let Some(m) = &p.material {
+            bind(spec, Some(m));
+        }
+        for g in v.grids.iter().filter(|g| g.is_field()) {
+            let field = &g.field;
+            spec.lines.push(format!("rel field:{field} = <{}/{field}>", p.path));
+            let child = spec.children.entry(field.clone()).or_default();
+            child.def = Some("OpenVDBAsset");
+            child
+                .lines
+                .push(format!("asset filePath = @{}@", v.file.replace('@', "")));
+            child
+                .lines
+                .push(format!("token fieldName = \"{}\"", g.name.replace('"', "")));
+            if g.index > 0 {
+                child.lines.push(format!("int fieldIndex = {}", g.index));
+            }
+        }
+        for (name, value) in p.props.iter() {
+            property(spec, name, value);
+        }
+        return;
+    }
     // A camera: where it is, and its lens.
     if let Some(c) = &p.camera {
         spec.def = Some("Camera");
@@ -1708,7 +1753,11 @@ def Xform "set" {{
         g.set(
             Context::Point,
             "cageWeight",
-            Attr::lists(Column::Float(Arc::new(vec![1.0, 0.5, 0.0, 1.0, 0.25, 0.0])), 3, Role::None),
+            Attr::lists(
+                Column::Float(Arc::new(vec![1.0, 0.5, 0.0, 1.0, 0.25, 0.0])),
+                3,
+                Role::None,
+            ),
         );
         let mut spec = Spec::default();
         geometry(&mut spec, &g, false);
@@ -2224,6 +2273,58 @@ def BasisCurves "hair" {
     /// A camera made by the Camera operator is written as a `def Camera` with
     /// its lens; a file's camera moved by a Transform as its new transform.
     /// Read back, both are where Imago showed them.
+    /// A volume: a USD Volume, its box, a field per grid naming the file and
+    /// the grid (a second of the same name by its index), no field for point
+    /// data; a sequence's file at each frame.
+    #[test]
+    fn volumes_are_written_with_a_field_per_grid() {
+        use crate::core::volume::{Grid, Volume};
+        let grid = |name: &str, field: &str, index: usize, value_type: &str| Grid {
+            name: name.into(),
+            field: field.into(),
+            index,
+            value_type: value_type.into(),
+            bounds: Some(([-1.0, 0.0, -1.0], [1.0, 2.0, 1.0])),
+            ..Default::default()
+        };
+        let at = |frame: u32| {
+            let volume = Volume {
+                file: format!("/fx/smoke.{frame:04}.vdb"),
+                grids: vec![
+                    grid("density", "density", 0, "float"),
+                    grid("density", "density_1", 1, "float"),
+                    grid("points", "points", 0, "ptdataidx32"),
+                ],
+            };
+            vec![Prim {
+                volume: Some(std::sync::Arc::new(volume)),
+                place: Placement::One(Mat4::IDENTITY),
+                ..Prim::new("/volumes/smoke".into(), crate::types::MeshData::default())
+            }]
+        };
+        let out = std::env::temp_dir().join("xms_usd_write_test/volume_over.usda");
+        let (text, report) = override_layer(&at(1), &out, &SceneRange::default()).unwrap();
+        assert_eq!(report.added, 1);
+        for line in [
+            "def Volume \"smoke\"",
+            "float3[] extent = [(-1, 0, -1), (1, 2, 1)]",
+            "rel field:density = </volumes/smoke/density>",
+            "rel field:density_1 = </volumes/smoke/density_1>",
+            "def OpenVDBAsset \"density_1\"",
+            "asset filePath = @/fx/smoke.0001.vdb@",
+            "token fieldName = \"density\"",
+            "int fieldIndex = 1",
+        ] {
+            assert!(text.contains(line), "{line} missing in\n{text}");
+        }
+        assert!(!text.contains("field:points"), "point data is not a field: {text}");
+        let shown: Vec<(f64, Vec<Prim>)> = vec![(1.0, at(1)), (2.0, at(2))];
+        write_frames(&shown, &out, &SceneRange::default()).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        assert!(text.contains("asset filePath.timeSamples = {"), "{text}");
+        assert!(text.contains("2: @/fx/smoke.0002.vdb@"), "{text}");
+    }
+
     #[test]
     fn cameras_are_written_and_read_back() {
         let pass = |_: crate::types::IceGraphId, g: &Geo, _: &[crate::ice::Reference]| g.clone();

@@ -9,6 +9,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 |---|---|
 | Load USD | Reads a `.usda`, `.usdc`, `.usdz` or Alembic `.abc` file, composed. Gives one primitive per mesh, curves or points prim. Its Mode: sublayered at the file's paths, or the file's default prim referenced or payloaded at a Primitive Location |
 | Cube, Sphere, Grid | A shape, as one primitive at its Primitive Location |
+| Load VDB | An OpenVDB file, or a sequence, as a USD `Volume` at its Primitive Location: a field per grid (see [Volumes](#volumes)) |
 | Merge | Any number of inputs as one: primitives side by side, or one mesh (its Mode) |
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
@@ -626,6 +627,36 @@ TIFF, TGA) and ✕ to clear it.
 Not yet: lighting the Viewer with them, a dome's image as its environment, a
 file's light's values edited, ShapingAPI, ShadowAPI and portals in the operator.
 
+## Volumes
+
+**Load VDB** (File) puts an OpenVDB file, or a sequence (`smoke.$F4.vdb`,
+`####`; picking one frame takes the sequence), in the scene as a USD
+`Volume` at its Primitive Location (`/volumes/$OPNAME` by default). Imago
+reads the file's header and each grid's metadata, not its voxels: the
+grids' names, value types, classes (level set, fog volume), voxel sizes,
+active voxel counts and bounds, as OpenVDB writes them with each grid. A
+renderer reads the file itself.
+
+- **Write USD** writes `def Volume` with its `extent`, its material binding,
+  and a field per grid: `rel field:density` to an `OpenVDBAsset` below it,
+  with `asset filePath` (the file of each frame, as time samples for a
+  sequence) and `token fieldName`. A second grid of the same name is
+  `density_1`, with its `fieldIndex`. Point data grids are listed but not
+  written as fields.
+- **The Viewer** draws its box, in light blue. Transform moves it. A file written without
+  OpenVDB's statistics does not say its bounds: no box, no `extent`.
+- **The Primitive Inspector**'s Properties tab lists its file and each grid.
+- **Rendering:** Arnold's USD reader renders the `Volume` from the file. A
+  volume needs a volume shader to be seen (Arnold's `standard_volume`), bound
+  with Material Binding.
+
+The file is read with [OpenVDB-rs](https://github.com/OxidePicturesAlliance/vdb),
+a Rust port of OpenVDB, pinned to a commit.
+
+Not yet: Volume prims of a loaded stage in the Viewer (they render, as part of
+the stage, but are not drawn), the voxels themselves (a slice or points in the
+Viewer, sampling in ICE, meshing), instance grids' bounds.
+
 ## Write USD
 
 Write USD writes what the scene graph changed as a `.usda` override layer. The
@@ -736,7 +767,7 @@ makes it the scene's frames and rate.
   clips; a file's camera's apertures and clipping range, and lights' shapes, are
   read at the start time
 - Per-face material subsets, creases and holes (kept in the file, not shown),
-  NURBS, volumes, implicit shapes (sphere, cube, cylinder…)
+  NURBS, a stage's volumes, implicit shapes (sphere, cube, cylinder…)
 - Point instancers nested more than four deep (listed in the node's "Not read in
   full")
 - Materials with a graph inside (compounds); editing materials read from a

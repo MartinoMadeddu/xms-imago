@@ -454,6 +454,7 @@ pub fn scene_properties(
                 _ if p.camera.is_some() => "Camera".into(),
                 _ if p.light.is_some() => p.light.as_ref().map(|l| l.kind.usd()).unwrap_or_default().into(),
                 _ if p.render.is_some() => p.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into(),
+                _ if p.volume.is_some() => "Volume".into(),
                 Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                 Some(crate::core::geo::Topology::Points) => "Points".into(),
                 _ => "Mesh".into(),
@@ -608,6 +609,10 @@ pub fn scene_properties(
                 // A light: every value it has, the schema's where none is set.
                 if let Some(l) = &p.light {
                     values.extend(l.properties());
+                }
+                // A volume: its file and each grid, as its fields.
+                if let Some(v) = &p.volume {
+                    values.extend(v.properties());
                 }
                 // Curves: their type, basis and wrap as they are now.
                 if matches!(
@@ -842,6 +847,7 @@ fn shape_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &str)
             NodeType::CreateGrid { location, .. } => Some(prim_location(location, "/grid")),
             NodeType::Camera { location, .. } => Some(prim_location(location, "/camera")),
             NodeType::Light { location, .. } => Some(prim_location(location, crate::core::light::DEFAULT_LOCATION)),
+            NodeType::LoadVdb { location, .. } => Some(prim_location(location, crate::core::volume::DEFAULT_LOCATION)),
             _ => None,
         }
     };

@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Load VDB:** an OpenVDB file or sequence in the scene as a USD Volume, a field per grid; its box in the Viewer, its grids in the Primitive Inspector; Write USD writes it for Arnold and any renderer to read the file (read with OpenVDB-rs, a Rust port of OpenVDB).
 - **Primitive Inspector:** list attributes (ICE's lists stored with Set Data) shown, one `[a, b, c]` cell per row; the Point, Face, Corner and Object tabs count the attributes they hold, not the elements (those are intrinsics, in the Object tab).
 - **Arnold ends cleanly** when Imago closes or quits (and after `--headless`): the live render stopped and let go before Arnold releases its resources, no more heap corruption ("Incorrect checksum for freed object") at exit.
 

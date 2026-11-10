@@ -512,8 +512,9 @@ fn prim_changes(b: &Prim, p: &Prim, axes: Mat4) -> Option<Vec<Edit>> {
         };
         edit(Change::Transform((axes.inverse() * world).to_cols_array_2d()));
     }
-    // Geometry: a light, camera, material or render prim has none.
-    let bare = p.light.is_some() || p.camera.is_some() || p.shading.is_some() || p.render.is_some();
+    // Geometry: a light, camera, material, render prim or volume has none.
+    let bare =
+        p.light.is_some() || p.camera.is_some() || p.shading.is_some() || p.render.is_some() || p.volume.is_some();
     if !same(&b.geo, &p.geo) {
         edit(Change::Points(points_only(b.geo.as_deref()?, p.geo.as_deref()?)?));
     } else if !bare && p.geo.is_none() && !Arc::ptr_eq(&b.mesh, &p.mesh) {

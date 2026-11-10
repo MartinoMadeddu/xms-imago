@@ -832,6 +832,7 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
         camera: None,
         render: None,
         light: None,
+        volume: None,
     })
 }
 

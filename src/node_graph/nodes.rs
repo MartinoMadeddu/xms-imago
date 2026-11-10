@@ -63,6 +63,21 @@ pub fn evaluate_node_type(
             )),
         )])),
 
+        // A volume: the grids of the file of the frame cooked, no geometry.
+        NodeType::LoadVdb { path, location } => {
+            let frame = crate::usd_scene::cook_frame().unwrap_or(1.0).round() as i64;
+            let file = crate::core::image_file::path_at(path, frame);
+            let volume = crate::core::volume::cached(&file).ok()?;
+            Some(EvalResult::Named(vec![Prim {
+                volume: Some(volume),
+                place: Placement::One(glam::Mat4::IDENTITY),
+                ..Prim::new(
+                    crate::types::prim_location(location, crate::core::volume::DEFAULT_LOCATION),
+                    MeshData::default(),
+                )
+            }]))
+        }
+
         NodeType::LoadUsd {
             path,
             mode,
@@ -535,6 +550,7 @@ pub fn evaluate_node_type(
                         camera: None,
                         render: None,
                         light: None,
+                        volume: None,
                     })
                     .collect(),
             ))
@@ -823,6 +839,7 @@ pub fn stage_prims(
                 camera: None,
                 render: None,
                 light: None,
+                volume: None,
             })
         })
         .collect();
@@ -869,6 +886,7 @@ pub fn stage_prims(
             camera: None,
             render: None,
             light: None,
+            volume: None,
         })
     }));
     // Each camera, a primitive with no geometry. Its geometry is the same

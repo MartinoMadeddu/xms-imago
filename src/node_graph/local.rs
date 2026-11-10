@@ -198,7 +198,7 @@ impl NodeGraphState {
                 r = union(r, input(0));
             }
             // A sequence's frames, as they are on disk.
-            NodeType::LoadImage { path, .. } => {
+            NodeType::LoadImage { path, .. } | NodeType::LoadVdb { path, .. } => {
                 if let Some((a, b)) = crate::core::image_file::sequence_range(path) {
                     r = union(r, Some((a as f64, b as f64)));
                 }

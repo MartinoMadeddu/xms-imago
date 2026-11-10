@@ -577,6 +577,19 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     s.lines.extend_from_slice(&col);
                 }
             }
+            // Volumes: the box around their grids.
+            let cloud = [0.55, 0.75, 0.95, 1.0];
+            for p in prims.iter().filter(|p| !crate::core::properties::invisible(p)) {
+                let (Some(v), Some(world)) = (&p.volume, p.place.matrices().first()) else {
+                    continue;
+                };
+                for [a, b] in v.glyph(*world) {
+                    s.lines.extend_from_slice(&a.to_array());
+                    s.lines.extend_from_slice(&cloud);
+                    s.lines.extend_from_slice(&b.to_array());
+                    s.lines.extend_from_slice(&cloud);
+                }
+            }
             // Purposes the Scene Explorer's toggles leave out are not drawn.
             let filtered = crate::timings::span("viewer: which prims are drawn");
             let prims: Vec<Prim> = prims

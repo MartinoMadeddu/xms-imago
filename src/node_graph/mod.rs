@@ -662,7 +662,7 @@ impl NodeGraphState {
                 vec![o("Scene")],
             ),
             NodeType::Material { .. } | NodeType::MaterialX { .. } => (vec![], vec![o("Material")]),
-            NodeType::Camera { .. } | NodeType::Light { .. } => (vec![], vec![o("Scene")]),
+            NodeType::Camera { .. } | NodeType::Light { .. } | NodeType::LoadVdb { .. } => (vec![], vec![o("Scene")]),
             NodeType::RenderCommons { .. }
             | NodeType::RenderSettings { .. }
             | NodeType::RenderVariables { .. }
@@ -1400,6 +1400,10 @@ impl NodeGraphState {
             NodeType::LoadImage { path, colour } => {
                 let path = crate::core::image_file::path_at(path, self.frame().round() as i64);
                 (file_stamp(&path), &path, colour).hash(&mut h)
+            }
+            NodeType::LoadVdb { path, .. } => {
+                let path = crate::core::image_file::path_at(path, self.frame().round() as i64);
+                (file_stamp(&path), &path).hash(&mut h)
             }
             // A stage read in the background gives more when its boxes,
             // then the whole of it, are read.

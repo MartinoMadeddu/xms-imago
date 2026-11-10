@@ -49,6 +49,8 @@ pub mod uv;
 pub mod variant;
 /// Variables in paths and command lines: `$GDIR`, `$F4`…
 pub mod vars;
+/// Volumes: OpenVDB files as USD `Volume`s, their grids as fields.
+pub mod volume;
 /// Image files for Load Image: sequences, reading, colour spaces.
 pub mod image_file;
 /// Image operators' work: merge, colour correct, shuffle, crop, resize, blur.

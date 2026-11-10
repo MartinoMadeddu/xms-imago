@@ -45,6 +45,9 @@ rayon = "1"
 # Pure-Rust OpenUSD: .usda/.usdc/.usdz with composition
 openusd = "0.1.4"
 ufbx = "0.11"
+# OpenVDB files read in Rust: their grids' names, types and bounds (no voxels
+# yet). Pinned to a commit: the crate is young and not on crates.io.
+vdb = { package = "OpenVDB-rs", git = "https://github.com/OxidePicturesAlliance/vdb", rev = "88639ae15514a2f2fc2e00d4e8c7307f20ff3beb", default-features = false, features = ["read"] }
 flate2 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

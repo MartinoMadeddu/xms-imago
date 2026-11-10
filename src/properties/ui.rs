@@ -827,6 +827,32 @@ pub fn draw_properties(
                 colour_space_row(f, colour, path, egui::Id::new(("load_image_colour", sel_id)));
             });
         }
+        NodeType::LoadVdb { path, location } => {
+            group(ui, "File", Some("An OpenVDB file, or one of a sequence: $F4 is the frame in four digits (#### too). Picking one frame of a sequence takes the whole sequence. Imago reads its grids' names, types and bounds; renderers read the file itself"), |f| {
+                path_row(f, path, "/path/to/smoke.####.vdb", io, sel_id, BrowseMode::File, "Open VDB", &["vdb"]);
+                let frame = crate::core::vars::globals().frame;
+                let file = crate::core::image_file::path_at(path, frame);
+                if path.trim().is_empty() {
+                    f.status(Status::Info, "No file set");
+                } else {
+                    if file != path.trim() { f.status(Status::Info, format!("→ {file}")); }
+                    match crate::core::volume::cached(&file) {
+                        Ok(v) => {
+                            let names: Vec<&str> = v.grids.iter().map(|g| g.name.as_str()).collect();
+                            f.status(Status::Ok, format!("{} grid(s): {}", names.len(), names.join(", ")));
+                            if v.bounds().is_none() {
+                                f.status(Status::Info, "The file does not give its bounds: no box in the Viewer, no extent written");
+                            }
+                        }
+                        Err(e) => f.status(Status::Bad, e),
+                    }
+                }
+                if let Some((a, b)) = crate::core::image_file::sequence_range(path) {
+                    f.value("Sequence", format!("frames {a} to {b}"));
+                }
+            });
+            location_group(ui, location, crate::core::volume::DEFAULT_LOCATION);
+        }
         NodeType::LoadUsd { path, mode, location, prim, convert } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd", "abc"]);

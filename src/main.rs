@@ -208,7 +208,9 @@ pub(crate) fn draw_ui(
                 if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == id) {
                     match &mut node.node_type {
                         // One frame of a sequence picked: the sequence ($F4).
-                        NodeType::LoadImage { path, .. } => *path = crate::core::image_file::as_sequence(&text),
+                        NodeType::LoadImage { path, .. } | NodeType::LoadVdb { path, .. } => {
+                            *path = crate::core::image_file::as_sequence(&text)
+                        }
                         NodeType::LoadUsd { path, .. }
                         | NodeType::WriteImage { path, .. }
                         | NodeType::WriteUsd { path, .. }
