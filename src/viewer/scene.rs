@@ -10,11 +10,13 @@ use glam::{Mat4, Vec3};
 use crate::types::{EvalResult, MeshData, Prim, Purpose};
 use crate::viewport::display::{wire_edges, DisplayMode};
 
-/// Floats per vertex: position, normal, texture coordinates.
-pub const VERTEX_FLOATS: usize = 8;
+/// Floats per vertex: position, normal, texture coordinates, and a colour
+/// packed in the bits of the last (`attributes::packed`; white but for an
+/// attribute shown).
+pub const VERTEX_FLOATS: usize = 9;
 
-/// A mesh as the GPU draws it: position, normal and UV per vertex, triangles
-/// (or, for edges, pairs).
+/// A mesh as the GPU draws it: position, normal, UV and colour per vertex,
+/// triangles (or, for edges, pairs).
 pub struct Geometry {
     pub vertices: Vec<f32>,
     pub indices: Vec<u32>,
@@ -37,10 +39,12 @@ pub enum Kind {
 impl Geometry {
     fn of(md: &MeshData, kind: Kind) -> Geometry {
         let mut vertices = vec![];
+        let white = super::attributes::white();
         let mut push = |p: &[f32; 3], n: &[f32; 3], uv: [f32; 2]| {
             vertices.extend_from_slice(p);
             vertices.extend_from_slice(n);
             vertices.extend_from_slice(&uv);
+            vertices.push(white);
         };
         match kind {
             Kind::Strands => {
@@ -96,6 +100,55 @@ impl Geometry {
     }
 }
 
+impl Geometry {
+    /// A mesh's surface coloured corner by corner (`corners`, linear, one per
+    /// corner of `geo`'s polygons): each polygon a fan of triangles, a vertex
+    /// per triangle corner, smooth normals.
+    pub fn coloured(geo: &crate::core::geo::Geo, corners: &[[f32; 4]]) -> Geometry {
+        let (start, corner_point) = super::attributes::faces(geo);
+        let pts = geo.points();
+        let p = |i: u32| Vec3::from_array(pts.get(i as usize).copied().unwrap_or_default());
+        let mut normals = vec![Vec3::ZERO; pts.len()];
+        for f in 0..start.len() - 1 {
+            let cs = &corner_point[start[f]..start[f + 1]];
+            let mut n = Vec3::ZERO;
+            for k in 0..cs.len() {
+                n += p(cs[k]).cross(p(cs[(k + 1) % cs.len()]));
+            }
+            for &i in cs {
+                if let Some(x) = normals.get_mut(i as usize) {
+                    *x += n;
+                }
+            }
+        }
+        let mut vertices = Vec::with_capacity(corner_point.len() * 3 * VERTEX_FLOATS);
+        let mut push = |c: usize| {
+            let i = corner_point[c];
+            let n = normals
+                .get(i as usize)
+                .map(|n| n.normalize_or_zero())
+                .filter(|n| *n != Vec3::ZERO);
+            let n = n.unwrap_or(Vec3::Y);
+            vertices.extend_from_slice(&p(i).to_array());
+            vertices.extend_from_slice(&n.to_array());
+            vertices.extend_from_slice(&[0.0, 0.0]);
+            vertices.push(super::attributes::packed(corners.get(c).copied().unwrap_or([1.0; 4])));
+        };
+        for f in 0..start.len() - 1 {
+            for k in start[f] + 1..start[f + 1].saturating_sub(1) {
+                push(start[f]);
+                push(k);
+                push(k + 1);
+            }
+        }
+        let n = (vertices.len() / VERTEX_FLOATS) as u32;
+        Geometry {
+            vertices,
+            indices: (0..n).collect(),
+        }
+    }
+}
+
 /// A material's textures, decoded.
 pub struct Material {
     pub colour: Option<(std::path::PathBuf, Arc<crate::viewport::textures::Decoded>)>,
@@ -133,6 +186,10 @@ pub struct Scene {
     pub standins: std::collections::HashSet<String>,
     /// What the Viewer says over the picture: what the budget left out.
     pub notice: Option<String>,
+    /// Attributes shown (`attributes`): points coloured (the Viewer's dots:
+    /// position, linear colour, radius), and labels over the picture.
+    pub dots: Vec<f32>,
+    pub labels: Vec<super::attributes::Label>,
 }
 
 /// Triangles and line segments (curves, points) drawn in a frame at most,
@@ -166,7 +223,7 @@ fn unit_box() -> Arc<Geometry> {
                 if k & 4 == 0 { -0.5 } else { 0.5 },
             ];
             vertices.extend_from_slice(&c);
-            vertices.extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 0.0]);
+            vertices.extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 0.0, super::attributes::white()]);
         }
         let indices = vec![0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
         Arc::new(Geometry { vertices, indices })
@@ -188,7 +245,7 @@ fn unit_axes() -> Arc<Geometry> {
             [0.0, 0.0, 1.0],
         ] {
             vertices.extend_from_slice(&p);
-            vertices.extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 0.0]);
+            vertices.extend_from_slice(&[0.0, 1.0, 0.0, 0.0, 0.0, super::attributes::white()]);
         }
         Arc::new(Geometry {
             vertices,
@@ -670,6 +727,11 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             };
             let grouping = crate::timings::span(format!("viewer: {} prims into draws", prims.len()));
             s.notice = notice;
+            // Attributes shown (the Viewer's Attributes menu): those that
+            // colour a mesh draw it in their colours, in place of its own
+            // (not in Wireframe, which draws no surface).
+            let surfaces = mode != DisplayMode::Wireframe;
+            let coloured = shown_attributes(&mut s, &prims, &modes, input.hierarchy.selected_paths(), surfaces);
             let standin_ink = {
                 let c = ink(crate::theme::c(215, 215, 215));
                 [c[0], c[1], c[2], 1.0]
@@ -787,6 +849,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 }
                 match (mode, look) {
                     (DisplayMode::Wireframe, _) => {}
+                    _ if coloured.contains(&p.path) => {}
                     (DisplayMode::HiddenLine, _) => add(Kind::Surface, bg_lin, [0.0; 4], 0, None, false),
                     (_, Some(l)) => {
                         let look_key = l as *const crate::types::Look as usize;
@@ -948,6 +1011,102 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
     s
 }
 
+/// The attributes the Viewer's Attributes menu shows, on the prims drawn as
+/// geometry in its scope, into `s`: a coloured surface (a mesh drawn in place
+/// of its own), coloured points, lines, labels; what a limit left out in its
+/// notice. The meshes drawn coloured, by path.
+fn shown_attributes(
+    s: &mut Scene,
+    prims: &[Prim],
+    modes: &[crate::types::DrawMode],
+    selected: &[String],
+    surfaces: bool,
+) -> std::collections::HashSet<String> {
+    use super::attributes as at;
+    use crate::core::geo_mesh::GeoMesh;
+    let mut coloured = std::collections::HashSet::new();
+    let settings = at::settings();
+    let shown: Vec<at::Shown> = settings.shown().cloned().collect();
+    if shown.is_empty() {
+        return coloured;
+    }
+    let _t = crate::timings::span("viewer: attributes shown");
+    let picked: Vec<(&Prim, crate::core::geo::Geo)> = prims
+        .iter()
+        .zip(modes)
+        .filter(|(p, draw)| {
+            **draw == crate::types::DrawMode::Default && at::in_scope(settings.scope, &p.path, selected)
+        })
+        .map(|(p, _)| {
+            (
+                p,
+                p.geo
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_else(|| crate::core::geo::Geo::from_mesh(&p.mesh)),
+            )
+        })
+        .collect();
+    if picked.is_empty() {
+        let why = match settings.scope {
+            at::Scope::Selected => "Attributes: select the prims to show them on (or show them on All)",
+            at::Scope::All => "Attributes: no prim drawn has them",
+        };
+        s.notice = Some(why.into());
+        return coloured;
+    }
+    let ranges = at::ranges(&shown, picked.iter().map(|(_, g)| g));
+    let mut budget = (at::LINE_LIMIT, at::LABEL_LIMIT);
+    let mut triangles = 0usize;
+    let mut left_out: Vec<String> = vec![];
+    for (p, geo) in &picked {
+        let identity = [Mat4::IDENTITY];
+        let places: &[Mat4] = if p.place.is_placed() {
+            p.place.matrices()
+        } else {
+            &identity
+        };
+        let d = at::drawn(geo, &shown, &ranges, places, &mut budget);
+        if let Some(corners) = d.corners.filter(|_| surfaces) {
+            let cost = corners.len() * places.len();
+            if triangles + cost > at::COLOURED_LIMIT {
+                left_out.push(format!("{}: past {} coloured corners", p.path, at::COLOURED_LIMIT));
+            } else {
+                triangles += cost;
+                let mut instances = vec![];
+                for m in places {
+                    push_instance(&mut instances, m, [1.0; 4], true);
+                }
+                s.meshes.push(MeshDraw {
+                    geometry: Arc::new(Geometry::coloured(geo, &corners)),
+                    instances,
+                    blend: false,
+                    edges: false,
+                    material: None,
+                });
+                coloured.insert(p.path.clone());
+            }
+        }
+        s.dots.extend(d.dots);
+        s.lines.extend(d.lines);
+        s.labels.extend(d.labels);
+        left_out.extend(d.left_out);
+    }
+    // A float that is one value everywhere: a flat colour, said.
+    for (a, r) in shown.iter().zip(&ranges) {
+        if let Some((lo, _)) = r.filter(|(lo, hi)| lo == hi && a.min.is_none() && a.max.is_none()) {
+            left_out.push(format!("{}: all {lo}", a.name));
+        }
+    }
+    left_out.dedup();
+    if !left_out.is_empty() {
+        let mut text = s.notice.take().map(|n| format!("{n}\n")).unwrap_or_default();
+        text.push_str(&format!("Attributes: {}", left_out.join("; ")));
+        s.notice = Some(text);
+    }
+    coloured
+}
+
 /// Ghosted operators: what each puts out drawn as a grey wireframe beside the
 /// scene, the edges of its meshes at every copy, the bones of its clip at the
 /// playhead. Hidden by what is in front, like the ground grid. The operator
@@ -1092,6 +1251,30 @@ fn skeleton(out: &mut Vec<f32>, clip: &crate::core::anim::AnimData, time: f64) {
 mod draw_mode_tests {
     use super::*;
     use crate::types::{DrawMode, Placement, SceneHierarchy};
+
+    /// A mesh coloured corner by corner: each polygon a fan of triangles, a
+    /// vertex per triangle corner, each with its corner's colour packed in
+    /// its last float.
+    #[test]
+    fn a_coloured_mesh_has_its_corners_colours() {
+        use crate::core::geo_mesh::GeoMesh;
+        let quad = crate::core::geo::Geo::from_polygons(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            vec![4],
+            vec![0, 1, 2, 3],
+        );
+        let red = [1.0, 0.0, 0.0, 1.0];
+        let g = Geometry::coloured(&quad, &[red, [0.0; 4], [0.0; 4], [0.0, 0.0, 1.0, 1.0]]);
+        assert_eq!(g.vertices.len(), 6 * VERTEX_FLOATS);
+        assert_eq!(g.indices, (0..6).collect::<Vec<u32>>());
+        let colour = |v: usize| g.vertices[v * VERTEX_FLOATS + 8].to_bits().to_le_bytes();
+        // Triangles (0, 1, 2) and (0, 2, 3).
+        assert_eq!(colour(0), [255, 0, 0, 255]);
+        assert_eq!(colour(5), [0, 0, 255, 255]);
+        // Every other geometry's vertices are white.
+        let plain = Geometry::of(&quad.to_mesh(), Kind::Surface);
+        assert_eq!(plain.vertices[8].to_bits(), u32::MAX);
+    }
 
     /// The explorer's choice first, then the scene's `model:drawMode`, then
     /// geometry; past the budget the heaviest is boxed, but not one the

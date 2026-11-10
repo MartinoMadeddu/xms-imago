@@ -33,6 +33,8 @@ struct MeshIn {
     // x: lit, y: colour map, z: emissive map, w: cut out by the colour map's alpha.
     @location(7) flags:  vec4<f32>,
     @location(8) uv:     vec2<f32>,
+    // The vertex's own colour: an attribute shown, white else.
+    @location(9) vcol:   vec4<f32>,
 };
 
 struct MeshOut {
@@ -48,7 +50,7 @@ fn mesh_out(v: MeshIn) -> MeshOut {
     var o: MeshOut;
     o.clip = view.view_proj * (m * vec4<f32>(v.pos, 1.0));
     o.nrm = (m * vec4<f32>(v.nrm, 0.0)).xyz;
-    o.colour = v.colour;
+    o.colour = v.colour * v.vcol;
     o.flags = v.flags;
     o.uv = v.uv;
     return o;

@@ -9,6 +9,7 @@
 //! - `gpu`: the picture, drawn into a texture of its own and laid into the pane
 //!   by egui's paint callback.
 
+pub mod attributes;
 pub(crate) mod camera;
 mod edit;
 mod gizmo;
@@ -135,7 +136,14 @@ impl Viewer {
             input.playback.time.to_bits(),
             crate::theme::revision()
                 ^ crate::viewport::textures::generation().rotate_left(32)
-                ^ crate::core::rig::view::revision().rotate_left(16),
+                ^ crate::core::rig::view::revision().rotate_left(16)
+                // Attributes shown: what the menu says, and on the selected
+                // prims, which they are.
+                ^ attributes::revision().rotate_left(48)
+                ^ attributes::settings()
+                    .on
+                    .then(|| hash_of(&input.hierarchy.selected_paths().join("\n")).rotate_left(8))
+                    .unwrap_or(0),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
             crate::viewport::display::mode() as u64 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
@@ -225,6 +233,8 @@ impl Viewer {
                 None => self.camera.view_proj(a),
             };
         }
+        // Points coloured by an attribute shown, as Edit Poly's dots are drawn.
+        overlay.points.extend_from_slice(&self.scene.dots);
         let frame = gpu::Frame {
             capture,
             view_proj,
@@ -241,13 +251,20 @@ impl Viewer {
             gpu::ViewerPaint(frame),
         ));
         self.origin_label(ui, rect, view_proj);
+        let labels_note = attributes::draw_labels(ui, rect, view_proj, eye, &self.scene.labels);
         if let Some((path, _, cam)) = &looking {
             gate(ui, rect, &path, cam);
         }
         let bar = self.snaps_bar(ui.ctx(), rect);
         // How the render goes (or why it stopped), else what the triangle
         // budget drew as boxes, at the bottom left, over the snapshots bar.
-        let note = self.render_note.clone().or_else(|| self.scene.notice.clone());
+        let note = self
+            .render_note
+            .clone()
+            .or_else(|| match (&self.scene.notice, labels_note) {
+                (Some(n), Some(l)) => Some(format!("{n}\n{l}")),
+                (n, l) => n.clone().or(l),
+            });
         if let Some(text) = &note {
             let painter = ui.painter_at(rect);
             let galley = painter.layout(

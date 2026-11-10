@@ -184,6 +184,35 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 ![The move handles on MoveSphere; the grid, clicked, outlined](xms_gizmo.png)
 
+### Display Attribute
+
+**Attributes** in the Viewer's bar draws attributes over the prims, each as its
+type is, as Houdini's visualizers and Gaffer's viewer show them. Tick **Show
+attributes**, add one with **+ Attribute**, and type its name or pick it from
+⏷: the attributes of the prims shown, and intrinsics (point, face and corner
+numbers, face normals and areas, each face's points, `curveu`, curve lengths).
+
+| Attribute | Drawn as |
+|---|---|
+| Float, boolean | The surface coloured through a ramp (Grey, or Heat: black, red, yellow, white), over the values shown unless **Min** or **Max** is ticked and typed. One value everywhere: a flat colour, and the Viewer says "all 0.5" |
+| Colour (`displayColor`, Cd) | The surface in its own colour |
+| 2D vector (UVs) | The surface red by u and green by v, each its place in its tile |
+| 3D vector, normal | A line from each element along it, its length times **×**, coloured by the way it points |
+| Integer, text, a list, anything else | A label over each element |
+
+Where an element is drawn follows its context: a point at the point, a face at
+its centre (coloured, the whole face), a corner a little towards its face's
+centre, the object at its box's centre. On points and curves, colours are
+coloured points. Several attributes may be listed: the first that colours a
+prim colours it, lines and labels add up.
+
+**On:** Selected (the default: the prims selected, and those below them) or
+All. Within limits, on both: a million lines, 20 million coloured corners, and
+labels on screen only, nearest the camera first, at most 5,000 (made from
+200,000 at most), those on faces turned away left out. Past a limit the Viewer
+says what it left out. The menu's settings are the Viewer's, kept in Imago's
+config folder, not the graph's.
+
 ### Manipulators
 
 Transform's handles turn about its translation; a camera's move and rotate;
