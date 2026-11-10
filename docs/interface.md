@@ -186,9 +186,9 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 ### Display Attribute
 
-**Attributes** in the Viewer's bar draws attributes over the prims, each as its
-type is, as Houdini's visualizers and Gaffer's viewer show them. Tick **Show
-attributes**, add one with **+ Attribute**, and type its name or pick it from
+**A**, at the Viewer's bottom left above 📷, draws attributes over the prims,
+each as its type is, as Houdini's visualizers and Gaffer's viewer show them; it
+is lit while they are shown. Tick **Show attributes**, add one with **+ Attribute**, and type its name or pick it from
 ⏷: the attributes of the prims shown, and intrinsics (point, face and corner
 numbers, face normals and areas, each face's points, `curveu`, curve lengths).
 
@@ -207,9 +207,12 @@ coloured points. Several attributes may be listed: the first that colours a
 prim colours it, lines and labels add up.
 
 **On:** Selected (the default: the prims selected, and those below them) or
-All. Within limits, on both: a million lines, 20 million coloured corners, and
-labels on screen only, nearest the camera first, at most 5,000 (made from
-200,000 at most), those on faces turned away left out. Past a limit the Viewer
+All. Colours and lines are hidden behind surfaces as the scene is. Labels are
+too, behind the surfaces of the prims attributes are shown on (up to 2 million
+triangles; other prims do not hide them yet), and those on faces turned away
+are left out. Within limits, on both: a million lines, 20 million coloured
+corners, and labels on screen only, nearest the camera first, at most 5,000
+(made from 200,000 at most, 10,000 tested a frame). Past a limit the Viewer
 says what it left out. The menu's settings are the Viewer's, kept in Imago's
 config folder, not the graph's.
 

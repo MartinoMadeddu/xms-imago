@@ -807,28 +807,6 @@ pub(crate) fn draw_ui(
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
                         }).response.on_hover_text("How meshes are drawn");
-                        // Attributes drawn over the prims, each as its type is.
-                        let showing = viewer::attributes::settings().on;
-                        crate::menus::menu(ui, if showing { "Attributes ● ⏷" } else { "Attributes ⏷" }, |ui| {
-                            let subnets_ref = &*subnets;
-                            let graph_ref = &*graph;
-                            viewer::attributes::menu(ui, || {
-                                let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| -> crate::core::geo::Geo {
-                                    subnets_ref.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
-                                };
-                                let mut names: Vec<String> = match graph_ref.evaluate_for_viewport_packed(&eval) {
-                                    Some(types::EvalResult::Named(prims)) => prims
-                                        .iter()
-                                        .filter_map(|p| p.geo.as_deref())
-                                        .flat_map(|g| crate::core::geo::Context::ALL.into_iter().flat_map(move |c| g.attrs(c).map(|(n, _)| n.to_string())))
-                                        .collect(),
-                                    _ => vec![],
-                                };
-                                names.sort();
-                                names.dedup();
-                                names
-                            });
-                        }).response.on_hover_text("Show attributes over the prims: floats as colours, colours and UVs as themselves, vectors as lines, numbers and the rest as labels");
                         // Through a camera of the scene, or the Viewer's own.
                         let looking = viewer::camera::looking_through();
                         let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());

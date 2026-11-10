@@ -190,6 +190,9 @@ pub struct Scene {
     /// position, linear colour, radius), and labels over the picture.
     pub dots: Vec<f32>,
     pub labels: Vec<super::attributes::Label>,
+    /// The surfaces of the prims attributes are shown on, in the world: what
+    /// hides the labels behind them.
+    pub occluders: Option<Arc<super::occlusion::Occluders>>,
 }
 
 /// Triangles and line segments (curves, points) drawn in a frame at most,
@@ -1056,6 +1059,7 @@ fn shown_attributes(
         return coloured;
     }
     let ranges = at::ranges(&shown, picked.iter().map(|(_, g)| g));
+    let mut occluding: Vec<[Vec3; 3]> = vec![];
     let mut budget = (at::LINE_LIMIT, at::LABEL_LIMIT);
     let mut triangles = 0usize;
     let mut left_out: Vec<String> = vec![];
@@ -1089,6 +1093,12 @@ fn shown_attributes(
         }
         s.dots.extend(d.dots);
         s.lines.extend(d.lines);
+        // Its surface hides the labels behind it.
+        for m in places {
+            if occluding.len() <= at::OCCLUDER_LIMIT {
+                occluding.extend(at::world_triangles(geo, m));
+            }
+        }
         s.labels.extend(d.labels);
         left_out.extend(d.left_out);
     }
@@ -1097,6 +1107,16 @@ fn shown_attributes(
         if let Some((lo, _)) = r.filter(|(lo, hi)| lo == hi && a.min.is_none() && a.max.is_none()) {
             left_out.push(format!("{}: all {lo}", a.name));
         }
+    }
+    if !s.labels.is_empty() {
+        if occluding.len() > at::OCCLUDER_LIMIT {
+            left_out.push(format!(
+                "labels behind surfaces shown: past {} triangles",
+                at::OCCLUDER_LIMIT
+            ));
+            occluding.clear();
+        }
+        s.occluders = Some(Arc::new(super::occlusion::Occluders::new(occluding)));
     }
     left_out.dedup();
     if !left_out.is_empty() {

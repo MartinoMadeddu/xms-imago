@@ -34,6 +34,10 @@ pub const LABEL_LIMIT: usize = 200_000;
 pub const LABELS_DRAWN: usize = 5_000;
 /// Triangles coloured at most: past it, the rest are drawn as they are.
 pub const COLOURED_LIMIT: usize = 20_000_000;
+/// Triangles hiding labels at most: past it, labels are not hidden.
+pub const OCCLUDER_LIMIT: usize = 2_000_000;
+/// Labels tested for what hides them in a frame at most, nearest first.
+const LABELS_TESTED: usize = 10_000;
 
 /// Which prims attributes are shown on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -590,14 +594,43 @@ pub fn in_scope(scope: Scope, path: &str, selected: &[String]) -> bool {
     }
 }
 
+/// A mesh's polygons as triangles in the world, placed at `m`: what hides
+/// labels behind them. None for points and curves.
+pub fn world_triangles(geo: &Geo, m: &Mat4) -> Vec<[Vec3; 3]> {
+    if !matches!(geo.topology, Topology::Mesh { .. }) {
+        return vec![];
+    }
+    let (start, corner_point) = faces(geo);
+    let pts: Vec<Vec3> = geo
+        .points()
+        .iter()
+        .map(|p| m.transform_point3(Vec3::from_array(*p)))
+        .collect();
+    let p = |c: usize| pts.get(corner_point[c] as usize).copied().unwrap_or_default();
+    let mut out = Vec::with_capacity(corner_point.len());
+    for f in 0..start.len() - 1 {
+        for k in start[f] + 1..start[f + 1].saturating_sub(1) {
+            out.push([p(start[f]), p(k), p(k + 1)]);
+        }
+    }
+    out
+}
+
 /// The labels on screen drawn over the picture, nearest the camera first,
-/// those facing away left out, at most `LABELS_DRAWN`. What was left out,
-/// when the limit was reached.
-pub fn draw_labels(ui: &egui::Ui, rect: egui::Rect, view_proj: Mat4, eye: Vec3, labels: &[Label]) -> Option<String> {
+/// those behind a surface (`occluders`) or on one turned away left out, at
+/// most `LABELS_DRAWN`. What was left out, when a limit was reached.
+pub fn draw_labels(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    view_proj: Mat4,
+    eye: Vec3,
+    labels: &[Label],
+    occluders: Option<&super::occlusion::Occluders>,
+) -> Option<String> {
     if labels.is_empty() {
         return None;
     }
-    let mut on_screen: Vec<(f32, egui::Pos2, &str)> = labels
+    let mut on_screen: Vec<(f32, egui::Pos2, &Label)> = labels
         .iter()
         .filter(|l| l.facing.is_none_or(|n| n.dot(eye - l.at) >= 0.0))
         .filter_map(|l| {
@@ -609,26 +642,65 @@ pub fn draw_labels(ui: &egui::Ui, rect: egui::Rect, view_proj: Mat4, eye: Vec3, 
                 rect.min.x + (p.x / p.w * 0.5 + 0.5) * rect.width(),
                 rect.min.y + (0.5 - p.y / p.w * 0.5) * rect.height(),
             );
-            rect.contains(at)
-                .then(|| (l.at.distance_squared(eye), at, l.text.as_str()))
+            rect.contains(at).then(|| (l.at.distance_squared(eye), at, l))
         })
         .collect();
     on_screen.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let total = on_screen.len();
     let painter = ui.painter_at(rect);
-    let font = egui::FontId::monospace(10.0);
-    for (_, at, text) in on_screen.iter().take(LABELS_DRAWN) {
-        let galley = painter.layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
-        let frame = egui::Rect::from_center_size(*at, galley.size() + egui::vec2(4.0, 2.0));
-        painter.rect_filled(frame, 2.0, egui::Color32::from_black_alpha(150));
-        painter.galley(frame.min + egui::vec2(2.0, 1.0), galley, egui::Color32::WHITE);
+    let font = egui::FontId::monospace(8.5);
+    let (mut drawn, mut tested) = (0, 0);
+    for (_, at, l) in &on_screen {
+        if drawn == LABELS_DRAWN || tested == LABELS_TESTED {
+            return Some(format!(
+                "Labels: the nearest {drawn} shown: select fewer prims or come closer"
+            ));
+        }
+        tested += 1;
+        if occluders.is_some_and(|o| o.hides(eye, l.at)) {
+            continue;
+        }
+        drawn += 1;
+        let galley = painter.layout_no_wrap(l.text.clone(), font.clone(), egui::Color32::WHITE);
+        let frame = egui::Rect::from_center_size(*at, galley.size() + egui::vec2(3.0, 1.0));
+        painter.rect_filled(frame, 1.5, egui::Color32::from_black_alpha(130));
+        painter.galley(frame.min + egui::vec2(1.5, 0.5), galley, egui::Color32::WHITE);
     }
-    (total > LABELS_DRAWN).then(|| {
-        format!("Labels: {LABELS_DRAWN} of {total} on screen, nearest first: select fewer prims or come closer")
-    })
+    None
 }
 
-/// The Attributes menu, in the Viewer's bar: on or off, the scope, and the
+/// The Attributes button at the Viewer's bottom left, above `above` (the
+/// snapshots bar's top): a square A, lit while attributes are shown, opening
+/// the Attributes menu. Where its top is.
+pub fn button(ctx: &egui::Context, rect: egui::Rect, above: f32, names: impl FnOnce() -> Vec<String>) -> f32 {
+    let shown = egui::Area::new(egui::Id::new("viewer_attributes"))
+        .order(egui::Order::Background)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(egui::pos2(rect.min.x + 10.0, above - 6.0))
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(crate::theme::c(90, 90, 90).gamma_multiply(0.92))
+                .stroke(egui::Stroke::new(1.0_f32, crate::theme::c(70, 70, 70)))
+                .corner_radius(4.0)
+                .inner_margin(3.0)
+                .show(ui, |ui| {
+                    let on = settings().on;
+                    let text = egui::RichText::new("A").strong();
+                    let a = egui::Button::new(text).selected(on).min_size(egui::vec2(22.0, 22.0));
+                    // Closing only on a click outside, as Imago's menus do.
+                    let config = egui::containers::menu::MenuConfig::new()
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+                    let (r, _) = egui::containers::menu::MenuButton::from_button(a)
+                        .config(config)
+                        .ui(ui, |ui| menu(ui, names));
+                    r.on_hover_text(
+                        "Attributes: draw attributes over the prims, floats as colours, colours and UVs as themselves, vectors as lines, the rest as labels",
+                    );
+                });
+        });
+    shown.response.rect.top()
+}
+
+/// The Attributes menu, from the Viewer's A: on or off, the scope, and the
 /// list, each its name (typed, or chosen from `names`, the attributes of the
 /// prims shown, made only while the menu is open, and the intrinsics), its
 /// range and ramp, its lines' scale.
@@ -845,6 +917,19 @@ mod tests {
         assert_eq!(short(0.5000), "0.5");
         assert_eq!(short(-0.0001), "0");
         assert_eq!(packed([1.0, 0.0, 0.5, 1.0]).to_bits().to_le_bytes(), [255, 0, 128, 255]);
+    }
+
+    /// A mesh's polygons as placed triangles hide labels behind them.
+    #[test]
+    fn labels_behind_a_surface_are_hidden() {
+        let moved = Mat4::from_translation(Vec3::Y * 5.0);
+        let tris = world_triangles(&quads(), &moved);
+        assert_eq!(tris.len(), 4);
+        assert!(tris.iter().flatten().all(|p| p.y == 5.0));
+        let o = super::super::occlusion::Occluders::new(tris);
+        let eye = Vec3::new(0.5, 10.0, 0.5);
+        assert!(o.hides(eye, Vec3::new(0.5, 0.0, 0.5)));
+        assert!(!o.hides(eye, Vec3::new(0.5, 5.0, 0.5)));
     }
 
     #[test]

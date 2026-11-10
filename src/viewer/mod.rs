@@ -15,6 +15,7 @@ mod edit;
 mod gizmo;
 pub(crate) mod gpu;
 pub mod movie;
+mod occlusion;
 mod pick;
 mod scene;
 
@@ -251,11 +252,45 @@ impl Viewer {
             gpu::ViewerPaint(frame),
         ));
         self.origin_label(ui, rect, view_proj);
-        let labels_note = attributes::draw_labels(ui, rect, view_proj, eye, &self.scene.labels);
+        let labels_note = attributes::draw_labels(
+            ui,
+            rect,
+            view_proj,
+            eye,
+            &self.scene.labels,
+            self.scene.occluders.as_deref(),
+        );
         if let Some((path, _, cam)) = &looking {
             gate(ui, rect, &path, cam);
         }
         let bar = self.snaps_bar(ui.ctx(), rect);
+        // Attributes, above the snapshots: the names of the attributes of the
+        // prims shown, made only while its menu is open.
+        let bar = attributes::button(ui.ctx(), rect, bar, || {
+            let subnets = input.subnets;
+            let eval =
+                |sid: crate::types::IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
+                    subnets
+                        .get(sid)
+                        .map(|sg| sg.evaluate(mesh, template))
+                        .unwrap_or_else(|| mesh.clone())
+                };
+            let mut names: Vec<String> = match input.graph.evaluate_for_viewport_packed(&eval) {
+                Some(crate::types::EvalResult::Named(prims)) => prims
+                    .iter()
+                    .filter_map(|p| p.geo.as_deref())
+                    .flat_map(|g| {
+                        crate::core::geo::Context::ALL
+                            .into_iter()
+                            .flat_map(move |c| g.attrs(c).map(|(n, _)| n.to_string()))
+                    })
+                    .collect(),
+                _ => vec![],
+            };
+            names.sort();
+            names.dedup();
+            names
+        });
         // How the render goes (or why it stopped), else what the triangle
         // budget drew as boxes, at the bottom left, over the snapshots bar.
         let note = self
