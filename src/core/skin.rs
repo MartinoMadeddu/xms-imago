@@ -163,6 +163,7 @@ pub fn capture(prims: &[Prim], skeleton: &AnimData, falloff: f32) -> Vec<Prim> {
                         column: Column::Token(names.clone()),
                         indices: Some(Arc::new(ix)),
                         role: Role::None,
+                        element_size: 1,
                     },
                 );
             }

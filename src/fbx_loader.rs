@@ -799,6 +799,7 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
                             column: column.clone(),
                             indices: Some(Arc::new(ix)),
                             role: Role::None,
+                            element_size: 1,
                         },
                     );
                 }

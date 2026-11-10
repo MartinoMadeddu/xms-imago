@@ -667,7 +667,7 @@ what could not be, with the reason.
 | A prim moved | Its own transform (`xformOp:transform`), so it still follows its parents |
 | Points moved | `points`, and `extent` to match |
 | Polygons or curves changed | `faceVertexCounts` and `faceVertexIndices`, `orientation`; for curves their counts, type, basis and wrap |
-| Primvars written or added | `primvars:` with their USD type (`texCoord2f`, `color3f`, `normal3f`…), interpolation and indices |
+| Primvars written or added | `primvars:` with their USD type (`texCoord2f`, `color3f`, `normal3f`…), interpolation and indices; a list per element (ICE's stored lists) with its `elementSize` |
 | Attributes lost | Blocked (`= None`), so the file's value is not seen through |
 | Several prims merged into one | The whole geometry, in the prim's own space |
 | A prim pruned | `active = false` |

@@ -140,8 +140,8 @@ fn sampled(node: &IceGraphNode) -> bool {
     super::read_at(node) == super::ReadAt::Place
 }
 
-/// A Get Data reading at the elements its Index numbers: its Index wired
-/// alone.
+/// A Get Data or Get Array Data reading at the elements its Index numbers:
+/// its Index wired alone.
 fn indexed(node: &IceGraphNode) -> bool {
     super::read_at(node) == super::ReadAt::Index
 }
@@ -178,6 +178,10 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::GetData { name, .. } if sampled(node) => Some(format!("{name} at Param UV")),
         IceGraphNodeType::GetArrayData { name, .. } if sampled(node) => Some(format!("{name}[] at Param UV")),
         IceGraphNodeType::GetData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}")),
+        IceGraphNodeType::GetArrayData { name, .. } if indexed(node) && from_geometry(node) => {
+            Some(format!("geometry.{name}[] at Index"))
+        }
+        IceGraphNodeType::GetArrayData { name, .. } if indexed(node) => Some(format!("{name}[] at Index")),
         IceGraphNodeType::GetArrayData { name, .. } if from_geometry(node) => Some(format!("geometry.{name}[]")),
         IceGraphNodeType::GetData {
             name,
@@ -645,6 +649,11 @@ pub fn draw_subnet_node_properties(
                 |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)),
             );
             f.text("Weight", Some("A per-face or per-point number scaling how many land where (0 none there, 2 twice as many); empty, evenly by area"), weight, "");
+        }),
+        IceGraphNodeType::GetArrayData { name, context } if at_index => group(ui, "Attribute", None, |f| {
+            f.text("Name", Some("The list the element the Index numbers holds: one stored with Set Data (a list per element, such as Near Points' Points kept by a capture), or any other attribute's one value as a list of one"), name, "P");
+            f.choice("Context", Some("What the Index numbers: points, faces, corners. Auto: where the attribute is, points first"),
+                     context, &[(None, "Auto"), (Some(Context::Point), "Point"), (Some(Context::Face), "Face"), (Some(Context::Corner), "Corner"), (Some(Context::Object), "Object")]);
         }),
         IceGraphNodeType::GetArrayData { name, context } if at_samples => group(ui, "Attribute", None, |f| {
             f.text("Name", Some("What each sample reads of the face it is on, kept as a list: P its points' positions, intrinsic:ptIndices their numbers, uv its corners'; intrinsic:triP the points the place is made from and intrinsic:bary their weights; a face's own attribute, a list of one"), name, "P");

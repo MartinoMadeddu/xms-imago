@@ -49,7 +49,12 @@ impl GeoMesh for Geo {
         let mut out = vec![];
         for ctx in Context::ALL {
             for (name, attr) in self.attrs(ctx) {
-                if matches!(name, POINTS | NORMALS) || (name == WIDTHS && own_widths) || UV_NAMES.contains(&name) {
+                // A list per element (ICE's stored lists) is not one row each.
+                if matches!(name, POINTS | NORMALS)
+                    || (name == WIDTHS && own_widths)
+                    || UV_NAMES.contains(&name)
+                    || attr.is_list()
+                {
                     continue;
                 }
                 if let Some(values) = float_rows(attr, self.count(ctx)) {

@@ -1438,8 +1438,14 @@ fn attribute(spec: &mut Spec, ctx: Context, name: &str, attr: &Attr) {
         spec.lines.push(format!("point3f[] points = {values}"));
         return;
     }
+    // A list per element: USD's `elementSize`.
+    let size = if attr.is_list() {
+        format!("\n    elementSize = {}", attr.element_size)
+    } else {
+        String::new()
+    };
     spec.lines.push(format!(
-        "{ty}[] {usd} = {values} (\n    interpolation = \"{}\"\n)",
+        "{ty}[] {usd} = {values} ({size}\n    interpolation = \"{}\"\n)",
         ctx.usd_interpolation()
     ));
     if let Some(ix) = &attr.indices {
@@ -1692,6 +1698,27 @@ def Xform "set" {{
         let (text, report) = override_layer(&prims, &out, &at_25).unwrap();
         assert!(text.contains("timeCodesPerSecond = 25"), "{text}");
         assert!(!report.notes.iter().any(|n| n.contains("time codes")), "{report:?}");
+    }
+
+    /// A list per element (ICE's, stored with Set Data) is written as a
+    /// primvar of that `elementSize`.
+    #[test]
+    fn a_list_per_point_is_written_with_its_element_size() {
+        let mut g = Geo::from_points(vec![[0.0; 3]; 2]);
+        g.set(
+            Context::Point,
+            "cageWeight",
+            Attr::lists(Column::Float(Arc::new(vec![1.0, 0.5, 0.0, 1.0, 0.25, 0.0])), 3, Role::None),
+        );
+        let mut spec = Spec::default();
+        geometry(&mut spec, &g, false);
+        let text = spec.lines.join("\n");
+        assert!(
+            text.contains(
+                "float[] primvars:cageWeight = [1, 0.5, 0, 1, 0.25, 0] (\n    elementSize = 3\n    interpolation = \"vertex\"\n)"
+            ),
+            "{text}"
+        );
     }
 
     /// Widths one per curve (an ICE graph per curve) are written one per

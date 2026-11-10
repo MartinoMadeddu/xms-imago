@@ -169,6 +169,7 @@ pub fn write_weights(p: &Prim, weights: &[[(u32, f32); 4]], names: &Arc<Vec<Arc<
                 column: Column::Token(names.clone()),
                 indices: Some(Arc::new(ix)),
                 role: GeoRole::None,
+                element_size: 1,
             },
         );
     }

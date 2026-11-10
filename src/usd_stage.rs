@@ -1300,7 +1300,13 @@ fn add_primvar(g: &mut Geo, pv: &rs::Primvar, t: f64) {
         #[allow(unreachable_patterns)]
         _ => return,
     };
-    let elements = pv.indices.as_ref().map_or(column.len(), |i| i.len());
+    // A list per element (`elementSize`): that many values each, not indexed.
+    let size = if pv.indices.is_none() {
+        pv.element_size.max(1)
+    } else {
+        1
+    };
+    let elements = pv.indices.as_ref().map_or(column.len() / size, |i| i.len());
     let by_count = || {
         [Context::Corner, Context::Point, Context::Face, Context::Object]
             .into_iter()
@@ -1326,7 +1332,7 @@ fn add_primvar(g: &mut Geo, pv: &rs::Primvar, t: f64) {
     };
     let attr = match &pv.indices {
         Some(ix) => Attr::indexed(column, ix.clone(), role),
-        None => Attr::new(column, role),
+        None => Attr::lists(column, size, role),
     };
     g.set(ctx, &pv.name, attr);
 }

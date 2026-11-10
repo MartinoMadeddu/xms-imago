@@ -106,6 +106,10 @@ pub(crate) struct Write {
     /// elements takes the plan's elements it touches, made one.
     pub context: Context,
     pub resample: Resample,
+    /// A list per element: written as a list attribute, as many items for
+    /// each as the longest list, the shorter ones padded (an int with -1, no
+    /// element; anything else with zero).
+    pub list: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -226,6 +230,24 @@ pub(crate) enum Ins {
         count: usize,
         flat: bool,
     },
+    /// Read `read`, a list stored per element (`size` items each, the
+    /// attribute's `element_size`), of the graph's own geometry: a list per
+    /// element (one element, an Object graph's: its items as an array).
+    LoadStored {
+        dst: usize,
+        read: usize,
+        size: usize,
+    },
+    /// Read `read` at the element numbered by `at` (an int per element), of
+    /// `surface` (`None`: the graph's own): that element's list (`size` items:
+    /// a stored list's, or the one value of another attribute).
+    ListAtIndex {
+        dst: usize,
+        read: usize,
+        surface: Option<usize>,
+        at: usize,
+        size: usize,
+    },
     /// Read `read` at the element numbers in `at` (ints, or a list per
     /// element), of `surface` (`None`: the graph's own; numbered across its
     /// meshes in order): into `dst`, a list where they are.
@@ -339,6 +361,8 @@ enum ListOf {
     Tri(usize),
     /// The points Near Points node `n` found for each element.
     Near(usize),
+    /// Lists stored with Set Data: as many items for every element.
+    Fixed(usize),
 }
 
 /// The contexts an attribute read at samples is looked for in: the one asked
@@ -822,6 +846,7 @@ impl Lower<'_> {
             Op::ClosestPoint => self.closest(node)?,
             Op::NearPoints => self.near_points(node)?,
             Op::GetDataAtIndex { name, context } => self.get_data_at_index(node, name, *context)?,
+            Op::GetArrayDataAtIndex { name, context } => self.array_at_index(node, name, *context)?,
             Op::GetArrayDataAt { name, context } => self.array_at(node, name, *context)?,
             Op::Instancer { .. } => return error(node, "The Instancer gives an Execute: wire it into the root"),
             Op::GetReference { input, paths } => {
@@ -886,6 +911,12 @@ impl Lower<'_> {
         let Some(ty) = found.ty else {
             return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
         };
+        if geo.attr(attr_context, column).is_some_and(|a| a.is_list()) {
+            return error(
+                node,
+                format!("'{name}' holds a list per element: read it with Get Array Data"),
+            );
+        }
         // Object is one value for every element.
         let uniform = attr_context == Context::Object;
         // Read across contexts, each reduction is a read of its own.
@@ -1182,6 +1213,15 @@ impl Lower<'_> {
         } else {
             column_in(geo, from, name).to_string()
         };
+        // A list stored per element (Set Data of a list): its items, as
+        // many for each, in its own context.
+        let stored = geo.attr(from, &column).filter(|a| a.is_list()).map(|a| a.element_size);
+        if stored.is_some() && from != context {
+            return error(
+                node,
+                format!("'{name}' holds a list per {from:?}: read it in a graph per {from:?}"),
+            );
+        }
         let key = format!("list:{from:?}/{column}");
         let read = match self.reads.get(&key) {
             Some(&r) => r,
@@ -1200,6 +1240,14 @@ impl Lower<'_> {
             }
         };
         let flat = context == Context::Object;
+        if let Some(size) = stored {
+            let mut v = self.emit(flat, ty, |dst| Ins::LoadStored { dst, read, size });
+            v.array = true;
+            if !flat {
+                v.of = Some(ListOf::Fixed(size));
+            }
+            return Ok(v);
+        }
         let mut v = self.emit(flat, ty, |dst| Ins::LoadList { dst, read, flat });
         v.array = true;
         if !flat {
@@ -1696,6 +1744,12 @@ impl Lower<'_> {
         let Some(ty) = found.ty else {
             return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
         };
+        if self.stored_size(surface, context, name) > 1 {
+            return error(
+                node,
+                format!("'{name}' holds a list per element: read it with Get Array Data"),
+            );
+        }
         let at = self.input(node, 0, Some(Ty::Int))?;
         if at.ty != Ty::Int {
             return error(
@@ -1721,6 +1775,78 @@ impl Lower<'_> {
         });
         v.array = at.array;
         v.of = at.of;
+        Ok(v)
+    }
+
+    /// How many items attribute `name` of `context` holds per element: its
+    /// `element_size` on the graph's own geometry (`surface` `None`) or the
+    /// first reference prim that has it; 1 when it is not a list.
+    fn stored_size(&self, surface: Option<usize>, context: Context, name: &str) -> usize {
+        let size = |g: &Geo| g.attr(context, column_in(g, context, name)).map(|a| a.element_size);
+        match surface {
+            None => size(self.geo),
+            Some(_) => self.refs.iter().flat_map(|r| &r.meshes).find_map(|m| size(m.geo.get())),
+        }
+        .unwrap_or(1)
+    }
+
+    /// Get Array Data at an Index: at the element input 0 numbers (an int per
+    /// element, or one), of the prims input 1 names (numbered across them in
+    /// order) or, without it, of the graph's own; `name` in `from`'s context
+    /// (None: where it is, points first) as a list: a stored list's items,
+    /// or the one value of another attribute.
+    fn array_at_index(&mut self, node: usize, name: &str, from: Option<Context>) -> Result<Val, CompileError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return error(node, "Get Array Data needs the name of the attribute it reads");
+        }
+        let contexts = match from {
+            Some(c) => vec![c],
+            None => vec![Context::Point, Context::Face, Context::Corner, Context::Object],
+        };
+        let surface = self.geometry_input(node, 1)?;
+        let found = match surface {
+            Some(_) => self.on_refs(name, &contexts).map(|(c, f, _)| (c, f)),
+            None => contexts
+                .iter()
+                .find_map(|&c| find_in(self.geo, c, name).map(|f| (c, f))),
+        };
+        let Some((context, found)) = found else {
+            return error(node, format!("No attribute '{name}' to read at an Index"));
+        };
+        let Some(ty) = found.ty else {
+            return error(node, format!("'{name}' is of a type ICE does not read yet (tokens)"));
+        };
+        let at = self.input(node, 0, Some(Ty::Int))?;
+        if at.ty != Ty::Int || at.array {
+            return error(
+                node,
+                "Get Array Data reads at one Index per element (an int): a list of them would give a list each, not yet",
+            );
+        }
+        let size = self.stored_size(surface, context, name);
+        self.plan.reads.push(Read {
+            name: name.to_string(),
+            context,
+            resample: Resample::Average,
+            derived: found.derived,
+            at_location: false,
+            sampled: None,
+            from: surface,
+        });
+        let read = self.plan.reads.len() - 1;
+        let flat = at.uniform;
+        let mut v = self.emit(flat, ty, |dst| Ins::ListAtIndex {
+            dst,
+            read,
+            surface,
+            at: at.reg,
+            size,
+        });
+        v.array = true;
+        if !flat {
+            v.of = Some(ListOf::Fixed(size));
+        }
         Ok(v)
     }
 
@@ -2085,10 +2211,21 @@ impl Lower<'_> {
             Some(Input::Value(value)) => self.constant(*value),
             None => return error(node, "Set Data takes a value"),
         };
-        if v.array {
+        // A list per element is written as a list attribute, in the graph's
+        // own context; the graph's one array (an Object graph's) is not.
+        if v.array && !v.is_list() {
             return error(
                 node,
                 "An array is not written as an attribute (yet): it is one value of many",
+            );
+        }
+        if v.is_list() && !own {
+            return error(
+                node,
+                format!(
+                    "A list per element is written in the graph's own context, per {:?}",
+                    self.plan.context
+                ),
             );
         }
         if v.ty == Ty::Sample {
@@ -2100,7 +2237,9 @@ impl Lower<'_> {
         if v.ty == Ty::Token {
             return error(node, "Paths are not written as attributes");
         }
-        let existing = geo.attr(context, &column);
+        // One of the other kind (a value where this writes a list, or the
+        // reverse) is replaced, whatever its type.
+        let existing = geo.attr(context, &column).filter(|a| a.is_list() == v.is_list());
         if let Some(t) = existing.and_then(|a| column_ty(&a.column)) {
             if t != v.ty {
                 // A float or int value takes the attribute's type, as a value would.
@@ -2129,6 +2268,7 @@ impl Lower<'_> {
                     role,
                     context,
                     resample,
+                    list: v.is_list(),
                 });
                 self.plan.writes.len() - 1
             }
@@ -2136,6 +2276,7 @@ impl Lower<'_> {
         // The same attribute set twice: the later value is the one kept.
         self.plan.writes[write].ty = v.ty;
         self.plan.writes[write].resample = resample;
+        self.plan.writes[write].list = v.is_list();
         let src = self.varying(v);
         self.plan.batch.code.push(Ins::Store { write, src });
         // Read back by a later port in the graph's own context; written
@@ -2321,7 +2462,7 @@ fn type_of(
         Op::NearPoints => Some(Ty::Int),
         // Of the graph's own geometry when it has it; a reference prim's is
         // known when the graph runs.
-        Op::GetDataAtIndex { name, context: from } => match from {
+        Op::GetDataAtIndex { name, context: from } | Op::GetArrayDataAtIndex { name, context: from } => match from {
             Some(c) => find_in(geo, *c, name.trim()),
             None => [Context::Point, Context::Face, Context::Corner, Context::Object]
                 .into_iter()
@@ -2425,7 +2566,8 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
         | Op::Concat
         | Op::GetArrayData { .. }
         | Op::GetArrayDataAt { .. }
-        | Op::NearPoints => true,
+        | Op::NearPoints
+        | Op::GetArrayDataAtIndex { .. } => true,
         // As its numbers: a list of them, a list of values.
         Op::GetDataAtIndex { .. } => match n.inputs.first() {
             Some(Input::Wire { node: from, .. }) => is_array(graph, *from, memo, depth + 1),

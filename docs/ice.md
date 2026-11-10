@@ -89,6 +89,18 @@ the tree's parameters).
   points' values), made one by **Resample**. A name lives in one context: writing
   it in one takes it out of the others, as USD has one primvar of a name. The
   points stay per point. Booleans reach the primitive's primvars as 0 and 1.
+- **Set Data of a list** (a list per element: Near Points' Points or Distances,
+  a Get Array Data, maths on them) stores a **list attribute**, in the graph's
+  own context: every element as many items as the longest list, the shorter
+  ones padded (an int with -1, which no element has, so a Get Data at it reads
+  zero; anything else with zero, which weighs nothing). It is USD's
+  `elementSize`: Write USD writes `float[] primvars:cageWeight (elementSize = 8,
+  interpolation = "vertex")`. A later graph reads it with **Get Array Data**
+  (Get Data refuses it), a list per element of that length that meets other
+  stored lists of the same length item by item: a capture stores once what a
+  deform reads every frame, with no search (the "Cage deform by near points"
+  template). Loaded from USD, float lists come back as lists; int ones are not
+  read yet.
 - **Constants** (Scalar, Integer, 2D, 3D and 4D Vector, Boolean, Rotation,
   Matrix) and **Math** (Add, Subtract, Multiply, Divide, Minimum, Maximum,
   Linear Interpolate, Negate, Absolute Value, Sine, Cosine, Dot Product, Cross
@@ -204,7 +216,11 @@ the tree's parameters).
   Near Points numbers them; unwired, the graph's own. P, normals and vectors
   are taken into the graph's space; a number no element has reads as zero.
   The "Cage deform by near points" template carries a sphere by the points of
-  a cube around it this way. (Get Array Data at an Index alone: not yet.)
+  a cube around it this way.
+- **Get Array Data at an Index.** Its Index wired alone (an int per element,
+  or one), it reads the list the element numbered holds: a stored list's items,
+  or another attribute's one value as a list of one, of its Geometry's prims or
+  the graph's own, its Context as Get Data's.
 - **`intrinsic:curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.
@@ -455,8 +471,8 @@ parameters.
   is also in the operator's Scene
 - Prototypes that are themselves instanced
 - Scattering per face (a count per face, each face's places stable on their own)
-- Lists per element meeting Concatenate Arrays, Random or Set Data; neighbours
-  as lists (a point's neighbouring points)
+- Lists per element meeting Concatenate Arrays or Random; Set Data of a list
+  into another context; Get Array Data at a list of Indices (a list each)
 - Neighbours in the same context (a point's neighbouring points, through the
   faces)
 - Closest Point on the graph's own surface; ray casts (Raycast on Surface); Get

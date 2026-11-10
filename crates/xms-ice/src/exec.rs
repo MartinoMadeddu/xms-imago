@@ -25,6 +25,7 @@ pub const BATCH: usize = 4096;
 
 /// One register: a value per element of the batch; in the uniform program one
 /// value, or an array's values.
+#[derive(Clone)]
 pub(crate) enum Reg {
     Bool(Vec<bool>),
     Int(Vec<i32>),
@@ -682,6 +683,9 @@ enum Out {
     Vec4(Vec<[f32; 4]>),
     Quat(Vec<[f32; 4]>),
     Mat4(Vec<[f64; 16]>),
+    /// A list per element: each batch's lists (its first element, their
+    /// offsets, their items), made one column once all have run.
+    List(std::sync::Mutex<Vec<(usize, Vec<u32>, Reg)>>),
 }
 
 /// One batch's part of a written column.
@@ -694,10 +698,18 @@ enum Slice<'a> {
     Vec4(&'a mut [[f32; 4]]),
     Quat(&'a mut [[f32; 4]]),
     Mat4(&'a mut [[f64; 16]]),
+    List(&'a std::sync::Mutex<Vec<(usize, Vec<u32>, Reg)>>),
 }
 
-fn store(reg: &Reg, out: &mut Slice) {
+/// A batch's values into its part of a written column (`start`: its first
+/// element).
+fn store(reg: &Reg, out: &mut Slice, start: usize) {
     match (reg, out) {
+        (Reg::List(offsets, items), Slice::List(lists)) => {
+            if let Ok(mut l) = lists.lock() {
+                l.push((start, offsets.clone(), (**items).clone()));
+            }
+        }
         (Reg::Bool(r), Slice::Bool(o)) => o.copy_from_slice(&r[..o.len()]),
         (Reg::Int(r), Slice::Int(o)) => o.copy_from_slice(&r[..o.len()]),
         (Reg::Float(r), Slice::Float(o)) => o.copy_from_slice(&r[..o.len()]),
@@ -740,6 +752,8 @@ struct MeshCol {
     column: Column,
     indices: Option<Arc<Vec<u32>>>,
     role: Role,
+    /// Values per element (a stored list's length; 1 for any other).
+    size: usize,
 }
 
 impl<'a> Env<'a> {
@@ -781,6 +795,7 @@ impl<'a> Env<'a> {
                             column: a.column.clone(),
                             indices: a.indices.clone(),
                             role: a.role,
+                            size: a.element_size,
                         });
                     }
                     // An intrinsic, in the mesh's own space (its transform
@@ -794,6 +809,7 @@ impl<'a> Env<'a> {
                         column,
                         indices: None,
                         role,
+                        size: 1,
                     })
                 })
                 .collect()
@@ -1223,6 +1239,77 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 *locs(&mut regs[dst]) = found;
                 *floats(&mut regs[dist]) = far;
             }
+            Ins::LoadStored { dst, read, size } => {
+                let ty = program.regs[dst];
+                let made = {
+                    let s = env.surface_of(None, regs, uniform);
+                    let cols = env.cols(read, s);
+                    let mut out = Reg::Bool(vec![]);
+                    match (s.meshes.first(), cols.first()) {
+                        (Some(m), Some(Some(c))) => into_reg(
+                            ty,
+                            (start..start + len).flat_map(|e| (0..size).map(move |j| item(m, c, e * size + j, ty))),
+                            &mut out,
+                        ),
+                        _ => fill(&mut out, zero(ty), len * size),
+                    }
+                    if uniform {
+                        out
+                    } else {
+                        Reg::List((0..=len).map(|i| (i * size) as u32).collect(), Box::new(out))
+                    }
+                };
+                regs[dst] = made;
+            }
+            Ins::ListAtIndex {
+                dst,
+                read,
+                surface,
+                at,
+                size,
+            } => {
+                let ty = program.regs[dst];
+                let made = {
+                    let s = env.surface_of(surface, regs, uniform);
+                    let cols = env.cols(read, s);
+                    let ctx = env.reads[read].context;
+                    let mut first = Vec::with_capacity(s.meshes.len());
+                    let mut n = 0;
+                    for m in &s.meshes {
+                        first.push(n);
+                        n += m.geo.count(ctx);
+                    }
+                    // Item `j` of element `k`'s list: zero past its own.
+                    let value = |k: i32, j: usize| {
+                        let Some(k) = usize::try_from(k).ok().filter(|&k| k < n) else {
+                            return zero(ty);
+                        };
+                        let at = first.partition_point(|&f| f <= k) - 1;
+                        match &cols[at] {
+                            Some(c) if j < c.size => item(&s.meshes[at], c, (k - first[at]) * c.size + j, ty),
+                            _ => zero(ty),
+                        }
+                    };
+                    let ks: &[i32] = match &regs[at] {
+                        Reg::Int(v) => v,
+                        _ => &[],
+                    };
+                    let mut out = Reg::Bool(vec![]);
+                    into_reg(
+                        ty,
+                        ks.iter()
+                            .flat_map(|&k| (0..size).map(move |j| (k, j)))
+                            .map(|(k, j)| value(k, j)),
+                        &mut out,
+                    );
+                    if uniform {
+                        out
+                    } else {
+                        Reg::List((0..=ks.len()).map(|i| (i * size) as u32).collect(), Box::new(out))
+                    }
+                };
+                regs[dst] = made;
+            }
             Ins::LoadAtIndex { dst, read, surface, at } => {
                 let ty = program.regs[dst];
                 let made = {
@@ -1505,7 +1592,7 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 }
                 regs[dst] = out;
             }
-            Ins::Store { write, src } => store(&regs[src], &mut outs[write]),
+            Ins::Store { write, src } => store(&regs[src], &mut outs[write], start),
         }
     }
 }
@@ -2079,6 +2166,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
         .writes
         .iter()
         .map(|w| match w.ty {
+            _ if w.list => Out::List(Default::default()),
             Ty::Bool => Out::Bool(vec![false; n]),
             Ty::Int => Out::Int(vec![0; n]),
             Ty::Float => Out::Float(vec![0.0; n]),
@@ -2126,6 +2214,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
                 .chunks_mut(BATCH)
                 .zip(&mut tasks)
                 .for_each(|(c, t)| t.push(Slice::Mat4(c))),
+            Out::List(lists) => tasks.iter_mut().for_each(|t| t.push(Slice::List(&*lists))),
         }
     }
     // The surfaces the batches search, made searchable here, in parallel, not
@@ -2153,6 +2242,17 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
     // Only the written columns are new; everything else stays shared.
     let mut out = geo.clone();
     for (w, col) in plan.writes.iter().zip(cols) {
+        if let Out::List(lists) = col {
+            let lists = lists.into_inner().unwrap_or_default();
+            let (column, size) = stored_lists(lists, n, w.ty);
+            for c in Context::ALL {
+                if c != w.context {
+                    out.remove(c, &w.name);
+                }
+            }
+            out.set(w.context, &w.name, Attr::lists(column, size, w.role));
+            continue;
+        }
         let column = match col {
             Out::Bool(v) => Column::Bool(Arc::new(v)),
             Out::Int(v) => Column::Int(Arc::new(v)),
@@ -2162,6 +2262,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
             Out::Vec4(v) => Column::Vec4(Arc::new(v)),
             Out::Quat(v) => Column::Quat(Arc::new(v)),
             Out::Mat4(v) => Column::Mat4(Arc::new(v)),
+            Out::List(_) => unreachable!("written above"),
         };
         let column = if w.context == plan.context {
             column
@@ -2180,6 +2281,54 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
     Ran {
         geo: out,
         instances: made,
+    }
+}
+
+/// The lists the batches stored (their first element, offsets and items) as
+/// one column of `n` elements, each as many items as the longest list, the
+/// shorter ones padded (an int with -1, no element; anything else with zero),
+/// and that length.
+fn stored_lists(mut lists: Vec<(usize, Vec<u32>, Reg)>, n: usize, ty: Ty) -> (Column, usize) {
+    lists.sort_by_key(|l| l.0);
+    let size = lists
+        .iter()
+        .flat_map(|(_, o, _)| o.windows(2).map(|w| (w[1] - w[0]) as usize))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let pad = match ty {
+        Ty::Int => Value::Int(-1),
+        t => zero(t),
+    };
+    let mut values: Vec<Value> = Vec::with_capacity(n * size);
+    for (_, offsets, items) in &lists {
+        for w in offsets.windows(2) {
+            let (a, b) = (w[0] as usize, w[1] as usize);
+            values.extend((a..b).map(|i| value_at(items, i)));
+            values.extend(std::iter::repeat_n(pad, size - (b - a)));
+        }
+    }
+    // Elements no batch stored (none: every batch runs): padding.
+    values.resize(n * size, pad);
+    let mut reg = Reg::Bool(vec![]);
+    into_reg(ty, values.into_iter(), &mut reg);
+    (column_of(reg), size)
+}
+
+/// A register's values as a column.
+fn column_of(reg: Reg) -> Column {
+    match reg {
+        Reg::Bool(v) => Column::Bool(Arc::new(v)),
+        Reg::Int(v) => Column::Int(Arc::new(v)),
+        Reg::Float(v) => Column::Float(Arc::new(v)),
+        Reg::Vec2(v) => Column::Vec2(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
+        Reg::Mat4(v) => Column::Mat4(Arc::new(v.into_iter().map(mat_out).collect())),
+        Reg::Sample(_) | Reg::Token(_) | Reg::List(..) => {
+            unreachable!("surface samples, paths and lists are not written: the compiler refuses")
+        }
     }
 }
 
@@ -2203,19 +2352,7 @@ fn carry(geo: &Geo, column: &Column, from: Context, w: &Write) -> Column {
     };
     let mut reg = Reg::Bool(vec![]);
     load(&source, 0, n, &mut reg, w.ty);
-    match reg {
-        Reg::Bool(v) => Column::Bool(Arc::new(v)),
-        Reg::Int(v) => Column::Int(Arc::new(v)),
-        Reg::Float(v) => Column::Float(Arc::new(v)),
-        Reg::Vec2(v) => Column::Vec2(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Vec3(v) => Column::Vec3(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Vec4(v) => Column::Vec4(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Quat(v) => Column::Quat(Arc::new(v.into_iter().map(|x| x.to_array()).collect())),
-        Reg::Mat4(v) => Column::Mat4(Arc::new(v.into_iter().map(mat_out).collect())),
-        Reg::Sample(_) | Reg::Token(_) | Reg::List(..) => {
-            unreachable!("surface samples, paths and lists are not written: the compiler refuses")
-        }
-    }
+    column_of(reg)
 }
 
 /// A number in [0, 1) from a seed, an element (or array index) and a lane (a

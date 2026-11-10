@@ -161,6 +161,16 @@ pub enum Op {
         name: String,
         context: Option<Context>,
     },
+    /// An attribute's list at the element input 0 numbers (an int per
+    /// element, or one), of the prims input 1 names if any (numbered across
+    /// them in order), else of the graph's own: a list stored per element
+    /// (Set Data of a list), or the one value of any other attribute, as a
+    /// list. `context`: as Get Data at an Index's. (The editor's Get Array
+    /// Data, its Index wired and no Param UV.)
+    GetArrayDataAtIndex {
+        name: String,
+        context: Option<Context>,
+    },
     /// At places on a surface (a Polygon and Param UV per element, as Get Data at
     /// them takes, its Geometry too), the values of the face (or curve) each is
     /// on, kept as a list: its points' (P, `ptIndices` their numbers), its
@@ -503,7 +513,8 @@ impl Op {
             | Op::GetArrayData { .. }
             | Op::GetDataAt { .. }
             | Op::GetArrayDataAt { .. }
-            | Op::GetDataAtIndex { .. } => None,
+            | Op::GetDataAtIndex { .. }
+            | Op::GetArrayDataAtIndex { .. } => None,
             Op::SetData { .. } => Some(1),
             Op::Math(m) => Some(m.arity()),
             Op::Random { .. } => Some(4),

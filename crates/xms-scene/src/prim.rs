@@ -71,6 +71,8 @@ pub struct Primvar {
     pub interpolation: Option<Interpolation>,
     pub values: Sampled<PrimvarValues>,
     pub indices: Option<Vec<u32>>,
+    /// Values per element (`elementSize`): 1, or that many one after another.
+    pub element_size: usize,
 }
 
 impl Subdivision {

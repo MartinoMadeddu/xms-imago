@@ -259,6 +259,10 @@ pub struct Attr {
     pub column: Column,
     pub indices: Option<Arc<Vec<u32>>>,
     pub role: Role,
+    /// How many values each element has, one after another (USD's
+    /// `elementSize`): 1, or a list per element of that length (ICE's lists
+    /// stored with Set Data, shorter ones padded). Not indexed then.
+    pub element_size: usize,
 }
 
 impl Attr {
@@ -267,6 +271,7 @@ impl Attr {
             column,
             indices: None,
             role,
+            element_size: 1,
         }
     }
 
@@ -275,13 +280,31 @@ impl Attr {
             column,
             indices: Some(Arc::new(indices)),
             role,
+            element_size: 1,
+        }
+    }
+
+    /// `element_size` values per element, one after another.
+    pub fn lists(column: Column, element_size: usize, role: Role) -> Self {
+        Self {
+            column,
+            indices: None,
+            role,
+            element_size: element_size.max(1),
         }
     }
 
     /// How many elements of its context the attribute covers.
     #[inline]
     pub fn len(&self) -> usize {
-        self.indices.as_ref().map_or(self.column.len(), |i| i.len())
+        self.indices
+            .as_ref()
+            .map_or(self.column.len() / self.element_size.max(1), |i| i.len())
+    }
+
+    /// Whether each element holds a list of values (`element_size` above 1).
+    pub fn is_list(&self) -> bool {
+        self.element_size > 1
     }
 
     pub fn is_empty(&self) -> bool {
@@ -564,6 +587,13 @@ impl Geo {
                         attr.len()
                     ));
                 }
+                if attr.is_list() && (attr.indices.is_some() || attr.column.len() % attr.element_size != 0) {
+                    return Err(format!(
+                        "{name} ({ctx:?}): {} values are not {} per element",
+                        attr.column.len(),
+                        attr.element_size
+                    ));
+                }
                 if let Some(ix) = &attr.indices {
                     let values = attr.column.len();
                     if let Some(bad) = ix.iter().find(|&&i| i as usize >= values) {
@@ -635,6 +665,23 @@ mod tests {
             Attr::new(Column::Int(Arc::new(vec![1, 2, 3])), Role::None),
         );
         assert!(bad.validate().is_err());
+    }
+
+    /// A list per element: as many values for each, counted as one element
+    /// each; values that are not a whole number of lists do not validate.
+    #[test]
+    fn a_list_per_element_counts_its_elements() {
+        let mut g = quad_and_triangle();
+        let near = Attr::lists(Column::Int(Arc::new((0..15).collect())), 3, Role::None);
+        assert_eq!((near.len(), near.is_list()), (5, true));
+        g.set(Context::Point, "near", near);
+        g.validate().unwrap();
+        g.set(
+            Context::Point,
+            "near",
+            Attr::lists(Column::Int(Arc::new((0..14).collect())), 3, Role::None),
+        );
+        assert!(g.validate().is_err());
     }
 
     #[test]

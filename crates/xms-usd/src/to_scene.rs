@@ -1029,6 +1029,11 @@ impl<'s> Translator<'s> {
             .ok()
             .flatten()
             .and_then(|v| tok(&v));
+        let element_size = match prim.attribute(attr).metadata::<Value>("elementSize").ok().flatten() {
+            Some(Value::Int(n)) => n.max(1) as usize,
+            Some(Value::Int64(n)) => n.max(1) as usize,
+            _ => 1,
+        };
         Some(rs::Primvar {
             name: name.to_string(),
             interpolation: interpolation(interp),
@@ -1037,6 +1042,7 @@ impl<'s> Translator<'s> {
                 .value(prim, &format!("{attr}:indices"))
                 .and_then(int_array)
                 .map(to_u32s),
+            element_size,
         })
     }
 

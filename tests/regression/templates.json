@@ -36,7 +36,7 @@
     "triangles": 533768,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 96
+    "cook_ms": 99
   },
   "Body Collide: into the car": {
     "nodes": 4,
@@ -60,7 +60,7 @@
         -1.104
       ]
     },
-    "cook_ms": 1444,
+    "cook_ms": 1467,
     "solved": true
   },
   "Body Collide: obstacle course": {
@@ -89,7 +89,7 @@
     "solved": true
   },
   "Cage deform by near points": {
-    "nodes": 7,
+    "nodes": 8,
     "viewed": "Result",
     "output": 0,
     "kind": "prims",
@@ -99,7 +99,7 @@
     "triangles": 2060,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 0
+    "cook_ms": 1
   },
   "Cameras": {
     "nodes": 8,
@@ -136,7 +136,7 @@
         1.057
       ]
     },
-    "cook_ms": 1057
+    "cook_ms": 1072
   },
   "Clip basics": {
     "nodes": 5,
@@ -327,7 +327,7 @@
         1.028
       ]
     },
-    "cook_ms": 65
+    "cook_ms": 64
   },
   "Human Limits": {
     "nodes": 3,
@@ -377,7 +377,7 @@
     "triangles": 35624231,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 81
+    "cook_ms": 89
   },
   "ICE: shrink-wrap": {
     "nodes": 5,
@@ -479,7 +479,7 @@
         1.057
       ]
     },
-    "cook_ms": 48,
+    "cook_ms": 50,
     "solved": true
   },
   "Mocap split": {
@@ -578,7 +578,7 @@
         0.062
       ]
     },
-    "cook_ms": 376
+    "cook_ms": 392
   },
   "Novasci clip: thumbs up (download)": {
     "nodes": 3,
@@ -602,7 +602,7 @@
         0.062
       ]
     },
-    "cook_ms": 382
+    "cook_ms": 398
   },
   "Open assets: carbon frame bike (download)": {
     "nodes": 1,
@@ -615,7 +615,7 @@
     "triangles": 135648,
     "materials": 31,
     "cameras": 0,
-    "cook_ms": 421
+    "cook_ms": 446
   },
   "Open assets: elephant with monochord (download)": {
     "nodes": 1,
@@ -628,7 +628,7 @@
     "triangles": 2762,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 7
+    "cook_ms": 8
   },
   "Open assets: teapot and car kit": {
     "nodes": 4,
@@ -641,7 +641,7 @@
     "triangles": 4460,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 11
+    "cook_ms": 12
   },
   "Point instancer: a forest": {
     "nodes": 2,
@@ -715,7 +715,7 @@
         1.057
       ]
     },
-    "cook_ms": 99
+    "cook_ms": 102
   },
   "Rig: aeroplane": {
     "nodes": 5,
@@ -741,7 +741,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 268
+    "cook_ms": 277
   },
   "Rig: full human": {
     "nodes": 8,
@@ -765,7 +765,7 @@
         0.02
       ]
     },
-    "cook_ms": 542
+    "cook_ms": 557
   },
   "Rig: gears and a piston": {
     "nodes": 5,
@@ -815,7 +815,7 @@
         0.02
       ]
     },
-    "cook_ms": 505
+    "cook_ms": 527
   },
   "Rig: human leg": {
     "nodes": 9,
@@ -839,7 +839,7 @@
         0.02
       ]
     },
-    "cook_ms": 502
+    "cook_ms": 518
   },
   "Rig: quadruped": {
     "nodes": 5,
@@ -889,7 +889,7 @@
         0.02
       ]
     },
-    "cook_ms": 507
+    "cook_ms": 521
   },
   "Rig: tank": {
     "nodes": 5,
@@ -928,7 +928,7 @@
     "triangles": 1988,
     "materials": 1,
     "cameras": 0,
-    "cook_ms": 17
+    "cook_ms": 18
   },
   "Shapes": {
     "nodes": 7,
@@ -1043,7 +1043,7 @@
     "triangles": 72240,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 78
+    "cook_ms": 85
   },
   "USD: set attribute": {
     "nodes": 3,
@@ -1069,7 +1069,7 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 242
+    "cook_ms": 250
   },
   "Variant set: cube or sphere": {
     "nodes": 6,

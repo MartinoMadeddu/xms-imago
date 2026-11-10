@@ -699,11 +699,12 @@ impl IceGraph {
                         name: name.clone(),
                         context: *context,
                     },
-                    // An Index alone: the engine says it reads at a place.
-                    IceGraphNodeType::GetArrayData { name, context } if at == ReadAt::Index => Op::GetArrayDataAt {
-                        name: name.clone(),
-                        context: *context,
-                    },
+                    IceGraphNodeType::GetArrayData { name, context } if at == ReadAt::Index => {
+                        Op::GetArrayDataAtIndex {
+                            name: name.clone(),
+                            context: *context,
+                        }
+                    }
                     IceGraphNodeType::GetArrayData { name, context } if sampled => Op::GetArrayDataAt {
                         name: name.clone(),
                         context: *context,

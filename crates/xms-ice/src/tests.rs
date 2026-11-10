@@ -1896,6 +1896,121 @@ fn near_points_among_its_own() {
     assert_eq!((one("first"), one("n")), (3, 2), "9 is nearest 10, then 16");
 }
 
+/// Lists stored with Set Data: Near Points' lists kept per point (a capture),
+/// as long as the longest, the shorter padded (-1 for an int); read back with
+/// Get Array Data by a later graph with no search (a deform), and one
+/// element's list at an Index (Get Array Data at an Index alone).
+#[test]
+fn lists_are_stored_and_read_back() {
+    use super::NEAR_POINTS;
+    let geo = Geo::from_points((0..6).map(|i| [(i * i) as f32, 0.0, 0.0]).collect());
+    // The capture: the 3 nearest, and every one within 3.5.
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let near = |g: &mut Graph, radius: f32, count: i32| {
+        g.add(
+            Op::NearPoints,
+            vec![
+                Input::Value(Value::Float(0.0)),
+                wire(p),
+                Input::Value(Value::Float(radius)),
+                Input::Value(Value::Int(count)),
+            ],
+        )
+    };
+    let (three, within) = (near(&mut g, 0.0, 3), near(&mut g, 3.5, 0));
+    let keep = |g: &mut Graph, name: &str, from: usize| {
+        g.add(
+            Op::set(name),
+            vec![Input::Wire {
+                node: from,
+                output: NEAR_POINTS,
+            }],
+        )
+    };
+    let sets = [keep(&mut g, "near", three), keep(&mut g, "within", within)];
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        sets.iter().map(|&s| wire(s)).collect(),
+    );
+    let captured = run(&compile(&g, &geo).unwrap(), &geo, &no_params(), &[]).geo;
+    captured.validate().unwrap();
+    let near_attr = captured.attr(Context::Point, "near").unwrap();
+    assert_eq!(near_attr.element_size, 3);
+    assert_eq!(&near_attr.column.ints().unwrap()[3..6], &[1, 0, 2], "point 1's");
+    let within_attr = captured.attr(Context::Point, "within").unwrap();
+    assert_eq!(within_attr.element_size, 3, "the longest: point 1's three");
+    assert_eq!(&within_attr.column.ints().unwrap()[9..12], &[3, -1, -1], "padded");
+
+    // The deform: each point's nearest other, read from the stored list.
+    let mut g = Graph::default();
+    let list = g.add(
+        Op::GetArrayData {
+            name: "near".into(),
+            context: None,
+        },
+        vec![],
+    );
+    let other = g.add(
+        Op::Array(ArrayOp::Element),
+        vec![wire(list), Input::Value(Value::Int(1))],
+    );
+    let size = g.add(Op::Array(ArrayOp::Size), vec![wire(list)]);
+    let sets = [("other", other), ("n", size)].map(|(name, v)| g.add(Op::set(name), vec![wire(v)]));
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        sets.iter().map(|&s| wire(s)).collect(),
+    );
+    let out = run(&compile(&g, &captured).unwrap(), &captured, &no_params(), &[]).geo;
+    let ints = |name: &str| {
+        out.attr(Context::Point, name)
+            .and_then(|a| a.column.ints())
+            .unwrap()
+            .to_vec()
+    };
+    assert_eq!(ints("other"), vec![1, 0, 1, 2, 3, 4]);
+    assert_eq!(ints("n"), vec![3; 6]);
+    // Get Data of a list: refused, pointing at Get Array Data.
+    let mut g = Graph::default();
+    let read = g.add(Op::get("near"), vec![]);
+    let set = g.add(Op::set("x"), vec![wire(read)]);
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        vec![wire(set)],
+    );
+    assert!(compile(&g, &captured).unwrap_err().message.contains("Get Array Data"));
+
+    // One element's list, at an Index alone, in an Object graph.
+    let mut g = Graph::default();
+    let at = g.add(
+        Op::GetArrayDataAtIndex {
+            name: "near".into(),
+            context: None,
+        },
+        vec![Input::Value(Value::Int(1))],
+    );
+    let first = g.add(Op::Array(ArrayOp::Element), vec![wire(at), Input::Value(Value::Int(2))]);
+    let set = g.add(Op::set("third"), vec![wire(first)]);
+    g.add(
+        Op::Root {
+            context: Context::Object,
+        },
+        vec![wire(set)],
+    );
+    let out = run(&compile(&g, &captured).unwrap(), &captured, &no_params(), &[]).geo;
+    let third = out
+        .attr(Context::Object, "third")
+        .and_then(|a| a.column.ints())
+        .unwrap()[0];
+    assert_eq!(third, 2, "point 1's third nearest: point 2");
+}
+
 /// Each point to the nearest place on the floor: Closest Point on Surface (the
 /// group names the mesh below it), then P read there, in the graph's space, the
 /// floor's placement taken in.

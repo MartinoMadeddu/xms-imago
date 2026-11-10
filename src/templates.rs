@@ -66,7 +66,7 @@ pub const TEMPLATES: &[Template] = &[
     Template { by: MARTINO, group: "ICE", name: "Bind simple point deformer", build: ice_binding_alembic,
         hint: "1,000 spheres over a pig's head bound to the head at rest and carried by its animation, Alembic caches from Houdini loaded as USD, in two ICE graphs as Houdini's capture and deform: Capture stores each point's place on the rest head (Polygon and Param UV) and where it is in the frame there; Deform builds that frame on the animated head and puts the point back through it" },
     Template { by: MARTINO, group: "ICE", name: "Cage deform by near points", build: ice_cage_deform,
-        hint: "A sphere inside a cube carried by the cube's points, a cage deformer: each sphere point finds the cage's 8 nearest points at rest (Near Points), reads them at rest and moved (Get Data, its Index wired with Near Points' Points), and moves by their moves, the nearer weighing more. Move the cage's points in MoveCorner (Edit Poly) and the sphere follows smoothly" },
+        hint: "A sphere inside a cube carried by the cube's points, a cage deformer in two ICE operators: CageCapture stores, once, each sphere point's 8 nearest cage points and their weights as lists (Near Points into Set Data); CageDeform reads them every frame (Get Array Data), the cage points at rest and moved at those Indices (Get Data), and moves the point by their moves. Move the cage's points in MoveCorner (Edit Poly) and the sphere follows smoothly" },
     Template { by: MARTINO, group: "ICE", name: "Bind simple hair deform by guides", build: ice_guide_deform,
         hint: "9,534 hairs carried by 314 animated guides, Alembic caches from Houdini loaded as USD: each hair bound to the guide nearest its root, each point read on that guide at its u along the hair, moved and turned with it" },
     Template { by: MARTINO, group: "ICE", name: "Bind rigid hair deform by skin", build: ice_rigid_hair,
@@ -2807,13 +2807,15 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
     "Bind simple point deformer, in two ICE operators as Houdini's capture and deform, on Alembic caches from Houdini loaded as USD: the spheres scattered over the pig's head (Spheres, at /spheres), the head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once, and again only when what it reads or its graph changes) binds each point to the head at rest: inside it (down arrow), Closest Point on Surface gives the nearest place as its Polygon and Param UV, a frame is built there from the corners the place is made from (intrinsic:triP and intrinsic:bary, Get Array Data with the Polygon and Param UV wired) and the point is put in it; the Polygon, Param UV and the point in the frame are stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, reads them and builds the same frame on the animated head (Get Array Data with its Geometry wired too), putting the point back through it: no search. Space plays frames 1001 to 1025.".into()
 }
 
-/// A cage deformer, as a simple Houdini Point Deform (no rotations): a cube
-/// of 2 m at rest (/cageRest) and the same cube with a corner moved by Edit
-/// Poly (/cage), merged on Reference 1; a sphere inside it the scene. Per
-/// point, every frame: Near Points on the cage at rest (its 8 points),
-/// Get Data reading them at rest and moved (its Index wired with Near Points'
-/// Points, its Geometry each cage), and the point moved by their moves
-/// averaged, each weighing `1 - d / (1.01 × the farthest's d)`.
+/// A cage deformer, as a simple Houdini Point Deform (no rotations), in two
+/// ICE operators as Houdini's capture and deform: a cube of 2 m at rest
+/// (/cageRest) and the same cube with a corner moved by Edit Poly (/cage); a
+/// sphere inside it the scene. CageCapture (on the rest cage alone, so it cooks
+/// once) stores, per point, the rest cage's 8 nearest points (`cageIndex`, a
+/// list) and their weights (`cageWeight`, `1 - d / (1.01 × the farthest's
+/// d)`). CageDeform (on both cages), every frame: Get Array Data reads the
+/// two lists, two Get Data at those Indices read the cage points at rest and
+/// moved, and the point is moved by their moves averaged by the weights.
 fn ice_cage_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     use xms_ice::{ArrayOp, Math, Value};
     crate::graph_io::clear(g);
@@ -2861,100 +2863,131 @@ fn ice_cage_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
     let lattice = g.add_node("Lattice".into(), NodeType::merge(), p(140.0, 240.0));
     g.add_connection(rest, 0, lattice, 0);
     g.add_connection(move_corner, 0, lattice, 1);
-    let graph = store.create_subnet("CageDeform".into());
-    if let Some(sub) = store.get_mut(graph) {
+    let reference = |sub: &mut crate::ice::IceGraph, path: &str, y: f32| {
+        ice_add(
+            &mut *sub,
+            IceGraphNodeType::GetReference {
+                input: 1,
+                paths: vec![path.into()],
+            },
+            p(40.0, y),
+        )
+    };
+    let math = |sub: &mut crate::ice::IceGraph, op: Math, x: f32, y: f32| {
+        ice_add(&mut *sub, IceGraphNodeType::Math { op }, p(x, y))
+    };
+    let array = |sub: &mut crate::ice::IceGraph, op: ArrayOp, x: f32, y: f32| {
+        ice_add(&mut *sub, IceGraphNodeType::Array { op }, p(x, y))
+    };
+    // The Set Datas into the root (it keeps a port free as each is wired).
+    let finish_graph = |sub: &mut crate::ice::IceGraph, sets: &[NodeId], at: egui::Pos2| {
         let root = sub.root().expect("every ICE graph has a root");
-        let reference = |sub: &mut crate::ice::IceGraph, path: &str, y: f32| {
+        for (k, s) in sets.iter().enumerate() {
+            sub.add_connection(*s, 0, root, k);
+        }
+        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
+            n.position = at;
+        }
+    };
+    // CageCapture, per point, once: the rest cage's 8 nearest points and
+    // their weights, stored as lists.
+    let capture = store.create_subnet("CageCapture".into());
+    if let Some(sub) = store.get_mut(capture) {
+        let at_rest = reference(&mut *sub, "/cageRest", 40.0);
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 160.0));
+        let near = ice_add(&mut *sub, IceGraphNodeType::NearPoints, p(260.0, 80.0));
+        sub.add_connection(at_rest, 0, near, 0);
+        sub.add_connection(pos, 0, near, 1);
+        ice_value(&mut *sub, near, 3, Value::Int(8));
+        // 1 - d / (1.01 × the farthest's d): from 1 at the point to about 0
+        // at the farthest, so one coming into or leaving the eight weighs
+        // nothing.
+        let farthest = array(&mut *sub, ArrayOp::Element, 480.0, 200.0);
+        sub.add_connection(near, xms_ice::NEAR_DISTANCES, farthest, 0);
+        ice_value(&mut *sub, farthest, 1, Value::Int(8));
+        let reach = math(&mut *sub, Math::Multiply, 700.0, 200.0);
+        sub.add_connection(farthest, 0, reach, 0);
+        ice_value(&mut *sub, reach, 1, Value::Float(1.01));
+        let ratio = math(&mut *sub, Math::Divide, 920.0, 160.0);
+        sub.add_connection(near, xms_ice::NEAR_DISTANCES, ratio, 0);
+        sub.add_connection(reach, 0, ratio, 1);
+        let weight = math(&mut *sub, Math::Subtract, 1140.0, 160.0);
+        ice_value(&mut *sub, weight, 0, Value::Float(1.0));
+        sub.add_connection(ratio, 0, weight, 1);
+        let keep_index = ice_add(&mut *sub, IceGraphNodeType::set("cageIndex"), p(1360.0, 60.0));
+        sub.add_connection(near, xms_ice::NEAR_POINTS, keep_index, 0);
+        let keep_weight = ice_add(&mut *sub, IceGraphNodeType::set("cageWeight"), p(1360.0, 160.0));
+        sub.add_connection(weight, 0, keep_weight, 0);
+        finish_graph(&mut *sub, &[keep_index, keep_weight], p(1580.0, 100.0));
+    }
+    // CageDeform, per point, every frame: no search.
+    let deform = store.create_subnet("CageDeform".into());
+    if let Some(sub) = store.get_mut(deform) {
+        let at_rest = reference(&mut *sub, "/cageRest", 40.0);
+        let cage = reference(&mut *sub, "/cage", 400.0);
+        let stored = |sub: &mut crate::ice::IceGraph, name: &str, y: f32| {
             ice_add(
                 &mut *sub,
-                IceGraphNodeType::GetReference {
-                    input: 1,
-                    paths: vec![path.into()],
+                IceGraphNodeType::GetArrayData {
+                    name: name.into(),
+                    context: None,
                 },
                 p(40.0, y),
             )
         };
-        let math = |sub: &mut crate::ice::IceGraph, op: Math, x: f32, y: f32| {
-            ice_add(&mut *sub, IceGraphNodeType::Math { op }, p(x, y))
-        };
-        let array = |sub: &mut crate::ice::IceGraph, op: ArrayOp, x: f32, y: f32| {
-            ice_add(&mut *sub, IceGraphNodeType::Array { op }, p(x, y))
-        };
-        let at_rest = reference(&mut *sub, "/cageRest", 40.0);
-        let cage = reference(&mut *sub, "/cage", 400.0);
-        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 220.0));
-        // The cage's 8 points nearest each point, at rest.
-        let near = ice_add(&mut *sub, IceGraphNodeType::NearPoints, p(260.0, 120.0));
-        sub.add_connection(at_rest, 0, near, 0);
-        sub.add_connection(pos, 0, near, 1);
-        ice_value(&mut *sub, near, 3, Value::Int(8));
-        // Where they are at rest and moved (Get Data at an Index), and how far
-        // each moved.
+        let index = stored(&mut *sub, "cageIndex", 220.0);
+        let weight = stored(&mut *sub, "cageWeight", 300.0);
+        let pos = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(40.0, 520.0));
+        // Where the captured points are at rest and moved, and how far each
+        // moved.
         let read = |sub: &mut crate::ice::IceGraph, on: NodeId, y: f32| {
-            let n = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(480.0, y));
-            sub.add_connection(near, xms_ice::NEAR_POINTS, n, crate::ice::READ_INDEX);
+            let n = ice_add(&mut *sub, IceGraphNodeType::get("P"), p(260.0, y));
+            sub.add_connection(index, 0, n, crate::ice::READ_INDEX);
             sub.add_connection(on, 0, n, crate::ice::READ_GEOMETRY);
             n
         };
         let (was, now) = (read(&mut *sub, at_rest, 40.0), read(&mut *sub, cage, 160.0));
-        let shift = math(&mut *sub, Math::Subtract, 700.0, 100.0);
+        let shift = math(&mut *sub, Math::Subtract, 480.0, 100.0);
         sub.add_connection(now, 0, shift, 0);
         sub.add_connection(was, 0, shift, 1);
-        // Weights: 1 - d / (1.01 × the farthest's d), from 1 at the point to
-        // about 0 at the farthest.
-        let farthest = array(&mut *sub, ArrayOp::Element, 480.0, 300.0);
-        sub.add_connection(near, xms_ice::NEAR_DISTANCES, farthest, 0);
-        ice_value(&mut *sub, farthest, 1, Value::Int(8));
-        let reach = math(&mut *sub, Math::Multiply, 700.0, 300.0);
-        sub.add_connection(farthest, 0, reach, 0);
-        ice_value(&mut *sub, reach, 1, Value::Float(1.01));
-        let ratio = math(&mut *sub, Math::Divide, 920.0, 260.0);
-        sub.add_connection(near, xms_ice::NEAR_DISTANCES, ratio, 0);
-        sub.add_connection(reach, 0, ratio, 1);
-        let weight = math(&mut *sub, Math::Subtract, 1140.0, 260.0);
-        ice_value(&mut *sub, weight, 0, Value::Float(1.0));
-        sub.add_connection(ratio, 0, weight, 1);
         // Their moves averaged by the weights.
-        let weighed = math(&mut *sub, Math::Multiply, 1360.0, 120.0);
+        let weighed = math(&mut *sub, Math::Multiply, 700.0, 160.0);
         sub.add_connection(shift, 0, weighed, 0);
         sub.add_connection(weight, 0, weighed, 1);
-        let total = array(&mut *sub, ArrayOp::Sum, 1580.0, 120.0);
+        let total = array(&mut *sub, ArrayOp::Sum, 920.0, 160.0);
         sub.add_connection(weighed, 0, total, 0);
-        let weights = array(&mut *sub, ArrayOp::Sum, 1580.0, 260.0);
+        let weights = array(&mut *sub, ArrayOp::Sum, 920.0, 300.0);
         sub.add_connection(weight, 0, weights, 0);
-        let some = math(&mut *sub, Math::Add, 1800.0, 260.0);
+        let some = math(&mut *sub, Math::Add, 1140.0, 300.0);
         sub.add_connection(weights, 0, some, 0);
         ice_value(&mut *sub, some, 1, Value::Float(1e-6));
-        let offset = math(&mut *sub, Math::Divide, 2020.0, 160.0);
+        let offset = math(&mut *sub, Math::Divide, 1360.0, 200.0);
         sub.add_connection(total, 0, offset, 0);
         sub.add_connection(some, 0, offset, 1);
-        let out = math(&mut *sub, Math::Add, 2240.0, 200.0);
+        let out = math(&mut *sub, Math::Add, 1580.0, 300.0);
         sub.add_connection(pos, 0, out, 0);
         sub.add_connection(offset, 0, out, 1);
-        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(2460.0, 200.0));
+        let set = ice_add(&mut *sub, IceGraphNodeType::set("P"), p(1800.0, 300.0));
         sub.add_connection(out, 0, set, 0);
-        sub.add_connection(set, 0, root, 0);
-        if let Some(n) = sub.nodes.iter_mut().find(|n| n.id == root) {
-            n.position = p(2680.0, 200.0);
-        }
+        finish_graph(&mut *sub, &[set], p(2020.0, 300.0));
     }
-    let deform = g.add_node(
-        "CageDeform".into(),
-        NodeType::Ice {
-            id: graph,
-            name: "CageDeform".into(),
-            references: 1,
-            params: Default::default(),
-        },
-        p(440.0, 300.0),
-    );
-    g.add_connection(sphere, 0, deform, 0);
-    g.add_connection(lattice, 0, deform, 1);
-    let result = g.add_node("Result".into(), NodeType::merge(), p(440.0, 420.0));
-    g.add_connection(deform, 0, result, 0);
+    let ice = |id: IceGraphId, name: &str| NodeType::Ice {
+        id,
+        name: name.into(),
+        references: 1,
+        params: Default::default(),
+    };
+    let c = g.add_node("CageCapture".into(), ice(capture, "CageCapture"), p(440.0, 300.0));
+    g.add_connection(sphere, 0, c, 0);
+    g.add_connection(rest, 0, c, 1);
+    let d = g.add_node("CageDeform".into(), ice(deform, "CageDeform"), p(440.0, 410.0));
+    g.add_connection(c, 0, d, 0);
+    g.add_connection(lattice, 0, d, 1);
+    let result = g.add_node("Result".into(), NodeType::merge(), p(440.0, 520.0));
+    g.add_connection(d, 0, result, 0);
     g.add_connection(move_corner, 0, result, 1);
     finish(g, result, move_corner);
-    "Cage deform by near points: a sphere (Sphere, at /sphere) inside a 2 m cube carried by the cube's points, as a simple Houdini Point Deform (no rotations). The cage at rest (CageAtRest, at /cageRest) and moved (Cage, at /cage, one corner pulled by MoveCorner's Edit Poly) are merged as the lattice on Reference 1. Inside CageDeform (down arrow), per point and every frame: Near Points finds the rest cage's 8 points nearest it; two Get Data, their Index wired with Near Points' Points and their Geometry each cage, read where those points are at rest and moved; their moves are averaged, each weighing 1 - d / (1.01 x the farthest's d), and the point moved by it. Move the cage's points in MoveCorner and the sphere follows smoothly.".into()
+    "Cage deform by near points: a sphere (Sphere, at /sphere) inside a 2 m cube carried by the cube's points, as a simple Houdini Point Deform (no rotations) in two ICE operators, capture and deform. The cage at rest is CageAtRest (/cageRest); Cage (/cage) is the same cube with a corner pulled by MoveCorner's Edit Poly. CageCapture (on the rest cage alone: it cooks once) stores per point the rest cage's 8 nearest points (cageIndex, a list per point, from Near Points) and their weights (cageWeight, 1 - d / (1.01 x the farthest's d)). CageDeform (on both cages, merged as Lattice), every frame and with no search: Get Array Data reads the two lists, two Get Data with cageIndex as their Index read those points at rest and moved, and the point moves by their moves averaged by the weights. Move the cage's points in MoveCorner and the sphere follows smoothly.".into()
 }
 
 /// Hair carried by its guides, on Alembic caches Martino wrote from Houdini:

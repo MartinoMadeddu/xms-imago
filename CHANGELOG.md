@@ -8,9 +8,13 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-11-10
+
 - **Near Points** (ICE): the points nearest each origin, of reference prims or the graph's own, up to a count within a radius (0: anywhere), as a list per point of their numbers and distances: neighbours for smoothing, relaxing, clumping. A k-d tree over the points (kiddo).
 - **Get Data at an Index** (ICE): Get Data and Get Array Data's Polygon input is now their **Index**; wired alone, a Get Data reads at the elements it numbers (Houdini's `point()`, `prim()`: Near Points' Points), with a Param UV at a place as before. Graphs saved before keep reading at the place (0, 0). The **Cage deform by near points** template carries a sphere by a cube's points with them.
 - ICE: Closest Point on Surface's and Scatter on Surface's **Polygon** output is now **Face Index** (wires and saved graphs unchanged).
+- **Lists stored with Set Data** (ICE): a list per element (Near Points' lists, a Get Array Data) is kept as a list attribute, every element as many items as the longest (the shorter padded: -1 for an int, else zero), written to USD with its `elementSize`, read back with Get Array Data: a capture once, a deform every frame with no search. The Cage deform template is now two operators, CageCapture and CageDeform.
+- **Get Array Data at an Index** (ICE): its Index wired alone, the list the numbered element holds.
 - **Lighter render layers:** a deformed prim's points stay in memory even when the deformer also set an attribute (only that attribute is written, and the Log names it); attributes a deformer copied unchanged are no longer written.
 
 ## [0.2.10] - 2026-11-09
