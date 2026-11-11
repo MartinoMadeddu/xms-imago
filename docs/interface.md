@@ -174,7 +174,11 @@ name. **Pick** lists the names coming in; under the field, how many match.
 ## Viewer
 
 - **Shading** at the top: Wireframe, Hidden Line Removal, Shaded or
-  Textured. Shaded whenever Imago starts: the choice is not kept.
+  Textured. Shaded whenever Imago starts: the choice is not kept. Under them,
+  **Wireframe on Shaded** draws the polygons' edges over Shaded and Textured,
+  in a dark grey, and **Points** every point (of meshes and curves) as a dark
+  blue dot, as Houdini's Display Points does, hidden behind what is in front
+  (4 million at most). Both are off whenever Imago starts.
 - **🎥** at the top lists the scene's cameras to look through; navigating
   leaves the camera where it is.
 - **Click** a primitive to select it (Ctrl+click adds); **drag a box** to
@@ -220,9 +224,12 @@ prim colours it, lines and labels add up.
 All. Colours and lines are hidden behind surfaces as the scene is. Labels are
 too, behind the surfaces of the prims attributes are shown on (up to 2 million
 triangles; other prims do not hide them yet), and those on faces turned away
-are left out. Within limits, on both: a million lines, 20 million coloured
-corners, and labels on screen only, nearest the camera first, at most 5,000
-(made from 200,000 at most, 10,000 tested a frame). Past a limit the Viewer
+are left out (a mesh's point faces as its faces do). Each label sits just
+right of its element, as in Houdini, and one that would cover a nearer label
+is left out, so every label shown can be read: come closer to see the rest.
+Within limits, on both: a million lines, 20 million coloured corners, and
+labels on screen only, nearest the camera first, at most 5,000 (made from
+200,000 at most, 20,000 tested a frame). Past a limit the Viewer
 says what it left out. The attributes listed are saved with the graph file;
 **Show attributes** is off whenever Imago starts or a graph is opened.
 

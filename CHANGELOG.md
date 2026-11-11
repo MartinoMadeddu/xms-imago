@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Wireframe on Shaded and Points in the Viewer:** under the shading modes, the polygons' edges over Shaded and Textured, and every point of meshes and curves as a dot, as Houdini's Display Points.
+- **Display Attribute's labels read better:** each just right of its element, none covering a nearer one; a mesh's points facing away are left out at once, and labels behind a surface found once per small square of the picture, so a dense prim in front (a groom) no longer uses up the labels tested before the rest are reached.
 - **Curves and points selectable in the Viewer:** clicked near one of their lines, as drawn, or touched by a box, at every copy.
 - **Display Attribute:** the Viewer's A opens into a box holding its settings, over the picture, and closes again, instead of a menu that closed on a click outside.
 - **The Viewer's selection** in its own blue, a quarter less saturated.

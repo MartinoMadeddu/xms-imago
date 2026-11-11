@@ -144,7 +144,7 @@ impl Viewer {
                 ^ hash_of(&input.hierarchy.selected_paths().join("\n")).rotate_left(8),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
-            crate::viewport::display::mode() as u64 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
+            crate::viewport::display::key() ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
         );
         if self.built != Some(key) {
             self.built = Some(key);

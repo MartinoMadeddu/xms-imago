@@ -37,7 +37,10 @@ pub const COLOURED_LIMIT: usize = 20_000_000;
 /// Triangles hiding labels at most: past it, labels are not hidden.
 pub const OCCLUDER_LIMIT: usize = 2_000_000;
 /// Labels tested for what hides them in a frame at most, nearest first.
-const LABELS_TESTED: usize = 10_000;
+const LABELS_TESTED: usize = 20_000;
+/// The side of the squares of the picture, in pixels, a label hidden in one
+/// hides the others in: those behind a surface found once, not each time.
+const HIDDEN_CELL: f32 = 4.0;
 
 /// Which prims attributes are shown on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -333,25 +336,49 @@ fn starts(counts: &[u32]) -> Vec<usize> {
 }
 
 /// Where each element of `ctx` is drawn, in the prim's own space, and which
-/// way it faces when that is known (a face's normal, its corners').
+/// way it faces when that is known (a face's normal, its corners', on a mesh
+/// a point's: its faces' together, by their areas).
 pub fn places(geo: &Geo, ctx: Context) -> Vec<(Vec3, Option<Vec3>)> {
     let pts = geo.points();
     let p = |i: u32| Vec3::from_array(pts.get(i as usize).copied().unwrap_or_default());
     let (start, corner_point) = faces(geo);
     let mesh = matches!(geo.topology, Topology::Mesh { .. });
+    // A face's normal, as long as twice its area.
+    let area = |f: usize| -> Vec3 {
+        let cs = &corner_point[start[f]..start[f + 1]];
+        let mut n = Vec3::ZERO;
+        for k in 0..cs.len() {
+            n += p(cs[k]).cross(p(cs[(k + 1) % cs.len()]));
+        }
+        n
+    };
     let face = |f: usize| -> (Vec3, Option<Vec3>) {
         let cs = &corner_point[start[f]..start[f + 1]];
         let centre = cs.iter().map(|&i| p(i)).sum::<Vec3>() / cs.len().max(1) as f32;
-        let normal = mesh.then(|| {
-            let mut n = Vec3::ZERO;
-            for k in 0..cs.len() {
-                n += p(cs[k]).cross(p(cs[(k + 1) % cs.len()]));
-            }
-            n.normalize_or_zero()
-        });
+        let normal = mesh.then(|| area(f).normalize_or_zero());
         (centre, normal.filter(|n| *n != Vec3::ZERO))
     };
     match ctx {
+        Context::Point if mesh => {
+            let mut n = vec![Vec3::ZERO; pts.len()];
+            for f in 0..start.len() - 1 {
+                let a = area(f);
+                for &i in &corner_point[start[f]..start[f + 1]] {
+                    if let Some(n) = n.get_mut(i as usize) {
+                        *n += a;
+                    }
+                }
+            }
+            pts.iter()
+                .zip(n)
+                .map(|(x, n)| {
+                    (
+                        Vec3::from_array(*x),
+                        Some(n.normalize_or_zero()).filter(|n| *n != Vec3::ZERO),
+                    )
+                })
+                .collect()
+        }
         Context::Point => pts.iter().map(|x| (Vec3::from_array(*x), None)).collect(),
         Context::Face => (0..start.len() - 1).map(face).collect(),
         // A little towards its face's centre, so neighbouring corners part.
@@ -613,8 +640,10 @@ pub fn world_triangles(geo: &Geo, m: &Mat4) -> Vec<[Vec3; 3]> {
 }
 
 /// The labels on screen drawn over the picture, nearest the camera first,
-/// those behind a surface (`occluders`) or on one turned away left out, at
-/// most `LABELS_DRAWN`. What was left out, when a limit was reached.
+/// each just right of its element, as Houdini's are: those behind a surface
+/// (`occluders`) or on one turned away left out, and those that would cover
+/// a nearer one, so each can be read (coming closer shows them). What was
+/// left out, when a limit was reached.
 pub fn draw_labels(
     ui: &egui::Ui,
     rect: egui::Rect,
@@ -644,24 +673,77 @@ pub fn draw_labels(
     on_screen.sort_by(|a, b| a.0.total_cmp(&b.0));
     let painter = ui.painter_at(rect);
     let font = egui::FontId::monospace(10.0);
-    let (mut drawn, mut tested) = (0, 0);
-    for (_, at, l) in &on_screen {
-        if drawn == LABELS_DRAWN || tested == LABELS_TESTED {
-            return Some(format!(
-                "Labels: the nearest {drawn} shown: select fewer prims or come closer"
-            ));
-        }
-        tested += 1;
-        if occluders.is_some_and(|o| o.hides(eye, l.at)) {
-            continue;
-        }
-        drawn += 1;
-        let galley = painter.layout_no_wrap(l.text.clone(), font.clone(), egui::Color32::WHITE);
-        let frame = egui::Rect::from_center_size(*at, galley.size() + egui::vec2(3.0, 1.0));
-        painter.rect_filled(frame, 1.5, egui::Color32::from_black_alpha(130));
+    // Monospace: a label's size from its characters, without laying out those
+    // that will not be drawn.
+    let glyph = painter
+        .layout_no_wrap("0".into(), font.clone(), egui::Color32::WHITE)
+        .size();
+    let wanted: Vec<(egui::Pos2, egui::Vec2, Vec3)> = on_screen
+        .iter()
+        .map(|(_, at, l)| {
+            let lines = l.text.lines().count().max(1);
+            let widest = l.text.lines().map(|t| t.chars().count()).max().unwrap_or(0);
+            let size = egui::vec2(glyph.x * widest as f32, glyph.y * lines as f32);
+            (*at, size + egui::vec2(3.0, 1.0), l.at)
+        })
+        .collect();
+    let (placed, note) = arrange(&wanted, |at| occluders.is_some_and(|o| o.hides(eye, at)));
+    for (i, frame) in placed {
+        let galley = painter.layout_no_wrap(on_screen[i].2.text.clone(), font.clone(), egui::Color32::WHITE);
+        painter.rect_filled(frame, 1.5, egui::Color32::from_black_alpha(150));
         painter.galley(frame.min + egui::vec2(1.5, 0.5), galley, egui::Color32::WHITE);
     }
-    None
+    note
+}
+
+/// Where labels go, given, nearest first, as where their element is on
+/// screen, their size and where it is in the world: which are drawn and in
+/// what frame, just right of their element. One whose element is behind a
+/// surface (`hidden`) is left out, and so are the rest of those in the same
+/// small square of the picture, tested once; one that would cover a label
+/// already placed is left out. What was left out, when a limit was reached.
+fn arrange(
+    wanted: &[(egui::Pos2, egui::Vec2, Vec3)],
+    hidden: impl Fn(Vec3) -> bool,
+) -> (Vec<(usize, egui::Rect)>, Option<String>) {
+    use std::collections::{HashMap, HashSet};
+    // Placed frames by the squares of `BIN` pixels they cover.
+    const BIN: f32 = 32.0;
+    let bins = |r: egui::Rect| {
+        let (x0, y0) = ((r.min.x / BIN).floor() as i32, (r.min.y / BIN).floor() as i32);
+        let (x1, y1) = ((r.max.x / BIN).floor() as i32, (r.max.y / BIN).floor() as i32);
+        (x0..=x1).flat_map(move |x| (y0..=y1).map(move |y| (x, y)))
+    };
+    let mut taken: HashMap<(i32, i32), Vec<egui::Rect>> = HashMap::new();
+    let mut behind: HashSet<(i32, i32)> = HashSet::new();
+    let (mut out, mut tested) = (vec![], 0);
+    for (i, (at, size, world)) in wanted.iter().enumerate() {
+        if out.len() == LABELS_DRAWN || tested == LABELS_TESTED {
+            let note = format!(
+                "Labels: the nearest {} shown: select fewer prims or come closer",
+                out.len()
+            );
+            return (out, Some(note));
+        }
+        let frame = egui::Rect::from_min_size(egui::pos2(at.x + 4.0, at.y - size.y * 0.5), *size);
+        if bins(frame).any(|b| taken.get(&b).is_some_and(|rs| rs.iter().any(|r| r.intersects(frame)))) {
+            continue;
+        }
+        let cell = ((at.x / HIDDEN_CELL).floor() as i32, (at.y / HIDDEN_CELL).floor() as i32);
+        if behind.contains(&cell) {
+            continue;
+        }
+        tested += 1;
+        if hidden(*world) {
+            behind.insert(cell);
+            continue;
+        }
+        for b in bins(frame) {
+            taken.entry(b).or_default().push(frame);
+        }
+        out.push((i, frame));
+    }
+    (out, None)
 }
 
 /// The Attributes box at the Viewer's top left, under its bar: a square A,
@@ -946,5 +1028,45 @@ mod tests {
         assert!(in_scope(Scope::Selected, "/set/a", &sel));
         assert!(!in_scope(Scope::Selected, "/settle", &sel));
         assert!(in_scope(Scope::All, "/settle", &sel));
+    }
+
+    /// Labels nearest first: one that would cover a nearer one is left out,
+    /// one behind a surface too, and the others in its small square without
+    /// testing them again.
+    #[test]
+    fn labels_neither_cover_each_other_nor_show_through() {
+        let size = egui::vec2(20.0, 10.0);
+        let w = |x: f32, y: f32, z: f32| (egui::pos2(x, y), size, Vec3::new(x, y, z));
+        let wanted = [
+            w(100.0, 100.0, 0.0),
+            // Over the first: left out.
+            w(110.0, 102.0, 0.0),
+            // Behind a surface (z below 0), and one beside it in its square.
+            w(300.0, 300.0, -1.0),
+            w(301.0, 301.0, 5.0),
+            // Clear of the others.
+            w(100.0, 200.0, 0.0),
+        ];
+        let tests = std::cell::Cell::new(0);
+        let (placed, note) = arrange(&wanted, |at| {
+            tests.set(tests.get() + 1);
+            at.z < 0.0
+        });
+        let drawn: Vec<usize> = placed.iter().map(|(i, _)| *i).collect();
+        assert_eq!(drawn, [0, 4]);
+        assert_eq!(tests.get(), 3);
+        assert!(note.is_none());
+        // Just right of its element, centred on it up and down.
+        assert_eq!(placed[0].1.min, egui::pos2(104.0, 95.0));
+    }
+
+    /// On a mesh a point faces as its faces do; elsewhere it faces nowhere.
+    #[test]
+    fn a_mesh_s_points_face_as_their_faces_do() {
+        let at = places(&quads(), Context::Point);
+        assert_eq!(at.len(), 6);
+        assert!(at.iter().all(|(_, n)| n.is_some_and(|n| n.abs() == Vec3::Y)));
+        let cloud = Geo::from_points(vec![[0.0; 3]; 2]);
+        assert!(places(&cloud, Context::Point).iter().all(|(_, n)| n.is_none()));
     }
 }

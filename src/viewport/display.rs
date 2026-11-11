@@ -1,6 +1,6 @@
 //! How the viewport draws meshes.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayMode {
@@ -52,6 +52,34 @@ pub fn set_mode(m: DisplayMode) {
     }
     MODE.store(m.code(), Ordering::Relaxed);
     super::textures::touch();
+}
+
+/// Drawn over any mode: the wireframe (in Shaded and Textured, which draw
+/// none), and every point as a dot, as Houdini's Display Points does. Off
+/// whenever Imago starts, as the mode is.
+static WIRE_OVER: AtomicBool = AtomicBool::new(false);
+static POINTS: AtomicBool = AtomicBool::new(false);
+
+pub fn wire_over() -> bool {
+    WIRE_OVER.load(Ordering::Relaxed)
+}
+
+pub fn points() -> bool {
+    POINTS.load(Ordering::Relaxed)
+}
+
+pub fn set_wire_over(on: bool) {
+    WIRE_OVER.store(on, Ordering::Relaxed);
+}
+
+pub fn set_points(on: bool) {
+    POINTS.store(on, Ordering::Relaxed);
+}
+
+/// What the Viewer draws by, for knowing when to draw the scene again: the
+/// mode and what is drawn over it.
+pub fn key() -> u64 {
+    mode().code() as u64 | (wire_over() as u64) << 8 | (points() as u64) << 9
 }
 
 /// The edges to draw for a mesh, as pairs of vertex indices: the sides of its
