@@ -8,23 +8,60 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-- **Wireframe on Shaded and Points in the Viewer:** under the shading modes, the polygons' edges over Shaded and Textured, and every point of meshes and curves as a dot, as Houdini's Display Points.
-- **Display Attribute's labels as Houdini's:** the text alone, with a dark shadow, no box, coloured by context as XSI's (points green, just right of them; faces lilac and corners amber, centred); a list as a column, six values at most; every label in front of a surface drawn, a curved face's centre no longer hidden by its own face. Those behind one are found once per small square of the picture, so a dense prim (a groom) no longer uses up the labels tested before the rest are reached; and none is left out by its face's winding any more (a left-handed mesh lost most of its labels).
-- **Curves and points selectable in the Viewer:** clicked near one of their lines, as drawn, or touched by a box, at every copy.
-- **Display Attribute:** the Viewer's A opens into a box holding its settings, over the picture, and closes again, instead of a menu that closed on a click outside.
-- **The Viewer's selection** in its own blue, a quarter less saturated.
-- **README:** ISL and Display Attribute among the main parts; The command line before Get it.
+## [0.3.1] - 2026-11-11
 
-- **ISL, the ICE Scripting Language:** the snippets' language has a name, a reference page ([docs/isl.md](docs/isl.md)) and a page of every function with examples ([docs/isl-functions.md](docs/isl-functions.md)), in the HTML documentation too. The design page it grew from is gone from the repository.
+ICE gets a language: **ISL**, the ICE Scripting Language, code that compiles
+into ICE's own nodes, as a node in ICE graphs or an operator in the scene
+graph. And the Viewer reads data better: labels as Houdini draws them, points
+and wireframe over the shading, curves you can click.
 
-- **ICE snippets:** a **Snippet** node in ICE graphs: code in OSL's syntax and types with ICE's attributes (`@P += normalize(@N) * amount;`), `if`, loops of a known count, functions, and the ICE nodes as functions (`get_data`, `get_array_data`, `near_points`, `closest_point_on_surface`, `random`), lowered into ICE's own nodes, so it runs as fast as they do. Its parameters are its ports; errors show with their line. ([ISL](docs/isl.md))
-- **Snippets' geometry parameters** take their reference input as their default, as other parameters take values: `geometry ground = 1`, `geometry anim = 2` (or `= get_reference(1, "/set/ground*")`); the References rows name which of its prims.
-- **Get Reference on one input searches that input alone:** Closest Point, Near Points and Get Data on a reference no longer find prims at the same paths on another input.
-- **ISnippet:** code as a scene-graph operator (Houdini's Attribute Wrangle, Imago's way), named as ICreationEngine is and yellow, as the Snippet node in ICE graphs is: one snippet, locked inside, its code, Run Over, References and parameters in its Parameters tab. **Make ICE Graph** puts an ICreationEngine beside it holding the nodes it runs. Two templates: Snippets: roughen and relax, Snippets: stick to a surface.
-- **Snippet node:** a `geometry` parameter left unwired reads its **References** row (a Get Reference's: Reference 1 unless set); **Make Compound** makes a snippet a compound with its parameters as ports; Ctrl+Enter applies the code on macOS too; three examples in the add menu (roughen, relax, stick).
-- **Noise matched to OSL's:** Perlin Noise, Simplex Noise and Cell Noise nodes, and `noise("perlin" | "uperlin" | "simplex" | "usimplex" | "cell", p)`, `snoise(p)`, `cellnoise(p)` in snippets: ported from Open Shading Language (BSD-3-Clause), checked against its own expected values.
-- **ICE logic:** Less Than, Less Than or Equal, Greater Than, Greater Than or Equal, Equal, Not Equal, And, Or, Not, and **If** (one value or another per element, by a condition), under Logic in the add menu.
-- **OSL's maths as ICE nodes:** Square Root, Power, Exponential, Logarithm, Floor, Ceiling, Round, Sign, Modulo, Tangent, Arcsine, Arccosine, Arctangent of Y over X.
+### ISL and snippets
+
+- **ISL, the ICE Scripting Language:** OSL's syntax and types with ICE's
+  attributes (`@P += normalize(@N) * amount;`): `if`, loops of a known count,
+  functions, and the ICE nodes as functions (`get_data`, `get_array_data`,
+  `near_points`, `closest_point_on_surface`, `random`, `noise`). Not a second
+  engine: a snippet is lowered into ICE's nodes and runs as fast as they do.
+  Its parameters are its ports; errors show with their line. See
+  [ISL](docs/isl.md) and [its functions](docs/isl-functions.md), in the HTML
+  documentation too.
+- **Snippet node** in ICE graphs, three examples in the add menu (roughen,
+  relax, stick); **Make Compound** turns one into a compound with its
+  parameters as ports; Ctrl+Enter applies the code, on macOS too.
+- **ISnippet:** a snippet as a scene-graph operator (Houdini's Attribute
+  Wrangle, Imago's way), yellow, its code, Run Over, References and parameters
+  in its Parameters tab. **Make ICE Graph** puts beside it an ICreationEngine
+  holding the nodes it runs. Two templates: Snippets: roughen and relax,
+  Snippets: stick to a surface.
+- **References:** a snippet's geometry parameters default to its reference
+  inputs (`geometry ground = 1`, or `= get_reference(1, "/set/ground*")`).
+  Get Reference on one input searches that input alone: Closest Point, Near
+  Points and Get Data no longer find prims at the same paths on another.
+- **New ICE nodes:** OSL's noise, ported and checked against its own values
+  (Perlin, Simplex and Cell Noise; BSD-3-Clause); logic (Less Than…Not Equal,
+  And, Or, Not, and **If**, a value or another per element); OSL's maths
+  (Square Root, Power, Exponential, Logarithm, Floor, Ceiling, Round, Sign,
+  Modulo, Tangent, Arcsine, Arccosine, Arctangent of Y over X).
+
+### The Viewer
+
+- **Display Attribute's labels as Houdini's:** the text alone with a dark
+  shadow, no box, coloured by context as XSI's (points green, just right of
+  them; faces lilac and corners amber, centred); a list as a column. Every
+  label in front of a surface is drawn: a left-handed mesh no longer loses
+  most of its labels, a curved face's centre is no longer hidden by its own
+  face, and a dense prim in front (a groom) no longer uses up the labels
+  before the rest are reached.
+- **Display Attribute's A** opens into a box holding its settings, over the
+  picture, and closes again, as a Snippet's code does.
+- **Points** and **Wireframe on Shaded**, under the shading modes: every point
+  of meshes and curves as a dot, as Houdini's Display Points, and the
+  polygons' edges over Shaded and Textured.
+- **Curves and points selectable:** clicked near one of their lines, or
+  touched by a box, at every copy.
+- **The selection** in the Viewer's own blue, a quarter less saturated, so it
+  reads on the geometry without glaring.
+- **README:** ISL and Display Attribute among Imago's main parts.
 
 ## [0.3.0] - 2026-11-10
 

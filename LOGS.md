@@ -857,3 +857,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 11/11/2026: Viewer: display::wire_over / points toggles (Wireframe on Shaded, Points: scene::point_dots, under attribute dots); attributes::draw_labels through arrange (no overlap, hidden cells, sizes from monospace glyphs), mesh point normals in places. (Martino)
 - 11/11/2026: Display Attribute labels: no facing test (winding is not to be trusted: leftHanded meshes), no overlap culling, no box: text with a shadow; attributes::visible tests one label per 4 px square once hidden. (Martino)
 - 11/11/2026: Display Attribute labels: coloured by context (label_colour), placed by it (label_min: points right, the rest centred), lists as columns (COLUMN 6); places gives a lift (a quarter of a face's reach) so a curved face's centre is not hidden by its own face; the object's never hidden. (Martino)
+- 11/11/2026: Imago 0.3.1: version, changelog (ISL and snippets, the Viewer). (Martino)
