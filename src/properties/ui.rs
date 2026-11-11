@@ -150,12 +150,9 @@ pub fn draw_properties_panel(
                     sg.selected_node = was;
                 }
                 // Its Make ICE Graph, under its code.
-                if ui
-                    .data(|d| d.get_temp::<bool>(crate::ice::ui::make_ice_graph_id()))
-                    .is_some()
-                {
+                if let Some(compound) = ui.data(|d| d.get_temp::<bool>(crate::ice::ui::make_ice_graph_id())) {
                     ui.data_mut(|d| d.remove::<bool>(crate::ice::ui::make_ice_graph_id()));
-                    let told = make_ice_graph(graph, subnets, op, sid);
+                    let told = make_ice_graph(graph, subnets, op, sid, compound);
                     ui.data_mut(|d| d.insert_temp(egui::Id::new(("isnippet_told", op.0)), told));
                 }
                 if let Some(told) = ui.data(|d| d.get_temp::<String>(egui::Id::new(("isnippet_told", op.0)))) {
@@ -165,20 +162,26 @@ pub fn draw_properties_panel(
         });
 }
 
-/// ISnippet `op` (its graph `sid`)'s snippet as nodes: an ICreationEngine
-/// beside it, its graph `snippet_nodes`' and its inputs wired as the
-/// ISnippet's are. What to tell.
+/// ISnippet `op` (its graph `sid`)'s snippet as an ICreationEngine beside it,
+/// its inputs wired as the ISnippet's are: holding the nodes it runs
+/// (`snippet_nodes`), or with `compound`, the snippet as a compound
+/// (`snippet_as_compound`). What to tell.
 fn make_ice_graph(
     graph: &mut NodeGraphState,
     subnets: &mut IceGraphStore,
     op: crate::types::NodeId,
     sid: crate::types::IceGraphId,
+    compound: bool,
 ) -> String {
     let Some(node) = graph.nodes.iter().find(|n| n.id == op) else {
         return "That ISnippet is gone".into();
     };
     let (name, references, at) = match &node.node_type {
-        NodeType::Ice { references, .. } => (format!("{}_nodes", node.name), *references, node.position),
+        NodeType::Ice { references, .. } => (
+            format!("{}_{}", node.name, if compound { "compound" } else { "nodes" }),
+            *references,
+            node.position,
+        ),
         _ => return "Not an ISnippet".into(),
     };
     let wires: Vec<(usize, (crate::types::NodeId, usize))> = node
@@ -189,10 +192,13 @@ fn make_ice_graph(
         .collect();
     let new_sid = subnets.create_subnet(name.clone());
     let mut fresh = crate::ice::IceGraph::new(new_sid, name.clone());
-    if let Err(e) = subnets
-        .get(sid)
-        .map_or(Err("Its graph is gone".to_string()), |sg| sg.snippet_nodes(&mut fresh))
-    {
+    if let Err(e) = subnets.get(sid).map_or(Err("Its graph is gone".to_string()), |sg| {
+        if compound {
+            sg.snippet_as_compound(&mut fresh)
+        } else {
+            sg.snippet_nodes(&mut fresh)
+        }
+    }) {
         subnets.remove(new_sid);
         return format!("No ICE graph made: {e}");
     }
@@ -213,7 +219,11 @@ fn make_ice_graph(
     for (k, (from, out)) in wires {
         graph.add_connection(from, out, made, k);
     }
-    format!("{name}: the snippet's nodes, beside it and wired as it is. Double-click it to see them")
+    if compound {
+        format!("{name}: the snippet as a compound, beside it and wired as it is. Double-click it, select the compound and Save as Definition to share it")
+    } else {
+        format!("{name}: the snippet's nodes, beside it and wired as it is. Double-click it to see them")
+    }
 }
 
 /// Every prim on each reference input of the ICE operator whose graph is

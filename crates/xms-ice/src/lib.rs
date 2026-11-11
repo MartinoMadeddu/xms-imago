@@ -28,8 +28,8 @@
 //!   samples.
 //! - `spatial`: a BVH (rray's builder), the closest point on a triangle, and a
 //!   k-d tree over points (`KdPointTree`, kiddo's).
-//! - `lang`: ICE snippets, the language: text parsed and lowered into this
-//!   graph's own nodes (`docs/ice-snippets.md`).
+//! - `lang`: ISL, the ICE Scripting Language: a snippet's code parsed and
+//!   lowered into this graph's own nodes (`docs/isl.md`).
 
 pub mod compile;
 pub mod exec;

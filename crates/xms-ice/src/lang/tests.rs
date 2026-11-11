@@ -257,3 +257,24 @@ fn noise_is_osl_s_signed_or_from_zero_to_one() {
     let e = error_of("snippet n () { float x = noise(\"gabor\", @P); }", Context::Point, &geo);
     assert!(e.contains("\"gabor\" noise"), "{e}");
 }
+
+#[test]
+fn a_geometry_s_default_is_its_reference_input() {
+    let s = parse("snippet s (geometry ground = 2, geometry rest, geometry rocks = get_reference(1, \"/rocks*\")) { }")
+        .unwrap();
+    let refs: Vec<Option<usize>> = super::ports(&s).iter().map(|p| p.reference).collect();
+    assert_eq!(refs, [Some(2), Some(1), None]);
+    let text = "snippet s (geometry ground = 2) { vector d = @P - get_data(@P, ground); }";
+    let mut g = Graph::default();
+    lower(&parse(text).unwrap(), Context::Point, &[], Some(&cloud(2)), &mut g).unwrap();
+    assert!(g
+        .nodes
+        .iter()
+        .any(|n| matches!(n.op, Op::GetReference { input: 2, paths: None })));
+    let e = error_of(
+        "snippet s (geometry ground = 0) { vector d = get_data(@P, ground); }",
+        Context::Point,
+        &cloud(2),
+    );
+    assert!(e.contains("numbered from 1"), "{e}");
+}

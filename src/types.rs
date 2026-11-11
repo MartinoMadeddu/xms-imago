@@ -1450,14 +1450,14 @@ pub enum IceGraphNodeType {
         #[serde(default)]
         draw_mode: DrawMode,
     },
-    /// An ICE snippet: text in the snippet language (`xms_ice::lang`,
-    /// `docs/ice-snippets.md`), lowered into the engine's own nodes when the
+    /// An ICE snippet: code in ISL, the ICE Scripting Language
+    /// (`xms_ice::lang`, `docs/isl.md`), lowered into the engine's own nodes when the
     /// graph compiles. Its ports come from its signature: an input per
     /// parameter, an output per `output` parameter, then an Execute (the
     /// attributes it sets). `run_over`: the context its body runs over; `None`,
-    /// the graph's own (or the one its text pins). `references`: what each
-    /// unwired `geometry` parameter reads, as Get Reference's rows (none kept
-    /// for one: all the prims on Reference 1).
+    /// the graph's own (or the one its text pins). `references`: which prims
+    /// each unwired `geometry` parameter reads on its reference input, as Get
+    /// Reference's rows (none kept for one: all of them).
     Snippet {
         text: String,
         #[serde(default)]
@@ -1467,13 +1467,13 @@ pub enum IceGraphNodeType {
     },
 }
 
-/// What a Snippet's `geometry` parameter reads while nothing is wired to it,
-/// as a Get Reference: the prims on reference input `input` (1, the first
-/// after the scene) its rows name; no rows, all of them.
+/// Which prims a Snippet's `geometry` parameter reads while nothing is wired
+/// to it, as a Get Reference's rows: of those on its reference input (its
+/// default in the text, `geometry ground = 1`) the ones `paths` names; no
+/// rows, all of them.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SnippetReference {
     pub name: String,
-    pub input: u32,
     #[serde(default)]
     pub paths: Vec<String>,
 }

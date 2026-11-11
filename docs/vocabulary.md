@@ -12,6 +12,7 @@ have **parameters**.
 | The top-level graph | **scene graph** (the **root scene graph**) | Names the graph that builds the scene. In USD, "scene graph" often means the prim hierarchy, which in Imago is the Scene Explorer: the docs say so once. |
 | The operator holding an ICE graph | **ICreationEngine** (ICE for short) | Its name in the add menu, on the node and in its parameters, after Softimage's ICE, the Interactive Creative Environment. |
 | The graph inside an ICE node | **ICE graph** | Matches "scene graph". |
+| ICE's language | **ISL**, the ICE Scripting Language | Code in a **Snippet** node (in an ICE graph) or an **ISnippet** (the scene graph's operator holding one, named as ICreationEngine is). |
 | A node of the scene graph | **operator** | Each takes the scene coming in and changes it, hence the Operator Stack. "Node" stays the generic word for any graph element. |
 | A step inside Edit Poly | **operation** | Distinct from operator: an operator holds operations. |
 | A node's settings | **parameters** | Not to be confused with USD properties (a prim's attributes and relationships). |

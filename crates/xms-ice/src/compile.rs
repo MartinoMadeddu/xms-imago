@@ -40,6 +40,10 @@ pub struct Plan {
     /// uniform register of each one's paths (Get Reference's), made into a BVH
     /// (or a k-d tree of its points) when first run.
     pub(crate) surfaces: Vec<usize>,
+    /// The reference input each surface's paths are on, when one Get
+    /// Reference gives them: only that input's prims are searched, though
+    /// another has prims at the same paths. `None`: every input's.
+    pub(crate) surface_inputs: Vec<Option<usize>>,
 }
 
 /// An Instancer as the plan runs it: the uniform registers holding its inputs.
@@ -609,9 +613,18 @@ struct Lower<'a> {
     /// gets the value set, as when the ports run one after the other.
     written: HashMap<String, Val>,
     set: HashSet<usize>,
+    /// Registers of Get Reference's paths, and the reference input of each.
+    from_input: HashMap<usize, usize>,
 }
 
 impl Lower<'_> {
+    /// A surface of the paths in uniform register `reg`, its number.
+    fn surface(&mut self, reg: usize) -> usize {
+        self.plan.surfaces.push(reg);
+        self.plan.surface_inputs.push(self.from_input.get(&reg).copied());
+        self.plan.surfaces.len() - 1
+    }
+
     fn emit(&mut self, uniform: bool, ty: Ty, make: impl FnOnce(usize) -> Ins) -> Val {
         let p = if uniform {
             &mut self.plan.uniform
@@ -888,6 +901,7 @@ impl Lower<'_> {
                 let (input, paths) = (*input, paths.clone());
                 let mut v = self.emit(true, Ty::Token, |dst| Ins::Reference { dst, input, paths });
                 v.array = true;
+                self.from_input.insert(v.reg, input);
                 v
             }
         };
@@ -1432,8 +1446,7 @@ impl Lower<'_> {
                         "The Geometry is the paths of prims on a reference input: wire Get Reference",
                     );
                 }
-                self.plan.surfaces.push(paths.reg);
-                Ok(Some(self.plan.surfaces.len() - 1))
+                Ok(Some(self.surface(paths.reg)))
             }
             _ => Ok(None),
         }
@@ -1640,8 +1653,7 @@ impl Lower<'_> {
         if origin.array && !uniform {
             return error(node, "An array of origins takes one radius for all");
         }
-        let surface = self.plan.surfaces.len();
-        self.plan.surfaces.push(paths.reg);
+        let surface = self.surface(paths.reg);
         let (o, r) = if uniform {
             (origin.reg, radius.reg)
         } else {
@@ -1718,10 +1730,7 @@ impl Lower<'_> {
                 "The Count is an integer, for all or per element; 0 finds every point within the Radius",
             );
         }
-        let points = points.map(|reg| {
-            self.plan.surfaces.push(reg);
-            self.plan.surfaces.len() - 1
-        });
+        let points = points.map(|reg| self.surface(reg));
         let flat = origin.uniform && radius.uniform && count.uniform;
         let (o, r, c) = if flat {
             (origin.reg, radius.reg, count.reg)
@@ -2353,6 +2362,7 @@ pub fn compile_with(graph: &Graph, geo: &Geo, refs: &[Reference]) -> Result<Plan
             writes: vec![],
             instancers: vec![],
             surfaces: vec![],
+            surface_inputs: vec![],
         },
         done: HashMap::new(),
         outs: HashMap::new(),
@@ -2361,6 +2371,7 @@ pub fn compile_with(graph: &Graph, geo: &Geo, refs: &[Reference]) -> Result<Plan
         reads: HashMap::new(),
         written: HashMap::new(),
         set: HashSet::new(),
+        from_input: HashMap::new(),
     };
     for input in &graph.nodes[root].inputs {
         match input {

@@ -121,8 +121,8 @@ the tree's parameters).
   Ceiling, Round, Sign (-1, 0 or 1), Modulo (never negative for a positive B;
   ints too), Tangent, Arcsine, Arccosine and Arctangent of Y over X, on
   numbers: what snippets call `sqrt`, `pow`, `floor`, `mod`, `atan2`…
-- **Snippet:** code in a node, in the snippet language (OSL's syntax and
-  types, ICE's attributes: [ICE snippets](ice-snippets.md)), lowered into these
+- **Snippet:** code in a node, in ISL, the ICE Scripting Language (OSL's syntax and
+  types, ICE's attributes: [ISL](isl.md)), lowered into these
   same nodes when the graph compiles, so it runs as fast as they do. Its
   parameters are its input ports (a wire takes a parameter's place), its
   `output` parameters its output ports, then an Execute, for the root: the
@@ -528,8 +528,7 @@ parameters.
   points), and a curve's Param UV by length as an option (Houdini's `primuvconvert`)
 - Reading at a place on a reference mesh in the editor's types: the port shows
   its type once the graph has run on that mesh
-- Snippets: the Snippet operator in the scene graph, noise, loops over a
-  count per element ([ICE snippets](ice-snippets.md), Where it is)
+- ISL: loops over a count per element ([ISL](isl.md), Not in ISL yet)
 
 ## Tests
 

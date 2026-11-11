@@ -1,5 +1,5 @@
-//! ICE snippets: a small language for ICE graphs, OSL's syntax and types with
-//! ICE's model of geometry (`docs/ice-snippets.md`). A snippet is not run by
+//! ISL, the ICE Scripting Language: OSL's syntax and types with ICE's model of
+//! geometry (`docs/isl.md`, `docs/isl-functions.md`). A snippet is not run by
 //! a second engine: it is parsed (`parse`), then lowered (`lower`) into nodes
 //! of the engine's own graph, which compile and run as any ICE graph's do.
 

@@ -319,7 +319,8 @@ pub fn in_isnippet_id() -> egui::Id {
     egui::Id::new("ice_in_isnippet")
 }
 
-/// Make ICE Graph pressed, for the scene's panel to do.
+/// Make ICE Graph (false) or Make Compound (true) pressed in an ISnippet, for
+/// the scene's panel to do.
 pub fn make_ice_graph_id() -> egui::Id {
     egui::Id::new("ice_make_ice_graph")
 }
@@ -859,7 +860,7 @@ pub fn draw_subnet_node_properties(
             },
         ),
         IceGraphNodeType::Snippet { text, run_over, references: rows } => {
-            group(ui, "Snippet", Some("Code in the snippet language: OSL's syntax and types, ICE's attributes (@P), lowered into ICE's own nodes. Ctrl+Enter or leaving the text applies it"), |f| {
+            group(ui, "Snippet", Some("Code in ISL, the ICE Scripting Language: OSL's syntax and types, ICE's attributes (@P), lowered into ICE's own nodes. Ctrl+Enter or leaving the text applies it. Help > Documentation: ISL, ISL functions"), |f| {
                 f.choice(
                     "Run Over",
                     Some("The elements its body runs over, once each: the graph's own context unless set (or pinned by its text's [[ string context = … ]])"),
@@ -876,64 +877,60 @@ pub fn draw_subnet_node_properties(
             if snippet_editor(ui, graph_id, node.id, text, &error) {
                 resync = true;
             }
-            // An ISnippet's: the nodes it runs as an ICreationEngine beside it
-            // (done by the scene's panel); a Snippet node's: a compound of it.
+            // Under the code: a compound of it; in an ISnippet (whose own graph
+            // stays locked), both made beside it, with its nodes too (done by
+            // the scene's panel).
             let in_isnippet = ui.data(|d| d.get_temp::<bool>(in_isnippet_id())).unwrap_or(false);
-            if in_isnippet {
-                if ui
-                    .button("Make ICE Graph")
-                    .on_hover_text("The nodes this snippet runs, as an ICreationEngine beside it, wired as it is: to see how it works, or to carry on in nodes")
-                    .clicked()
-                {
-                    ui.data_mut(|d| d.insert_temp(make_ice_graph_id(), true));
+            ui.horizontal(|ui| {
+                let compound = ui.button("Make Compound").on_hover_text(if in_isnippet {
+                    "This snippet as a compound, in an ICreationEngine beside the ISnippet, wired as it is: its free parameters the compound's ports. Save it as a definition from the compound's parameters to share it and find it in the add menu"
+                } else {
+                    "This snippet as a compound of its own: its free parameters its ports. Save it as a definition from the compound's parameters to share it and find it in the add menu"
+                });
+                if compound.clicked() {
+                    if in_isnippet {
+                        ui.data_mut(|d| d.insert_temp(make_ice_graph_id(), true));
+                    } else {
+                        as_compound = true;
+                    }
                 }
-            } else if ui
-                .button("Make Compound")
-                .on_hover_text("This snippet as a compound of its own: its free parameters its ports. Save it as a definition from the compound's parameters to share it and find it in the add menu")
-                .clicked()
-            {
-                as_compound = true;
-            }
-            // Its geometry parameters with nothing wired: what each reads, as
-            // a Get Reference does.
-            let geometry: Vec<String> = xms_ice::lang::parse(text)
+                if in_isnippet
+                    && ui
+                        .button("Make ICE Graph")
+                        .on_hover_text("The nodes this snippet runs, as an ICreationEngine beside it, wired as it is: to see how it works, or to carry on in nodes")
+                        .clicked()
+                {
+                    ui.data_mut(|d| d.insert_temp(make_ice_graph_id(), false));
+                }
+            });
+            // Its geometry parameters with nothing wired: which prims of their
+            // reference input each reads, as a Get Reference's rows.
+            let reading: Vec<(String, usize)> = xms_ice::lang::parse(text)
                 .map(|s| xms_ice::lang::ports(&s))
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|p| p.ty == xms_ice::Ty::Token && !p.output)
-                .map(|p| p.name)
-                .filter(|name| {
-                    node.inputs
-                        .iter()
-                        .any(|i| i.name == *name && i.connected_output.is_none())
-                })
+                .filter(|p| !p.output && node.inputs.iter().any(|i| i.name == p.name && i.connected_output.is_none()))
+                .filter_map(|p| Some((p.name, p.reference?)))
                 .collect();
-            for name in geometry {
+            for (name, input) in reading {
                 let at = match rows.iter().position(|r| r.name == name) {
                     Some(at) => at,
                     None => {
                         rows.push(crate::types::SnippetReference {
                             name: name.clone(),
-                            input: 1,
                             paths: vec![],
                         });
                         rows.len() - 1
                     }
                 };
-                let row = &mut rows[at];
-                group(ui, &format!("References: {name}"), Some("The prims this geometry parameter reads while nothing is wired to it, as a Get Reference: those on a reference input, all or the rows below"), |f| {
-                    f.row("Input", Some("Which of the operator's reference inputs: 1 is the first after the scene"), |ui| {
-                        crate::properties::form::number(ui, None, &mut row.input, |d| d.range(1..=64).speed(0.05))
-                    });
-                });
                 let there = references
-                    .get((row.input as usize).saturating_sub(1))
+                    .get(input.saturating_sub(1))
                     .map(Vec::as_slice)
                     .unwrap_or_default();
-                let title = format!("{name}: Prims on Reference {}", row.input);
+                let title = format!("{name}: Prims on Reference {input}");
                 crate::properties::ui::locations_tab(
                     ui,
-                    &mut row.paths,
+                    &mut rows[at].paths,
                     there,
                     selected,
                     crate::properties::ui::TabKind::Names,

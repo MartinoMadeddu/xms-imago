@@ -2829,3 +2829,44 @@ fn comparisons_take_what_they_can_compare() {
     let bad = setting_p(g, bad);
     assert!(compile(&bad, &geo).is_err());
 }
+
+/// Two reference inputs with a prim at the same path: Get Reference on input
+/// 2 searches input 2's alone, though input 1's is nearer.
+#[test]
+fn a_reference_input_s_prims_are_searched_alone() {
+    let geo = Geo::from_points(vec![[0.25, 1.0, 0.5]]);
+    let mut g = Graph::default();
+    let paths = g.add(Op::GetReference { input: 2, paths: None }, vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    let near = g.add(
+        Op::ClosestPoint,
+        vec![wire(paths), wire(p), Input::Value(Value::Float(0.0))],
+    );
+    let mut at_inputs = closest_at(near);
+    at_inputs.push(wire(paths));
+    let at = g.add(
+        Op::GetDataAt {
+            name: "P".into(),
+            context: None,
+        },
+        at_inputs,
+    );
+    let set = g.add(Op::set("P"), vec![wire(at)]);
+    g.add(
+        Op::Root {
+            context: Context::Point,
+        },
+        vec![wire(set)],
+    );
+    let mut refs = floor_input(glam::Mat4::IDENTITY);
+    refs.extend(floor_input(glam::Mat4::from_translation(glam::Vec3::new(
+        0.0, 5.0, 0.0,
+    ))));
+    let plan = super::compile_with(&g, &geo, &refs).unwrap();
+    let out = run(&plan, &geo, &no_params(), &refs).geo;
+    let got = points(&out)[0];
+    assert!(
+        (got[1] - 5.0).abs() < 1e-5,
+        "{got:?}: on input 2's floor, not input 1's"
+    );
+}

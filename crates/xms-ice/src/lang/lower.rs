@@ -167,6 +167,8 @@ pub fn lower(
     for p in &snippet.params {
         let t = written(p.ty, p.array, p.pos)?;
         let v = match inputs.iter().find(|(n, _)| *n == p.name) {
+            // A geometry with nothing wired: its default, a reference input.
+            Some((_, Input::Value(_))) if p.ty == Type::Geometry => l.default(p)?,
             // A value, as the parameter's type (an int given to a float).
             Some((_, Input::Value(value))) if !p.output => {
                 let value = value.convert(t.ty).unwrap_or(*value);
@@ -212,6 +214,22 @@ pub struct Port {
     pub output: bool,
     pub default: Option<Value>,
     pub label: Option<String>,
+    /// A geometry's reference input, by its default (`geometry ground = 2`):
+    /// 1 when it has none.
+    pub reference: Option<usize>,
+}
+
+/// The reference input a geometry parameter reads, by its default: `= 2`, or
+/// 1 with none; `None` for one given by get_reference, or not a geometry.
+fn reference_of(p: &Param) -> Option<usize> {
+    if p.ty != Type::Geometry {
+        return None;
+    }
+    match p.default.as_ref().map(|e| &e.kind) {
+        None => Some(1),
+        Some(ExprKind::Int(n)) => Some((*n).max(0) as usize),
+        _ => None,
+    }
 }
 
 /// The ports a snippet's signature makes, in order.
@@ -224,6 +242,7 @@ pub fn ports(snippet: &Snippet) -> Vec<Port> {
             ty: written(p.ty, p.array, p.pos).map(|t| t.ty).unwrap_or(Ty::Float),
             output: p.output,
             default: default_value(p),
+            reference: reference_of(p),
             label: p
                 .meta
                 .iter()
@@ -333,6 +352,17 @@ impl<'a> Lower<'a> {
     /// prims, for a geometry).
     fn default(&mut self, p: &Param) -> Result<V, Error> {
         let t = written(p.ty, p.array, p.pos)?;
+        // A geometry's: every prim on its reference input (`= 1`, the first
+        // after the scene, when not written), or what get_reference gives.
+        if p.ty == Type::Geometry {
+            if let Some(input) = reference_of(p) {
+                let pos = p.default.as_ref().map_or(p.pos, |e| e.pos);
+                if input == 0 {
+                    return self.err(pos, "Reference inputs are numbered from 1: geometry ground = 1");
+                }
+                return Ok(self.made(Op::GetReference { input, paths: None }, vec![], 0, t));
+            }
+        }
         match &p.default {
             Some(e) => {
                 let v = self.expr(e)?;

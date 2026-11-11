@@ -861,6 +861,8 @@ struct Env<'a> {
     /// The register of each surface's paths (`Plan::surfaces`), and the
     /// surface, made when first searched or read.
     surface_regs: &'a [usize],
+    /// Each surface's reference input, when known (`Plan::surface_inputs`).
+    surface_inputs: &'a [Option<usize>],
     surfaces: Vec<OnceLock<Surface>>,
     /// The graph's own geometry as a surface, for reading lists at its samples.
     own: OnceLock<Surface>,
@@ -889,7 +891,12 @@ impl<'a> Env<'a> {
                 Some(Reg::Token(p)) => p,
                 _ => &[],
             };
-            Surface::of(paths, self.references, self.space)
+            // On one reference input: only its prims.
+            let references = match self.surface_inputs.get(k).copied().flatten() {
+                Some(i) => self.references.get(i - 1..i).unwrap_or_default(),
+                None => self.references,
+            };
+            Surface::of(paths, references, self.space)
         })
     }
 
@@ -2263,6 +2270,7 @@ pub fn run_in(plan: &Plan, geo: &Geo, space: Mat4, params: &HashMap<String, Valu
         space,
         reads: &plan.reads,
         surface_regs: &plan.surfaces,
+        surface_inputs: &plan.surface_inputs,
         surfaces: plan.surfaces.iter().map(|_| OnceLock::new()).collect(),
         own: OnceLock::new(),
         cols: plan.reads.iter().map(|_| OnceLock::new()).collect(),
