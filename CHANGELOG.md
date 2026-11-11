@@ -8,6 +8,10 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **ICE snippets:** a **Snippet** node in ICE graphs: code in OSL's syntax and types with ICE's attributes (`@P += normalize(@N) * amount;`), `if`, loops of a known count, functions, and the ICE nodes as functions (`get_data`, `get_array_data`, `near_points`, `closest_point_on_surface`, `random`), lowered into ICE's own nodes, so it runs as fast as they do. Its parameters are its ports; errors show with their line. ([design and status](docs/ice-snippets.md))
+- **ICE logic:** Less Than, Less Than or Equal, Greater Than, Greater Than or Equal, Equal, Not Equal, And, Or, Not, and **If** (one value or another per element, by a condition), under Logic in the add menu.
+- **OSL's maths as ICE nodes:** Square Root, Power, Exponential, Logarithm, Floor, Ceiling, Round, Sign, Modulo, Tangent, Arcsine, Arccosine, Arctangent of Y over X.
+
 ## [0.3.0] - 2026-11-10
 
 A milestone: the Viewer becomes a place to look at data, not only shapes, and

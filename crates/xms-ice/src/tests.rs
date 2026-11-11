@@ -2774,3 +2774,58 @@ fn curveu_is_how_far_along_its_curve() {
     let cloud = Geo::from_points(vec![[0.0; 3]]);
     assert!(compile(&g, &cloud).is_err());
 }
+
+#[test]
+fn if_moves_the_points_its_condition_holds_for() {
+    // heat is the point's number: points 5, 6 and 7 move up, the rest stay.
+    let geo = cloud(10);
+    let mut g = Graph::default();
+    let p = g.add(Op::get("P"), vec![]);
+    let heat = g.add(Op::get("heat"), vec![]);
+    let over = g.add(Op::Math(Math::Greater), vec![wire(heat), Input::Value(Value::Int(4))]);
+    let under = g.add(
+        Op::Math(Math::LessOrEqual),
+        vec![wire(heat), Input::Value(Value::Float(7.0))],
+    );
+    let both = g.add(Op::Math(Math::And), vec![wire(over), wire(under)]);
+    let up = g.add(
+        Op::Math(Math::Add),
+        vec![wire(p), Input::Value(Value::Vec3([0.0, 1.0, 0.0]))],
+    );
+    // If False unwired, a float 0: the type of what it meets, a 3D vector.
+    let picked = g.add(
+        Op::Math(Math::Select),
+        vec![wire(both), wire(up), Input::Value(Value::Float(0.0))],
+    );
+    let kept = g.add(Op::Math(Math::Not), vec![wire(both)]);
+    let out = g.add(Op::Math(Math::Select), vec![wire(kept), wire(p), wire(picked)]);
+    let g = setting_p(g, out);
+
+    let plan = compile(&g, &geo).unwrap();
+    let moved = run(&plan, &geo, &no_params(), &[]).geo;
+    let ys: Vec<f32> = points(&moved).iter().map(|p| p[1]).collect();
+    assert_eq!(ys, [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0]);
+    assert_eq!(points(&moved)[6], [6.0, 1.0, 0.0]);
+}
+
+#[test]
+fn comparisons_take_what_they_can_compare() {
+    let geo = cloud(3);
+    let mut g = Graph::default();
+    let n = g.add(Op::get("N"), vec![]);
+    let p = g.add(Op::get("P"), vec![]);
+    // Vectors are equal or not, but not less than one another.
+    let same = g.add(
+        Op::Math(Math::Equal),
+        vec![wire(n), Input::Value(Value::Vec3([0.0, 1.0, 0.0]))],
+    );
+    let up = g.add(Op::Math(Math::Select), vec![wire(same), wire(n), wire(p)]);
+    let ok = setting_p(g.clone(), up);
+    let plan = compile(&ok, &geo).unwrap();
+    assert_eq!(points(&run(&plan, &geo, &no_params(), &[]).geo)[2], [0.0, 1.0, 0.0]);
+
+    let less = g.add(Op::Math(Math::Less), vec![wire(n), wire(p)]);
+    let bad = g.add(Op::Math(Math::Select), vec![wire(less), wire(n), wire(p)]);
+    let bad = setting_p(g, bad);
+    assert!(compile(&bad, &geo).is_err());
+}

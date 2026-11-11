@@ -1443,6 +1443,17 @@ pub enum IceGraphNodeType {
         #[serde(default)]
         draw_mode: DrawMode,
     },
+    /// An ICE snippet: text in the snippet language (`xms_ice::lang`,
+    /// `docs/ice-snippets.md`), lowered into the engine's own nodes when the
+    /// graph compiles. Its ports come from its signature: an input per
+    /// parameter, an output per `output` parameter, then an Execute (the
+    /// attributes it sets). `run_over`: the context its body runs over; `None`,
+    /// the graph's own (or the one its text pins).
+    Snippet {
+        text: String,
+        #[serde(default)]
+        run_over: Option<crate::core::geo::Context>,
+    },
 }
 
 impl IceGraphNodeType {
@@ -1511,6 +1522,29 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             Math::Transpose => "Transpose Matrix",
             Math::TransformPoint => "Transform Point",
             Math::TransformVector => "Transform Vector",
+            Math::Less => "Less Than",
+            Math::LessOrEqual => "Less Than or Equal",
+            Math::Greater => "Greater Than",
+            Math::GreaterOrEqual => "Greater Than or Equal",
+            Math::Equal => "Equal",
+            Math::NotEqual => "Not Equal",
+            Math::And => "And",
+            Math::Or => "Or",
+            Math::Not => "Not",
+            Math::Select => "If",
+            Math::Sqrt => "Square Root",
+            Math::Pow => "Power",
+            Math::Exp => "Exponential",
+            Math::Log => "Logarithm",
+            Math::Floor => "Floor",
+            Math::Ceil => "Ceiling",
+            Math::Round => "Round",
+            Math::Sign => "Sign",
+            Math::Mod => "Modulo",
+            Math::Tan => "Tangent",
+            Math::Asin => "Arcsine",
+            Math::Acos => "Arccosine",
+            Math::Atan2 => "Arctangent of Y over X",
         },
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
@@ -1519,6 +1553,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::GetArrayData { .. } => "Get Array Data",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::Concat => "Concatenate Arrays",
+        IceGraphNodeType::Snippet { .. } => "Snippet",
         IceGraphNodeType::GetReference { .. } => "Get Reference",
         IceGraphNodeType::Instancer { .. } => "Instancer",
         IceGraphNodeType::Compose {
@@ -1565,6 +1600,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::CompoundInput { .. } => "▶",
         IceGraphNodeType::CompoundOutput { .. } => "◀",
         IceGraphNodeType::Parameter { .. } => "⚙",
+        IceGraphNodeType::Snippet { .. } => "λ",
     }
 }
 

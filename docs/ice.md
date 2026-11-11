@@ -108,6 +108,37 @@ the tree's parameters).
   **Distance** is how far apart two positions (or any two vectors of one size)
   are. Add takes two floats or two vectors (an int meeting a float is taken as a
   float); Multiply also scales a vector by a float.
+- **Logic.** **Less Than**, **Less Than or Equal**, **Greater Than** and
+  **Greater Than or Equal** compare two numbers (an int meeting a float is a
+  float); **Equal** and **Not Equal** two values of one type (booleans,
+  numbers, vectors). Each gives a Boolean per element. **And**, **Or** and
+  **Not** combine booleans. **If** gives If True where its Condition holds and
+  If False where it does not, element by element, of any type (the two of one;
+  an unwired one takes the type of the other): move only the points above a
+  height, keep the others where they are. Both sides are worked out for every
+  element, and If picks between them.
+- **OSL's maths:** Square Root, Power, Exponential, Logarithm, Floor,
+  Ceiling, Round, Sign (-1, 0 or 1), Modulo (never negative for a positive B;
+  ints too), Tangent, Arcsine, Arccosine and Arctangent of Y over X, on
+  numbers: what snippets call `sqrt`, `pow`, `floor`, `mod`, `atan2`…
+- **Snippet:** code in a node, in the snippet language (OSL's syntax and
+  types, ICE's attributes: [ICE snippets](ice-snippets.md)), lowered into these
+  same nodes when the graph compiles, so it runs as fast as they do. Its
+  parameters are its input ports (a wire takes a parameter's place), its
+  `output` parameters its output ports, then an Execute, for the root: the
+  attributes it sets. **Run Over** is the context its body runs over (the
+  graph's own unless set). The text is applied with Ctrl+Enter or by leaving
+  it; changing its parameters keeps the wires of those still there, by name.
+  What is wrong, with its line and column, shows under the text and on the
+  node.
+
+  ```c
+  snippet lift (float amount = 0.1 [[ string label = "Amount" ]])
+  {
+      if (@P.y > 0)
+          @P += normalize(@N) * amount;
+  }
+  ```
 - **Compose** makes a vector from its parts, as its **Makes** says: Floats to
   2D, 3D or 4D Vector (X, Y, Z, W), 2D Vector and Float to 3D Vector (XY, Z), 3D
   Vector and Float to 4D Vector (XYZ, W), Floats to Rotation (I, J, K, Real;
@@ -482,7 +513,8 @@ parameters.
   points), and a curve's Param UV by length as an option (Houdini's `primuvconvert`)
 - Reading at a place on a reference mesh in the editor's types: the port shows
   its type once the graph has run on that mesh
-- Snippets: code in a node, compiled to the same instructions
+- Snippets: the Snippet operator in the scene graph, noise, loops over a
+  count per element ([ICE snippets](ice-snippets.md), Where it is)
 
 ## Tests
 

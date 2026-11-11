@@ -233,8 +233,71 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::CompoundInput { name, .. } => Some(format!("in: {name}")),
         IceGraphNodeType::CompoundOutput { name } => Some(format!("out: {name}")),
         IceGraphNodeType::Parameter { name, .. } => Some(format!("${{{name}}}")),
+        // Its name, and what it runs over when not the graph's.
+        IceGraphNodeType::Snippet { text, run_over } => {
+            let name = xms_ice::lang::parse(text)
+                .map(|s| s.name)
+                .unwrap_or_else(|_| "does not parse".into());
+            Some(match run_over {
+                Some(c) => format!("{name}, per {}", context_word(*c)),
+                None => name,
+            })
+        }
         IceGraphNodeType::Math { .. } | IceGraphNodeType::Array { .. } | IceGraphNodeType::Concat => None,
     }
+}
+
+/// A snippet's text, edited: monospace, line numbers beside it, applied (into
+/// `text`) with Ctrl+Enter or when the editor is left, not as it is typed. Under
+/// it, why it does not parse, or why the graph last failed on it (`error`).
+/// Whether the text was applied changed.
+fn snippet_editor(ui: &mut egui::Ui, node: NodeId, text: &mut String, error: &Option<(NodeId, String)>) -> bool {
+    let id = egui::Id::new(("ice_snippet_text", node.0));
+    let mut draft: String = ui.data_mut(|d| d.get_temp(id)).unwrap_or_else(|| text.clone());
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let lines = draft.lines().count().max(1) + usize::from(draft.ends_with('\n'));
+    let numbers: String = (1..=lines).map(|k| format!("{k:>3}\n")).collect();
+    let mut applied = false;
+    ui.horizontal_top(|ui| {
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(numbers.trim_end())
+                    .font(font.clone())
+                    .color(ui.visuals().weak_text_color()),
+            )
+            .selectable(false),
+        );
+        // Ctrl+Enter taken before the editor sees it, so it adds no line.
+        let edit_id = id.with("edit");
+        let ctrl_enter = ui.memory(|m| m.has_focus(edit_id))
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter));
+        let edit = ui.add(
+            egui::TextEdit::multiline(&mut draft)
+                .id(edit_id)
+                .font(font)
+                .code_editor()
+                .desired_rows(10)
+                .desired_width(f32::INFINITY),
+        );
+        if (ctrl_enter || edit.lost_focus()) && draft != *text {
+            *text = draft.clone();
+            applied = true;
+        }
+    });
+    if draft == *text {
+        ui.data_mut(|d| d.remove::<String>(id));
+    } else {
+        ui.data_mut(|d| d.insert_temp(id, draft.clone()));
+        ui.label(egui::RichText::new("Not applied: Ctrl+Enter").weak());
+    }
+    let why = match xms_ice::lang::parse(text) {
+        Err(e) => Some(e.to_string()),
+        Ok(_) => error.as_ref().filter(|(n, _)| *n == node).map(|(_, m)| m.clone()),
+    };
+    if let Some(why) = why {
+        ui.colored_label(ui.visuals().error_fg_color, why);
+    }
+    applied
 }
 
 /// A context as Get Data's line under the title names it.
@@ -358,7 +421,7 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         | IceGraphNodeType::NearPoints => pal::ORANGE(),
         IceGraphNodeType::Compound { .. } => pal::COMPOUND(),
         IceGraphNodeType::CompoundInput { .. } | IceGraphNodeType::CompoundOutput { .. } => pal::PORTS(),
-        IceGraphNodeType::Parameter { .. } => pal::GREEN(),
+        IceGraphNodeType::Parameter { .. } | IceGraphNodeType::Snippet { .. } => pal::GREEN(),
     }
 }
 
@@ -474,6 +537,9 @@ pub fn draw_subnet_node_properties(
     // The geometry the graph last ran on, for Get Data's list: listed only
     // while the list is open.
     let last_input = graph.last_input.clone();
+    // Why the graph last failed, and on which node: a snippet shows it under
+    // its text.
+    let error = graph.error.lock().ok().and_then(|e| e.clone());
     // The context the graph runs over: Set Data's Resample is for writing
     // from it into another.
     let runs_over = graph
@@ -762,6 +828,25 @@ pub fn draw_subnet_node_properties(
                 value_with_type(f, "Default", default, Some("Its value while the operator gives none"));
             },
         ),
+        IceGraphNodeType::Snippet { text, run_over } => {
+            group(ui, "Snippet", Some("Code in the snippet language: OSL's syntax and types, ICE's attributes (@P), lowered into ICE's own nodes. Ctrl+Enter or leaving the text applies it"), |f| {
+                f.choice(
+                    "Run Over",
+                    Some("The elements its body runs over, once each: the graph's own context unless set (or pinned by its text's [[ string context = … ]])"),
+                    run_over,
+                    &[
+                        (None, "The Graph's"),
+                        (Some(Context::Point), "Point"),
+                        (Some(Context::Face), "Face"),
+                        (Some(Context::Corner), "Corner"),
+                        (Some(Context::Object), "Object"),
+                    ],
+                );
+            });
+            if snippet_editor(ui, node.id, text, &error) {
+                resync = true;
+            }
+        }
         IceGraphNodeType::Math { .. }
         | IceGraphNodeType::Array { .. }
         | IceGraphNodeType::Concat
@@ -803,7 +888,8 @@ pub fn draw_subnet_node_properties(
         return;
     }
     // Compose's and Decompose's ports follow what they make or take apart:
-    // made again, wires kept by place.
+    // made again, wires kept by place; a snippet's follow its signature, kept
+    // by name.
     if resync {
         let id = node.id;
         graph.resync_sockets(id);
@@ -1650,6 +1736,14 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         "Inside a compound: what goes out of its output port of this name",
     ));
     out.push(("Data Access", IceGraphNodeType::Parameter { name: "parameter".into(), default: Value::Float(0.0) }, "A value the ICE operator gives in its parameters, by name; its default until set. A scene compound can promote it"));
+    out.push((
+        "Snippets",
+        IceGraphNodeType::Snippet {
+            text: super::SNIPPET.into(),
+            run_over: None,
+        },
+        "Code in a node: OSL's syntax and types with ICE's attributes (@P, get_data), lowered into ICE's own nodes. Its parameters are its ports",
+    ));
     out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"));
     out.push(("Matrix", IceGraphNodeType::Compose { op: xms_ice::Compose::Matrix }, "A matrix from three axes and an origin: a frame (tangent, normal, bitangent and a position). Its columns are the axes and the origin"));
     out.push((
@@ -1667,15 +1761,28 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
             Math::TransformPoint => "A position through a matrix: turned, scaled and moved (into the frame's parent space)",
             Math::TransformVector => "A direction through a matrix: turned and scaled, not moved",
             Math::Multiply => "Multiply numbers or vectors; scale a vector; combine two rotations, or two matrices (the right one applies first)",
+            Math::Less | Math::LessOrEqual | Math::Greater | Math::GreaterOrEqual => "Two numbers compared: a boolean, per element",
+            Math::Equal | Math::NotEqual => "Whether two values of one type (booleans, numbers, vectors) are the same",
+            Math::And | Math::Or | Math::Not => "Booleans combined, or turned over",
+            Math::Select => "If True where the Condition holds, If False where it does not: per element, any type (the two of one)",
+            Math::Mod => "The remainder of A divided by B, never negative for a positive B (OSL's mod); ints or numbers",
+            Math::Atan2 => "The angle, in radians, of a direction given as Y and X",
+            Math::Sign => "-1, 0 or 1, by the number's sign",
             _ => "",
         };
-        let category = if matches!(
-            op,
-            Math::Invert | Math::Transpose | Math::TransformPoint | Math::TransformVector
-        ) {
-            "Matrix"
-        } else {
-            "Math"
+        let category = match op {
+            Math::Invert | Math::Transpose | Math::TransformPoint | Math::TransformVector => "Matrix",
+            Math::Less
+            | Math::LessOrEqual
+            | Math::Greater
+            | Math::GreaterOrEqual
+            | Math::Equal
+            | Math::NotEqual
+            | Math::And
+            | Math::Or
+            | Math::Not
+            | Math::Select => "Logic",
+            _ => "Math",
         };
         out.push((category, IceGraphNodeType::Math { op }, about));
     }

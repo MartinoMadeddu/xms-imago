@@ -12,6 +12,8 @@
   and the Viewer, volumes (Load VDB), Write USD
 - [ICE graphs](ice.md): Get Data, Set Data and maths run by the Execution Ports
   over every point, face or corner, compiled and run in parallel
+- [ICE snippets](ice-snippets.md): the snippet language (OSL's syntax, ICE's
+  geometry), a Snippet node and a Snippet operator: the design, being built
 - [MaterialX](materialx.md): the MaterialX node library and the MaterialX
   operator, surfaces and volumes, renderers' own shaders as nodes (Arnold's,
   from its SDK)

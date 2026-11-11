@@ -177,6 +177,43 @@ pub fn identity() -> Value {
     Value::Mat4(glam::Mat4::IDENTITY.to_cols_array())
 }
 
+/// A new Snippet node's text.
+pub const SNIPPET: &str =
+    "snippet lift (float amount = 0.1 [[ string label = \"Amount\" ]])\n{\n    @P.y += amount;\n}\n";
+
+/// A snippet's ports, from its signature: an input per parameter (its default
+/// as its value; a geometry none, for Get Reference's paths), an output per
+/// `output` parameter, then the Execute. Text that does not parse: just the
+/// Execute.
+pub fn snippet_sockets(text: &str) -> (Vec<IceGraphInputSocket>, Vec<IceGraphOutputSocket>) {
+    let ports = xms_ice::lang::parse(text)
+        .map(|s| xms_ice::lang::ports(&s))
+        .unwrap_or_default();
+    let inputs = ports
+        .iter()
+        .filter(|p| !p.output)
+        .map(|p| IceGraphInputSocket {
+            name: p.name.clone(),
+            value_hint: if p.ty == xms_ice::Ty::Token { "Token" } else { "Any" },
+            connected_output: None,
+            value: p.default.or((p.ty != xms_ice::Ty::Token).then_some(Value::Float(0.0))),
+        })
+        .collect();
+    let mut outputs: Vec<IceGraphOutputSocket> = ports
+        .iter()
+        .filter(|p| p.output)
+        .map(|p| IceGraphOutputSocket {
+            name: p.name.clone(),
+            value_hint: type_hint(p.ty),
+        })
+        .collect();
+    outputs.push(IceGraphOutputSocket {
+        name: "Execute".into(),
+        value_hint: "Execute",
+    });
+    (inputs, outputs)
+}
+
 /// The name a type goes by on ports and wires (and their colour).
 pub fn type_hint(ty: xms_ice::Ty) -> &'static str {
     match ty {
@@ -344,6 +381,31 @@ impl IceGraph {
                             ..input("B", 0.0)
                         },
                     ],
+                    Math::And | Math::Or => vec![
+                        IceGraphInputSocket {
+                            value: Some(Value::Bool(false)),
+                            ..input("A", 0.0)
+                        },
+                        IceGraphInputSocket {
+                            value: Some(Value::Bool(false)),
+                            ..input("B", 0.0)
+                        },
+                    ],
+                    Math::Not => vec![IceGraphInputSocket {
+                        value: Some(Value::Bool(false)),
+                        ..input("Value", 0.0)
+                    }],
+                    Math::Select => vec![
+                        IceGraphInputSocket {
+                            value: Some(Value::Bool(true)),
+                            ..input("Condition", 0.0)
+                        },
+                        input("If True", 1.0),
+                        input("If False", 0.0),
+                    ],
+                    Math::Pow => vec![input("Base", 2.0), input("Exponent", 2.0)],
+                    Math::Mod => vec![input("A", 0.0), input("B", 1.0)],
+                    Math::Atan2 => vec![input("Y", 0.0), input("X", 1.0)],
                     op if op.arity() == 1 => vec![input("Value", 0.0)],
                     _ => vec![input("A", 0.0), input("B", 0.0)],
                 };
@@ -513,6 +575,7 @@ impl IceGraph {
                 vec![output("Execute", "Execute")],
             ),
             IceGraphNodeType::Compound { .. } => compound::sockets(t),
+            IceGraphNodeType::Snippet { text, .. } => snippet_sockets(text),
             IceGraphNodeType::CompoundInput { .. } | IceGraphNodeType::Parameter { .. } => {
                 (vec![], vec![output("Value", "Any")])
             }
@@ -547,6 +610,9 @@ impl IceGraph {
         let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else {
             return;
         };
+        if matches!(n.node_type, IceGraphNodeType::Snippet { .. }) {
+            return self.resync_by_name(id);
+        }
         let (mut inputs, outputs) = Self::create_sockets(&n.node_type);
         for (new, old) in inputs.iter_mut().zip(&n.inputs) {
             new.connected_output = old.connected_output;
@@ -561,6 +627,59 @@ impl IceGraph {
             for input in other.inputs.iter_mut() {
                 if input.connected_output.is_some_and(|(from, k)| from == id && k >= outs) {
                     input.connected_output = None;
+                }
+            }
+        }
+    }
+
+    /// A snippet's ports made again from its signature: wires and values kept
+    /// by the parameter's name, wherever it now is; the Execute stays last.
+    fn resync_by_name(&mut self, id: NodeId) {
+        let Some(n) = self.nodes.iter_mut().find(|n| n.id == id) else {
+            return;
+        };
+        let (mut inputs, outputs) = Self::create_sockets(&n.node_type);
+        let input_at: Vec<Option<usize>> = n
+            .inputs
+            .iter()
+            .map(|old| inputs.iter().position(|i| i.name == old.name))
+            .collect();
+        let output_at: Vec<Option<usize>> = n
+            .outputs
+            .iter()
+            .map(|old| outputs.iter().position(|o| o.name == old.name))
+            .collect();
+        for (old, at) in n.inputs.iter().zip(&input_at) {
+            if let Some(new) = at.and_then(|k| inputs.get_mut(k)) {
+                new.connected_output = old.connected_output;
+                // A value of the type the port now takes; the new default
+                // otherwise.
+                if old.value.map(|v| v.ty()) == new.value.map(|v| v.ty()) {
+                    new.value = old.value;
+                }
+            }
+        }
+        n.inputs = inputs;
+        n.outputs = outputs;
+        self.connections.retain_mut(|c| {
+            if c.to_node == id {
+                match input_at.get(c.to_input).copied().flatten() {
+                    Some(k) => c.to_input = k,
+                    None => return false,
+                }
+            }
+            if c.from_node == id {
+                match output_at.get(c.from_output).copied().flatten() {
+                    Some(k) => c.from_output = k,
+                    None => return false,
+                }
+            }
+            true
+        });
+        for other in self.nodes.iter_mut() {
+            for input in other.inputs.iter_mut() {
+                if let Some((from, k)) = input.connected_output.filter(|(from, _)| *from == id) {
+                    input.connected_output = output_at.get(k).copied().flatten().map(|k| (from, k));
                 }
             }
         }
@@ -759,6 +878,8 @@ impl IceGraph {
                         name: name.clone(),
                         default: *default,
                     },
+                    // Lowered into nodes of its own by `expand_snippets`.
+                    IceGraphNodeType::Snippet { .. } => Op::Constant(Value::Float(0.0)),
                     // Gone once flattened.
                     IceGraphNodeType::CompoundInput { value, .. } => Op::Constant(*value),
                     IceGraphNodeType::Compound { .. } | IceGraphNodeType::CompoundOutput { .. } => {
@@ -789,6 +910,69 @@ impl IceGraph {
             })
             .collect();
         (xms_ice::Graph { nodes }, ids)
+    }
+
+    /// Each Snippet node of `graph` (the engine's, from `engine`) lowered into
+    /// nodes of its own, appended (their ids in `ids` the snippet's), and what
+    /// was wired to it wired to what it became: an output to its value, the
+    /// Execute to its Set Data nodes, each an Execute port of the root. `geo`:
+    /// the geometry it runs on, for the types of what it reads. Where each new
+    /// node comes from in its text, for the engine's errors; a snippet that
+    /// does not lower, its node and why.
+    fn expand_snippets(
+        &self,
+        graph: &mut xms_ice::Graph,
+        ids: &mut Vec<NodeId>,
+        geo: Option<&Geo>,
+    ) -> Result<Vec<(usize, xms_ice::lang::Pos)>, (NodeId, String)> {
+        let context = self
+            .nodes
+            .iter()
+            .find_map(|n| match n.node_type {
+                IceGraphNodeType::Root { context } => Some(context),
+                _ => None,
+            })
+            .unwrap_or(Context::Point);
+        let mut at = vec![];
+        for (k, n) in self.nodes.iter().enumerate() {
+            let IceGraphNodeType::Snippet { text, run_over } = &n.node_type else {
+                continue;
+            };
+            let broke = |e: xms_ice::lang::Error| (n.id, e.to_string());
+            let snippet = xms_ice::lang::parse(text).map_err(broke)?;
+            let runs_over = run_over.or(xms_ice::lang::pinned(&snippet)).unwrap_or(context);
+            let inputs: Vec<(String, Input)> = n
+                .inputs
+                .iter()
+                .zip(graph.nodes[k].inputs.iter())
+                .map(|(socket, input)| (socket.name.clone(), input.clone()))
+                .collect();
+            let first = graph.nodes.len();
+            let lowered = xms_ice::lang::lower(&snippet, runs_over, &inputs, geo, graph).map_err(broke)?;
+            ids.extend(std::iter::repeat(n.id).take(graph.nodes.len() - first));
+            let execute = n.outputs.len().saturating_sub(1);
+            for node in graph.nodes.iter_mut() {
+                let root = matches!(node.op, Op::Root { .. });
+                let inputs = std::mem::take(&mut node.inputs);
+                for input in inputs {
+                    match input {
+                        Input::Wire { node: from, output } if from == k => {
+                            if output == execute {
+                                if root {
+                                    node.inputs
+                                        .extend(lowered.sets.iter().map(|s| xms_ice::graph::wire(*s)));
+                                }
+                            } else if let Some((_, v)) = lowered.outputs.get(output) {
+                                node.inputs.push(v.clone());
+                            }
+                        }
+                        other => node.inputs.push(other),
+                    }
+                }
+            }
+            at.extend(lowered.at);
+        }
+        Ok(at)
     }
 
     /// The nodes wired into the root, the root among them: the only ones a run
@@ -861,7 +1045,9 @@ impl IceGraph {
         let Ok(flat) = compound::flatten(self) else {
             return;
         };
-        let (graph, ids) = flat.graph.engine();
+        let (mut graph, mut ids) = flat.graph.engine();
+        // A snippet that does not lower: its error is the run's to show.
+        let _ = flat.graph.expand_snippets(&mut graph, &mut ids, Some(&input));
         let types: HashMap<NodeId, xms_ice::Ty> = xms_ice::output_types(&graph, &input)
             .into_iter()
             .enumerate()
@@ -979,6 +1165,12 @@ impl IceGraph {
                 // Each part its own type, whatever comes in.
                 IceGraphNodeType::Decompose { op } => op.outputs().get(output).map(|o| o.1),
                 IceGraphNodeType::Parameter { default, .. } => Some(default.ty()),
+                // As its signature says.
+                IceGraphNodeType::Snippet { text, .. } => {
+                    let s = xms_ice::lang::parse(text).ok()?;
+                    let outputs: Vec<_> = xms_ice::lang::ports(&s).into_iter().filter(|p| p.output).collect();
+                    outputs.get(output).map(|p| p.ty)
+                }
                 _ => types.get(&node).copied(),
             },
         }
@@ -1018,7 +1210,14 @@ impl IceGraph {
                 return input.clone();
             }
         };
-        let (mut graph, ids) = flat.graph.engine();
+        let (mut graph, mut ids) = flat.graph.engine();
+        let at = match flat.graph.expand_snippets(&mut graph, &mut ids, Some(input)) {
+            Ok(at) => at,
+            Err((id, message)) => {
+                broke(flat.trail(id), message);
+                return input.clone();
+            }
+        };
         // Get Reference's rows, as Primitive Locations name prims: the paths
         // on its input each row names, row by row, each once.
         for node in &mut graph.nodes {
@@ -1072,7 +1271,12 @@ impl IceGraph {
                 out
             }
             Err(e) => {
-                broke(ids.get(e.node).map(|id| flat.trail(*id)).unwrap_or_default(), e.message);
+                // In a snippet: where in its text.
+                let message = match at.iter().find(|(n, _)| *n == e.node) {
+                    Some((_, p)) => format!("line {}, col {}: {}", p.line, p.col, e.message),
+                    None => e.message,
+                };
+                broke(ids.get(e.node).map(|id| flat.trail(*id)).unwrap_or_default(), message);
                 input.clone()
             }
         }
@@ -1298,6 +1502,69 @@ mod tests {
             .same(geo.attr(Context::Face, "heat").unwrap()));
         assert!(out.topology.same(&geo.topology));
         assert!(g.error.lock().unwrap().is_none());
+    }
+
+    /// A Snippet node: its parameters ports (a wire into one taking its
+    /// place), its output a value for other nodes, its Execute the attributes
+    /// it sets. Its text changed, its wires stay by name.
+    #[test]
+    fn a_snippet_runs_as_nodes_and_keeps_its_wires_by_name() {
+        let mut g = IceGraph::new(IceGraphId(0), "snippet".into());
+        let root = g.root().unwrap();
+        let text = "snippet s (float k = 2, output float half = 0) { half = k / 2; @P *= k; }";
+        let snippet = g.add_node(
+            "s".into(),
+            IceGraphNodeType::Snippet {
+                text: text.into(),
+                run_over: None,
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let three = g.add_node(
+            "Three".into(),
+            IceGraphNodeType::Constant {
+                value: Value::Float(3.0),
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        let set = g.add_node("Set half".into(), IceGraphNodeType::set("half"), egui::pos2(0.0, 0.0));
+        g.add_connection(three, 0, snippet, 0);
+        g.add_connection(snippet, 0, set, 0);
+        g.add_connection(snippet, 1, root, 0);
+        g.add_connection(set, 0, root, 1);
+        let geo = Geo::from_points(vec![[1.0, 2.0, 3.0]]);
+        let out = g.evaluate(&geo, &[]);
+        assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
+        assert_eq!(out.points()[0], [3.0, 6.0, 9.0]);
+        let Column::Float(half) = &out.attr(Context::Point, "half").unwrap().column else {
+            panic!("a float")
+        };
+        assert_eq!(half[0], 1.5);
+
+        // A parameter before k: the constant's wire follows k.
+        let n = g.nodes.iter_mut().find(|n| n.id == snippet).unwrap();
+        n.node_type = IceGraphNodeType::Snippet {
+            text: text.replace("(float k", "(float extra = 0, float k"),
+            run_over: None,
+        };
+        g.resync_sockets(snippet);
+        let n = g.nodes.iter().find(|n| n.id == snippet).unwrap();
+        assert_eq!(n.inputs[1].name, "k");
+        assert_eq!(n.inputs[1].connected_output, Some((three, 0)));
+        assert!(n.inputs[0].connected_output.is_none());
+        assert_eq!(g.evaluate(&geo, &[]).points()[0], [3.0, 6.0, 9.0]);
+
+        // Text that does not lower: the snippet node says why, and where.
+        let n = g.nodes.iter_mut().find(|n| n.id == snippet).unwrap();
+        n.node_type = IceGraphNodeType::Snippet {
+            text: "snippet s () {\n  @P += @nothing;\n}".into(),
+            run_over: None,
+        };
+        g.resync_sockets(snippet);
+        g.evaluate(&geo, &[]);
+        let error = g.error.lock().unwrap().clone().unwrap();
+        assert_eq!(error.0, snippet);
+        assert!(error.1.starts_with("line 2"), "{}", error.1);
     }
 
     /// Moving a node, renaming it or selecting it does not change what the

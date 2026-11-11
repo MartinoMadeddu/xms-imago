@@ -669,6 +669,118 @@ fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> b
             Vec4(a) => map1(a, vec4s(out), |x| x.normalize_or_zero()),
             _ => return false,
         },
+        Math::Less | Math::LessOrEqual | Math::Greater | Math::GreaterOrEqual => {
+            macro_rules! ordered {
+                ($a:expr, $b:expr) => {
+                    match op {
+                        Math::Less => map2($a, $b, bools(out), |x, y| x < y),
+                        Math::LessOrEqual => map2($a, $b, bools(out), |x, y| x <= y),
+                        Math::Greater => map2($a, $b, bools(out), |x, y| x > y),
+                        _ => map2($a, $b, bools(out), |x, y| x >= y),
+                    }
+                };
+            }
+            match (a, b) {
+                (Int(a), Some(Int(b))) => ordered!(a, b),
+                (Float(a), Some(Float(b))) => ordered!(a, b),
+                _ => return false,
+            }
+        }
+        Math::Equal | Math::NotEqual => {
+            let same = op == Math::Equal;
+            match (a, b) {
+                (Bool(a), Some(Bool(b))) => map2(a, b, bools(out), |x, y| (x == y) == same),
+                (Int(a), Some(Int(b))) => map2(a, b, bools(out), |x, y| (x == y) == same),
+                (Float(a), Some(Float(b))) => map2(a, b, bools(out), |x, y| (x == y) == same),
+                (Vec2(a), Some(Vec2(b))) => map2(a, b, bools(out), |x, y| (x == y) == same),
+                (Vec3(a), Some(Vec3(b))) => map2(a, b, bools(out), |x, y| (x == y) == same),
+                (Vec4(a), Some(Vec4(b))) => map2(a, b, bools(out), |x, y| (x == y) == same),
+                _ => return false,
+            }
+        }
+        Math::And => match (a, b) {
+            (Bool(a), Some(Bool(b))) => map2(a, b, bools(out), |x, y| x && y),
+            _ => return false,
+        },
+        Math::Or => match (a, b) {
+            (Bool(a), Some(Bool(b))) => map2(a, b, bools(out), |x, y| x || y),
+            _ => return false,
+        },
+        Math::Not => match a {
+            Bool(a) => map1(a, bools(out), |x| !x),
+            _ => return false,
+        },
+        Math::Sqrt
+        | Math::Exp
+        | Math::Log
+        | Math::Floor
+        | Math::Ceil
+        | Math::Round
+        | Math::Sign
+        | Math::Tan
+        | Math::Asin
+        | Math::Acos => {
+            let Float(a) = a else { return false };
+            let f: fn(f32) -> f32 = match op {
+                Math::Sqrt => f32::sqrt,
+                Math::Exp => f32::exp,
+                Math::Log => f32::ln,
+                Math::Floor => f32::floor,
+                Math::Ceil => f32::ceil,
+                Math::Round => f32::round,
+                // OSL's sign: 0 at 0 (Rust's signum is 1 there).
+                Math::Sign => |x| if x == 0.0 { 0.0 } else { x.signum() },
+                Math::Tan => f32::tan,
+                Math::Asin => f32::asin,
+                _ => f32::acos,
+            };
+            map1(a, floats(out), f);
+        }
+        Math::Pow => match (a, b) {
+            (Float(a), Some(Float(b))) => map2(a, b, floats(out), f32::powf),
+            _ => return false,
+        },
+        Math::Atan2 => match (a, b) {
+            (Float(y), Some(Float(x))) => map2(y, x, floats(out), f32::atan2),
+            _ => return false,
+        },
+        Math::Mod => match (a, b) {
+            (Int(a), Some(Int(b))) => map2(a, b, ints(out), |x, y| {
+                let r = x.checked_rem(y).unwrap_or(0);
+                if r != 0 && (r < 0) != (y < 0) {
+                    r + y
+                } else {
+                    r
+                }
+            }),
+            (Float(a), Some(Float(b))) => map2(
+                a,
+                b,
+                floats(out),
+                |x, y| if y == 0.0 { 0.0 } else { x - y * (x / y).floor() },
+            ),
+            _ => return false,
+        },
+        Math::Select => {
+            let Bool(when) = a else { return false };
+            macro_rules! pick {
+                ($x:expr, $y:expr, $into:expr) => {
+                    map3(when, $x, $y, $into, |w, x, y| if w { x } else { y })
+                };
+            }
+            match (b, c) {
+                (Some(Bool(x)), Some(Bool(y))) => pick!(x, y, bools(out)),
+                (Some(Int(x)), Some(Int(y))) => pick!(x, y, ints(out)),
+                (Some(Float(x)), Some(Float(y))) => pick!(x, y, floats(out)),
+                (Some(Vec2(x)), Some(Vec2(y))) => pick!(x, y, vec2s(out)),
+                (Some(Vec3(x)), Some(Vec3(y))) => pick!(x, y, vec3s(out)),
+                (Some(Vec4(x)), Some(Vec4(y))) => pick!(x, y, vec4s(out)),
+                (Some(Quat(x)), Some(Quat(y))) => pick!(x, y, quats(out)),
+                (Some(Mat4(x)), Some(Mat4(y))) => pick!(x, y, mat4s(out)),
+                (Some(Sample(x)), Some(Sample(y))) => pick!(x, y, locs(out)),
+                _ => return false,
+            }
+        }
     }
     true
 }

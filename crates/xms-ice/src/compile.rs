@@ -422,6 +422,13 @@ fn find_in(geo: &Geo, ctx: Context, name: &str) -> Option<Found> {
     })
 }
 
+/// The type ICE reads attribute `name` as in `ctx` of `geo`: a stored one (by
+/// the short names too: `P`, `N`, `uv`) or an intrinsic. `None` when it is not
+/// there, or of a type ICE does not read.
+pub fn attribute_type(geo: &Geo, ctx: Context, name: &str) -> Option<Ty> {
+    find_in(geo, ctx, name).and_then(|f| f.ty)
+}
+
 /// The context `name` is in, stored or an intrinsic, if any.
 fn context_of(geo: &Geo, name: &str) -> Option<Context> {
     if intrinsics::is_intrinsic(name) {
@@ -499,6 +506,30 @@ fn math_ty(op: Math, args: &[Ty]) -> Option<Ty> {
         (Math::Multiply, [Mat4, Mat4]) => Some(Mat4),
         (Math::Invert | Math::Transpose, [Mat4]) => Some(Mat4),
         (Math::TransformPoint | Math::TransformVector, [Mat4, Vec3]) => Some(Vec3),
+        // Logic: comparisons give booleans, which If picks between values by.
+        (Math::Less | Math::LessOrEqual | Math::Greater | Math::GreaterOrEqual, [a, b])
+            if a == b && matches!(a, Int | Float) =>
+        {
+            Some(Bool)
+        }
+        (Math::Equal | Math::NotEqual, [a, b]) if a == b && (*a == Bool || numeric(*a)) => Some(Bool),
+        (Math::And | Math::Or, [Bool, Bool]) | (Math::Not, [Bool]) => Some(Bool),
+        (Math::Select, [Bool, a, b]) if a == b && *a != Token => Some(*a),
+        (
+            Math::Sqrt
+            | Math::Exp
+            | Math::Log
+            | Math::Floor
+            | Math::Ceil
+            | Math::Round
+            | Math::Sign
+            | Math::Tan
+            | Math::Asin
+            | Math::Acos,
+            [Float],
+        ) => Some(Float),
+        (Math::Pow | Math::Atan2, [Float, Float]) => Some(Float),
+        (Math::Mod, [a, b]) if a == b && matches!(a, Int | Float) => Some(*a),
         _ => None,
     }
 }
@@ -957,16 +988,21 @@ impl Lower<'_> {
                 vals[i] = Some(self.wired(*from, *output)?);
             }
         }
-        let wired = vals.iter().flatten().map(|v| v.ty).find(|t| *t != Ty::Float).or(vals
-            .iter()
-            .flatten()
+        let met = || {
+            vals.iter()
+                .enumerate()
+                .filter(|(i, _)| !op.is_condition(*i))
+                .flat_map(|(_, v)| v)
+        };
+        let wired = met()
             .map(|v| v.ty)
-            .next());
+            .find(|t| *t != Ty::Float)
+            .or(met().map(|v| v.ty).next());
         for (i, input) in inputs.iter().enumerate() {
             if let Input::Value(value) = input {
-                let keep_float = value.ty() == Ty::Float && keeps_float(op, i);
+                let own = op.is_condition(i) || (value.ty() == Ty::Float && keeps_float(op, i));
                 let value = match wired {
-                    Some(t) if !keep_float => value.convert(t).unwrap_or(*value),
+                    Some(t) if !own => value.convert(t).unwrap_or(*value),
                     _ => *value,
                 };
                 vals[i] = Some(self.constant(value));
@@ -2411,11 +2447,14 @@ fn type_of(
                 })
                 .collect();
             // As `Lower::math`: values take the type of what they meet.
-            let met = wired.iter().flatten().copied().find(|t| *t != Ty::Float).or(wired
-                .iter()
-                .flatten()
-                .copied()
-                .next());
+            let others = || {
+                wired
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !op.is_condition(*i))
+                    .flat_map(|(_, t)| *t)
+            };
+            let met = others().find(|t| *t != Ty::Float).or(others().next());
             let tys: Option<Vec<Ty>> = n
                 .inputs
                 .iter()
@@ -2423,9 +2462,9 @@ fn type_of(
                 .map(|(i, input)| match input {
                     Input::Wire { .. } => wired[i],
                     Input::Value(v) => {
-                        let keep_float = v.ty() == Ty::Float && keeps_float(*op, i);
+                        let own = op.is_condition(i) || (v.ty() == Ty::Float && keeps_float(*op, i));
                         Some(match met {
-                            Some(t) if !keep_float => v.convert(t).unwrap_or(*v).ty(),
+                            Some(t) if !own => v.convert(t).unwrap_or(*v).ty(),
                             _ => v.ty(),
                         })
                     }
