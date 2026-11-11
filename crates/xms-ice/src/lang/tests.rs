@@ -230,3 +230,30 @@ fn defaults_become_the_ports_values() {
         ]
     );
 }
+
+#[test]
+fn noise_is_osl_s_signed_or_from_zero_to_one() {
+    let geo = cloud(5);
+    let text = r#"
+        snippet n ()
+        {
+            float @s = noise("perlin", @P * 0.3 + point(0.1, 0.2, 0.3));
+            float @u = noise(@P * 0.3 + point(0.1, 0.2, 0.3));
+            float @c = cellnoise(@P);
+        }
+    "#;
+    let out = ran(text, Context::Point, &geo, &[]);
+    let (s, u, c) = (
+        floats(&out, Context::Point, "s"),
+        floats(&out, Context::Point, "u"),
+        floats(&out, Context::Point, "c"),
+    );
+    for i in 0..5 {
+        let p = [i as f32 * 0.3 + 0.1, 0.2, 0.3];
+        assert_eq!(s[i], crate::noise::perlin(p));
+        assert!((u[i] - 0.5 * (s[i] + 1.0)).abs() < 1e-6);
+        assert_eq!(c[i], crate::noise::cell([i as f32, 0.0, 0.0]));
+    }
+    let e = error_of("snippet n () { float x = noise(\"gabor\", @P); }", Context::Point, &geo);
+    assert!(e.contains("\"gabor\" noise"), "{e}");
+}

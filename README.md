@@ -140,4 +140,7 @@ and developed by [Simon Legrand](https://github.com/srlegrand) and [Martino
 Madeddu](https://github.com/MartinoMadeddu).
 
 The example files' authors and licences are in
-[examples/CREDITS.md](examples/CREDITS.md).
+[examples/CREDITS.md](examples/CREDITS.md). ICE's noises are ported from
+[Open Shading Language](https://github.com/AcademySoftwareFoundation/OpenShadingLanguage),
+Copyright (c) 2009-present Contributors to the Open Shading Language project,
+BSD-3-Clause (the licence is in `crates/xms-ice/src/noise.rs`).

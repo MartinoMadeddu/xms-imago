@@ -1571,11 +1571,15 @@ impl egui_dock::TabViewer for Panes<'_> {
                             if *id == IceGraphId(usize::MAX) {
                                 let new_id = self.subnets.create_subnet(name.clone());
                                 *id = new_id;
+                            } else if *id == ice::NEW_SNIPPET {
+                                *id = self.subnets.create_snippet(name.clone(), ice::SNIPPET);
                             }
                         }
                     }
                     match dive {
-                        Some(node_graph::ui::Dive::Ice(sid)) if sid != IceGraphId(usize::MAX) => {
+                        Some(node_graph::ui::Dive::Ice(sid))
+                            if sid != IceGraphId(usize::MAX) && sid != ice::NEW_SNIPPET =>
+                        {
                             self.nav.current_subnet = Some(sid)
                         }
                         Some(node_graph::ui::Dive::MaterialX(op)) => self.nav.materialx = Some(op),

@@ -130,7 +130,20 @@ the tree's parameters).
   graph's own unless set). The text is applied with Ctrl+Enter or by leaving
   it; changing its parameters keeps the wires of those still there, by name.
   What is wrong, with its line and column, shows under the text and on the
-  node.
+  node. A `geometry` parameter with nothing wired reads what its
+  **References** row names, as a Get Reference: Reference 1's prims unless
+  set. **Make Compound** makes the snippet a compound of its own, its free
+  parameters its ports, to save as a definition. The add menu has examples:
+  roughen (noise), relax (near points), stick (closest point).
+- **The Snippet operator**, in the scene graph's add menu: an ICreationEngine
+  operator holding one Snippet node, its parameters the snippet's (its code,
+  Run Over, References and parameters), its reference inputs what its
+  `geometry` parameters read. Its graph opens as any ICE operator's; add a
+  node there and it is one. Templates > Martino > ICE has two: roughen and
+  relax, and stick to a surface.
+- **Noise:** Perlin Noise, Simplex Noise (both about -1 to 1) and Cell Noise
+  (0 to 1, one value per unit cube) of a position: OSL's own, ported, so a
+  value made here is the one an OSL shader gets at the same place.
 
   ```c
   snippet lift (float amount = 0.1 [[ string label = "Amount" ]])

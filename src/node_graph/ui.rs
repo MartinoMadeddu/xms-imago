@@ -1469,6 +1469,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
             (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
             (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default() }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
+            (NodeType::Ice { id: crate::ice::NEW_SNIPPET, name: "Snippet".into(), references: 1, params: Default::default() }, "Code run on every point, face or corner of each primitive, in OSL's syntax with ICE's attributes (@P): an ICE operator holding one Snippet node. Its References are its reference inputs"),
         ]),
         ("📦", "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),

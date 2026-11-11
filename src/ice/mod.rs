@@ -177,6 +177,71 @@ pub fn identity() -> Value {
     Value::Mat4(glam::Mat4::IDENTITY.to_cols_array())
 }
 
+/// A new Snippet operator's graph, made when it is added (`create_snippet`),
+/// as `IceGraphId(usize::MAX)` stands for a new ICE operator's.
+pub const NEW_SNIPPET: IceGraphId = IceGraphId(usize::MAX - 1);
+
+/// Example snippets, by name, for the add menu and the Templates: noise,
+/// Near Points, Closest Point on Surface.
+pub const SNIPPET_EXAMPLES: [(&str, &str, &str); 3] = [
+    (
+        "Snippet: roughen (noise)",
+        "Each point pushed out from the middle by OSL's Perlin noise of where it is",
+        r#"// Each point pushed out from the origin by OSL's Perlin noise of where it
+// is: the same value an OSL shader's noise("perlin", P) gives there.
+snippet roughen (
+    float amount = 0.2 [[ float min = 0, float max = 1, string label = "Amount" ]],
+    float freq   = 3   [[ string label = "Frequency" ]]
+)
+{
+    float n = noise("perlin", @P * freq);   // about -1 to 1
+    @P += normalize(@P) * n * amount;
+}
+"#,
+    ),
+    (
+        "Snippet: relax (near points)",
+        "Each point moved towards the middle of its nearest points: near_points finds them, get_data reads them",
+        r#"// Each point moved towards the middle of its nearest points. near_points
+// gives their numbers (and distances); get_data reads P at those numbers.
+snippet relax (
+    float weight = 0.5 [[ float min = 0, float max = 1, string label = "Weight" ]],
+    int   count  = 6   [[ string label = "Points" ]],
+    float radius = 0   [[ string label = "Radius (0: anywhere)" ]]
+)
+{
+    int near[];
+    float d[];
+    near_points(@P, count, radius, near, d);
+    point mean = average(get_data(@P, near));
+    @P = mix(@P, mean, weight);
+}
+"#,
+    ),
+    (
+        "Snippet: stick (closest point)",
+        "Each point moved onto the nearest place on a surface on a reference input: closest_point_on_surface",
+        r#"// Each point moved onto the nearest place on the ground: the prims its
+// References name (Reference 1, unless wired). closest_point_on_surface gives
+// the face, the Param UV and the position there.
+snippet stick (
+    geometry ground  [[ string label = "Ground" ]],
+    float    weight  = 1 [[ float min = 0, float max = 1, string label = "Weight" ]],
+    output float far = 0
+)
+{
+    int face;
+    vector2 uv;
+    point hit;
+    if (closest_point_on_surface(@P, ground, face, uv, hit)) {
+        far = distance(@P, hit);
+        @P = mix(@P, hit, weight);
+    }
+}
+"#,
+    ),
+];
+
 /// A new Snippet node's text.
 pub const SNIPPET: &str =
     "snippet lift (float amount = 0.1 [[ string label = \"Amount\" ]])\n{\n    @P.y += amount;\n}\n";
@@ -935,21 +1000,43 @@ impl IceGraph {
             .unwrap_or(Context::Point);
         let mut at = vec![];
         for (k, n) in self.nodes.iter().enumerate() {
-            let IceGraphNodeType::Snippet { text, run_over } = &n.node_type else {
+            let IceGraphNodeType::Snippet {
+                text,
+                run_over,
+                references,
+            } = &n.node_type
+            else {
                 continue;
             };
             let broke = |e: xms_ice::lang::Error| (n.id, e.to_string());
             let snippet = xms_ice::lang::parse(text).map_err(broke)?;
             let runs_over = run_over.or(xms_ice::lang::pinned(&snippet)).unwrap_or(context);
-            let inputs: Vec<(String, Input)> = n
-                .inputs
-                .iter()
-                .zip(graph.nodes[k].inputs.iter())
-                .map(|(socket, input)| (socket.name.clone(), input.clone()))
-                .collect();
             let first = graph.nodes.len();
+            let geometry: Vec<String> = xms_ice::lang::ports(&snippet)
+                .into_iter()
+                .filter(|p| p.ty == xms_ice::Ty::Token && !p.output)
+                .map(|p| p.name)
+                .collect();
+            let mut inputs: Vec<(String, Input)> = vec![];
+            for (socket, input) in n.inputs.iter().zip(graph.nodes[k].inputs.clone()) {
+                // A geometry with nothing wired: its References row, a Get
+                // Reference of its own.
+                let input = match input {
+                    Input::Value(_) if geometry.contains(&socket.name) => {
+                        let row = references.iter().find(|r| r.name == socket.name);
+                        let paths = row.map(|r| r.paths.clone()).unwrap_or_default();
+                        let op = Op::GetReference {
+                            input: row.map_or(1, |r| r.input.max(1)) as usize,
+                            paths: crate::core::locations::is_set(&paths).then_some(paths),
+                        };
+                        xms_ice::graph::wire(graph.add(op, vec![]))
+                    }
+                    other => other,
+                };
+                inputs.push((socket.name.clone(), input));
+            }
             let lowered = xms_ice::lang::lower(&snippet, runs_over, &inputs, geo, graph).map_err(broke)?;
-            ids.extend(std::iter::repeat(n.id).take(graph.nodes.len() - first));
+            ids.extend(std::iter::repeat_n(n.id, graph.nodes.len() - first));
             let execute = n.outputs.len().saturating_sub(1);
             for node in graph.nodes.iter_mut() {
                 let root = matches!(node.op, Op::Root { .. });
@@ -973,6 +1060,20 @@ impl IceGraph {
             at.extend(lowered.at);
         }
         Ok(at)
+    }
+
+    /// The Snippet node of a graph that is a snippet and nothing else (but its
+    /// root): a Snippet operator's, whose pane shows the snippet itself.
+    pub fn lone_snippet(&self) -> Option<NodeId> {
+        let mut found = None;
+        for n in &self.nodes {
+            match n.node_type {
+                IceGraphNodeType::Root { .. } => {}
+                IceGraphNodeType::Snippet { .. } if found.is_none() => found = Some(n.id),
+                _ => return None,
+            }
+        }
+        found
     }
 
     /// The nodes wired into the root, the root among them: the only ones a run
@@ -1429,6 +1530,34 @@ impl IceGraphStore {
         self.subnets.insert(id, IceGraph::new(id, name));
         id
     }
+
+    /// A Snippet operator's graph: a Snippet node of `text`, its Execute into
+    /// the root.
+    pub fn create_snippet(&mut self, name: String, text: &str) -> IceGraphId {
+        let id = self.create_subnet(name);
+        if let Some(g) = self.get_mut(id) {
+            let root = g.root().expect("every ICE graph has a root");
+            let snippet = g.add_node(
+                "snippet".into(),
+                IceGraphNodeType::Snippet {
+                    text: text.into(),
+                    run_over: None,
+                    references: vec![],
+                },
+                egui::pos2(40.0, 120.0),
+            );
+            let execute = g
+                .nodes
+                .iter()
+                .find(|n| n.id == snippet)
+                .map_or(0, |n| n.outputs.len() - 1);
+            g.add_connection(snippet, execute, root, 0);
+            if let Some(n) = g.nodes.iter_mut().find(|n| n.id == root) {
+                n.position = egui::pos2(420.0, 120.0);
+            }
+        }
+        id
+    }
     pub fn get(&self, id: IceGraphId) -> Option<&IceGraph> {
         self.subnets.get(&id)
     }
@@ -1517,6 +1646,7 @@ mod tests {
             IceGraphNodeType::Snippet {
                 text: text.into(),
                 run_over: None,
+                references: vec![],
             },
             egui::pos2(0.0, 0.0),
         );
@@ -1546,6 +1676,7 @@ mod tests {
         n.node_type = IceGraphNodeType::Snippet {
             text: text.replace("(float k", "(float extra = 0, float k"),
             run_over: None,
+            references: vec![],
         };
         g.resync_sockets(snippet);
         let n = g.nodes.iter().find(|n| n.id == snippet).unwrap();
@@ -1559,6 +1690,7 @@ mod tests {
         n.node_type = IceGraphNodeType::Snippet {
             text: "snippet s () {\n  @P += @nothing;\n}".into(),
             run_over: None,
+            references: vec![],
         };
         g.resync_sockets(snippet);
         g.evaluate(&geo, &[]);

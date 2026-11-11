@@ -736,6 +736,15 @@ fn math(op: Math, a: &Reg, b: Option<&Reg>, c: Option<&Reg>, out: &mut Reg) -> b
             };
             map1(a, floats(out), f);
         }
+        Math::Perlin | Math::Simplex | Math::CellNoise => {
+            let Vec3(a) = a else { return false };
+            let f = match op {
+                Math::Perlin => crate::noise::perlin,
+                Math::Simplex => crate::noise::simplex,
+                _ => crate::noise::cell,
+            };
+            map1(a, floats(out), |p| f(p.to_array()));
+        }
         Math::Pow => match (a, b) {
             (Float(a), Some(Float(b))) => map2(a, b, floats(out), f32::powf),
             _ => return false,

@@ -25,19 +25,35 @@ Being built on the `core/ice-snippets` branch.
     ICE nodes as functions, and errors with their line and column;
   - the **Snippet node** in ICE graphs: its ports from its signature (wires
     kept by name when it changes), Run Over, the text with line numbers,
-    applied with Ctrl+Enter, its errors under it.
+    applied with Ctrl+Enter (or Cmd+Enter), its errors under it; a
+    **References** row per unwired `geometry` parameter (a Get Reference's:
+    Reference 1, all its prims, unless set); **Make Compound**, its free
+    parameters the compound's ports;
+  - **noise** matched to OSL's: `noise("perlin" | "uperlin" | "simplex" |
+    "usimplex" | "cell", p)`, `noise(p)` (OSL's default, uperlin), `snoise(p)`,
+    `cellnoise(p)`; Perlin and cell checked against OSL's own expected values.
+    Nodes too: Perlin Noise, Simplex Noise, Cell Noise;
+  - the **Snippet operator** in the scene graph (the add menu's Snippet): an
+    ICreationEngine operator holding one Snippet node, its pane the
+    snippet's (Run Over, code, References, parameters); its graph opens as any
+    ICE operator's, and with another node in it, it is one;
+  - examples: Snippet: roughen (noise), relax (near points), stick (closest
+    point), in the ICE add menu; Templates > Martino > ICE > Snippets: roughen
+    and relax, stick to a surface.
 - **Not yet:**
-  - noise (`noise`, `snoise`), matched to OSL's;
-  - a `geometry` parameter's References tab: wire a Get Reference into it for
-    now;
-  - the Snippet operator in the scene graph, and snippets as compounds;
-  - loops over a count per element, and `while`;
+  - loops over a count per element, and `while` (build step 6: when real
+    snippets need them);
+  - noise of a number, of two or of four (OSL's 1D, 2D and 4D), and vector
+    noise;
   - `min` and `max` of a list, `range`, arrays made in a snippet;
   - an attribute of another context read by `@` where each element touches
     one (a corner's point): `get_data(@x, "point")` reads it;
   - roles carried into what Set Data writes (an attribute keeps the geometry's
     role, or none when new);
   - a corner's own number (`index()` per corner), `int()` of a float.
+- **Noise names are OSL's:** `"perlin"` and `"simplex"` are signed (about
+  -1 to 1), `"uperlin"` and `"usimplex"` from 0 to 1; the design's examples
+  written before this used `"perlin"` as if from 0 to 1.
 - **Masked stores are not an engine instruction:** an attribute set under an
   `if` is an If of the new and the old value, made by the lowering. Nothing
   per element is added that the nodes would not add.

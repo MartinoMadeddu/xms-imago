@@ -60,7 +60,7 @@
         -1.104
       ]
     },
-    "cook_ms": 1467,
+    "cook_ms": 1460,
     "solved": true
   },
   "Body Collide: obstacle course": {
@@ -136,7 +136,7 @@
         1.057
       ]
     },
-    "cook_ms": 1072
+    "cook_ms": 1068
   },
   "Clip basics": {
     "nodes": 5,
@@ -173,7 +173,7 @@
     "triangles": 282,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 4
+    "cook_ms": 3
   },
   "Curves and points": {
     "nodes": 1,
@@ -327,7 +327,7 @@
         1.028
       ]
     },
-    "cook_ms": 64
+    "cook_ms": 65
   },
   "Human Limits": {
     "nodes": 3,
@@ -377,7 +377,7 @@
     "triangles": 35624231,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 89
+    "cook_ms": 84
   },
   "ICE: shrink-wrap": {
     "nodes": 5,
@@ -578,7 +578,7 @@
         0.062
       ]
     },
-    "cook_ms": 392
+    "cook_ms": 371
   },
   "Novasci clip: thumbs up (download)": {
     "nodes": 3,
@@ -602,7 +602,7 @@
         0.062
       ]
     },
-    "cook_ms": 398
+    "cook_ms": 381
   },
   "Open assets: carbon frame bike (download)": {
     "nodes": 1,
@@ -615,7 +615,7 @@
     "triangles": 135648,
     "materials": 31,
     "cameras": 0,
-    "cook_ms": 446
+    "cook_ms": 431
   },
   "Open assets: elephant with monochord (download)": {
     "nodes": 1,
@@ -641,7 +641,7 @@
     "triangles": 4460,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 12
+    "cook_ms": 11
   },
   "Point instancer: a forest": {
     "nodes": 2,
@@ -715,7 +715,7 @@
         1.057
       ]
     },
-    "cook_ms": 102
+    "cook_ms": 100
   },
   "Rig: aeroplane": {
     "nodes": 5,
@@ -741,7 +741,7 @@
     "triangles": 461595,
     "materials": 30,
     "cameras": 0,
-    "cook_ms": 277
+    "cook_ms": 282
   },
   "Rig: full human": {
     "nodes": 8,
@@ -765,7 +765,7 @@
         0.02
       ]
     },
-    "cook_ms": 557
+    "cook_ms": 561
   },
   "Rig: gears and a piston": {
     "nodes": 5,
@@ -815,7 +815,7 @@
         0.02
       ]
     },
-    "cook_ms": 527
+    "cook_ms": 544
   },
   "Rig: human leg": {
     "nodes": 9,
@@ -839,7 +839,7 @@
         0.02
       ]
     },
-    "cook_ms": 518
+    "cook_ms": 522
   },
   "Rig: quadruped": {
     "nodes": 5,
@@ -889,7 +889,7 @@
         0.02
       ]
     },
-    "cook_ms": 521
+    "cook_ms": 515
   },
   "Rig: tank": {
     "nodes": 5,
@@ -942,6 +942,32 @@
     "materials": 0,
     "cameras": 0,
     "cook_ms": 0
+  },
+  "Snippets: roughen and relax": {
+    "nodes": 3,
+    "viewed": "Relax",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 2401,
+    "triangles": 4608,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 2
+  },
+  "Snippets: stick to a surface": {
+    "nodes": 5,
+    "viewed": "Stick",
+    "output": 0,
+    "kind": "prims",
+    "prims": 1,
+    "copies": 1,
+    "points": 386,
+    "triangles": 768,
+    "materials": 0,
+    "cameras": 0,
+    "cook_ms": 1
   },
   "T-pose and export": {
     "nodes": 5,
@@ -1043,7 +1069,7 @@
     "triangles": 72240,
     "materials": 2,
     "cameras": 0,
-    "cook_ms": 85
+    "cook_ms": 78
   },
   "USD: set attribute": {
     "nodes": 3,
@@ -1069,7 +1095,7 @@
     "triangles": 19200,
     "materials": 0,
     "cameras": 0,
-    "cook_ms": 250
+    "cook_ms": 246
   },
   "Variant set: cube or sphere": {
     "nodes": 6,
@@ -1095,6 +1121,6 @@
     "triangles": 2472,
     "materials": 1,
     "cameras": 0,
-    "cook_ms": 18
+    "cook_ms": 20
   }
 }

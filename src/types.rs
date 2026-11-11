@@ -1128,6 +1128,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Merge { .. } => "➕",
         NodeType::LocalAnimation { .. } => "⏳",
         NodeType::MergeAnimation { .. } => "🎞",
+        NodeType::Ice { id, .. } if *id == crate::ice::NEW_SNIPPET => "λ",
         NodeType::Ice { .. } => "▣",
         NodeType::Placeholder { .. } => "📝",
         NodeType::PassThrough => "↓",
@@ -1223,6 +1224,8 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Merge { .. } => "Merge",
         NodeType::LocalAnimation { .. } => "Local Animation",
         NodeType::MergeAnimation { .. } => "Merge Animation",
+        // A Snippet operator, in the add menu: its graph not made yet.
+        NodeType::Ice { id, .. } if *id == crate::ice::NEW_SNIPPET => "Snippet",
         NodeType::Ice { .. } => "ICreationEngine",
         NodeType::Placeholder { .. } => "Placeholder",
         NodeType::PassThrough => "Pass Through",
@@ -1448,12 +1451,27 @@ pub enum IceGraphNodeType {
     /// graph compiles. Its ports come from its signature: an input per
     /// parameter, an output per `output` parameter, then an Execute (the
     /// attributes it sets). `run_over`: the context its body runs over; `None`,
-    /// the graph's own (or the one its text pins).
+    /// the graph's own (or the one its text pins). `references`: what each
+    /// unwired `geometry` parameter reads, as Get Reference's rows (none kept
+    /// for one: all the prims on Reference 1).
     Snippet {
         text: String,
         #[serde(default)]
         run_over: Option<crate::core::geo::Context>,
+        #[serde(default)]
+        references: Vec<SnippetReference>,
     },
+}
+
+/// What a Snippet's `geometry` parameter reads while nothing is wired to it,
+/// as a Get Reference: the prims on reference input `input` (1, the first
+/// after the scene) its rows name; no rows, all of them.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SnippetReference {
+    pub name: String,
+    pub input: u32,
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 impl IceGraphNodeType {
@@ -1545,6 +1563,9 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             Math::Asin => "Arcsine",
             Math::Acos => "Arccosine",
             Math::Atan2 => "Arctangent of Y over X",
+            Math::Perlin => "Perlin Noise",
+            Math::Simplex => "Simplex Noise",
+            Math::CellNoise => "Cell Noise",
         },
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",

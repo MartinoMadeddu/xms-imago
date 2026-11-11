@@ -322,10 +322,12 @@ impl Parser {
             let output = self.word("output");
             let ty = self.ty()?;
             let name = self.ident()?;
-            let array = self.sym("[") && {
-                self.expect("]")?;
-                true
-            };
+            // `name[]`; `name [[` is its metadata.
+            let array = self.is_sym(0, "[") && self.is_sym(1, "]");
+            if array {
+                self.next();
+                self.next();
+            }
             let default = if self.sym("=") { Some(self.expr()?) } else { None };
             let meta = self.meta()?;
             if snippet && default.is_none() && !matches!(ty, Type::Geometry) && !array {

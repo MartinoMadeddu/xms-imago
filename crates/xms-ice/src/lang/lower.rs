@@ -1539,7 +1539,56 @@ impl<'a> Lower<'a> {
                 }
             }
             "range" => self.err(pos, "range(n) comes with arrays made in a snippet: not yet"),
-            "noise" | "snoise" | "cellnoise" => self.err(pos, format!("{name}: noise matching OSL's is being built")),
+            // OSL's names: "perlin" and "simplex" signed, "uperlin" (noise's
+            // own) and "usimplex" from 0 to 1, "cell" one value per cube.
+            "noise" | "snoise" | "cellnoise" => {
+                let (kind, mut args) = match (name, vals.first().and_then(|v| v.known.clone())) {
+                    ("noise", Some(Known::Str(k))) => (k, vals[1..].to_vec()),
+                    ("noise", _) => ("uperlin".to_string(), vals),
+                    ("snoise", _) => ("perlin".to_string(), vals),
+                    _ => ("cell".to_string(), vals),
+                };
+                if args.len() != 1 {
+                    return self.err(
+                        pos,
+                        format!("{name} of one point: noise(\"perlin\", p), snoise(p), cellnoise(p)"),
+                    );
+                }
+                let p = args.remove(0);
+                if p.t.ty != Ty::Vec3 {
+                    return self.err(
+                        pos,
+                        format!(
+                            "Noise of a point (a {} here): a 1D, 2D and 4D noise are not yet",
+                            p.t.name()
+                        ),
+                    );
+                }
+                let (m, unsigned) = match kind.as_str() {
+                    "perlin" | "snoise" => (Math::Perlin, false),
+                    "uperlin" | "noise" => (Math::Perlin, true),
+                    "simplex" => (Math::Simplex, false),
+                    "usimplex" => (Math::Simplex, true),
+                    "cell" | "cellnoise" => (Math::CellNoise, false),
+                    other => {
+                        return self.err(
+                            pos,
+                            format!(
+                                "\"{other}\" noise: \"perlin\", \"uperlin\", \"simplex\", \"usimplex\" or \"cell\""
+                            ),
+                        )
+                    }
+                };
+                let list = p.t.list;
+                let n = self.math(m, &[&p], float.listed(list));
+                if !unsigned {
+                    return Ok(n);
+                }
+                // From 0 to 1: half of one more.
+                let (one, half) = (self.constant(Value::Float(1.0)), self.constant(Value::Float(0.5)));
+                let up = self.binary("+", n, one, pos)?;
+                self.binary("*", up, half, pos)
+            }
             _ => self.err(pos, format!("Unknown function {name}")),
         }
     }

@@ -490,11 +490,16 @@ pub enum Math {
     Mod,
     /// The angle of (input 1, input 0) as y over x (OSL's `atan2(y, x)`).
     Atan2,
+    /// OSL's noises of a point (`crate::noise`): Perlin's and simplex's
+    /// signed, about -1 to 1; cell noise's one value from 0 to 1 per unit cube.
+    Perlin,
+    Simplex,
+    CellNoise,
 }
 
 impl Math {
     /// Every operation, in the order the add menu lists them.
-    pub const ALL: [Math; 46] = [
+    pub const ALL: [Math; 49] = [
         Math::Add,
         Math::Subtract,
         Math::Multiply,
@@ -541,6 +546,9 @@ impl Math {
         Math::Asin,
         Math::Acos,
         Math::Atan2,
+        Math::Perlin,
+        Math::Simplex,
+        Math::CellNoise,
     ];
 
     pub fn arity(self) -> usize {
@@ -557,6 +565,9 @@ impl Math {
             | Math::Tan
             | Math::Asin
             | Math::Acos
+            | Math::Perlin
+            | Math::Simplex
+            | Math::CellNoise
             | Math::Negate
             | Math::Abs
             | Math::Sin

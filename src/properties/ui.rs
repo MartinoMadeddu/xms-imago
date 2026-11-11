@@ -84,26 +84,7 @@ pub fn draw_properties_panel(
         .inner_margin(6.0)
         .show(ui, |ui| {
             if let Some(sid) = nav.current_subnet {
-                // Every prim on each reference input of the operator the
-                // ICE graph is in, from input 1: what Get Reference picks from.
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
-                let references: Vec<Vec<String>> = graph
-                    .nodes
-                    .iter()
-                    .find(|n| matches!(n.node_type, NodeType::Ice { id, .. } if id == sid))
-                    .map(|n| {
-                        n.inputs
-                            .iter()
-                            .skip(1)
-                            .map(|i| {
-                                i.connected_output
-                                    .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
-                                    .unwrap_or_default()
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let references = reference_paths(graph, sid);
                 if let Some(sg) = subnets.get_mut(sid) {
                     draw_subnet_node_properties(ui, sg, &references, &io.scene_paths, io.browser);
                     return;
@@ -144,7 +125,49 @@ pub fn draw_properties_panel(
                 .map(|sg| sg.composed().parameters.clone())
                 .unwrap_or_default();
             draw_properties(ui, graph, scene, anim, io);
+            // A Snippet operator: its snippet's text, References and
+            // parameters, as if its node were selected inside.
+            let sid = graph
+                .selected_node
+                .and_then(|id| graph.nodes.iter().find(|n| n.id == id))
+                .and_then(|n| match n.node_type {
+                    NodeType::Ice { id, .. } => Some(id),
+                    _ => None,
+                });
+            let snippet = sid.and_then(|sid| subnets.get(sid)?.lone_snippet().map(|n| (sid, n)));
+            if let Some((sid, snippet)) = snippet {
+                let references = reference_paths(graph, sid);
+                if let Some(sg) = subnets.get_mut(sid) {
+                    let was = sg.selected_node.replace(snippet);
+                    ui.separator();
+                    draw_subnet_node_properties(ui, sg, &references, &io.scene_paths, io.browser);
+                    sg.selected_node = was;
+                }
+            }
         });
+}
+
+/// Every prim on each reference input of the ICE operator whose graph is
+/// `sid`, from input 1: what Get Reference, and a Snippet's References, pick
+/// from.
+fn reference_paths(graph: &NodeGraphState, sid: crate::types::IceGraphId) -> Vec<Vec<String>> {
+    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    graph
+        .nodes
+        .iter()
+        .find(|n| matches!(n.node_type, NodeType::Ice { id, .. } if id == sid))
+        .map(|n| {
+            n.inputs
+                .iter()
+                .skip(1)
+                .map(|i| {
+                    i.connected_output
+                        .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 const FBX_EXTS: &[&str] = &["fbx"];

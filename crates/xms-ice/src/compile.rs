@@ -529,6 +529,7 @@ fn math_ty(op: Math, args: &[Ty]) -> Option<Ty> {
             [Float],
         ) => Some(Float),
         (Math::Pow | Math::Atan2, [Float, Float]) => Some(Float),
+        (Math::Perlin | Math::Simplex | Math::CellNoise, [Vec3]) => Some(Float),
         (Math::Mod, [a, b]) if a == b && matches!(a, Int | Float) => Some(*a),
         _ => None,
     }

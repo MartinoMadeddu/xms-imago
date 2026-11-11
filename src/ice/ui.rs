@@ -234,7 +234,7 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
         IceGraphNodeType::CompoundOutput { name } => Some(format!("out: {name}")),
         IceGraphNodeType::Parameter { name, .. } => Some(format!("${{{name}}}")),
         // Its name, and what it runs over when not the graph's.
-        IceGraphNodeType::Snippet { text, run_over } => {
+        IceGraphNodeType::Snippet { text, run_over, .. } => {
             let name = xms_ice::lang::parse(text)
                 .map(|s| s.name)
                 .unwrap_or_else(|_| "does not parse".into());
@@ -251,8 +251,14 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
 /// `text`) with Ctrl+Enter or when the editor is left, not as it is typed. Under
 /// it, why it does not parse, or why the graph last failed on it (`error`).
 /// Whether the text was applied changed.
-fn snippet_editor(ui: &mut egui::Ui, node: NodeId, text: &mut String, error: &Option<(NodeId, String)>) -> bool {
-    let id = egui::Id::new(("ice_snippet_text", node.0));
+fn snippet_editor(
+    ui: &mut egui::Ui,
+    graph: crate::types::IceGraphId,
+    node: NodeId,
+    text: &mut String,
+    error: &Option<(NodeId, String)>,
+) -> bool {
+    let id = egui::Id::new(("ice_snippet_text", graph.0, node.0));
     let mut draft: String = ui.data_mut(|d| d.get_temp(id)).unwrap_or_else(|| text.clone());
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let lines = draft.lines().count().max(1) + usize::from(draft.ends_with('\n'));
@@ -270,7 +276,10 @@ fn snippet_editor(ui: &mut egui::Ui, node: NodeId, text: &mut String, error: &Op
         // Ctrl+Enter taken before the editor sees it, so it adds no line.
         let edit_id = id.with("edit");
         let ctrl_enter = ui.memory(|m| m.has_focus(edit_id))
-            && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter));
+            && ui.input_mut(|i| {
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::Enter)
+                    || i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+            });
         let edit = ui.add(
             egui::TextEdit::multiline(&mut draft)
                 .id(edit_id)
@@ -552,6 +561,7 @@ pub fn draw_subnet_node_properties(
         .unwrap_or(Context::Point);
     row_menu(ui.ctx(), graph);
     let mut resync = false;
+    let mut as_compound = false;
     // A compound's: go inside, or its ports again from the library.
     let (mut enter, mut back) = (false, false);
     let graph_id = graph.id;
@@ -828,7 +838,7 @@ pub fn draw_subnet_node_properties(
                 value_with_type(f, "Default", default, Some("Its value while the operator gives none"));
             },
         ),
-        IceGraphNodeType::Snippet { text, run_over } => {
+        IceGraphNodeType::Snippet { text, run_over, references: rows } => {
             group(ui, "Snippet", Some("Code in the snippet language: OSL's syntax and types, ICE's attributes (@P), lowered into ICE's own nodes. Ctrl+Enter or leaving the text applies it"), |f| {
                 f.choice(
                     "Run Over",
@@ -843,8 +853,60 @@ pub fn draw_subnet_node_properties(
                     ],
                 );
             });
-            if snippet_editor(ui, node.id, text, &error) {
+            if snippet_editor(ui, graph_id, node.id, text, &error) {
                 resync = true;
+            }
+            if ui
+                .button("Make Compound")
+                .on_hover_text("This snippet as a compound of its own: its free parameters its ports. Save it as a definition from the compound's parameters to share it and find it in the add menu")
+                .clicked()
+            {
+                as_compound = true;
+            }
+            // Its geometry parameters with nothing wired: what each reads, as
+            // a Get Reference does.
+            let geometry: Vec<String> = xms_ice::lang::parse(text)
+                .map(|s| xms_ice::lang::ports(&s))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|p| p.ty == xms_ice::Ty::Token && !p.output)
+                .map(|p| p.name)
+                .filter(|name| {
+                    node.inputs
+                        .iter()
+                        .any(|i| i.name == *name && i.connected_output.is_none())
+                })
+                .collect();
+            for name in geometry {
+                let at = match rows.iter().position(|r| r.name == name) {
+                    Some(at) => at,
+                    None => {
+                        rows.push(crate::types::SnippetReference {
+                            name: name.clone(),
+                            input: 1,
+                            paths: vec![],
+                        });
+                        rows.len() - 1
+                    }
+                };
+                let row = &mut rows[at];
+                group(ui, &format!("References: {name}"), Some("The prims this geometry parameter reads while nothing is wired to it, as a Get Reference: those on a reference input, all or the rows below"), |f| {
+                    f.row("Input", Some("Which of the operator's reference inputs: 1 is the first after the scene"), |ui| {
+                        crate::properties::form::number(ui, None, &mut row.input, |d| d.range(1..=64).speed(0.05))
+                    });
+                });
+                let there = references
+                    .get((row.input as usize).saturating_sub(1))
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                crate::properties::ui::locations_tab(
+                    ui,
+                    &mut row.paths,
+                    there,
+                    selected,
+                    crate::properties::ui::TabKind::Names,
+                    None,
+                );
             }
         }
         IceGraphNodeType::Math { .. }
@@ -885,6 +947,16 @@ pub fn draw_subnet_node_properties(
         if enter {
             ui.data_mut(|d| d.insert_temp(enter_id(), id));
         }
+        return;
+    }
+    // A snippet made a compound of its own.
+    if as_compound {
+        let id = node.id;
+        let told = match super::compound::snippet_compound(graph, id) {
+            Ok(_) => "Made a compound of the snippet: its parameters are its ports. Save as Definition, in its parameters, to share it".into(),
+            Err(e) => e,
+        };
+        ui.data_mut(|d| d.insert_temp(told_id(), told));
         return;
     }
     // Compose's and Decompose's ports follow what they make or take apart:
@@ -1741,9 +1813,21 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         IceGraphNodeType::Snippet {
             text: super::SNIPPET.into(),
             run_over: None,
+            references: vec![],
         },
         "Code in a node: OSL's syntax and types with ICE's attributes (@P, get_data), lowered into ICE's own nodes. Its parameters are its ports",
     ));
+    for (_, hint, text) in super::SNIPPET_EXAMPLES {
+        out.push((
+            "Snippets",
+            IceGraphNodeType::Snippet {
+                text: text.into(),
+                run_over: None,
+                references: vec![],
+            },
+            hint,
+        ));
+    }
     out.push(("Arrays", IceGraphNodeType::Concat, "Arrays one after the other, all of one type (paths of two Get References, positions of two scatters); single values join as one element. Wiring the last input adds another"));
     out.push(("Matrix", IceGraphNodeType::Compose { op: xms_ice::Compose::Matrix }, "A matrix from three axes and an origin: a frame (tangent, normal, bitangent and a position). Its columns are the axes and the origin"));
     out.push((
@@ -1768,6 +1852,9 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
             Math::Mod => "The remainder of A divided by B, never negative for a positive B (OSL's mod); ints or numbers",
             Math::Atan2 => "The angle, in radians, of a direction given as Y and X",
             Math::Sign => "-1, 0 or 1, by the number's sign",
+            Math::Perlin => "OSL's Perlin noise of a position, about -1 to 1: the same value an OSL shader's snoise(p) gives there",
+            Math::Simplex => "OSL's simplex noise of a position, about -1 to 1: smoother than Perlin's, without its grid",
+            Math::CellNoise => "OSL's cell noise: one value from 0 to 1 per unit cube of the position, the same all through it",
             _ => "",
         };
         let category = match op {
@@ -1782,6 +1869,7 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
             | Math::Or
             | Math::Not
             | Math::Select => "Logic",
+            Math::Perlin | Math::Simplex | Math::CellNoise => "Noise",
             _ => "Math",
         };
         out.push((category, IceGraphNodeType::Math { op }, about));
@@ -1806,6 +1894,17 @@ struct Entry {
     added: Added,
 }
 
+/// A node's name in the add menu: an example snippet by its example's.
+fn menu_label(t: &IceGraphNodeType) -> String {
+    match t {
+        IceGraphNodeType::Snippet { text, .. } => super::SNIPPET_EXAMPLES
+            .iter()
+            .find(|(_, _, example)| example == text)
+            .map_or("Snippet".into(), |(name, _, _)| name.to_string()),
+        t => crate::types::subnet_node_label(t).into(),
+    }
+}
+
 /// Every entry of the add menu: the nodes, Make Compound, and the library's
 /// ICE compounds.
 fn entries() -> Vec<Entry> {
@@ -1813,11 +1912,7 @@ fn entries() -> Vec<Entry> {
         .into_iter()
         .map(|(category, t, hint)| Entry {
             category: category.into(),
-            label: format!(
-                "{}  {}",
-                crate::types::subnet_node_icon(&t),
-                crate::types::subnet_node_label(&t)
-            ),
+            label: format!("{}  {}", crate::types::subnet_node_icon(&t), menu_label(&t)),
             hint: hint.into(),
             added: Added::Node(t),
         })
