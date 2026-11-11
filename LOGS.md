@@ -855,3 +855,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 11/11/2026: Display Attribute: viewer::attributes::button opens into a box (open state in egui temp data) holding menu's settings, instead of a MenuButton; README: ISL and Display Attribute bullets, The command line before Get it. (Martino)
 - 11/11/2026: Viewer picking: curves (BasisCurves) and points picked by their drawn lines (viewer::pick::strand_lines, screen_box, near_line), by click and by box. (Martino)
 - 11/11/2026: Viewer: display::wire_over / points toggles (Wireframe on Shaded, Points: scene::point_dots, under attribute dots); attributes::draw_labels through arrange (no overlap, hidden cells, sizes from monospace glyphs), mesh point normals in places. (Martino)
+- 11/11/2026: Display Attribute labels: no facing test (winding is not to be trusted: leftHanded meshes), no overlap culling, no box: text with a shadow; attributes::visible tests one label per 4 px square once hidden. (Martino)

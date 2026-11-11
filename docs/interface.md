@@ -223,12 +223,11 @@ prim colours it, lines and labels add up.
 **On:** Selected (the default: the prims selected, and those below them) or
 All. Colours and lines are hidden behind surfaces as the scene is. Labels are
 too, behind the surfaces of the prims attributes are shown on (up to 2 million
-triangles; other prims do not hide them yet), and those on faces turned away
-are left out (a mesh's point faces as its faces do). Each label sits just
-right of its element, as in Houdini, and one that would cover a nearer label
-is left out, so every label shown can be read: come closer to see the rest.
-Within limits, on both: a million lines, 20 million coloured corners, and
-labels on screen only, nearest the camera first, at most 5,000 (made from
+triangles; other prims do not hide them yet), and every label in front of
+them is drawn, however close to others. A label is its text alone, as in
+Houdini, just right of its element, with a dark shadow so it reads on any
+surface. Within limits, on both: a million lines, 20 million coloured
+corners, and labels on screen only, nearest the camera first, at most 5,000 (made from
 200,000 at most, 20,000 tested a frame). Past a limit the Viewer
 says what it left out. The attributes listed are saved with the graph file;
 **Show attributes** is off whenever Imago starts or a graph is opened.
