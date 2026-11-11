@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Very large and very small numbers** are written to USD with an exponent (`1e30`), not as a run of digits USD read as an integer out of range (Arnold's `AA_sample_clamp` warned of it).
 - **MaterialX files of an older MaterialX** load: a node naming a definition the library has under another name (1.38's `ND_normalmap`) is read by its node and types instead of being left out.
 - **A node out of its wires:** in the scene and ICE graphs, a node dragged with Shift held comes out of the wires it is in after a few pixels, what fed it joined to what it fed; let go over another wire, it goes in there.
 - **Write USD: Flatten.** One file of the whole scene, the stages and Imago's changes composed into it (USD's flatten), time samples kept, `.usda` or `.usdc`, opening without the files it came from. Time samples were already written over the frame range; flattened they stay.

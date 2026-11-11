@@ -867,3 +867,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 11/11/2026: Write USD: Flatten (WriteUsd::flatten; the override layer written beside the file, then xms_usd::flatten: openusd's Stage::flatten exported by extension). (Martino)
 - 11/11/2026: Graphs: Shift+drag pulls a node out of its wires (pull_out, once a drag past PULL_OUT pixels), bridging its first input to what its first output fed. (Martino)
 - 11/11/2026: MaterialX: Load MaterialX taken out again (a .mtlx is loaded into the MaterialX operator's graph, Load .mtlx...); import::def_of takes a nodedef the library does not have by its node and types (1.38's ND_normalmap). (Martino)
+- 11/11/2026: USD numbers: properties::usda_number / usda_float write an exponent past 1e15 and under 1e-6 (usd_write's num, num64 and Value::usda use them). (Martino)

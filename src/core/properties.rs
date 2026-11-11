@@ -360,20 +360,14 @@ impl Value {
 
     /// The value as `.usda` writes it.
     pub fn usda(&self) -> String {
-        let num = |x: f32| if x.is_finite() { format!("{x}") } else { "0".into() };
+        let num = usda_float;
         let tuple = |v: &[f32]| format!("({})", v.iter().map(|x| num(*x)).collect::<Vec<_>>().join(", "));
         let quoted = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
         match self {
             Value::Bool(b) => b.to_string(),
             Value::Int(i) => i.to_string(),
             Value::Float(x) => num(*x),
-            Value::Double(x) => {
-                if x.is_finite() {
-                    format!("{x}")
-                } else {
-                    "0".into()
-                }
-            }
+            Value::Double(x) => usda_number(*x),
             Value::String(s) | Value::Token(s) => quoted(s),
             Value::Float2(v) => tuple(v),
             Value::Float3(v) | Value::Color3f(v) => tuple(v),
@@ -433,6 +427,30 @@ impl Value {
                 Role::None,
             )),
         }
+    }
+}
+
+/// A number as `.usda` reads it: as it is, or with an exponent where it would
+/// be a run of digits (`1e30`, which USD would read as an integer out of
+/// range, `6.1e-17`). Not finite: 0.
+pub fn usda_number(x: f64) -> String {
+    if !x.is_finite() {
+        "0".into()
+    } else if x != 0.0 && (x.abs() >= 1e15 || x.abs() < 1e-6) {
+        format!("{x:e}")
+    } else {
+        format!("{x}")
+    }
+}
+
+/// `usda_number` of a float, in its own shortest digits.
+pub fn usda_float(x: f32) -> String {
+    if !x.is_finite() {
+        "0".into()
+    } else if x != 0.0 && (x.abs() >= 1e15 || x.abs() < 1e-6) {
+        format!("{x:e}")
+    } else {
+        format!("{x}")
     }
 }
 

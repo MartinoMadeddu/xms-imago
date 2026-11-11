@@ -685,6 +685,10 @@ mod tests {
         assert_eq!(Value::Color3f([1.0, 0.5, 0.0]).usda(), "(1, 0.5, 0)");
         assert_eq!(Value::Token("a\"b".into()).usda(), "\"a\\\"b\"");
         assert_eq!(Value::Asset("tex/a.png".into()).usda(), "@tex/a.png@");
+        // Long runs of digits with an exponent, as USD reads them.
+        assert_eq!(Value::Float(1e30).usda(), "1e30");
+        assert_eq!(Value::Double(6.123e-17).usda(), "6.123e-17");
+        assert_eq!(Value::Float(0.25).usda(), "0.25");
         assert_eq!(Value::Bool(false).usda(), "false");
         assert_eq!(written("kind"), Written::Metadata);
         assert_eq!(written("subdivisionScheme"), Written::Uniform);

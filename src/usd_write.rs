@@ -1633,20 +1633,12 @@ fn list<T>(items: impl Iterator<Item = T>, f: impl Fn(T) -> String) -> String {
     format!("[{}]", items.map(f).collect::<Vec<_>>().join(", "))
 }
 
-/// A number as USD reads it: finite, shortest form.
+/// A number as USD reads it (`properties::usda_number`).
 fn num(x: f32) -> String {
-    if x.is_finite() {
-        format!("{x}")
-    } else {
-        "0".into()
-    }
+    crate::core::properties::usda_float(x)
 }
 fn num64(x: f64) -> String {
-    if x.is_finite() {
-        format!("{x}")
-    } else {
-        "0".into()
-    }
+    crate::core::properties::usda_number(x)
 }
 
 fn v3(p: &[f32; 3]) -> String {
