@@ -225,8 +225,10 @@ All. Colours and lines are hidden behind surfaces as the scene is. Labels are
 too, behind the surfaces of the prims attributes are shown on (up to 2 million
 triangles; other prims do not hide them yet), and every label in front of
 them is drawn, however close to others. A label is its text alone, as in
-Houdini, just right of its element, with a dark shadow so it reads on any
-surface. Within limits, on both: a million lines, 20 million coloured
+Houdini, with a dark shadow so it reads on any surface, coloured by its
+context, as XSI's are: a point's green, just right of it; a face's lilac and
+a corner's amber, centred on theirs; the object's white. A list is a column
+rising from its element, a value a line, six at most and how many more. Within limits, on both: a million lines, 20 million coloured
 corners, and labels on screen only, nearest the camera first, at most 5,000 (made from
 200,000 at most, 20,000 tested a frame). Past a limit the Viewer
 says what it left out. The attributes listed are saved with the graph file;
