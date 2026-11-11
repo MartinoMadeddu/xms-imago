@@ -664,39 +664,54 @@ pub fn draw_labels(
     None
 }
 
-/// The Attributes button at the Viewer's top left, under its bar: a square
-/// A, lit while attributes are shown, opening the Attributes menu.
+/// The Attributes box at the Viewer's top left, under its bar: a square A,
+/// lit while attributes are shown, that opens into a box holding the
+/// Attributes settings (`menu`), as a Snippet's code opens under it; the A
+/// closes it again. Open or closed is kept while Imago runs.
 pub fn button(ctx: &egui::Context, rect: egui::Rect, names: impl FnOnce() -> Vec<String>) {
+    let open_id = egui::Id::new("viewer_attributes_open");
+    let mut open = ctx.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
     egui::Area::new(egui::Id::new("viewer_attributes"))
         .order(egui::Order::Background)
         .fixed_pos(egui::pos2(rect.min.x + 10.0, rect.min.y + 42.0))
+        .constrain_to(rect)
         .show(ctx, |ui| {
             egui::Frame::NONE
                 .fill(crate::theme::c(90, 90, 90).gamma_multiply(0.92))
                 .stroke(egui::Stroke::new(1.0_f32, crate::theme::c(70, 70, 70)))
                 .corner_radius(4.0)
-                .inner_margin(3.0)
+                .inner_margin(if open { 6.0 } else { 3.0 })
                 .show(ui, |ui| {
-                    let on = settings().on;
-                    let text = egui::RichText::new("A").strong();
-                    let a = egui::Button::new(text).selected(on).min_size(egui::vec2(22.0, 22.0));
-                    // Closing only on a click outside, as Imago's menus do.
-                    let config = egui::containers::menu::MenuConfig::new()
-                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-                    let (r, _) = egui::containers::menu::MenuButton::from_button(a)
-                        .config(config)
-                        .ui(ui, |ui| menu(ui, names));
-                    r.on_hover_text(
-                        "Attributes: draw attributes over the prims, floats as colours, colours and UVs as themselves, vectors as lines, the rest as labels",
-                    );
+                    ui.horizontal(|ui| {
+                        let text = egui::RichText::new("A").strong();
+                        let a = egui::Button::new(text)
+                            .selected(settings().on)
+                            .min_size(egui::vec2(22.0, 22.0));
+                        let hint = if open {
+                            "Close the Attributes box"
+                        } else {
+                            "Attributes: draw attributes over the prims, floats as colours, colours and UVs as themselves, vectors as lines, the rest as labels"
+                        };
+                        if ui.add(a).on_hover_text(hint).clicked() {
+                            open = !open;
+                        }
+                        if open {
+                            ui.label(egui::RichText::new("Attributes").strong());
+                        }
+                    });
+                    if open {
+                        ui.add_space(4.0);
+                        menu(ui, names);
+                    }
                 });
         });
+    ctx.data_mut(|d| d.insert_temp(open_id, open));
 }
 
-/// The Attributes menu, from the Viewer's A: on or off, the scope, and the
-/// list, each its name (typed, or chosen from `names`, the attributes of the
-/// prims shown, made only while the menu is open, and the intrinsics), its
-/// range and ramp, its lines' scale.
+/// The Attributes settings, in the box the Viewer's A opens: on or off, the
+/// scope, and the list, each its name (typed, or chosen from `names`, the
+/// attributes of the prims shown, made only while a name's list is open, and
+/// the intrinsics), its range and ramp, its lines' scale.
 pub fn menu(ui: &mut egui::Ui, names: impl FnOnce() -> Vec<String>) {
     let mut s = settings();
     ui.checkbox(&mut s.on, "Show attributes")

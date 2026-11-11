@@ -8,6 +8,10 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Display Attribute:** the Viewer's A opens into a box holding its settings, over the picture, and closes again, instead of a menu that closed on a click outside.
+- **The Viewer's selection** in its own blue, a quarter less saturated.
+- **README:** ISL and Display Attribute among the main parts; The command line before Get it.
+
 - **ISL, the ICE Scripting Language:** the snippets' language has a name, a reference page ([docs/isl.md](docs/isl.md)) and a page of every function with examples ([docs/isl-functions.md](docs/isl-functions.md)), in the HTML documentation too. The design page it grew from is gone from the repository.
 
 - **ICE snippets:** a **Snippet** node in ICE graphs: code in OSL's syntax and types with ICE's attributes (`@P += normalize(@N) * amount;`), `if`, loops of a known count, functions, and the ICE nodes as functions (`get_data`, `get_array_data`, `near_points`, `closest_point_on_surface`, `random`), lowered into ICE's own nodes, so it runs as fast as they do. Its parameters are its ports; errors show with their line. ([ISL](docs/isl.md))

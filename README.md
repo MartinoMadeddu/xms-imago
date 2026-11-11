@@ -30,11 +30,18 @@ One program, a few crates of its own, and open libraries under them.
   changes and kept between frames.
 - **ICE:** graphs per point, face or object, compiled into plans and run over
   attribute columns in parallel batches.
+- **ISL, the ICE Scripting Language:** ICE as code, OSL's syntax with ICE's
+  attributes (`@P += normalize(@N) * amount;`), in a Snippet node or an
+  ISnippet operator, compiled into the same plans as the nodes. See
+  [ISL](docs/isl.md) and its [functions](docs/isl-functions.md).
 - **Edit Poly:** a whole modelling session in one node.
 - **Rigging-Mocap:** procedural rigging and dynamic/ragdoll mo-cap clean up and
   process.
-- **The Viewer and the Image Viewer:** wgpu, colour managed with OpenColorIO;
-  attributes drawn over the prims in the Viewer (Display Attribute).
+- **The Viewer and the Image Viewer:** wgpu, colour managed with OpenColorIO.
+- **Display Attribute:** any attribute drawn over the prims in the Viewer,
+  as its type is: floats through a ramp, colours and UVs as themselves,
+  vectors as lines, the rest as labels hidden behind what is in front. See
+  [Display Attribute](docs/interface.md#display-attribute).
 - **Rendering:** UsdRender prims from the graph; Arnold renders in Imago itself
   (IPR, every AOV bucket by bucket into the Image Viewer, or live in the
   Viewer), Karma and others through their command lines.
@@ -48,7 +55,7 @@ Its crates:
 - `xms-usd`: USD stages into that scene.
 - `xms-geo`: the geometry, a topology and typed attribute columns, shared
   copy-on-write.
-- `xms-ice`: the ICE engine.
+- `xms-ice`: the ICE engine, and ISL.
 - `xms-matx`: the MaterialX node libraries, and renderers' shaders as nodes.
 - `xms-image`: renders and images as layers of float channels, and the
   snapshots both viewers share.
@@ -76,18 +83,6 @@ Built on:
   when Imago runs (nothing to build against it), to render in Imago.
 - Houdini's husk, to render with Karma.
 
-## Get it
-
-- **Website:** [martinomadeddu.github.io/xms-imago](https://martinomadeddu.github.io/xms-imago/)
-- **Download:** binaries for Linux, macOS and Windows on the [Releases
-  page](https://github.com/MartinoMadeddu/xms-imago/releases): the latest
-  release (a version, for example 0.2.0), or the newest build of `main` (a
-  pre-release, "Build N"). See [Builds and releases](docs/releases.md) and the
-  [changelog](CHANGELOG.md).
-- **Documentation:** [docs/](docs/README.md), or **Help > Documentation** in
-  Imago.
-
-
 ## The command line
 
 ```
@@ -112,6 +107,17 @@ See [The xms command line](docs/render.md#the-xms-command-line).
 set its folder in File > Settings > Renderers (or `$ARNOLD_PATH`). On Linux,
 Imago puts the SDK's `bin` on the library path itself, as Arnold's plugins
 need. Without a licence, Arnold's images are watermarked.
+
+## Get it
+
+- **Website:** [martinomadeddu.github.io/xms-imago](https://martinomadeddu.github.io/xms-imago/)
+- **Download:** binaries for Linux, macOS and Windows on the [Releases
+  page](https://github.com/MartinoMadeddu/xms-imago/releases): the latest
+  release (a version, for example 0.2.0), or the newest build of `main` (a
+  pre-release, "Build N"). See [Builds and releases](docs/releases.md) and the
+  [changelog](CHANGELOG.md).
+- **Documentation:** [docs/](docs/README.md), or **Help > Documentation** in
+  Imago.
 
 ## How to build
 

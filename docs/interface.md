@@ -195,7 +195,9 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 **A**, at the Viewer's top left under its bar, draws attributes over the prims,
 each as its type is, as Houdini's visualizers and Gaffer's viewer show them; it
-is lit while they are shown. Tick **Show attributes**, add one with **+ Attribute**, and type its name or pick it from
+is lit while they are shown. Click it and it opens into the **Attributes** box
+over the picture, the settings inside; click it again to close it. Tick **Show
+attributes**, add one with **+ Attribute**, and type its name or pick it from
 ⏷: the attributes of the prims shown, and intrinsics (point, face and corner
 numbers, face normals and areas, each face's points, `curveu`, curve lengths).
 
