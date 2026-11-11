@@ -16,6 +16,9 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
 | Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light, RenderSettings): its form shows their values, and what is changed overrides them |
 | Reparent | Moves prims under another prim, its Parent, with what is below them: those its Prims Location tab names, or the whole scene |
+| Rename | Renames the prims its Prims Location tab names: Find replaced, a Prefix and Suffix added |
+| Duplicate | Copies the prims its Prims Location tab names beside them, each a step further |
+| Delete Attribute, Rename Attribute | Take attributes (primvars) away from the primitives' geometry, or rename them |
 | Variant | Chooses variants of the scene's variant sets (Select): a stage is composed again with them, what was done above carried over. Makes a variant set on a prim, a variant per input (Create) |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
@@ -283,6 +286,43 @@ binding from inside it to a material outside it is written again on the prim,
 since a reference drops targets outside the prim it brings in; other
 relationships to prims outside it (a light's linking, a skeleton's binding)
 are not carried yet. A prim Imago made is written whole where it now is.
+
+## Rename and Duplicate
+
+**Rename** renames the prims its Prims Location tab names (`/set/*_old`):
+**Find** is replaced by **Replace** wherever it is in the name, then **Prefix**
+and **Suffix** are added. What is left is made a name USD takes (`lamp.hi` is
+`lamp_hi`); a name a sibling already has gets a number. Each prim keeps what is
+below it and its place in the world, and is written as Reparent writes a move.
+
+**Duplicate** copies the prims its Prims Location tab names, each with what is
+below it, beside it under the same parent. **Copies** says how many; **Name**
+names each, `{name}` the prim's and `{n}` the copy's number (`{name}_{n}`:
+`crate_1`, `crate_2`); a name taken gets a number. Each copy is moved from the
+one before by **Translate**, **Rotate** (degrees, X then Y then Z) and
+**Scale**, in the parent's space, so 3 copies translated 2 in X sit at 2, 4 and
+6. A prim below another named goes with it. Write USD writes a file's prim
+copied as a `def` referencing it, with the copy's transform; the original stays
+as it is.
+
+## Delete Attribute and Rename Attribute
+
+**Delete Attribute** takes attributes (primvars) away from the geometry of the
+primitives its Prims Location tab names, or every one. **Names** are words, by
+spaces or commas: `*` is any run of characters, `?` any one, and a word after
+`^` keeps what it names (`* ^st` takes all but `st`). A word is a whole name:
+`uv` is not `uv1`. **Context** limits it to Point, Face, Corner or Object
+attributes. The points are never taken.
+
+**Rename Attribute** renames each word of **From** to the word in its place
+in **To** (`Cd uv` to `displayColor st`). A `*` in both keeps what it matched:
+`uv*` to `st*` makes `uv1` `st1`. An attribute already of the new name is
+replaced, in any context, since USD has one attribute of a name.
+
+The panels list the attributes coming in and what changes, with how many
+primitives have each. Write USD writes an attribute taken away as blocked
+(`primvars:Cd = None`), so the file's value is not seen, and a rename as the
+new name written and the old one blocked.
 
 ## Variants
 

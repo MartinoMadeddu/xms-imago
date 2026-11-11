@@ -279,6 +279,42 @@ pub enum NodeType {
         #[serde(default = "yes")]
         keep_world: bool,
     },
+    /// Prims the Prims Location tab names, renamed: `find` replaced by
+    /// `replace`, then `prefix` and `suffix` added. See `core::rename`.
+    Rename {
+        #[serde(default)]
+        find: String,
+        #[serde(default)]
+        replace: String,
+        #[serde(default)]
+        prefix: String,
+        #[serde(default)]
+        suffix: String,
+    },
+    /// Copies of the prims the Prims Location tab names, beside them, each
+    /// with what is below it. See `core::rename`.
+    Duplicate {
+        #[serde(default)]
+        copies: crate::core::rename::Copies,
+    },
+    /// Attributes of the primitives' geometry the `names` pattern names taken
+    /// away, in `context` or any. See `core::attribute_edit`.
+    DeleteAttribute {
+        #[serde(default)]
+        names: String,
+        #[serde(default)]
+        context: Option<crate::core::geo::Context>,
+    },
+    /// Attributes of the primitives' geometry renamed: each word of `from` to
+    /// the word of `to` in its place. See `core::attribute_edit`.
+    RenameAttribute {
+        #[serde(default)]
+        from: String,
+        #[serde(default)]
+        to: String,
+        #[serde(default)]
+        context: Option<crate::core::geo::Context>,
+    },
     /// Variants of the stages coming in: `choices` chooses them (Select),
     /// composing the stage again. See `core::variant`.
     /// Create: a variant set `set` on the prim at `location`, a variant per
@@ -1135,6 +1171,10 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::SetAttribute { .. } => "🏷",
         NodeType::EditPrimitive { .. } => "✏",
         NodeType::Reparent { .. } => "↳",
+        NodeType::Rename { .. } => "🔤",
+        NodeType::Duplicate { .. } => "⧉",
+        NodeType::DeleteAttribute { .. } => "⌫",
+        NodeType::RenameAttribute { .. } => "✎",
         NodeType::Variant { .. } => "🔀",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
@@ -1231,6 +1271,10 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::SetAttribute { .. } => "Set Attribute",
         NodeType::EditPrimitive { .. } => "Edit Primitive",
         NodeType::Reparent { .. } => "Reparent",
+        NodeType::Rename { .. } => "Rename",
+        NodeType::Duplicate { .. } => "Duplicate",
+        NodeType::DeleteAttribute { .. } => "Delete Attribute",
+        NodeType::RenameAttribute { .. } => "Rename Attribute",
         NodeType::Variant { .. } => "Variant",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",

@@ -286,8 +286,8 @@ All operators in this section take **Primitive Locations**.
 |---|---|---|---|
 | **Merge** | Combine scenes (rule in 1.2) | Mode (Auto, Primitives, Flatten); later input stronger on the same path | **Done** (any number of inputs; the conflict rule not yet a parameter) |
 | **Reparent / Graft** | Move prims under a new parent | Parent Location; Move (Primitives, Whole scene: every root prim); Keep World Position | **Done** (Reparent): a name the Parent has gets a number; what comes after sees the new paths; a file's prim is written as a `def` referencing it at its new path, deactivated at the old one, a binding to a material outside it written again. Not yet: other relationships to prims outside a moved prim (light linking, skeleton bindings), reparenting to the root |
-| **Rename** | Rename prims | find/replace; pattern; prefix/suffix | Not yet |
-| **Duplicate** | Copy prims | count; naming pattern; per-copy transform | Not yet |
+| **Rename** | Rename prims | find/replace; pattern; prefix/suffix | **Done**: the prims the Prims Location tab names; a name a sibling has gets a number; written as Reparent writes a move |
+| **Duplicate** | Copy prims | count; naming pattern; per-copy transform | **Done**: Copies, Name (`{name}_{n}`), Translate, Rotate, Scale per copy in the parent's space; a file's prim copied is a `def` referencing it, the original left active |
 | **Prune / Delete** | Remove prims | Matches: Remove / Keep only (the invert) | **Done** (Prune Primitives; written as `active = false`) |
 | **Isolate** | Keep only the selected subtree | include ancestors on/off | Covered by Prune set to Keep only |
 | **Set Active**, **Set Kind**, **Set Purpose**, **Set Visibility** | Activate prims; assign kind, purpose, visibility | | Not separate operators: each is a **Property** row of Set Attribute (6.1): `active`, `kind`, `purpose`, `visibility`. **Done** through Set Attribute |
@@ -459,8 +459,13 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 
 ### 6.4 Attribute Delete / Rename
 - **Parameters:** attribute name pattern; new name
-- **Status:** **Not yet** (attributes an operator drops are written as blocked,
-  `= None`).
+- **Status:** **Done.** Delete Attribute takes away the attributes a pattern
+  names (words, `*` and `?`, `^` to keep one), in one context or any; Rename
+  Attribute renames each word of From to the word of To in its place, a `*` in
+  both keeping what it matched (`uv*` to `st*`); a new name replaces one there
+  was. Both on the primitives' geometry, the Prims Location tab's or every
+  one; `points` is never touched. Write USD writes what went as blocked
+  (`= None`), a rename as the new name written and the old one blocked.
 
 ### 6.5 ICE (programmable operator)
 - **Purpose:** Programmable operator for deformers and primvar manipulation:

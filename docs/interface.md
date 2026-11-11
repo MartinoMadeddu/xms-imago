@@ -93,8 +93,8 @@ apart; `$$` is a `$`.
 | Go into an ICE or MaterialX graph | Double-click it, or ↓; ↑ goes back |
 
 Wires, ports and selection work the same in the scene, ICE and MaterialX
-graphs (putting a node into a wire, or taking it out: the scene and ICE
-graphs).
+graphs. In a MaterialX graph, a node goes into a wire by the types its
+inputs and outputs take, not only its first.
 
 | Add menu | Nodes |
 |---|---|
@@ -103,7 +103,7 @@ graphs).
 | Organise | Set Variable, Pass Through, Compound Input, Compound Output, and making a [compound](compounds.md) |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Merge, ICE |
-| Primitives | Pick Primitives, Prune Primitives, Set Attribute, Edit Primitive, Reparent, Unpack |
+| Primitives | Pick Primitives, Prune Primitives, Set Attribute, Edit Primitive, Reparent, Rename, Duplicate, Delete Attribute, Rename Attribute, Unpack |
 | Materials | Material, MaterialX, Material Binding |
 | Lights | Dome, Rect, Point, Sphere, Disk, Cylinder and Distant Light |
 | Render | Render Commons, Render Settings, Render Variables |

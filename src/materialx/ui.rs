@@ -10,13 +10,16 @@
 //! if the types join (the nodes become the definitions that take them, see
 //! `xms_matx::Graph::connect`), else the canvas says why. Dropped on a node's
 //! body, it offers the inputs that take it. A wire that a later change made
-//! wrong is drawn red. Nodes with many inputs (the surface shaders) show the
+//! wrong is drawn red. A node dragged with Shift held comes out of its wires,
+//! the chain closing up where the types allow; let go of over a wire with
+//! Shift held, it goes in (`Graph::inserted`, `Graph::pull_out`). Nodes with
+//! many inputs (the surface shaders) show the
 //! connected ones only, until unfolded.
 
 use xms_matx::{Graph, NodeDef, Type};
 
 use super::{lib, View};
-use crate::ice::ui::{draw_fold_box, draw_port, draw_wire_h, is_near_bezier_h};
+use crate::ice::ui::{crosses_rect_h, draw_fold_box, draw_port, draw_wire_h, is_near_bezier_h, PULL_OUT};
 use crate::types::NodeId;
 
 const TITLE_H: f32 = 32.0;
@@ -323,7 +326,18 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
         }
     }
 
-    // Wires
+    // Wires. A node dragged with Shift held over a wire it can go into
+    // lights the wire; let go of, it goes in.
+    let dropping = view
+        .dragging
+        .filter(|_| ui.input(|i| i.modifiers.shift) && view.selected_nodes.len() <= 1)
+        .and_then(|d| graph.node(d))
+        .map(|n| {
+            let size = layout(graph, n.id, &view).size * z;
+            let at = to_screen(egui::pos2(n.pos[0], n.pos[1]));
+            (n.id, egui::Rect::from_min_size(at, size))
+        });
+    let mut drop_on: Option<(u32, String)> = None;
     let mut hovered_wire: Option<(u32, String)> = None;
     for n in &graph.nodes {
         for (input, b) in &n.inputs {
@@ -340,6 +354,11 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
             if response.hover_pos().is_some_and(|p| is_near_bezier_h(p, fp, tp, 10.0)) {
                 hovered_wire = Some((n.id, input.clone()));
             }
+            if let Some((d, r)) = dropping {
+                if drop_on.is_none() && crosses_rect_h(r, fp, tp) && graph.inserted(lib, d, n.id, input).is_some() {
+                    drop_on = Some((n.id, input.clone()));
+                }
+            }
             let ok = graph.wire_ok(lib, n.id, input);
             let colour = if ok {
                 graph
@@ -355,9 +374,11 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
                 // Selected: wide, in the selection colour, under the wire.
                 draw_selected_wire(&painter, fp, tp, z);
             }
-            draw_wire_h(&painter, fp, tp, colour, hovered_wire == this, z);
+            let lit = hovered_wire == this || drop_on == this;
+            draw_wire_h(&painter, fp, tp, colour, lit, z);
         }
     }
+    view.drop_on_wire = drop_on;
     // Click a wire: select it (Delete takes it off). Right-click: take it off.
     if let Some((to, input)) = &hovered_wire {
         if response.clicked() {
@@ -1075,8 +1096,21 @@ fn draw_node(
         }
         view.selected = Some(id);
         view.selected_wire = None;
+        view.pulled_out = false;
     }
     if grab.dragged() && view.dragging == Some(id) {
+        // Shift held and dragged far enough: out of the wires it is in.
+        let far = |i: &egui::InputState| {
+            i.modifiers.shift
+                && i.pointer
+                    .press_origin()
+                    .zip(i.pointer.latest_pos())
+                    .is_some_and(|(a, b)| a.distance(b) > PULL_OUT)
+        };
+        if !view.pulled_out && view.selected_nodes.len() <= 1 && ui.input(far) {
+            view.pulled_out = true;
+            graph.pull_out(lib, id);
+        }
         if let Some(ptr) = grab.interact_pointer_pos() {
             let p = to_canvas(ptr - view.drag_offset);
             let delta = [p.x.round() - node.pos[0], p.y.round() - node.pos[1]];
@@ -1095,5 +1129,12 @@ fn draw_node(
     }
     if grab.drag_stopped() {
         view.dragging = None;
+        if let Some((to, input)) = view.drop_on_wire.take() {
+            if ui.input(|i| i.modifiers.shift) {
+                if let Some(g) = graph.inserted(lib, id, to, &input) {
+                    *graph = g;
+                }
+            }
+        }
     }
 }

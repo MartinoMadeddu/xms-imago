@@ -627,6 +627,8 @@ pub fn draw_properties(
     // What an Edit Primitive's prims are: the form of its type, their values.
     let edit_in = super::edit_primitive::edit_in(graph, sel_id);
     let reparent_in = super::reparent::reparent_in(graph, sel_id);
+    let rename_in = super::rename::rename_in(graph, sel_id);
+    let attrs_in = super::rename::attrs_in(graph, sel_id);
     let variant_in = super::variant::variant_in(graph, sel_id);
 
     let Some(node) = graph.nodes.iter_mut().find(|n| n.id == sel_id) else {
@@ -1198,6 +1200,17 @@ pub fn draw_properties(
         }
         NodeType::Reparent { parent, mode, keep_world } => {
             super::reparent::rows(ui, parent, mode, keep_world, &reparent_in, located)
+        }
+        NodeType::Rename {
+            find,
+            replace,
+            prefix,
+            suffix,
+        } => super::rename::rename_rows(ui, find, replace, prefix, suffix, &rename_in, located),
+        NodeType::Duplicate { copies } => super::rename::duplicate_rows(ui, copies, &rename_in, located),
+        NodeType::DeleteAttribute { names, context } => super::rename::delete_attribute_rows(ui, names, context, &attrs_in),
+        NodeType::RenameAttribute { from, to, context } => {
+            super::rename::rename_attribute_rows(ui, from, to, context, &attrs_in)
         }
         NodeType::Variant {
             mode,

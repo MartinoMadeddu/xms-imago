@@ -654,7 +654,11 @@ impl NodeGraphState {
             | NodeType::WriteUsd { .. }
             | NodeType::SetAttribute { .. }
             | NodeType::EditPrimitive { .. }
-            | NodeType::Reparent { .. } => (vec![i("Scene")], vec![o("Scene")]),
+            | NodeType::Reparent { .. }
+            | NodeType::Rename { .. }
+            | NodeType::Duplicate { .. }
+            | NodeType::DeleteAttribute { .. }
+            | NodeType::RenameAttribute { .. } => (vec![i("Scene")], vec![o("Scene")]),
             // Create: the scene, then a variant per input, one kept free.
             NodeType::Variant { mode, names, .. } => (
                 std::iter::once(i("Scene"))
@@ -1739,6 +1743,20 @@ impl NodeGraphState {
             inputs
                 .first()
                 .map(|r| crate::core::reparent::reparent(r, &node.locations, parent, *mode, *keep_world))
+        } else if let NodeType::Rename {
+            find,
+            replace,
+            prefix,
+            suffix,
+        } = node_type
+        {
+            inputs
+                .first()
+                .map(|r| crate::core::rename::rename(r, &node.locations, find, replace, prefix, suffix))
+        } else if let NodeType::Duplicate { copies } = node_type {
+            inputs
+                .first()
+                .map(|r| crate::core::rename::duplicate(r, &node.locations, copies))
         } else if let NodeType::Variant {
             mode: crate::core::variant::VariantMode::Create,
             location,

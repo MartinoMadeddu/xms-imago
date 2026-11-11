@@ -171,7 +171,14 @@ pub fn evaluate_node_type(
         // Without Primitive Locations it names nothing: what comes in goes on.
         NodeType::EditPrimitive { .. } => inputs.first().cloned(),
         // Cooked by the graph, with its locations (`core::reparent`).
-        NodeType::Reparent { .. } => inputs.first().cloned(),
+        NodeType::Reparent { .. } | NodeType::Rename { .. } | NodeType::Duplicate { .. } => inputs.first().cloned(),
+        // On the picked primitives, or every one (`core::attribute_edit`).
+        NodeType::DeleteAttribute { names, context } => inputs
+            .first()
+            .map(|r| crate::core::attribute_edit::delete(r, names, *context)),
+        NodeType::RenameAttribute { from, to, context } => inputs
+            .first()
+            .map(|r| crate::core::attribute_edit::rename(r, from, to, *context)),
         // Cooked by `NodeGraphState::cook` (`core::variant`).
         NodeType::Variant { .. } => inputs.first().cloned(),
         // Without Primitive Locations: on the picked primitives, or every one.

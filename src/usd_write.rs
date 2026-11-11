@@ -299,9 +299,9 @@ fn specs_in(
             arc_prim(&mut root, tree, arc, dir, &in_a_sublayer);
             report.referenced += 1;
         }
-        // Reparent: each prim of the file moved is a reference to it at its
-        // new path, deactivated at the old one; the prims made above are
-        // Xforms.
+        // Reparent, Rename: each prim of the file moved is a reference to it
+        // at its new path, deactivated at the old one (Duplicate's copies
+        // leave it); the prims made above are Xforms.
         for path in &tree.made {
             let spec = root.at(path);
             if spec.def.is_none() && !in_a_sublayer(path) {
@@ -309,7 +309,9 @@ fn specs_in(
             }
         }
         for m in tree.moves.iter().filter(|m| m.from != m.to) {
-            root.at(&m.from).meta.push("active = false".into());
+            if !m.copy {
+                root.at(&m.from).meta.push("active = false".into());
+            }
             let spec = root.at(&m.to);
             spec.def = Some("");
             spec.meta.push(format!(

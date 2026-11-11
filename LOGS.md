@@ -869,3 +869,6 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 11/11/2026: MaterialX: Load MaterialX taken out again (a .mtlx is loaded into the MaterialX operator's graph, Load .mtlx...); import::def_of takes a nodedef the library does not have by its node and types (1.38's ND_normalmap). (Martino)
 - 11/11/2026: USD numbers: properties::usda_number / usda_float write an exponent past 1e15 and under 1e-6 (usd_write's num, num64 and Value::usda use them). (Martino)
 - 11/11/2026: Imago 0.3.2: version, changelog. (Martino)
+- 11/11/2026: Rename and Duplicate operators (core::rename): reparent::moved and copied make any moves or copies; Moved::copy leaves a copied file prim active in Write USD. (Martino)
+- 11/11/2026: Delete Attribute and Rename Attribute operators (core::attribute_edit): name words with * ? and ^; renames pair From and To, * kept; points never touched. (Martino)
+- 11/11/2026: MaterialX graphs: Shift+drag into a wire (Graph::inserted: first free input that takes it, first output that fits) and out (Graph::pull_out, closed up by type). (Martino)

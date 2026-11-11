@@ -258,6 +258,11 @@ pub struct View {
     /// shows them all unless toggled, one with many shows the connected ones
     /// only unless toggled.
     pub toggled: Vec<u32>,
+    /// The wire a node dragged with Shift is over (the node and input it goes
+    /// into): let go of, the node goes into it (`Graph::inserted`).
+    pub drop_on_wire: Option<(u32, String)>,
+    /// The node being dragged was taken out of its wires (Shift held).
+    pub pulled_out: bool,
 }
 
 /// A wire dropped on a node's body.
@@ -286,6 +291,8 @@ impl Default for View {
             message: String::new(),
             framed: false,
             toggled: vec![],
+            drop_on_wire: None,
+            pulled_out: false,
         }
     }
 }

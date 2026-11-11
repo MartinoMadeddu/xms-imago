@@ -13,7 +13,7 @@ use std::collections::HashSet;
 
 /// How far a node is dragged with Shift held before it comes out of its
 /// wires, in pixels.
-const PULL_OUT: f32 = 24.0;
+pub(crate) const PULL_OUT: f32 = 24.0;
 const TITLE_H: f32 = 32.0; // two lines: the node's name, then its type
 const FOLDED_H: f32 = 20.0; // a collapsed node: its name only
 const ROW_H: f32 = 15.0; // one port per row
@@ -2542,7 +2542,7 @@ pub fn draw_wire_h(
 
 /// Whether the wire from `from` to `to` (as `draw_wire_h` draws it, at view
 /// scale 1) passes through `r`.
-fn crosses_rect_h(r: egui::Rect, from: egui::Pos2, to: egui::Pos2) -> bool {
+pub(crate) fn crosses_rect_h(r: egui::Rect, from: egui::Pos2, to: egui::Pos2) -> bool {
     let off = (to.x - from.x).abs().max(60.0) * 0.5;
     let c1 = egui::pos2(from.x + off, from.y);
     let c2 = egui::pos2(to.x - off, to.y);

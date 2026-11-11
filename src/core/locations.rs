@@ -25,6 +25,10 @@ pub fn takes_locations(t: &NodeType) -> bool {
             | NodeType::SetAttribute { .. }
             | NodeType::EditPrimitive { .. }
             | NodeType::Reparent { .. }
+            | NodeType::Rename { .. }
+            | NodeType::Duplicate { .. }
+            | NodeType::DeleteAttribute { .. }
+            | NodeType::RenameAttribute { .. }
             | NodeType::MaterialBinding { .. }
             | NodeType::Ice { .. }
     )
@@ -35,7 +39,11 @@ pub fn takes_locations(t: &NodeType) -> bool {
 pub fn names_prims(t: &NodeType) -> bool {
     matches!(
         t,
-        NodeType::SetAttribute { .. } | NodeType::EditPrimitive { .. } | NodeType::Reparent { .. }
+        NodeType::SetAttribute { .. }
+            | NodeType::EditPrimitive { .. }
+            | NodeType::Reparent { .. }
+            | NodeType::Rename { .. }
+            | NodeType::Duplicate { .. }
     )
 }
 

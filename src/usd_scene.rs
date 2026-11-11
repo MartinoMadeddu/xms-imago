@@ -265,13 +265,15 @@ fn session_layer(variants: &Variants) -> Result<Option<std::path::PathBuf>, Stri
     Ok(Some(file))
 }
 
-/// A prim of the file Reparent moved: `file` is its path in the file, `from`
-/// the path deactivated, `to` where the reference to it is.
-#[derive(Clone, Debug, PartialEq)]
+/// A prim of the file Reparent or Rename moved: `file` is its path in the
+/// file, `from` the path deactivated, `to` where the reference to it is. A
+/// copy (Duplicate) leaves `from` as it is.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Moved {
     pub file: String,
     pub from: String,
     pub to: String,
+    pub copy: bool,
 }
 
 /// How Load USD brings its file in.

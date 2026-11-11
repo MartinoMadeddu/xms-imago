@@ -437,6 +437,91 @@ impl Graph {
         want.is_some() && self.output_type(lib, from, output) == want
     }
 
+    /// The graph with `node` put into the wire into `to`'s `input` (a node
+    /// dragged onto a wire with Shift): what fed the wire into the node's first
+    /// free input that takes it, the node's first output that `input` takes on
+    /// into it, each as `connect` makes it. None when it cannot go in: one of
+    /// the wire's ends, no free input that takes what the wire carries, or no
+    /// output `input` takes.
+    pub fn inserted(&self, lib: &Library, node: u32, to: u32, input: &str) -> Option<Graph> {
+        let (from, output) = self.source(to, input)?;
+        if node == from || node == to {
+            return None;
+        }
+        for i in self.inputs_taking(lib, from, output, node) {
+            if self.source(node, &i).is_some() {
+                continue;
+            }
+            let mut g = self.clone();
+            if g.connect(lib, from, output, node, &i).is_err() {
+                continue;
+            }
+            let outs: Vec<String> = g.def(lib, node)?.outputs.iter().map(|o| o.name.clone()).collect();
+            for o in outs {
+                let mut h = g.clone();
+                if h.connect(lib, node, &o, to, input).is_ok() {
+                    return Some(h);
+                }
+            }
+        }
+        None
+    }
+
+    /// `node` taken out of the wires it is in (a node dragged with Shift): every
+    /// wire into or out of it goes, and an input it fed is fed instead by what
+    /// fed the node's first input of that type, so the chain closes up where
+    /// the types allow. Whether any wire went.
+    pub fn pull_out(&mut self, lib: &Library, node: u32) -> bool {
+        let feeds: Vec<(u32, String, Option<Type>)> = self
+            .nodes
+            .iter()
+            .flat_map(|n| {
+                n.inputs.iter().filter_map(move |(input, b)| match b {
+                    Binding::Connect { node: src, output } if *src == node => {
+                        Some((n.id, input.clone(), output.clone()))
+                    }
+                    _ => None,
+                })
+            })
+            .map(|(to, input, output)| (to, input, self.output_type(lib, node, &output)))
+            .collect();
+        // What fed it, in its definition's order.
+        let mut fed: Vec<(String, u32, String, Option<Type>)> = self
+            .node(node)
+            .map(|n| {
+                n.inputs
+                    .iter()
+                    .filter_map(|(input, b)| match b {
+                        Binding::Connect { node: src, output } => Some((input.clone(), *src, output.clone())),
+                        Binding::Value(_) => None,
+                    })
+                    .map(|(input, src, output)| {
+                        let ty = self.output_type(lib, src, &output);
+                        (input, src, output, ty)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(d) = self.def(lib, node) {
+            fed.sort_by_key(|(input, ..)| d.inputs.iter().position(|i| &i.name == input).unwrap_or(usize::MAX));
+        }
+        if feeds.is_empty() && fed.is_empty() {
+            return false;
+        }
+        for (to, input, _) in &feeds {
+            self.disconnect(*to, input);
+        }
+        for (input, ..) in &fed {
+            self.disconnect(node, input);
+        }
+        for (to, input, ty) in feeds {
+            if let Some((_, src, output, _)) = fed.iter().find(|f| f.3.is_some() && f.3 == ty) {
+                let _ = self.connect(lib, *src, output, to, &input);
+            }
+        }
+        true
+    }
+
     /// The inputs of `to` that the output `output` of `from` can go into, as
     /// they are or with `to` or `from` made another definition: what a wire
     /// dropped on the node offers.
@@ -607,6 +692,28 @@ mod tests {
         assert_eq!(g.rename(a, "my_node"), "my_node1");
         assert_eq!(g.rename(a, "2x"), "_2x");
         assert!(g.add(lib(), "no_such_node", [0.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn a_node_goes_into_a_wire_and_comes_out_of_it() {
+        let lib = lib();
+        let mut g = Graph::standard_surface(lib);
+        let s = g.surface_shader().unwrap();
+        let img = g.add(lib, "image", [0.0, 0.0]).unwrap();
+        g.connect(lib, img, "out", s, "base_color").unwrap();
+        let cc = g.add(lib, "multiply", [0.0, 0.0]).unwrap();
+        // Into the wire: the image into its first input, its output on.
+        let h = g.inserted(lib, cc, s, "base_color").unwrap();
+        assert_eq!(h.source(s, "base_color"), Some((cc, "out")));
+        assert_eq!(h.source(cc, "in1"), Some((img, "out")));
+        assert!(h.wire_ok(lib, s, "base_color") && h.wire_ok(lib, cc, "in1"));
+        assert!(g.inserted(lib, img, s, "base_color").is_none(), "one of its ends");
+        // Out again: the image feeds the shader as before.
+        let mut h = h;
+        assert!(h.pull_out(lib, cc));
+        assert_eq!(h.source(s, "base_color"), Some((img, "out")));
+        assert_eq!(h.source(cc, "in1"), None);
+        assert!(!h.pull_out(lib, cc), "no wire left");
     }
 
     #[test]

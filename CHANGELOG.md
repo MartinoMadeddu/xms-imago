@@ -8,6 +8,19 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### USD
+
+- **Rename** renames prims: part of the name replaced, a prefix or suffix
+  added.
+- **Duplicate** copies prims beside themselves, with what is below them, each
+  copy a step further moved, turned and scaled.
+- **Delete Attribute** and **Rename Attribute** take primvars away or rename
+  them, by name pattern; Write USD blocks what went.
+
+### Graphs
+
+- Shift+drag a node into or out of a wire in MaterialX graphs too, by type.
+
 ## [0.3.2] - 2026-11-11
 
 USD work in the scene graph: Transform, Material Binding, Set Attribute, Load

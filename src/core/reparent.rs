@@ -144,6 +144,10 @@ struct Move {
     to: String,
     dest: [DMat4; 2],
     was: [DMat4; 2],
+    /// A copy (Duplicate): what is at `from` stays; the copy is moved by
+    /// `extra` in the world besides.
+    copy: bool,
+    extra: DMat4,
     /// It ignores its parents' transforms: nothing moves in the world.
     reset: bool,
     /// A file's prim, written as a reference to it: not a prim Imago made, an
@@ -155,10 +159,15 @@ impl Move {
     /// What moving it does to where things are in the world.
     fn delta(&self, edited: bool) -> DMat4 {
         let k = if edited { 0 } else { 1 };
-        if self.reset {
+        let moved = if self.reset {
             DMat4::IDENTITY
         } else {
             self.dest[k] * self.was[k].inverse()
+        };
+        if edited {
+            self.extra * moved
+        } else {
+            moved
         }
     }
 }
@@ -172,12 +181,28 @@ pub fn reparent(input: &EvalResult, list: &[String], parent: &str, mode: Reparen
     if plan.moves.is_empty() {
         return input.clone();
     }
-    EvalResult::Named(apply(prims, &plan, keep_world))
+    EvalResult::Named(apply(prims, &plan.moves, keep_world, &[]))
 }
 
-fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
+/// The scene with `moves` made (each prim with what is below it, at its new
+/// path; its parent the new path's), keeping places in the world: Rename's.
+pub fn moved(prims: &[Prim], moves: &[(String, String)]) -> Vec<Prim> {
+    apply(prims, moves, true, &[])
+}
+
+/// The scene with a copy of each `copies` prim (with what is below it) at
+/// its new path, moved by its matrix in the world besides: Duplicate's.
+pub fn copied(prims: &[Prim], copies: &[(String, String, DMat4)]) -> Vec<Prim> {
+    let moves: Vec<(String, String)> = copies.iter().map(|(o, n, _)| (o.clone(), n.clone())).collect();
+    let extra: Vec<DMat4> = copies.iter().map(|c| c.2).collect();
+    apply(prims, &moves, true, &extra)
+}
+
+/// `moves` made; with `copies` (one matrix a move), copies made instead,
+/// each moved by its matrix besides, what they copy left as it is.
+fn apply(prims: &[Prim], moves: &[(String, String)], keep_world: bool, copies: &[DMat4]) -> Vec<Prim> {
     let trees = trees_of(prims);
-    let dest = plan.parent.as_str();
+    let copying = !copies.is_empty();
     // Where a path is in the world: in the stage that has it, else in `home`.
     let world = |path: &str, edited: bool, home: Option<&StageTree>| -> DMat4 {
         trees
@@ -187,17 +212,20 @@ fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
             .or(home)
             .map_or(DMat4::IDENTITY, |t| t.world(path, edited))
     };
-    let moves: Vec<Move> = plan
-        .moves
+    let pairs = moves;
+    let moves: Vec<Move> = moves
         .iter()
-        .map(|(o, n)| {
+        .enumerate()
+        .map(|(k, (o, n))| {
             let home = trees.iter().map(|t| &**t).find(|t| t.node(o).is_some());
             let at = |path: &str| [world(path, true, home), world(path, false, home)];
             Move {
                 from: o.clone(),
                 to: n.clone(),
-                dest: at(dest),
+                dest: at(parent_of(n)),
                 was: at(parent_of(o)),
+                copy: copying,
+                extra: copies.get(k).copied().unwrap_or(DMat4::IDENTITY),
                 reset: home.and_then(|t| t.node(o)).is_some_and(|n| n.reset_xform),
                 by_reference: home.is_some_and(|t| {
                     !t.made.contains(o)
@@ -208,7 +236,6 @@ fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
             }
         })
         .collect();
-    let pairs = &plan.moves;
 
     // Each stage with something moved, its paths changed.
     let new_trees: Vec<Option<Arc<StageTree>>> = trees
@@ -223,16 +250,53 @@ fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
                     .iter()
                     .any(|p| p.path == path && p.stage.as_ref().is_some_and(|s| Arc::ptr_eq(s, t)))
             };
-            Some(Arc::new(moved_tree(
-                t, &here, pairs, dest, keep_world, &trees, &is_prim,
-            )))
+            Some(Arc::new(moved_tree(t, &here, pairs, keep_world, &trees, &is_prim)))
         })
         .collect();
 
-    prims
+    // Copying: what is copied stays as it is, beside its copies (in a stage
+    // that has them too).
+    let stays: Vec<Prim> = if copying {
+        prims
+            .iter()
+            .map(|p| {
+                let mut p = p.clone();
+                let i = p
+                    .stage
+                    .as_ref()
+                    .and_then(|s| trees.iter().position(|t| Arc::ptr_eq(t, s)));
+                if let Some(Some(t)) = i.map(|i| &new_trees[i]) {
+                    p.stage = Some(t.clone());
+                }
+                p
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    let copied = prims
         .iter()
-        .map(|p| {
+        .filter(|p| !copying || moves.iter().any(|m| within(&p.path, &m.from)))
+        .flat_map(|p| {
+            // Each move holding it (a copy each, when copying), else as it is.
+            let holding: Vec<Option<&Move>> = if copying {
+                moves.iter().filter(|m| within(&p.path, &m.from)).map(Some).collect()
+            } else {
+                vec![moves.iter().find(|m| within(&p.path, &m.from))]
+            };
+            holding.into_iter().map(move |m| (p, m))
+        })
+        .map(|(p, holding)| {
             let mut p = p.clone();
+            // One copy's moves: its own alone.
+            let one;
+            let pairs: &[(String, String)] = match holding {
+                Some(m) if copying => {
+                    one = [(m.from.clone(), m.to.clone())];
+                    &one
+                }
+                _ => pairs,
+            };
             let i = p
                 .stage
                 .as_ref()
@@ -241,11 +305,12 @@ fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
                 p.stage = Some(t.clone());
             }
             let mut src = p.source.as_deref().cloned();
-            if let Some(m) = moves.iter().find(|m| within(&p.path, &m.from)) {
+            if let Some(m) = holding {
                 p.path = renamed(pairs, &p.path);
                 if let Some(s) = src.as_mut() {
                     if keep_world {
                         s.place = shift(&s.place, m.delta(false));
+                        p.place = shift(&p.place, m.extra);
                     } else {
                         let same = p.place.same(&s.place);
                         p.place = shift(&p.place, m.delta(true));
@@ -264,6 +329,8 @@ fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
                     };
                 } else if !keep_world {
                     p.place = shift(&p.place, m.delta(true));
+                } else {
+                    p.place = shift(&p.place, m.extra);
                 }
                 if let Some(by) = p.instanced_by.as_deref() {
                     let mut by = by.clone();
@@ -313,7 +380,14 @@ fn apply(prims: &[Prim], plan: &Plan, keep_world: bool) -> Vec<Prim> {
             }
             p
         })
-        .collect()
+        .collect::<Vec<Prim>>();
+    if copying {
+        let mut out = stays;
+        out.extend(copied);
+        out
+    } else {
+        copied
+    }
 }
 
 /// A placement moved by `d` in the world.
@@ -331,24 +405,28 @@ fn shift(place: &Placement, d: DMat4) -> Placement {
 
 /// A stage with the moves of its prims made: its prims' paths, its opinions
 /// and earlier moves follow them; each file's prim moved is a new entry of
-/// `moves`; the Parent and what is above it are added where it has none.
+/// `moves`; each new parent and what is above it are added where it has
+/// none. Copies (Duplicate) add the copied prims at their new paths, what
+/// they copy staying.
 fn moved_tree(
     t: &StageTree,
     here: &[&Move],
     pairs: &[(String, String)],
-    dest: &str,
     keep_world: bool,
     trees: &[Arc<StageTree>],
     is_prim: &dyn Fn(&str) -> bool,
 ) -> StageTree {
     let mut out = t.clone();
-    for m in here {
-        // A group keeping its place: L' = W(parent)⁻¹ · W(old parent) · L. A
-        // primitive's own transform is its placement's, written from it.
-        if keep_world && !m.reset && !is_prim(&m.from) {
-            if let Some(l) = t.local(&m.from, true) {
-                let l = m.dest[0].inverse() * m.was[0] * l;
-                out.opinions.entry(m.from.clone()).or_default().transform = Some(l.to_cols_array());
+    let copying = here.iter().any(|m| m.copy);
+    if !copying {
+        for m in here {
+            // A group keeping its place: L' = W(parent)⁻¹ · W(old parent) · L.
+            // A primitive's own transform is its placement's, written from it.
+            if keep_world && !m.reset && !is_prim(&m.from) {
+                if let Some(l) = t.local(&m.from, true) {
+                    let l = m.dest[0].inverse() * m.was[0] * l;
+                    out.opinions.entry(m.from.clone()).or_default().transform = Some(l.to_cols_array());
+                }
             }
         }
     }
@@ -360,62 +438,110 @@ fn moved_tree(
                 file: t.file_path(&m.from)?,
                 from: m.from.clone(),
                 to: m.to.clone(),
+                copy: m.copy,
             })
         })
         .collect();
 
-    // Every path the stage keeps, where the moves put it.
-    let moving = |path: &str| here.iter().any(|m| within(path, &m.from));
-    let (mut gone, mut nodes): (Vec<StageNode>, Vec<StageNode>) = std::mem::take(&mut out.nodes)
-        .into_iter()
-        .partition(|n| moving(&n.path));
-    for n in gone.iter_mut() {
-        n.path = renamed(pairs, &n.path);
-        n.name = name(&n.path).to_string();
-        n.depth = n.path.split('/').filter(|s| !s.is_empty()).count();
-    }
-    out.opinions = std::mem::take(&mut out.opinions)
-        .into_iter()
-        .map(|(k, o)| (renamed(pairs, &k), o))
-        .collect();
-    out.made = std::mem::take(&mut out.made)
-        .into_iter()
-        .map(|k| renamed(pairs, &k))
-        .collect();
-    for m in out.moves.iter_mut() {
-        m.from = renamed(pairs, &m.from);
-        m.to = renamed(pairs, &m.to);
-    }
-    out.moves.extend(new);
-    if let Some(a) = out.arc.as_mut() {
-        a.at = renamed(pairs, &a.at);
-    }
-    out.render_settings = out.render_settings.map(|r| renamed(pairs, &r));
-
-    // The Parent and the prims above it, where the stage has none: as another
-    // stage has them, else Xforms.
-    let names: Vec<&str> = dest.split('/').filter(|s| !s.is_empty()).collect();
-    for k in 1..=names.len() {
-        let path = format!("/{}", names[..k].join("/"));
-        if nodes.iter().any(|n| n.path == path) {
-            continue;
+    let mut nodes = if copying {
+        // Every path below what is copied, again at the copy's.
+        let mut nodes = std::mem::take(&mut out.nodes);
+        for m in here {
+            let one = [(m.from.clone(), m.to.clone())];
+            for n in t.nodes.iter().filter(|n| within(&n.path, &m.from)) {
+                let path = renamed(&one, &n.path);
+                nodes.push(StageNode {
+                    name: name(&path).to_string(),
+                    depth: path.split('/').filter(|s| !s.is_empty()).count(),
+                    path,
+                    ..n.clone()
+                });
+            }
+            let opinions: Vec<_> = t
+                .opinions
+                .iter()
+                .filter(|(k, _)| within(k, &m.from))
+                .map(|(k, o)| (renamed(&one, k), o.clone()))
+                .collect();
+            out.opinions.extend(opinions);
+            let made: Vec<String> = t
+                .made
+                .iter()
+                .filter(|k| within(k, &m.from))
+                .map(|k| renamed(&one, k))
+                .collect();
+            out.made.extend(made);
+            // A group copied moved by its matrix: L' = W(parent)⁻¹ · M · W(parent) · L
+            // (a primitive's transform is its placement's, moved already).
+            if !is_prim(&m.from) && !m.extra.abs_diff_eq(DMat4::IDENTITY, 1e-12) {
+                if let Some(l) = t.local(&m.from, true) {
+                    let l = m.dest[0].inverse() * m.extra * m.dest[0] * l;
+                    out.opinions.entry(m.to.clone()).or_default().transform = Some(l.to_cols_array());
+                }
+            }
         }
-        let like = trees
-            .iter()
-            .find_map(|x| x.node(&path).filter(|_| !x.made.contains(&path)));
-        nodes.push(StageNode {
-            path: path.clone(),
-            name: names[k - 1].to_string(),
-            type_name: like.map_or("Xform".into(), |n| n.type_name.clone()),
-            depth: k,
-            local: like.map_or(DMat4::IDENTITY, |n| n.local),
-            reset_xform: like.is_some_and(|n| n.reset_xform),
-            ..Default::default()
-        });
-        out.made.insert(path);
+        out.moves.extend(new);
+        nodes
+    } else {
+        // Every path the stage keeps, where the moves put it.
+        let moving = |path: &str| here.iter().any(|m| within(path, &m.from));
+        let (mut gone, kept): (Vec<StageNode>, Vec<StageNode>) = std::mem::take(&mut out.nodes)
+            .into_iter()
+            .partition(|n| moving(&n.path));
+        for n in gone.iter_mut() {
+            n.path = renamed(pairs, &n.path);
+            n.name = name(&n.path).to_string();
+            n.depth = n.path.split('/').filter(|s| !s.is_empty()).count();
+        }
+        out.opinions = std::mem::take(&mut out.opinions)
+            .into_iter()
+            .map(|(k, o)| (renamed(pairs, &k), o))
+            .collect();
+        out.made = std::mem::take(&mut out.made)
+            .into_iter()
+            .map(|k| renamed(pairs, &k))
+            .collect();
+        for m in out.moves.iter_mut() {
+            m.from = renamed(pairs, &m.from);
+            m.to = renamed(pairs, &m.to);
+        }
+        out.moves.extend(new);
+        if let Some(a) = out.arc.as_mut() {
+            a.at = renamed(pairs, &a.at);
+        }
+        out.render_settings = out.render_settings.map(|r| renamed(pairs, &r));
+        let mut nodes = kept;
+        nodes.extend(gone);
+        nodes
+    };
+
+    // Each new parent and the prims above it, where the stage has none: as
+    // another stage has them, else Xforms.
+    let mut dests: Vec<&str> = here.iter().map(|m| parent_of(&m.to)).collect();
+    dests.dedup();
+    for dest in dests {
+        let names: Vec<&str> = dest.split('/').filter(|s| !s.is_empty()).collect();
+        for k in 1..=names.len() {
+            let path = format!("/{}", names[..k].join("/"));
+            if nodes.iter().any(|n| n.path == path) {
+                continue;
+            }
+            let like = trees
+                .iter()
+                .find_map(|x| x.node(&path).filter(|_| !x.made.contains(&path)));
+            nodes.push(StageNode {
+                path: path.clone(),
+                name: names[k - 1].to_string(),
+                type_name: like.map_or("Xform".into(), |n| n.type_name.clone()),
+                depth: k,
+                local: like.map_or(DMat4::IDENTITY, |n| n.local),
+                reset_xform: like.is_some_and(|n| n.reset_xform),
+                ..Default::default()
+            });
+            out.made.insert(path);
+        }
     }
-    // Parents before their children; what moved after the Parent's own.
-    nodes.extend(gone);
+    // Parents before their children.
     out.nodes = depth_first(nodes);
     out.index = out.nodes.iter().enumerate().map(|(i, n)| (n.path.clone(), i)).collect();
     out
@@ -519,7 +645,8 @@ mod tests {
             [Moved {
                 file: "/set".into(),
                 from: "/set".into(),
-                to: "/world/set".into()
+                to: "/world/set".into(),
+                copy: false,
             }]
         );
         // The group's own transform makes up for its new parent's.
@@ -573,5 +700,36 @@ mod tests {
         let plan = plan(&prims, &["/set".into()], "/world", ReparentMode::Primitives);
         assert_eq!(plan.moves, [("/set".to_string(), "/world/set1".to_string())]);
         assert_eq!(plan.renamed().count(), 1);
+    }
+
+    #[test]
+    fn a_rename_is_a_move_beside_itself() {
+        let out = moved(&scene(), &[("/set".into(), "/props".into())]);
+        assert_eq!(out[0].path, "/props/table");
+        assert_eq!(x_y(&out[0]), (3.0, 0.0));
+        let tree = out[0].stage.as_deref().unwrap();
+        assert_eq!(tree.moves[0].to, "/props");
+        assert!(tree.node("/set").is_none());
+    }
+
+    #[test]
+    fn a_copy_leaves_what_it_copies_and_moves_by_its_matrix() {
+        let by = DMat4::from_translation(glam::DVec3::new(0.0, 0.0, 4.0));
+        let out = copied(&scene(), &[("/set".into(), "/set_1".into(), by)]);
+        let paths: Vec<&str> = out.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(paths, ["/set/table", "/set_1/table"]);
+        assert_eq!(x_y(&out[0]), (3.0, 0.0));
+        assert_eq!(out[1].place.matrices()[0].w_axis.z, 4.0);
+        let tree = out[1].stage.as_deref().unwrap();
+        assert!(Arc::ptr_eq(
+            out[0].stage.as_ref().unwrap(),
+            out[1].stage.as_ref().unwrap()
+        ));
+        assert!(tree.node("/set").is_some() && tree.node("/set_1/table").is_some());
+        assert!(tree.moves[0].copy);
+        // The group's copy carries the move; its child's place in the tree
+        // follows.
+        let w = tree.world("/set_1/table", true);
+        assert!((w.w_axis.truncate() - glam::DVec3::new(3.0, 0.0, 4.0)).length() < 1e-9);
     }
 }

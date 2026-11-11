@@ -5,6 +5,8 @@
 
 pub mod anim;
 pub mod anim_tools;
+/// Delete Attribute and Rename Attribute: primvars taken away or renamed.
+pub mod attribute_edit;
 /// Cameras: a UsdGeomCamera's values, looked through by the Viewer.
 pub mod camera;
 /// Command lines run on the system (Render Command): tokens, running in the
@@ -32,6 +34,7 @@ pub mod poly_ops;
 pub mod properties;
 /// Hands and feet sent where another clip has them; the human pass on its own.
 pub mod reach;
+pub mod rename;
 /// Rendering: the UsdRender prims (RenderSettings, RenderProduct, RenderVar)
 /// the render operators make, and renderer definitions.
 pub mod render;

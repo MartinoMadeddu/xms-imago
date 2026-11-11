@@ -77,6 +77,12 @@ pane (see [Interface](interface.md#materialx-graphs)). Inside:
   and press Delete or Backspace; or right-click it; or ✕ beside the input in the
   Parameters pane. With no wire selected, Delete or Backspace deletes the
   selected node.
+- **Into and out of wires:** drag a node over a wire with Shift held (the wire
+  lights) and let go: what fed the wire goes into its first free input that
+  takes it, its first output that fits goes where the wire went, each node
+  made the definition the types need. Drag a node with Shift held and past a
+  few pixels it comes out of its wires: an input it fed is fed by what fed its
+  first input of the same type, so the chain closes up.
 - **Colours:** a node is coloured by its kind, the same whatever types it takes:
   shaders purple, textures blue, procedurals orange, geometry teal, maths,
   channels and the rest a neutral grey, the `surfacematerial` dark grey. Its
