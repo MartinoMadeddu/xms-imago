@@ -423,7 +423,7 @@ pub fn selection() -> Color32 {
 }
 
 /// What is selected in the graphs (scene graph, ICE, MaterialX): the ring
-/// around a node, a wire's band, a port's ring. A quarter of the way from
+/// around a node, a wire's band, a port's ring; and in the Viewer. A quarter of the way from
 /// `selection` to the view flag's saturated blue: brighter than the rows' blue
 /// on a canvas, not glaring.
 pub fn graph_selection() -> Color32 {
