@@ -68,3 +68,29 @@ fn every_example_imports() {
     eprintln!("{} files, {materials} materials", all.len());
     assert!(failed.is_empty(), "{}", failed.join("\n"));
 }
+
+/// A document of an older MaterialX naming a definition the library has under
+/// another name (1.38's `ND_normalmap`, 1.39's `ND_normalmap_float`): read by
+/// its node and types.
+#[test]
+fn a_renamed_definition_is_found_by_its_types() {
+    let text = r#"<?xml version="1.0"?>
+<materialx version="1.38">
+  <normalmap name="normalmap_base" type="vector3" nodedef="ND_normalmap">
+    <input name="in" type="vector3" value="0.5, 0.5, 1" />
+    <input name="scale" type="float" value="0.8" />
+  </normalmap>
+  <standard_surface name="lion" type="surfaceshader">
+    <input name="normal" type="vector3" nodename="normalmap_base" />
+  </standard_surface>
+  <surfacematerial name="surfacematerial_lion" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="lion" />
+  </surfacematerial>
+</materialx>"#;
+    let lib = Library::standard();
+    let got = import(text, lib, None).unwrap();
+    assert!(got.notes.iter().all(|n| !n.contains("not read")), "{:?}", got.notes);
+    let (_, g) = &got.materials[0];
+    let n = g.nodes.iter().find(|n| n.name == "normalmap_base").expect("read");
+    assert_eq!(n.def, "ND_normalmap_float");
+}

@@ -302,7 +302,8 @@ the tree's parameters).
 - **Instancer** (an Execute, in an Object graph) makes a point instancer, as
   USD's `PointInstancer`, from inputs named after its attributes: **Positions**
   (an array of 3D vectors: Scatter's), **Prototypes** (paths, from Get
-  Reference), **Proto Indices** (an int for all, or an array; -1 picks one at
+  Reference: the prims of that reference input, not those at the same paths
+  on another), **Proto Indices** (an int for all, or an array; -1 picks one at
   random for each, the same for the same Seed), **Orientations** (a rotation for
   all, or an array: Random Orientation's) and **Scales** (a number or a 3D
   vector, for all or an array: Random Value with a Count gives one). Its

@@ -218,6 +218,10 @@ pub enum NodeType {
         /// read it.
         #[serde(default)]
         convert: bool,
+        /// The population mask: only the prims at these paths, what is below
+        /// them and the prims above them are read. Empty: the whole stage.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mask: Vec<String>,
     },
     /// Write what the network changed in its stages as a USD override layer,
     /// over `frames`: what changes from frame to frame as time samples.
@@ -232,6 +236,10 @@ pub enum NodeType {
         end: i64,
         #[serde(default = "one_f32")]
         step: f32,
+        /// One file of the whole scene, the stages and Imago's changes
+        /// composed (USD's flatten), not an override layer over the files.
+        #[serde(default)]
+        flatten: bool,
     },
     /// Mark packed primitives whose path matches a pattern as picked.
     PickPrims {
@@ -315,6 +323,9 @@ pub enum NodeType {
         inputs: u32,
         #[serde(default)]
         bindings: Vec<crate::core::material::BindTo>,
+        /// Each row's purpose and strength, by row.
+        #[serde(default)]
+        options: Vec<crate::core::material::BindOptions>,
     },
     // Render
     /// The RenderSettings prim (what is rendered: camera, resolution, overscan,
@@ -357,7 +368,8 @@ pub enum NodeType {
     /// Moves whatever comes in: a mesh, packed primitives (the picked ones, or
     /// every one), or a clip. A clip moves by its top joints, so a skinned mesh
     /// follows its skeleton once and is not moved a second time. `rotation` in
-    /// radians, applied X then Y then Z.
+    /// radians, turned in `order`; scale and rotation about `pivot`, as USD's
+    /// xformOp:translate:pivot does.
     Transform {
         #[serde(with = "vec3_array")]
         translation: Vec3,
@@ -365,6 +377,11 @@ pub enum NodeType {
         rotation: Vec3,
         #[serde(with = "vec3_array")]
         scale: Vec3,
+        #[serde(default, with = "vec3_array")]
+        pivot: Vec3,
+        /// Graphs saved before there was a choice turned as ZYX does.
+        #[serde(default = "RotationOrder::before_orders")]
+        order: RotationOrder,
     },
     /// Its inputs as one, in order: on the same path the later input is the
     /// stronger. What it does follows `mode`: see `MergeMode`. Graphs saved
@@ -924,6 +941,7 @@ impl NodeType {
             start: 1,
             end: 120,
             step: 1.0,
+            flatten: false,
         }
     }
     pub fn cube(size: f32) -> Self {
@@ -981,6 +999,7 @@ impl NodeType {
             location: reference_location(),
             prim: String::new(),
             convert: false,
+            mask: vec![],
         }
     }
 
@@ -1678,6 +1697,88 @@ pub struct MeshData {
 }
 
 // The curve enums live with the geometry model (`xms-geo`).
+/// The order a rotation's three angles turn in, as USD's `xformOp:rotateXYZ`
+/// and its five others, Maya's and Houdini's orders: `XYZ` turns about X
+/// first, then Y, then Z, each about the world's axes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RotationOrder {
+    #[default]
+    XYZ,
+    XZY,
+    YXZ,
+    YZX,
+    ZXY,
+    ZYX,
+}
+
+impl RotationOrder {
+    pub const ALL: [RotationOrder; 6] = [
+        RotationOrder::XYZ,
+        RotationOrder::XZY,
+        RotationOrder::YXZ,
+        RotationOrder::YZX,
+        RotationOrder::ZXY,
+        RotationOrder::ZYX,
+    ];
+
+    /// What Transform turned in before it had an order.
+    pub fn before_orders() -> RotationOrder {
+        RotationOrder::ZYX
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RotationOrder::XYZ => "XYZ",
+            RotationOrder::XZY => "XZY",
+            RotationOrder::YXZ => "YXZ",
+            RotationOrder::YZX => "YZX",
+            RotationOrder::ZXY => "ZXY",
+            RotationOrder::ZYX => "ZYX",
+        }
+    }
+
+    /// The axes in the order they turn, first first.
+    fn axes(self) -> [usize; 3] {
+        match self {
+            RotationOrder::XYZ => [0, 1, 2],
+            RotationOrder::XZY => [0, 2, 1],
+            RotationOrder::YXZ => [1, 0, 2],
+            RotationOrder::YZX => [1, 2, 0],
+            RotationOrder::ZXY => [2, 0, 1],
+            RotationOrder::ZYX => [2, 1, 0],
+        }
+    }
+
+    /// The same turns as glam's angles about moving axes: the last axis
+    /// first.
+    fn glam(self) -> glam::EulerRot {
+        use glam::EulerRot;
+        match self {
+            RotationOrder::XYZ => EulerRot::ZYX,
+            RotationOrder::XZY => EulerRot::YZX,
+            RotationOrder::YXZ => EulerRot::ZXY,
+            RotationOrder::YZX => EulerRot::XZY,
+            RotationOrder::ZXY => EulerRot::YXZ,
+            RotationOrder::ZYX => EulerRot::XYZ,
+        }
+    }
+
+    /// The rotation of angles `r` (radians, about X, Y and Z).
+    pub fn quat(self, r: Vec3) -> glam::Quat {
+        let [a, b, c] = self.axes();
+        glam::Quat::from_euler(self.glam(), r[c], r[b], r[a])
+    }
+
+    /// The angles about X, Y and Z (radians) of rotation `q`.
+    pub fn angles(self, q: glam::Quat) -> Vec3 {
+        let [a, b, c] = self.axes();
+        let (k, j, i) = q.to_euler(self.glam());
+        let mut r = Vec3::ZERO;
+        (r[c], r[b], r[a]) = (k, j, i);
+        r
+    }
+}
+
 pub use xms_geo::{CurveBasis, CurveWrap};
 
 impl MeshData {
@@ -1945,7 +2046,11 @@ pub struct Prim {
     pub picked: bool,
     /// Path of the material bound to it in the file it came from.
     pub material: Option<String>,
-    /// That material, as far as the viewport can show it.
+    /// Its preview and full bindings, and their strengths, when Material
+    /// Binding set any (`core::material::Bindings`).
+    pub bindings: Option<std::sync::Arc<crate::core::material::Bindings>>,
+    /// The material the Viewer draws (the preview binding's, else
+    /// `material`'s), as far as it can show it.
     pub look: Option<std::sync::Arc<Look>>,
     /// The hierarchy of the stage it came from, shared with every other
     /// primitive of that stage. The scene explorer lists the stage from it.
@@ -2125,6 +2230,7 @@ impl Prim {
             mesh: std::sync::Arc::new(mesh),
             picked: false,
             material: None,
+            bindings: None,
             look: None,
             stage: None,
             geo: None,
@@ -2369,6 +2475,7 @@ impl EvalResult {
                             mesh: std::sync::Arc::new(mesh),
                             picked: true,
                             material: p.material.clone(),
+                            bindings: p.bindings.clone(),
                             look: p.look.clone(),
                             stage: p.stage.clone(),
                             geo: None,

@@ -336,6 +336,8 @@ mod tests {
             translation: Vec3::new(0.0, y, 0.0),
             rotation: Vec3::ZERO,
             scale: Vec3::ONE,
+            pivot: Default::default(),
+            order: Default::default(),
         }
     }
 

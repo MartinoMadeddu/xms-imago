@@ -702,6 +702,7 @@ pub fn plain(v: &Value) -> serde_json::Value {
         Value::Float2(a) => json!(a),
         Value::Float3(a) | Value::Color3f(a) => json!(a),
         Value::Float4(a) => json!(a),
+        array => serde_json::Value::Array(array.items().iter().map(plain).collect()),
     }
 }
 
@@ -913,6 +914,7 @@ pub fn edit(
                 context: SetContext::Property,
                 name: name.to_string(),
                 value: typed(&like, j),
+                keys: vec![],
             })
         })
         .collect();

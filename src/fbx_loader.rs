@@ -818,6 +818,7 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
         mesh: Arc::new(geo.to_mesh()),
         picked: false,
         material: material.map(|m| m.element.name.to_string()),
+        bindings: None,
         look: material.map(|m| Arc::new(look_of(m, dir))),
         stage: None,
         geo: Some(geo),

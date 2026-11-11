@@ -372,6 +372,8 @@ fn upgrade(saved: &mut SavedGraph) {
                 translation: Vec3::from_array(translate),
                 rotation: Vec3::new(x, y, z),
                 scale: Vec3::splat(scale),
+                pivot: Default::default(),
+                order: crate::types::RotationOrder::before_orders(),
             };
         }
     }
@@ -1084,6 +1086,8 @@ mod tests {
                 translation: glam::Vec3::new(5.0, 0.0, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -1119,6 +1123,8 @@ mod tests {
                 translation: glam::Vec3::new(1.0, 2.0, 3.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(5.0, 6.0),
         );
@@ -1649,6 +1655,8 @@ mod tests {
                 translation: glam::Vec3::ZERO,
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 100.0),
         );
@@ -1949,6 +1957,8 @@ mod tests {
                 translation: glam::Vec3::new(0.0, 10.0, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(100.0, 200.0),
         );
@@ -1958,6 +1968,8 @@ mod tests {
                 translation: glam::Vec3::new(5.0, 0.0, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(100.0, 300.0),
         );
@@ -2050,11 +2062,13 @@ mod tests {
                 context: SetContext::Object,
                 name: "displayColor".into(),
                 value: Value::Color3f([0.0, 1.0, 0.0]),
+                keys: vec![],
             },
             SetRow {
                 context: SetContext::Property,
                 name: "purpose".into(),
                 value: Value::Token("proxy".into()),
+                keys: vec![],
             },
         ];
         let set = g.add_node("Set".into(), NodeType::SetAttribute { rows }, egui::pos2(100.0, 200.0));

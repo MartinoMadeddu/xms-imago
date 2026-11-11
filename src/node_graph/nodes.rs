@@ -84,13 +84,14 @@ pub fn evaluate_node_type(
             location,
             prim,
             convert,
+            mask,
         } => {
             if path.is_empty() {
                 return None;
             }
             // `$GDIR/usd/street.usda`: its variables put in.
             let path = crate::core::vars::expand(path.trim(), &[]);
-            load_stage(&path, *convert, &Default::default(), *mode, location, prim).map(EvalResult::Named)
+            load_stage(&path, *convert, &Default::default(), mask, *mode, location, prim).map(EvalResult::Named)
         }
 
         NodeType::PickPrims { pattern } => inputs.first().map(|r| match r {
@@ -128,7 +129,12 @@ pub fn evaluate_node_type(
         ))),
         // In a graph, cooked by input number (`NodeGraphState::cook`). Here,
         // without the numbers: the scene first, then the materials in order.
-        NodeType::MaterialBinding { library, bindings, .. } => {
+        NodeType::MaterialBinding {
+            library,
+            bindings,
+            options,
+            ..
+        } => {
             let scene = inputs.iter().find(|r| !matches!(r, EvalResult::Material(_)));
             let materials: Vec<_> = inputs
                 .iter()
@@ -137,7 +143,14 @@ pub fn evaluate_node_type(
                     _ => None,
                 })
                 .collect();
-            Some(crate::core::material::bind(scene, &materials, library, &[], bindings))
+            Some(crate::core::material::bind(
+                scene,
+                &materials,
+                library,
+                &[],
+                bindings,
+                options,
+            ))
         }
         // Render
         // The scene coming in, with its render prims added or changed.
@@ -170,51 +183,43 @@ pub fn evaluate_node_type(
             translation,
             rotation,
             scale,
-        } => inputs.first().and_then(|r| match r {
-            // A clip moves by its top joints; its skin follows when posed.
-            EvalResult::Anim(clip) => {
-                let x = transform_matrix(*translation, *rotation, Vec3::splat(clip_scale(*scale)));
-                anim::memo(&format!("{node_type:?}"), Some(clip), || Some(clip.moved(x))).map(EvalResult::Anim)
+            pivot,
+            order,
+        } => inputs.first().and_then(|r| {
+            let m = transform_about(*translation, *rotation, *scale, *pivot, *order);
+            match r {
+                // A clip moves by its top joints; its skin follows when posed.
+                EvalResult::Anim(clip) => {
+                    let s = Vec3::splat(clip_scale(*scale));
+                    let x = transform_about(*translation, *rotation, s, *pivot, *order);
+                    anim::memo(&format!("{node_type:?}"), Some(clip), || Some(clip.moved(x))).map(EvalResult::Anim)
+                }
+                // Packed primitives: the picked ones move, or every one when
+                // none is, each staying a primitive of its own. Placed ones
+                // move their placements (the shared mesh is not copied); the
+                // others their points.
+                EvalResult::Named(prims) => {
+                    let all = !prims.iter().any(|p| p.picked);
+                    Some(EvalResult::Named(
+                        prims
+                            .iter()
+                            .map(|p| match &p.place {
+                                _ if !all && !p.picked => p.clone(),
+                                Placement::InPlace => Prim {
+                                    mesh: Arc::new(place_mesh(&p.mesh, &m)),
+                                    geo: None,
+                                    ..p.clone()
+                                },
+                                placed => Prim {
+                                    place: placed.moved(m),
+                                    ..p.clone()
+                                },
+                            })
+                            .collect(),
+                    ))
+                }
+                other => Some(other.map_mesh(|mesh| place_mesh(&mesh, &m))),
             }
-            // Packed primitives with none picked: each one moves and stays
-            // a primitive of its own. Instanced ones move their placements:
-            // the shared mesh is not copied.
-            EvalResult::Named(prims) if !prims.iter().any(|p| p.picked) => Some(EvalResult::Named(
-                prims
-                    .iter()
-                    .map(|p| match &p.place {
-                        Placement::InPlace => Prim {
-                            mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)),
-                            geo: None,
-                            ..p.clone()
-                        },
-                        placed => Prim {
-                            place: placed.moved(transform_matrix(*translation, *rotation, *scale)),
-                            ..p.clone()
-                        },
-                    })
-                    .collect(),
-            )),
-            // Some picked: those move, each on its own. Placed ones move
-            // their placement; the others their points.
-            EvalResult::Named(prims) => Some(EvalResult::Named(
-                prims
-                    .iter()
-                    .map(|p| match (&p.place, p.picked) {
-                        (_, false) => p.clone(),
-                        (Placement::InPlace, true) => Prim {
-                            mesh: Arc::new(transform(&p.mesh, *translation, *rotation, *scale)),
-                            geo: None,
-                            ..p.clone()
-                        },
-                        (placed, true) => Prim {
-                            place: placed.moved(transform_matrix(*translation, *rotation, *scale)),
-                            ..p.clone()
-                        },
-                    })
-                    .collect(),
-            )),
-            other => Some(other.map_mesh(|m| transform(&m, *translation, *rotation, *scale))),
         }),
 
         // Cooked by the graph (`node_graph::local`); asked on its own, what
@@ -536,6 +541,7 @@ pub fn evaluate_node_type(
                         mesh: mesh.clone(),
                         picked: false,
                         material: None,
+                        bindings: None,
                         look: None,
                         stage: None,
                         geo: None,
@@ -739,11 +745,12 @@ pub fn load_stage(
     path: &str,
     convert: bool,
     variants: &crate::usd_scene::Variants,
+    mask: &[String],
     mode: crate::usd_scene::LoadMode,
     location: &str,
     prim: &str,
 ) -> Option<Vec<Prim>> {
-    let scene = crate::usd_scene::load_cached_with(path, convert, variants).ok()?;
+    let scene = crate::usd_scene::load_cached_with(path, convert, variants, mask).ok()?;
     let scene = match crate::usd_scene::cook_time(scene.tree.time_codes_per_second.or(scene.time.map(|t| t.2))) {
         Some(t) => crate::usd_scene::at_frame(&scene, t),
         None => scene,
@@ -820,6 +827,7 @@ pub fn stage_prims(
                     })
                 }),
                 material,
+                bindings: None,
                 place: m.place.clone(),
                 purpose: m.purpose,
                 props: Default::default(),
@@ -853,6 +861,7 @@ pub fn stage_prims(
             mesh: i.mesh.clone(),
             picked: false,
             material: None,
+            bindings: None,
             look: None,
             stage: Some(tree.clone()),
             geo: Some(i.geo.clone()),
@@ -1055,6 +1064,16 @@ pub fn create_grid(rows: u32, cols: u32, size: f32) -> MeshData {
 /// translation.
 pub fn transform_matrix(t: Vec3, r: Vec3, s: Vec3) -> glam::Mat4 {
     glam::Mat4::from_scale_rotation_translation(s, Quat::from_euler(EulerRot::XYZ, r.x, r.y, r.z), t)
+}
+
+/// The matrix of a Transform operator: scale, then rotation in `order`
+/// (radians), both about `pivot`, then translation; USD's translate, pivot,
+/// rotate, scale and the pivot back.
+pub fn transform_about(t: Vec3, r: Vec3, s: Vec3, pivot: Vec3, order: crate::types::RotationOrder) -> glam::Mat4 {
+    glam::Mat4::from_translation(t + pivot)
+        * glam::Mat4::from_quat(order.quat(r))
+        * glam::Mat4::from_scale(s)
+        * glam::Mat4::from_translation(-pivot)
 }
 
 /// A skeleton scales the same on every axis: a clip takes the X scale.
@@ -1331,6 +1350,62 @@ mod packed_tests {
         m.vertices.iter().map(|v| v[1]).fold(f32::MIN, f32::max)
     }
 
+    /// Transform turns in its order, about its pivot; the angles read back
+    /// from a rotation in any order make it again.
+    #[test]
+    fn transform_turns_in_its_order_about_its_pivot() {
+        use crate::types::RotationOrder;
+        use std::f32::consts::FRAC_PI_2;
+        let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-5;
+        // A quarter turn about Y, about (1, 0, 0): that point stays, the
+        // origin goes round it.
+        let m = transform_about(Vec3::ZERO, Vec3::Y * FRAC_PI_2, Vec3::ONE, Vec3::X, RotationOrder::XYZ);
+        assert!(near(m.transform_point3(Vec3::X), Vec3::X));
+        assert!(near(m.transform_point3(Vec3::ZERO), Vec3::new(1.0, 0.0, 1.0)));
+        // X then Y, or Y then X: up goes different ways.
+        let r = Vec3::new(FRAC_PI_2, FRAC_PI_2, 0.0);
+        let up = |o| transform_about(Vec3::ZERO, r, Vec3::ONE, Vec3::ZERO, o).transform_vector3(Vec3::Y);
+        assert!(near(up(RotationOrder::XYZ), Vec3::X), "{}", up(RotationOrder::XYZ));
+        assert!(near(up(RotationOrder::ZYX), Vec3::Z), "{}", up(RotationOrder::ZYX));
+        // Graphs saved before the order: as glam's XYZ, which they used.
+        let before = RotationOrder::before_orders().quat(Vec3::new(0.3, 0.5, 0.7));
+        assert!(before.abs_diff_eq(Quat::from_euler(EulerRot::XYZ, 0.3, 0.5, 0.7), 1e-6));
+        for o in RotationOrder::ALL {
+            let r = Vec3::new(0.3, -0.5, 0.7);
+            assert!(near(o.angles(o.quat(r)), r), "{o:?}");
+        }
+    }
+
+    /// Prototypes from one Get Reference are that input's prims: another
+    /// input with a prim at the same path is not instanced.
+    #[test]
+    fn prototypes_come_from_their_own_reference_input() {
+        let cube = |size: f32| EvalResult::Named(vec![Prim::new("/tree".into(), create_cube(size))]);
+        let references = [cube(1.0), cube(3.0)];
+        let made = xms_ice::Instances {
+            path: "scatter".into(),
+            prototypes: vec!["/tree".into()],
+            prototypes_input: Some(2),
+            proto_indices: vec![0],
+            positions: vec![[0.0; 3]],
+            orientations: vec![[0.0, 0.0, 0.0, 1.0]],
+            scales: vec![[1.0; 3]],
+        };
+        let on = Prim::new("/ground".into(), create_cube(4.0));
+        let mut taken = Default::default();
+        let out = instanced(&on, &made, Default::default(), &references, &mut taken);
+        let protos: Vec<&Prim> = out.iter().filter(|p| p.instanced_by.is_some()).collect();
+        assert_eq!(protos.len(), 1);
+        assert_eq!(max_y(&protos[0].mesh), 1.5, "the second input's tree");
+        // Unknown (paths from two inputs, put together): every input's.
+        let made = xms_ice::Instances {
+            prototypes_input: None,
+            ..made
+        };
+        let out = instanced(&on, &made, Default::default(), &references, &mut Default::default());
+        assert_eq!(out.iter().filter(|p| p.instanced_by.is_some()).count(), 2);
+    }
+
     #[test]
     fn transform_moves_instances_without_copying_their_mesh() {
         use glam::Mat4;
@@ -1346,6 +1421,8 @@ mod packed_tests {
                 translation: Vec3::Y * 2.0,
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             &input,
         );
@@ -1410,6 +1487,8 @@ mod packed_tests {
             translation: glam::Vec3::new(0.0, 10.0, 0.0),
             rotation: glam::Vec3::ZERO,
             scale: glam::Vec3::ONE,
+            pivot: Default::default(),
+            order: Default::default(),
         };
         let out = run(lift.clone(), &picked);
         // The two wheels move, each staying a primitive of its own.
@@ -1495,6 +1574,8 @@ mod packed_tests {
                 translation: Vec3::X,
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             &input,
         );
@@ -1861,8 +1942,14 @@ fn instanced(
             .insert("model:drawMode".into(), Value::Token(draw.token().into()));
         Arc::new(map)
     };
+    // On one reference input (from 1), when the prototypes came from one.
+    let searched = references
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| made.prototypes_input.is_none_or(|n| n == i + 1))
+        .map(|(_, r)| r);
     for (k, proto) in made.prototypes.iter().enumerate() {
-        for r in references {
+        for r in searched.clone() {
             let EvalResult::Named(prims) = r else { continue };
             for q in prims.iter().filter(|q| below(proto, &q.path) && q.is_geometry()) {
                 let inside = match &q.place {

@@ -1305,6 +1305,8 @@ mod tests {
                 translation: glam::Vec3::ZERO,
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 100.0),
         );
@@ -1629,6 +1631,8 @@ mod tests {
                                 translation: glam::Vec3::ZERO,
                                 rotation: glam::Vec3::ZERO,
                                 scale: glam::Vec3::ONE,
+                                pivot: Default::default(),
+                                order: Default::default(),
                             },
                             egui::pos2(0.0, 100.0),
                         );

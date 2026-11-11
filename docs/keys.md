@@ -31,8 +31,10 @@ playhead, and a change to it is never lost when the playhead moves.
 
 A number is found by its place in the operator's parameters as they are saved
 (`translation/0` is translate X), so every operator can be keyed, including ones
-added later. Lists of rows are not keyed: Edit Poly's operations, Set
-Attribute's rows, Material Binding's rows. Nor are switches and text.
+added later. Lists of rows are not keyed here: Edit Poly's operations,
+Material Binding's rows. Set Attribute keys each row's value on the row itself
+(◇ beside it, see [Set Attribute](usd.md#set-attribute)). Nor are switches and
+text.
 
 ## References
 

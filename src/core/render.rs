@@ -817,6 +817,14 @@ pub fn value_of(ty: ValueType, j: &serde_json::Value) -> Value {
         ValueType::Float3 => Value::Float3([n(0), n(1), n(2)]),
         ValueType::Float4 => Value::Float4([n(0), n(1), n(2), n(3)]),
         ValueType::Color3f => Value::Color3f([n(0), n(1), n(2)]),
+        array => {
+            let element = array.element().unwrap_or(ValueType::Float);
+            let items: Vec<Value> = match j {
+                serde_json::Value::Array(a) => a.iter().map(|x| value_of(element, x)).collect(),
+                _ => vec![],
+            };
+            Value::array(array, &items)
+        }
     }
 }
 

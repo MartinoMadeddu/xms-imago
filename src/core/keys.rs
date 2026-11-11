@@ -640,6 +640,8 @@ mod tests {
             translation: glam::Vec3::new(1.0, 2.0, 3.0),
             rotation: glam::Vec3::ZERO,
             scale: glam::Vec3::ONE,
+            pivot: Default::default(),
+            order: Default::default(),
         };
         let mut v = serde_json::to_value(&t).unwrap();
         let paths: Vec<String> = keyable(&v).into_iter().map(|(p, _)| p).collect();

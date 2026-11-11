@@ -402,6 +402,71 @@ pub enum BindTo {
     Path(String),
 }
 
+/// Which renders a binding is for, as USD's `material:binding` (all of them),
+/// `material:binding:preview` (viewports: the Viewer draws it) and
+/// `material:binding:full` (final renders).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum BindPurpose {
+    #[default]
+    All,
+    Preview,
+    Full,
+}
+
+impl BindPurpose {
+    pub const ALL: [BindPurpose; 3] = [BindPurpose::All, BindPurpose::Preview, BindPurpose::Full];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BindPurpose::All => "All",
+            BindPurpose::Preview => "Preview",
+            BindPurpose::Full => "Full",
+        }
+    }
+
+    /// The relationship's name.
+    pub fn relationship(self) -> &'static str {
+        match self {
+            BindPurpose::All => "material:binding",
+            BindPurpose::Preview => "material:binding:preview",
+            BindPurpose::Full => "material:binding:full",
+        }
+    }
+}
+
+/// A Material Binding row's purpose, and whether its binding is stronger than
+/// those below the prims it binds (USD's `bindMaterialAs =
+/// "strongerThanDescendants"`; weaker, USD's default, otherwise).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct BindOptions {
+    #[serde(default)]
+    pub purpose: BindPurpose,
+    #[serde(default)]
+    pub stronger: bool,
+}
+
+/// A prim's bindings beyond its own `material` (bound for all purposes): its
+/// preview and full ones, and which of the three are stronger than its
+/// descendants', as Write USD writes them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Bindings {
+    pub preview: Option<String>,
+    pub full: Option<String>,
+    /// By `BindPurpose`: All, Preview, Full.
+    pub stronger: [bool; 3],
+}
+
+impl Bindings {
+    /// The material bound for `purpose`, `all` being the prim's own.
+    pub fn of(&self, purpose: BindPurpose, all: Option<&str>) -> Option<String> {
+        match purpose {
+            BindPurpose::All => all.map(str::to_string),
+            BindPurpose::Preview => self.preview.clone(),
+            BindPurpose::Full => self.full.clone(),
+        }
+    }
+}
+
 /// The Material Library Location as a USD path: `/materials` when blank.
 pub fn library_path(text: &str) -> String {
     crate::types::prim_location(text, "/materials")
@@ -438,16 +503,19 @@ pub fn chosen(row: usize, to: &[BindTo], placed: &[Option<String>]) -> Option<St
 /// Material Binding: the materials put in the scene, each at its place under
 /// the Material Library Location (after the primitives; one already on that
 /// path is replaced), and each row's material bound to the primitives its
-/// location takes: the one at that path and every one below it. On a primitive
-/// two rows take, the later row wins. Rows with no location, or no material,
-/// bind nothing. A point instancer is not bound itself: its prototypes, below
-/// it, are.
+/// location takes: the one at that path and every one below it, for the row's
+/// purpose (`options`: all by default), stronger than descendants' bindings
+/// when it says so. On a primitive two rows take for the same purpose, the
+/// later row wins. The Viewer draws the preview binding, else the one for all.
+/// Rows with no location, or no material, bind nothing. A point instancer is
+/// not bound itself: its prototypes, below it, are.
 pub fn bind(
     scene: Option<&EvalResult>,
     materials: &[Option<Arc<Material>>],
     library: &str,
     rows: &[String],
     to: &[BindTo],
+    options: &[BindOptions],
 ) -> EvalResult {
     let mut prims = match scene {
         Some(EvalResult::Named(p)) => p.clone(),
@@ -471,24 +539,39 @@ pub fn bind(
             looks.insert(path.clone(), m.look.clone());
         }
     }
-    let wanted: Vec<(&str, String)> = rows
+    let wanted: Vec<(&str, String, BindOptions)> = rows
         .iter()
         .enumerate()
         .filter(|(_, row)| !row.trim().is_empty())
-        .filter_map(|(k, row)| chosen(k, to, &places).map(|m| (row.as_str(), m)))
+        .filter_map(|(k, row)| {
+            let o = options.get(k).copied().unwrap_or_default();
+            chosen(k, to, &places).map(|m| (row.as_str(), m, o))
+        })
         .collect();
     for p in prims
         .iter_mut()
         .filter(|p| (p.is_geometry() || p.volume.is_some()) && p.instancing.is_none())
     {
-        if let Some((_, m)) = wanted
+        let mut more = p.bindings.as_deref().cloned().unwrap_or_default();
+        let mut touched = false;
+        for (_, m, o) in wanted
             .iter()
-            .rev()
-            .find(|(row, _)| crate::core::locations::matches(row, &p.path))
+            .filter(|(row, _, _)| crate::core::locations::matches(row, &p.path))
         {
-            p.material = Some(m.clone());
-            p.look = looks.get(m).cloned();
+            match o.purpose {
+                BindPurpose::All => p.material = Some(m.clone()),
+                BindPurpose::Preview => more.preview = Some(m.clone()),
+                BindPurpose::Full => more.full = Some(m.clone()),
+            }
+            more.stronger[o.purpose as usize] = o.stronger;
+            touched = true;
         }
+        if !touched {
+            continue;
+        }
+        let drawn = more.preview.as_ref().or(p.material.as_ref());
+        p.look = drawn.and_then(|m| looks.get(m).cloned());
+        p.bindings = (more != Bindings::default()).then(|| Arc::new(more));
     }
     for (path, m) in places.into_iter().zip(materials) {
         let (Some(path), Some(m)) = (path, m) else { continue };
@@ -653,7 +736,8 @@ mod tests {
         ];
         // Row 4 picks input 1 by number; input 3 has nothing plugged.
         let to = vec![BindTo::Same, BindTo::Same, BindTo::Same, BindTo::Input(1)];
-        let EvalResult::Named(out) = bind(Some(&scene), &[mat("paint"), mat("chrome"), None], "", &rows, &to) else {
+        let EvalResult::Named(out) = bind(Some(&scene), &[mat("paint"), mat("chrome"), None], "", &rows, &to, &[])
+        else {
             panic!()
         };
         let bound = |path: &str| out.iter().find(|p| p.path == path).and_then(|p| p.material.clone());
@@ -676,6 +760,47 @@ mod tests {
             scene_materials(&EvalResult::Named(out)),
             vec!["/materials/paint".to_string(), "/materials/chrome".to_string()]
         );
+    }
+
+    /// A row for previews or final renders binds for that purpose alone; the
+    /// Viewer draws the preview one. Strength goes with the row that bound.
+    #[test]
+    fn rows_bind_for_their_purpose() {
+        let scene = EvalResult::Named(vec![Prim::new("/car/body".into(), MeshData::default())]);
+        let rows = vec!["/car".to_string(), "/car".to_string(), "/car".to_string()];
+        let to = vec![BindTo::Same, BindTo::Same, BindTo::Same];
+        let options = [
+            BindOptions::default(),
+            BindOptions {
+                purpose: BindPurpose::Preview,
+                stronger: true,
+            },
+            BindOptions {
+                purpose: BindPurpose::Full,
+                stronger: false,
+            },
+        ];
+        let mats = [mat("paint"), mat("grey"), mat("hero")];
+        let EvalResult::Named(out) = bind(Some(&scene), &mats, "", &rows, &to, &options) else {
+            panic!()
+        };
+        let body = &out[0];
+        assert_eq!(body.material.as_deref(), Some("/materials/paint"));
+        let b = body.bindings.as_deref().unwrap();
+        assert_eq!(b.preview.as_deref(), Some("/materials/grey"));
+        assert_eq!(b.full.as_deref(), Some("/materials/hero"));
+        assert_eq!(b.stronger, [false, true, false]);
+        // Drawn: the preview material.
+        let grey = out.iter().find(|p| p.path == "/materials/grey").unwrap();
+        assert!(Arc::ptr_eq(
+            body.look.as_ref().unwrap(),
+            &grey.shading.as_ref().unwrap().look
+        ));
+        // Bound for all alone: no more bindings.
+        let EvalResult::Named(out) = bind(Some(&scene), &mats, "", &rows[..1], &to, &[]) else {
+            panic!()
+        };
+        assert!(out[0].bindings.is_none());
     }
 
     #[test]

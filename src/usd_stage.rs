@@ -34,7 +34,7 @@ use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdLight, UsdMaterial, U
 /// unpacked beforehand, so its textures are files on disk).
 #[cfg(test)]
 pub fn read(layer: &Path) -> Result<UsdScene, String> {
-    read_phased(layer, false, None, |_| {})
+    read_phased(layer, false, None, &[], |_| {})
 }
 
 /// Read a composed stage in two passes over one open stage: `boxes` is given
@@ -42,11 +42,12 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
 /// extent, no materials or authored values), then the whole of it is read and
 /// returned. `convert`: turned to Y-up and metres (see `scene_of`).
 /// `session`: a layer composed over the stage, strongest (the variants chosen
-/// in Imago).
+/// in Imago). `mask`: the population mask, the prims read (all when empty).
 pub fn read_phased(
     layer: &Path,
     convert: bool,
     session: Option<&Path>,
+    mask: &[String],
     boxes: impl FnOnce(UsdScene),
 ) -> Result<UsdScene, String> {
     let start = std::time::Instant::now();
@@ -55,6 +56,7 @@ pub fn read_phased(
     let opts = xms_usd::SceneOptions {
         all_samples: true,
         session_layer: session.map(|s| s.to_string_lossy().into_owned()),
+        mask: mask.to_vec(),
         ..Default::default()
     };
     let translated = xms_usd::translate_phased(layer, opts, |b| {

@@ -132,7 +132,9 @@ and **Status**.
 - **Targeting:** Primitive Location (mount location when loaded as reference or
   payload)
 - **USD mapping:** `UsdStage::Open`, references, payloads, sublayers
-- **Status:** **Partial.** Opens `.usda`, `.usdc` and `.usdz` composed
+- **Status:** **Partial.** A **Population Mask** (rows of paths: those prims,
+  below and above them, the rest not read; Write USD leaves the rest as the file
+  has it). Opens `.usda`, `.usdc` and `.usdz` composed
   (sublayers, references, payloads, inherits, specializes, variants), one
   primitive per mesh, curves or points prim, with materials, purposes and
   instancing; cameras, lights and skeletons are listed. **Modes:** Sublayer (the
@@ -144,8 +146,8 @@ and **Status**.
   the graph. Alembic (`.abc`) opens as a USD layer, as `usdAbc` makes it. The
   file's `renderSettingsPrimPath` is read. A big stage is read boxes first,
   each value read once; a frame of a stage where only transforms and geometry
-  move is made from those prims alone. Not yet: `open` as its own mode,
-  population mask, payload control, layer offsets.
+  move is made from those prims alone. Not yet: `open` as its own mode, payload
+  control, layer offsets.
 
 ### 2.2 Write USD (Save / Export Layer)
 - **Purpose:** Write the authored result to disk.
@@ -162,8 +164,11 @@ and **Status**.
   under `def Xform` parents, with a `defaultPrim`; Reparent's moves as
   references to the file's prims at their new paths, the old ones deactivated;
   the RenderSettings rendered named in `renderSettingsPrimPath`. The scene's
-  range is written by default, what changes as `timeSamples`. Not yet:
-  `usdc`/`usdz`, flatten, choosing the target layer.
+  range is written by default, what changes as `timeSamples`. **Flatten**: one
+  file of the whole scene, the stages and Imago's changes composed into it (the
+  override layer flattened, as `UsdStage::Flatten`), time samples kept, `.usda`
+  or `.usdc`. Not yet: `usdz`, choosing the target layer; a flattened native
+  instance is written as copies (openusd's flatten).
 
 ### 2.3 Sublayer
 - **Purpose:** Add layers to the layer stack.
@@ -399,7 +404,8 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 
   Any other name can be typed, with its value type chosen.
 - **Value types:** `bool`, `int`, `float`, `double`, `string`, `token`,
-  `float2`/`float3`/`float4`, `color3f`, `asset`; arrays later.
+  `float2`/`float3`/`float4`, `color3f`, `asset`; arrays `int[]`, `float[]`,
+  `float3[]`, `color3f[]`, `string[]`, `token[]`.
 - **USD mapping:** `UsdGeomPrimvarsAPI::CreatePrimvar` (Object);
   `UsdAttribute::Set` or `UsdPrim::SetMetadata` (Property, chosen by the name)
 - **Notes:**
@@ -427,9 +433,9 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
   attributes, `uniform` where the schema has it, metadata). Values on a group
   are inherited below it in Imago as in USD: visibility, active, purpose where a
   primitive has none, Object values where it has no attribute of that name
-  (shown in the Primitive Inspector). Not yet: time samples (values are default
-  values), arrays, `customData` and `documentation`, inherited Object values
-  read by ICE.
+  (shown in the Primitive Inspector). Arrays; keys on a row (a value a frame,
+  written as time samples). Not yet: `customData` and `documentation`,
+  inherited Object values read by ICE.
 
 ### 6.2 Set Relationship
 - **Parameters:** relationship name; target list; list-edit op
@@ -440,13 +446,16 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 - **Parameters:** translate; rotate (with order); scale; pivot; xformOp stack
   order; reset xform stack
 - **USD mapping:** `UsdGeomXformable` xformOps
-- **Status:** **Partial.** Translate, Rotate (X then Y then Z) and Scale, on the
-  prims its Prims Location tab lists (or every prim). Moves placements, not
-  points; instanced copies move as matrices; clips move too. Written back as one
+- **Status:** **Partial.** Translate, Rotate, Scale, **Rotate Order** (the six
+  of USD's `rotateXYZ`…: XYZ turns about X first, about the world's axes, the
+  default; graphs saved before it keep turning as ZYX) and **Pivot** (scale and
+  rotation about it, as USD's translate, pivot, rotate, scale, inverse pivot),
+  on the prims its Prims Location tab lists (or every prim). Moves placements,
+  not points; instanced copies move as matrices; clips move too. Written back as one
   `xformOp:transform` that keeps the prim following its parents;
   `!resetXformStack!` is read and kept. Edit Primitive (6.6) sets a prim's own
-  transform absolutely, a group's moving what is below it. Not yet: rotation
-  order, pivot, authoring separate xformOps.
+  transform absolutely, a group's moving what is below it. Not yet: authoring
+  separate xformOps.
 
 ### 6.4 Attribute Delete / Rename
 - **Parameters:** attribute name pattern; new name
@@ -602,8 +611,11 @@ In Imago: **Material Binding**.
   its rows on its Bindings tab (same matching rules, a count per row, drag and
   drop from the Scene Explorer), each with a Material column. The later row
   wins. Written as `def Material`s under Scopes and `material:binding` on each
-  primitive. Not yet: a binding on a group kept as one inherited opinion,
-  strength, purpose, collections.
+  primitive; each row's purpose (All, Preview, Full: `material:binding`,
+  `:preview`, `:full`, the later row winning for each) and strength
+  (`bindMaterialAs`), the Viewer drawing the preview binding. Not yet: a binding
+  on a group kept as one inherited opinion, collections, files' purpose
+  bindings and strengths read.
 
 > **Rule (recommended):** when two rows match the same prim, the **later row
 > wins**, as the later input wins in Merge.
@@ -798,15 +810,15 @@ Enough for a complete load, edit, bind, render loop:
 
 | # | Operator | Status |
 |---|---|---|
-| 1 | Load USD | Partial (Sublayer, Reference, Payload; no population mask) |
+| 1 | Load USD | Partial (Sublayer, Reference, Payload, population mask; no layer offsets) |
 | 2 | Create Prim | Not yet (Cube, Sphere, Grid exist) |
 | 3 | Merge | Done |
-| 4 | Transform | Partial (no pivot or rotation order) |
-| 5 | Set Attribute (Object, Property) | Partial (no time samples or arrays) |
+| 4 | Transform | Partial (one `xformOp:transform`, not separate xformOps) |
+| 5 | Set Attribute (Object, Property) | Done (time samples by keys on a row; arrays) |
 | 6 | Prune | Done |
 | 7 | Reference | Partial (Load USD's Reference and Payload modes) |
 | 8 | Variant Select | Done (Variant, Select: the stage composed again, edits above carried over; Create: a set made from its inputs, new prims and referenced stages) |
-| 9 | Material Assign | Partial (Material Binding: no strength, purpose or group bindings yet) |
+| 9 | Material Assign | Partial (Material Binding: no group bindings or collections yet) |
 | 10 | Light | Partial (Light operator, every type; files' lights read, moved and edited with Edit Primitive; drawn and picked in the Viewer; no lighting yet) |
 | 11 | Camera | Partial (Camera operator, file cameras edited with Edit Primitive, looked through in the Viewer) |
 | 12 | Render Settings | Partial (Render Commons, Render Settings with Karma, Arnold and Custom, Render Variables) |

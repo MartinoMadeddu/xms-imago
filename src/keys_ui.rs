@@ -1218,6 +1218,8 @@ mod tests {
                 translation: glam::Vec3::new(0.0, crate::properties::form::PROBE as f32, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );

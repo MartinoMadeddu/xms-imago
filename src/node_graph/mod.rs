@@ -287,6 +287,12 @@ pub struct NodeGraphState {
     /// enough, its wire is picked up. Found from where the press was, as the
     /// title under the socket would otherwise take the drag.
     pub pressed_input: Option<(NodeId, usize)>,
+    /// The wire a node dragged with Shift held is over: let go of there, the
+    /// node goes into it (`insert_on_wire`).
+    pub drop_on_wire: Option<ConnectionId>,
+    /// The node being dragged was pulled out of its wires this drag
+    /// (`pull_out`, Shift held): it is not pulled again until let go of.
+    pub pulled_out: bool,
     pub graph_version: u64,
     /// The operator whose output is the scene: what the Viewer draws, the Scene
     /// Explorer lists and the Primitive Inspector shows. One operator always
@@ -454,6 +460,8 @@ impl Default for NodeGraphState {
             carrying: vec![],
             wire_dragged: false,
             pressed_input: None,
+            drop_on_wire: None,
+            pulled_out: false,
             graph_version: 0,
             view_flag: None,
             view_output: 0,
@@ -809,6 +817,70 @@ impl NodeGraphState {
             to_input: to_in,
         });
         self.mark_dirty();
+    }
+
+    /// `node` taken out of the wires it is in, as Houdini's shake does: what
+    /// fed its first input feeds what its first output fed, and every wire to
+    /// or from it goes. Whether any wire went.
+    pub fn pull_out(&mut self, node: NodeId) -> bool {
+        let fed = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node)
+            .and_then(|n| n.inputs.first())
+            .and_then(|i| i.connected_output);
+        let feeds: Vec<(NodeId, usize)> = self
+            .connections
+            .iter()
+            .filter(|c| c.from_node == node && c.from_output == 0)
+            .map(|c| (c.to_node, c.to_input))
+            .collect();
+        let wires: Vec<ConnectionId> = self
+            .connections
+            .iter()
+            .filter(|c| c.from_node == node || c.to_node == node)
+            .map(|c| c.id)
+            .collect();
+        for cid in &wires {
+            self.remove_connection(*cid);
+        }
+        if let Some((from, out)) = fed {
+            for (to, input) in feeds {
+                self.add_connection(from, out, to, input);
+            }
+        }
+        !wires.is_empty()
+    }
+
+    /// Whether `node` can go into wire `cid`: not one of its ends, with an
+    /// input and an output, its first input free.
+    pub fn can_insert_on_wire(&self, node: NodeId, cid: ConnectionId) -> bool {
+        let Some(c) = self.connections.iter().find(|c| c.id == cid) else {
+            return false;
+        };
+        let Some(n) = self.nodes.iter().find(|n| n.id == node) else {
+            return false;
+        };
+        c.from_node != node
+            && c.to_node != node
+            && !n.outputs.is_empty()
+            && n.inputs.first().is_some_and(|i| i.connected_output.is_none())
+    }
+
+    /// `node` put into wire `cid`, as Houdini does: what fed the wire feeds
+    /// its first input, and its first output feeds where the wire went.
+    /// Nothing changes when it cannot go there (`can_insert_on_wire`).
+    pub fn insert_on_wire(&mut self, node: NodeId, cid: ConnectionId) -> bool {
+        if !self.can_insert_on_wire(node, cid) {
+            return false;
+        }
+        let Some(c) = self.connections.iter().find(|c| c.id == cid).cloned() else {
+            return false;
+        };
+        self.remove_connection(cid);
+        self.add_connection(c.from_node, c.from_output, node, 0);
+        self.add_connection(node, 0, c.to_node, c.to_input);
+        true
     }
 
     pub fn remove_connection(&mut self, cid: ConnectionId) {
@@ -1614,7 +1686,13 @@ impl NodeGraphState {
                 .first()
                 .and_then(|s| s.connected_output)
                 .and_then(|(src, out)| self.eval_node_out(src, out, cache, eval_subnet))
-        } else if let NodeType::MaterialBinding { library, bindings, .. } = node_type {
+        } else if let NodeType::MaterialBinding {
+            library,
+            bindings,
+            options,
+            ..
+        } = node_type
+        {
             // Each input by its number: the scene, then one material each.
             let mut ports: Vec<Option<EvalResult>> = vec![];
             for s in &node.inputs {
@@ -1637,6 +1715,7 @@ impl NodeGraphState {
                 library,
                 &node.locations,
                 bindings,
+                options,
             ))
         } else if crate::core::rig::node::is_rig(node_type) {
             // Each input by its port: a Rig Guide's mesh and guides are both
@@ -2032,6 +2111,8 @@ mod cook_tests {
                 translation: glam::Vec3::ZERO,
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             p(100.0),
         );
@@ -2207,6 +2288,8 @@ mod cook_tests {
                 translation: glam::Vec3::ZERO,
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             p(100.0),
         );
@@ -2216,6 +2299,8 @@ mod cook_tests {
                 translation: glam::Vec3::Y,
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             p(200.0),
         );
@@ -2296,6 +2381,43 @@ mod cook_tests {
     /// Merge takes any number of inputs, keeping one free, and merges them all,
     /// the later stronger.
     #[test]
+    fn a_node_goes_into_a_wire_as_houdini_puts_it() {
+        let mut g = NodeGraphState::default();
+        let p = |x: f32| egui::pos2(x, 0.0);
+        let cube = g.add_node(
+            "Cube".into(),
+            NodeType::CreateCube {
+                size: 1.0,
+                location: String::new(),
+            },
+            p(0.0),
+        );
+        let a = g.add_node("A".into(), NodeType::PassThrough, p(100.0));
+        let b = g.add_node("B".into(), NodeType::PassThrough, p(200.0));
+        g.add_connection(cube, 0, a, 0);
+        let wire = g.connections[0].id;
+        // Not into a wire it ends, nor a node with no input.
+        assert!(!g.can_insert_on_wire(a, wire));
+        assert!(!g.insert_on_wire(cube, wire));
+        assert!(g.insert_on_wire(b, wire));
+        let pairs: Vec<(NodeId, NodeId)> = g.connections.iter().map(|c| (c.from_node, c.to_node)).collect();
+        assert_eq!(pairs, [(cube, b), (b, a)]);
+        // Its first input now taken: not into another wire.
+        let next = g.connections[0].id;
+        let c = g.add_node("C".into(), NodeType::PassThrough, p(300.0));
+        assert!(g.insert_on_wire(c, next));
+        assert!(!g.can_insert_on_wire(c, g.connections[0].id));
+        // Pulled out again: what fed it feeds what it fed, every one.
+        let d = g.add_node("D".into(), NodeType::PassThrough, p(400.0));
+        g.add_connection(c, 0, d, 0);
+        assert!(g.pull_out(c));
+        let mut pairs: Vec<(NodeId, NodeId)> = g.connections.iter().map(|c| (c.from_node, c.to_node)).collect();
+        pairs.sort_by_key(|(_, to)| to.0);
+        assert_eq!(pairs, [(b, a), (cube, b), (cube, d)]);
+        assert!(!g.pull_out(c), "no wires left");
+    }
+
+    #[test]
     fn merge_takes_any_number_of_inputs() {
         let mut g = NodeGraphState::default();
         let p = |x: f32| egui::pos2(x, 0.0);
@@ -2355,6 +2477,7 @@ mod cook_tests {
                 library: "/looks".into(),
                 inputs: 1,
                 bindings: vec![],
+                options: vec![],
             },
             p(300.0),
         );

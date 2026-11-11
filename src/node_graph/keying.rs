@@ -8,24 +8,37 @@ use super::{GraphNode, NodeGraphState};
 use crate::core::keys::{self, Channel};
 use crate::types::{NodeId, NodeType};
 
-/// A node's parameters at `frame`: its keyed numbers set from their curves. The
-/// node's own when nothing is keyed.
+/// A node's parameters at `frame`: its keyed numbers set from their curves,
+/// and Set Attribute's keyed rows their values there. The node's own when
+/// nothing is keyed.
 pub fn animated_at(node: &GraphNode, frame: f64) -> Cow<'_, NodeType> {
-    if node.channels.is_empty() {
+    let keyed_rows =
+        matches!(&node.node_type, NodeType::SetAttribute { rows } if rows.iter().any(|r| !r.keys.is_empty()));
+    if node.channels.is_empty() && !keyed_rows {
         return Cow::Borrowed(&node.node_type);
     }
-    let Ok(mut v) = serde_json::to_value(&node.node_type) else {
-        return Cow::Borrowed(&node.node_type);
+    let mut t = if node.channels.is_empty() {
+        node.node_type.clone()
+    } else {
+        let Ok(mut v) = serde_json::to_value(&node.node_type) else {
+            return Cow::Borrowed(&node.node_type);
+        };
+        for c in &node.channels {
+            if !c.keys.is_empty() {
+                keys::set(&mut v, &c.path, c.value_at(frame));
+            }
+        }
+        match serde_json::from_value(v) {
+            Ok(t) => t,
+            Err(_) => return Cow::Borrowed(&node.node_type),
+        }
     };
-    for c in &node.channels {
-        if !c.keys.is_empty() {
-            keys::set(&mut v, &c.path, c.value_at(frame));
+    if let NodeType::SetAttribute { rows } = &mut t {
+        for r in rows.iter_mut().filter(|r| !r.keys.is_empty()) {
+            r.value = r.value_at(frame);
         }
     }
-    match serde_json::from_value(v) {
-        Ok(t) => Cow::Owned(t),
-        Err(_) => Cow::Borrowed(&node.node_type),
-    }
+    Cow::Owned(t)
 }
 
 /// The operator's kind as saved: "Transform".
@@ -401,6 +414,8 @@ mod tests {
                 translation: glam::Vec3::ZERO,
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 100.0),
         );

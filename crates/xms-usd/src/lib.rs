@@ -29,6 +29,7 @@ use openusd::vt::{Value, ValueKind};
 
 mod alembic;
 mod curves;
+mod flatten;
 mod materialx;
 mod to_scene;
 mod values;
@@ -37,6 +38,7 @@ mod xform;
 
 /// rray's name for [`translate`], kept so code ported from rray reads the same.
 pub use alembic::register_formats;
+pub use flatten::flatten;
 pub use to_scene::translate as translate_to_scene;
 pub use to_scene::{translate, translate_phased, translate_stage, SceneOptions, Translated, CURVE_PRIMVAR_PREFIX};
 

@@ -175,6 +175,9 @@ What it holds is read as follows:
   node's, its node graph's, the document's), and, relative, the file's folder:
   textures are found wherever the file is.
 - **Included files** (`xi:include`) are read as part of it, from its folder.
+- **Older documents:** a definition the library has under another name (1.38's
+  `ND_normalmap`, now `ND_normalmap_float`) is found by the node and its
+  types, as when a node names none.
 - **Laid out** right to left, the material in the right column, each node a
   column left of the leftmost node it feeds.
 - **Not read**, and said so in the message: looks and material assignments (bind

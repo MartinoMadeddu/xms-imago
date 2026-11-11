@@ -47,9 +47,46 @@ pub enum ValueType {
     Float4,
     Color3f,
     Asset,
+    IntArray,
+    FloatArray,
+    Float3Array,
+    Color3fArray,
+    StringArray,
+    TokenArray,
 }
 
 impl ValueType {
+    /// The arrays a value can be, as USD's `int[]`, `float[]`…
+    pub const ARRAYS: [ValueType; 6] = [
+        ValueType::IntArray,
+        ValueType::FloatArray,
+        ValueType::Float3Array,
+        ValueType::Color3fArray,
+        ValueType::StringArray,
+        ValueType::TokenArray,
+    ];
+    /// The arrays an Object value can be: a list a `Geo` column holds.
+    pub const OBJECT_ARRAYS: [ValueType; 5] = [
+        ValueType::IntArray,
+        ValueType::FloatArray,
+        ValueType::Float3Array,
+        ValueType::Color3fArray,
+        ValueType::TokenArray,
+    ];
+
+    /// An array's element: its type alone. `None` for the rest.
+    pub fn element(self) -> Option<ValueType> {
+        Some(match self {
+            ValueType::IntArray => ValueType::Int,
+            ValueType::FloatArray => ValueType::Float,
+            ValueType::Float3Array => ValueType::Float3,
+            ValueType::Color3fArray => ValueType::Color3f,
+            ValueType::StringArray => ValueType::String,
+            ValueType::TokenArray => ValueType::Token,
+            _ => return None,
+        })
+    }
+
     pub const ALL: [ValueType; 11] = [
         ValueType::Bool,
         ValueType::Int,
@@ -89,11 +126,30 @@ impl ValueType {
             ValueType::Float4 => "float4",
             ValueType::Color3f => "color3f",
             ValueType::Asset => "asset",
+            ValueType::IntArray => "int[]",
+            ValueType::FloatArray => "float[]",
+            ValueType::Float3Array => "float3[]",
+            ValueType::Color3fArray => "color3f[]",
+            ValueType::StringArray => "string[]",
+            ValueType::TokenArray => "token[]",
         }
     }
 
-    /// A value of this type, kept from `from` where it can be.
+    /// A value of this type, kept from `from` where it can be: an array of
+    /// one from a value, a value from an array's first element.
     pub fn convert(self, from: &Value) -> Value {
+        if let Some(element) = self.element() {
+            let items: Vec<Value> = from.items().iter().map(|v| element.convert(v)).collect();
+            return Value::array(self, &items);
+        }
+        let first;
+        let from = match from.items().into_iter().next() {
+            Some(v) if from.kind().element().is_some() => {
+                first = v;
+                &first
+            }
+            _ => from,
+        };
         let f = from.floats();
         let at = |i: usize| f.get(i).copied().unwrap_or(0.0);
         let text = from.text();
@@ -109,6 +165,7 @@ impl ValueType {
             ValueType::Float3 => Value::Float3([at(0), at(1), at(2)]),
             ValueType::Float4 => Value::Float4([at(0), at(1), at(2), at(3)]),
             ValueType::Color3f => Value::Color3f([at(0), at(1), at(2)]),
+            _ => unreachable!("arrays are made above"),
         }
     }
 }
@@ -128,6 +185,12 @@ pub enum Value {
     Color3f([f32; 3]),
     /// A file path (`@path@` in USD).
     Asset(String),
+    IntArray(Vec<i32>),
+    FloatArray(Vec<f32>),
+    Float3Array(Vec<[f32; 3]>),
+    Color3fArray(Vec<[f32; 3]>),
+    StringArray(Vec<String>),
+    TokenArray(Vec<String>),
 }
 
 impl Default for Value {
@@ -169,7 +232,105 @@ impl Value {
             Value::Float4(_) => ValueType::Float4,
             Value::Color3f(_) => ValueType::Color3f,
             Value::Asset(_) => ValueType::Asset,
+            Value::IntArray(_) => ValueType::IntArray,
+            Value::FloatArray(_) => ValueType::FloatArray,
+            Value::Float3Array(_) => ValueType::Float3Array,
+            Value::Color3fArray(_) => ValueType::Color3fArray,
+            Value::StringArray(_) => ValueType::StringArray,
+            Value::TokenArray(_) => ValueType::TokenArray,
         }
+    }
+
+    /// An array's elements, each a value of its own; a value alone, itself.
+    pub fn items(&self) -> Vec<Value> {
+        match self {
+            Value::IntArray(v) => v.iter().map(|x| Value::Int(*x)).collect(),
+            Value::FloatArray(v) => v.iter().map(|x| Value::Float(*x)).collect(),
+            Value::Float3Array(v) => v.iter().map(|x| Value::Float3(*x)).collect(),
+            Value::Color3fArray(v) => v.iter().map(|x| Value::Color3f(*x)).collect(),
+            Value::StringArray(v) => v.iter().map(|x| Value::String(x.clone())).collect(),
+            Value::TokenArray(v) => v.iter().map(|x| Value::Token(x.clone())).collect(),
+            one => vec![one.clone()],
+        }
+    }
+
+    /// An array of type `ty` (`ValueType::ARRAYS`) of `items`, each made its
+    /// element's type.
+    pub fn array(ty: ValueType, items: &[Value]) -> Value {
+        let element = ty.element().unwrap_or(ValueType::Float);
+        let all: Vec<Value> = items.iter().map(|v| element.convert(v)).collect();
+        macro_rules! of {
+            ($v:ident, $x:pat => $e:expr) => {
+                all.iter()
+                    .filter_map(|v| match v {
+                        Value::$v($x) => Some($e),
+                        _ => None,
+                    })
+                    .collect()
+            };
+        }
+        match ty {
+            ValueType::IntArray => Value::IntArray(of!(Int, x => *x)),
+            ValueType::Float3Array => Value::Float3Array(of!(Float3, x => *x)),
+            ValueType::Color3fArray => Value::Color3fArray(of!(Color3f, x => *x)),
+            ValueType::StringArray => Value::StringArray(of!(String, x => x.clone())),
+            ValueType::TokenArray => Value::TokenArray(of!(Token, x => x.clone())),
+            _ => Value::FloatArray(of!(Float, x => *x)),
+        }
+    }
+
+    /// An array's elements as text, a comma between them (`1, 2, 3`,
+    /// `(1, 0, 0), (0, 1, 0)`, `a, b`), as the Parameters show it.
+    pub fn list_text(&self) -> String {
+        self.items()
+            .iter()
+            .map(|v| match v {
+                Value::String(s) | Value::Token(s) => s.clone(),
+                other => other.usda(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// An array of type `ty` read back from `list_text`'s text: tuples in
+    /// brackets, numbers or words between commas.
+    pub fn parse_list(ty: ValueType, text: &str) -> Value {
+        let mut items: Vec<Value> = vec![];
+        let mut rest = text.trim();
+        while !rest.is_empty() {
+            let (one, next) = if rest.starts_with('(') {
+                match rest.find(')') {
+                    Some(i) => (&rest[1..i], &rest[i + 1..]),
+                    None => (&rest[1..], ""),
+                }
+            } else {
+                match rest.find(',') {
+                    Some(i) => (&rest[..i], &rest[i..]),
+                    None => (rest, ""),
+                }
+            };
+            let one = one.trim().trim_matches('"');
+            items.push(match ty.element() {
+                Some(ValueType::String) | Some(ValueType::Token) => Value::String(one.to_string()),
+                _ => Value::FloatArray(one.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect()),
+            });
+            rest = next.trim_start().trim_start_matches(',').trim_start();
+        }
+        // A tuple's numbers become its element: (1, 0, 0) a float3.
+        let items: Vec<Value> = items
+            .iter()
+            .map(|v| match v {
+                Value::FloatArray(f) => match ty.element() {
+                    Some(ValueType::Float3) | Some(ValueType::Color3f) => {
+                        let at = |i: usize| f.get(i).copied().unwrap_or(0.0);
+                        Value::Float3([at(0), at(1), at(2)])
+                    }
+                    _ => Value::Float(f.first().copied().unwrap_or(0.0)),
+                },
+                other => other.clone(),
+            })
+            .collect();
+        Value::array(ty, &items)
     }
 
     /// Its numbers, for keeping what can be kept when the type changes.
@@ -185,6 +346,7 @@ impl Value {
             Value::String(s) | Value::Token(s) | Value::Asset(s) => {
                 s.trim().parse::<f32>().map(|x| vec![x]).unwrap_or_default()
             }
+            array => array.items().iter().flat_map(Value::floats).collect(),
         }
     }
 
@@ -217,6 +379,10 @@ impl Value {
             Value::Float3(v) | Value::Color3f(v) => tuple(v),
             Value::Float4(v) => tuple(v),
             Value::Asset(s) => format!("@{}@", s.replace('@', "")),
+            array => format!(
+                "[{}]",
+                array.items().iter().map(Value::usda).collect::<Vec<_>>().join(", ")
+            ),
         }
     }
 
@@ -229,7 +395,7 @@ impl Value {
     /// Its numbers, for the types that are numbers.
     pub fn numbers(&self) -> Option<Vec<f32>> {
         match self {
-            Value::String(_) | Value::Token(_) | Value::Asset(_) => None,
+            Value::String(_) | Value::Token(_) | Value::Asset(_) | Value::StringArray(_) | Value::TokenArray(_) => None,
             other => Some(other.floats()),
         }
     }
@@ -255,7 +421,17 @@ impl Value {
             Value::Float3(v) => one(Column::Vec3(Arc::new(vec![*v]))),
             Value::Float4(v) => one(Column::Vec4(Arc::new(vec![*v]))),
             Value::Color3f(v) => Some(Attr::new(Column::Vec3(Arc::new(vec![*v])), Role::Color)),
-            Value::Double(_) | Value::String(_) | Value::Asset(_) => None,
+            Value::Double(_) | Value::String(_) | Value::Asset(_) | Value::StringArray(_) => None,
+            // An array: one list, as ICE stores a list per element.
+            Value::IntArray(v) => Some(Attr::lists(Column::Int(Arc::new(v.clone())), v.len(), Role::None)),
+            Value::FloatArray(v) => Some(Attr::lists(Column::Float(Arc::new(v.clone())), v.len(), Role::None)),
+            Value::Float3Array(v) => Some(Attr::lists(Column::Vec3(Arc::new(v.clone())), v.len(), Role::None)),
+            Value::Color3fArray(v) => Some(Attr::lists(Column::Vec3(Arc::new(v.clone())), v.len(), Role::Color)),
+            Value::TokenArray(v) => Some(Attr::lists(
+                Column::Token(Arc::new(v.iter().map(|s| Arc::from(s.as_str())).collect())),
+                v.len(),
+                Role::None,
+            )),
         }
     }
 }

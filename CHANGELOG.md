@@ -8,6 +8,16 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **MaterialX files of an older MaterialX** load: a node naming a definition the library has under another name (1.38's `ND_normalmap`) is read by its node and types instead of being left out.
+- **A node out of its wires:** in the scene and ICE graphs, a node dragged with Shift held comes out of the wires it is in after a few pixels, what fed it joined to what it fed; let go over another wire, it goes in there.
+- **Write USD: Flatten.** One file of the whole scene, the stages and Imago's changes composed into it (USD's flatten), time samples kept, `.usda` or `.usdc`, opening without the files it came from. Time samples were already written over the frame range; flattened they stay.
+- **Load USD: Population Mask.** Rows of prim paths: only those prims, what is below them and their parents are read, the rest of the stage left out, as USD's population mask; a big stage is read quicker. Write USD leaves what was not read as the file has it.
+- **Set Attribute: keys and arrays.** ◇ beside a row keys its value at the playhead: a value a frame, numbers going from key to key and the rest held, as USD does, written by Write USD as `timeSamples`. Arrays: `int[]`, `float[]`, `float3[]`, `color3f[]`, `string[]`, `token[]`, typed between commas; on Object, one list on the primitive.
+- **Material Binding: purpose and strength per row.** All, Preview or Full (`material:binding`, `:preview`, `:full`; the Viewer draws the preview one, final renders use the full one), and ⬇ for `bindMaterialAs = "strongerThanDescendants"`; written by Write USD, listed in the Primitive Inspector.
+- **Transform: Rotate Order and Pivot.** The six orders of USD's `rotateXYZ` and its others (XYZ, about X first, the default for new Transforms); scale and rotation about the Pivot, where the Viewer's handles are. Graphs saved before keep turning as they did (ZYX). A mesh moved in place keeps its primvars, and a mirroring scale turns its faces round.
+- **A node into a wire:** in the scene and ICE graphs, a node dragged over a wire with Shift held lights it, and let go of there goes into it (its first input and output); without Shift nothing joins, as before.
+- **Instancer prototypes from their own input:** prototypes given by a Get Reference are that reference input's prims; another input with prims at the same paths is no longer instanced too.
+
 ## [0.3.1] - 2026-11-11
 
 ICE gets a language: **ISL**, the ICE Scripting Language, code that compiles

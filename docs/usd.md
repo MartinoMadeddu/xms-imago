@@ -99,6 +99,14 @@ Load USD's **Mode** says how the file comes into the scene, as in USD:
 - The Scene Explorer lists the stage at its new paths; Set Attribute, Material
   Binding and every Prims Location tab name it by them.
 
+**Population Mask**, as USD's: rows of prim paths (typed, or dropped from the
+Scene Explorer). Only the prims at those paths, what is below them, and the
+prims above them (as their parents, without their other children) are read;
+the rest of the stage is left out of Imago, so a big stage is read quicker.
+In any mode: with Reference, the paths are the file's. Write USD leaves what
+was not read as the file has it (nothing is deactivated). Empty, the whole
+stage. Changing it reads the stage again.
+
 The Parameters of a Load USD node show the stage: primitive and triangle counts
 (every instanced copy counted), up axis and unit (by name: centimetres, inches…,
 and whether kept as authored or turned to Y-up metres, with a note when a stage
@@ -151,9 +159,20 @@ Each row has a context, a name, a type and a value. **Pick** next to the name
 offers the common names, each with its type and, where USD fixes them, its
 values (`visibility` is `inherited` or `invisible`). Any other name can be
 typed, with its type chosen: `bool`, `int`, `float`, `double`, `string`,
-`token`, `float2`, `float3`, `float4`, `color3f`, `asset`. An Object value takes
-the types a primvar column holds (no `double`, `string` or `asset`). Where two
-rows set the same name, the later one wins.
+`token`, `float2`, `float3`, `float4`, `color3f`, `asset`, and the arrays
+`int[]`, `float[]`, `float3[]`, `color3f[]`, `string[]`, `token[]`, typed with a
+comma between elements (`1, 2, 3`; `(1, 0, 0), (0, 1, 0)`; `a, b`). An Object
+value takes the types a primvar column holds (no `double`, `string`, `asset`
+or `string[]`); an Object array is one list on the primitive, as ICE stores a
+list per element. Where two rows set the same name, the later one wins.
+
+**Keys.** ◇ beside a row keys its value at the playhead (◆ on a key, red when
+the row has keys): keyed, the row has a value a frame, shown and changed at the
+playhead (a change keys it there). Between two keys, floats, vectors, colours
+and float arrays of one length go straight from one to the other; ints,
+booleans, text and the rest hold the earlier key's value, as USD holds them.
+Write USD writes a keyed row as `timeSamples` over its frames. ◆ takes the key
+at the playhead away; the last one gone, the row keeps its value.
 
 The Prims Location tab says where. Here a path **names** that prim alone, of any
 type: a group, a camera or a light as well as a mesh, so `kind` on `/DeLorean`
@@ -519,6 +538,15 @@ many.
   materials of the scene coming in, or drop the material from the Scene
   Explorer. On a primitive two rows take, the later row wins. No rows: nothing
   is bound.
+- Beside the Material column, each row's **purpose**: All
+  (`material:binding`, for every render), Preview
+  (`material:binding:preview`, for viewports: the Viewer draws it) or Full
+  (`material:binding:full`, for final renders; Arnold reads it from the layer
+  Imago writes). The later row wins for each purpose apart. And **⬇**, its
+  strength: lit, the binding is stronger than those of the prims below the
+  ones it binds (`bindMaterialAs = "strongerThanDescendants"`); off, weaker,
+  USD's default. Files' preview and full bindings and strengths are not read
+  yet: the Viewer draws a file's binding for all.
 - A row on a group binds each primitive below it, written on each one: what the
   file bound below it is replaced. A point instancer is not bound itself; its
   prototypes, below it, are.
@@ -745,17 +773,26 @@ says so.
 The Load USD panel shows the stage's time range, and **Use as Scene Range**
 makes it the scene's frames and rate.
 
+**Flatten.** On, Write USD writes one file of the whole scene instead of an
+override layer: the stages' files and Imago's changes composed into it, as
+USD's flatten (`usdcat --flatten`): every prim with its values and time
+samples, no sublayers, references or payloads, so it opens without the files it
+came from. Named `.usda` or `.usdc`, it is written as that. The override layer
+is made beside it first and taken away once flattened.
+
 ## Not done yet
 
 - Load USD: a layer offset on a reference, several references on one prim,
-  population masks, payloads left unloaded
+  payloads left unloaded; a population mask's relationship targets (a point
+  instancer's prototypes outside it) are not added to it
 - Two stages with a prim on one path: Imago shows the stronger one's alone,
   where USD composes the weaker one's attributes under it
 - Transforms in the Properties panel are Imago's, in Y-up metres, whatever
   the scene's axes and unit
 
-- Write USD: editing inside instances, a flattened single file; the stage's own `defaultPrim` (the first root prim is
-  used)
+- Write USD: editing inside instances; the stage's own `defaultPrim` (the
+  first root prim is used); flattened, native instances are written as copies
+  and value clips' samples are not baked in
 - A Primitive Location for the operators that make a plain mesh (Unpack, Merge
   set to Flatten); until then it has no path, and Write USD says so. ICE keeps
   the primitives it is given, with their paths; a plain mesh going into it stays
@@ -776,8 +813,8 @@ makes it the scene's frames and rate.
 - Material Binding: binding a group as a group (one `material:binding` on it,
   inherited below, with `bindMaterialAs` strength), binding purposes (`preview`,
   `full`), collections; the colour of a file's material no primitive wore before
-- Set Attribute: time samples (values are default values), arrays, inherited
-  Object values read by ICE
+- Set Attribute: inherited Object values read by ICE; arrays of `double`,
+  `float2`, `float4`, `asset`
 - Arrays, dictionaries (`customData`) and relationships other than the material
   binding are not listed in the Properties tab
 - Write USD writes nothing for a stage none of whose primitives is left (all

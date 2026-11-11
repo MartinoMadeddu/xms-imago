@@ -84,6 +84,8 @@ apart; `$$` is a `$`.
 | Wire | Drag from an output to an input |
 | Rewire | Drag from a wired input; Ctrl+drag an output moves all its wires |
 | Remove a wire | Right-click it, or click it and Delete |
+| Put a node into a wire | Drag it over the wire with Shift held (the wire lights), let go: what fed the wire feeds its first input, its first output goes where the wire went. Without Shift, nothing joins |
+| Take a node out of its wires | Drag it with Shift held: past a few pixels its wires come off, and what fed its first input feeds what its first output fed, so the others stay joined. Let go over another wire, it goes in there |
 | Unplug a port | Click it, then click the canvas |
 | Select | Drag a box, Shift+click to add |
 | Frame, tidy | F or A; Tidy in the header |
@@ -91,7 +93,8 @@ apart; `$$` is a `$`.
 | Go into an ICE or MaterialX graph | Double-click it, or ↓; ↑ goes back |
 
 Wires, ports and selection work the same in the scene, ICE and MaterialX
-graphs.
+graphs (putting a node into a wire, or taking it out: the scene and ICE
+graphs).
 
 | Add menu | Nodes |
 |---|---|
@@ -236,7 +239,7 @@ says what it left out. The attributes listed are saved with the graph file;
 
 ### Manipulators
 
-Transform's handles turn about its translation; a camera's move and rotate;
+Transform's handles turn about its pivot (its translation plus Pivot); a camera's move and rotate;
 Edit Primitive's work on the first prim it names, in its parents' space, and
 override Translate, Rotate or Scale alone. World axes only, no snapping yet.
 

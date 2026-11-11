@@ -57,6 +57,12 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
         Value::Float2(a) => fields(ui, a),
         Value::Float3(a) => fields(ui, a),
         Value::Float4(a) => fields(ui, a),
+        array @ (Value::IntArray(_)
+        | Value::FloatArray(_)
+        | Value::Float3Array(_)
+        | Value::Color3fArray(_)
+        | Value::StringArray(_)
+        | Value::TokenArray(_)) => list_field(ui, array, w),
         Value::Color3f(c) => {
             ui.horizontal(|ui| {
                 let picked = ui.color_edit_button_rgb(c).changed();
@@ -65,6 +71,26 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
             .inner
         }
     }
+}
+
+/// An array's elements typed between commas (`1, 2, 3`, `(1, 0, 0), (0, 1,
+/// 0)`, `a, b`): read back when the text changes. Whether it changed.
+pub fn list_field(ui: &mut egui::Ui, v: &mut Value, w: f32) -> bool {
+    let ty = v.kind();
+    let mut text = v.list_text();
+    let changed = crate::properties::form::typed(ui, &mut text, |ui, t| {
+        ui.field(
+            egui::TextEdit::singleline(&mut *t)
+                .desired_width(w)
+                .hint_text("1, 2, 3")
+                .font(egui::TextStyle::Monospace),
+        )
+    })
+    .changed();
+    if changed {
+        *v = Value::parse_list(ty, &text);
+    }
+    changed
 }
 
 /// Rows of settings typed in: a name (put under `namespace` when it has none),

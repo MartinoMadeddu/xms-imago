@@ -1089,6 +1089,9 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
     if let Some(m) = &e.material {
         bind(spec, m.as_deref());
     }
+    if let Some(b) = &e.bindings {
+        more_bindings(spec, b, p.material.as_deref());
+    }
     if let Some(purpose) = e.purpose {
         spec.lines
             .push(format!("uniform token purpose = \"{}\"", purpose_token(purpose)));
@@ -1223,6 +1226,9 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
         if let Some(m) = &p.material {
             bind(spec, Some(m));
         }
+        if let Some(b) = &p.bindings {
+            more_bindings(spec, b, p.material.as_deref());
+        }
         for g in v.grids.iter().filter(|g| g.is_field()) {
             let field = &g.field;
             spec.lines.push(format!("rel field:{field} = <{}/{field}>", p.path));
@@ -1319,6 +1325,9 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
     }
     if let Some(m) = &p.material {
         bind(spec, Some(m));
+    }
+    if let Some(b) = &p.bindings {
+        more_bindings(spec, b, p.material.as_deref());
     }
     if p.purpose != Purpose::Default {
         spec.lines
@@ -1542,6 +1551,33 @@ fn bind(spec: &mut Spec, material: Option<&str>) {
     match material {
         Some(m) => spec.lines.push(format!("rel material:binding = <{m}>")),
         None => spec.lines.push("rel material:binding = None".into()),
+    }
+}
+
+/// A prim's preview and full bindings, and the strength of each of its
+/// bindings (`all`: its binding for all purposes), as `bindMaterialAs` on the
+/// relationship: a stronger binding for all is written again with it.
+fn more_bindings(spec: &mut Spec, b: &crate::core::material::Bindings, all: Option<&str>) {
+    use crate::core::material::BindPurpose;
+    const API: &str = "prepend apiSchemas = [\"MaterialBindingAPI\"]";
+    for purpose in BindPurpose::ALL {
+        let stronger = b.stronger[purpose as usize];
+        let Some(target) = b.of(purpose, all) else { continue };
+        if purpose == BindPurpose::All {
+            if !stronger {
+                continue;
+            }
+            spec.lines.retain(|l| !l.starts_with("rel material:binding ="));
+        }
+        if !spec.meta.iter().any(|m| m == API) {
+            spec.meta.push(API.into());
+        }
+        let line = format!("rel {} = <{target}>", purpose.relationship());
+        spec.lines.push(if stronger {
+            format!("{line} (\n    bindMaterialAs = \"strongerThanDescendants\"\n)")
+        } else {
+            line
+        });
     }
 }
 
@@ -2139,6 +2175,29 @@ def BasisCurves "hair" {
     /// Material Binding's result written: the materials as `def Material`s
     /// under a Scope, the bindings as `material:binding`, and read back by the
     /// USD reader Imago loads stages with.
+    /// Preview and full bindings beside the one for all, and a stronger one
+    /// with `bindMaterialAs`.
+    #[test]
+    fn purpose_bindings_and_strength_are_written() {
+        use crate::core::material::Bindings;
+        let mut spec = Spec::default();
+        bind(&mut spec, Some("/m/paint"));
+        let b = Bindings {
+            preview: Some("/m/grey".into()),
+            full: None,
+            stronger: [true, false, false],
+        };
+        more_bindings(&mut spec, &b, Some("/m/paint"));
+        assert_eq!(
+            spec.lines,
+            [
+                "rel material:binding = </m/paint> (\n    bindMaterialAs = \"strongerThanDescendants\"\n)",
+                "rel material:binding:preview = </m/grey>",
+            ]
+        );
+        assert_eq!(spec.meta.len(), 1, "MaterialBindingAPI once");
+    }
+
     #[test]
     fn bound_materials_are_written_and_read_back() {
         use crate::core::material::{bind, BindTo, Material, PreviewSurface};
@@ -2164,6 +2223,7 @@ def BasisCurves "hair" {
             "/materials",
             &rows,
             &[BindTo::Same, BindTo::Same],
+            &[],
         ) else {
             panic!()
         };
@@ -2687,6 +2747,7 @@ def Xform "set" {{
             context,
             name: name.into(),
             value,
+            keys: vec![],
         };
         let at = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let set = |input: Vec<Prim>, rows: &[SetRow], l: &[&str]| match set_attributes(
@@ -2780,11 +2841,13 @@ def Xform "set" {{
                 context: SetContext::Object,
                 name: "displayColor".into(),
                 value: Value::Color3f([0.0, 1.0, 0.0]),
+                keys: vec![],
             },
             SetRow {
                 context: SetContext::Property,
                 name: "visibility".into(),
                 value: Value::Token("invisible".into()),
+                keys: vec![],
             },
         ];
         let shapes = vec![

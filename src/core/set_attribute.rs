@@ -50,11 +50,21 @@ use crate::core::locations;
 use crate::core::properties::{is_below, parents, purpose, Opinions, Preset, SetContext, Value, ValueType};
 use crate::types::{EvalResult, Prim};
 
-/// One row of a Set Attribute operator: one value.
+/// One row of a Set Attribute operator: one value, or, keyed, one a frame
+/// (`keys`, by frame): written by Write USD as time samples.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SetRow {
     pub context: SetContext,
     pub name: String,
+    pub value: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<RowKey>,
+}
+
+/// A row's value at a frame.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RowKey {
+    pub frame: f64,
     pub value: Value,
 }
 
@@ -72,6 +82,88 @@ impl SetRow {
             context,
             name: p.name.to_string(),
             value,
+            keys: vec![],
+        }
+    }
+
+    /// Its value at `frame`: between two keys, numbers of the same shape
+    /// (floats, vectors, colours, arrays as long) go straight from one to the
+    /// other; ints, booleans, text and arrays of other lengths hold the
+    /// earlier key's, as USD holds them. Before the first key the first, after
+    /// the last the last; not keyed, its value.
+    pub fn value_at(&self, frame: f64) -> Value {
+        let (Some(first), Some(last)) = (self.keys.first(), self.keys.last()) else {
+            return self.value.clone();
+        };
+        if frame <= first.frame {
+            return first.value.clone();
+        }
+        if frame >= last.frame {
+            return last.value.clone();
+        }
+        let k = self.keys.partition_point(|k| k.frame <= frame);
+        let (a, b) = (&self.keys[k - 1], &self.keys[k]);
+        let t = ((frame - a.frame) / (b.frame - a.frame)) as f32;
+        let smooth = matches!(
+            a.value.kind(),
+            ValueType::Float
+                | ValueType::Double
+                | ValueType::Float2
+                | ValueType::Float3
+                | ValueType::Float4
+                | ValueType::Color3f
+                | ValueType::FloatArray
+                | ValueType::Float3Array
+                | ValueType::Color3fArray
+        );
+        match (a.value.numbers(), b.value.numbers()) {
+            (Some(x), Some(y)) if smooth && a.value.kind() == b.value.kind() && x.len() == y.len() => {
+                let m: Vec<f32> = x.iter().zip(&y).map(|(p, q)| p + (q - p) * t).collect();
+                let at = |i: usize| m.get(i).copied().unwrap_or(0.0);
+                let threes = || m.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect::<Vec<_>>();
+                match a.value.kind() {
+                    ValueType::Double => match (&a.value, &b.value) {
+                        (Value::Double(p), Value::Double(q)) => Value::Double(p + (q - p) * t as f64),
+                        _ => a.value.clone(),
+                    },
+                    ValueType::Float2 => Value::Float2([at(0), at(1)]),
+                    ValueType::Float3 => Value::Float3([at(0), at(1), at(2)]),
+                    ValueType::Float4 => Value::Float4([at(0), at(1), at(2), at(3)]),
+                    ValueType::Color3f => Value::Color3f([at(0), at(1), at(2)]),
+                    ValueType::FloatArray => Value::FloatArray(m.clone()),
+                    ValueType::Float3Array => Value::Float3Array(threes()),
+                    ValueType::Color3fArray => Value::Color3fArray(threes()),
+                    _ => Value::Float(at(0)),
+                }
+            }
+            _ => a.value.clone(),
+        }
+    }
+
+    /// The key at `frame`, if there is one.
+    pub fn key_at(&self, frame: f64) -> Option<usize> {
+        self.keys.iter().position(|k| (k.frame - frame).abs() < 1e-6)
+    }
+
+    /// Key `value` at `frame`, in frame order.
+    pub fn set_key(&mut self, frame: f64, value: Value) {
+        match self.key_at(frame) {
+            Some(i) => self.keys[i].value = value,
+            None => {
+                let at = self.keys.partition_point(|k| k.frame < frame);
+                self.keys.insert(at, RowKey { frame, value });
+            }
+        }
+    }
+
+    /// Take the key at `frame` away. The last one gone, the row keeps its
+    /// value.
+    pub fn remove_key(&mut self, frame: f64) {
+        if let Some(i) = self.key_at(frame) {
+            let k = self.keys.remove(i);
+            if self.keys.is_empty() {
+                self.value = k.value;
+            }
         }
     }
 
@@ -313,6 +405,7 @@ mod tests {
             context,
             name: name.into(),
             value,
+            keys: vec![],
         }
     }
     fn locs(l: &[&str]) -> Vec<String> {
@@ -596,5 +689,64 @@ mod tests {
         assert_eq!(written("kind"), Written::Metadata);
         assert_eq!(written("subdivisionScheme"), Written::Uniform);
         assert_eq!(written("userProperties:assetId"), Written::Attribute);
+    }
+
+    /// Arrays: written as USD writes them, typed back from their text, made
+    /// from a value and back, an Object array a list of one element.
+    #[test]
+    fn arrays_are_written_typed_and_kept_as_lists() {
+        assert_eq!(Value::FloatArray(vec![1.0, 2.5]).usda(), "[1, 2.5]");
+        let colours = Value::Color3fArray(vec![[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]);
+        assert_eq!(colours.usda(), "[(1, 0, 0), (0, 1, 0)]");
+        assert_eq!(colours.kind().usd(), "color3f[]");
+        assert_eq!(Value::TokenArray(vec!["a".into(), "b".into()]).usda(), "[\"a\", \"b\"]");
+        assert_eq!(
+            Value::parse_list(ValueType::Color3fArray, &colours.list_text()),
+            colours
+        );
+        assert_eq!(
+            Value::parse_list(ValueType::IntArray, " 1, 2 ,3"),
+            Value::IntArray(vec![1, 2, 3])
+        );
+        assert_eq!(
+            Value::parse_list(ValueType::StringArray, "one, two"),
+            Value::StringArray(vec!["one".into(), "two".into()])
+        );
+        assert_eq!(
+            ValueType::FloatArray.convert(&Value::Float(0.5)),
+            Value::FloatArray(vec![0.5])
+        );
+        assert_eq!(ValueType::Int.convert(&Value::IntArray(vec![7, 8])), Value::Int(7));
+        let a = Value::IntArray(vec![4, 5, 6]).attr().unwrap();
+        assert_eq!(a.element_size, 3);
+        assert!(Value::StringArray(vec![]).attr().is_none(), "no column of strings");
+    }
+
+    /// A keyed row: numbers go from key to key, tokens hold; before the
+    /// first key the first, after the last the last; the last key taken away
+    /// leaves its value.
+    #[test]
+    fn keyed_rows_have_a_value_a_frame() {
+        let mut r = row(SetContext::Object, "heat", Value::Float(0.0));
+        r.set_key(10.0, Value::Float(1.0));
+        r.set_key(20.0, Value::Float(3.0));
+        assert_eq!(r.value_at(15.0), Value::Float(2.0));
+        assert_eq!(
+            (r.value_at(1.0), r.value_at(99.0)),
+            (Value::Float(1.0), Value::Float(3.0))
+        );
+        let mut t = row(SetContext::Property, "visibility", Value::Token("inherited".into()));
+        t.set_key(1.0, Value::Token("inherited".into()));
+        t.set_key(5.0, Value::Token("invisible".into()));
+        assert_eq!(t.value_at(4.9), Value::Token("inherited".into()));
+        assert_eq!(t.value_at(5.0), Value::Token("invisible".into()));
+        let mut c = row(SetContext::Object, "c", Value::Color3fArray(vec![[0.0; 3]]));
+        c.set_key(0.0, Value::Color3fArray(vec![[0.0; 3]]));
+        c.set_key(2.0, Value::Color3fArray(vec![[1.0, 0.0, 0.0]]));
+        assert_eq!(c.value_at(1.0), Value::Color3fArray(vec![[0.5, 0.0, 0.0]]));
+        r.remove_key(10.0);
+        r.remove_key(20.0);
+        assert!(r.keys.is_empty());
+        assert_eq!(r.value, Value::Float(3.0));
     }
 }

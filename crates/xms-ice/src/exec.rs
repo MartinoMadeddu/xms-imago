@@ -1729,11 +1729,14 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
 /// the graph ran on. Instance `i` is prototype `prototypes[proto_indices[i]]`
 /// at `positions[i]`, turned by `orientations[i]` (i, j, k, real) and scaled by
 /// `scales[i]`. `path`: the instancer prim's, as the Instancer was given it
-/// (relative: beside the primitive).
+/// (relative: beside the primitive). `prototypes_input`: the reference input
+/// (from 1) the prototypes' paths are on, when one Get Reference gave them:
+/// only its prims are instanced, not those at the same paths on another.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Instances {
     pub path: String,
     pub prototypes: Vec<String>,
+    pub prototypes_input: Option<usize>,
     pub proto_indices: Vec<i32>,
     pub positions: Vec<[f32; 3]>,
     pub orientations: Vec<[f32; 4]>,
@@ -1765,6 +1768,7 @@ fn instances(p: &InstancerPlan, regs: &[Reg]) -> Instances {
     if kinds == 0 {
         return Instances {
             path: p.path.clone(),
+            prototypes_input: p.protos_input,
             ..Default::default()
         };
     }
@@ -1780,6 +1784,7 @@ fn instances(p: &InstancerPlan, regs: &[Reg]) -> Instances {
     let mut out = Instances {
         path: p.path.clone(),
         prototypes,
+        prototypes_input: p.protos_input,
         ..Default::default()
     };
     out.positions = positions.iter().map(|v| v.to_array()).collect();

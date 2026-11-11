@@ -1437,6 +1437,7 @@ fn the_instancer_makes_usds_point_instancer_from_its_inputs() {
         (i.path.as_str(), i.positions.len(), i.prototypes.len()),
         ("/set/scatter", 500, 2)
     );
+    assert_eq!(i.prototypes_input, Some(1), "their paths are reference 1's");
     assert_eq!(
         (i.proto_indices.len(), i.orientations.len(), i.scales.len()),
         (500, 500, 500),

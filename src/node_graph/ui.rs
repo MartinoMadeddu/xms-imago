@@ -4,6 +4,9 @@ use glam::Vec3;
 
 pub const NODE_WIDTH: f32 = 180.0;
 pub const NODE_HEIGHT: f32 = 50.0;
+/// How far a node is dragged with Shift held before it comes out of its
+/// wires, in pixels.
+const PULL_OUT: f32 = 24.0;
 const SOCKET_RADIUS: f32 = 4.5;
 const SOCKET_HIT: f32 = 22.0;
 const NODE_ROUNDING: f32 = 5.0;
@@ -441,8 +444,21 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         y += grid_spacing;
     }
 
-    // Connections
+    // Connections. A node dragged with Shift held over a wire it can go
+    // into lights the wire; let go of, it goes in.
     let mut hovered_conn: Option<ConnectionId> = None;
+    let dropping = graph
+        .dragging_node
+        .filter(|_| ui.input(|i| i.modifiers.shift) && graph.selected_nodes.len() <= 1)
+        .and_then(|d| graph.nodes.iter().find(|n| n.id == d))
+        .map(|n| {
+            let at = to_screen(n.position);
+            (
+                n.id,
+                egui::Rect::from_min_size(at, egui::vec2(node_width(n), node_height(n)) * zoom),
+            )
+        });
+    graph.drop_on_wire = None;
     for conn in &graph.connections.clone() {
         if let (Some(fn_), Some(tn)) = (
             graph.nodes.iter().find(|n| n.id == conn.from_node),
@@ -461,7 +477,14 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
                     hovered_conn = Some(conn.id);
                 }
             }
-            draw_wire_to(&painter, fp, tp, side, hovered_conn == Some(conn.id), is_sel);
+            if let Some((d, r)) = dropping {
+                if graph.drop_on_wire.is_none() && graph.can_insert_on_wire(d, conn.id) && crosses_rect(r, fp, tp, side)
+                {
+                    graph.drop_on_wire = Some(conn.id);
+                }
+            }
+            let lit = hovered_conn == Some(conn.id) || graph.drop_on_wire == Some(conn.id);
+            draw_wire_to(&painter, fp, tp, side, lit, is_sel);
         }
     }
     if let Some(cid) = hovered_conn {
@@ -1253,8 +1276,21 @@ fn draw_node(
         }
         graph.dragging_node = Some(id);
         graph.drag_offset = dr.interact_pointer_pos().unwrap_or_default() - np;
+        graph.pulled_out = false;
     }
     if dr.dragged_by(egui::PointerButton::Primary) && graph.dragging_node == Some(id) {
+        // Shift held and dragged far enough: out of the wires it is in.
+        let far = |i: &egui::InputState| {
+            i.modifiers.shift
+                && i.pointer
+                    .press_origin()
+                    .zip(i.pointer.latest_pos())
+                    .is_some_and(|(a, b)| a.distance(b) > PULL_OUT)
+        };
+        if !graph.pulled_out && graph.selected_nodes.len() <= 1 && ui.input(far) {
+            graph.pulled_out = true;
+            graph.pull_out(id);
+        }
         if let Some(ptr) = dr.interact_pointer_pos() {
             let new_pos = to_canvas(ptr - graph.drag_offset);
             if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == id) {
@@ -1274,6 +1310,11 @@ fn draw_node(
     }
     if dr.drag_stopped() {
         graph.dragging_node = None;
+        if let Some(cid) = graph.drop_on_wire.take() {
+            if ui.input(|i| i.modifiers.shift) {
+                graph.insert_on_wire(id, cid);
+            }
+        }
     }
 
     // A prim dragged from the Scene Explorer onto an operator that works on
@@ -1475,7 +1516,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::WriteImage { path: String::new(), colour: String::new(), frames: Default::default(), start: 1, end: 1 }, "Its image written: EXR with every channel, or PNG, JPEG, TIFF; a frame or a range"),
         ]),
         ("🔨", "Modify", vec![
-            (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
+            (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE, pivot: Default::default(), order: Default::default() }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
             (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
             (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default(), snippet: false }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
@@ -1493,7 +1534,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("🎨", "Materials", vec![
             (NodeType::Material { surface: Default::default() }, "A UsdPreviewSurface material: colour, roughness, metallic, opacity and textures. Named by the node"),
             (NodeType::materialx(), "A material made from a graph of MaterialX nodes: standard_surface, open_pbr_surface, textures, maths. Double-click it to open its graph. Named by the node"),
-            (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
+            (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![], options: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
         ]),
         ("💡", "Lights", vec![
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Dome)), "Light from every direction, from an environment image (an HDR): the sky and everything around"),
@@ -1836,6 +1877,12 @@ pub fn draw_wire_to(
         (2.0, xsi::WIRE())
     };
     painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
+}
+
+/// Whether the wire from `from` to `to` passes through `r`.
+fn crosses_rect(r: egui::Rect, from: egui::Pos2, to: egui::Pos2, side: (bool, bool)) -> bool {
+    let (c1, c2) = handles(from, to, side);
+    (0..=40).any(|i| r.contains(bezier(from, c1, c2, to, i as f32 / 40.0)))
 }
 
 fn is_near_bezier(p: egui::Pos2, from: egui::Pos2, to: egui::Pos2, side: (bool, bool), thresh: f32) -> bool {

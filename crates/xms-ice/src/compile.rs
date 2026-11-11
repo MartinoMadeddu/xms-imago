@@ -53,6 +53,9 @@ pub(crate) struct InstancerPlan {
     pub seed: u32,
     pub positions: usize,
     pub protos: usize,
+    /// The reference input the prototypes are paths on, when one Get
+    /// Reference gives them.
+    pub protos_input: Option<usize>,
     pub index: usize,
     pub orient: usize,
     pub scale: usize,
@@ -2199,6 +2202,7 @@ impl Lower<'_> {
             seed,
             positions: positions.reg,
             protos: protos.reg,
+            protos_input: self.from_input.get(&protos.reg).copied(),
             index: index.reg,
             orient: orient.reg,
             scale: scale.reg,

@@ -11,6 +11,9 @@ use std::collections::HashSet;
 // type, wires in the same colour; a light grey canvas with a fine grid. Every
 // size and colour is here, so the look can be tuned in one place.
 
+/// How far a node is dragged with Shift held before it comes out of its
+/// wires, in pixels.
+const PULL_OUT: f32 = 24.0;
 const TITLE_H: f32 = 32.0; // two lines: the node's name, then its type
 const FOLDED_H: f32 = 20.0; // a collapsed node: its name only
 const ROW_H: f32 = 15.0; // one port per row
@@ -1554,8 +1557,18 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
         }
     }
 
-    // Existing connections
+    // Existing connections. A node dragged with Shift held over a wire it
+    // can go into lights the wire; let go of, it goes in.
     let mut hovered: Option<ConnectionId> = None;
+    let dropping = graph
+        .dragging_node
+        .filter(|_| ui.input(|i| i.modifiers.shift) && graph.selected_nodes.len() <= 1)
+        .and_then(|d| graph.nodes.iter().find(|n| n.id == d))
+        .map(|n| {
+            let size = layout(n, collapsed.contains(&n.id)).size * z;
+            (n.id, egui::Rect::from_min_size(to_screen(n.position), size))
+        });
+    graph.drop_on_wire = None;
     for conn in &graph.connections.clone() {
         if let (Some(fn_), Some(tn)) = (
             graph.nodes.iter().find(|n| n.id == conn.from_node),
@@ -1568,6 +1581,11 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
                     hovered = Some(conn.id);
                 }
             }
+            if let Some((d, r)) = dropping {
+                if graph.drop_on_wire.is_none() && graph.can_insert_on_wire(d, conn.id) && crosses_rect_h(r, fp, tp) {
+                    graph.drop_on_wire = Some(conn.id);
+                }
+            }
             let colour = out_colour(graph, fn_.id, conn.from_output);
             // Selected, or a wire of the port picked to unplug: a band in the
             // selection colour under it.
@@ -1578,7 +1596,8 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
             if graph.selected_wire == Some(conn.id) || picked {
                 draw_selected_wire_h(&painter, fp, tp, z);
             }
-            draw_wire_h(&painter, fp, tp, colour, hovered == Some(conn.id), z);
+            let lit = hovered == Some(conn.id) || graph.drop_on_wire == Some(conn.id);
+            draw_wire_h(&painter, fp, tp, colour, lit, z);
         }
     }
     // Click a wire: select it (Delete takes it off). Right-click: take it off.
@@ -2429,8 +2448,22 @@ fn draw_subnet_node(
         }
         graph.selected_node = Some(id);
         graph.selected_wire = None;
+        graph.pulled_out = false;
     }
     if dr.dragged() && graph.dragging_node == Some(id) {
+        // Shift held and dragged far enough: out of the wires it is in.
+        let far = |i: &egui::InputState| {
+            i.modifiers.shift
+                && i.pointer
+                    .press_origin()
+                    .zip(i.pointer.latest_pos())
+                    .is_some_and(|(a, b)| a.distance(b) > PULL_OUT)
+        };
+        let root = matches!(node.node_type, IceGraphNodeType::Root { .. });
+        if !root && !graph.pulled_out && graph.selected_nodes.len() <= 1 && ui.input(far) {
+            graph.pulled_out = true;
+            graph.pull_out(id);
+        }
         if let Some(ptr) = dr.interact_pointer_pos() {
             let delta = to_canvas(ptr - graph.drag_offset) - node.position;
             let moving = graph.selected_nodes.clone();
@@ -2441,6 +2474,11 @@ fn draw_subnet_node(
     }
     if dr.drag_stopped() {
         graph.dragging_node = None;
+        if let Some(cid) = graph.drop_on_wire.take() {
+            if ui.input(|i| i.modifiers.shift) {
+                graph.insert_on_wire(id, cid);
+            }
+        }
     }
 }
 
@@ -2500,6 +2538,15 @@ pub fn draw_wire_h(
             if hovered { egui::Color32::WHITE } else { colour },
         ),
     ));
+}
+
+/// Whether the wire from `from` to `to` (as `draw_wire_h` draws it, at view
+/// scale 1) passes through `r`.
+fn crosses_rect_h(r: egui::Rect, from: egui::Pos2, to: egui::Pos2) -> bool {
+    let off = (to.x - from.x).abs().max(60.0) * 0.5;
+    let c1 = egui::pos2(from.x + off, from.y);
+    let c2 = egui::pos2(to.x - off, to.y);
+    (0..=40).any(|i| r.contains(bezier(from, c1, c2, to, i as f32 / 40.0)))
 }
 
 pub(crate) fn is_near_bezier_h(p: egui::Pos2, from: egui::Pos2, to: egui::Pos2, thresh: f32) -> bool {

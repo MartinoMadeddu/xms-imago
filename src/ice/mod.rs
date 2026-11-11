@@ -139,6 +139,12 @@ pub struct IceGraph {
     /// it is gone.
     pub wire_dragged: bool,
     pub dragging_node: Option<NodeId>,
+    /// The wire a node dragged with Shift held is over: let go of there, the
+    /// node goes into it (`insert_on_wire`).
+    pub drop_on_wire: Option<ConnectionId>,
+    /// The node being dragged was pulled out of its wires this drag
+    /// (`pull_out`, Shift held): it is not pulled again until let go of.
+    pub pulled_out: bool,
     pub drag_offset: egui::Vec2,
     pub connecting_from: Option<(NodeId, usize)>,
     pub pan_offset: egui::Vec2,
@@ -381,6 +387,8 @@ impl IceGraph {
             carrying: vec![],
             wire_dragged: false,
             dragging_node: None,
+            drop_on_wire: None,
+            pulled_out: false,
             drag_offset: egui::Vec2::ZERO,
             connecting_from: None,
             pan_offset: egui::Vec2::ZERO,
@@ -904,6 +912,70 @@ impl IceGraph {
         for cid in off {
             self.remove_connection(cid);
         }
+    }
+
+    /// `node` taken out of the wires it is in, as Houdini's shake does: what
+    /// fed its first input feeds what its first output fed, and every wire to
+    /// or from it goes. Whether any wire went.
+    pub fn pull_out(&mut self, node: NodeId) -> bool {
+        let fed = self
+            .nodes
+            .iter()
+            .find(|n| n.id == node)
+            .and_then(|n| n.inputs.first())
+            .and_then(|i| i.connected_output);
+        let feeds: Vec<(NodeId, usize)> = self
+            .connections
+            .iter()
+            .filter(|c| c.from_node == node && c.from_output == 0)
+            .map(|c| (c.to_node, c.to_input))
+            .collect();
+        let wires: Vec<ConnectionId> = self
+            .connections
+            .iter()
+            .filter(|c| c.from_node == node || c.to_node == node)
+            .map(|c| c.id)
+            .collect();
+        for cid in &wires {
+            self.remove_connection(*cid);
+        }
+        if let Some((from, out)) = fed {
+            for (to, input) in feeds {
+                self.add_connection(from, out, to, input);
+            }
+        }
+        !wires.is_empty()
+    }
+
+    /// Whether `node` can go into wire `cid`: not one of its ends, nor the
+    /// root, with an input and an output, its first input free.
+    pub fn can_insert_on_wire(&self, node: NodeId, cid: ConnectionId) -> bool {
+        let Some(c) = self.connections.iter().find(|c| c.id == cid) else {
+            return false;
+        };
+        let Some(n) = self.nodes.iter().find(|n| n.id == node) else {
+            return false;
+        };
+        c.from_node != node
+            && c.to_node != node
+            && !matches!(n.node_type, IceGraphNodeType::Root { .. })
+            && !n.outputs.is_empty()
+            && n.inputs.first().is_some_and(|i| i.connected_output.is_none())
+    }
+
+    /// `node` put into wire `cid`, as Softimage and Houdini do: what fed the
+    /// wire feeds its first input, its first output where the wire went.
+    pub fn insert_on_wire(&mut self, node: NodeId, cid: ConnectionId) -> bool {
+        if !self.can_insert_on_wire(node, cid) {
+            return false;
+        }
+        let Some(c) = self.connections.iter().find(|c| c.id == cid).cloned() else {
+            return false;
+        };
+        self.remove_connection(cid);
+        self.add_connection(c.from_node, c.from_output, node, 0);
+        self.add_connection(node, 0, c.to_node, c.to_input);
+        true
     }
 
     pub fn remove_connection(&mut self, cid: ConnectionId) {
@@ -1837,6 +1909,33 @@ mod tests {
         g
     }
 
+    /// A node dragged into a wire with Shift: in between its ends; not the
+    /// root, nor a node whose first input is taken.
+    #[test]
+    fn a_node_goes_into_a_wire() {
+        let mut g = doubling();
+        let root = g.root().unwrap();
+        let wire = |g: &IceGraph, to: NodeId| g.connections.iter().find(|c| c.to_node == to).unwrap().id;
+        let set = g.connections.iter().find(|c| c.to_node == root).unwrap().from_node;
+        let mul = g.connections.iter().find(|c| c.to_node == set).unwrap().from_node;
+        let add = g.add_node(
+            "Add".into(),
+            IceGraphNodeType::Math { op: Math::Add },
+            egui::pos2(0.0, 0.0),
+        );
+        assert!(!g.can_insert_on_wire(root, wire(&g, set)));
+        assert!(!g.can_insert_on_wire(mul, wire(&g, set)), "one of its ends");
+        assert!(g.insert_on_wire(add, wire(&g, set)));
+        let from = |to: NodeId| g.connections.iter().find(|c| c.to_node == to).map(|c| c.from_node);
+        assert_eq!((from(add), from(set)), (Some(mul), Some(add)));
+        assert!(!g.can_insert_on_wire(add, wire(&g, root)), "its first input taken");
+        // Pulled out: the multiply feeds the set again.
+        assert!(g.pull_out(add));
+        let from = |to: NodeId| g.connections.iter().find(|c| c.to_node == to).map(|c| c.from_node);
+        assert_eq!(from(set), Some(mul));
+        assert!(g.connections.iter().all(|c| c.from_node != add && c.to_node != add));
+    }
+
     #[test]
     fn a_graph_runs_on_geo_and_shares_what_it_does_not_set() {
         let g = doubling();
@@ -2311,6 +2410,8 @@ mod tests {
                 translation: glam::Vec3::new(0.0, 3.0, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -2321,6 +2422,8 @@ mod tests {
                 translation: glam::Vec3::new(10.0, 0.0, 0.0),
                 rotation: glam::Vec3::ZERO,
                 scale: glam::Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );

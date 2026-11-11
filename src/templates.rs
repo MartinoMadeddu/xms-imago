@@ -230,6 +230,8 @@ fn transform(t: [f32; 3], r: [f32; 3], s: [f32; 3]) -> NodeType {
         translation: Vec3::from_array(t),
         rotation: Vec3::from_array(r),
         scale: Vec3::from_array(s),
+        pivot: Default::default(),
+        order: Default::default(),
     }
 }
 
@@ -1114,6 +1116,7 @@ fn usd_set_attribute(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                 context: SetContext::Property,
                 name: "visibility".into(),
                 value: Value::Token("invisible".into()),
+                keys: vec![],
             }],
         },
         p(180.0, 110.0),
@@ -1130,11 +1133,13 @@ fn usd_set_attribute(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                     context: SetContext::Property,
                     name: "kind".into(),
                     value: Value::Token("component".into()),
+                    keys: vec![],
                 },
                 SetRow {
                     context: SetContext::Object,
                     name: "displayColor".into(),
                     value: Value::Color3f([0.75, 0.75, 0.78]),
+                    keys: vec![],
                 },
             ],
         },
@@ -1183,6 +1188,7 @@ fn usd_material_binding(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String
             library: crate::types::material_library(),
             inputs: 3,
             bindings: vec![],
+            options: vec![],
         },
         p(180.0, 110.0),
     );
@@ -1236,6 +1242,8 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                 translation: Vec3::from(t),
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             p(0.0, 0.0),
         );
@@ -1336,6 +1344,8 @@ fn variant_shapes(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                 translation: Vec3::new(0.0, 0.5, 0.0),
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             p(x, 110.0),
         );
@@ -1380,6 +1390,7 @@ fn variant_stages(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                 location: at.into(),
                 prim: String::new(),
                 convert: false,
+                mask: vec![],
             },
             p(x, 20.0),
         );
@@ -1458,6 +1469,8 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         translation: Vec3::from(t),
         rotation: Vec3::from(r),
         scale: Vec3::from(s),
+        pivot: Default::default(),
+        order: Default::default(),
     };
 
     // The shapes.
@@ -1572,6 +1585,7 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             library: "/root/materials".into(),
             inputs: 5,
             bindings: vec![],
+            options: vec![],
         },
         p(395.0, 115.0),
     );
@@ -1583,6 +1597,7 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             library: crate::types::material_library(),
             inputs: 1,
             bindings: vec![BindTo::Path("/root/materials/ground".into())],
+            options: vec![],
         },
         p(395.0, 300.0),
     );
@@ -1668,6 +1683,8 @@ fn materialx_shaders(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         translation: Vec3::new(x, 0.0, 0.0),
         rotation: Vec3::ZERO,
         scale: Vec3::ONE,
+        pivot: Default::default(),
+        order: Default::default(),
     };
     let a = g.add_node("GoldSphere".into(), sphere("gold"), p(60.0, -420.0));
     let a_at = g.add_node("Left".into(), shift(-1.3), p(60.0, -330.0));
@@ -1706,6 +1723,7 @@ fn materialx_shaders(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             library: "/root/materials".into(),
             inputs: 4,
             bindings: vec![],
+            options: vec![],
         },
         p(290.0, 80.0),
     );
@@ -2427,6 +2445,8 @@ fn mocap_pipeline(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             translation: Vec3::ZERO,
             rotation: Vec3::ZERO,
             scale: Vec3::ONE,
+            pivot: Default::default(),
+            order: Default::default(),
         },
         p(700.0, 120.0),
     );
@@ -2442,6 +2462,8 @@ fn mocap_pipeline(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                 translation: Vec3::ZERO,
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             p(x, 240.0),
         );
@@ -2870,6 +2892,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
                 location: location.into(),
                 prim: String::new(),
                 convert: false,
+                mask: vec![],
             },
             p(x, 20.0),
         )
@@ -3291,6 +3314,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
                 location: location.into(),
                 prim: prim.into(),
                 convert: false,
+                mask: vec![],
             },
             p(x, 20.0),
         )
@@ -3545,6 +3569,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
                 location: location.into(),
                 prim: prim.into(),
                 convert: false,
+                mask: vec![],
             },
             p(x, 20.0),
         )
@@ -3737,6 +3762,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             location: "/protos/delorean".into(),
             prim: String::new(),
             convert: false,
+            mask: vec![],
         },
         p(520.0, 20.0),
     );

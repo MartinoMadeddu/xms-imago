@@ -725,8 +725,9 @@ pub fn draw_properties(
             };
             let paths = if names { &scene_in } else { &prim_paths };
             let binds = match &mut node.node_type {
-                NodeType::MaterialBinding { bindings, .. } => Some(BindColumn {
+                NodeType::MaterialBinding { bindings, options, .. } => Some(BindColumn {
                     to: bindings,
+                    options,
                     inputs: &port_names,
                     scene: &scene_materials,
                 }),
@@ -955,21 +956,26 @@ pub fn draw_properties(
             });
             location_group(ui, location, crate::core::volume::DEFAULT_LOCATION);
         }
-        NodeType::LoadUsd { path, mode, location, prim, convert } => {
+        NodeType::LoadUsd { path, mode, location, prim, convert, mask } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd", "abc"]);
                 path_status(f, path);
             });
             let read = crate::core::vars::expand(path.trim(), &[]);
-            load_mode_rows(ui, &read, mode, location, prim, *convert);
+            load_mode_rows(ui, &read, mode, location, prim, *convert, mask);
+            mask_rows(ui, mask);
             group(ui, "Units and axis", None, |f| {
                 f.toggle("Y-up metres", Some("Turn the stage to Y-up and scale it to metres by its upAxis and metersPerUnit, in its placement (the geometry stays as authored). Off: as authored, read as if Y-up metres. Either way, a layer written has it where Imago shows it, in the scene's axes and unit (File > Settings > Scene). Changing it reads the stage again"), convert);
             });
-            if !read.is_empty() { usd_summary(ui, &read, *convert, io); }
+            if !read.is_empty() { usd_summary(ui, &read, *convert, mask, io); }
         }
-        NodeType::WriteUsd { path, frames, start, end, step } => {
+        NodeType::WriteUsd { path, frames, start, end, step, flatten } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
-                path_row(f, path, "/path/to/edits.usda", io, sel_id, BrowseMode::Save, "Write USD layer", &["usda"]);
+                path_row(f, path, "/path/to/edits.usda", io, sel_id, BrowseMode::Save, "Write USD layer", &["usda", "usdc"]);
+                f.toggle("Flatten", Some("One file of the whole scene: the stages' files and Imago's changes composed into it, as USD's flatten (usdcat --flatten), time samples kept; no sublayers or references, so it opens without the files it came from. .usda or .usdc by its name. Off: an override layer over the files"), flatten);
+                if !*flatten && path.trim().to_ascii_lowercase().ends_with(".usdc") {
+                    f.status(Status::Bad, "An override layer is .usda: turn Flatten on for .usdc");
+                }
             });
             group(ui, "Frames", Some("The frames written: what changes from one to the next is written as time samples, the rest as single values. Nothing above it changing over time, one frame is written"), |f| {
                 use crate::types::WriteFrames;
@@ -1086,17 +1092,19 @@ pub fn draw_properties(
         }
 
         // Modify
-        NodeType::Transform { translation, rotation, scale } => {
+        NodeType::Transform { translation, rotation, scale, pivot, order } => {
             let clip = anim.input.is_some();
             let mut reset = false;
             group_with(ui, "Transform",
-                Some("Moves whatever comes in: a mesh, primitives (the picked ones, or all of them), or a clip. A clip moves by its top joints, so its skinned mesh moves with it once. Scale, then rotate X, Y, Z, then translate"),
+                Some("Moves whatever comes in: a mesh, primitives (the picked ones, or all of them), or a clip. A clip moves by its top joints, so its skinned mesh moves with it once. Scale, then rotate in the Rotate Order, both about the Pivot, then translate"),
                 |ui| { if ui.small_button("Reset").clicked() { reset = true; } },
                 |f| {
                     let mut t = translation.to_array();
                     if f.xyz("Translate", None, &mut t, 0.01, "") { *translation = Vec3::from_array(t); }
                     let mut deg = [rotation.x.to_degrees(), rotation.y.to_degrees(), rotation.z.to_degrees()];
                     if f.xyz("Rotate", None, &mut deg, 0.5, "°") { *rotation = Vec3::new(deg[0].to_radians(), deg[1].to_radians(), deg[2].to_radians()); }
+                    let orders: Vec<(crate::types::RotationOrder, &str)> = crate::types::RotationOrder::ALL.iter().map(|o| (*o, o.label())).collect();
+                    f.dropdown("Rotate Order", Some("The order the three turns are made in, about the world's axes: XYZ turns about X first, as USD's rotateXYZ, Maya's and Houdini's xyz"), order, &orders);
                     if clip {
                         let mut s = scale.x;
                         if f.drag("Scale", Some("A skeleton scales the same on every axis"), &mut s, 0.01, "").changed() { *scale = Vec3::splat(s); }
@@ -1104,8 +1112,10 @@ pub fn draw_properties(
                         let mut s = scale.to_array();
                         if f.xyz("Scale", None, &mut s, 0.01, "") { *scale = Vec3::from_array(s); }
                     }
+                    let mut p = pivot.to_array();
+                    if f.xyz("Pivot", Some("The point it turns and scales about, in the space of what comes in; the handles in the Viewer are there"), &mut p, 0.01, "") { *pivot = Vec3::from_array(p); }
                 });
-            if reset { *translation = Vec3::ZERO; *rotation = Vec3::ZERO; *scale = Vec3::ONE; }
+            if reset { *translation = Vec3::ZERO; *rotation = Vec3::ZERO; *scale = Vec3::ONE; *pivot = Vec3::ZERO; }
             if clip { clip_summary(ui, anim, true); }
         }
         NodeType::LocalAnimation { start, end, .. } => group(ui, "Local Animation",
@@ -1179,7 +1189,10 @@ pub fn draw_properties(
             }
             if prim_paths.is_empty() { f.status(Status::Info, "No primitives coming in"); }
         }),
-        NodeType::SetAttribute { rows } => set_attribute_rows(ui, rows, located, prim_paths.len()),
+        NodeType::SetAttribute { rows } => {
+            let frame = crate::core::vars::globals().frame as f64;
+            set_attribute_rows(ui, rows, located, prim_paths.len(), frame)
+        }
         NodeType::EditPrimitive { kind, edits } => {
             super::edit_primitive::rows(ui, kind, edits, &mut node.channels, &edit_in, located)
         }
@@ -3316,6 +3329,21 @@ fn bind_choice(ui: &mut egui::Ui, row: usize, col: &mut BindColumn) {
         }
         col.to[row] = choice;
     }
+    // Its purpose and strength.
+    use crate::core::material::{BindOptions, BindPurpose};
+    let mut o = col.options.get(row).copied().unwrap_or_default();
+    egui::ComboBox::from_id_salt(("bind_purpose", row)).width(62.0).selected_text(o.purpose.label()).show_ui(ui, |ui| {
+        for p in BindPurpose::ALL {
+            ui.selectable_value(&mut o.purpose, p, p.label());
+        }
+    }).response.on_hover_text("Which renders the binding is for: All (material:binding), Preview (material:binding:preview: viewports, the Viewer draws it) or Full (material:binding:full: final renders)");
+    ui.toggle_value(&mut o.stronger, "⬇").on_hover_text("Stronger than descendants (bindMaterialAs): this binding wins over those of the prims below the ones it binds. Off: weaker, USD's default");
+    if o != col.options.get(row).copied().unwrap_or_default() {
+        while col.options.len() <= row {
+            col.options.push(BindOptions::default());
+        }
+        col.options[row] = o;
+    }
 }
 
 /// Under a row bound by Location: the material's path, typed, picked from the
@@ -3450,6 +3478,51 @@ fn binding_rows(
     changed
 }
 
+/// Load USD's population mask: the paths of the prims read, one a row, typed
+/// or dropped from the Scene Explorer. Empty: the whole stage.
+fn mask_rows(ui: &mut egui::Ui, mask: &mut Vec<String>) {
+    let hint = "As USD's population mask: only the prims at these paths, what is below them and the prims above them are read, as their parents; the rest of the stage is not read into Imago, so a big stage is read quicker. Write USD leaves what was not read as the file has it. Empty: the whole stage. Changing it reads the stage again";
+    group(ui, "Population Mask", Some(hint), |f| {
+        let mut remove = None;
+        for (k, row) in mask.iter_mut().enumerate() {
+            f.row(&format!("{}", k + 1), None, |ui| {
+                ui.horizontal(|ui| {
+                    let w = (ui.available_width() - 30.0).max(60.0);
+                    let field = crate::properties::form::typed(ui, &mut *row, |ui, t| {
+                        ui.field(
+                            egui::TextEdit::singleline(t)
+                                .desired_width(w)
+                                .hint_text("/set/hero")
+                                .font(egui::TextStyle::Monospace)
+                                .background_color(location_bg()),
+                        )
+                    });
+                    if let Some(p) = field.dnd_release_payload::<crate::types::DraggedPrims>() {
+                        if let Some(first) = p.0.first() {
+                            *row = first.clone();
+                        }
+                    }
+                    if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                        remove = Some(k);
+                    }
+                });
+            });
+        }
+        if let Some(k) = remove {
+            mask.remove(k);
+        }
+        f.buttons("", None, |ui| {
+            let tip = "A prim's path; prims dragged from the Scene Explorer can be dropped on its field";
+            if ui.button("+ Add Path").on_hover_text(tip).clicked() {
+                mask.push(String::new());
+            }
+        });
+        if mask.iter().all(|m| m.trim().is_empty()) {
+            f.status(Status::Info, "No paths: the whole stage is read");
+        }
+    });
+}
+
 /// How Load USD brings its file in: sublayered, or one prim of it referenced or
 /// payloaded at a Primitive Location.
 fn load_mode_rows(
@@ -3459,6 +3532,7 @@ fn load_mode_rows(
     location: &mut String,
     prim: &mut String,
     convert: bool,
+    mask: &[String],
 ) {
     use crate::usd_scene::LoadMode;
     let hint = "Sublayer: the whole stage at its own paths; Write USD sublayers the file. Reference: one prim of the file (its default prim) at the Primitive Location, its paths rebased there; Write USD writes a reference on that prim. Payload: as Reference, written as a payload, which other programs load on demand";
@@ -3500,7 +3574,7 @@ fn load_mode_rows(
         let scene = if path.trim().is_empty() {
             None
         } else {
-            crate::usd_scene::load_cached(path.trim(), convert).ok()
+            crate::usd_scene::load_cached_with(path.trim(), convert, &Default::default(), mask).ok()
         };
         let roots: Vec<String> = scene
             .as_ref()
@@ -3867,11 +3941,11 @@ fn unit_name(metres: f64) -> &'static str {
 
 /// What a USD file holds, from the cached stage (`convert`: read turned to Y-up
 /// and metres).
-fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, io: &mut PanelIo) {
+fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, mask: &[String], io: &mut PanelIo) {
     // A big stage is read in the background: its boxes first, then the
     // whole of it. Say how far it has come.
     let reading = crate::usd_scene::reading(path, convert);
-    let scene = match crate::usd_scene::load_cached(path, convert) {
+    let scene = match crate::usd_scene::load_cached_with(path, convert, &Default::default(), mask) {
         Ok(s) => s,
         Err(e) if reading.is_some() => {
             group(ui, "Stage", None, |f| f.status(Status::Info, e));
@@ -4092,12 +4166,15 @@ fn add_location(list: &mut Vec<String>, path: &str) {
 }
 
 /// Set Attribute's rows: each a context, a name (the common ones offered), a
-/// type and a value. `located`: the Prims Location tab names prims.
+/// type and a value, keyed at frames (◆) or not. `located`: the Prims
+/// Location tab names prims. `frame`: the playhead's, where a keyed row's
+/// value is shown and keyed.
 fn set_attribute_rows(
     ui: &mut egui::Ui,
     rows: &mut Vec<crate::core::set_attribute::SetRow>,
     located: bool,
     coming_in: usize,
+    frame: f64,
 ) {
     use crate::core::properties::{preset, SetContext, ValueType, OBJECT_PRESETS, PROPERTY_PRESETS};
     use crate::core::set_attribute::SetRow;
@@ -4117,7 +4194,15 @@ fn set_attribute_rows(
     let context_hint = "Object: a constant primvar (primvars:name), data for rendering that shaders read and the prims below a group inherit. Property: the prim's own attribute or metadata (visibility, purpose, kind, active…), not seen by shaders, not inherited";
     let mut remove = None;
     let mut up = None;
+    let mut key = None;
     for (k, row) in rows.iter_mut().enumerate() {
+        // Its key at the playhead: filled on one, hollow keyed elsewhere.
+        let (on, keyed) = (row.key_at(frame).is_some(), !row.keys.is_empty());
+        let diamond = egui::RichText::new(if on { "◆" } else { "◇" }).color(if keyed {
+            egui::Color32::from_rgb(225, 80, 70)
+        } else {
+            ink::DIM()
+        });
         let title = format!(
             "{}  {}",
             k + 1,
@@ -4135,6 +4220,14 @@ fn set_attribute_rows(
                 if ui.small_button("🗑").on_hover_text("Remove this row").clicked() {
                     remove = Some(k);
                 }
+                let tip = if on {
+                    "Take the key at the playhead away"
+                } else {
+                    "Key the value at the playhead: keyed, the row has a value a frame, written by Write USD as time samples"
+                };
+                if ui.small_button(diamond).on_hover_text(tip).clicked() {
+                    key = Some(k);
+                }
                 if k > 0 && ui.small_button("⏶").on_hover_text("Move up").clicked() {
                     up = Some(k);
                 }
@@ -4151,6 +4244,7 @@ fn set_attribute_rows(
                 if row.context != was
                     && row.context == SetContext::Object
                     && !ValueType::OBJECT.contains(&row.value.kind())
+                    && !ValueType::OBJECT_ARRAYS.contains(&row.value.kind())
                 {
                     row.value = ValueType::Float.convert(&row.value);
                 }
@@ -4196,18 +4290,35 @@ fn set_attribute_rows(
                         f.value("Type", p.ty.usd());
                     }
                     None => {
-                        let types: &[ValueType] = match row.context {
-                            SetContext::Object => &ValueType::OBJECT,
-                            SetContext::Property => &ValueType::ALL,
+                        let types: Vec<ValueType> = match row.context {
+                            SetContext::Object => [&ValueType::OBJECT[..], &ValueType::OBJECT_ARRAYS[..]].concat(),
+                            SetContext::Property => [&ValueType::ALL[..], &ValueType::ARRAYS[..]].concat(),
                         };
                         let options: Vec<(ValueType, &str)> = types.iter().map(|t| (*t, t.usd())).collect();
                         let mut ty = row.value.kind();
                         if f.choice("Type", None, &mut ty, &options) {
                             row.value = ty.convert(&row.value);
+                            for k in &mut row.keys {
+                                k.value = ty.convert(&k.value);
+                            }
                         }
                     }
                 }
-                value_row(f, &mut row.value, known.map(|p| p.tokens).unwrap_or(&[]));
+                // Keyed: the value at the playhead, and a change keys it there.
+                let mut v = row.value_at(frame);
+                let was = v.clone();
+                value_row(f, &mut v, known.map(|p| p.tokens).unwrap_or(&[]));
+                if v != was {
+                    if row.keys.is_empty() {
+                        row.value = v;
+                    } else {
+                        row.set_key(frame, v);
+                    }
+                }
+                if !row.keys.is_empty() {
+                    let (a, b) = (row.keys[0].frame, row.keys[row.keys.len() - 1].frame);
+                    f.value("Keys", format!("{} (frames {a} to {b})", row.keys.len()));
+                }
                 if row.name.trim().is_empty() {
                     f.status(Status::Info, "No name: this row sets nothing");
                 } else if let Some(p) = known {
@@ -4215,6 +4326,14 @@ fn set_attribute_rows(
                 }
             },
         );
+    }
+    if let Some(k) = key {
+        let row = &mut rows[k];
+        if row.key_at(frame).is_some() {
+            row.remove_key(frame);
+        } else {
+            row.set_key(frame, row.value_at(frame));
+        }
     }
     if let Some(k) = remove {
         rows.remove(k);
@@ -4296,6 +4415,21 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
                 });
             });
         }
+        array @ (Value::IntArray(_)
+        | Value::FloatArray(_)
+        | Value::Float3Array(_)
+        | Value::Color3fArray(_)
+        | Value::StringArray(_)
+        | Value::TokenArray(_)) => {
+            f.row(
+                "Value",
+                Some("The elements between commas: 1, 2, 3; (1, 0, 0), (0, 1, 0) for vectors and colours; words for strings and tokens"),
+                |ui| {
+                    let w = ui.available_width();
+                    super::render::list_field(ui, array, w)
+                },
+            );
+        }
     }
 }
 
@@ -4316,6 +4450,7 @@ pub(crate) enum TabKind {
 /// each input (its name), and the materials of the scene coming in.
 pub(crate) struct BindColumn<'a> {
     to: &'a mut Vec<crate::core::material::BindTo>,
+    options: &'a mut Vec<crate::core::material::BindOptions>,
     inputs: &'a [Option<String>],
     scene: &'a [String],
 }
@@ -4359,7 +4494,7 @@ pub(crate) fn locations_tab(
             for (k, row) in list.iter_mut().enumerate() {
                 f.row(&format!("{}", k + 1), None, |ui| {
                     ui.horizontal(|ui| {
-                        let w = (ui.available_width() - if binds.is_some() { 180.0 } else { 74.0 }).max(60.0);
+                        let w = (ui.available_width() - if binds.is_some() { 274.0 } else { 74.0 }).max(60.0);
                         // A path, not text: grey, in the code font, so a location
                         // is told apart from the other text fields at a glance.
                         crate::properties::form::typed(ui, &mut *row, |ui, t| {
@@ -4403,6 +4538,9 @@ pub(crate) fn locations_tab(
                 list.remove(k);
                 // Its material goes with it.
                 if let Some(col) = binds.as_mut() {
+                    if k < col.options.len() {
+                        col.options.remove(k);
+                    }
                     if k < col.to.len() {
                         col.to.remove(k);
                     }

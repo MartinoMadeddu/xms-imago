@@ -386,7 +386,8 @@ pub fn select(input: &EvalResult, choices: &[Choice]) -> Selected {
             Some(a) => (LoadMode::Reference, a.at.as_str(), a.prim.as_str()),
         };
         let source = old.source.to_string_lossy().into_owned();
-        let Some(fresh) = crate::node_graph::nodes::load_stage(&source, old.convert, &chosen, mode, location, prim)
+        let Some(fresh) =
+            crate::node_graph::nodes::load_stage(&source, old.convert, &chosen, &old.mask, mode, location, prim)
         else {
             notes.push(format!("{source}: could not be read with the variants chosen"));
             continue;
@@ -599,7 +600,7 @@ def Xform \"car\" (
     }
 
     fn loaded(path: &str) -> Vec<Prim> {
-        crate::node_graph::nodes::load_stage(path, false, &Variants::new(), LoadMode::Sublayer, "", "").unwrap()
+        crate::node_graph::nodes::load_stage(path, false, &Variants::new(), &[], LoadMode::Sublayer, "", "").unwrap()
     }
 
     fn at<'a>(prims: &'a [Prim], path: &str) -> Option<&'a Prim> {
@@ -781,13 +782,13 @@ def Xform \"car\" (
         v.entry("/asset".into())
             .or_default()
             .insert("shape".into(), "sphere".into());
-        let sphere = crate::node_graph::nodes::load_stage(&path, false, &v, LoadMode::Sublayer, "", "").unwrap();
+        let sphere = crate::node_graph::nodes::load_stage(&path, false, &v, &[], LoadMode::Sublayer, "", "").unwrap();
         assert!(at(&sphere, "/asset/sphere").is_some() && at(&sphere, "/asset/cube").is_none());
     }
 
     /// The car file's prim `prim` referenced at `at`.
     fn referenced(prim: &str, at: &str) -> Option<EvalResult> {
-        crate::node_graph::nodes::load_stage(&car(), false, &Variants::new(), LoadMode::Reference, at, prim)
+        crate::node_graph::nodes::load_stage(&car(), false, &Variants::new(), &[], LoadMode::Reference, at, prim)
             .map(EvalResult::Named)
     }
 
@@ -874,7 +875,7 @@ def Xform \"car\" (
         v.entry("/asset".into())
             .or_default()
             .insert("model".into(), "ground".into());
-        let ground = crate::node_graph::nodes::load_stage(&path, false, &v, LoadMode::Sublayer, "", "").unwrap();
+        let ground = crate::node_graph::nodes::load_stage(&path, false, &v, &[], LoadMode::Sublayer, "", "").unwrap();
         assert!(at(&ground, "/asset/ground").is_some() && at(&ground, "/asset/car/body").is_none());
     }
 

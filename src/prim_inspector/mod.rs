@@ -637,7 +637,18 @@ pub fn scene_properties(
                     None => made_here(),
                 };
                 if p.camera.is_none() && p.light.is_none() {
-                    row("material:binding", bound, from);
+                    row("material:binding", bound, from.clone());
+                    // Bound for previews or final renders alone.
+                    if let Some(b) = &p.bindings {
+                        for (name, m) in [
+                            ("material:binding:preview", &b.preview),
+                            ("material:binding:full", &b.full),
+                        ] {
+                            if let Some(m) = m {
+                                row(name, m.clone(), from.clone());
+                            }
+                        }
+                    }
                 }
             }
             // A group: its purpose as its file authors it or Set Attribute set it
@@ -826,8 +837,8 @@ fn load_of(
 ) -> Option<NodeId> {
     use crate::types::NodeType;
     let reads = |n: &crate::node_graph::GraphNode| {
-        matches!(&n.node_type, NodeType::LoadUsd { path, convert, .. }
-        if crate::usd_scene::load_cached(&crate::core::vars::expand(path.trim(), &[]), *convert).is_ok_and(|s| s.tree.source == tree.source))
+        matches!(&n.node_type, NodeType::LoadUsd { path, convert, mask, .. }
+        if crate::usd_scene::load_cached_with(&crate::core::vars::expand(path.trim(), &[]), *convert, &Default::default(), mask).is_ok_and(|s| s.tree.source == tree.source))
     };
     upstream(graph, view, reads)
         .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))
@@ -1063,11 +1074,13 @@ mod tests {
                         context: SetContext::Property,
                         name: "visibility".into(),
                         value: Value::Token("invisible".into()),
+                        keys: vec![],
                     },
                     SetRow {
                         context: SetContext::Property,
                         name: "kind".into(),
                         value: Value::Token("group".into()),
+                        keys: vec![],
                     },
                 ],
             },

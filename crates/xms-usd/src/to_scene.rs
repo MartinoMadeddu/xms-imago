@@ -44,6 +44,23 @@ pub struct SceneOptions {
     /// A layer composed over the stage, strongest (its session layer): the
     /// variants chosen in Imago.
     pub session_layer: Option<String>,
+    /// A population mask, as USD's `UsdStagePopulationMask`: only the prims at
+    /// these paths, what is below them and the prims above them (as their
+    /// parents, without their other children) are translated. Empty: every
+    /// prim.
+    pub mask: Vec<String>,
+}
+
+/// Whether the prim at `path` is in `mask` (`SceneOptions::mask`): at or
+/// below one of its paths, or above one. Everything when it is empty.
+pub fn in_mask(mask: &[String], path: &str) -> bool {
+    let below = |p: &str, of: &str| p == of || p.strip_prefix(of).is_some_and(|r| r.starts_with('/'));
+    let mut paths = mask
+        .iter()
+        .map(|m| m.trim().trim_end_matches('/'))
+        .filter(|m| !m.is_empty())
+        .peekable();
+    paths.peek().is_none() || paths.any(|m| below(path, m) || below(m, path))
 }
 
 /// The default curve-primvar prefix.
@@ -89,6 +106,7 @@ impl Default for SceneOptions {
             boxes_only: false,
             all_samples: false,
             session_layer: None,
+            mask: vec![],
         }
     }
 }
@@ -199,6 +217,7 @@ fn translate_reading(
     let t = time.unwrap_or(0.0);
     let mut tr = Translator {
         stage,
+        mask: opts.mask.clone(),
         time,
         window: match (opts.all_samples, time_range) {
             (true, Some((start, end))) => (start.min(end), start.max(end)),
@@ -339,6 +358,8 @@ fn translate_reading(
 
 struct Translator<'s> {
     stage: &'s Stage,
+    /// The population mask (`SceneOptions::mask`).
+    mask: Vec<String>,
     /// What an earlier pass read, taken as it is needed.
     prior: std::cell::RefCell<Read>,
     /// What this pass read, kept for a later one (a boxes pass's).
@@ -768,6 +789,10 @@ impl<'s> Translator<'s> {
     }
 
     fn walk(&mut self, prim: &Prim) {
+        // Outside the population mask: not composed into the scene at all.
+        if self.proto_stack.is_empty() && !in_mask(&self.mask, &prim.path().to_string()) {
+            return;
+        }
         let active = prim.is_active();
         let abstract_ = prim.is_abstract();
         let mut is_active = active.as_ref().map_or(true, |a| *a);
@@ -1654,6 +1679,17 @@ fn variant_sets(prim: &Prim) -> Vec<rs::VariantSet> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mask_takes_its_paths_what_is_below_and_above_them() {
+        let mask = vec!["/set/hero".to_string()];
+        assert!(in_mask(&mask, "/set"));
+        assert!(in_mask(&mask, "/set/hero"));
+        assert!(in_mask(&mask, "/set/hero/geo"));
+        assert!(!in_mask(&mask, "/set/heroine"));
+        assert!(!in_mask(&mask, "/set/crowd"));
+        assert!(in_mask(&[], "/anything"));
+    }
 
     /// The full pass of `translate_phased` takes from the boxes pass what it
     /// read, and gives what a single full translation gives: the same

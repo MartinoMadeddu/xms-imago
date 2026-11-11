@@ -48,6 +48,8 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
             translation,
             rotation,
             scale,
+            pivot,
+            order,
         } => {
             let uniform = node
                 .inputs
@@ -55,14 +57,11 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
                 .and_then(|i| i.connected_output)
                 .and_then(|(src, _)| graph.nodes.iter().find(|n| n.id == src))
                 .is_some_and(|n| n.node_type.is_anim());
+            // The handles where the pivot is: it turns and scales about it.
             Some(Target {
                 node: id,
-                pivot: *translation,
-                base: (
-                    *translation,
-                    Quat::from_euler(EulerRot::XYZ, rotation.x, rotation.y, rotation.z),
-                    *scale,
-                ),
+                pivot: *translation + *pivot,
+                base: (*translation, order.quat(*rotation), *scale),
                 uniform,
                 scales: true,
                 parents: glam::Mat4::IDENTITY,
@@ -139,6 +138,8 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
             translation,
             rotation,
             scale,
+            order,
+            ..
         } => match delta {
             Delta::Translate(_) => {
                 if *translation != t {
@@ -146,7 +147,7 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
                 }
             }
             Delta::Rotate(_) => {
-                let e = euler();
+                let e = order.angles(r);
                 if *rotation != e {
                     *rotation = e;
                 }
@@ -399,6 +400,8 @@ mod tests {
                 translation: Vec3::new(0.2, 0.0, 0.0),
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 100.0),
         );
@@ -417,6 +420,7 @@ mod tests {
             translation,
             rotation,
             scale,
+            ..
         } = &g.nodes.iter().find(|n| n.id == mv).unwrap().node_type
         else {
             panic!()
@@ -513,6 +517,8 @@ mod tests {
                 translation: Vec3::ZERO,
                 rotation: Vec3::ZERO,
                 scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
             },
             egui::pos2(0.0, 100.0),
         );

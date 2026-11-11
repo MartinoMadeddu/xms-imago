@@ -40,6 +40,9 @@ pub struct PrimEdit {
     pub removed: Vec<(Context, Arc<str>)>,
     /// The new material binding, when it changed (`None` inside: unbound).
     pub material: Option<Option<String>>,
+    /// Preview and full bindings and strengths Material Binding set: files'
+    /// are not read, so every one is an edit.
+    pub bindings: Option<Arc<crate::core::material::Bindings>>,
     /// The new purpose, when it changed.
     pub purpose: Option<Purpose>,
     /// Properties set on it (Set Attribute), by name.
@@ -57,6 +60,7 @@ impl PrimEdit {
             && self.attrs.is_empty()
             && self.removed.is_empty()
             && self.material.is_none()
+            && self.bindings.is_none()
             && self.purpose.is_none()
             && self.props.is_empty()
             && !self.replaced
@@ -100,6 +104,7 @@ pub fn prim_edit(p: &Prim) -> Option<PrimEdit> {
     if p.material != src.material {
         e.material = Some(p.material.clone());
     }
+    e.bindings = p.bindings.clone();
     if p.purpose != src.purpose {
         e.purpose = Some(p.purpose);
     }
@@ -213,6 +218,9 @@ pub fn edits_between(before: &[Prim], after: &[Prim]) -> EditSet {
         // Properties: those set or changed since `before`.
         let edit = prim_edit(&base).map(|mut e| {
             e.props.retain(|(k, v)| b.props.get(k) != Some(v));
+            if e.bindings == b.bindings {
+                e.bindings = None;
+            }
             e
         });
         match edit {

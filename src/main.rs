@@ -2859,6 +2859,7 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         start,
         end,
         step,
+        flatten,
     } = &node.node_type
     else {
         return;
@@ -2915,11 +2916,26 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
                 other => return Err(not_prims(other)),
             }
         }
-        let layer = std::path::Path::new(&path);
-        if still || cooked.len() == 1 {
-            return usd_write::write_override(&cooked[0].1, layer, &graph.scene);
+        let out = std::path::Path::new(&path);
+        // Flattened: the override layer beside the file, composed into it,
+        // then gone.
+        let over = out.with_file_name(format!(
+            ".{}.over.usda",
+            out.file_stem().and_then(|s| s.to_str()).unwrap_or("scene")
+        ));
+        let layer = if *flatten { over.as_path() } else { out };
+        let mut report = if still || cooked.len() == 1 {
+            usd_write::write_override(&cooked[0].1, layer, &graph.scene)?
+        } else {
+            usd_write::write_frames(&cooked, layer, &graph.scene)?
+        };
+        if *flatten {
+            let flat = xms_usd::flatten(&over, out);
+            let _ = std::fs::remove_file(&over);
+            flat?;
+            report.notes.push("Flattened: one file, the stages and the changes composed, no sublayers or references".into());
         }
-        usd_write::write_frames(&cooked, layer, &graph.scene)
+        Ok(report)
     })();
     usd_write::remember(id, result);
 }

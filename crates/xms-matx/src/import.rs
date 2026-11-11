@@ -241,7 +241,9 @@ impl<'a> Reader<'a> {
     }
 
     /// The definition a node element is: the one it names, else the one its
-    /// types give.
+    /// types give. A name the library does not have (one of an older
+    /// MaterialX, as 1.38's `ND_normalmap`, 1.39's `ND_normalmap_float`) is
+    /// taken by its types too.
     fn def_of(&self, el: &Element) -> Result<&'a NodeDef, String> {
         let name = el.attr("name").unwrap_or("?");
         // A node the document defines itself.
@@ -257,10 +259,9 @@ impl<'a> Reader<'a> {
                     "{name} is a {d}, which the document defines itself: not read yet"
                 ));
             }
-            return self
-                .lib
-                .def(d)
-                .ok_or_else(|| format!("{name} is a {d}, which is not in the MaterialX library"));
+            if let Some(def) = self.lib.def(d) {
+                return Ok(def);
+            }
         }
         if own(&el.name) && self.lib.default_def(&el.name).is_none() {
             return Err(format!(
