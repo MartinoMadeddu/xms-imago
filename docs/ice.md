@@ -135,12 +135,14 @@ the tree's parameters).
   set. **Make Compound** makes the snippet a compound of its own, its free
   parameters its ports, to save as a definition. The add menu has examples:
   roughen (noise), relax (near points), stick (closest point).
-- **The Snippet operator**, in the scene graph's add menu: an ICreationEngine
-  operator holding one Snippet node, its parameters the snippet's (its code,
-  Run Over, References and parameters), its reference inputs what its
-  `geometry` parameters read. Its graph opens as any ICE operator's; add a
-  node there and it is one. Templates > Martino > ICE has two: roughen and
-  relax, and stick to a surface.
+- **ISnippet**, in the scene graph's add menu (yellow, as the Snippet node
+  is): an ICE operator holding one snippet, locked inside. Its Parameters
+  tab has the snippet's code, Run Over, References and parameters; its
+  reference inputs are what its `geometry` parameters read. **Make ICE
+  Graph** puts an ICreationEngine beside it, wired as it is, holding the nodes
+  the snippet runs: to see how it works, or to carry on in nodes.
+  Templates > Martino > ICE has two: roughen and relax, and stick to a
+  surface.
 - **Noise:** Perlin Noise, Simplex Noise (both about -1 to 1) and Cell Noise
   (0 to 1, one value per unit cube) of a position: OSL's own, ported, so a
   value made here is the one an OSL shader gets at the same place.

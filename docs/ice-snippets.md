@@ -33,10 +33,14 @@ Being built on the `core/ice-snippets` branch.
     "usimplex" | "cell", p)`, `noise(p)` (OSL's default, uperlin), `snoise(p)`,
     `cellnoise(p)`; Perlin and cell checked against OSL's own expected values.
     Nodes too: Perlin Noise, Simplex Noise, Cell Noise;
-  - the **Snippet operator** in the scene graph (the add menu's Snippet): an
-    ICreationEngine operator holding one Snippet node, its pane the
-    snippet's (Run Over, code, References, parameters); its graph opens as any
-    ICE operator's, and with another node in it, it is one;
+  - **ISnippet**, the snippet operator in the scene graph (named as
+    ICreationEngine is; yellow, as the Snippet node is): one Snippet node,
+    locked inside, its Parameters tab the snippet's (Run Over, code,
+    References, parameters). **Make ICE Graph** puts an ICreationEngine
+    beside it, wired as it is, holding the nodes the snippet runs (each
+    parameter a Constant named as it, each reference a Get Reference). This
+    replaces v4's "Open as ICE graph" and its flag: an ISnippet is never
+    opened, so it stays a snippet;
   - examples: Snippet: roughen (noise), relax (near points), stick (closest
     point), in the ICE add menu; Templates > Martino > ICE > Snippets: roughen
     and relax, stick to a surface.

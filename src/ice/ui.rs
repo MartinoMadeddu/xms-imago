@@ -88,6 +88,10 @@ mod pal {
     pub fn COMPOUND() -> Color32 {
         Color32::from_rgb(162, 146, 204)
     } // a compound: lavender
+    pub fn YELLOW() -> Color32 {
+        let [r, g, b] = crate::node_graph::ui::SNIPPET_COLOUR;
+        Color32::from_rgb(r, g, b)
+    } // a snippet: code, as an ISnippet in the scene graph
 
     // Data types: the colours every graph of XMS gives them (`type_colours`).
     pub fn ERROR() -> Color32 {
@@ -309,6 +313,17 @@ fn snippet_editor(
     applied
 }
 
+/// Set while an ISnippet's snippet is drawn in the scene's panel: its button
+/// is Make ICE Graph, not Make Compound (which would unlock it).
+pub fn in_isnippet_id() -> egui::Id {
+    egui::Id::new("ice_in_isnippet")
+}
+
+/// Make ICE Graph pressed, for the scene's panel to do.
+pub fn make_ice_graph_id() -> egui::Id {
+    egui::Id::new("ice_make_ice_graph")
+}
+
 /// A context as Get Data's line under the title names it.
 fn context_word(c: crate::core::geo::Context) -> &'static str {
     use crate::core::geo::Context;
@@ -430,7 +445,8 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         | IceGraphNodeType::NearPoints => pal::ORANGE(),
         IceGraphNodeType::Compound { .. } => pal::COMPOUND(),
         IceGraphNodeType::CompoundInput { .. } | IceGraphNodeType::CompoundOutput { .. } => pal::PORTS(),
-        IceGraphNodeType::Parameter { .. } | IceGraphNodeType::Snippet { .. } => pal::GREEN(),
+        IceGraphNodeType::Parameter { .. } => pal::GREEN(),
+        IceGraphNodeType::Snippet { .. } => pal::YELLOW(),
     }
 }
 
@@ -596,14 +612,17 @@ pub fn draw_subnet_node_properties(
         crate::types::subnet_node_icon(&node.node_type),
         crate::types::subnet_node_label(&node.node_type)
     );
-    group(ui, &title, None, |f| {
-        f.text(
-            "Name",
-            Some("The node's name: one word, a space typed becomes an underscore"),
-            &mut node.name,
-            "",
-        );
-    });
+    // An ISnippet's node goes by the ISnippet's name: not shown.
+    if !ui.data(|d| d.get_temp::<bool>(in_isnippet_id())).unwrap_or(false) {
+        group(ui, &title, None, |f| {
+            f.text(
+                "Name",
+                Some("The node's name: one word, a space typed becomes an underscore"),
+                &mut node.name,
+                "",
+            );
+        });
+    }
     if node.name.chars().any(char::is_whitespace) {
         node.name = crate::node_graph::node_name(&node.name);
     }
@@ -770,6 +789,7 @@ pub fn draw_subnet_node_properties(
                 selected,
                 crate::properties::ui::TabKind::Names,
                 None,
+                None,
             );
         }
         IceGraphNodeType::Instancer { path, seed, draw_mode } => group(ui, "Instancer", None, |f| {
@@ -856,7 +876,18 @@ pub fn draw_subnet_node_properties(
             if snippet_editor(ui, graph_id, node.id, text, &error) {
                 resync = true;
             }
-            if ui
+            // An ISnippet's: the nodes it runs as an ICreationEngine beside it
+            // (done by the scene's panel); a Snippet node's: a compound of it.
+            let in_isnippet = ui.data(|d| d.get_temp::<bool>(in_isnippet_id())).unwrap_or(false);
+            if in_isnippet {
+                if ui
+                    .button("Make ICE Graph")
+                    .on_hover_text("The nodes this snippet runs, as an ICreationEngine beside it, wired as it is: to see how it works, or to carry on in nodes")
+                    .clicked()
+                {
+                    ui.data_mut(|d| d.insert_temp(make_ice_graph_id(), true));
+                }
+            } else if ui
                 .button("Make Compound")
                 .on_hover_text("This snippet as a compound of its own: its free parameters its ports. Save it as a definition from the compound's parameters to share it and find it in the add menu")
                 .clicked()
@@ -899,6 +930,7 @@ pub fn draw_subnet_node_properties(
                     .get((row.input as usize).saturating_sub(1))
                     .map(Vec::as_slice)
                     .unwrap_or_default();
+                let title = format!("{name}: Prims on Reference {}", row.input);
                 crate::properties::ui::locations_tab(
                     ui,
                     &mut row.paths,
@@ -906,6 +938,7 @@ pub fn draw_subnet_node_properties(
                     selected,
                     crate::properties::ui::TabKind::Names,
                     None,
+                    Some(&title),
                 );
             }
         }

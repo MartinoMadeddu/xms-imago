@@ -289,6 +289,7 @@ mod tests {
                 name: "Lift".into(),
                 references: 1,
                 params: Default::default(),
+                snippet: false,
             },
             egui::pos2(0.0, 0.0),
         );

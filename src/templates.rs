@@ -2661,6 +2661,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             name: "Spherify".into(),
             references: 1,
             params: Default::default(),
+            snippet: false,
         },
         p(180.0, 240.0),
     );
@@ -2752,6 +2753,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
             name: "ShrinkWrap".into(),
             references: 1,
             params: Default::default(),
+            snippet: false,
         },
         p(160.0, 250.0),
     );
@@ -2763,7 +2765,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
     "ICE shrink-wrap: every point of the subdivided cube goes to the nearest place on the squashed sphere wired into Reference 1. Go inside the ShrinkWrap node (down arrow): Closest Point on Surface searches the reference (Get Reference) from each P, a Get Data with its Polygon and Param UV wired reads P there, and Linear Interpolate blends from the cube by its T (1: on the sphere; try 0.5). Move or turn the Squash: the cube follows it where the Viewer shows it.".into()
 }
 
-/// A Snippet operator of example `name` (`ice::SNIPPET_EXAMPLES`), named
+/// An ISnippet of example `name` (`ice::SNIPPET_EXAMPLES`), named
 /// `label`, at `at`.
 fn snippet_op(g: &mut NodeGraphState, store: &mut IceGraphStore, name: &str, label: &str, at: egui::Pos2) -> NodeId {
     let text = crate::ice::SNIPPET_EXAMPLES
@@ -2778,6 +2780,7 @@ fn snippet_op(g: &mut NodeGraphState, store: &mut IceGraphStore, name: &str, lab
             name: label.into(),
             references: 1,
             params: Default::default(),
+            snippet: true,
         },
         at,
     )
@@ -3058,6 +3061,7 @@ fn ice_cage_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let c = g.add_node("CageCapture".into(), ice(capture, "CageCapture"), p(440.0, 300.0));
     g.add_connection(sphere, 0, c, 0);
@@ -3315,6 +3319,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let bound = g.add_node("GuideBind".into(), ice(bind, "GuideBind"), p(440.0, 120.0));
     let carried = g.add_node("GuideDeform".into(), ice(deform, "GuideDeform"), p(300.0, 220.0));
@@ -3559,6 +3564,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let bound = g.add_node("RootBind".into(), ice(root_bind, "RootBind"), p(440.0, 120.0));
     let moved = g.add_node("Carry".into(), ice(carry, "Carry"), p(440.0, 220.0));
@@ -3699,6 +3705,7 @@ fn capture_and_deform(
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let capture = capture_subnet(store, rest.1);
     let deform = deform_subnet(store, moving.1);
@@ -3853,6 +3860,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             name: "Instancing".into(),
             references: 2,
             params: Default::default(),
+            snippet: false,
         },
         p(240.0, 340.0),
     );

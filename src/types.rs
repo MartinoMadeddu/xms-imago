@@ -419,6 +419,11 @@ pub enum NodeType {
         references: u32,
         #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         params: std::collections::BTreeMap<String, serde_json::Value>,
+        /// An ISnippet: its graph one Snippet node, locked (not gone inside),
+        /// its pane the snippet's; Make ICE Graph gives its nodes as an
+        /// ICreationEngine of their own.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        snippet: bool,
     },
     // The Output node is gone: the view flag says what the scene is. Graphs
     // saved with one have it taken out when read (`graph_io`).
@@ -1128,7 +1133,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Merge { .. } => "➕",
         NodeType::LocalAnimation { .. } => "⏳",
         NodeType::MergeAnimation { .. } => "🎞",
-        NodeType::Ice { id, .. } if *id == crate::ice::NEW_SNIPPET => "λ",
+        NodeType::Ice { snippet: true, .. } => "λ",
         NodeType::Ice { .. } => "▣",
         NodeType::Placeholder { .. } => "📝",
         NodeType::PassThrough => "↓",
@@ -1224,8 +1229,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Merge { .. } => "Merge",
         NodeType::LocalAnimation { .. } => "Local Animation",
         NodeType::MergeAnimation { .. } => "Merge Animation",
-        // A Snippet operator, in the add menu: its graph not made yet.
-        NodeType::Ice { id, .. } if *id == crate::ice::NEW_SNIPPET => "Snippet",
+        NodeType::Ice { snippet: true, .. } => "ISnippet",
         NodeType::Ice { .. } => "ICreationEngine",
         NodeType::Placeholder { .. } => "Placeholder",
         NodeType::PassThrough => "Pass Through",

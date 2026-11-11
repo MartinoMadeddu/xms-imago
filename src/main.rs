@@ -1157,6 +1157,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         add: vec![],
                         ice_params: vec![],
                         ice_settings: vec![],
+                        snippet_here: false,
                     };
                     // A keyed node shows its parameters at the playhead; a
                     // keyed number changed here is keyed there.

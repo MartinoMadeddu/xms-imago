@@ -177,7 +177,57 @@ pub fn identity() -> Value {
     Value::Mat4(glam::Mat4::IDENTITY.to_cols_array())
 }
 
-/// A new Snippet operator's graph, made when it is added (`create_snippet`),
+/// The editor's node of an engine node a snippet lowers into.
+fn editor_type(op: &Op) -> Option<IceGraphNodeType> {
+    Some(match op {
+        Op::GetData {
+            name,
+            context,
+            resample,
+        } => IceGraphNodeType::GetData {
+            name: name.clone(),
+            context: *context,
+            resample: *resample,
+        },
+        Op::GetDataAtIndex { name, context } | Op::GetDataAt { name, context } => IceGraphNodeType::GetData {
+            name: name.clone(),
+            context: *context,
+            resample: Default::default(),
+        },
+        Op::GetArrayData { name, context }
+        | Op::GetArrayDataAtIndex { name, context }
+        | Op::GetArrayDataAt { name, context } => IceGraphNodeType::GetArrayData {
+            name: name.clone(),
+            context: *context,
+        },
+        Op::SetData {
+            name,
+            context,
+            resample,
+        } => IceGraphNodeType::SetData {
+            name: name.clone(),
+            context: *context,
+            resample: *resample,
+        },
+        Op::Constant(value) => IceGraphNodeType::Constant { value: *value },
+        Op::Math(op) => IceGraphNodeType::Math { op: *op },
+        Op::Random { seed } => IceGraphNodeType::Random { seed: *seed },
+        Op::Array(op) => IceGraphNodeType::Array { op: *op },
+        Op::Compose(op) => IceGraphNodeType::Compose { op: *op },
+        Op::Decompose(op) => IceGraphNodeType::Decompose { op: *op },
+        Op::ClosestPoint => IceGraphNodeType::ClosestPoint,
+        Op::NearPoints => IceGraphNodeType::NearPoints,
+        Op::RandomOrientation { seed } => IceGraphNodeType::RandomOrientation { seed: *seed },
+        Op::Concat => IceGraphNodeType::Concat,
+        Op::GetReference { input, paths } => IceGraphNodeType::GetReference {
+            input: *input as u32,
+            paths: paths.clone().unwrap_or_default(),
+        },
+        _ => return None,
+    })
+}
+
+/// A new ISnippet's graph, made when it is added (`create_snippet`),
 /// as `IceGraphId(usize::MAX)` stands for a new ICE operator's.
 pub const NEW_SNIPPET: IceGraphId = IceGraphId(usize::MAX - 1);
 
@@ -261,7 +311,8 @@ pub fn snippet_sockets(text: &str) -> (Vec<IceGraphInputSocket>, Vec<IceGraphOut
             name: p.name.clone(),
             value_hint: if p.ty == xms_ice::Ty::Token { "Token" } else { "Any" },
             connected_output: None,
-            value: p.default.or((p.ty != xms_ice::Ty::Token).then_some(Value::Float(0.0))),
+            // A geometry holds no value: References say what it reads.
+            value: (p.ty != xms_ice::Ty::Token).then(|| p.default.unwrap_or(Value::Float(0.0))),
         })
         .collect();
     let mut outputs: Vec<IceGraphOutputSocket> = ports
@@ -1062,8 +1113,140 @@ impl IceGraph {
         Ok(at)
     }
 
+    /// What this graph's lone snippet does, as nodes in `into` (a new graph):
+    /// a node for each the snippet lowers into, its parameters as Constant
+    /// nodes (named as them, at their values) and its References as Get
+    /// Reference nodes, wired as it wires them, its Set Data nodes into the
+    /// root, laid out left to right by depth. An ISnippet's Make ICE Graph.
+    pub fn snippet_nodes(&self, into: &mut IceGraph) -> Result<(), String> {
+        let id = self.lone_snippet().ok_or("No snippet to make nodes of")?;
+        let n = self
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .ok_or("No snippet to make nodes of")?;
+        let IceGraphNodeType::Snippet {
+            text,
+            run_over,
+            references,
+        } = &n.node_type
+        else {
+            return Err("No snippet to make nodes of".into());
+        };
+        let snippet = xms_ice::lang::parse(text).map_err(|e| e.to_string())?;
+        let graph_context = self
+            .nodes
+            .iter()
+            .find_map(|n| match n.node_type {
+                IceGraphNodeType::Root { context } => Some(context),
+                _ => None,
+            })
+            .unwrap_or(Context::Point);
+        let context = run_over.or(xms_ice::lang::pinned(&snippet)).unwrap_or(graph_context);
+        let geometry: Vec<String> = xms_ice::lang::ports(&snippet)
+            .into_iter()
+            .filter(|p| p.ty == xms_ice::Ty::Token && !p.output)
+            .map(|p| p.name)
+            .collect();
+        // Its parameters first: a node each, named.
+        let mut g = xms_ice::Graph::default();
+        let mut names: Vec<String> = vec![];
+        let mut inputs: Vec<(String, Input)> = vec![];
+        for socket in &n.inputs {
+            let op = if geometry.contains(&socket.name) {
+                let row = references.iter().find(|r| r.name == socket.name);
+                let paths = row.map(|r| r.paths.clone()).unwrap_or_default();
+                Op::GetReference {
+                    input: row.map_or(1, |r| r.input.max(1)) as usize,
+                    paths: crate::core::locations::is_set(&paths).then_some(paths),
+                }
+            } else {
+                Op::Constant(socket.value.unwrap_or(Value::Float(0.0)))
+            };
+            inputs.push((socket.name.clone(), xms_ice::graph::wire(g.add(op, vec![]))));
+            names.push(socket.name.clone());
+        }
+        let geo = self.last_input.lock().ok().and_then(|g| g.clone());
+        let lowered =
+            xms_ice::lang::lower(&snippet, context, &inputs, geo.as_ref(), &mut g).map_err(|e| e.to_string())?;
+        // Each engine node's depth: one more than what feeds it.
+        let mut depth = vec![0usize; g.nodes.len()];
+        for k in 0..g.nodes.len() {
+            for i in &g.nodes[k].inputs {
+                if let Input::Wire { node, .. } = i {
+                    depth[k] = depth[k].max(depth[*node] + 1);
+                }
+            }
+        }
+        let mut rows: HashMap<usize, usize> = HashMap::new();
+        let mut at = |d: usize| {
+            let row = rows.entry(d).or_insert(0);
+            *row += 1;
+            egui::pos2(40.0 + d as f32 * 230.0, 40.0 + (*row - 1) as f32 * 110.0)
+        };
+        let mut made = vec![];
+        for (k, node) in g.nodes.iter().enumerate() {
+            let t = editor_type(&node.op).ok_or_else(|| format!("No node for {:?}", node.op))?;
+            let name = names
+                .get(k)
+                .cloned()
+                .unwrap_or_else(|| crate::types::subnet_node_label(&t).to_string());
+            made.push(into.add_node(name, t, at(depth[k])));
+        }
+        for (k, node) in g.nodes.iter().enumerate() {
+            let reads = matches!(
+                node.op,
+                Op::GetData { .. }
+                    | Op::GetDataAtIndex { .. }
+                    | Op::GetDataAt { .. }
+                    | Op::GetArrayData { .. }
+                    | Op::GetArrayDataAtIndex { .. }
+                    | Op::GetArrayDataAt { .. }
+            );
+            // A read's inputs, by the engine's, on the node's sockets.
+            let slots: Vec<usize> = match node.op {
+                Op::GetData { .. } | Op::GetArrayData { .. } => vec![READ_GEOMETRY],
+                Op::GetDataAtIndex { .. } | Op::GetArrayDataAtIndex { .. } => vec![READ_INDEX, READ_GEOMETRY],
+                Op::GetDataAt { .. } | Op::GetArrayDataAt { .. } => vec![READ_INDEX, READ_PARAM_UV, READ_GEOMETRY],
+                _ => (0..node.inputs.len()).collect(),
+            };
+            for (j, input) in node.inputs.iter().enumerate() {
+                let Some(&slot) = slots.get(j) else { continue };
+                match input {
+                    Input::Wire { node: from, output } => into.add_connection(made[*from], *output, made[k], slot),
+                    // A read holds no values: a Constant wired in.
+                    Input::Value(v) if reads => {
+                        let c = into.add_node(
+                            "Constant".into(),
+                            IceGraphNodeType::Constant { value: *v },
+                            at(depth[k].saturating_sub(1)),
+                        );
+                        into.add_connection(c, 0, made[k], slot);
+                    }
+                    Input::Value(v) => {
+                        let to = into.nodes.iter_mut().find(|n| n.id == made[k]);
+                        // Not a port that holds none (a geometry, an Execute).
+                        if let Some(socket) = to.and_then(|n| n.inputs.get_mut(slot)).filter(|s| s.value.is_some()) {
+                            socket.value = Some(*v);
+                        }
+                    }
+                }
+            }
+        }
+        let root = into.root().ok_or("No root")?;
+        let last = depth.iter().copied().max().unwrap_or(0) + 1;
+        if let Some(r) = into.nodes.iter_mut().find(|n| n.id == root) {
+            r.node_type = IceGraphNodeType::Root { context };
+            r.position = egui::pos2(40.0 + last as f32 * 230.0, 40.0);
+        }
+        for (port, set) in lowered.sets.iter().enumerate() {
+            into.add_connection(made[*set], 0, root, port);
+        }
+        Ok(())
+    }
+
     /// The Snippet node of a graph that is a snippet and nothing else (but its
-    /// root): a Snippet operator's, whose pane shows the snippet itself.
+    /// root): an ISnippet's, whose pane shows the snippet itself.
     pub fn lone_snippet(&self) -> Option<NodeId> {
         let mut found = None;
         for n in &self.nodes {
@@ -1531,8 +1714,12 @@ impl IceGraphStore {
         id
     }
 
-    /// A Snippet operator's graph: a Snippet node of `text`, its Execute into
-    /// the root.
+    pub fn remove(&mut self, id: IceGraphId) {
+        self.subnets.remove(&id);
+    }
+
+    /// An ISnippet's graph: a Snippet node of `text`, its Execute into the
+    /// root.
     pub fn create_snippet(&mut self, name: String, text: &str) -> IceGraphId {
         let id = self.create_subnet(name);
         if let Some(g) = self.get_mut(id) {
@@ -1697,6 +1884,36 @@ mod tests {
         let error = g.error.lock().unwrap().clone().unwrap();
         assert_eq!(error.0, snippet);
         assert!(error.1.starts_with("line 2"), "{}", error.1);
+    }
+
+    /// Make ICE Graph: a snippet's nodes, as editor nodes of their own, give
+    /// what the snippet gave (noise, Near Points, an if and a loop among them).
+    #[test]
+    fn a_snippet_s_nodes_do_what_it_did() {
+        let geo = Geo::from_points((0..12).map(|i| [i as f32 * 0.37, (i % 3) as f32, 0.5]).collect());
+        let mixed = r#"snippet m (float k = 0.5, int steps = 3) {
+            float total = 0;
+            for (int i = 0; i < steps; i++) total += k;
+            if (@P.x > 1.5) @P.y += total; else @P.z = noise("perlin", @P);
+        }"#;
+        let texts = [SNIPPET_EXAMPLES[0].2, SNIPPET_EXAMPLES[1].2, mixed];
+        for text in texts {
+            let mut store = IceGraphStore::default();
+            let id = store.create_snippet("s".into(), text);
+            let sg = store.get(id).unwrap();
+            let before = sg.evaluate(&geo, &[]);
+            assert!(sg.error.lock().unwrap().is_none(), "{:?}", sg.error.lock().unwrap());
+            let mut nodes = IceGraph::new(IceGraphId(99), "nodes".into());
+            sg.snippet_nodes(&mut nodes).unwrap();
+            assert!(nodes.lone_snippet().is_none());
+            let after = nodes.evaluate(&geo, &[]);
+            assert!(
+                nodes.error.lock().unwrap().is_none(),
+                "{:?}",
+                nodes.error.lock().unwrap()
+            );
+            assert_eq!(after.points(), before.points(), "{text}");
+        }
     }
 
     /// Moving a node, renaming it or selecting it does not change what the
@@ -2070,6 +2287,7 @@ mod tests {
                 name: "Wrap".into(),
                 references: 1,
                 params: Default::default(),
+                snippet: false,
             },
             egui::pos2(0.0, 0.0),
         );
@@ -2160,6 +2378,7 @@ mod tests {
                 name: "Scatter".into(),
                 references: 1,
                 params: Default::default(),
+                snippet: false,
             },
             egui::pos2(0.0, 0.0),
         );
