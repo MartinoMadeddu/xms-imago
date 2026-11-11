@@ -12,6 +12,9 @@
   and the Viewer, volumes (Load VDB), Write USD
 - [ICE graphs](ice.md): Get Data, Set Data and maths run by the Execution Ports
   over every point, face or corner, compiled and run in parallel
+- [ISL](isl.md): the ICE Scripting Language, code run per point, face or
+  corner in a Snippet node or an ISnippet: OSL's syntax with ICE's geometry
+- [ISL functions](isl-functions.md): every ISL function, with examples
 - [MaterialX](materialx.md): the MaterialX node library and the MaterialX
   operator, surfaces and volumes, renderers' own shaders as nodes (Arnold's,
   from its SDK)

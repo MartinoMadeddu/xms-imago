@@ -144,7 +144,7 @@ impl Viewer {
                 ^ hash_of(&input.hierarchy.selected_paths().join("\n")).rotate_left(8),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
-            crate::viewport::display::mode() as u64 ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
+            crate::viewport::display::key() ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
         );
         if self.built != Some(key) {
             self.built = Some(key);
@@ -393,7 +393,7 @@ impl Viewer {
         if !input.hierarchy.selected_paths().is_empty() {
             // The Viewer's selection colour; the boxes hidden by what is in
             // front.
-            let [r, g, b] = edit::SELECTION;
+            let [r, g, b] = edit::selection();
             let c = edit::colour(r, g, b, 1.0);
             for (lo, hi) in pick::selected_bounds(&prims, input.hierarchy.selected_paths()) {
                 let p = |x: f32, y: f32, z: f32| glam::Vec3::new(x, y, z);

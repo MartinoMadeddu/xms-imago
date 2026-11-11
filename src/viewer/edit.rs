@@ -39,15 +39,18 @@ pub(super) fn line(out: &mut Vec<f32>, a: Vec3, b: Vec3, c: [f32; 4]) {
     out.extend_from_slice(&c);
 }
 
-/// What is selected in the Viewer (its box, its wireframe): the bright yellow
-/// it was drawn in, as blue (sRGB).
-pub(super) const SELECTION: [f32; 3] = [0.2, 0.75, 1.0];
+/// What is selected in the Viewer (its box, its wireframe, the box dragged to
+/// select), sRGB: a bright blue, its saturation a quarter less than it was
+/// (0.2, 0.75, 1.0), so it reads on the geometry without glaring.
+pub(super) fn selection() -> [f32; 3] {
+    [0.4, 0.8125, 1.0]
+}
 
 /// A box being dragged in the Viewer to select (prims, or components in Edit
 /// Poly), over the picture within `clip`: the selection's blue, see-through
 /// inside.
 pub(super) fn draw_marquee(ctx: &egui::Context, clip: egui::Rect, r: egui::Rect) {
-    let [red, green, blue] = SELECTION.map(|x| (x * 255.0) as u8);
+    let [red, green, blue] = selection().map(|x| (x * 255.0).round() as u8);
     let painter = ctx
         .layer_painter(egui::LayerId::new(
             egui::Order::Foreground,

@@ -981,6 +981,67 @@ pub fn make_compound(g: &mut IceGraph, ids: &[NodeId], name: &str) -> Result<Nod
     Ok(id)
 }
 
+/// Snippet node `id` made a compound of its own, named as the snippet: each
+/// of its parameters with nothing wired a port of the compound (named as the
+/// parameter, at its value), each wire in and out kept. Saved as a definition
+/// (`save_definition`), it is shared and listed like any compound. Returns
+/// the compound.
+pub fn snippet_compound(g: &mut IceGraph, id: NodeId) -> Result<NodeId, String> {
+    let node = g.nodes.iter().find(|n| n.id == id).ok_or("That node is gone")?;
+    let IceGraphNodeType::Snippet { text, .. } = &node.node_type else {
+        return Err("Not a snippet".into());
+    };
+    let name = xms_ice::lang::parse(text).map_err(|e| e.to_string())?.name;
+    let compound = make_compound(g, &[id], &name)?;
+    enter(g, compound)?;
+    let inner = g
+        .nodes
+        .iter()
+        .find(|n| matches!(n.node_type, IceGraphNodeType::Snippet { .. }))
+        .map(|n| n.id)
+        .ok_or("No snippet inside")?;
+    let free: Vec<(usize, String)> = g
+        .nodes
+        .iter()
+        .find(|n| n.id == inner)
+        .map(|n| {
+            n.inputs
+                .iter()
+                .enumerate()
+                .filter(|(_, i)| i.connected_output.is_none() && i.value.is_some())
+                .map(|(k, i)| (k, i.name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (k, port) in free {
+        promote_input(g, inner, k);
+        let made = g
+            .nodes
+            .iter()
+            .find(|n| n.id == inner)
+            .and_then(|n| n.inputs[k].connected_output)
+            .map(|(m, _)| m);
+        let taken: Vec<String> = g
+            .nodes
+            .iter()
+            .filter(|n| Some(n.id) != made)
+            .filter_map(|n| match &n.node_type {
+                IceGraphNodeType::CompoundInput { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        let port = unique(&port, &taken);
+        if let Some(n) = g.nodes.iter_mut().find(|n| Some(n.id) == made) {
+            n.name = port.clone();
+            if let IceGraphNodeType::CompoundInput { name, .. } = &mut n.node_type {
+                *name = port;
+            }
+        }
+    }
+    leave(g);
+    Ok(compound)
+}
+
 /// Write editable instance `id`'s definition to `path`, a version after the
 /// library's of its name. In a library folder, the instance then follows the
 /// file, locked, and the other instances of the name in `g` are brought up to
@@ -1088,6 +1149,35 @@ mod tests {
         assert!(g.nodes.iter().all(|n| n.id != add && n.id != set));
         assert_eq!(ys(&g.evaluate(&triangle(), &[])), before);
         assert!(g.error.lock().unwrap().is_none());
+    }
+
+    /// A snippet made a compound: its free parameters are the compound's
+    /// ports, by their names and values, and it runs as it did.
+    #[test]
+    fn a_snippet_made_a_compound_has_its_parameters_as_ports() {
+        let mut g = IceGraph::new(IceGraphId(0), "lift".into());
+        let root = g.root().unwrap();
+        let snippet = g.add_node(
+            "snippet".into(),
+            IceGraphNodeType::Snippet {
+                text: "snippet lift (float amount = 0.5, int steps = 2) { @P.y += amount * steps; }".into(),
+                run_over: None,
+                references: vec![],
+            },
+            egui::pos2(0.0, 0.0),
+        );
+        g.add_connection(snippet, 0, root, 0);
+        let before = ys(&g.evaluate(&triangle(), &[]));
+        let id = snippet_compound(&mut g, snippet).unwrap();
+        let node = g.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(node.name, "lift");
+        let ports: Vec<(&str, Option<Value>)> = node.inputs.iter().map(|i| (i.name.as_str(), i.value)).collect();
+        assert_eq!(
+            ports,
+            [("amount", Some(Value::Float(0.5))), ("steps", Some(Value::Int(2)))]
+        );
+        assert_eq!(ys(&g.evaluate(&triangle(), &[])), before);
+        assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
     }
 
     /// Inside, an edit is run at once and kept when leaving; a locked inside

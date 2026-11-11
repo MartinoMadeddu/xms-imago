@@ -174,12 +174,17 @@ name. **Pick** lists the names coming in; under the field, how many match.
 ## Viewer
 
 - **Shading** at the top: Wireframe, Hidden Line Removal, Shaded or
-  Textured. Shaded whenever Imago starts: the choice is not kept.
+  Textured. Shaded whenever Imago starts: the choice is not kept. Under them,
+  **Wireframe on Shaded** draws the polygons' edges over Shaded and Textured,
+  in a dark grey, and **Points** every point (of meshes and curves) as a dark
+  blue dot, as Houdini's Display Points does, hidden behind what is in front
+  (4 million at most). Both are off whenever Imago starts.
 - **🎥** at the top lists the scene's cameras to look through; navigating
   leaves the camera where it is.
 - **Click** a primitive to select it (Ctrl+click adds); **drag a box** to
   select every primitive it touches, behind others too (Ctrl adds, Shift
-  takes away); F frames the selection,
+  takes away). Curves and points are picked by their lines, the pointer near
+  one, as lights and cameras are. F frames the selection,
   A everything (F frames the prims selected, and those below them). A
   selected prim is outlined by its box (hidden behind what is in front) and
   its wireframe is drawn over it, in the Viewer's selection blue, whatever the
@@ -195,7 +200,9 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 **A**, at the Viewer's top left under its bar, draws attributes over the prims,
 each as its type is, as Houdini's visualizers and Gaffer's viewer show them; it
-is lit while they are shown. Tick **Show attributes**, add one with **+ Attribute**, and type its name or pick it from
+is lit while they are shown. Click it and it opens into the **Attributes** box
+over the picture, the settings inside; click it again to close it. Tick **Show
+attributes**, add one with **+ Attribute**, and type its name or pick it from
 ⏷: the attributes of the prims shown, and intrinsics (point, face and corner
 numbers, face normals and areas, each face's points, `curveu`, curve lengths).
 
@@ -216,10 +223,14 @@ prim colours it, lines and labels add up.
 **On:** Selected (the default: the prims selected, and those below them) or
 All. Colours and lines are hidden behind surfaces as the scene is. Labels are
 too, behind the surfaces of the prims attributes are shown on (up to 2 million
-triangles; other prims do not hide them yet), and those on faces turned away
-are left out. Within limits, on both: a million lines, 20 million coloured
-corners, and labels on screen only, nearest the camera first, at most 5,000
-(made from 200,000 at most, 10,000 tested a frame). Past a limit the Viewer
+triangles; other prims do not hide them yet), and every label in front of
+them is drawn, however close to others. A label is its text alone, as in
+Houdini, with a dark shadow so it reads on any surface, coloured by its
+context, as XSI's are: a point's green, just right of it; a face's lilac and
+a corner's amber, centred on theirs; the object's white. A list is a column
+rising from its element, a value a line, six at most and how many more. Within limits, on both: a million lines, 20 million coloured
+corners, and labels on screen only, nearest the camera first, at most 5,000 (made from
+200,000 at most, 20,000 tested a frame). Past a limit the Viewer
 says what it left out. The attributes listed are saved with the graph file;
 **Show attributes** is off whenever Imago starts or a graph is opened.
 

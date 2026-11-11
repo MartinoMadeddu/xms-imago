@@ -28,15 +28,19 @@
 //!   samples.
 //! - `spatial`: a BVH (rray's builder), the closest point on a triangle, and a
 //!   k-d tree over points (`KdPointTree`, kiddo's).
+//! - `lang`: ISL, the ICE Scripting Language: a snippet's code parsed and
+//!   lowered into this graph's own nodes (`docs/isl.md`).
 
 pub mod compile;
 pub mod exec;
 pub mod graph;
+pub mod lang;
+pub mod noise;
 pub mod spatial;
 pub mod surface;
 pub mod types;
 
-pub use compile::{compile, compile_with, output_arrays, output_types, CompileError, Plan};
+pub use compile::{attribute_type, compile, compile_with, output_arrays, output_types, CompileError, Plan};
 pub use exec::{run, run_in, Instances, Ran, BATCH};
 pub use graph::{
     ArrayOp, Compose, Decompose, Graph, Input, Math, Node, Op, Resample, CLOSEST_DISTANCE, CLOSEST_PARAM_UVS,

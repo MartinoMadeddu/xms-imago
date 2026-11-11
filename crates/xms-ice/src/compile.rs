@@ -40,6 +40,10 @@ pub struct Plan {
     /// uniform register of each one's paths (Get Reference's), made into a BVH
     /// (or a k-d tree of its points) when first run.
     pub(crate) surfaces: Vec<usize>,
+    /// The reference input each surface's paths are on, when one Get
+    /// Reference gives them: only that input's prims are searched, though
+    /// another has prims at the same paths. `None`: every input's.
+    pub(crate) surface_inputs: Vec<Option<usize>>,
 }
 
 /// An Instancer as the plan runs it: the uniform registers holding its inputs.
@@ -422,6 +426,13 @@ fn find_in(geo: &Geo, ctx: Context, name: &str) -> Option<Found> {
     })
 }
 
+/// The type ICE reads attribute `name` as in `ctx` of `geo`: a stored one (by
+/// the short names too: `P`, `N`, `uv`) or an intrinsic. `None` when it is not
+/// there, or of a type ICE does not read.
+pub fn attribute_type(geo: &Geo, ctx: Context, name: &str) -> Option<Ty> {
+    find_in(geo, ctx, name).and_then(|f| f.ty)
+}
+
 /// The context `name` is in, stored or an intrinsic, if any.
 fn context_of(geo: &Geo, name: &str) -> Option<Context> {
     if intrinsics::is_intrinsic(name) {
@@ -499,6 +510,31 @@ fn math_ty(op: Math, args: &[Ty]) -> Option<Ty> {
         (Math::Multiply, [Mat4, Mat4]) => Some(Mat4),
         (Math::Invert | Math::Transpose, [Mat4]) => Some(Mat4),
         (Math::TransformPoint | Math::TransformVector, [Mat4, Vec3]) => Some(Vec3),
+        // Logic: comparisons give booleans, which If picks between values by.
+        (Math::Less | Math::LessOrEqual | Math::Greater | Math::GreaterOrEqual, [a, b])
+            if a == b && matches!(a, Int | Float) =>
+        {
+            Some(Bool)
+        }
+        (Math::Equal | Math::NotEqual, [a, b]) if a == b && (*a == Bool || numeric(*a)) => Some(Bool),
+        (Math::And | Math::Or, [Bool, Bool]) | (Math::Not, [Bool]) => Some(Bool),
+        (Math::Select, [Bool, a, b]) if a == b && *a != Token => Some(*a),
+        (
+            Math::Sqrt
+            | Math::Exp
+            | Math::Log
+            | Math::Floor
+            | Math::Ceil
+            | Math::Round
+            | Math::Sign
+            | Math::Tan
+            | Math::Asin
+            | Math::Acos,
+            [Float],
+        ) => Some(Float),
+        (Math::Pow | Math::Atan2, [Float, Float]) => Some(Float),
+        (Math::Perlin | Math::Simplex | Math::CellNoise, [Vec3]) => Some(Float),
+        (Math::Mod, [a, b]) if a == b && matches!(a, Int | Float) => Some(*a),
         _ => None,
     }
 }
@@ -577,9 +613,18 @@ struct Lower<'a> {
     /// gets the value set, as when the ports run one after the other.
     written: HashMap<String, Val>,
     set: HashSet<usize>,
+    /// Registers of Get Reference's paths, and the reference input of each.
+    from_input: HashMap<usize, usize>,
 }
 
 impl Lower<'_> {
+    /// A surface of the paths in uniform register `reg`, its number.
+    fn surface(&mut self, reg: usize) -> usize {
+        self.plan.surfaces.push(reg);
+        self.plan.surface_inputs.push(self.from_input.get(&reg).copied());
+        self.plan.surfaces.len() - 1
+    }
+
     fn emit(&mut self, uniform: bool, ty: Ty, make: impl FnOnce(usize) -> Ins) -> Val {
         let p = if uniform {
             &mut self.plan.uniform
@@ -856,6 +901,7 @@ impl Lower<'_> {
                 let (input, paths) = (*input, paths.clone());
                 let mut v = self.emit(true, Ty::Token, |dst| Ins::Reference { dst, input, paths });
                 v.array = true;
+                self.from_input.insert(v.reg, input);
                 v
             }
         };
@@ -957,16 +1003,21 @@ impl Lower<'_> {
                 vals[i] = Some(self.wired(*from, *output)?);
             }
         }
-        let wired = vals.iter().flatten().map(|v| v.ty).find(|t| *t != Ty::Float).or(vals
-            .iter()
-            .flatten()
+        let met = || {
+            vals.iter()
+                .enumerate()
+                .filter(|(i, _)| !op.is_condition(*i))
+                .flat_map(|(_, v)| v)
+        };
+        let wired = met()
             .map(|v| v.ty)
-            .next());
+            .find(|t| *t != Ty::Float)
+            .or(met().map(|v| v.ty).next());
         for (i, input) in inputs.iter().enumerate() {
             if let Input::Value(value) = input {
-                let keep_float = value.ty() == Ty::Float && keeps_float(op, i);
+                let own = op.is_condition(i) || (value.ty() == Ty::Float && keeps_float(op, i));
                 let value = match wired {
-                    Some(t) if !keep_float => value.convert(t).unwrap_or(*value),
+                    Some(t) if !own => value.convert(t).unwrap_or(*value),
                     _ => *value,
                 };
                 vals[i] = Some(self.constant(value));
@@ -1395,8 +1446,7 @@ impl Lower<'_> {
                         "The Geometry is the paths of prims on a reference input: wire Get Reference",
                     );
                 }
-                self.plan.surfaces.push(paths.reg);
-                Ok(Some(self.plan.surfaces.len() - 1))
+                Ok(Some(self.surface(paths.reg)))
             }
             _ => Ok(None),
         }
@@ -1603,8 +1653,7 @@ impl Lower<'_> {
         if origin.array && !uniform {
             return error(node, "An array of origins takes one radius for all");
         }
-        let surface = self.plan.surfaces.len();
-        self.plan.surfaces.push(paths.reg);
+        let surface = self.surface(paths.reg);
         let (o, r) = if uniform {
             (origin.reg, radius.reg)
         } else {
@@ -1681,10 +1730,7 @@ impl Lower<'_> {
                 "The Count is an integer, for all or per element; 0 finds every point within the Radius",
             );
         }
-        let points = points.map(|reg| {
-            self.plan.surfaces.push(reg);
-            self.plan.surfaces.len() - 1
-        });
+        let points = points.map(|reg| self.surface(reg));
         let flat = origin.uniform && radius.uniform && count.uniform;
         let (o, r, c) = if flat {
             (origin.reg, radius.reg, count.reg)
@@ -2316,6 +2362,7 @@ pub fn compile_with(graph: &Graph, geo: &Geo, refs: &[Reference]) -> Result<Plan
             writes: vec![],
             instancers: vec![],
             surfaces: vec![],
+            surface_inputs: vec![],
         },
         done: HashMap::new(),
         outs: HashMap::new(),
@@ -2324,6 +2371,7 @@ pub fn compile_with(graph: &Graph, geo: &Geo, refs: &[Reference]) -> Result<Plan
         reads: HashMap::new(),
         written: HashMap::new(),
         set: HashSet::new(),
+        from_input: HashMap::new(),
     };
     for input in &graph.nodes[root].inputs {
         match input {
@@ -2411,11 +2459,14 @@ fn type_of(
                 })
                 .collect();
             // As `Lower::math`: values take the type of what they meet.
-            let met = wired.iter().flatten().copied().find(|t| *t != Ty::Float).or(wired
-                .iter()
-                .flatten()
-                .copied()
-                .next());
+            let others = || {
+                wired
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !op.is_condition(*i))
+                    .flat_map(|(_, t)| *t)
+            };
+            let met = others().find(|t| *t != Ty::Float).or(others().next());
             let tys: Option<Vec<Ty>> = n
                 .inputs
                 .iter()
@@ -2423,9 +2474,9 @@ fn type_of(
                 .map(|(i, input)| match input {
                     Input::Wire { .. } => wired[i],
                     Input::Value(v) => {
-                        let keep_float = v.ty() == Ty::Float && keeps_float(*op, i);
+                        let own = op.is_condition(i) || (v.ty() == Ty::Float && keeps_float(*op, i));
                         Some(match met {
-                            Some(t) if !keep_float => v.convert(t).unwrap_or(*v).ty(),
+                            Some(t) if !own => v.convert(t).unwrap_or(*v).ty(),
                             _ => v.ty(),
                         })
                     }

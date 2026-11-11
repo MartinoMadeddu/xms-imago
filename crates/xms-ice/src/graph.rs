@@ -454,11 +454,52 @@ pub enum Math {
     /// A direction (input 1) through a matrix (input 0): turned and scaled, not
     /// moved.
     TransformVector,
+    /// Comparisons of two numbers (ints or floats): a boolean.
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+    /// Whether two values of one type (booleans, numbers, vectors) are the
+    /// same, or not.
+    Equal,
+    NotEqual,
+    /// Booleans combined, or turned over.
+    And,
+    Or,
+    Not,
+    /// If: input 1 where the condition (input 0, a boolean) holds, input 2
+    /// where it does not; any type, the two of one.
+    Select,
+    /// OSL's functions of one number: square root, e to the power, natural
+    /// logarithm, down, up and to the nearest whole number, -1, 0 or 1 by the
+    /// sign, tangent and the inverse sine and cosine (radians, as Sine's).
+    Sqrt,
+    Exp,
+    Log,
+    Floor,
+    Ceil,
+    Round,
+    Sign,
+    Tan,
+    Asin,
+    Acos,
+    /// Input 0 to the power of input 1.
+    Pow,
+    /// The remainder of input 0 divided by input 1, with input 1's sign (OSL's
+    /// `mod`, never negative for a positive divisor); of ints too.
+    Mod,
+    /// The angle of (input 1, input 0) as y over x (OSL's `atan2(y, x)`).
+    Atan2,
+    /// OSL's noises of a point (`crate::noise`): Perlin's and simplex's
+    /// signed, about -1 to 1; cell noise's one value from 0 to 1 per unit cube.
+    Perlin,
+    Simplex,
+    CellNoise,
 }
 
 impl Math {
     /// Every operation, in the order the add menu lists them.
-    pub const ALL: [Math; 23] = [
+    pub const ALL: [Math; 49] = [
         Math::Add,
         Math::Subtract,
         Math::Multiply,
@@ -482,12 +523,52 @@ impl Math {
         Math::Transpose,
         Math::TransformPoint,
         Math::TransformVector,
+        Math::Less,
+        Math::LessOrEqual,
+        Math::Greater,
+        Math::GreaterOrEqual,
+        Math::Equal,
+        Math::NotEqual,
+        Math::And,
+        Math::Or,
+        Math::Not,
+        Math::Select,
+        Math::Sqrt,
+        Math::Pow,
+        Math::Exp,
+        Math::Log,
+        Math::Floor,
+        Math::Ceil,
+        Math::Round,
+        Math::Sign,
+        Math::Mod,
+        Math::Tan,
+        Math::Asin,
+        Math::Acos,
+        Math::Atan2,
+        Math::Perlin,
+        Math::Simplex,
+        Math::CellNoise,
     ];
 
     pub fn arity(self) -> usize {
         match self {
-            Math::Lerp => 3,
-            Math::Negate
+            Math::Lerp | Math::Select => 3,
+            Math::Not
+            | Math::Sqrt
+            | Math::Exp
+            | Math::Log
+            | Math::Floor
+            | Math::Ceil
+            | Math::Round
+            | Math::Sign
+            | Math::Tan
+            | Math::Asin
+            | Math::Acos
+            | Math::Perlin
+            | Math::Simplex
+            | Math::CellNoise
+            | Math::Negate
             | Math::Abs
             | Math::Sin
             | Math::Cos
@@ -498,6 +579,12 @@ impl Math {
             | Math::Transpose => 1,
             _ => 2,
         }
+    }
+
+    /// Whether input `i` is a condition (If's): a boolean, which neither takes
+    /// nor gives the type of the values it meets.
+    pub fn is_condition(self, i: usize) -> bool {
+        self == Math::Select && i == 0
     }
 }
 

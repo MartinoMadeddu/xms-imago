@@ -1525,6 +1525,7 @@ mod tests {
                 name: "Spherify".into(),
                 references: 1,
                 params: Default::default(),
+                snippet: false,
             },
             egui::pos2(100.0, 100.0),
         );

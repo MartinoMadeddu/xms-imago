@@ -195,6 +195,10 @@ Principles:
   **before** the batches start: nothing filled lazily may be built from inside
   a rayon task, which can deadlock.
 - The instruction set stays pointer-free, so a plan can later run on the GPU.
+- ISL, ICE's language (`xms_ice::lang`, [docs/isl.md](docs/isl.md)), is not
+  run by an interpreter: a Snippet is parsed and lowered into ICE's own nodes,
+  compiled with the graph. An `if` is both sides joined by If nodes, a loop is
+  unrolled while compiling, a function inlined.
 
 ## 9. Rules for anyone writing an operator
 
@@ -211,8 +215,8 @@ Principles:
 ## 10. Where it's going
 
 1. The Viewer drawing straight from `Geo`, retiring the `MeshData` view.
-2. The rest of the ICE engine: arrays, merge modes on writes elsewhere, a
-   Snippet node compiling to the same instructions, simulation.
+2. The rest of the ICE engine: merge modes on writes elsewhere, ISL loops over
+   a count per element, simulation.
 3. Rendering inside Imago: Arnold is in (section 7b); rray next through the
    same interface, Karma through husk, and `xms-scene` and rray's merge.
 4. Write USD: de-instancing, flattening, instancer edits.

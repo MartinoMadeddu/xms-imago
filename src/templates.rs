@@ -71,6 +71,10 @@ pub const TEMPLATES: &[Template] = &[
         hint: "9,534 hairs carried by 314 animated guides, Alembic caches from Houdini loaded as USD: each hair bound to the guide nearest its root, each point read on that guide at its u along the hair, moved and turned with it" },
     Template { by: MARTINO, group: "ICE", name: "Bind rigid hair deform by skin", build: ice_rigid_hair,
         hint: "9,534 hairs carried rigidly by the animated pig's head, Alembic caches from Houdini loaded as USD: each hair bound once, at its root, to the head at rest (RootBind, per curve); its move made per curve each frame (Carry), one matrix, and every point put through it (Deform)" },
+    Template { by: MARTINO, group: "ICE", name: "Snippets: roughen and relax", build: snippet_roughen_relax,
+        hint: "A sphere roughened by OSL's Perlin noise, then relaxed towards its nearest points: two Snippet operators, code instead of nodes (noise(), near_points(), get_data())" },
+    Template { by: MARTINO, group: "ICE", name: "Snippets: stick to a surface", build: snippet_stick,
+        hint: "A subdivided cube stuck onto a squashed sphere wired into Reference 1: a Snippet operator with closest_point_on_surface(), its ground a geometry parameter (its References)" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -2657,6 +2661,7 @@ fn spherify(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             name: "Spherify".into(),
             references: 1,
             params: Default::default(),
+            snippet: false,
         },
         p(180.0, 240.0),
     );
@@ -2748,6 +2753,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
             name: "ShrinkWrap".into(),
             references: 1,
             params: Default::default(),
+            snippet: false,
         },
         p(160.0, 250.0),
     );
@@ -2757,6 +2763,85 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
     g.add_connection(squash, 0, wrap, 1);
     finish(g, wrap, wrap);
     "ICE shrink-wrap: every point of the subdivided cube goes to the nearest place on the squashed sphere wired into Reference 1. Go inside the ShrinkWrap node (down arrow): Closest Point on Surface searches the reference (Get Reference) from each P, a Get Data with its Polygon and Param UV wired reads P there, and Linear Interpolate blends from the cube by its T (1: on the sphere; try 0.5). Move or turn the Squash: the cube follows it where the Viewer shows it.".into()
+}
+
+/// An ISnippet of example `name` (`ice::SNIPPET_EXAMPLES`), named
+/// `label`, at `at`.
+fn snippet_op(g: &mut NodeGraphState, store: &mut IceGraphStore, name: &str, label: &str, at: egui::Pos2) -> NodeId {
+    let text = crate::ice::SNIPPET_EXAMPLES
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map_or(crate::ice::SNIPPET, |(_, _, text)| *text);
+    let id = store.create_snippet(label.into(), text);
+    g.add_node(
+        label.into(),
+        NodeType::Ice {
+            id,
+            name: label.into(),
+            references: 1,
+            params: Default::default(),
+            snippet: true,
+        },
+        at,
+    )
+}
+
+/// Two Snippet operators on a sphere: roughened by OSL's Perlin noise, then
+/// relaxed towards each point's nearest points.
+fn snippet_roughen_relax(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    let sphere = g.add_node(
+        "Sphere".into(),
+        NodeType::CreateSphere {
+            radius: 1.0,
+            segments: 48,
+            location: "/shapes/sphere".into(),
+        },
+        p(40.0, 20.0),
+    );
+    let rough = snippet_op(g, store, "Snippet: roughen (noise)", "Roughen", p(40.0, 140.0));
+    let relax = snippet_op(g, store, "Snippet: relax (near points)", "Relax", p(40.0, 260.0));
+    g.add_connection(sphere, 0, rough, 0);
+    g.add_connection(rough, 0, relax, 0);
+    finish(g, relax, rough);
+    "Snippets: Roughen pushes each point of the sphere out by noise(\"perlin\", P * Frequency), the value an OSL shader gets there; Relax moves each towards the middle of its nearest points (near_points, then get_data at their numbers). Select either for its code and parameters: change Amount, or Weight, or the code itself and press Ctrl+Enter. Bypass Relax to see the noise alone.".into()
+}
+
+/// A Snippet operator sticking a subdivided cube onto a squashed sphere, its
+/// ground a geometry parameter: the prims on Reference 1.
+fn snippet_stick(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    let all = || PolySelection {
+        source: SelSource::All,
+        ..Default::default()
+    };
+    let cube = g.add_node("Cube".into(), NodeType::cube(2.0), p(40.0, 20.0));
+    let dense = g.add_node(
+        "Subdivide".into(),
+        edit_poly(vec![PolyOp::new(all(), PolyOpKind::Subdivide { iterations: 3 })], all()),
+        p(40.0, 130.0),
+    );
+    let sphere = g.add_node(
+        "Sphere".into(),
+        NodeType::CreateSphere {
+            radius: 1.0,
+            segments: 32,
+            location: "/target/sphere".into(),
+        },
+        p(300.0, 20.0),
+    );
+    let squash = g.add_node(
+        "Squash".into(),
+        transform([0.0; 3], [0.0, 0.0, 20f32.to_radians()], [1.6, 0.7, 1.1]),
+        p(300.0, 130.0),
+    );
+    let stick = snippet_op(g, store, "Snippet: stick (closest point)", "Stick", p(160.0, 250.0));
+    g.add_connection(cube, 0, dense, 0);
+    g.add_connection(sphere, 0, squash, 0);
+    g.add_connection(dense, 0, stick, 0);
+    g.add_connection(squash, 0, stick, 1);
+    finish(g, stick, stick);
+    "Snippet: every point of the subdivided cube goes onto the nearest place of the squashed sphere wired into Reference 1. Select Stick for its code: closest_point_on_surface(@P, ground, face, uv, hit) searches ground, a geometry parameter whose References are Reference 1's prims; Weight blends from the cube (try 0.5).".into()
 }
 
 /// A point deformer on Alembic caches Martino wrote from Houdini: 1,000
@@ -2976,6 +3061,7 @@ fn ice_cage_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let c = g.add_node("CageCapture".into(), ice(capture, "CageCapture"), p(440.0, 300.0));
     g.add_connection(sphere, 0, c, 0);
@@ -3233,6 +3319,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let bound = g.add_node("GuideBind".into(), ice(bind, "GuideBind"), p(440.0, 120.0));
     let carried = g.add_node("GuideDeform".into(), ice(deform, "GuideDeform"), p(300.0, 220.0));
@@ -3477,6 +3564,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let bound = g.add_node("RootBind".into(), ice(root_bind, "RootBind"), p(440.0, 120.0));
     let moved = g.add_node("Carry".into(), ice(carry, "Carry"), p(440.0, 220.0));
@@ -3617,6 +3705,7 @@ fn capture_and_deform(
         name: name.into(),
         references: 1,
         params: Default::default(),
+        snippet: false,
     };
     let capture = capture_subnet(store, rest.1);
     let deform = deform_subnet(store, moving.1);
@@ -3771,6 +3860,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             name: "Instancing".into(),
             references: 2,
             params: Default::default(),
+            snippet: false,
         },
         p(240.0, 340.0),
     );

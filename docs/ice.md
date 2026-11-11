@@ -108,6 +108,52 @@ the tree's parameters).
   **Distance** is how far apart two positions (or any two vectors of one size)
   are. Add takes two floats or two vectors (an int meeting a float is taken as a
   float); Multiply also scales a vector by a float.
+- **Logic.** **Less Than**, **Less Than or Equal**, **Greater Than** and
+  **Greater Than or Equal** compare two numbers (an int meeting a float is a
+  float); **Equal** and **Not Equal** two values of one type (booleans,
+  numbers, vectors). Each gives a Boolean per element. **And**, **Or** and
+  **Not** combine booleans. **If** gives If True where its Condition holds and
+  If False where it does not, element by element, of any type (the two of one;
+  an unwired one takes the type of the other): move only the points above a
+  height, keep the others where they are. Both sides are worked out for every
+  element, and If picks between them.
+- **OSL's maths:** Square Root, Power, Exponential, Logarithm, Floor,
+  Ceiling, Round, Sign (-1, 0 or 1), Modulo (never negative for a positive B;
+  ints too), Tangent, Arcsine, Arccosine and Arctangent of Y over X, on
+  numbers: what snippets call `sqrt`, `pow`, `floor`, `mod`, `atan2`…
+- **Snippet:** code in a node, in ISL, the ICE Scripting Language (OSL's syntax and
+  types, ICE's attributes: [ISL](isl.md)), lowered into these
+  same nodes when the graph compiles, so it runs as fast as they do. Its
+  parameters are its input ports (a wire takes a parameter's place), its
+  `output` parameters its output ports, then an Execute, for the root: the
+  attributes it sets. **Run Over** is the context its body runs over (the
+  graph's own unless set). The text is applied with Ctrl+Enter or by leaving
+  it; changing its parameters keeps the wires of those still there, by name.
+  What is wrong, with its line and column, shows under the text and on the
+  node. A `geometry` parameter with nothing wired reads what its
+  **References** row names, as a Get Reference: Reference 1's prims unless
+  set. **Make Compound** makes the snippet a compound of its own, its free
+  parameters its ports, to save as a definition. The add menu has examples:
+  roughen (noise), relax (near points), stick (closest point).
+- **ISnippet**, in the scene graph's add menu (yellow, as the Snippet node
+  is): an ICE operator holding one snippet, locked inside. Its Parameters
+  tab has the snippet's code, Run Over, References and parameters; its
+  reference inputs are what its `geometry` parameters read. **Make ICE
+  Graph** puts an ICreationEngine beside it, wired as it is, holding the nodes
+  the snippet runs: to see how it works, or to carry on in nodes.
+  Templates > Martino > ICE has two: roughen and relax, and stick to a
+  surface.
+- **Noise:** Perlin Noise, Simplex Noise (both about -1 to 1) and Cell Noise
+  (0 to 1, one value per unit cube) of a position: OSL's own, ported, so a
+  value made here is the one an OSL shader gets at the same place.
+
+  ```c
+  snippet lift (float amount = 0.1 [[ string label = "Amount" ]])
+  {
+      if (@P.y > 0)
+          @P += normalize(@N) * amount;
+  }
+  ```
 - **Compose** makes a vector from its parts, as its **Makes** says: Floats to
   2D, 3D or 4D Vector (X, Y, Z, W), 2D Vector and Float to 3D Vector (XY, Z), 3D
   Vector and Float to 4D Vector (XYZ, W), Floats to Rotation (I, J, K, Real;
@@ -482,7 +528,7 @@ parameters.
   points), and a curve's Param UV by length as an option (Houdini's `primuvconvert`)
 - Reading at a place on a reference mesh in the editor's types: the port shows
   its type once the graph has run on that mesh
-- Snippets: code in a node, compiled to the same instructions
+- ISL: loops over a count per element ([ISL](isl.md), Not in ISL yet)
 
 ## Tests
 

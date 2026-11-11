@@ -9,8 +9,12 @@
 //! wins. A primitive under a closed row of the Scene Explorer is still picked
 //! by its own geometry.
 //!
+//! Curves and points are picked by their lines as drawn, as lights and cameras
+//! are: the pointer near one of them.
+//!
 //! A box dragged over the picture selects every primitive it touches, behind
-//! others too: a triangle of a mesh, or a line of a light or a camera, in it.
+//! others too: a triangle of a mesh, or a line of a curve, a point, a light or
+//! a camera, in it.
 
 use glam::{Mat4, Vec2, Vec3};
 
@@ -69,8 +73,63 @@ pub fn glyph_lines(p: &Prim) -> Vec<[Vec3; 2]> {
     vec![]
 }
 
-/// How near the pointer has to be to a light's or a camera's lines, in pixels.
+/// How near the pointer has to be to a line, in pixels.
 const NEAR_LINE: f32 = 6.0;
+
+/// A prim's curves and points as the Viewer draws them (`strands::lines`), in
+/// its own space. Empty for a prim without them, and for a point instancer,
+/// whose points are not drawn.
+fn strand_lines(p: &Prim) -> Vec<[Vec3; 2]> {
+    if p.instancing.is_some() || !crate::strands::has_strands(&p.mesh) {
+        return vec![];
+    }
+    let (pos, idx) = crate::strands::lines(&p.mesh);
+    idx.chunks_exact(2)
+        .map(|s| {
+            [
+                Vec3::from_array(pos[s[0] as usize]),
+                Vec3::from_array(pos[s[1] as usize]),
+            ]
+        })
+        .collect()
+}
+
+/// Where copy `m` of a prim's strands is on screen, roughly: the box around
+/// its corners that are in front of the camera. `None` when the copy is
+/// wholly behind it or has no bounds.
+fn screen_box(view: &PickView, local: Bounds, m: &Mat4) -> Option<(Vec2, Vec2)> {
+    let (b0, b1) = bounds::moved_bounds(local, m);
+    let corners: Vec<Vec2> = (0..8)
+        .filter_map(|i: usize| {
+            view.project(Vec3::new(
+                if i & 1 == 0 { b0.x } else { b1.x },
+                if i & 2 == 0 { b0.y } else { b1.y },
+                if i & 4 == 0 { b0.z } else { b1.z },
+            ))
+        })
+        .collect();
+    match corners.len() {
+        0 => None,
+        8 => Some(
+            corners
+                .iter()
+                .fold((Vec2::MAX, Vec2::MIN), |(a, b), s| (a.min(*s), b.max(*s))),
+        ),
+        // Partly behind the camera: its corners in front do not bound it.
+        _ => Some((Vec2::MIN, Vec2::MAX)),
+    }
+}
+
+/// How far along the ray (`o`, `d`) the segment `a`–`b` is where it passes
+/// within `NEAR_LINE` of `pixel` on screen, if it does.
+fn near_line(view: &PickView, pixel: Vec2, o: Vec3, d: Vec3, a: Vec3, b: Vec3) -> Option<f32> {
+    let (sa, sb) = (view.project(a)?, view.project(b)?);
+    if to_segment(pixel, sa, sb) > NEAR_LINE {
+        return None;
+    }
+    let t = (a.lerp(b, 0.5) - o).dot(d);
+    (t > 0.0).then_some(t)
+}
 
 /// Distance from a point to a segment, in 2D.
 fn to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
@@ -84,7 +143,8 @@ fn to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
 }
 
 /// The path of the primitive under `pixel`, among `prims`: a mesh the ray hits,
-/// or a light or a camera whose lines pass near it, the nearest.
+/// or curves, points, a light or a camera whose lines pass near it, the
+/// nearest.
 #[cfg(test)]
 pub fn prim_at(view: &PickView, pixel: Vec2, prims: &[Prim]) -> Option<String> {
     prim_at_drawn(view, pixel, prims, &Default::default())
@@ -105,32 +165,46 @@ pub fn prim_at_drawn(
     let mut best: Option<(f32, &Prim, usize)> = None;
     for p in prims.iter().filter(|p| p.light.is_some() || p.camera.is_some()) {
         for [a, b] in glyph_lines(p) {
-            let (Some(sa), Some(sb)) = (view.project(a), view.project(b)) else {
+            if let Some(t) = near_line(view, pixel, o, d, a, b) {
+                if best.is_none_or(|x| t < x.0) {
+                    best = Some((t, p, 0));
+                }
+            }
+        }
+    }
+    for p in prims.iter().filter(|p| !standins.contains(&p.path)) {
+        let lines = strand_lines(p);
+        let Some(local) = bounds::local_bounds(&p.mesh).filter(|_| !lines.is_empty()) else {
+            continue;
+        };
+        for (k, m) in matrices(p).iter().enumerate() {
+            // Cheap first: the copy's box on screen, missed by the pointer.
+            let Some((lo, hi)) = screen_box(view, local, m) else {
                 continue;
             };
-            if to_segment(pixel, sa, sb) > NEAR_LINE {
+            if (pixel + NEAR_LINE).cmplt(lo).any() || (pixel - NEAR_LINE).cmpgt(hi).any() {
                 continue;
             }
-            let t = (a.lerp(b, 0.5) - o).dot(d);
-            if t > 0.0 && best.is_none_or(|x| t < x.0) {
-                best = Some((t, p, 0));
+            for [a, b] in &lines {
+                let (a, b) = (m.transform_point3(*a), m.transform_point3(*b));
+                if let Some(t) = near_line(view, pixel, o, d, a, b) {
+                    if best.is_none_or(|x| t < x.0) {
+                        best = Some((t, p, k));
+                    }
+                }
             }
         }
     }
     for p in prims {
-        if p.mesh.indices.is_empty() {
+        let boxed = standins.contains(&p.path);
+        // A prim of curves or points only, drawn as its box, is picked by it.
+        if p.mesh.indices.is_empty() && !boxed {
             continue;
         }
         let Some(local) = bounds::local_bounds(&p.mesh) else {
             continue;
         };
-        let matrices: &[Mat4] = if p.place.is_placed() {
-            p.place.matrices()
-        } else {
-            &[Mat4::IDENTITY]
-        };
-        let boxed = standins.contains(&p.path);
-        for (k, m) in matrices.iter().enumerate() {
+        for (k, m) in matrices(p).iter().enumerate() {
             // Cheap first: the copy's box; drawn as a box, the box is it.
             let Some(entry) = ray_box(o, d, bounds::moved_bounds(local, m)) else {
                 continue;
@@ -144,6 +218,15 @@ pub fn prim_at_drawn(
         }
     }
     best.map(|(_, p, copy)| copy_path(p, copy))
+}
+
+/// Where `p`'s copies are: its placements, or where it is.
+fn matrices(p: &Prim) -> &[Mat4] {
+    if p.place.is_placed() {
+        p.place.matrices()
+    } else {
+        &[Mat4::IDENTITY]
+    }
 }
 
 /// What selecting copy `copy` of `p` selects: a point instancer's instance
@@ -205,20 +288,39 @@ pub fn prims_in_rect(
             take(p.path.clone());
         }
     }
+    for p in prims.iter().filter(|p| !standins.contains(&p.path)) {
+        let lines = strand_lines(p);
+        let Some(local) = bounds::local_bounds(&p.mesh).filter(|_| !lines.is_empty()) else {
+            continue;
+        };
+        for (k, m) in matrices(p).iter().enumerate() {
+            match screen_box(view, local, m) {
+                Some((s0, s1)) if !(s1.cmplt(lo).any() || s0.cmpgt(hi).any()) => {}
+                _ => continue,
+            }
+            let touched = lines.iter().any(|[a, b]| {
+                match (
+                    view.project(m.transform_point3(*a)),
+                    view.project(m.transform_point3(*b)),
+                ) {
+                    (Some(sa), Some(sb)) => overlaps(&[sa, sb], lo, hi),
+                    _ => false,
+                }
+            });
+            if touched {
+                take(copy_path(p, k));
+            }
+        }
+    }
     for p in prims {
-        if p.mesh.indices.is_empty() {
+        let boxed = standins.contains(&p.path);
+        if p.mesh.indices.is_empty() && !boxed {
             continue;
         }
         let Some(local) = bounds::local_bounds(&p.mesh) else {
             continue;
         };
-        let matrices: &[Mat4] = if p.place.is_placed() {
-            p.place.matrices()
-        } else {
-            &[Mat4::IDENTITY]
-        };
-        let boxed = standins.contains(&p.path);
-        for (k, m) in matrices.iter().enumerate() {
+        for (k, m) in matrices(p).iter().enumerate() {
             let (b0, b1) = bounds::moved_bounds(local, m);
             let corner = |i: usize| {
                 Vec3::new(
@@ -474,5 +576,46 @@ mod tests {
         assert_eq!(prim_at(&v, off, &shown), None);
         assert!(!selected_glyphs(&shown, &["/lights/rect".into()]).is_empty());
         assert!(selected_glyphs(&shown, &[]).is_empty());
+    }
+
+    /// A curve is picked by its line, as drawn, the pointer near it, not beside
+    /// it; a box across it selects it, one beside it not; a copy is picked
+    /// where it is; a point cloud by its points.
+    #[test]
+    fn curves_and_points_are_picked_by_their_lines() {
+        let hair = MeshData {
+            curve_points: vec![[-1.0, -1.0, 0.0], [-1.0, 0.0, 0.0], [-1.0, 1.0, 0.0]],
+            curve_counts: vec![3],
+            ..MeshData::default()
+        };
+        let curve = Prim {
+            place: Placement::Many(vec![Mat4::IDENTITY, Mat4::from_translation(Vec3::new(3.0, 0.0, 0.0))].into()),
+            ..Prim::new("/hair".into(), hair)
+        };
+        let cloud = Prim::new(
+            "/cloud".into(),
+            MeshData {
+                points: vec![[0.0, 2.0, 0.0]],
+                ..MeshData::default()
+            },
+        );
+        let v = view();
+        let shown = [curve, cloud];
+        let at = |p: Vec3| v.project(p).unwrap();
+        let px = |x: f32| at(Vec3::new(x, 0.5, 0.0));
+        assert_eq!(prim_at(&v, px(-1.0), &shown).as_deref(), Some("/hair"));
+        assert_eq!(prim_at(&v, px(2.0), &shown).as_deref(), Some("/hair"));
+        assert_eq!(prim_at(&v, px(0.0), &shown), None);
+        assert_eq!(
+            prim_at(&v, at(Vec3::new(0.0, 2.0, 0.0)), &shown).as_deref(),
+            Some("/cloud")
+        );
+        let none = Default::default();
+        let boxed = |a: Vec3, b: Vec3| prims_in_rect(&v, at(a), at(b), &shown, &none);
+        assert_eq!(
+            boxed(Vec3::new(-1.5, 0.4, 0.0), Vec3::new(-0.5, 0.6, 0.0)),
+            vec!["/hair"]
+        );
+        assert!(boxed(Vec3::new(-0.5, -0.5, 0.0), Vec3::new(0.5, 0.5, 0.0)).is_empty());
     }
 }

@@ -419,6 +419,11 @@ pub enum NodeType {
         references: u32,
         #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
         params: std::collections::BTreeMap<String, serde_json::Value>,
+        /// An ISnippet: its graph one Snippet node, locked (not gone inside),
+        /// its pane the snippet's; Make ICE Graph gives its nodes as an
+        /// ICreationEngine of their own.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        snippet: bool,
     },
     // The Output node is gone: the view flag says what the scene is. Graphs
     // saved with one have it taken out when read (`graph_io`).
@@ -1128,6 +1133,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Merge { .. } => "➕",
         NodeType::LocalAnimation { .. } => "⏳",
         NodeType::MergeAnimation { .. } => "🎞",
+        NodeType::Ice { snippet: true, .. } => "λ",
         NodeType::Ice { .. } => "▣",
         NodeType::Placeholder { .. } => "📝",
         NodeType::PassThrough => "↓",
@@ -1223,6 +1229,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Merge { .. } => "Merge",
         NodeType::LocalAnimation { .. } => "Local Animation",
         NodeType::MergeAnimation { .. } => "Merge Animation",
+        NodeType::Ice { snippet: true, .. } => "ISnippet",
         NodeType::Ice { .. } => "ICreationEngine",
         NodeType::Placeholder { .. } => "Placeholder",
         NodeType::PassThrough => "Pass Through",
@@ -1443,6 +1450,32 @@ pub enum IceGraphNodeType {
         #[serde(default)]
         draw_mode: DrawMode,
     },
+    /// An ICE snippet: code in ISL, the ICE Scripting Language
+    /// (`xms_ice::lang`, `docs/isl.md`), lowered into the engine's own nodes when the
+    /// graph compiles. Its ports come from its signature: an input per
+    /// parameter, an output per `output` parameter, then an Execute (the
+    /// attributes it sets). `run_over`: the context its body runs over; `None`,
+    /// the graph's own (or the one its text pins). `references`: which prims
+    /// each unwired `geometry` parameter reads on its reference input, as Get
+    /// Reference's rows (none kept for one: all of them).
+    Snippet {
+        text: String,
+        #[serde(default)]
+        run_over: Option<crate::core::geo::Context>,
+        #[serde(default)]
+        references: Vec<SnippetReference>,
+    },
+}
+
+/// Which prims a Snippet's `geometry` parameter reads while nothing is wired
+/// to it, as a Get Reference's rows: of those on its reference input (its
+/// default in the text, `geometry ground = 1`) the ones `paths` names; no
+/// rows, all of them.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SnippetReference {
+    pub name: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 impl IceGraphNodeType {
@@ -1511,6 +1544,32 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             Math::Transpose => "Transpose Matrix",
             Math::TransformPoint => "Transform Point",
             Math::TransformVector => "Transform Vector",
+            Math::Less => "Less Than",
+            Math::LessOrEqual => "Less Than or Equal",
+            Math::Greater => "Greater Than",
+            Math::GreaterOrEqual => "Greater Than or Equal",
+            Math::Equal => "Equal",
+            Math::NotEqual => "Not Equal",
+            Math::And => "And",
+            Math::Or => "Or",
+            Math::Not => "Not",
+            Math::Select => "If",
+            Math::Sqrt => "Square Root",
+            Math::Pow => "Power",
+            Math::Exp => "Exponential",
+            Math::Log => "Logarithm",
+            Math::Floor => "Floor",
+            Math::Ceil => "Ceiling",
+            Math::Round => "Round",
+            Math::Sign => "Sign",
+            Math::Mod => "Modulo",
+            Math::Tan => "Tangent",
+            Math::Asin => "Arcsine",
+            Math::Acos => "Arccosine",
+            Math::Atan2 => "Arctangent of Y over X",
+            Math::Perlin => "Perlin Noise",
+            Math::Simplex => "Simplex Noise",
+            Math::CellNoise => "Cell Noise",
         },
         IceGraphNodeType::Random { .. } => "Random Value",
         IceGraphNodeType::Scatter { .. } => "Scatter on Surface",
@@ -1519,6 +1578,7 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::GetArrayData { .. } => "Get Array Data",
         IceGraphNodeType::RandomOrientation { .. } => "Random Orientation",
         IceGraphNodeType::Concat => "Concatenate Arrays",
+        IceGraphNodeType::Snippet { .. } => "Snippet",
         IceGraphNodeType::GetReference { .. } => "Get Reference",
         IceGraphNodeType::Instancer { .. } => "Instancer",
         IceGraphNodeType::Compose {
@@ -1565,6 +1625,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::CompoundInput { .. } => "▶",
         IceGraphNodeType::CompoundOutput { .. } => "◀",
         IceGraphNodeType::Parameter { .. } => "⚙",
+        IceGraphNodeType::Snippet { .. } => "λ",
     }
 }
 

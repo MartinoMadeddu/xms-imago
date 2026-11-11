@@ -36,8 +36,13 @@ pub const LABELS_DRAWN: usize = 5_000;
 pub const COLOURED_LIMIT: usize = 20_000_000;
 /// Triangles hiding labels at most: past it, labels are not hidden.
 pub const OCCLUDER_LIMIT: usize = 2_000_000;
+/// Values of a list shown in its label at most.
+const COLUMN: usize = 6;
 /// Labels tested for what hides them in a frame at most, nearest first.
-const LABELS_TESTED: usize = 10_000;
+const LABELS_TESTED: usize = 20_000;
+/// The side of the squares of the picture, in pixels, a label hidden in one
+/// hides the others in: those behind a surface found once, not each time.
+const HIDDEN_CELL: f32 = 4.0;
 
 /// Which prims attributes are shown on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -231,7 +236,8 @@ impl Found {
         }
     }
 
-    /// Element `e`'s value as a label shows it: a list as `[a, b]`.
+    /// Element `e`'s value as a label shows it: a vector as `[a, b]`, a list
+    /// as a column, a value a line, as XSI's are, `COLUMN` lines at most.
     pub fn text(&self, e: usize) -> Option<String> {
         let n = self.element_size.max(1);
         let first = self.at(e)? * n;
@@ -250,7 +256,11 @@ impl Found {
         if n == 1 {
             return one(first);
         }
-        Some(list((first..first + n).filter_map(one)))
+        let mut lines: Vec<String> = (first..first + n.min(COLUMN)).filter_map(one).collect();
+        if n > COLUMN {
+            lines.push(format!("… {} more", n - COLUMN));
+        }
+        Some(lines.join("\n"))
     }
 }
 
@@ -332,35 +342,31 @@ fn starts(counts: &[u32]) -> Vec<usize> {
     out
 }
 
-/// Where each element of `ctx` is drawn, in the prim's own space, and which
-/// way it faces when that is known (a face's normal, its corners').
-pub fn places(geo: &Geo, ctx: Context) -> Vec<(Vec3, Option<Vec3>)> {
+/// Where each element of `ctx` is drawn, in the prim's own space, and how far
+/// towards the eye it is lifted when testing what hides it: a face's centre
+/// and its corners lie under a curved face, by up to a part of its size. The
+/// object's centre, inside it, is never hidden (an infinite lift).
+pub fn places(geo: &Geo, ctx: Context) -> Vec<(Vec3, f32)> {
     let pts = geo.points();
     let p = |i: u32| Vec3::from_array(pts.get(i as usize).copied().unwrap_or_default());
     let (start, corner_point) = faces(geo);
-    let mesh = matches!(geo.topology, Topology::Mesh { .. });
-    let face = |f: usize| -> (Vec3, Option<Vec3>) {
+    // A face's centre, and a quarter of its reach from it.
+    let centre = |f: usize| -> (Vec3, f32) {
         let cs = &corner_point[start[f]..start[f + 1]];
-        let centre = cs.iter().map(|&i| p(i)).sum::<Vec3>() / cs.len().max(1) as f32;
-        let normal = mesh.then(|| {
-            let mut n = Vec3::ZERO;
-            for k in 0..cs.len() {
-                n += p(cs[k]).cross(p(cs[(k + 1) % cs.len()]));
-            }
-            n.normalize_or_zero()
-        });
-        (centre, normal.filter(|n| *n != Vec3::ZERO))
+        let c = cs.iter().map(|&i| p(i)).sum::<Vec3>() / cs.len().max(1) as f32;
+        let reach = cs.iter().map(|&i| p(i).distance(c)).fold(0.0, f32::max);
+        (c, reach * 0.25)
     };
     match ctx {
-        Context::Point => pts.iter().map(|x| (Vec3::from_array(*x), None)).collect(),
-        Context::Face => (0..start.len() - 1).map(face).collect(),
+        Context::Point => pts.iter().map(|x| (Vec3::from_array(*x), 0.0)).collect(),
+        Context::Face => (0..start.len() - 1).map(centre).collect(),
         // A little towards its face's centre, so neighbouring corners part.
         Context::Corner => (0..start.len() - 1)
             .flat_map(|f| {
-                let (centre, n) = face(f);
+                let (c, lift) = centre(f);
                 corner_point[start[f]..start[f + 1]]
                     .iter()
-                    .map(move |&i| (p(i).lerp(centre, 0.2), n))
+                    .map(move |&i| (p(i).lerp(c, 0.2), lift))
                     .collect::<Vec<_>>()
             })
             .collect(),
@@ -369,7 +375,7 @@ pub fn places(geo: &Geo, ctx: Context) -> Vec<(Vec3, Option<Vec3>)> {
                 .bounds()
                 .map(|(lo, hi)| (Vec3::from_array(lo) + Vec3::from_array(hi)) * 0.5)
                 .unwrap_or(Vec3::ZERO);
-            vec![(at, None)]
+            vec![(at, f32::INFINITY)]
         }
     }
 }
@@ -421,12 +427,15 @@ pub fn white() -> f32 {
     packed([1.0; 4])
 }
 
-/// A label over the picture: where, what, and which way its element faces.
+/// A label over the picture: where, what, of which context (its colour, and
+/// whether it sits beside its element or on it), and how far towards the eye
+/// it is lifted when testing what hides it (see `places`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Label {
     pub at: Vec3,
     pub text: String,
-    pub facing: Option<Vec3>,
+    pub context: Context,
+    pub lift: f32,
 }
 
 /// What attributes give a prim's drawing, in the world.
@@ -557,7 +566,12 @@ pub fn drawn(
             }
             _ => {
                 for m in placed {
-                    for (e, (p, n)) in at.iter().enumerate().take(count) {
+                    // A lift in the prim's space, in the world's.
+                    let scale = [m.x_axis, m.y_axis, m.z_axis]
+                        .iter()
+                        .map(|a| a.truncate().length())
+                        .fold(0.0, f32::max);
+                    for (e, (p, lift)) in at.iter().enumerate().take(count) {
                         let Some(text) = f.text(e) else { continue };
                         if budget.1 == 0 {
                             out.left_out.push(format!("{}: past {LABEL_LIMIT} labels", s.name));
@@ -567,7 +581,8 @@ pub fn drawn(
                         out.labels.push(Label {
                             at: m.transform_point3(*p),
                             text,
-                            facing: n.map(|n| m.transform_vector3(n).normalize_or_zero()),
+                            context: f.context,
+                            lift: lift * scale,
                         });
                     }
                 }
@@ -612,9 +627,34 @@ pub fn world_triangles(geo: &Geo, m: &Mat4) -> Vec<[Vec3; 3]> {
     out
 }
 
-/// The labels on screen drawn over the picture, nearest the camera first,
-/// those behind a surface (`occluders`) or on one turned away left out, at
-/// most `LABELS_DRAWN`. What was left out, when a limit was reached.
+/// The colour of a label of `ctx`'s, light enough to read with its shadow on
+/// any surface: points green, faces lilac (as XSI's), corners amber, the
+/// object white.
+fn label_colour(ctx: Context) -> egui::Color32 {
+    match ctx {
+        Context::Point => egui::Color32::from_rgb(175, 235, 165),
+        Context::Face => egui::Color32::from_rgb(220, 180, 245),
+        Context::Corner => egui::Color32::from_rgb(245, 205, 125),
+        Context::Object => egui::Color32::from_rgb(235, 235, 235),
+    }
+}
+
+/// Where a label laid out at `size`, of `lines` lines, goes for its element
+/// at `at` on screen: a point's just right of it, the rest centred on theirs;
+/// a list's column rising from its element, its last line level with it.
+fn label_min(ctx: Context, at: egui::Pos2, size: egui::Vec2, lines: usize) -> egui::Pos2 {
+    let line = size.y / lines.max(1) as f32;
+    let y = at.y - size.y + line * 0.5;
+    match ctx {
+        Context::Point => egui::pos2(at.x + 4.0, y),
+        _ => egui::pos2(at.x - size.x * 0.5, y),
+    }
+}
+
+/// The labels on screen drawn over the picture, as Houdini's are: the text
+/// alone, coloured by its context, with a dark shadow so it reads on any
+/// surface; those behind a surface (`occluders`) left out, nearest the camera
+/// first. What was left out, when a limit was reached.
 pub fn draw_labels(
     ui: &egui::Ui,
     rect: egui::Rect,
@@ -628,7 +668,6 @@ pub fn draw_labels(
     }
     let mut on_screen: Vec<(f32, egui::Pos2, &Label)> = labels
         .iter()
-        .filter(|l| l.facing.is_none_or(|n| n.dot(eye - l.at) >= 0.0))
         .filter_map(|l| {
             let p = view_proj * l.at.extend(1.0);
             if p.w <= 0.0 {
@@ -642,61 +681,109 @@ pub fn draw_labels(
         })
         .collect();
     on_screen.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Lifted towards the eye, but never past half the way to it.
+    let hidden = |i: usize| {
+        let l = on_screen[i].2;
+        let Some(o) = occluders.filter(|_| l.lift.is_finite()) else {
+            return false;
+        };
+        let to_eye = eye - l.at;
+        let at = l.at + to_eye.normalize_or_zero() * l.lift.min(to_eye.length() * 0.5);
+        o.hides(eye, at)
+    };
+    let anchors: Vec<egui::Pos2> = on_screen.iter().map(|(_, at, _)| *at).collect();
+    let (shown, note) = visible(&anchors, hidden);
     let painter = ui.painter_at(rect);
     let font = egui::FontId::monospace(10.0);
-    let (mut drawn, mut tested) = (0, 0);
-    for (_, at, l) in &on_screen {
-        if drawn == LABELS_DRAWN || tested == LABELS_TESTED {
-            return Some(format!(
-                "Labels: the nearest {drawn} shown: select fewer prims or come closer"
-            ));
-        }
-        tested += 1;
-        if occluders.is_some_and(|o| o.hides(eye, l.at)) {
-            continue;
-        }
-        drawn += 1;
-        let galley = painter.layout_no_wrap(l.text.clone(), font.clone(), egui::Color32::WHITE);
-        let frame = egui::Rect::from_center_size(*at, galley.size() + egui::vec2(3.0, 1.0));
-        painter.rect_filled(frame, 1.5, egui::Color32::from_black_alpha(130));
-        painter.galley(frame.min + egui::vec2(1.5, 0.5), galley, egui::Color32::WHITE);
+    let shadow = egui::Color32::from_black_alpha(200);
+    for i in shown {
+        let (_, at, l) = on_screen[i];
+        let ink = label_colour(l.context);
+        let galley = painter.layout_no_wrap(l.text.clone(), font.clone(), ink);
+        let min = label_min(l.context, at, galley.size(), l.text.lines().count());
+        painter.galley_with_override_text_color(min + egui::vec2(1.0, 1.0), galley.clone(), shadow);
+        painter.galley(min, galley, ink);
     }
-    None
+    note
 }
 
-/// The Attributes button at the Viewer's top left, under its bar: a square
-/// A, lit while attributes are shown, opening the Attributes menu.
+/// Which labels are drawn, given nearest first as where their element is on
+/// screen: those not behind a surface (`hidden`, by index). Once one is found
+/// behind, the others in the same small square of the picture are too,
+/// without testing them again. What was left out, when a limit was reached.
+fn visible(anchors: &[egui::Pos2], hidden: impl Fn(usize) -> bool) -> (Vec<usize>, Option<String>) {
+    let mut behind = std::collections::HashSet::new();
+    let (mut out, mut tested) = (vec![], 0);
+    for (i, at) in anchors.iter().enumerate() {
+        if out.len() == LABELS_DRAWN || tested == LABELS_TESTED {
+            let note = format!(
+                "Labels: the nearest {} shown: select fewer prims or come closer",
+                out.len()
+            );
+            return (out, Some(note));
+        }
+        let cell = ((at.x / HIDDEN_CELL).floor() as i32, (at.y / HIDDEN_CELL).floor() as i32);
+        if behind.contains(&cell) {
+            continue;
+        }
+        tested += 1;
+        if hidden(i) {
+            behind.insert(cell);
+            continue;
+        }
+        out.push(i);
+    }
+    (out, None)
+}
+
+/// The Attributes box at the Viewer's top left, under its bar: a square A,
+/// lit while attributes are shown, that opens into a box holding the
+/// Attributes settings (`menu`), as a Snippet's code opens under it; the A
+/// closes it again. Open or closed is kept while Imago runs.
 pub fn button(ctx: &egui::Context, rect: egui::Rect, names: impl FnOnce() -> Vec<String>) {
+    let open_id = egui::Id::new("viewer_attributes_open");
+    let mut open = ctx.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
     egui::Area::new(egui::Id::new("viewer_attributes"))
         .order(egui::Order::Background)
         .fixed_pos(egui::pos2(rect.min.x + 10.0, rect.min.y + 42.0))
+        .constrain_to(rect)
         .show(ctx, |ui| {
             egui::Frame::NONE
                 .fill(crate::theme::c(90, 90, 90).gamma_multiply(0.92))
                 .stroke(egui::Stroke::new(1.0_f32, crate::theme::c(70, 70, 70)))
                 .corner_radius(4.0)
-                .inner_margin(3.0)
+                .inner_margin(if open { 6.0 } else { 3.0 })
                 .show(ui, |ui| {
-                    let on = settings().on;
-                    let text = egui::RichText::new("A").strong();
-                    let a = egui::Button::new(text).selected(on).min_size(egui::vec2(22.0, 22.0));
-                    // Closing only on a click outside, as Imago's menus do.
-                    let config = egui::containers::menu::MenuConfig::new()
-                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-                    let (r, _) = egui::containers::menu::MenuButton::from_button(a)
-                        .config(config)
-                        .ui(ui, |ui| menu(ui, names));
-                    r.on_hover_text(
-                        "Attributes: draw attributes over the prims, floats as colours, colours and UVs as themselves, vectors as lines, the rest as labels",
-                    );
+                    ui.horizontal(|ui| {
+                        let text = egui::RichText::new("A").strong();
+                        let a = egui::Button::new(text)
+                            .selected(settings().on)
+                            .min_size(egui::vec2(22.0, 22.0));
+                        let hint = if open {
+                            "Close the Attributes box"
+                        } else {
+                            "Attributes: draw attributes over the prims, floats as colours, colours and UVs as themselves, vectors as lines, the rest as labels"
+                        };
+                        if ui.add(a).on_hover_text(hint).clicked() {
+                            open = !open;
+                        }
+                        if open {
+                            ui.label(egui::RichText::new("Attributes").strong());
+                        }
+                    });
+                    if open {
+                        ui.add_space(4.0);
+                        menu(ui, names);
+                    }
                 });
         });
+    ctx.data_mut(|d| d.insert_temp(open_id, open));
 }
 
-/// The Attributes menu, from the Viewer's A: on or off, the scope, and the
-/// list, each its name (typed, or chosen from `names`, the attributes of the
-/// prims shown, made only while the menu is open, and the intrinsics), its
-/// range and ramp, its lines' scale.
+/// The Attributes settings, in the box the Viewer's A opens: on or off, the
+/// scope, and the list, each its name (typed, or chosen from `names`, the
+/// attributes of the prims shown, made only while a name's list is open, and
+/// the intrinsics), its range and ramp, its lines' scale.
 pub fn menu(ui: &mut egui::Ui, names: impl FnOnce() -> Vec<String>) {
     let mut s = settings();
     ui.checkbox(&mut s.on, "Show attributes")
@@ -884,11 +971,10 @@ mod tests {
         // The first line: from point 0, placed, up by 2.
         assert_eq!(&d.lines[..3], &[10.0, 0.0, 0.0]);
         assert_eq!(&d.lines[7..10], &[10.0, 2.0, 0.0]);
-        // Faces at their centres, facing their normal; corners towards them.
+        // Faces at their centres; corners towards them.
         assert_eq!(d.labels.len(), 2 + 8);
         assert_eq!(d.labels[0].text, "0");
         assert_eq!(d.labels[0].at, Vec3::new(10.5, 0.0, 0.5));
-        assert!(d.labels[0].facing.is_some_and(|n| n.y.abs() > 0.99));
         assert!(d.labels[2].at.distance(Vec3::new(10.1, 0.0, 0.1)) < 1e-5);
         // Past the limit, what is left out is said.
         let mut little = (3, 1);
@@ -898,7 +984,7 @@ mod tests {
     }
 
     #[test]
-    fn a_list_is_one_label_and_colours_pack_into_four_bytes() {
+    fn a_list_is_a_column_and_colours_pack_into_four_bytes() {
         let mut g = quads();
         g.set(
             Context::Point,
@@ -906,7 +992,15 @@ mod tests {
             Attr::lists(Column::Int(Arc::new((0..12).collect())), 2, Role::None),
         );
         let f = find(&g, "near").unwrap();
-        assert_eq!((f.look(), f.text(1).as_deref()), (Look::Label, Some("[2, 3]")));
+        assert_eq!((f.look(), f.text(1).as_deref()), (Look::Label, Some("2\n3")));
+        g.set(
+            Context::Point,
+            "long",
+            Attr::lists(Column::Int(Arc::new((0..30).collect())), 10, Role::None),
+        );
+        let t = find(&g, "long").unwrap().text(0).unwrap();
+        assert_eq!(t.lines().count(), COLUMN + 1);
+        assert_eq!(t.lines().last(), Some("… 4 more"));
         assert_eq!(short(0.5000), "0.5");
         assert_eq!(short(-0.0001), "0");
         assert_eq!(packed([1.0, 0.0, 0.5, 1.0]).to_bits().to_le_bytes(), [255, 0, 128, 255]);
@@ -931,5 +1025,48 @@ mod tests {
         assert!(in_scope(Scope::Selected, "/set/a", &sel));
         assert!(!in_scope(Scope::Selected, "/settle", &sel));
         assert!(in_scope(Scope::All, "/settle", &sel));
+    }
+
+    /// Labels nearest first: those in front drawn, however close together;
+    /// one behind a surface not, nor the others in its small square, without
+    /// testing them again.
+    #[test]
+    fn labels_behind_a_surface_are_found_once_per_square() {
+        let anchors = [
+            (100.0, 100.0),
+            (101.0, 101.0),
+            (300.0, 300.0),
+            (301.0, 301.0),
+            (100.0, 200.0),
+        ]
+        .map(|(x, y)| egui::pos2(x, y));
+        // The third behind a surface, and so the fourth, in its square.
+        let tests = std::cell::Cell::new(0);
+        let (shown, note) = visible(&anchors, |i| {
+            tests.set(tests.get() + 1);
+            i == 2
+        });
+        assert_eq!(shown, [0, 1, 4]);
+        assert_eq!(tests.get(), 4);
+        assert!(note.is_none());
+    }
+
+    /// A point's label just right of it, a face's centred on its centre; a
+    /// list's column rising from its element. A curved face's centre is
+    /// lifted by a part of its size; the object's never hidden.
+    #[test]
+    fn labels_sit_by_their_context() {
+        let (at, size) = (egui::pos2(100.0, 100.0), egui::vec2(20.0, 10.0));
+        assert_eq!(label_min(Context::Point, at, size, 1), egui::pos2(104.0, 95.0));
+        assert_eq!(label_min(Context::Face, at, size, 1), egui::pos2(90.0, 95.0));
+        assert_eq!(
+            label_min(Context::Face, at, egui::vec2(20.0, 30.0), 3),
+            egui::pos2(90.0, 75.0)
+        );
+        let faces = places(&quads(), Context::Face);
+        assert_eq!(faces[0].0, Vec3::new(0.5, 0.0, 0.5));
+        assert!((faces[0].1 - 0.25 * 0.5f32.sqrt()).abs() < 1e-6);
+        assert_eq!(places(&quads(), Context::Point)[0].1, 0.0);
+        assert_eq!(places(&quads(), Context::Object)[0].1, f32::INFINITY);
     }
 }

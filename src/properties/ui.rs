@@ -68,6 +68,9 @@ pub struct PanelIo<'a> {
     pub ice_params: Vec<(String, xms_ice::Value)>,
     /// The selected ICE operator's graph's node settings promoted to it.
     pub ice_settings: Vec<crate::compounds::Parameter>,
+    /// Set by `draw_properties`: an ISnippet's Parameters tab is shown, its
+    /// snippet to draw after.
+    pub snippet_here: bool,
 }
 
 pub fn draw_properties_panel(
@@ -84,26 +87,7 @@ pub fn draw_properties_panel(
         .inner_margin(6.0)
         .show(ui, |ui| {
             if let Some(sid) = nav.current_subnet {
-                // Every prim on each reference input of the operator the
-                // ICE graph is in, from input 1: what Get Reference picks from.
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
-                let references: Vec<Vec<String>> = graph
-                    .nodes
-                    .iter()
-                    .find(|n| matches!(n.node_type, NodeType::Ice { id, .. } if id == sid))
-                    .map(|n| {
-                        n.inputs
-                            .iter()
-                            .skip(1)
-                            .map(|i| {
-                                i.connected_output
-                                    .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
-                                    .unwrap_or_default()
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let references = reference_paths(graph, sid);
                 if let Some(sg) = subnets.get_mut(sid) {
                     draw_subnet_node_properties(ui, sg, &references, &io.scene_paths, io.browser);
                     return;
@@ -143,8 +127,126 @@ pub fn draw_properties_panel(
                 })
                 .map(|sg| sg.composed().parameters.clone())
                 .unwrap_or_default();
+            io.snippet_here = false;
             draw_properties(ui, graph, scene, anim, io);
+            // An ISnippet, its Parameters tab shown: its snippet's text,
+            // References and parameters, as if its node were selected inside.
+            let op = graph
+                .selected_node
+                .and_then(|id| graph.nodes.iter().find(|n| n.id == id))
+                .and_then(|n| match n.node_type {
+                    NodeType::Ice { id, .. } if io.snippet_here => Some((n.id, id)),
+                    _ => None,
+                });
+            let snippet = op.and_then(|(op, sid)| subnets.get(sid)?.lone_snippet().map(|n| (op, sid, n)));
+            if let Some((op, sid, snippet)) = snippet {
+                let references = reference_paths(graph, sid);
+                if let Some(sg) = subnets.get_mut(sid) {
+                    let was = sg.selected_node.replace(snippet);
+                    ui.separator();
+                    ui.data_mut(|d| d.insert_temp(crate::ice::ui::in_isnippet_id(), true));
+                    draw_subnet_node_properties(ui, sg, &references, &io.scene_paths, io.browser);
+                    ui.data_mut(|d| d.remove::<bool>(crate::ice::ui::in_isnippet_id()));
+                    sg.selected_node = was;
+                }
+                // Its Make ICE Graph, under its code.
+                if let Some(compound) = ui.data(|d| d.get_temp::<bool>(crate::ice::ui::make_ice_graph_id())) {
+                    ui.data_mut(|d| d.remove::<bool>(crate::ice::ui::make_ice_graph_id()));
+                    let told = make_ice_graph(graph, subnets, op, sid, compound);
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new(("isnippet_told", op.0)), told));
+                }
+                if let Some(told) = ui.data(|d| d.get_temp::<String>(egui::Id::new(("isnippet_told", op.0)))) {
+                    ui.label(egui::RichText::new(told).weak());
+                }
+            }
         });
+}
+
+/// ISnippet `op` (its graph `sid`)'s snippet as an ICreationEngine beside it,
+/// its inputs wired as the ISnippet's are: holding the nodes it runs
+/// (`snippet_nodes`), or with `compound`, the snippet as a compound
+/// (`snippet_as_compound`). What to tell.
+fn make_ice_graph(
+    graph: &mut NodeGraphState,
+    subnets: &mut IceGraphStore,
+    op: crate::types::NodeId,
+    sid: crate::types::IceGraphId,
+    compound: bool,
+) -> String {
+    let Some(node) = graph.nodes.iter().find(|n| n.id == op) else {
+        return "That ISnippet is gone".into();
+    };
+    let (name, references, at) = match &node.node_type {
+        NodeType::Ice { references, .. } => (
+            format!("{}_{}", node.name, if compound { "compound" } else { "nodes" }),
+            *references,
+            node.position,
+        ),
+        _ => return "Not an ISnippet".into(),
+    };
+    let wires: Vec<(usize, (crate::types::NodeId, usize))> = node
+        .inputs
+        .iter()
+        .enumerate()
+        .filter_map(|(k, i)| i.connected_output.map(|w| (k, w)))
+        .collect();
+    let new_sid = subnets.create_subnet(name.clone());
+    let mut fresh = crate::ice::IceGraph::new(new_sid, name.clone());
+    if let Err(e) = subnets.get(sid).map_or(Err("Its graph is gone".to_string()), |sg| {
+        if compound {
+            sg.snippet_as_compound(&mut fresh)
+        } else {
+            sg.snippet_nodes(&mut fresh)
+        }
+    }) {
+        subnets.remove(new_sid);
+        return format!("No ICE graph made: {e}");
+    }
+    if let Some(slot) = subnets.get_mut(new_sid) {
+        *slot = fresh;
+    }
+    let made = graph.add_node(
+        name.clone(),
+        NodeType::Ice {
+            id: new_sid,
+            name: name.clone(),
+            references,
+            params: Default::default(),
+            snippet: false,
+        },
+        at + egui::vec2(240.0, 0.0),
+    );
+    for (k, (from, out)) in wires {
+        graph.add_connection(from, out, made, k);
+    }
+    if compound {
+        format!("{name}: the snippet as a compound, beside it and wired as it is. Double-click it, select the compound and Save as Definition to share it")
+    } else {
+        format!("{name}: the snippet's nodes, beside it and wired as it is. Double-click it to see them")
+    }
+}
+
+/// Every prim on each reference input of the ICE operator whose graph is
+/// `sid`, from input 1: what Get Reference, and a Snippet's References, pick
+/// from.
+fn reference_paths(graph: &NodeGraphState, sid: crate::types::IceGraphId) -> Vec<Vec<String>> {
+    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    graph
+        .nodes
+        .iter()
+        .find(|n| matches!(n.node_type, NodeType::Ice { id, .. } if id == sid))
+        .map(|n| {
+            n.inputs
+                .iter()
+                .skip(1)
+                .map(|i| {
+                    i.connected_output
+                        .and_then(|(src, out)| graph.eval_scene_paths(src, out, &pass))
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 const FBX_EXTS: &[&str] = &["fbx"];
@@ -630,7 +732,7 @@ pub fn draw_properties(
                 }),
                 _ => None,
             };
-            locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind, binds);
+            locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind, binds, None);
             return;
         }
     }
@@ -1035,8 +1137,13 @@ pub fn draw_properties(
                 MergeMode::Flatten => f.status(Status::Info, "All the inputs as one mesh"),
             }
         }),
-        NodeType::Ice { params, .. } => {
-            group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); });
+        NodeType::Ice { params, snippet, .. } => {
+            io.snippet_here = *snippet;
+            if *snippet {
+                group(ui, "ISnippet", None, |f| { f.status(Status::Info, "One snippet, locked inside: its code is below. Make ICE Graph gives the nodes it runs as an ICreationEngine of their own"); });
+            } else {
+                group(ui, "ICE graph", None, |f| { f.status(Status::Info, "Double-click the node, or select it and press ↓, to open its ICE graph"); });
+            }
             if !io.ice_params.is_empty() {
                 group(ui, "Parameters", Some("Its graph's Parameter nodes, by name: the value it gives each, the node's default until set"), |f| {
                     // Each kept on the operator (`ice::compound::keep_params`).
@@ -4215,6 +4322,7 @@ pub(crate) struct BindColumn<'a> {
 
 /// The Prims Location tab: the Primitive Locations an operator works on, one
 /// per row, each with how many of the primitives coming in it matches.
+/// `title`: its group's, when not Primitive Locations (a snippet's reference).
 pub(crate) fn locations_tab(
     ui: &mut egui::Ui,
     list: &mut Vec<String>,
@@ -4222,6 +4330,7 @@ pub(crate) fn locations_tab(
     selected: &[String],
     kind: TabKind,
     mut binds: Option<BindColumn>,
+    title: Option<&str>,
 ) {
     use crate::core::locations;
     let names = kind == TabKind::Names;
@@ -4243,7 +4352,7 @@ pub(crate) fn locations_tab(
     };
     group(
         ui,
-        if binding { "Bindings" } else { "Primitive Locations" },
+        title.unwrap_or(if binding { "Bindings" } else { "Primitive Locations" }),
         Some(hint),
         |f| {
             let mut remove = None;

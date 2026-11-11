@@ -806,6 +806,11 @@ pub(crate) fn draw_ui(
                             for m in viewport::display::DisplayMode::ALL {
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
+                            ui.separator();
+                            let mut wire = viewport::display::wire_over();
+                            if ui.checkbox(&mut wire, "Wireframe on Shaded").on_hover_text("The polygons' edges over the surfaces, in Shaded and Textured").changed() { viewport::display::set_wire_over(wire); }
+                            let mut points = viewport::display::points();
+                            if ui.checkbox(&mut points, "Points").on_hover_text("Every point as a dot, hidden behind what is in front").changed() { viewport::display::set_points(points); }
                         }).response.on_hover_text("How meshes are drawn");
                         // Through a camera of the scene, or the Viewer's own.
                         let looking = viewer::camera::looking_through();
@@ -1157,6 +1162,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         add: vec![],
                         ice_params: vec![],
                         ice_settings: vec![],
+                        snippet_here: false,
                     };
                     // A keyed node shows its parameters at the playhead; a
                     // keyed number changed here is keyed there.
@@ -1571,11 +1577,15 @@ impl egui_dock::TabViewer for Panes<'_> {
                             if *id == IceGraphId(usize::MAX) {
                                 let new_id = self.subnets.create_subnet(name.clone());
                                 *id = new_id;
+                            } else if *id == ice::NEW_SNIPPET {
+                                *id = self.subnets.create_snippet(name.clone(), ice::SNIPPET);
                             }
                         }
                     }
                     match dive {
-                        Some(node_graph::ui::Dive::Ice(sid)) if sid != IceGraphId(usize::MAX) => {
+                        Some(node_graph::ui::Dive::Ice(sid))
+                            if sid != IceGraphId(usize::MAX) && sid != ice::NEW_SNIPPET =>
+                        {
                             self.nav.current_subnet = Some(sid)
                         }
                         Some(node_graph::ui::Dive::MaterialX(op)) => self.nav.materialx = Some(op),

@@ -202,6 +202,21 @@ pub struct Scene {
 /// millions of segments.
 pub const TRIANGLE_BUDGET: u64 = 20_000_000;
 
+/// Points drawn as dots (the Viewer's Points) at most, every prim's.
+pub const POINT_LIMIT: usize = 4_000_000;
+
+/// Each of `points`, placed at `m`, as a dot of the Viewer's Points (as
+/// Houdini's are, a dark blue), while `left` lasts.
+fn point_dots(dots: &mut Vec<f32>, points: &[[f32; 3]], m: &Mat4, left: &mut usize) {
+    let c = super::edit::colour(0.1, 0.2, 0.85, 1.0);
+    for p in points.iter().take(*left) {
+        dots.extend_from_slice(&m.transform_point3(Vec3::from_array(*p)).to_array());
+        dots.extend_from_slice(&c);
+        dots.push(3.0);
+    }
+    *left -= points.len().min(*left);
+}
+
 /// What a prim costs to draw once: its triangles, and its curves' and points'
 /// line segments.
 fn draw_cost(p: &Prim) -> u64 {
@@ -600,8 +615,22 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         });
         [c[0], c[1], c[2], 1.0]
     };
+    // The wireframe over Shaded and Textured: a dark grey, as Houdini's.
+    let over_ink = {
+        let c = linear_f([0.16, 0.16, 0.17]);
+        [c[0], c[1], c[2], 1.0]
+    };
+    let wire_over =
+        crate::viewport::display::wire_over() && matches!(mode, DisplayMode::Shaded | DisplayMode::Textured);
+    let mut points_left = if crate::viewport::display::points() {
+        POINT_LIMIT
+    } else {
+        0
+    };
+    // Under the dots attributes colour, drawn after them.
+    let mut dotted: Vec<f32> = vec![];
     // The selected prims' wireframe, in the selection's colour, in every mode.
-    let [r, g, b] = super::edit::SELECTION;
+    let [r, g, b] = super::edit::selection();
     let selected_ink = super::edit::colour(r, g, b, 1.0);
     let selected = input.hierarchy.selected_paths();
     let bg_lin = {
@@ -819,6 +848,10 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     }
                     continue;
                 }
+                for m in places {
+                    point_dots(&mut dotted, &p.mesh.vertices, m, &mut points_left);
+                    point_dots(&mut dotted, &p.mesh.curve_points, m, &mut points_left);
+                }
                 let look = p.look.as_deref().filter(|_| mode == DisplayMode::Textured);
                 let mut add = |kind: Kind,
                                colour: [f32; 4],
@@ -864,6 +897,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     add(Kind::Edges, selected_ink, [0.0; 4], 0, None, false);
                 } else if matches!(mode, DisplayMode::HiddenLine | DisplayMode::Wireframe) {
                     add(Kind::Edges, wire_ink, [0.0; 4], 0, None, false);
+                } else if wire_over {
+                    add(Kind::Edges, over_ink, [0.0; 4], 0, None, false);
                 }
                 match (mode, look) {
                     (DisplayMode::Wireframe, _) => {}
@@ -969,6 +1004,8 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                 (None, None) => other.map(|r| Arc::new(r.into_mesh())),
             };
             if let Some(md) = shown {
+                point_dots(&mut dotted, &md.vertices, &Mat4::IDENTITY, &mut points_left);
+                point_dots(&mut dotted, &md.curve_points, &Mat4::IDENTITY, &mut points_left);
                 if crate::strands::has_strands(&md) {
                     let c = ink(crate::theme::c(205, 205, 205));
                     let mut inst = vec![];
@@ -983,9 +1020,14 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     });
                 }
                 if !md.vertices.is_empty() {
-                    if matches!(mode, DisplayMode::HiddenLine | DisplayMode::Wireframe) {
+                    let wire = match mode {
+                        DisplayMode::HiddenLine | DisplayMode::Wireframe => Some(wire_ink),
+                        _ if wire_over => Some(over_ink),
+                        _ => None,
+                    };
+                    if let Some(ink) = wire {
                         let mut inst = vec![];
-                        push_instance(&mut inst, &Mat4::IDENTITY, wire_ink, false);
+                        push_instance(&mut inst, &Mat4::IDENTITY, ink, false);
                         let geometry = cache.get(&md, Kind::Edges, &mut used);
                         s.meshes.push(MeshDraw {
                             geometry,
@@ -1024,6 +1066,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             }
         }
     }
+    s.dots.splice(0..0, dotted);
     ghosts(&mut s, graph, &eval_subnet, input.time, cache, &mut used);
     cache.keep(&used);
     s
@@ -1415,5 +1458,17 @@ mod draw_mode_tests {
         let (modes, notice) = draw_modes(&[groom], &SceneHierarchy::default(), 1000);
         assert_eq!(modes, vec![DrawMode::Bounds]);
         assert!(notice.is_some());
+    }
+
+    /// The Viewer's Points: a dot at each point, placed, until the limit.
+    #[test]
+    fn points_are_dots_where_they_are_until_the_limit() {
+        let (mut dots, mut left) = (vec![], 3);
+        let moved = Mat4::from_translation(Vec3::X);
+        point_dots(&mut dots, &[[0.0; 3], [0.0, 1.0, 0.0]], &moved, &mut left);
+        point_dots(&mut dots, &[[0.0; 3]; 5], &Mat4::IDENTITY, &mut left);
+        assert_eq!(dots.len(), 3 * 8);
+        assert_eq!(&dots[8..11], &[1.0, 1.0, 0.0]);
+        assert_eq!(left, 0);
     }
 }

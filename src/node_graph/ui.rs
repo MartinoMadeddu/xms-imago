@@ -172,6 +172,8 @@ pub enum Dive {
 /// The graph an operator holds, if it holds one.
 pub fn dive_of(node: &GraphNode) -> Option<Dive> {
     match &node.node_type {
+        // An ISnippet is locked: its code is in its parameters.
+        NodeType::Ice { snippet: true, .. } => None,
         NodeType::Ice { id, .. } => Some(Dive::Ice(*id)),
         NodeType::MaterialX { .. } => Some(Dive::MaterialX(node.id)),
         NodeType::Compound { .. } => Some(Dive::Compound(node.id)),
@@ -1328,6 +1330,10 @@ const CATEGORY_COLOURS: [(&str, [u8; 3]); 11] = [
 /// ICETree, at the same 80% as the palette.
 const ICE_NODE_COLOUR: [u8; 3] = [0x5A, 0x95, 0x7B]; // teal          (#70BA9A)
 
+/// An ISnippet's, and a Snippet node's in an ICE graph: yellow, code apart
+/// from nodes.
+pub const SNIPPET_COLOUR: [u8; 3] = [0xD2, 0xB4, 0x3C]; // yellow        (#D2B43C)
+
 /// Cameras stand apart from the shapes they are listed with: mid grey, with
 /// dark text as the other nodes have.
 const CAMERA_NODE_COLOUR: [u8; 3] = [0x6E, 0x6E, 0x6E];
@@ -1340,6 +1346,10 @@ const SYSTEM_NODE: ([u8; 3], [u8; 3], [u8; 3]) = ([0x0C, 0x0C, 0x0C], [0x4C, 0xF
 /// nodes in no category keep the theme's node grey.
 fn node_colours(t: &NodeType) -> (egui::Color32, egui::Color32, egui::Color32) {
     // The ICE node stands apart from its category.
+    if matches!(t, NodeType::Ice { snippet: true, .. }) {
+        let [r, g, b] = SNIPPET_COLOUR;
+        return colours_on(r, g, b);
+    }
     if matches!(t, NodeType::Ice { .. }) {
         let [r, g, b] = ICE_NODE_COLOUR;
         return colours_on(r, g, b);
@@ -1468,7 +1478,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
             (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
-            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default() }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
+            (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default(), snippet: false }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
+            (NodeType::Ice { id: crate::ice::NEW_SNIPPET, name: "ISnippet".into(), references: 1, params: Default::default(), snippet: true }, "Code run on every point, face or corner of each primitive, in OSL's syntax with ICE's attributes (@P): one snippet, locked inside (Make ICE Graph gives its nodes). Its reference inputs are what its geometry parameters read"),
         ]),
         ("📦", "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),
