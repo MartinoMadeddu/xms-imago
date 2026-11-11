@@ -8,6 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+- **Curves and points selectable in the Viewer:** clicked near one of their lines, as drawn, or touched by a box, at every copy.
 - **Display Attribute:** the Viewer's A opens into a box holding its settings, over the picture, and closes again, instead of a menu that closed on a click outside.
 - **The Viewer's selection** in its own blue, a quarter less saturated.
 - **README:** ISL and Display Attribute among the main parts; The command line before Get it.

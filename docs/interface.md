@@ -179,7 +179,8 @@ name. **Pick** lists the names coming in; under the field, how many match.
   leaves the camera where it is.
 - **Click** a primitive to select it (Ctrl+click adds); **drag a box** to
   select every primitive it touches, behind others too (Ctrl adds, Shift
-  takes away); F frames the selection,
+  takes away). Curves and points are picked by their lines, the pointer near
+  one, as lights and cameras are. F frames the selection,
   A everything (F frames the prims selected, and those below them). A
   selected prim is outlined by its box (hidden behind what is in front) and
   its wireframe is drawn over it, in the Viewer's selection blue, whatever the
