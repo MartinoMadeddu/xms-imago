@@ -55,6 +55,7 @@ the tree's parameters).
   | Point | `intrinsic:ptIndex` | Integer | its own number (on points too) |
   | Point | `intrinsic:curveu` | Float | how far along its curve, by length, 0 to 1 (curves only) |
   | Point | `intrinsic:faceIndices` | list of Integer | the faces it is on (Get Array Data) |
+  | Point | `intrinsic:tangent` | 3D Vector | its tangent: along U of the texture coordinates on a mesh (else its edges), along the curve on curves |
   | Face | `intrinsic:faceIndex` | Integer | its own number |
   | Face | `intrinsic:corners` | Integer | its corners (a curve's control points) |
   | Face | `intrinsic:firstCorner` | Integer | its first corner; the others follow it |
@@ -269,6 +270,17 @@ the tree's parameters).
   or one), it reads the list the element numbered holds: a stored list's items,
   or another attribute's one value as a list of one, of its Geometry's prims or
   the graph's own, its Context as Get Data's.
+- **Tangent** (Geometry) is a Get Data of **`intrinsic:tangent`**: each point's
+  tangent (each corner's, read per Corner), as the Tangents operator makes it
+  (`docs/geometry.md`): on a mesh along U of its texture coordinates (`st`,
+  else any), along its edges when it has none, square to its normals; on
+  curves along the curve. In a snippet, `@intrinsic:tangent`:
+
+  ```
+  snippet comb () {
+      @P += @intrinsic:tangent * 0.01;
+  }
+  ```
 - **`intrinsic:curveu`** is made from the topology on curves' points: how far along its
   curve each point is, by length, from 0 to 1. A curve's Param UV counts segments,
   not length: on curves of evenly spaced points the two agree.

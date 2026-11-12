@@ -8,6 +8,7 @@
 //! | Point  | `intrinsic:ptIndex`          | Int   | all            | the point's own number |
 //! | Point  | `intrinsic:curveu`           | Float | curves         | how far along its curve, by length: 0 to 1 |
 //! | Point  | `intrinsic:faceIndices`      | Int list | mesh, curves | the faces the point is on |
+//! | Point  | `intrinsic:tangent`          | Vec3  | mesh, curves   | along U of the texture coordinates (else the edges); along the curve |
 //! | Face   | `intrinsic:faceIndex`        | Int   | mesh, curves   | the face's own number |
 //! | Face   | `intrinsic:corners`          | Int   | mesh, curves   | its corners (a curve's control points) |
 //! | Face   | `intrinsic:firstCorner`      | Int   | mesh, curves   | its first corner: the others follow it |
@@ -18,6 +19,7 @@
 //! | Corner | `intrinsic:ptIndex`          | Int   | mesh, curves   | the point the corner is at |
 //! | Corner | `intrinsic:faceIndex`        | Int   | mesh, curves   | the face it is a corner of |
 //! | Corner | `intrinsic:localCornerIndex` | Int   | mesh, curves   | its place in that face (0 for the first) |
+//! | Corner | `intrinsic:tangent`          | Vec3  | mesh           | along U, its own across a UV seam |
 //! | Object | `intrinsic:pointCount`       | Int   | all            | how many points |
 //! | Object | `intrinsic:faceCount`        | Int   | all            | how many faces (polygons or curves) |
 //! | Object | `intrinsic:cornerCount`      | Int   | all            | how many corners |
@@ -44,6 +46,8 @@ pub const PREFIX: &str = "intrinsic:";
 /// The points a place is made from, and their weights there.
 pub const TRI_P: &str = "intrinsic:triP";
 pub const BARY: &str = "intrinsic:bary";
+/// Tangents, as the Tangents operator makes them (`frames`).
+pub const TANGENT: &str = "intrinsic:tangent";
 
 /// Where an intrinsic is: per element of a context, per edge (the Primitive
 /// Inspector's, not a context of ICE's), or at a place.
@@ -133,6 +137,7 @@ pub const ALL: &[Intrinsic] = &[
     numbering(of(In(Point), "intrinsic:ptIndex", Kind::Int, On::All, "The point's own number."), Point),
     of(In(Point), "intrinsic:curveu", Kind::Float, On::Curves, "How far along its curve the point is, by length: 0 at its first point, 1 at its last."),
     gathering(of(In(Point), "intrinsic:faceIndices", Kind::Int, On::MeshAndCurves, "The faces the point is on, as a list."), Face, "intrinsic:faceIndex"),
+    of(In(Point), TANGENT, Kind::Vec3, On::MeshAndCurves, "The point's tangent: on a mesh along U of its texture coordinates (st, else any), along its edges with none, square to its normals; on a curve along it."),
     numbering(of(In(Face), "intrinsic:faceIndex", Kind::Int, On::MeshAndCurves, "The face's own number (a polygon's or a curve's)."), Face),
     of(In(Face), "intrinsic:corners", Kind::Int, On::MeshAndCurves, "How many corners the face has: a curve's are its control points."),
     numbering(of(In(Face), "intrinsic:firstCorner", Kind::Int, On::MeshAndCurves, "The face's first corner: its others follow it."), Corner),
@@ -143,6 +148,7 @@ pub const ALL: &[Intrinsic] = &[
     numbering(of(In(Corner), "intrinsic:ptIndex", Kind::Int, On::MeshAndCurves, "The point the corner is at."), Point),
     numbering(of(In(Corner), "intrinsic:faceIndex", Kind::Int, On::MeshAndCurves, "The face the corner is a corner of."), Face),
     of(In(Corner), "intrinsic:localCornerIndex", Kind::Int, On::MeshAndCurves, "The corner's place in its face: 0 for the first."),
+    of(In(Corner), TANGENT, Kind::Vec3, On::Mesh, "The corner's tangent along U of the texture coordinates (else its edge), its own across a UV seam."),
     of(In(Object), "intrinsic:pointCount", Kind::Int, On::All, "How many points the primitive has."),
     of(In(Object), "intrinsic:faceCount", Kind::Int, On::All, "How many faces it has: polygons, or curves."),
     of(In(Object), "intrinsic:cornerCount", Kind::Int, On::All, "How many corners its faces have."),
@@ -242,6 +248,9 @@ pub fn column(geo: &Geo, ctx: Context, name: &str, world: Option<[f64; 16]>) -> 
     );
     match (ctx, name) {
         (Point, "intrinsic:ptIndex") => int((0..pts.len() as i32).collect()),
+        (Point | Corner, TANGENT) => geo
+            .made_tangents(ctx, super::frames::TangentsFrom::Uv, "", super::frames::Weighting::Area)
+            .map(|(t, ..)| t.column),
         (Point, "intrinsic:curveu") => {
             let mut u = Vec::with_capacity(pts.len());
             let mut first = 0usize;

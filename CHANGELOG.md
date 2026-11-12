@@ -19,6 +19,8 @@ version's heading when you tag it.
 
 ### Geometry
 
+- **Tangent** in ICE (Geometry), and `@intrinsic:tangent` in snippets: the
+  tangent per point (or corner), as the Tangents operator makes it.
 - **Normals**: made per Point (smooth), Corner (hard past a cusp angle) or
   Face, weighed by area, angle or evenly; on curves, what ribbons face.
 - **Tangents**: along U of the texture coordinates (or the edges) on meshes,

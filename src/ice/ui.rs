@@ -1967,6 +1967,12 @@ fn entries() -> Vec<Entry> {
         })
         .collect();
     out.push(Entry {
+        category: "Geometry".into(),
+        label: "∥  Tangent".into(),
+        hint: "Each point's (or corner's) tangent, as the Tangents operator makes it: along U of the texture coordinates on a mesh (st, else any; its edges with none), along the curve on curves. Get Data of intrinsic:tangent; in a snippet, @intrinsic:tangent".into(),
+        added: Added::Node(IceGraphNodeType::get(xms_geo::intrinsics::TANGENT)),
+    });
+    out.push(Entry {
         category: "Compounds".into(),
         label: "◆  Make Compound".into(),
         hint: "The selected nodes as one compound, the wires crossing the selection its ports: double-click it, or ↓, to go inside".into(),

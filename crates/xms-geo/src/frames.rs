@@ -744,4 +744,20 @@ mod tests {
             .made_normals(Context::Point, Weighting::Area, 60.0, UP)
             .is_none());
     }
+
+    #[test]
+    fn tangents_are_an_intrinsic() {
+        use crate::intrinsics::{column, on, TANGENT};
+        let mut c = Geo::from_points(vec![[0.0; 3], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]]);
+        c.topology = Topology::curves(vec![3], crate::CurveBasis::default(), CurveWrap::Nonperiodic);
+        let Some(Column::Vec3(t)) = column(&c, Context::Point, TANGENT, None) else {
+            panic!("per point")
+        };
+        assert!(close(t[2], [0.0, 1.0, 0.0]));
+        assert!(on(&c, Context::Corner, TANGENT).is_none(), "curves: per point only");
+        let (p, counts, idx) = cube();
+        let g = Geo::from_polygons(p, counts, idx);
+        assert_eq!(column(&g, Context::Corner, TANGENT, None).map(|c| c.len()), Some(24));
+        assert!(column(&Geo::from_points(vec![[0.0; 3]]), Context::Point, TANGENT, None).is_none());
+    }
 }
