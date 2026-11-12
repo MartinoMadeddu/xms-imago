@@ -877,3 +877,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 12/11/2026: Motion blur: Camera shutter (shutter:open/close), live::motion cooks the scene at the shutter's open and close, live::write_scene writes them as time samples (Arnold, Image Viewer, headless); the view camera takes the layer camera's shutter; velocities/accelerations written as the schema's. (Martino)
 - 12/11/2026: Instancer prototypes from files written as references (InstancedBy::file, ProtoFile); file instancers' prototypes take edits (read_only only for instance proxies). (Martino)
 - 12/11/2026: Variant Create takes a sublayered stage's prims below its location; Write USD writes each prim just below it as a reference to the file's, placed as shown (sublayered_in_variant). (Martino)
+- 12/11/2026: Camera shutter -0.25 to 0.25 by default; Motion Blur and Depth of Field off also set Arnold's ignore_motion_blur / ignore_dof (render::turned_off), so a file's animation stops blurring. (Martino)

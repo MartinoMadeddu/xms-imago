@@ -35,8 +35,10 @@ version's heading when you tag it.
 - **Motion blur** for what moves in Imago: renders from Imago (Arnold, the
   Image Viewer's husk, `xms --render`) cook the scene at the camera's shutter
   open and close too, written as time samples. The Camera operator has a
-  **Shutter**; a Point attribute `velocities` or `accelerations` is written as
-  the schema's.
+  **Shutter**, -0.25 to 0.25 to start with; a Point attribute `velocities`
+  or `accelerations` is written as the schema's. Render Commons' Motion Blur
+  off turns blur off for everything, a file's animation included (Arnold's
+  `ignore_motion_blur` too).
 
 ### MaterialX
 

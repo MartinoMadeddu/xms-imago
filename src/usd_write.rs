@@ -3318,7 +3318,10 @@ def Xform "set" {{
         assert!(!text.contains("references"), "{text}");
         assert!(text.contains("def Mesh \"leaf\""), "{text}");
         assert!(
-            report.notes.iter().any(|n| n.contains("its geometry changed after the Instancer")),
+            report
+                .notes
+                .iter()
+                .any(|n| n.contains("its geometry changed after the Instancer")),
             "said why: {report:?}"
         );
     }

@@ -47,8 +47,9 @@ pub struct Camera {
     pub f_stop: f32,
     pub focus_distance: f32,
     /// When the shutter opens and closes, in frames from the frame rendered
-    /// (`shutter:open`, `shutter:close`): -0.25 to 0.25 a 180° shutter
-    /// centred on the frame. Both 0: no motion blur.
+    /// (`shutter:open`, `shutter:close`): -0.25 to 0.25, a 180° shutter
+    /// centred on the frame, to start with (USD's default is 0 and 0). Both
+    /// 0: no motion blur.
     pub shutter_open: f32,
     pub shutter_close: f32,
 }
@@ -65,8 +66,8 @@ impl Default for Camera {
             clipping_range: [1.0, 1_000_000.0],
             f_stop: 0.0,
             focus_distance: 0.0,
-            shutter_open: 0.0,
-            shutter_close: 0.0,
+            shutter_open: -0.25,
+            shutter_close: 0.25,
         }
     }
 }
@@ -314,14 +315,14 @@ mod tests {
     #[test]
     fn the_shutter_is_written_and_says_whether_it_blurs() {
         let mut c = Camera::default();
-        assert_eq!(c.shutter(), None, "USD's default: shut");
-        assert!(!c.usda_lines().iter().any(|l| l.contains("shutter")));
-        c.shutter_open = -0.25;
-        c.shutter_close = 0.25;
-        assert_eq!(c.shutter(), Some((-0.25, 0.25)));
+        assert_eq!(c.shutter(), Some((-0.25, 0.25)), "a 180° shutter about the frame");
         let lines = c.usda_lines();
         assert!(lines.contains(&"double shutter:open = -0.25".to_string()), "{lines:?}");
         assert!(lines.contains(&"double shutter:close = 0.25".to_string()), "{lines:?}");
+        c.shutter_open = 0.0;
+        c.shutter_close = 0.0;
+        assert_eq!(c.shutter(), None, "shut");
+        assert!(!c.usda_lines().iter().any(|l| l.contains("shutter")));
     }
 
     #[test]

@@ -332,12 +332,12 @@ pub fn scene_settings_rows(ui: &mut egui::Ui, s: &mut SceneSettings, ctx: &Conte
     group(ui, "Render", None, |f| {
         f.toggle(
             "Motion Blur",
-            Some("Off: disableMotionBlur, rendered at the shutter's open"),
+            Some("Off: nothing blurs, a file's animation included: disableMotionBlur, and Arnold's ignore_motion_blur. The camera's shutter stays as it is"),
             &mut s.motion_blur,
         );
         f.toggle(
             "Depth of Field",
-            Some("Off: disableDepthOfField, everything in focus"),
+            Some("Off: everything in focus: disableDepthOfField, and Arnold's ignore_dof"),
             &mut s.depth_of_field,
         );
         f.row(

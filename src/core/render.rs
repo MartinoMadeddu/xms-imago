@@ -564,6 +564,7 @@ pub fn scene_settings(input: Option<&EvalResult>, s: &SceneSettings) -> EvalResu
         "disableDepthOfField",
         RAttr::of(&Value::Bool(!s.depth_of_field)).uniform(),
     );
+    turned_off(&mut st);
     let purposes: Vec<String> = PURPOSES
         .iter()
         .filter(|p| s.purposes.iter().any(|x| x == *p))
@@ -987,6 +988,21 @@ impl RendererSettings {
     }
 }
 
+/// Motion blur and depth of field turned off (`disableMotionBlur`,
+/// `disableDepthOfField`) for Arnold too, whose USD reader goes by its own
+/// settings: `arnold:global:ignore_motion_blur` and `ignore_dof` on, so what a
+/// file animates does not blur either. The camera's shutter is left as it is.
+fn turned_off(st: &mut RenderPrim) {
+    for (usd, arnold) in [
+        ("disableMotionBlur", "arnold:global:ignore_motion_blur"),
+        ("disableDepthOfField", "arnold:global:ignore_dof"),
+    ] {
+        if st.attrs.get(usd).is_some_and(|a| a.literal.trim() == "true") {
+            st.set(arnold, RAttr::of(&Value::Bool(true)));
+        }
+    }
+}
+
 /// The scene coming in, with a renderer's settings on its RenderSettings prim
 /// and the AOVs ticked added to its product.
 pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> EvalResult {
@@ -1000,6 +1016,7 @@ pub fn renderer_settings(input: Option<&EvalResult>, r: &RendererSettings) -> Ev
             st.set(&name, RAttr::of(&v));
         }
     }
+    turned_off(&mut st);
     // A Custom renderer's settings go under its name: none, none written.
     let named = r.renderer != CUSTOM || !r.namespace().is_empty();
     for e in r.extras().iter().filter(|_| named) {
@@ -1598,6 +1615,7 @@ mod tests {
             "uniform float4 dataWindowNDC = (-0.1, -0.1, 1.1, 1.1)",
             "uniform bool disableMotionBlur = true",
             "uniform bool disableDepthOfField = false",
+            "bool arnold:global:ignore_motion_blur = true",
             "uniform token[] includedPurposes = [\"default\", \"render\"]",
             "uniform token aspectRatioConformPolicy = \"expandAperture\"",
             "rel camera = </cams/main>",
@@ -1612,6 +1630,18 @@ mod tests {
             "uniform token productType = \"raster\""
         );
         assert_eq!(layer_settings(&prims).as_deref(), Some("/Render/Settings"));
+        assert!(!lines.iter().any(|l| l.contains("ignore_dof")), "depth of field is on");
+        // Arnold's Render Settings after it, its own ignore_motion_blur off:
+        // Render Commons' Motion Blur off still turns it on.
+        let r = RendererSettings::for_renderer("arnold");
+        let after = named(renderer_settings(Some(&EvalResult::Named(prims)), &r));
+        let lines = at(&after, "/Render/Settings").lines();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l == "bool arnold:global:ignore_motion_blur = true"),
+            "{lines:#?}"
+        );
     }
 
     #[test]

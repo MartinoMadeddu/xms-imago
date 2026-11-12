@@ -30,7 +30,7 @@ under Scopes.
 | | Pixel Aspect | `uniform float pixelAspectRatio` |
 | | Aspect Conform: Expand Aperture, Crop Aperture, Adjust Aperture Width, Adjust Aperture Height, Adjust Pixel Aspect Ratio | `uniform token aspectRatioConformPolicy` |
 | | Overscan: how much is rendered beyond the frame on every side, as a share of it (0.1 is 10%) | `uniform float4 dataWindowNDC = (-o, -o, 1 + o, 1 + o)` |
-| Render | Motion Blur, Depth of Field | `uniform bool disableMotionBlur`, `disableDepthOfField` (off is `true`) |
+| Render | Motion Blur, Depth of Field | `uniform bool disableMotionBlur`, `disableDepthOfField` (off is `true`); off, also `arnold:global:ignore_motion_blur` and `ignore_dof`, since Arnold's USD reader goes by its own settings |
 | | Purposes: default, render, proxy, guide | `uniform token[] includedPurposes` |
 | Output | Product: the RenderProduct's path | `rel products` |
 | | Output Image (`render/beauty.$F4.exr`, `$JOB/render/$GNAME.$F4.exr`): Imago's variables are put in, the frame's (`$F4`) left for the renderer, as husk expands them | `token productName`, `uniform token productType = "raster"` |
@@ -55,10 +55,13 @@ The Scene Explorer marks the one rendered (`RenderSettings · rendered`).
 
 **Motion blur.** What moves blurs over the camera's shutter: the Camera
 operator's **Shutter** (open and close, in frames from the frame rendered:
--0.25 to 0.25 is a 180° shutter about it; both 0, USD's default, no blur),
-written as `shutter:open` and `shutter:close`. The shutter is that of the
-camera the RenderSettings names, else of the scene's one camera; Render
-Commons' Motion Blur off (`disableMotionBlur`) turns it off.
+-0.25 to 0.25, a 180° shutter about it, to start with; both 0, USD's own
+default, no blur), written as `shutter:open` and `shutter:close`. The shutter
+is that of the camera the RenderSettings names, else of the scene's one camera.
+Render Commons' Motion Blur off turns it off for everything, a file's animation
+included: `disableMotionBlur`, which Karma follows, and Arnold's
+`ignore_motion_blur` on (an Arnold Render Settings after it keeps it on). The
+camera's shutter is left as it is, so turning blur on again needs nothing else.
 
 A render from Imago (Arnold in the Viewer and the Image Viewer, `xms
 --render`, the Image Viewer's husk) cooks the scene at the shutter's open and
