@@ -453,7 +453,12 @@ fn specs_in(
     made.sort_by_key(|p| p.shading.is_some() || p.render.is_some());
     // Point-instancer prototypes taken from files, as they were read: each a
     // reference to the file's prim at the prototype's root, not its geometry.
-    let referenced = referenced_prototypes(&made);
+    let (referenced, whole) = referenced_prototypes(&made);
+    for (root, why) in whole {
+        report
+            .notes
+            .push(format!("{root}: a prototype from a file, written whole: {why}"));
+    }
     let mut written: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for p in made {
         if let Some(f) = proto_file(p).filter(|f| referenced.contains(f.root.as_str())) {
@@ -1061,33 +1066,45 @@ fn proto_file(p: &Prim) -> Option<&crate::types::ProtoFile> {
 
 /// The prototype roots whose every prim is as its file has it: the Instancer
 /// took it unchanged, and nothing after changed its geometry or material.
-fn referenced_prototypes<'a>(made: &[&'a Prim]) -> std::collections::HashSet<&'a str> {
-    let mut roots: BTreeMap<&str, bool> = BTreeMap::new();
+/// Then those from a file written whole, each with why.
+fn referenced_prototypes<'a>(made: &[&'a Prim]) -> (std::collections::HashSet<&'a str>, Vec<(&'a str, &'static str)>) {
+    let mut roots: BTreeMap<&str, Option<&'static str>> = BTreeMap::new();
     for p in made {
         let Some(by) = &p.instanced_by else { continue };
         let Some(f) = by.file.as_deref() else {
             continue;
         };
-        let same = f.as_read
-            && match (&f.geo, &p.geo) {
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-                (None, None) => true,
-                _ => false,
-            }
-            && f.material == p.material;
-        *roots.entry(f.root.as_str()).or_insert(true) &= same;
+        let why = if !f.as_read {
+            Some("changed before the Instancer took it")
+        } else if !match (&f.geo, &p.geo) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        } {
+            Some("its geometry changed after the Instancer")
+        } else if f.material != p.material {
+            Some("its material changed after the Instancer")
+        } else {
+            None
+        };
+        let entry = roots.entry(f.root.as_str()).or_insert(None);
+        if entry.is_none() {
+            *entry = why;
+        }
     }
     // A root with a prim of no file below it (one made in Imago) is written whole.
     for p in made {
         if p.instanced_by.as_ref().is_some_and(|b| b.file.is_none()) {
-            for (r, ok) in roots.iter_mut() {
-                if is_below(&p.path, r) {
-                    *ok = false;
+            for (r, why) in roots.iter_mut() {
+                if is_below(&p.path, r) && why.is_none() {
+                    *why = Some("it has prims made in Imago");
                 }
             }
         }
     }
-    roots.into_iter().filter(|(_, ok)| *ok).map(|(r, _)| r).collect()
+    let referenced = roots.iter().filter(|(_, w)| w.is_none()).map(|(r, _)| *r).collect();
+    let whole = roots.into_iter().filter_map(|(r, w)| Some((r, w?))).collect();
+    (referenced, whole)
 }
 
 /// A prototype's root as a reference to its file's prim, placed within the
@@ -3296,9 +3313,14 @@ def Xform "set" {{
         // Changed after the Instancer: the geometry, written whole.
         let mut moved = (*leaf).clone();
         moved.points_mut()[0] = [0.0, 3.0, 0.0];
-        let (text, _) = override_layer(&[instancer, proto(Arc::new(moved))], &out, &SceneRange::default()).unwrap();
+        let (text, report) =
+            override_layer(&[instancer, proto(Arc::new(moved))], &out, &SceneRange::default()).unwrap();
         assert!(!text.contains("references"), "{text}");
         assert!(text.contains("def Mesh \"leaf\""), "{text}");
+        assert!(
+            report.notes.iter().any(|n| n.contains("its geometry changed after the Instancer")),
+            "said why: {report:?}"
+        );
     }
 
     /// A file instancer's prototype edited: an `over` on it, every copy

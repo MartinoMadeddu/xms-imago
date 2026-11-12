@@ -1973,9 +1973,13 @@ fn instanced(
                 // From a stage: the file's prim it is, to be referenced.
                 let file = q.stage.as_deref().and_then(|t| {
                     let prim = t.file_path(proto)?;
-                    let as_read = q.source.as_deref().is_some_and(|s| {
-                        q.geo.as_ref().is_none_or(|g| Arc::ptr_eq(g, &s.geo)) && q.material == s.material
-                    });
+                    // A mesh read without its `Geo` (a heavy stage's) has no
+                    // source: as read while nothing gave it one, as Write USD
+                    // measures its edits.
+                    let as_read = match q.source.as_deref() {
+                        Some(s) => q.geo.as_ref().is_none_or(|g| Arc::ptr_eq(g, &s.geo)) && q.material == s.material,
+                        None => q.geo.is_none(),
+                    };
                     Some(Arc::new(crate::types::ProtoFile {
                         root: roots[k].clone(),
                         source: t.source.clone(),
