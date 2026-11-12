@@ -50,6 +50,45 @@ A `Prim` is a primitive:
 
 Instanced primitives share one `geo` (and one `mesh`) between their copies.
 
+## Normals and tangents
+
+The **Normals** and **Tangents** operators (Modify) make them from the
+geometry of the primitives their Prims Location tab names, or every one
+(`xms_geo::frames`, `core::frames`).
+
+**Normals**, written as `normals` (one there was in another context goes, as
+USD has one):
+
+| Context | What |
+|---|---|
+| Point | Smooth: the faces around each point, weighed |
+| Corner | Hard where faces meet at more than the **Cusp Angle** (60° to start with, Houdini's): 0 is flat, 180 smooth |
+| Face | Flat: each face's own |
+
+**Weighting**: by each face's **Area** (big faces count more), by the
+**Angle** it makes at the point (even across a fan of thin triangles), or
+**Uniform**. A face's normal is Newell's, right for faces not quite flat, and
+left-handed meshes face the other way. On curves, normals are per point,
+square to the curve and turning no more than it does (parallel transport, from
++Y): what ribbons face. Points get none.
+
+The Viewer shades by normals per point, so a mesh with them per corner shows
+smooth there; renders show its hard edges.
+
+**Tangents**, written as `tangents`, per Point or Corner, square to the mesh's
+normals (or ones made per corner when it has none):
+
+- **From UV**: along U of the texture coordinates (**UV**: empty is `st`, or
+  another of their names, or any), what normal maps are baked against. Per
+  Corner, corners at a point keep their own across a UV seam. A mesh with no
+  coordinates gets them along its edges.
+- **From Edges**: along each corner's edge to the next corner of its face.
+- On curves, along the curve, per point (central differences; a periodic curve
+  goes round).
+
+**Bitangents** also writes `bitangents`, `normal × tangent`, turned where the
+coordinates are mirrored.
+
 ## Edits
 
 `crate::edits` finds what changed in a primitive by comparing it with its

@@ -881,3 +881,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 12/11/2026: File browser: Size, Modified and Owner columns (libc on unix for local time and owner names); folders open on a double-click; the window floats, opening in the middle. (Martino)
 - 12/11/2026: ICE: a snippet's Run Over is where it sets: a lone snippet's graph runs over it (its root's context), one among other nodes sets into it. (Martino)
 - 12/11/2026: Release 0.3.3. (Martino)
+- 12/11/2026: Normals and Tangents operators (xms_geo::frames, core::frames): normals per point/corner/face with weighting and cusp angle, curve normals by parallel transport; tangents from UV or edges, per point/corner, bitangents; curve tangents. (Martino)

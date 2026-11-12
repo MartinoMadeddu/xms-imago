@@ -1208,6 +1208,17 @@ pub fn draw_properties(
             suffix,
         } => super::rename::rename_rows(ui, find, replace, prefix, suffix, &rename_in, located),
         NodeType::Duplicate { copies } => super::rename::duplicate_rows(ui, copies, &rename_in, located),
+        NodeType::Normals {
+            context,
+            weighting,
+            cusp,
+        } => super::frames::normals_rows(ui, context, weighting, cusp),
+        NodeType::Tangents {
+            context,
+            from,
+            uv,
+            bitangents,
+        } => super::frames::tangents_rows(ui, context, from, uv, bitangents),
         NodeType::DeleteAttribute { names, context } => super::rename::delete_attribute_rows(ui, names, context, &attrs_in),
         NodeType::RenameAttribute { from, to, context } => {
             super::rename::rename_attribute_rows(ui, from, to, context, &attrs_in)

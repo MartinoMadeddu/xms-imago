@@ -62,6 +62,8 @@ pub mod xform;
 /// The geometry model of packed primitives, the nodes and ICE: typed attribute
 /// columns per context.
 pub use xms_geo as geo;
+/// Normals and Tangents made from the geometry.
+pub mod frames;
 /// `Geo` to and from `MeshData`.
 pub mod geo_mesh;
 /// Rigging: guides, a deform skeleton built from them, skin weights in steps.

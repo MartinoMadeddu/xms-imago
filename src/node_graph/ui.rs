@@ -1518,6 +1518,8 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("🔨", "Modify", vec![
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE, pivot: Default::default(), order: Default::default() }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
+            (NodeType::Normals { context: crate::core::geo::Context::Point, weighting: Default::default(), cusp: 60.0 }, "Normals made from the geometry: smooth per point, hard past an angle per corner, or flat per face; along curves, what ribbons face"),
+            (NodeType::Tangents { context: crate::core::geo::Context::Point, from: Default::default(), uv: String::new(), bitangents: false }, "Tangents made from the geometry: along U of the texture coordinates (or the edges) on meshes, along curves"),
             (NodeType::merge(), "Any number of inputs as one: primitives side by side, or one mesh. Wiring the last input adds another"),
             (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default(), snippet: false }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
             (NodeType::Ice { id: crate::ice::NEW_SNIPPET, name: "ISnippet".into(), references: 1, params: Default::default(), snippet: true }, "Code run on every point, face or corner of each primitive, in OSL's syntax with ICE's attributes (@P): one snippet, locked inside (Make ICE Graph gives its nodes). Its reference inputs are what its geometry parameters read"),

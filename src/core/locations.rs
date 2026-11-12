@@ -28,6 +28,8 @@ pub fn takes_locations(t: &NodeType) -> bool {
             | NodeType::Rename { .. }
             | NodeType::Duplicate { .. }
             | NodeType::DeleteAttribute { .. }
+            | NodeType::Normals { .. }
+            | NodeType::Tangents { .. }
             | NodeType::RenameAttribute { .. }
             | NodeType::MaterialBinding { .. }
             | NodeType::Ice { .. }

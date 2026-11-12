@@ -136,7 +136,7 @@ pub fn renamed_geo(geo: &Geo, from: &str, to: &str, only: Option<Context>) -> Op
 }
 
 /// `edit` made on each primitive's geometry (the picked ones, when some are).
-fn on_prims(input: &EvalResult, edit: &dyn Fn(&Geo) -> Option<Geo>) -> EvalResult {
+pub(crate) fn on_prims(input: &EvalResult, edit: &dyn Fn(&Geo) -> Option<Geo>) -> EvalResult {
     match input {
         EvalResult::Named(prims) => {
             let any_picked = prims.iter().any(|p| p.picked);

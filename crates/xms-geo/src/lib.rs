@@ -33,6 +33,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+pub mod frames;
 pub mod intrinsics;
 
 // Names

@@ -173,6 +173,21 @@ pub fn evaluate_node_type(
         // Cooked by the graph, with its locations (`core::reparent`).
         NodeType::Reparent { .. } | NodeType::Rename { .. } | NodeType::Duplicate { .. } => inputs.first().cloned(),
         // On the picked primitives, or every one (`core::attribute_edit`).
+        NodeType::Normals {
+            context,
+            weighting,
+            cusp,
+        } => inputs
+            .first()
+            .map(|r| crate::core::frames::normals(r, *context, *weighting, *cusp)),
+        NodeType::Tangents {
+            context,
+            from,
+            uv,
+            bitangents,
+        } => inputs
+            .first()
+            .map(|r| crate::core::frames::tangents(r, *context, *from, uv, *bitangents)),
         NodeType::DeleteAttribute { names, context } => inputs
             .first()
             .map(|r| crate::core::attribute_edit::delete(r, names, *context)),

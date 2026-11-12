@@ -8,6 +8,13 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Geometry
+
+- **Normals**: made per Point (smooth), Corner (hard past a cusp angle) or
+  Face, weighed by area, angle or evenly; on curves, what ribbons face.
+- **Tangents**: along U of the texture coordinates (or the edges) on meshes,
+  per Point or Corner, with Bitangents; along curves.
+
 ## [0.3.3] - 2026-11-12
 
 ### USD

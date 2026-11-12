@@ -108,7 +108,7 @@ inputs and outputs take, not only its first.
 | Placeholder | Placeholder: a stand-in with named inputs and outputs, passing them through, and a description of the node to build |
 | Organise | Set Variable, Pass Through, Compound Input, Compound Output, and making a [compound](compounds.md) |
 | File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
-| Modify | Transform, Edit Poly, Merge, ICE |
+| Modify | Transform, Edit Poly, Normals, Tangents, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Edit Primitive, Reparent, Rename, Duplicate, Delete Attribute, Rename Attribute, Unpack |
 | Materials | Material, MaterialX, Material Binding |
 | Lights | Dome, Rect, Point, Sphere, Disk, Cylinder and Distant Light |

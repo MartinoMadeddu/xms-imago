@@ -315,6 +315,31 @@ pub enum NodeType {
         #[serde(default)]
         context: Option<crate::core::geo::Context>,
     },
+    /// Normals made from the primitives' geometry, per `context` (Point,
+    /// Corner or Face): the faces around each weighed by `weighting`; per
+    /// Corner, hard where they meet at more than `cusp` degrees. See
+    /// `core::frames`.
+    Normals {
+        #[serde(default = "point_context")]
+        context: crate::core::geo::Context,
+        #[serde(default)]
+        weighting: crate::core::geo::frames::Weighting,
+        #[serde(default = "default_cusp")]
+        cusp: f32,
+    },
+    /// Tangents made from the primitives' geometry, per `context` (Point or
+    /// Corner): a mesh's along U of `uv` (else `st`) or its edges, a curve's
+    /// along it; `bitangents` too when on. See `core::frames`.
+    Tangents {
+        #[serde(default = "point_context")]
+        context: crate::core::geo::Context,
+        #[serde(default)]
+        from: crate::core::geo::frames::TangentsFrom,
+        #[serde(default)]
+        uv: String,
+        #[serde(default)]
+        bitangents: bool,
+    },
     /// Variants of the stages coming in: `choices` chooses them (Select),
     /// composing the stage again. See `core::variant`.
     /// Create: a variant set `set` on the prim at `location`, a variant per
@@ -1175,6 +1200,8 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Duplicate { .. } => "⧉",
         NodeType::DeleteAttribute { .. } => "⌫",
         NodeType::RenameAttribute { .. } => "✎",
+        NodeType::Normals { .. } => "⊥",
+        NodeType::Tangents { .. } => "∥",
         NodeType::Variant { .. } => "🔀",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
@@ -1275,6 +1302,8 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Duplicate { .. } => "Duplicate",
         NodeType::DeleteAttribute { .. } => "Delete Attribute",
         NodeType::RenameAttribute { .. } => "Rename Attribute",
+        NodeType::Normals { .. } => "Normals",
+        NodeType::Tangents { .. } => "Tangents",
         NodeType::Variant { .. } => "Variant",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",
@@ -4065,4 +4094,13 @@ mod location_tests {
         h.select_boxed(vec![], false, false);
         assert!(h.selected_paths().is_empty(), "a box over nothing: nothing");
     }
+}
+
+fn point_context() -> crate::core::geo::Context {
+    crate::core::geo::Context::Point
+}
+
+/// Normals' cusp angle to start with: Houdini's.
+fn default_cusp() -> f32 {
+    60.0
 }

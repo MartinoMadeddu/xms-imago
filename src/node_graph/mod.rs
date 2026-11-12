@@ -658,6 +658,8 @@ impl NodeGraphState {
             | NodeType::Rename { .. }
             | NodeType::Duplicate { .. }
             | NodeType::DeleteAttribute { .. }
+            | NodeType::Normals { .. }
+            | NodeType::Tangents { .. }
             | NodeType::RenameAttribute { .. } => (vec![i("Scene")], vec![o("Scene")]),
             // Create: the scene, then a variant per input, one kept free.
             NodeType::Variant { mode, names, .. } => (

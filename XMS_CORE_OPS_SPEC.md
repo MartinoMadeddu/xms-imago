@@ -665,7 +665,7 @@ All take **Primitive Locations** where they edit prims.
 |---|---|---|---|
 | **Edit Poly** | Polygon modelling in one operator | a stack of operations, each on its own selection | **Done**: Extrude, Bevel, Inset, Transform, Delete, Remove, Weld, Collapse, Connect, Cap, Bridge, Detach, Break, Flip, Make Planar, Relax, Tessellate, Subdivide, Chamfer, Extrude Vertex/Edge, Outline, Hinge, Slice, Insert Vertex, Triangulate, Turn. Several listed prims are edited merged as one for now |
 | **Subdivide** | Subdivision/tessellation | levels; scheme | Partial: Edit Poly's Subdivide and Tessellate change the mesh. The subdivision the renderer does is Set Attribute's `subdivisionScheme` (6.1) |
-| **Normals** | Compute or fix normals | angle threshold; weighting | Not yet (normals are read and kept, computed when missing) |
+| **Normals** | Compute or fix normals | angle threshold; weighting | **Done**: per Point, Corner (Cusp Angle) or Face; Area, Angle or Uniform weighting; curves per point (parallel transport). **Tangents** too: along U of the texture coordinates or the edges, per Point or Corner, Bitangents; along curves. See `docs/geometry.md` |
 | **UV Project** | Generate UVs | projection type; axis; scale | Partial: UV Unwrap (Conformal/LSCM, Box, Planar; UDIM tiles), UV Transform, UV Edit. These still merge their input into one mesh and are to be moved to Primitive Locations |
 | **Boolean** | Mesh booleans | operation; inputs A/B | Not yet |
 | **Smooth** | Relax geometry | iterations; strength | Partial: Edit Poly's Relax |
