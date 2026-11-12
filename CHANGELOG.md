@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-12
+
 ### USD
 
 - **Rename** renames prims: part of the name replaced, a prefix or suffix
@@ -39,6 +41,11 @@ version's heading when you tag it.
   or `accelerations` is written as the schema's. Render Commons' Motion Blur
   off turns blur off for everything, a file's animation included (Arnold's
   `ignore_motion_blur` too).
+
+### ICE
+
+- An **ISnippet** (or Snippet) set to **Run Over** Object, Face or Corner
+  sets its attributes there, not per point.
 
 ### Interface
 

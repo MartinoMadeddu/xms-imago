@@ -879,3 +879,5 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 12/11/2026: Variant Create takes a sublayered stage's prims below its location; Write USD writes each prim just below it as a reference to the file's, placed as shown (sublayered_in_variant). (Martino)
 - 12/11/2026: Camera shutter -0.25 to 0.25 by default; Motion Blur and Depth of Field off also set Arnold's ignore_motion_blur / ignore_dof (render::turned_off), so a file's animation stops blurring. (Martino)
 - 12/11/2026: File browser: Size, Modified and Owner columns (libc on unix for local time and owner names); folders open on a double-click; the window floats, opening in the middle. (Martino)
+- 12/11/2026: ICE: a snippet's Run Over is where it sets: a lone snippet's graph runs over it (its root's context), one among other nodes sets into it. (Martino)
+- 12/11/2026: Release 0.3.3. (Martino)

@@ -127,7 +127,9 @@ the tree's parameters).
   parameters are its input ports (a wire takes a parameter's place), its
   `output` parameters its output ports, then an Execute, for the root: the
   attributes it sets. **Run Over** is the context its body runs over (the
-  graph's own unless set). The text is applied with Ctrl+Enter or by leaving
+  graph's own unless set): what it declares (`float @test = 0.1;`) is made
+  there, per Object one value on each primitive. Among other nodes, what it
+  sets goes into that context, made one there from the graph's. The text is applied with Ctrl+Enter or by leaving
   it; changing its parameters keeps the wires of those still there, by name.
   What is wrong, with its line and column, shows under the text and on the
   node. A `geometry` parameter with nothing wired reads what its

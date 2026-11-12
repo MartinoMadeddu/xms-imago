@@ -1139,6 +1139,7 @@ impl IceGraph {
                 _ => None,
             })
             .unwrap_or(Context::Point);
+        let lone = self.lone_snippet().is_some();
         let mut at = vec![];
         for (k, n) in self.nodes.iter().enumerate() {
             let IceGraphNodeType::Snippet {
@@ -1169,6 +1170,25 @@ impl IceGraph {
             }
             let lowered = xms_ice::lang::lower(&snippet, runs_over, &inputs, geo, graph).map_err(broke)?;
             ids.extend(std::iter::repeat_n(n.id, graph.nodes.len() - first));
+            if runs_over != context {
+                // A graph of this snippet alone (an ISnippet's) runs over the
+                // snippet's context: what it reads and sets is per Object, or
+                // per Face. In a graph of other nodes, what it sets goes into
+                // its context, made one there from the root's.
+                if lone {
+                    for node in graph.nodes.iter_mut() {
+                        if let Op::Root { context: c } = &mut node.op {
+                            *c = runs_over;
+                        }
+                    }
+                } else {
+                    for &s in &lowered.sets {
+                        if let Op::SetData { context: c @ None, .. } = &mut graph.nodes[s].op {
+                            *c = Some(runs_over);
+                        }
+                    }
+                }
+            }
             let execute = n.outputs.len().saturating_sub(1);
             for node in graph.nodes.iter_mut() {
                 let root = matches!(node.op, Op::Root { .. });
@@ -1961,6 +1981,43 @@ mod tests {
             .same(geo.attr(Context::Face, "heat").unwrap()));
         assert!(out.topology.same(&geo.topology));
         assert!(g.error.lock().unwrap().is_none());
+    }
+
+    /// An ISnippet run over Object sets its attributes per Object (one value
+    /// on the primitive), not per point; run over its graph's context, per
+    /// point.
+    #[test]
+    fn a_lone_snippet_sets_in_the_context_it_runs_over() {
+        let geo = Geo::from_points(vec![[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+        let run = |over: Option<Context>| {
+            let mut g = IceGraph::new(IceGraphId(0), "snippet".into());
+            let root = g.root().unwrap();
+            let s = g.add_node(
+                "s".into(),
+                IceGraphNodeType::Snippet {
+                    text: "snippet attribute () { float @test = 0.1; }".into(),
+                    run_over: over,
+                    references: vec![],
+                },
+                egui::pos2(0.0, 0.0),
+            );
+            let execute = g.nodes.iter().find(|n| n.id == s).map_or(0, |n| n.outputs.len() - 1);
+            g.add_connection(s, execute, root, 0);
+            let out = g.evaluate(&geo, &[]);
+            assert!(g.error.lock().unwrap().is_none(), "{:?}", g.error.lock().unwrap());
+            out
+        };
+        let object = run(Some(Context::Object));
+        assert!(object.attr(Context::Point, "test").is_none(), "not per point");
+        let Column::Float(v) = &object.attr(Context::Object, "test").expect("per Object").column else {
+            panic!("a float")
+        };
+        assert_eq!(v.len(), 1);
+        assert!((v[0] - 0.1).abs() < 1e-6);
+        assert!(
+            run(None).attr(Context::Point, "test").is_some(),
+            "the graph's own: per point"
+        );
     }
 
     /// A Snippet node: its parameters ports (a wire into one taking its
