@@ -40,6 +40,11 @@ version's heading when you tag it.
   off turns blur off for everything, a file's animation included (Arnold's
   `ignore_motion_blur` too).
 
+### Interface
+
+- The **file browser** shows each entry's size, date and owner; a folder
+  opens on a double-click, a click picks it; the window can be moved.
+
 ### MaterialX
 
 - Materials are **checked before Arnold renders in Imago**: a node of no

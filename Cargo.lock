@@ -4650,6 +4650,7 @@ dependencies = [
  "flate2",
  "glam 0.27.0",
  "image",
+ "libc",
  "openusd 0.1.4",
  "rayon",
  "regex",

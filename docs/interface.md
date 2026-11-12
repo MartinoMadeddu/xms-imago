@@ -55,7 +55,11 @@ Older `.json` graphs open too.
   layout, Write FBX and Write USD say what is there and offer Replace or
   Cancel.
 - The file browser lists numbered files as one sequence (`shot.####.exr
-  1-120`), and with **UDIM** on, tiles as one `<UDIM>` path.
+  1-120`), and with **UDIM** on, tiles as one `<UDIM>` path. Each entry shows
+  its size (a sequence's, all its files), when it last changed and its owner
+  (files keep who owns them, not who changed them last). A click picks, a
+  double-click opens a folder or a file; picking a folder to choose one, the
+  button uses it. It opens in the middle and can be moved.
 
 ![Picking a template over a graph with nodes](xms_add_or_open.png)
 
