@@ -286,7 +286,8 @@ impl FileBrowser {
                 }
                 ui.separator();
 
-                // Entries
+                // Entries, under their columns' names.
+                row(ui, 0, false, true, ["Name", "Size", "Modified", "Owner"]);
                 let footer = if req.mode == BrowseMode::Save { 64.0 } else { 36.0 };
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -295,49 +296,32 @@ impl FileBrowser {
                         if let Some(e) = &read_error {
                             ui.colored_label(egui::Color32::from_rgb(220, 140, 140), e);
                         }
-                        egui::Grid::new("file_browser_entries")
-                            .num_columns(4)
-                            .striped(true)
-                            .min_col_width(60.0)
-                            .spacing([16.0, 2.0])
-                            .show(ui, |ui| {
-                                let weak = |ui: &mut egui::Ui, t: &str| { ui.weak(t); };
-                                ui.strong("Name");
-                                ui.strong("Size");
-                                ui.strong("Modified");
-                                ui.strong("Owner");
-                                ui.end_row();
-                                let name_width = (ui.available_width() - 420.0).max(220.0);
-                                for d in &dirs {
-                                    let name = d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                                    let sel = req.selected.as_ref() == Some(d);
-                                    let resp = name_cell(ui, name_width, sel, format!("📁 {name}"));
-                                    if resp.clicked() { req.selected = Some(d.clone()); }
-                                    if resp.double_clicked() { go_to = Some(d.clone()); }
-                                    let i = info(std::slice::from_ref(d));
-                                    weak(ui, "folder");
-                                    weak(ui, &i.modified_text());
-                                    weak(ui, i.owner.as_deref().unwrap_or(""));
-                                    ui.end_row();
-                                }
-                                for entry in &entries {
-                                    let f = entry.path();
-                                    let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                                    let sel  = req.selected.as_ref() == Some(&f);
-                                    let icon = match entry { crate::core::sequences::Entry::File(_) => "📄", _ => "🎞" };
-                                    let resp = name_cell(ui, name_width, sel, format!("{icon} {}", entry.label()));
-                                    if resp.clicked() {
-                                        req.selected  = Some(f.clone());
-                                        req.file_name = name.clone();
-                                    }
-                                    if resp.double_clicked() { confirm = Some(f.clone()); }
-                                    let i = info(&entry_files(entry));
-                                    weak(ui, &i.size.map(size_text).unwrap_or_default());
-                                    weak(ui, &i.modified_text());
-                                    weak(ui, i.owner.as_deref().unwrap_or(""));
-                                    ui.end_row();
-                                }
-                            });
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        let mut k = 0;
+                        for d in &dirs {
+                            let name = d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            let sel = req.selected.as_ref() == Some(d);
+                            let i = info(std::slice::from_ref(d));
+                            let resp = row(ui, k, sel, false, [&format!("📁 {name}"), "folder", &i.modified_text(), i.owner.as_deref().unwrap_or("")]);
+                            if resp.clicked() { req.selected = Some(d.clone()); }
+                            if resp.double_clicked() { go_to = Some(d.clone()); }
+                            k += 1;
+                        }
+                        for entry in &entries {
+                            let f = entry.path();
+                            let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            let sel  = req.selected.as_ref() == Some(&f);
+                            let icon = match entry { crate::core::sequences::Entry::File(_) => "📄", _ => "🎞" };
+                            let i = info(&entry_files(entry));
+                            let size = i.size.map(size_text).unwrap_or_default();
+                            let resp = row(ui, k, sel, false, [&format!("{icon} {}", entry.label()), &size, &i.modified_text(), i.owner.as_deref().unwrap_or("")]);
+                            if resp.clicked() {
+                                req.selected  = Some(f.clone());
+                                req.file_name = name.clone();
+                            }
+                            if resp.double_clicked() { confirm = Some(f.clone()); }
+                            k += 1;
+                        }
                         if dirs.is_empty() && files.is_empty() && read_error.is_none() {
                             ui.weak("Nothing to show here.");
                         }
@@ -437,15 +421,66 @@ impl FileBrowser {
 
 // What the listing shows of an entry
 
-/// An entry's name, in a column `width` wide, cut short when longer.
-fn name_cell(ui: &mut egui::Ui, width: f32, selected: bool, text: String) -> egui::Response {
-    ui.scope(|ui| {
-        ui.set_min_width(width);
-        ui.set_max_width(width);
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        ui.selectable_label(selected, text)
-    })
-    .inner
+/// The widths of the columns at the right: size, modified, owner.
+const COLUMNS: [f32; 3] = [80.0, 130.0, 140.0];
+const GAP: f32 = 12.0;
+
+/// One row of the listing, the whole width: the name from the left, cut short
+/// when longer than its room, the size, date and owner in columns at the right
+/// edge. The row is clicked as one; every other row is shaded. `header`: the
+/// columns' names, not clicked.
+fn row(ui: &mut egui::Ui, k: usize, selected: bool, header: bool, cells: [&str; 4]) -> egui::Response {
+    let height = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+    let sense = if header {
+        egui::Sense::hover()
+    } else {
+        egui::Sense::click()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), sense);
+    let v = ui.visuals().clone();
+    let fill = if selected {
+        Some(v.selection.bg_fill)
+    } else if resp.hovered() && !header {
+        Some(v.widgets.hovered.weak_bg_fill)
+    } else if k % 2 == 1 {
+        Some(v.faint_bg_color)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter().rect_filled(rect, 2.0, fill);
+    }
+    let (name, rest) = if selected {
+        (v.selection.stroke.color, v.selection.stroke.color)
+    } else if header {
+        (v.strong_text_color(), v.strong_text_color())
+    } else {
+        (v.text_color(), v.weak_text_color())
+    };
+    let pad = 6.0;
+    // The columns from the right edge in.
+    let mut x = rect.right() - pad;
+    let mut at = [0.0; 3];
+    for c in (0..3).rev() {
+        x -= COLUMNS[c];
+        at[c] = x;
+        x -= GAP;
+    }
+    let text = |s: &str, left: f32, width: f32, colour: egui::Color32| {
+        let galley = egui::WidgetText::from(s).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            width.max(10.0),
+            egui::TextStyle::Body,
+        );
+        let y = rect.center().y - galley.size().y / 2.0;
+        ui.painter().galley(egui::pos2(left, y), galley, colour);
+    };
+    text(cells[0], rect.left() + pad, x - rect.left() - pad, name);
+    for c in 0..3 {
+        text(cells[c + 1], at[c], COLUMNS[c], rest);
+    }
+    resp
 }
 
 /// An entry's size (a sequence's, all its files), when it last changed (its
