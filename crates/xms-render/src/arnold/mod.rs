@@ -527,6 +527,105 @@ impl Arnold {
         true
     }
 
+    /// A primvar set in memory: `widths` as curves' and points' `radius`, the
+    /// rest as user data, declared as Arnold's USD reader declares it
+    /// (`varying`, `uniform`, `indexed`) when it is not there. As many values
+    /// as the shape has points, faces or corners, else not live.
+    ///
+    /// # Safety
+    /// `node` is a node of the loaded universe, `entry` its entry, changed
+    /// while paused.
+    unsafe fn primvar(&self, node: ffi::Ptr, entry: ffi::Ptr, path: &str, p: &crate::Primvar) -> bool {
+        use crate::{Per, Values};
+        let ai = &self.ai;
+        let shape = ffi::text((ai.AiNodeEntryGetName)(entry));
+        let count = |param: &str| {
+            let a = (ai.AiNodeGetArray)(node, ai.string(param));
+            if a.is_null() {
+                0
+            } else {
+                (ai.AiArrayGetNumElements)(a) as usize
+            }
+        };
+        let (points, faces, corners) = match shape.as_str() {
+            "curves" => (count("points"), count("num_points"), 0),
+            "points" => (count("points"), 0, 0),
+            "polymesh" => (count("vlist"), count("nsides"), count("vidxs")),
+            _ => return not_live(path, &format!("a {shape}, whose primvars are the layer's")),
+        };
+        let want = match p.per {
+            Per::Point => points,
+            Per::Face => faces,
+            Per::Corner => corners,
+        };
+        if want == 0 || p.values.len() != want {
+            return not_live(
+                path,
+                &format!(
+                    "{}: Arnold has {want} elements for it, Imago {}",
+                    p.name,
+                    p.values.len()
+                ),
+            );
+        }
+        let array = |ty: u8| match &p.values {
+            Values::Int(v) => (ai.AiArrayConvert)(v.len() as u32, 1, ffi::TYPE_INT, v.as_ptr() as *const _),
+            Values::Float(v) => (ai.AiArrayConvert)(v.len() as u32, 1, ffi::TYPE_FLOAT, v.as_ptr() as *const _),
+            Values::Vec2(v) => (ai.AiArrayConvert)(v.len() as u32, 1, ffi::TYPE_VECTOR2, v.as_ptr() as *const _),
+            Values::Vec3(v) => (ai.AiArrayConvert)(v.len() as u32, 1, ty, v.as_ptr() as *const _),
+        };
+        if p.name == "widths" {
+            let Values::Float(w) = &p.values else {
+                return not_live(path, "widths that are not numbers");
+            };
+            if p.per != Per::Point || !matches!(shape.as_str(), "curves" | "points") {
+                return not_live(path, "widths not one a point");
+            }
+            let radius: Vec<f32> = w.iter().map(|w| w * 0.5).collect();
+            let a = (ai.AiArrayConvert)(radius.len() as u32, 1, ffi::TYPE_FLOAT, radius.as_ptr() as *const _);
+            (ai.AiNodeSetArray)(node, ai.string("radius"), a);
+            return true;
+        }
+        let name = ai.string(&p.name);
+        let mut user = (ai.AiNodeLookUpUserParameter)(node, name);
+        if user.is_null() {
+            let ty = match &p.values {
+                Values::Int(_) => "INT",
+                Values::Float(_) => "FLOAT",
+                Values::Vec2(_) => "VECTOR2",
+                Values::Vec3(_) if p.colour => "RGB",
+                Values::Vec3(_) => "VECTOR",
+            };
+            let category = match p.per {
+                Per::Point => "varying",
+                Per::Face => "uniform",
+                Per::Corner => "indexed",
+            };
+            let declaration = std::ffi::CString::new(format!("{category} {ty}")).unwrap_or_default();
+            if !(ai.AiNodeDeclare)(node, name, declaration.as_ptr()) {
+                return not_live(path, &format!("{}: Arnold would not declare it", p.name));
+            }
+            user = (ai.AiNodeLookUpUserParameter)(node, name);
+        }
+        if user.is_null() {
+            return not_live(path, &format!("{}: no user parameter", p.name));
+        }
+        let declared = (ai.AiUserParamGetType)(user);
+        let vec3 = if declared == ffi::TYPE_RGB {
+            ffi::TYPE_RGB
+        } else {
+            ffi::TYPE_VECTOR
+        };
+        (ai.AiNodeSetArray)(node, name, array(vec3));
+        // Per corner: each corner its own value.
+        if (ai.AiUserParamGetCategory)(user) == ffi::USERDEF_INDEXED {
+            let idxs: Vec<u32> = (0..want as u32).collect();
+            let a = (ai.AiArrayConvert)(idxs.len() as u32, 1, ffi::TYPE_UINT, idxs.as_ptr() as *const _);
+            (ai.AiNodeSetArray)(node, ai.string(&format!("{}idxs", p.name)), a);
+        }
+        true
+    }
+
     fn apply(&self, e: &Edit) -> bool {
         let ai = &self.ai;
         // SAFETY: nodes of the loaded universe, changed while paused.
@@ -594,6 +693,42 @@ impl Arnold {
                         (ai.AiArrayConvert)(points.len() as u32, 1, ffi::TYPE_VECTOR, points.as_ptr() as *const _);
                     (ai.AiNodeSetArray)(node, ai.string(param), array);
                     true
+                }
+                Change::PointKeys { keys, shutter } => {
+                    let param = match ffi::text((ai.AiNodeEntryGetName)(entry)).as_str() {
+                        "curves" | "points" => "points",
+                        _ => "vlist",
+                    };
+                    let now = (ai.AiNodeGetArray)(node, ai.string(param));
+                    let n = keys.first().map_or(0, |k| k.len());
+                    let why = if kind != ffi::NODE_SHAPE || now.is_null() {
+                        Some("not a shape with points".to_string())
+                    } else if (ai.AiArrayGetNumElements)(now) as usize != n || keys.iter().any(|k| k.len() != n) {
+                        Some(format!(
+                            "Arnold has {} points, Imago {n}",
+                            (ai.AiArrayGetNumElements)(now)
+                        ))
+                    } else if keys.len() < 2 || keys.len() > 255 {
+                        Some(format!("{} keys", keys.len()))
+                    } else {
+                        None
+                    };
+                    if let Some(why) = why {
+                        return not_live(&e.path, &why);
+                    }
+                    let all: Vec<[f32; 3]> = keys.iter().flat_map(|k| k.iter().copied()).collect();
+                    let array =
+                        (ai.AiArrayConvert)(n as u32, keys.len() as u8, ffi::TYPE_VECTOR, all.as_ptr() as *const _);
+                    (ai.AiNodeSetArray)(node, ai.string(param), array);
+                    (ai.AiNodeSetFlt)(node, ai.string("motion_start"), shutter[0]);
+                    (ai.AiNodeSetFlt)(node, ai.string("motion_end"), shutter[1]);
+                    true
+                }
+                Change::Primvars(primvars) => {
+                    if kind != ffi::NODE_SHAPE {
+                        return not_live(&e.path, "not a shape");
+                    }
+                    primvars.iter().all(|p| self.primvar(node, entry, &e.path, p))
                 }
                 Change::Attributes(attributes) => attributes.iter().all(|(name, v)| {
                     let param = match kind {
@@ -799,11 +934,19 @@ impl Renderer for Arnold {
         }
         self.pause();
         let applied = edits.iter().all(|e| self.apply(e));
-        let moved = edits.iter().filter(|e| matches!(e.change, Change::Points(_))).count();
+        let moved = edits
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.change,
+                    Change::Points(_) | Change::PointKeys { .. } | Change::Primvars(_)
+                )
+            })
+            .count();
         if applied && moved > 0 {
             log(
                 false,
-                format!("Imago: the points of {moved} prim(s) sent to Arnold in memory"),
+                format!("Imago: the points and primvars of {moved} prim(s) sent to Arnold in memory, not written"),
             );
         }
         if let Some(f) = edits.iter().rev().find_map(|e| match e.change {

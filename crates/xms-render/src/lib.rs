@@ -12,7 +12,7 @@
 pub mod arnold;
 mod live;
 
-pub use live::Live;
+pub use live::{Layer as Written, Live, Reload};
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -44,6 +44,16 @@ pub enum Change {
     Visible(bool),
     /// A mesh's points, as many as it had (animation, a deformer).
     Points(Arc<Vec<[f32; 3]>>),
+    /// Its points over the shutter: a key each, evenly from `shutter[0]` to
+    /// `shutter[1]` (frames from the frame), as many points in each as it had.
+    /// What moves in Imago blurs with no points written.
+    PointKeys {
+        keys: Vec<Arc<Vec<[f32; 3]>>>,
+        shutter: [f32; 2],
+    },
+    /// Its primvars, set in memory: what a deformer or an ICE graph made of a
+    /// file's prim, not written into the layer.
+    Primvars(Vec<Primvar>),
     /// Anything else (a prim added or removed, topology, a new material
     /// network, another frame): the layer is loaded again.
     Structure,
@@ -63,6 +73,52 @@ pub struct View {
     pub matrix: [[f32; 4]; 4],
     pub fov: f32,
     pub size: [u32; 2],
+}
+
+/// A primvar's values, one per element of `per` (its indices undone):
+/// `widths` is curves' and points' width, the rest renderers' user data.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Primvar {
+    pub name: String,
+    pub per: Per,
+    pub values: Values,
+    /// Three numbers that are a colour (`color3f`).
+    pub colour: bool,
+}
+
+/// What a primvar has one value for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Per {
+    /// A point (`vertex`, `varying`).
+    Point,
+    /// A face, or a curve (`uniform`).
+    Face,
+    /// A face's corner (`faceVarying`).
+    Corner,
+}
+
+/// A primvar's values.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Values {
+    Int(Arc<Vec<i32>>),
+    Float(Arc<Vec<f32>>),
+    Vec2(Arc<Vec<[f32; 2]>>),
+    Vec3(Arc<Vec<[f32; 3]>>),
+}
+
+impl Values {
+    pub fn len(&self) -> usize {
+        match self {
+            Values::Int(v) => v.len(),
+            Values::Float(v) => v.len(),
+            Values::Vec2(v) => v.len(),
+            Values::Vec3(v) => v.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// A change to the prim at `path` (the Render Settings' for `Settings`).

@@ -41,6 +41,9 @@ pub const TYPE_VECTOR2: u8 = 0x09;
 pub const TYPE_STRING: u8 = 0x0A;
 pub const TYPE_ENUM: u8 = 0x0F;
 pub const TYPE_NONE: u8 = 0xFF;
+
+// User parameters' categories (`AI_USERDEF_*`).
+pub const USERDEF_INDEXED: u8 = 4;
 // `AtRenderStatus`.
 pub const NOT_STARTED: c_int = 0;
 pub const PAUSED: c_int = 1;
@@ -157,6 +160,10 @@ api! {
     AiNodeSetPtr: fn(Ptr, AtString, Ptr);
     AiNodeGetPtr: fn(Ptr, AtString) -> Ptr;
     AiNodeGetFlt: fn(Ptr, AtString) -> f32;
+    AiNodeDeclare: fn(Ptr, AtString, *const c_char) -> bool;
+    AiNodeLookUpUserParameter: fn(Ptr, AtString) -> Ptr;
+    AiUserParamGetType: fn(Ptr) -> u8;
+    AiUserParamGetCategory: fn(Ptr) -> u8;
     AiArrayConvert: fn(u32, u8, u8, *const c_void) -> Ptr;
     AiArrayGetNumElements: fn(Ptr) -> u32;
     AiArrayGetNumKeys: fn(Ptr) -> u8;

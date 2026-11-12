@@ -449,9 +449,22 @@ bucket; Stop stops it. Another renderer (Karma) runs the command line.
 - **Arnold's own log**, its warnings, errors and plugin loading, is the Image
   Viewer's **Log** while it renders in Imago (headless, printed as it comes),
   with Imago's own lines: which changes went to Arnold live (`Imago: the
-  points of 3 prim(s) sent to Arnold in memory`) and which made it load the
-  scene again, and why. When a layer does not load, the error says Arnold's
-  reason (a plugin that does not load, a file it cannot open).
+  points and primvars of 3 prim(s) sent to Arnold in memory, not written`) and
+  which made it load the scene again, and why. When a layer does not load, the
+  error says Arnold's reason (a plugin that does not load, a file it cannot
+  open).
+- **Nothing big written:** the layer Arnold loads in Imago is light. A
+  primitive from a file that a deformer or an ICE graph changed (its topology
+  the file's) is the file's in the layer; its points, and the primvars set on
+  it (one a point, face or corner, of plain numbers: `widths` as Arnold's
+  `radius`, the rest as user data), go to Arnold in memory before the first
+  bucket. With motion blur, its points go as two keys, at the shutter's open
+  and close. Only what Arnold's reader makes into the shape's own arrays,
+  normals and texture coordinates, is written, and named in the Log. This
+  holds for every reload: a frame changed, a material changed or a prim added
+  (which load the scene again), and an edit Arnold cannot take live. When the
+  in-memory edits cannot be applied either (a count Arnold does not have), the
+  whole layer is written, and the Log says why.
 - **Hair and curves:** widths set in ICE (`widths`, per point or per curve)
   are what Arnold reads; set per curve, they are written per point.
 - It renders the layer's own RenderSettings and their camera. Arnold stays
@@ -640,9 +653,9 @@ range. `--node NAME` picks one Write USD or Render Command of several.
   window, ICE deformers and every operator included, and Arnold renders each
   frame in Imago's process at the Render Settings' samples. Arnold is given a
   light layer, in the temp folder and removed at the end: the scene's files
-  referenced and Imago's changes over them, but not the points deformers and
-  animation moved, which go to Arnold in memory before the first bucket, as
-  each frame after the first does, Arnold loaded once. No scene description
+  referenced and Imago's changes over them, but not the points and primvars
+  deformers, graphs and animation changed, which go to Arnold in memory before
+  the first bucket, as each frame after the first does, Arnold loaded once. No scene description
   is kept, nothing cached between frames. The images are the Render
   Settings' products, written by Arnold, relative ones from the scene's
   folder; each frame's files are checked and printed. Arnold is found as in

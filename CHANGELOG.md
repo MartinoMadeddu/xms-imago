@@ -8,6 +8,15 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Rendering
+
+- **Arnold in Imago writes nothing big**: a file's primitive a deformer or
+  ICE graph changed stays the file's in the layer, its points and primvars
+  sent in memory (with motion blur, as keys), on every reload too: a material
+  changed, a prim added, a frame. A heavy groom no longer goes to disk.
+- IPR's status says Arnold is loading and preparing the scene, not a guess at
+  textures.
+
 ### Geometry
 
 - **Normals**: made per Point (smooth), Corner (hard past a cusp angle) or

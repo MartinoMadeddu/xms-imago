@@ -290,28 +290,20 @@ impl Session {
             self.rendering = false;
             return Err(why);
         }
-        // Light: the points deformers moved left out, sent in memory before
-        // the first bucket; the whole layer written only if they cannot be.
-        // With motion blur, whole: the points' samples are the layer's.
-        let (light, heavier) = if motion.is_empty() {
-            lighter(&prims)
-        } else {
-            (prims.clone(), vec![])
-        };
-        let written = write_scene(&light, &motion, frame, &self.layer, scene)
+        // Light: what deformers and graphs changed of files' primitives left
+        // out, sent in memory before the first bucket (with motion blur, as
+        // keys of their points); the whole layer written only if they cannot
+        // be.
+        let (notes, then, full) = light_load(&prims, &motion, frame, &self.layer, scene)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
         // What the layer has otherwise than the stages: in the Log too, once.
-        for n in heavier.into_iter().chain(written.notes) {
+        for n in notes {
             let line = format!("Imago: {n}");
             if !self.log.contains(&line) {
                 self.logged(line);
             }
         }
-        let moved = changes(&light, &prims, scene.axes());
-        let (all, samples, layer, at) = (prims.clone(), motion.clone(), self.layer.clone(), *scene);
-        self.live.load_then(&self.layer, frame, ipr, through, moved, move || {
-            write_scene(&all, &samples, frame, &layer, &at).map(|_| layer)
-        });
+        self.live.load_then(&self.layer, frame, ipr, through, then, full);
         self.motion = motion;
         self.scene = *scene;
         self.ipr = ipr;
@@ -352,13 +344,15 @@ impl Session {
         let v = view(&self.scene, world, vertical_fov, size);
         if self.rendering && self.through.is_some() && self.through != Some(v) {
             self.through = Some(v);
-            let layer = self.layer.clone();
+            // Not taken live: the scene as sent loaded again, light.
+            let (now, samples, layer, at) = (self.sent.clone(), self.motion.clone(), self.layer.clone(), self.scene);
+            let frame = f64::from_bits(self.key.1);
             self.live.edit(
                 vec![xms_render::Edit {
                     path: String::new(),
                     change: Change::View(v),
                 }],
-                move || Ok(layer),
+                move || light_load(&now, &samples, frame, &layer, &at).map(|(_, then, full)| (layer, then, full)),
             );
         }
     }
@@ -384,25 +378,34 @@ impl Session {
         let mut failed = None;
         if self.ipr && self.key != key && !crate::usd_scene::any_reading() {
             if let Some((prims, motion)) = prims() {
-                if self.key.1 != key.1 || self.scene != *scene || !motion.is_empty() || !self.motion.is_empty() {
-                    // Another frame, other axes, unit or rate; or motion
-                    // blur, whose samples only the layer gives: loaded.
+                let edits = changes(&self.sent, &prims, scene.axes());
+                let structure = edits.iter().any(|e| matches!(e.change, Change::Structure));
+                if self.key.1 != key.1
+                    || self.scene != *scene
+                    || structure
+                    || motion.is_empty() != self.motion.is_empty()
+                {
+                    // Another frame; other axes, unit or rate; a change of
+                    // structure (a material, a prim added); motion blur on or
+                    // off: loaded, light.
                     if let Err(e) = self.render(prims, motion, scene, key, frame, true, self.through) {
                         failed = Some(e);
                     }
                 } else {
-                    let edits = changes(&self.sent, &prims, scene.axes());
+                    // What moves in the shutter as keys of its points.
+                    let edits = keyed(edits, &motion, frame);
                     if let Some(why) = (!edits.is_empty()).then(|| self.refused(&prims)).flatten() {
                         // The renderer keeps the scene it has.
                         failed = Some(why);
                         self.key = key;
                     } else if !edits.is_empty() {
-                        // Written only if the renderer cannot take them live.
-                        let (now, layer, at) = (prims.clone(), self.layer.clone(), *scene);
+                        // Live; else the light layer loaded, the rest in memory.
+                        let (now, samples, layer, at) = (prims.clone(), motion.clone(), self.layer.clone(), *scene);
                         self.live.edit(edits, move || {
-                            crate::usd_write::write_override(&now, &layer, &at).map(|_| layer)
+                            light_load(&now, &samples, frame, &layer, &at).map(|(_, then, full)| (layer, then, full))
                         });
                     }
+                    self.motion = motion;
                     self.sent = prims;
                     self.key = key;
                 }
@@ -438,7 +441,7 @@ impl Session {
         });
         let (now, layer, at) = (prims.clone(), self.layer.clone(), self.scene);
         self.live.edit(edits, move || {
-            crate::usd_write::write_override(&now, &layer, &at).map(|_| layer)
+            light_load(&now, &[], frame, &layer, &at).map(|(_, then, full)| (layer, then, full))
         });
         self.sent = prims;
         self.key = key;
@@ -532,7 +535,7 @@ impl Session {
             (false, _, _) => format!("{what}: stopped"),
             (true, _, Some((done, total))) if self.ipr => format!("{what}: pass {done} of {total}"),
             _ if self.since.elapsed().as_secs() >= 3 && self.pass.is_none() && self.ipr => {
-                format!("{what}: waiting for the first pass (Arnold makes .tx files of new textures)")
+                format!("{what}: Arnold is loading the scene and preparing it (geometry, textures)")
             }
             _ if self.ipr => format!("{what}: starting"),
             _ => format!("{what}: rendering, bucket by bucket"),
@@ -627,7 +630,15 @@ fn prim_changes(b: &Prim, p: &Prim, axes: Mat4) -> Option<Vec<Edit>> {
     let bare =
         p.light.is_some() || p.camera.is_some() || p.shading.is_some() || p.render.is_some() || p.volume.is_some();
     if !same(&b.geo, &p.geo) {
-        edit(Change::Points(points_only(b.geo.as_deref()?, p.geo.as_deref()?)?));
+        // A stage's primitive read without its geometry: the renderer has the
+        // file's.
+        let before = match b.geo.as_deref() {
+            None if p.stage.is_some() && p.source.is_none() => None,
+            g => Some(g?),
+        };
+        for c in geometry_changes(before, p.geo.as_deref()?)? {
+            edit(c);
+        }
     } else if !bare && p.geo.is_none() && !Arc::ptr_eq(&b.mesh, &p.mesh) {
         return None;
     }
@@ -675,92 +686,225 @@ fn prim_changes(b: &Prim, p: &Prim, axes: Mat4) -> Option<Vec<Edit>> {
     Some(out)
 }
 
-/// The scene as written for the renderer to load: each prim whose points
-/// moved from its file (a deformer, animation) with its file's points, so the
-/// layer holds no points of them; they go to the renderer in memory
-/// (`changes` against this, `Change::Points`). What else changed of it (an
-/// attribute set, its topology unchanged) is still written, and named in the
-/// notes: the layer's weight. What a deformer copied unchanged is the file's
-/// again, so it is not written (the layer writes what is not the file's
-/// array).
+/// What of a primitive's geometry a renderer takes in memory, not written:
+/// its points, and its primvars one a point, face or corner of plain numbers.
+/// Normals, texture coordinates and the instancing and motion arrays are the
+/// layer's (Arnold's reader makes them into the shape's own arrays).
+fn in_memory(ctx: crate::core::geo::Context, name: &str, attr: &xms_geo::Attr) -> bool {
+    use crate::core::geo::{Column, Context, Role};
+    let layer_only = name == xms_geo::NORMALS
+        || crate::core::geo::UV_NAMES.contains(&name)
+        || attr.role == Role::TexCoord
+        || matches!(
+            name,
+            "velocities" | "accelerations" | "angularVelocities" | "ids" | "protoIndex"
+        );
+    let plain = matches!(
+        attr.column,
+        Column::Int(_) | Column::Float(_) | Column::Vec2(_) | Column::Vec3(_)
+    );
+    let widths = name != "widths" || (ctx == Context::Point && matches!(attr.column, Column::Float(_)));
+    !layer_only && plain && widths && matches!(ctx, Context::Point | Context::Face | Context::Corner)
+}
+
+/// An attribute as a renderer's primvar: one value an element, its indices
+/// undone.
+fn primvar(ctx: crate::core::geo::Context, name: &str, a: &xms_geo::Attr) -> Option<xms_render::Primvar> {
+    use crate::core::geo::{Column, Context, Role};
+    use xms_render::{Per, Values};
+    fn spread<T: Copy>(v: &[T], a: &xms_geo::Attr) -> Option<Arc<Vec<T>>> {
+        match &a.indices {
+            None => Some(Arc::new(v.to_vec())),
+            Some(ix) => ix
+                .iter()
+                .map(|&i| v.get(i as usize).copied())
+                .collect::<Option<Vec<T>>>()
+                .map(Arc::new),
+        }
+    }
+    let values = match &a.column {
+        Column::Int(v) => Values::Int(spread(v, a)?),
+        Column::Float(v) => Values::Float(spread(v, a)?),
+        Column::Vec2(v) => Values::Vec2(spread(v, a)?),
+        Column::Vec3(v) => Values::Vec3(spread(v, a)?),
+        _ => return None,
+    };
+    let per = match ctx {
+        Context::Point => Per::Point,
+        Context::Face => Per::Face,
+        Context::Corner => Per::Corner,
+        Context::Object => return None,
+    };
+    Some(xms_render::Primvar {
+        name: name.to_string(),
+        per,
+        values,
+        colour: a.role == Role::Color,
+    })
+}
+
+/// What changed of a primitive's geometry, as changes a renderer takes in
+/// memory: its points, and its primvars set or changed (`in_memory`).
+/// `before`: what the renderer has (`None`: a file's, not known, so all of
+/// it). `None` when one cannot be: its topology, a primvar taken away, one the
+/// layer has to give.
+fn geometry_changes(before: Option<&crate::core::geo::Geo>, now: &crate::core::geo::Geo) -> Option<Vec<Change>> {
+    use crate::core::geo::Context;
+    let mut out = vec![];
+    if let Some(b) = before {
+        if b.topology != now.topology {
+            return None;
+        }
+        if b.points() != now.points() {
+            out.push(Change::Points(Arc::new(now.points().to_vec())));
+        }
+        for ctx in Context::ALL {
+            if b.attrs(ctx)
+                .any(|(n, _)| n != xms_geo::POINTS && now.attr(ctx, n).is_none())
+            {
+                return None;
+            }
+        }
+    } else {
+        out.push(Change::Points(Arc::new(now.points().to_vec())));
+    }
+    let mut primvars = vec![];
+    for ctx in Context::ALL {
+        for (name, a) in now.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS) {
+            let was = before.and_then(|b| b.attr(ctx, name));
+            if was.is_some_and(|w| w.same(a) || w == a) {
+                continue;
+            }
+            if before.is_none() && !in_memory(ctx, name, a) {
+                // The file's own, as it was read: the layer has it.
+                continue;
+            }
+            if !in_memory(ctx, name, a) {
+                return None;
+            }
+            primvars.push(primvar(ctx, name, a)?);
+        }
+    }
+    if !primvars.is_empty() {
+        out.push(Change::Primvars(primvars));
+    }
+    Some(out)
+}
+
+/// The scene as written for the renderer to load, light: each primitive from
+/// a file whose geometry a deformer or a graph changed (its topology the
+/// file's) as its file has it, so the layer holds none of it; what changed
+/// goes to the renderer in memory (`changes` against this: its points and
+/// primvars). What only the layer can give (normals, texture coordinates) is
+/// still written, and named in the notes. A primitive of a stage read without
+/// its geometry is the file's in the layer, all of it in memory.
 fn lighter(prims: &[Prim]) -> (Vec<Prim>, Vec<String>) {
     use crate::core::geo::Context;
     let mut notes = vec![];
     let light = prims
         .iter()
         .map(|p| {
-            let (Some(geo), Some(source)) = (&p.geo, &p.source) else {
+            let Some(geo) = &p.geo else {
+                return p.clone();
+            };
+            let Some(source) = &p.source else {
+                // A stage's, read without its geometry: Write USD writes none
+                // of it; the renderer takes it in memory.
+                if p.stage.is_some() {
+                    let mut light = p.clone();
+                    light.geo = None;
+                    return light;
+                }
                 return p.clone();
             };
             let file = &source.geo;
-            let moved = !Arc::ptr_eq(geo, file)
-                && geo.topology == file.topology
-                && geo.points().len() == file.points().len()
-                && geo.points() != file.points();
-            if !moved {
+            if Arc::ptr_eq(geo, file) || geo.topology != file.topology {
                 return p.clone();
             }
-            let mut light = p.clone();
-            if points_only(file, geo).is_some() {
-                light.geo = Some(file.clone());
-            } else {
-                let mut kept = (**geo).clone();
-                kept.topology = file.topology.clone();
-                for ctx in Context::ALL {
-                    for (name, a) in file.attrs(ctx) {
-                        if name == xms_geo::POINTS || kept.attr(ctx, name) == Some(a) {
-                            kept.set(ctx, name, a.clone());
-                        }
+            let mut kept = (**file).clone();
+            let mut written = vec![];
+            for ctx in Context::ALL {
+                for (name, a) in geo.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS) {
+                    let was = file.attr(ctx, name);
+                    if was.is_some_and(|w| w.same(a) || w == a) || in_memory(ctx, name, a) {
+                        continue;
                     }
+                    kept.set(ctx, name, a.clone());
+                    written.push(format!("{ctx:?} {name}").to_lowercase());
                 }
-                notes.push(format!(
-                    "{}: points in memory; written too, changed from its file: {}",
-                    p.path,
-                    changed_besides_points(file, &kept).join(", ")
-                ));
-                light.geo = Some(Arc::new(kept));
+                for (name, _) in file.attrs(ctx).filter(|(n, _)| geo.attr(ctx, n).is_none()) {
+                    kept.remove(ctx, name);
+                    written.push(format!("{ctx:?} {name} (removed)").to_lowercase());
+                }
             }
+            if !written.is_empty() {
+                notes.push(format!(
+                    "{}: points and primvars in memory; written, as only the layer gives them: {}",
+                    p.path,
+                    written.join(", ")
+                ));
+            }
+            let mut light = p.clone();
+            light.geo = Some(Arc::new(kept));
             light
         })
         .collect();
     (light, notes)
 }
 
-/// The attributes of `now` but its points that are not `before`'s, as
-/// `context name`.
-fn changed_besides_points(before: &crate::core::geo::Geo, now: &crate::core::geo::Geo) -> Vec<String> {
-    use crate::core::geo::Context;
-    let mut out = vec![];
-    for ctx in Context::ALL {
-        for (name, attr) in now.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS) {
-            if before.attr(ctx, name) != Some(attr) {
-                out.push(format!("{ctx:?} {name}").to_lowercase());
-            }
-        }
-        for (name, _) in before.attrs(ctx).filter(|(n, _)| now.attr(ctx, n).is_none()) {
-            out.push(format!("{ctx:?} {name} (removed)").to_lowercase());
-        }
-    }
-    out
+/// What a renderer loads: the light layer written at `layer` (`lighter`, its
+/// motion samples too), the edits that give the rest in memory before the
+/// first bucket (what moves in the shutter as keys of the points), and the
+/// whole layer's writer for when they cannot be applied.
+fn light_load(
+    prims: &[Prim],
+    motion: &[(f64, Vec<Prim>)],
+    frame: f64,
+    layer: &Path,
+    scene: &SceneRange,
+) -> Result<(Vec<String>, Vec<Edit>, xms_render::Written), String> {
+    let (light, mut notes) = lighter(prims);
+    let light_motion: Vec<(f64, Vec<Prim>)> = motion.iter().map(|(t, ps)| (*t, lighter(ps).0)).collect();
+    let written = write_scene(&light, &light_motion, frame, layer, scene)?;
+    notes.extend(written.notes);
+    let then = keyed(changes(&light, prims, scene.axes()), motion, frame);
+    let (all, samples, at, to) = (prims.to_vec(), motion.to_vec(), *scene, layer.to_path_buf());
+    let full: xms_render::Written = Box::new(move || write_scene(&all, &samples, frame, &to, &at).map(|_| to));
+    Ok((notes, then, full))
 }
 
-/// The points of `now`, when they are all that changed from `before`.
-
-fn points_only(before: &crate::core::geo::Geo, now: &crate::core::geo::Geo) -> Option<Arc<Vec<[f32; 3]>>> {
-    use crate::core::geo::Context;
-    if before.topology != now.topology {
-        return None;
-    }
-    // Its attributes but its points.
-    fn others(g: &crate::core::geo::Geo, ctx: Context) -> Vec<(&str, &xms_geo::Attr)> {
-        g.attrs(ctx).filter(|(n, _)| *n != xms_geo::POINTS).collect()
-    }
-    for ctx in [Context::Object, Context::Point, Context::Face, Context::Corner] {
-        if others(before, ctx) != others(now, ctx) {
-            return None;
-        }
-    }
-    Some(Arc::new(now.points().to_vec()))
+/// `edits` with each prim's points that move in the shutter as keys at its
+/// open and close (`motion`, the scene at those times, their time codes).
+fn keyed(edits: Vec<Edit>, motion: &[(f64, Vec<Prim>)], frame: f64) -> Vec<Edit> {
+    let (Some(open), Some(close)) = (
+        motion.iter().min_by(|a, b| a.0.total_cmp(&b.0)),
+        motion.iter().max_by(|a, b| a.0.total_cmp(&b.0)),
+    ) else {
+        return edits;
+    };
+    let points = |prims: &[Prim], path: &str| {
+        prims
+            .iter()
+            .find(|p| p.path == path)
+            .and_then(|p| p.geo.as_ref())
+            .map(|g| Arc::new(g.points().to_vec()))
+    };
+    edits
+        .into_iter()
+        .map(|e| match &e.change {
+            Change::Points(now) => match (points(&open.1, &e.path), points(&close.1, &e.path)) {
+                (Some(a), Some(b)) if a.len() == now.len() && b.len() == now.len() && a != b => Edit {
+                    path: e.path,
+                    change: Change::PointKeys {
+                        keys: vec![a, b],
+                        shutter: [(open.0 - frame) as f32, (close.0 - frame) as f32],
+                    },
+                },
+                _ => e,
+            },
+            _ => e,
+        })
+        .collect()
 }
 
 /// Shown or hidden, when `visibility` is the only property that changed.
@@ -960,8 +1104,9 @@ mod tests {
         assert!(matches!(&sent[0].change, Change::Points(p) if p[0] == [0.0, 2.0, 0.0]));
     }
 
-    /// A deformer that also set an attribute (a width): its points still in
-    /// memory, the attribute alone written, and named.
+    /// A deformer that also set an attribute (a width): its points and the
+    /// attribute in memory, nothing of it written; normals set too are
+    /// written, and named, as only the layer gives them.
     #[test]
     fn an_attribute_set_with_the_points_moved_keeps_them_in_memory() {
         use crate::core::geo::{Attr, Column, Context, Geo, Role};
@@ -993,18 +1138,53 @@ mod tests {
         let (light, notes) = lighter(std::slice::from_ref(&p));
         let geo = light[0].geo.as_deref().unwrap();
         assert_eq!(geo.points()[0], [0.0, 0.0, 0.0], "the file's points");
-        assert!(geo.attr(Context::Point, "widths").is_some(), "the width written");
+        assert!(geo.attr(Context::Point, "widths").is_none(), "the width in memory");
         let file = &p.source.as_ref().unwrap().geo;
         assert!(
             geo.topology.same(&file.topology),
             "its topology the file's: not written"
         );
-        assert_eq!(notes.len(), 1);
-        assert!(notes[0].ends_with("changed from its file: point widths"), "{notes:?}");
-        let sent = changes(&light, &[p], Mat4::IDENTITY);
+        assert!(notes.is_empty(), "{notes:?}");
+        let sent = changes(&light, std::slice::from_ref(&p), Mat4::IDENTITY);
         assert!(
-            matches!(&sent[..], [e] if matches!(&e.change, Change::Points(p) if p[0] == [0.0, 2.0, 0.0])),
+            matches!(&sent[0].change, Change::Points(p) if p[0] == [0.0, 2.0, 0.0]),
             "{sent:?}"
+        );
+        assert!(
+            matches!(&sent[1].change, Change::Primvars(v) if v[0].name == "widths" && v[0].values.len() == 3),
+            "{sent:?}"
+        );
+        // Normals as well: written, and named.
+        let mut with_normals = (**p.geo.as_ref().unwrap()).clone();
+        with_normals.set(
+            Context::Point,
+            "normals",
+            Attr::new(Column::Vec3(Arc::new(vec![[0.0, 1.0, 0.0]; 3])), Role::Normal),
+        );
+        let q = Prim {
+            geo: Some(Arc::new(with_normals)),
+            ..p.clone()
+        };
+        let (light, notes) = lighter(std::slice::from_ref(&q));
+        assert!(light[0]
+            .geo
+            .as_deref()
+            .unwrap()
+            .attr(Context::Point, "normals")
+            .is_some());
+        assert!(
+            notes[0].ends_with("only the layer gives them: point normals"),
+            "{notes:?}"
+        );
+        // Moving in the shutter: keys of its points at its open and close.
+        let at = |y: f32| Prim {
+            geo: Some(Arc::new(quad(y))),
+            ..p.clone()
+        };
+        let keyed = keyed(sent, &[(9.75, vec![at(1.0)]), (10.25, vec![at(3.0)])], 10.0);
+        assert!(
+            matches!(&keyed[0].change, Change::PointKeys { keys, shutter } if keys.len() == 2 && keys[1][0][1] == 3.0 && *shutter == [-0.25, 0.25]),
+            "{keyed:?}"
         );
     }
 

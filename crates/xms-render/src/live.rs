@@ -20,6 +20,11 @@ const POLL: Duration = Duration::from_millis(20);
 /// only when they cannot be applied live.
 pub type Layer = Box<dyn FnOnce() -> Result<PathBuf, String> + Send>;
 
+/// What to load when an edit cannot be applied live: a light layer (what a
+/// deformer or a graph changed of files' prims left out), the edits that put
+/// it back in memory, and the whole layer for when even they cannot be.
+pub type Reload = Box<dyn FnOnce() -> Result<(PathBuf, Vec<Edit>, Layer), String> + Send>;
+
 enum Command {
     Load {
         layer: PathBuf,
@@ -32,7 +37,7 @@ enum Command {
     },
     Edit {
         edits: Vec<Edit>,
-        layer: Layer,
+        layer: Reload,
     },
     Stop,
 }
@@ -111,8 +116,13 @@ impl Live {
     }
 
     /// Changes since the layer was loaded: applied live, or, when they cannot
-    /// be, the layer `layer` writes loaded.
-    pub fn edit(&self, edits: Vec<Edit>, layer: impl FnOnce() -> Result<PathBuf, String> + Send + 'static) {
+    /// be, the light layer `layer` writes loaded, and its edits applied in
+    /// memory (else the whole layer it gives).
+    pub fn edit(
+        &self,
+        edits: Vec<Edit>,
+        layer: impl FnOnce() -> Result<(PathBuf, Vec<Edit>, Layer), String> + Send + 'static,
+    ) {
         self.send(Command::Edit {
             edits,
             layer: Box::new(layer),
@@ -231,7 +241,9 @@ fn run(mut renderer: Box<dyn Renderer>, inbox: Receiver<Command>, outbox: Sender
                             }
                         } else {
                             match layer() {
-                                Ok(layer) => reload(&mut *renderer, &layer, at, view, None, &mut send),
+                                Ok((light, then, full)) => {
+                                    reload(&mut *renderer, &light, at, view, Some((then, full)), &mut send)
+                                }
                                 Err(e) => send(Event::Failed(e)),
                             }
                         }
@@ -425,6 +437,10 @@ mod tests {
         Box::new(move || Ok(file.into()))
     }
 
+    fn reloaded(file: &'static str) -> Reload {
+        Box::new(move || Ok((file.into(), vec![], written(file))))
+    }
+
     fn light(intensity: f32) -> Edit {
         Edit {
             path: "/lights/key".into(),
@@ -490,7 +506,9 @@ mod tests {
             path: String::new(),
             change: Change::Frame(f),
         };
-        live.edit(vec![light(2.0), frame(2.0)], || Ok("scene.usda".into()));
+        live.edit(vec![light(2.0), frame(2.0)], || {
+            Ok(("scene.usda".into(), vec![], written("scene.usda")))
+        });
         assert!(live
             .wait(SECOND, |e| *e == Event::Edited(2))
             .contains(&Event::Edited(2)));
@@ -502,7 +520,7 @@ mod tests {
                     change: Change::Structure,
                 },
             ],
-            || Ok("scene.usda".into()),
+            || Ok(("scene.usda".into(), vec![], written("scene.usda"))),
         );
         live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
         let calls = calls.lock().unwrap();
@@ -518,7 +536,9 @@ mod tests {
         let (live, calls) = stand_in();
         live.load("scene.usda", 1.0, true, None);
         live.wait(SECOND, |e| *e == Event::Finished);
-        live.edit(vec![light(4.0)], || Ok("scene.usda".into()));
+        live.edit(vec![light(4.0)], || {
+            Ok(("scene.usda".into(), vec![], written("scene.usda")))
+        });
         assert!(live
             .wait(SECOND, |e| *e == Event::Edited(1))
             .contains(&Event::Edited(1)));
@@ -530,7 +550,7 @@ mod tests {
                     change: Change::Structure,
                 },
             ],
-            || Ok("scene2.usda".into()),
+            || Ok(("scene2.usda".into(), vec![], written("scene2.usda"))),
         );
         assert!(live
             .wait(SECOND, |e| matches!(e, Event::Loaded { .. }))
@@ -542,7 +562,7 @@ mod tests {
                 path: "/missing".into(),
                 change: Change::Visible(false),
             }],
-            || Ok("scene3.usda".into()),
+            || Ok(("scene3.usda".into(), vec![], written("scene3.usda"))),
         );
         live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
         let calls = calls.lock().unwrap();
@@ -572,7 +592,7 @@ mod tests {
                 path: String::new(),
                 change: Change::View(view(2.0)),
             }],
-            || Ok("scene.usda".into()),
+            || Ok(("scene.usda".into(), vec![], written("scene.usda"))),
         );
         live.wait(SECOND, |e| *e == Event::Edited(1));
         live.edit(
@@ -580,7 +600,7 @@ mod tests {
                 path: "/asset".into(),
                 change: Change::Structure,
             }],
-            || Ok("scene2.usda".into()),
+            || Ok(("scene2.usda".into(), vec![], written("scene2.usda"))),
         );
         live.wait(SECOND, |e| matches!(e, Event::Loaded { .. }));
         let calls = calls.lock().unwrap();
@@ -612,7 +632,7 @@ mod tests {
             },
             Command::Edit {
                 edits: vec![light(2.0)],
-                layer: written("a.usda"),
+                layer: reloaded("a.usda"),
             },
             Command::Edit {
                 edits: vec![
@@ -626,7 +646,7 @@ mod tests {
                         change: Change::Visible(false),
                     },
                 ],
-                layer: written("b.usda"),
+                layer: reloaded("b.usda"),
             },
         ];
         let out = taken_together(batch);
@@ -638,17 +658,17 @@ mod tests {
         let Command::Edit { layer, .. } = taken_together(vec![
             Command::Edit {
                 edits: vec![light(2.0)],
-                layer: written("a.usda"),
+                layer: reloaded("a.usda"),
             },
             Command::Edit {
                 edits: vec![light(3.0)],
-                layer: written("b.usda"),
+                layer: reloaded("b.usda"),
             },
         ])
         .remove(0) else {
             panic!()
         };
-        assert_eq!(layer().unwrap(), Path::new("b.usda"));
+        assert_eq!(layer().unwrap().0, Path::new("b.usda"));
         assert_eq!(edits.len(), 2);
         assert_eq!(
             edits[0].change,
@@ -659,7 +679,7 @@ mod tests {
         let out = taken_together(vec![
             Command::Edit {
                 edits: vec![light(2.0)],
-                layer: written("a.usda"),
+                layer: reloaded("a.usda"),
             },
             Command::Load {
                 layer: "c.usda".into(),
