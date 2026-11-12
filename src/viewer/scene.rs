@@ -1422,6 +1422,7 @@ mod draw_mode_tests {
                 hidden: Default::default(),
                 geo: Default::default(),
                 place: Placement::InPlace,
+                file: None,
             };
             Prim {
                 mesh: cube.clone(),

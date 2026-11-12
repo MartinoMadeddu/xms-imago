@@ -273,8 +273,11 @@ Rect, Disk, Sphere, Cylinder, Distant, Dome, Portal.
   down to four deep, and follow its points. Authored by ICE's Instancer
   (positions, prototypes, proto indices, orientations, scales, at a path
   chosen), kept as a file's are and written as a `PointInstancer` with its
-  prototypes below it (see `docs/ice.md`). Not yet: prototypes written as
-  references to their files, editing a file instancer's prototypes.
+  prototypes below it (see `docs/ice.md`); a prototype taken from a file
+  unchanged is a reference to the file's prim. A file instancer's prototypes
+  take edits as any prim (an `over`, every copy changing). Not yet: a
+  prototype from a file changed after the Instancer written as a reference
+  with its changes over it.
 
 ---
 
@@ -352,8 +355,10 @@ One operator, its **Mode** Select or Create. **Done.**
   Scene Explorer choose among its variants, and Write USD writes `variantSets`,
   the selection and every variant: made prims as `def`s, stages as their
   arcs with their edits as `over`s, inside the variant.
-- Not yet: a sublayered stage in a variant, and a variant's arc on the prim
-  holding the set itself (its stage's Primitive Location the set's).
+- A sublayered stage goes in with what it has below the location, written as
+  references to the file's prims just below it, placed where Imago shows them.
+- Not yet: a variant's arc on the prim holding the set itself (its stage's
+  Primitive Location the set's).
 
 ---
 
@@ -434,8 +439,9 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
   are inherited below it in Imago as in USD: visibility, active, purpose where a
   primitive has none, Object values where it has no attribute of that name
   (shown in the Primitive Inspector). Arrays; keys on a row (a value a frame,
-  written as time samples). Not yet: `customData` and `documentation`,
-  inherited Object values read by ICE.
+  written as time samples); `documentation` (the prim's `doc`) and
+  `customData:<key>` entries, nested by `:`. Not yet: inherited Object values
+  read by ICE.
 
 ### 6.2 Set Relationship
 - **Parameters:** relationship name; target list; list-edit op
@@ -526,7 +532,7 @@ Point and has no context of its own yet. Every Imago attribute is a primvar
 | **Time Shift / Retime** | Offset or scale time | offset; scale; hold/loop | Partial: Retime, Time Warp, Trim, Loop and Set Timecode exist **for clips**; not yet for USD time samples |
 | **Set Time Samples** | Author samples | attribute; sample list | Not a separate operator: keys on any operator, and the file's own samples, are written by Write USD over the scene's range |
 | **Resample** | Interpolate to a new sample set | rate; interpolation (held/linear) | Partial: Retime (Resample) for clips |
-| **Motion Blur Attrs** | Velocity, acceleration, shutter | velocities attr; accelerations attr; shutter open/close | Not yet |
+| **Motion Blur Attrs** | Velocity, acceleration, shutter | velocities attr; accelerations attr; shutter open/close | Partial, not an operator: the Camera's Shutter (`shutter:open`, `shutter:close`); renders from Imago sample the scene at the shutter's open and close; a Point attribute `velocities` or `accelerations` is written as the schema's. Not yet: velocities computed from the points |
 | **Keys** | Any operator's numbers set by frame | channels of keys; tangents; infinity | **Done** as channels on any operator, shaped in the Curve Editor (`core::keys`, `docs/keys.md`); cooked at the playhead; S tapped alone keys the selected operator. Write USD writes what they animate as time samples over the range |
 | **Local Animation** | Key the parameters of the operator before it, on frames of its own | start; end | **Done** (`node_graph::local`) |
 | **Merge Animation** | Merge, each input moved in time | align (frame to frame, first, last, middle, stretch, shrink); match rate | **Done** for animated parameters; for clips, only input A's is put out, retimed by Stretch and Shrink |
@@ -790,7 +796,8 @@ In Imago: **Render Variables**.
   through its View and Display (OpenColorIO, ACES 1.0 SDR on Rec.1886 by
   default, from ACEScg or the colour space chosen), fitted or at 1:1 (H).
   Not yet:
-  rendering inside Imago (rray), denoise, farm submission, animated layers.
+  rendering inside Imago (rray), denoise, farm submission. Renders from Imago
+  sample what moves at the camera's shutter for motion blur.
 
 ---
 

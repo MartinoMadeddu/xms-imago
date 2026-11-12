@@ -155,6 +155,8 @@ api! {
     AiNodeGetArray: fn(Ptr, AtString) -> Ptr;
     AiNodeSetArray: fn(Ptr, AtString, Ptr);
     AiNodeSetPtr: fn(Ptr, AtString, Ptr);
+    AiNodeGetPtr: fn(Ptr, AtString) -> Ptr;
+    AiNodeGetFlt: fn(Ptr, AtString) -> f32;
     AiArrayConvert: fn(u32, u8, u8, *const c_void) -> Ptr;
     AiArrayGetNumElements: fn(Ptr) -> u32;
     AiArrayGetNumKeys: fn(Ptr) -> u8;

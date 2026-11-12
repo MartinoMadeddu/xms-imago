@@ -28,8 +28,8 @@
 //!   names its RenderSettings prim (`renderSettingsPrimPath`).
 //!
 //! Prims inside a native instance cannot carry opinions in USD (instance
-//! proxies are read-only), and point-instancer prototypes are changed through
-//! their instancer: their edits are reported, not written, for now.
+//! proxies are read-only): their edits are reported, not written. A point
+//! instancer's prototypes take them as any prim, every copy changing.
 //!
 //! Every layer states the scene's up axis, unit and rate (File > Settings >
 //! Scene). Its stages are sublayered strongest first, as a later input of a
@@ -49,7 +49,7 @@ use std::sync::Arc;
 use glam::{DMat4, Mat4};
 
 use crate::core::geo::{Attr, Column, Context, Geo, Role, Topology, NORMALS, POINTS, WIDTHS};
-use crate::core::properties::{written, Opinions, Value, Written};
+use crate::core::properties::{is_below, written, Opinions, Value, Written};
 use crate::edits::{edit_set, PrimEdit};
 use crate::node_graph::SceneRange;
 use crate::types::{CurveBasis, CurveWrap, Placement, Prim, Purpose};
@@ -451,7 +451,29 @@ fn specs_in(
     let mut above: BTreeMap<String, Opinions> = BTreeMap::new();
     let mut made: Vec<&Prim> = prims.iter().filter(|p| p.stage.is_none()).collect();
     made.sort_by_key(|p| p.shading.is_some() || p.render.is_some());
+    // Point-instancer prototypes taken from files, as they were read: each a
+    // reference to the file's prim at the prototype's root, not its geometry.
+    let referenced = referenced_prototypes(&made);
+    let mut written: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for p in made {
+        if let Some(f) = proto_file(p).filter(|f| referenced.contains(f.root.as_str())) {
+            if written.insert(f.root.as_str()) {
+                reference_prototype(root.at(&f.root), f, dir);
+                report.added += 1;
+                let segments: Vec<&str> = f.root.split('/').filter(|s| !s.is_empty()).collect();
+                for n in 1..segments.len() {
+                    let parent = format!("/{}", segments[..n].join("/"));
+                    let spec = root.at(&parent);
+                    if spec.def.is_none() && !in_a_stage(&parent) {
+                        spec.def = Some("Xform");
+                    }
+                }
+            }
+            for (path, o) in p.above.iter() {
+                above.entry(path.clone()).or_default().merge(o);
+            }
+            continue;
+        }
         if p.path.is_empty() || !p.path.starts_with('/') || p.path == "/" {
             report.skipped.push(format!(
                 "{}: not a primitive path",
@@ -676,6 +698,10 @@ fn merged(frames: &[(f64, &Spec)], path: &str, notes: &mut Vec<String>) -> Spec 
             if !out.meta.contains(m) {
                 out.meta.push(m.clone());
             }
+        }
+        // Metadata has no time samples: the first frame's.
+        for (k, v) in &s.custom {
+            out.custom.entry(k.clone()).or_insert_with(|| v.clone());
         }
     }
     // Each declaration's value at each frame, in the order first written.
@@ -943,6 +969,7 @@ fn variant_set(
         };
         let (mut inner, _, r) = specs_in(&prims, out, wide, outside, scene);
         report.add(r, &format!("{name}: "));
+        sublayered_in_variant(&mut inner, &prims, &m.location, out, outside, scene);
         let v = Spec {
             children: std::mem::take(&mut inner.at(&m.location).children),
             ..Default::default()
@@ -959,12 +986,131 @@ fn variant_set(
     report
 }
 
+/// A sublayered stage's prims in a variant, which can hold no sublayer: each
+/// prim of it just below the set's prim (`location`) a reference to the
+/// file's, placed where Imago shows it (the file's prims above it, and the
+/// stage's axes, are not in the reference). What is below them, and their
+/// edits, are `over`s as in any stage.
+fn sublayered_in_variant(
+    inner: &mut Spec,
+    prims: &[Prim],
+    location: &str,
+    out: &Path,
+    outside: &[Arc<StageTree>],
+    scene: &SceneRange,
+) {
+    let dir = out.parent().unwrap_or(Path::new("."));
+    let layer_root = scene.axes().as_dmat4();
+    // Where the set's prim is in the layer: a stage's outside the variant, else
+    // made by Imago (an Xform, its own transform none).
+    let at = outside
+        .iter()
+        .find(|t| t.node(location).is_some())
+        .map_or(DMat4::IDENTITY, |t| layer_root.inverse() * t.world(location, true));
+    let mut trees: Vec<&Arc<StageTree>> = vec![];
+    for t in prims
+        .iter()
+        .filter_map(|p| p.stage.as_ref())
+        .filter(|t| t.arc.is_none())
+    {
+        if !trees.iter().any(|x| Arc::ptr_eq(x, t)) {
+            trees.push(t);
+        }
+    }
+    for t in trees {
+        let children = t
+            .nodes
+            .iter()
+            .filter(|n| crate::core::properties::parents(&n.path).pop().as_deref() == Some(location));
+        for n in children {
+            // Where it is now: a primitive's placement, else the stage's.
+            let world = prims
+                .iter()
+                .find(|p| p.path == n.path)
+                .and_then(|p| match &p.place {
+                    Placement::One(m) => Some(m.as_dmat4()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| t.world(&n.path, true));
+            let local = at.inverse() * layer_root.inverse() * world;
+            let spec = inner.at(&n.path);
+            spec.lines.retain(|l| {
+                !l.starts_with("matrix4d xformOp:transform") && !l.starts_with("uniform token[] xformOpOrder")
+            });
+            spec.lines
+                .insert(0, format!("matrix4d xformOp:transform = {}", matrix(&local)));
+            spec.lines
+                .insert(1, "uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
+            if spec.def.is_none() {
+                spec.def = Some("");
+            }
+            let file = t.file_path(&n.path).unwrap_or_else(|| n.path.clone());
+            spec.meta.push(format!(
+                "prepend references = @{}@<{file}>",
+                relative(&t.source, dir).display()
+            ));
+        }
+    }
+}
+
+/// The file's prim a point instancer's prototype prim is, when an Instancer
+/// took it from a stage.
+fn proto_file(p: &Prim) -> Option<&crate::types::ProtoFile> {
+    p.instanced_by.as_ref()?.file.as_deref()
+}
+
+/// The prototype roots whose every prim is as its file has it: the Instancer
+/// took it unchanged, and nothing after changed its geometry or material.
+fn referenced_prototypes<'a>(made: &[&'a Prim]) -> std::collections::HashSet<&'a str> {
+    let mut roots: BTreeMap<&str, bool> = BTreeMap::new();
+    for p in made {
+        let Some(by) = &p.instanced_by else { continue };
+        let Some(f) = by.file.as_deref() else {
+            continue;
+        };
+        let same = f.as_read
+            && match (&f.geo, &p.geo) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
+            && f.material == p.material;
+        *roots.entry(f.root.as_str()).or_insert(true) &= same;
+    }
+    // A root with a prim of no file below it (one made in Imago) is written whole.
+    for p in made {
+        if p.instanced_by.as_ref().is_some_and(|b| b.file.is_none()) {
+            for (r, ok) in roots.iter_mut() {
+                if is_below(&p.path, r) {
+                    *ok = false;
+                }
+            }
+        }
+    }
+    roots.into_iter().filter(|(_, ok)| *ok).map(|(r, _)| r).collect()
+}
+
+/// A prototype's root as a reference to its file's prim, placed within the
+/// prototype where its stage has it.
+fn reference_prototype(spec: &mut Spec, f: &crate::types::ProtoFile, dir: &Path) {
+    spec.def = Some("");
+    spec.meta.push(format!(
+        "prepend references = @{}@<{}>",
+        relative(&f.source, dir).display(),
+        f.prim
+    ));
+    spec.lines
+        .push(format!("matrix4d xformOp:transform = {}", matrix(&f.world)));
+    spec.lines
+        .push("uniform token[] xformOpOrder = [\"xformOp:transform\"]".into());
+}
+
 /// Why a prim cannot carry opinions, if it cannot.
+/// A point instancer's prototype takes opinions as any prim: what is edited on
+/// it changes every copy (its copies moving are its instancer's points).
 fn read_only(node: &StageNode) -> Option<&'static str> {
     if node.proxy {
         Some("inside a native instance, which USD keeps read-only (edit the prototype, or de-instance it)")
-    } else if node.prototype {
-        Some("a point instancer's prototype (changing it through its instancer comes later)")
     } else {
         None
     }
@@ -979,6 +1125,9 @@ fn read_only(node: &StageNode) -> Option<&'static str> {
 struct Spec {
     def: Option<&'static str>,
     meta: Vec<String>,
+    /// Its `customData`, by key (`a:b` nested, `b` in the dictionary `a`):
+    /// each entry's declaration, `string note = "…"`'s `string note`, and value.
+    custom: BTreeMap<String, (String, String)>,
     lines: Vec<String>,
     children: BTreeMap<String, Spec>,
     variant_sets: Vec<(String, Vec<(String, Spec)>)>,
@@ -991,6 +1140,7 @@ impl Spec {
             c.prune();
             c.def.is_some()
                 || !c.meta.is_empty()
+                || !c.custom.is_empty()
                 || !c.lines.is_empty()
                 || !c.children.is_empty()
                 || !c.variant_sets.is_empty()
@@ -1023,13 +1173,15 @@ impl Spec {
                 let _ = write!(out, "{pad}over \"{name}\"");
             }
         }
-        if !self.meta.is_empty() {
+        let custom = custom_data(&self.custom);
+        if !self.meta.is_empty() || custom.is_some() {
             let _ = write!(
                 out,
                 " (\n{}\n{pad})",
                 self.meta
                     .iter()
-                    .map(|m| format!("{pad}    {m}"))
+                    .chain(custom.as_ref())
+                    .map(|m| format!("{pad}    {}", m.replace('\n', &format!("\n{pad}    "))))
                     .collect::<Vec<_>>()
                     .join("\n")
             );
@@ -1341,10 +1493,73 @@ fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
     geometry(spec, &geo, false);
 }
 
+/// A prim's `customData` metadata, its entries nested by `:` in their keys;
+/// `None` without any.
+fn custom_data(entries: &BTreeMap<String, (String, String)>) -> Option<String> {
+    fn dict(entries: &[(&[&str], &str, &str)], out: &mut String, depth: usize) {
+        let pad = "    ".repeat(depth);
+        let mut k = 0;
+        while k < entries.len() {
+            let (key, ty, value) = entries[k];
+            if key.len() == 1 {
+                let _ = writeln!(out, "{pad}{ty} {} = {value}", quoted_key(key[0]));
+                k += 1;
+                continue;
+            }
+            // The entries of one nested dictionary are next to each other:
+            // the keys are sorted.
+            let inner: Vec<(&[&str], &str, &str)> = entries[k..]
+                .iter()
+                .take_while(|(x, ..)| x.len() > 1 && x[0] == key[0])
+                .map(|(x, t, v)| (&x[1..], *t, *v))
+                .collect();
+            k += inner.len();
+            let _ = writeln!(out, "{pad}dictionary {} = {{", quoted_key(key[0]));
+            dict(&inner, out, depth + 1);
+            let _ = writeln!(out, "{pad}}}");
+        }
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    let split: Vec<(Vec<&str>, &str, &str)> = entries
+        .iter()
+        .map(|(k, (ty, v))| {
+            let key: Vec<&str> = k.split(':').filter(|s| !s.is_empty()).collect();
+            (key, ty.as_str(), v.as_str())
+        })
+        .filter(|(k, ..)| !k.is_empty())
+        .collect();
+    let refs: Vec<(&[&str], &str, &str)> = split.iter().map(|(k, t, v)| (k.as_slice(), *t, *v)).collect();
+    let mut out = String::new();
+    dict(&refs, &mut out, 1);
+    Some(format!("customData = {{\n{out}}}"))
+}
+
+/// A dictionary key as usda has it: bare when an identifier, else quoted.
+fn quoted_key(key: &str) -> String {
+    let ident = key.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if ident {
+        key.to_string()
+    } else {
+        format!("\"{}\"", key.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+}
+
 /// A Property set by Set Attribute: the prim's attribute (`uniform` where the
-/// schema has it so) or its metadata, by name.
+/// schema has it so) or its metadata, by name. `documentation` is the prim's
+/// `doc`; `customData:<key>` an entry of its `customData`.
 fn property(spec: &mut Spec, name: &str, value: &Value) {
+    if let Some(key) = name.strip_prefix("customData:") {
+        if !key.is_empty() {
+            spec.custom
+                .insert(key.to_string(), (value.kind().usd().to_string(), value.usda()));
+        }
+        return;
+    }
     match written(name) {
+        Written::Metadata if name == "documentation" => spec.meta.push(format!("doc = {}", value.usda())),
         Written::Metadata => spec.meta.push(format!("{name} = {}", value.usda())),
         Written::Uniform => spec
             .lines
@@ -1484,6 +1699,16 @@ fn usd_name(name: &str) -> String {
     }
 }
 
+/// The schema's arrays of motion, one a point: what renderers blur points by
+/// when they are not sampled over the shutter (points whose count changes).
+const MOTION: [&str; 2] = ["velocities", "accelerations"];
+
+/// Whether an attribute is one of `MOTION` as the schema has it: three
+/// numbers a point.
+fn is_motion(ctx: Context, name: &str, attr: &Attr) -> bool {
+    MOTION.contains(&name) && ctx == Context::Point && attr.indices.is_none() && matches!(attr.column, Column::Vec3(_))
+}
+
 /// An attribute, with its interpolation and indices.
 fn attribute(spec: &mut Spec, ctx: Context, name: &str, attr: &Attr) {
     let Some((ty, values)) = typed_values(&attr.column, attr.role) else {
@@ -1492,6 +1717,10 @@ fn attribute(spec: &mut Spec, ctx: Context, name: &str, attr: &Attr) {
     let usd = usd_name(name);
     if name == POINTS {
         spec.lines.push(format!("point3f[] points = {values}"));
+        return;
+    }
+    if is_motion(ctx, name, attr) {
+        spec.lines.push(format!("vector3f[] {name} = {values}"));
         return;
     }
     // A list per element: USD's `elementSize`.
@@ -1520,6 +1749,11 @@ fn instancer_array(spec: &mut Spec, ctx: Context, name: &str, attr: &Attr) {
         "scale" => ("scales", "float3"),
         "protoIndex" => ("protoIndices", "int"),
         "id" => ("ids", "int64"),
+        "velocities" if is_motion(ctx, name, attr) => ("velocities", "vector3f"),
+        "accelerations" if is_motion(ctx, name, attr) => ("accelerations", "vector3f"),
+        "angularVelocities" if ctx == Context::Point && matches!(attr.column, Column::Vec3(_)) => {
+            ("angularVelocities", "vector3f")
+        }
         _ => return attribute(spec, ctx, name, attr),
     };
     let Some((_, values)) = typed_values(&attr.column, attr.role) else {
@@ -1534,6 +1768,9 @@ fn block(spec: &mut Spec, name: &str, attr: &Attr) {
     let Some((ty, _)) = typed_values(&attr.column, attr.role) else {
         return;
     };
+    if MOTION.contains(&name) {
+        spec.lines.push(format!("vector3f[] {name} = None"));
+    }
     let usd = usd_name(name);
     spec.lines.push(format!("{ty}[] {usd} = None"));
     if attr.indices.is_some() {
@@ -2075,6 +2312,58 @@ def BasisCurves "hair" {
     /// Specs of several frames as one: the same value once, others as time
     /// samples; a relationship or a uniform is never sampled; children only
     /// some frames have are kept.
+    #[test]
+    fn velocities_are_the_schema_s_not_primvars() {
+        let mut g = Geo::from_points(vec![[0.0; 3], [1.0, 0.0, 0.0]]);
+        let v = |x: f32| Attr::new(Column::Vec3(Arc::new(vec![[x, 0.0, 0.0]; 2])), Role::Vector);
+        g.set(Context::Point, "velocities", v(24.0));
+        g.set(Context::Point, "accelerations", v(1.0));
+        g.set(Context::Face, "velocities_face", v(2.0));
+        let mut spec = Spec::default();
+        geometry(&mut spec, &g, false);
+        let text = spec.lines.join("\n");
+        assert!(
+            text.contains("vector3f[] velocities = [(24, 0, 0), (24, 0, 0)]"),
+            "{text}"
+        );
+        assert!(
+            text.contains("vector3f[] accelerations = [(1, 0, 0), (1, 0, 0)]"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("primvars:velocities ") && !text.contains("primvars:accelerations"),
+            "{text}"
+        );
+        let mut spec = Spec::default();
+        block(&mut spec, "velocities", &v(0.0));
+        assert!(
+            spec.lines.contains(&"vector3f[] velocities = None".to_string()),
+            "{:?}",
+            spec.lines
+        );
+    }
+
+    #[test]
+    fn documentation_and_custom_data_are_metadata() {
+        let mut s = Spec::default();
+        property(&mut s, "documentation", &Value::String("A chair".into()));
+        property(&mut s, "customData:asset:version", &Value::Int(3));
+        property(&mut s, "customData:asset:name", &Value::String("chair".into()));
+        property(&mut s, "customData:note", &Value::String("new".into()));
+        property(&mut s, "customData:", &Value::Int(1));
+        let mut out = String::new();
+        s.write(&mut out, "chair", 0);
+        assert!(out.contains("    doc = \"A chair\"\n"), "{out}");
+        let custom = "    customData = {
+        dictionary asset = {
+            string name = \"chair\"
+            int version = 3
+        }
+        string note = \"new\"
+    }";
+        assert!(out.contains(custom), "{out}");
+    }
+
     #[test]
     fn frame_specs_merge_into_time_samples() {
         let spec = |lines: &[&str], child: bool| Spec {
@@ -2910,6 +3199,7 @@ def Xform "set" {{
             hidden: Arc::new(vec![]),
             geo: geo.clone(),
             place: place.clone(),
+            file: None,
         };
         let quad = Geo::from_polygons(
             vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
@@ -2942,6 +3232,107 @@ def Xform "set" {{
         let back = crate::usd_scene::load(&out).unwrap();
         assert_eq!(back.instancers.len(), 1, "{text}");
         assert_eq!(back.instancers[0].geo.points(), &[[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]]);
+    }
+
+    /// An Instancer's prototype taken from a file, as the file has it: a
+    /// reference to the file's prim, placed where its stage has it; changed
+    /// after, written whole.
+    #[test]
+    fn a_prototype_from_a_file_is_a_reference_to_it() {
+        use crate::core::geo::Geo;
+        use crate::types::{InstancedBy, ProtoFile};
+        let dir = std::env::temp_dir().join("xms_usd_write_test/proto_ref");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("tree.usda");
+        std::fs::write(&file, "#usda 1.0\n").unwrap();
+        let points = Arc::new(Geo::from_points(vec![[0.0; 3], [5.0, 0.0, 0.0]]));
+        let place = Placement::One(Mat4::IDENTITY);
+        let instancer = Prim {
+            geo: Some(points.clone()),
+            place: place.clone(),
+            instancing: Some(Arc::new(vec!["/scatter/Prototypes/tree".into()])),
+            ..Prim::new("/scatter".into(), points.to_mesh())
+        };
+        let leaf = Arc::new(Geo::from_polygons(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            vec![4],
+            vec![0, 1, 2, 3],
+        ));
+        let proto = |geo: Arc<Geo>| {
+            let f = ProtoFile {
+                root: "/scatter/Prototypes/tree".into(),
+                source: file.clone(),
+                prim: "/assets/tree".into(),
+                world: glam::DMat4::from_translation(glam::DVec3::new(0.0, 2.0, 0.0)),
+                geo: Some(leaf.clone()),
+                material: None,
+                as_read: true,
+            };
+            let by = InstancedBy {
+                instancer: "/scatter".into(),
+                index: 0,
+                inside: Mat4::IDENTITY,
+                hidden: Arc::new(vec![]),
+                geo: points.clone(),
+                place: place.clone(),
+                file: Some(Arc::new(f)),
+            };
+            Prim {
+                geo: Some(geo.clone()),
+                place: Placement::Many(crate::core::instancing::copies(&points, &place, &by).into()),
+                instanced_by: Some(Arc::new(by)),
+                ..Prim::new("/scatter/Prototypes/tree/leaf".into(), geo.to_mesh())
+            }
+        };
+        let out = dir.join("over.usda");
+        let (text, _) =
+            override_layer(&[instancer.clone(), proto(leaf.clone())], &out, &SceneRange::default()).unwrap();
+        assert!(
+            text.contains("def \"tree\" (\n            prepend references = @./tree.usda@</assets/tree>\n        )"),
+            "{text}"
+        );
+        assert!(text.contains("(0, 2, 0, 1)"), "placed where its stage has it: {text}");
+        assert!(!text.contains("def Mesh \"leaf\""), "{text}");
+        // Changed after the Instancer: the geometry, written whole.
+        let mut moved = (*leaf).clone();
+        moved.points_mut()[0] = [0.0, 3.0, 0.0];
+        let (text, _) = override_layer(&[instancer, proto(Arc::new(moved))], &out, &SceneRange::default()).unwrap();
+        assert!(!text.contains("references"), "{text}");
+        assert!(text.contains("def Mesh \"leaf\""), "{text}");
+    }
+
+    /// A file instancer's prototype edited: an `over` on it, every copy
+    /// changing; not reported as not written.
+    #[test]
+    fn a_file_instancer_s_prototype_takes_edits() {
+        let text = format!(
+            r#"#usda 1.0
+def PointInstancer "inst" {{
+    rel prototypes = [</inst/protos/box>]
+    int[] protoIndices = [0, 0]
+    point3f[] positions = [(0, 0, 0), (5, 0, 0)]
+    def Scope "protos" {{
+        def Mesh "box" {{{QUAD}    }}
+    }}
+}}
+"#
+        );
+        let path = std::env::temp_dir().join("xms_usd_write_test/instancer_proto.usda");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        let mut prims = prims_of(&path);
+        let b = prims
+            .iter_mut()
+            .find(|p| p.path.ends_with("/box"))
+            .expect("the prototype");
+        let mut g = (**b.geo.as_ref().unwrap()).clone();
+        g.points_mut()[0] = [0.0, 3.0, 0.0];
+        b.geo = Some(Arc::new(g));
+        let out = std::env::temp_dir().join("xms_usd_write_test/instancer_proto_over.usda");
+        let (text, report) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
+        assert!(report.skipped.is_empty(), "{report:?}");
+        assert!(text.contains("over \"box\""), "{text}");
+        assert!(text.contains("(0, 3, 0)"), "{text}");
     }
 
     /// A point instancer whose points moved: its positions are written, its
@@ -2983,6 +3374,7 @@ def PointInstancer "inst" {{
                         hidden: inst.hidden.clone(),
                         geo: inst.geo.clone(),
                         place: inst.place.clone(),
+                        file: None,
                     })
                 });
         });

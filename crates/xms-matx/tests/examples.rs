@@ -59,6 +59,13 @@ fn every_example_imports() {
                     }
                 }
             }
+            // Nothing a renderer would fail on, but the nodes a document
+            // defines itself.
+            for p in xms_matx::check::problems(g, lib, None) {
+                if !p.text.contains("the file's own") {
+                    failed.push(format!("{}: {name}: {p}", f.display()));
+                }
+            }
             // Written and read back as Imago saves it, the same graph.
             let saved = xms_matx::document::write(g, lib);
             let back = xms_matx::document::read(&saved, lib).unwrap_or_else(|e| panic!("{}: {name}: {e}", f.display()));

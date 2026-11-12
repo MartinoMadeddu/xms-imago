@@ -512,6 +512,14 @@ impl Arnold {
             }
             (ai.AiNodeSetMatrix)(camera, ai.string("matrix"), Matrix(v.matrix));
             (ai.AiNodeSetFlt)(camera, ai.string("fov"), v.fov);
+            // The layer's camera's shutter: what moves blurs through the view
+            // as through it.
+            let was = (ai.AiNodeGetPtr)(options, ai.string("camera"));
+            if !was.is_null() && was != camera {
+                for p in ["shutter_start", "shutter_end"] {
+                    (ai.AiNodeSetFlt)(camera, ai.string(p), (ai.AiNodeGetFlt)(was, ai.string(p)));
+                }
+            }
             (ai.AiNodeSetPtr)(options, ai.string("camera"), camera);
             (ai.AiNodeSetInt)(options, ai.string("xres"), v.size[0].max(1) as c_int);
             (ai.AiNodeSetInt)(options, ai.string("yres"), v.size[1].max(1) as c_int);

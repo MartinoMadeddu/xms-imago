@@ -189,6 +189,7 @@ mod tests {
             hidden: Arc::new(vec![11]),
             geo: geo.clone(),
             place: place.clone(),
+            file: None,
         };
         let at: Vec<Mat4> = copies(&geo, &place, &by);
         let proto = Prim {
@@ -230,6 +231,7 @@ mod tests {
             hidden: Arc::new(vec![11]),
             geo: outer.geo.clone().unwrap(),
             place: outer.place.clone(),
+            file: None,
         };
         let inner_place = Placement::Many(copies(outer.geo.as_ref().unwrap(), &outer.place, &by).into());
         let inner = Prim {
@@ -246,6 +248,7 @@ mod tests {
             hidden: Arc::new(vec![]),
             geo: inner_geo.clone(),
             place: inner_place.clone(),
+            file: None,
         };
         let leaf = Prim {
             place: Placement::Many(copies(&inner_geo, &inner_place, &leaf_by).into()),

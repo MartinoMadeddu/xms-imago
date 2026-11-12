@@ -507,6 +507,10 @@ pub const PROPERTY_PRESETS: &[Preset] = &[
         hint: "How viewports draw the prim and what is below it: as geometry, as its bounding box, as axes at its origin. The Viewer draws cards as bounds. Set with model:applyDrawMode on, on a model (kind component)" },
     Preset { name: "model:applyDrawMode", ty: ValueType::Bool, tokens: &[], written: Written::Uniform,
         hint: "On: viewports draw this model as its model:drawMode says" },
+    Preset { name: "documentation", ty: ValueType::String, tokens: &[], written: Written::Metadata,
+        hint: "A note on what the prim is, kept in the file (its doc)" },
+    Preset { name: "customData:", ty: ValueType::String, tokens: &[], written: Written::Metadata,
+        hint: "Data of your own, kept in the file and read by tools, not by renderers: customData:<key>, a key with : nests (customData:asset:version)" },
 ];
 
 /// The common Object values.
@@ -539,6 +543,9 @@ pub fn preset(context: SetContext, name: &str) -> Option<&'static Preset> {
 /// How a Property of this name is written. Names it does not know are
 /// attributes.
 pub fn written(name: &str) -> Written {
+    if name.trim().starts_with("customData:") {
+        return Written::Metadata;
+    }
     preset(SetContext::Property, name).map_or(Written::Attribute, |p| p.written)
 }
 

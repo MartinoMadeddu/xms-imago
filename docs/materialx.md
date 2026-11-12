@@ -270,6 +270,26 @@ are not written. A graph with nothing going into its `surfacematerial` is
 written as the grey the Viewer shows. The Primitive Inspector lists the surface
 shader's definition and what is set on it.
 
+## Checked before rendering
+
+A renderer reading a broken network can fail with it, and Arnold, rendering in
+Imago's own process, takes Imago with it. So before Arnold renders in Imago (a
+render, IPR, `--render`), the materials' graphs are checked, and a scene with
+a material that would fail is not rendered: the Viewer and the Log say which
+material, which node and what to fix. What is checked, of the nodes a material
+reads:
+
+- a node whose definition is in no library, or is one the file defined itself;
+- a wire from a node not in the graph, or from an output its node does not have;
+- a wire between types that do not join (drawn red);
+- a loop;
+- a MaterialX node Arnold's own MaterialX libraries do not define (read from the
+  `.mtlx` files in its SDK): one of a newer MaterialX.
+
+The MaterialX operator's Parameters pane lists the same problems while the
+graph is open. A network that passes can still fail in the renderer (an OSL
+shader of its own going wrong); this catches what can be seen from the graph.
+
 ## In the Viewer
 
 The Viewer draws a material as a colour, a roughness, a metalness, an opacity

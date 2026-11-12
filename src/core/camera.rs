@@ -46,6 +46,11 @@ pub struct Camera {
     /// 0: no depth of field.
     pub f_stop: f32,
     pub focus_distance: f32,
+    /// When the shutter opens and closes, in frames from the frame rendered
+    /// (`shutter:open`, `shutter:close`): -0.25 to 0.25 a 180° shutter
+    /// centred on the frame. Both 0: no motion blur.
+    pub shutter_open: f32,
+    pub shutter_close: f32,
 }
 
 impl Default for Camera {
@@ -60,6 +65,8 @@ impl Default for Camera {
             clipping_range: [1.0, 1_000_000.0],
             f_stop: 0.0,
             focus_distance: 0.0,
+            shutter_open: 0.0,
+            shutter_close: 0.0,
         }
     }
 }
@@ -204,6 +211,12 @@ impl Camera {
         if self.focus_distance != 0.0 {
             out.push(format!("float focusDistance = {}", num(self.focus_distance)));
         }
+        if self.shutter_open != 0.0 {
+            out.push(format!("double shutter:open = {}", num(self.shutter_open)));
+        }
+        if self.shutter_close != 0.0 {
+            out.push(format!("double shutter:close = {}", num(self.shutter_close)));
+        }
         out
     }
 
@@ -222,7 +235,16 @@ impl Camera {
             ),
             ("fStop".into(), num(self.f_stop)),
             ("focusDistance".into(), num(self.focus_distance)),
+            ("shutter:open".into(), num(self.shutter_open)),
+            ("shutter:close".into(), num(self.shutter_close)),
         ]
+    }
+
+    /// The shutter's interval, in frames from the frame rendered; `None` when
+    /// it opens and closes at once (no motion blur).
+    pub fn shutter(&self) -> Option<(f64, f64)> {
+        let (a, b) = (self.shutter_open as f64, self.shutter_close as f64);
+        (a.is_finite() && b.is_finite() && b > a).then_some((a, b))
     }
 }
 
@@ -287,6 +309,19 @@ mod tests {
             Some("USD default")
         );
         assert_eq!(filmback_name(30.0, 20.0), None);
+    }
+
+    #[test]
+    fn the_shutter_is_written_and_says_whether_it_blurs() {
+        let mut c = Camera::default();
+        assert_eq!(c.shutter(), None, "USD's default: shut");
+        assert!(!c.usda_lines().iter().any(|l| l.contains("shutter")));
+        c.shutter_open = -0.25;
+        c.shutter_close = 0.25;
+        assert_eq!(c.shutter(), Some((-0.25, 0.25)));
+        let lines = c.usda_lines();
+        assert!(lines.contains(&"double shutter:open = -0.25".to_string()), "{lines:?}");
+        assert!(lines.contains(&"double shutter:close = 0.25".to_string()), "{lines:?}");
     }
 
     #[test]

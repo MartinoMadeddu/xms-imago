@@ -540,6 +540,20 @@ pub fn params(kind: EditKind, target: &Target) -> Vec<Param> {
                 "In scene units",
                 f(c.focus_distance),
             ));
+            out.push(param(
+                "Motion blur",
+                "shutter:open",
+                "Shutter open",
+                "Frames from the frame rendered: -0.25 with 0.25 a 180° shutter. Open and close the same: no motion blur",
+                f(c.shutter_open),
+            ));
+            out.push(param(
+                "Motion blur",
+                "shutter:close",
+                "Shutter close",
+                "Frames from the frame rendered",
+                f(c.shutter_close),
+            ));
         }
         (EditKind::Light, Some(p)) => {
             if let Some(l) = p.light.as_deref() {
@@ -779,8 +793,15 @@ pub fn edit(
                         ("clippingRange", Value::Float2(r)) => c.clipping_range = *r,
                         ("fStop", _) => c.f_stop = x,
                         ("focusDistance", _) => c.focus_distance = x,
+                        ("shutter:open", _) => c.shutter_open = x,
+                        ("shutter:close", _) => c.shutter_close = x,
                         _ => continue,
                     }
+                    // The shutter is a double in USD's schema.
+                    let v = match v {
+                        Value::Float(x) if q.name.starts_with("shutter:") => Value::Double(x as f64),
+                        v => v,
+                    };
                     written.push((q.name.clone(), v));
                 }
                 p.camera = Some(Arc::new(c));

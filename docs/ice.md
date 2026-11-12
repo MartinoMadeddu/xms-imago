@@ -318,7 +318,11 @@ the tree's parameters).
   sharing its geometry and material (nothing is copied). A prototype's prims
   keep their placement within it, so a prototype made at its file's origin sits
   on each instance. Write USD writes it as a `PointInstancer` with its
-  `prototypes`, and its prototype prims below it. Its **Draw Mode** (Geometry,
+  `prototypes`, and its prototype prims below it: a prototype taken from a
+  file (Load USD), as the file has it, is a reference to the file's prim
+  (`prepend references = @./tree.usda@</assets/tree>`), placed where its stage
+  has it, so the layer stays small and follows the file; one changed (Edit Poly
+  on it, another material) is written whole. Its **Draw Mode** (Geometry,
   Bounding Box, Origin) says how viewports draw the prototypes: written as USD's
   `model:drawMode` on each prototype (with `model:applyDrawMode` and kind
   component), so usdview and Houdini draw them so too, and the Viewer draws them
@@ -512,10 +516,10 @@ parameters.
 
 ## Not yet
 
-- Prototypes written as references to their files: today Write USD writes a
-  prototype's geometry into the layer, and its material binding points at the
-  material in the reference's scene, which is only in the layer when that scene
-  is also in the operator's Scene
+- A prototype from a file changed after the Instancer written as a reference
+  with its changes over it: today it is written whole, its material binding
+  pointing at the material in the reference's scene, which is only in the layer
+  when that scene is also in the operator's Scene
 - Prototypes that are themselves instanced
 - Scattering per face (a count per face, each face's places stable on their own)
 - Lists per element meeting Concatenate Arrays or Random; Set Data of a list

@@ -16,6 +16,34 @@ version's heading when you tag it.
   copy a step further moved, turned and scaled.
 - **Delete Attribute** and **Rename Attribute** take primvars away or rename
   them, by name pattern; Write USD blocks what went.
+- **Set Attribute** sets `documentation` (the prim's `doc`) and
+  `customData:<key>` entries, a `:` in the key nesting them.
+- **Variant** (Create) takes a **sublayered stage**: what it has below the
+  set's prim, written as references to the file's prims, since a variant
+  holds no sublayer.
+
+### Instancing
+
+- An ICE Instancer's **prototype taken from a file** is written as a
+  reference to the file's prim, not its geometry, while it is as the file has
+  it.
+- A **file instancer's prototypes take edits**: Edit Poly, materials,
+  Set Attribute on one write an `over` on it, every copy changing.
+
+### Rendering
+
+- **Motion blur** for what moves in Imago: renders from Imago (Arnold, the
+  Image Viewer's husk, `xms --render`) cook the scene at the camera's shutter
+  open and close too, written as time samples. The Camera operator has a
+  **Shutter**; a Point attribute `velocities` or `accelerations` is written as
+  the schema's.
+
+### MaterialX
+
+- Materials are **checked before Arnold renders in Imago**: a node of no
+  library, a wire from nothing or between types that do not join, a loop, a
+  node Arnold's MaterialX does not define. The render is not started and the
+  problems are said, where Arnold could fail and take Imago with it.
 
 ### Graphs
 

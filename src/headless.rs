@@ -190,8 +190,11 @@ fn render(
         let started = Instant::now();
         let prims = cook(graph, subnets, scene, *frame)?;
         let key = (0, (*frame as f64).to_bits());
-        if k == 0 {
-            session.render(prims, &graph.scene, key, *frame as f64, false, None)?;
+        // Motion blur: the scene at the shutter's open and close too, the
+        // layer written with them each frame.
+        let motion = crate::live::motion(graph, subnets, *frame as f64, &prims);
+        if k == 0 || !motion.is_empty() {
+            session.render(prims, motion, &graph.scene, key, *frame as f64, false, None)?;
         } else {
             session.frame(prims, key, *frame as f64);
         }

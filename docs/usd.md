@@ -169,6 +169,24 @@ value takes the types a primvar column holds (no `double`, `string`, `asset`
 or `string[]`); an Object array is one list on the primitive, as ICE stores a
 list per element. Where two rows set the same name, the later one wins.
 
+**Metadata of your own.** `documentation` is the prim's note, written as its
+`doc`. `customData:<key>` is an entry of its `customData`, of any type, kept in
+the file for tools (renderers do not read it); a `:` in the key nests it, so
+`customData:asset:version` is `version` in the dictionary `asset`:
+
+```
+def Xform "chair" (
+    doc = "The hero chair"
+    customData = {
+        dictionary asset = {
+            int version = 3
+        }
+    }
+)
+```
+
+Metadata has no time samples: a keyed row's value at the first frame written.
+
 **Keys.** ◇ beside a row keys its value at the playhead (◆ on a key, red when
 the row has keys): keyed, the row has a value a frame, shown and changed at the
 playhead (a change keys it there). Between two keys, floats, vectors, colours
@@ -367,9 +385,17 @@ variant, so the file switches as Imago does: inside each variant, its prims
 made in Imago as `def`s, its stages as their `references` or `payload`, with
 what was done to them as `over`s. The shown variant is written as it is at the
 end of the graph, edits after the Variant included; the others as they came
-in. A sublayered stage cannot go in a variant (its paths are the file's), and a
-variant with nothing below the location makes no prims: shown, nothing carries
-the set, so Write USD does not write it.
+in. A variant with nothing below the location makes no prims: shown, nothing
+carries the set, so Write USD does not write it.
+
+A **sublayered stage** (Load USD in Sublayer mode, at the file's own paths) goes
+in with what it has below the location: Variant on `/car` with the car's file
+sublayered takes `/car`'s children, and says what else the file has is left
+out. A variant holds no sublayers, so Write USD writes each prim just below the
+location as a reference to the file's (`prepend references =
+@car.usda@</car/wheel>`), placed where Imago shows it (the file's prims above
+it, and the stage's axes and unit, are not in a reference), and what was done
+below as `over`s.
 
 The templates **Variant set: cube or sphere** and **Variant set: teapot or
 vehicle** (Martino ▸ USD stages) make `/asset`'s set from a cube and a sphere,
@@ -444,6 +470,11 @@ instancer's own arrays (`positions`, `orientations`, `scales`, `protoIndices`,
 `ids`), and an instancer moved as a whole gets its own transform; its
 prototypes' copies are not edits of their own.
 
+A prototype is a prim like any other: what changes it (Edit Poly, a material
+bound, Set Attribute's values, its purpose) is written on it as an `over`, and
+every copy changes. Moving its copies is moving the instancer's points. A
+prototype inside a native instance stays read-only, as USD keeps it.
+
 A prototype is listed where the stage's hierarchy has it, under the instance it
 is seen through when the instancer is inside a native instance (the corals of
 Moana's island), so the Scene Explorer lists each prim once. Should a drawn prim
@@ -457,8 +488,8 @@ deep. The inner instancer is a points primitive of its own, placed once per
 point of the outer instancer using its prototype; its prototypes' meshes are
 drawn at each of its points in every one of those copies. Changing the outer
 instancer's points moves the inner instancer's copies and, a level down, what
-they draw. Write USD lists edits of an inner instancer as not written, as for
-any prototype.
+they draw. Write USD writes edits of an inner instancer on it, as for any
+prototype.
 
 The Primitive Inspector lists instanced geometry once, in its own space, not
 once per copy: a point instancer's prototypes, and the meshes of native

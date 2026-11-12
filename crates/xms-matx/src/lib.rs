@@ -19,11 +19,13 @@
 //!   (tested on every MaterialX example, `tests/examples`).
 //! * [`usd`]: a graph's material as a USD MaterialX shading network, and a USD
 //!   material's network read back into a graph.
+//! * [`check`]: what in a material would make a renderer fail on it.
 //! * [`preview`]: what the Viewer shows of a graph's material.
 //! * [`xml`]: the small XML reader the documents are read with.
 //!
 //! Dependency-free, like `xms-scene`; no interface code.
 
+pub mod check;
 pub mod document;
 pub mod graph;
 pub mod import;

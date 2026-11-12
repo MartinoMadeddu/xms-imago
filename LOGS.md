@@ -872,3 +872,8 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 11/11/2026: Rename and Duplicate operators (core::rename): reparent::moved and copied make any moves or copies; Moved::copy leaves a copied file prim active in Write USD. (Martino)
 - 11/11/2026: Delete Attribute and Rename Attribute operators (core::attribute_edit): name words with * ? and ^; renames pair From and To, * kept; points never touched. (Martino)
 - 11/11/2026: MaterialX graphs: Shift+drag into a wire (Graph::inserted: first free input that takes it, first output that fits) and out (Graph::pull_out, closed up by type). (Martino)
+- 12/11/2026: Set Attribute: documentation and customData:<key> metadata, written by Write USD (Spec::custom, nested by :). (Martino)
+- 12/11/2026: MaterialX check before Arnold renders (xms_matx::check, materialx::check): bad nodes, wires, loops and definitions Arnold's SDK lacks refuse the render with a message. (Martino)
+- 12/11/2026: Motion blur: Camera shutter (shutter:open/close), live::motion cooks the scene at the shutter's open and close, live::write_scene writes them as time samples (Arnold, Image Viewer, headless); the view camera takes the layer camera's shutter; velocities/accelerations written as the schema's. (Martino)
+- 12/11/2026: Instancer prototypes from files written as references (InstancedBy::file, ProtoFile); file instancers' prototypes take edits (read_only only for instance proxies). (Martino)
+- 12/11/2026: Variant Create takes a sublayered stage's prims below its location; Write USD writes each prim just below it as a reference to the file's, placed as shown (sublayered_in_variant). (Martino)

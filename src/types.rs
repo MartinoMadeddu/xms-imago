@@ -2159,6 +2159,27 @@ pub struct InstancedBy {
     /// The instancer's points and placement the placements were made from.
     pub geo: std::sync::Arc<crate::core::geo::Geo>,
     pub place: Placement,
+    /// For a prototype an Instancer took from a file: the file's prim it is.
+    pub file: Option<std::sync::Arc<ProtoFile>>,
+}
+
+/// A prototype an Instancer took from a stage: what Write USD references in
+/// place of writing its geometry, while its prims are as they were read.
+#[derive(Clone, Debug)]
+pub struct ProtoFile {
+    /// The prototype's root under the instancer (`/scatter/Prototypes/tree`).
+    pub root: String,
+    /// The stage's file, and its prim the prototype is.
+    pub source: std::path::PathBuf,
+    pub prim: String,
+    /// Where that prim is in its stage's world, in Imago's space: the root's
+    /// transform within the prototype.
+    pub world: glam::DMat4,
+    /// This prim as the Instancer took it: its geometry and material, and
+    /// whether they were the file's then.
+    pub geo: Option<std::sync::Arc<crate::core::geo::Geo>>,
+    pub material: Option<String>,
+    pub as_read: bool,
 }
 
 /// A packed primitive as it was loaded from its stage.

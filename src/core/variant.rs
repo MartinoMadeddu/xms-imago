@@ -161,6 +161,21 @@ pub fn create(
                 None => below(&p.path),
                 // The whole stage goes in, as its arc.
                 Some(t) if t.arc.as_ref().is_some_and(|a| below(&a.at)) => true,
+                // Sublayered, at its own paths: what it has below the
+                // location, each prim there a reference to the file's.
+                Some(t) if t.arc.is_none() => {
+                    if !below(&p.path) && !said.contains(&Arc::as_ptr(t)) {
+                        said.push(Arc::as_ptr(t));
+                        notes.push(format!(
+                            "{name}: of {}, only what is below {location} goes in",
+                            t.source.display()
+                        ));
+                    }
+                    if !below(&p.path) {
+                        continue;
+                    }
+                    true
+                }
                 Some(t) => {
                     if !said.contains(&Arc::as_ptr(t)) {
                         said.push(Arc::as_ptr(t));
@@ -196,8 +211,14 @@ pub fn create(
         .clone();
     // What the scene has below the location gives way to the variant: its
     // prims made in Imago, and the stages referenced or payloaded there.
+    let in_variants: Vec<*const StageTree> = made
+        .variants
+        .iter()
+        .flat_map(|(_, v)| v.iter().filter_map(|p| p.stage.as_ref().map(Arc::as_ptr)))
+        .collect();
     prims.retain(|p| match p.stage.as_ref() {
         None => !below(&p.path),
+        Some(t) if t.arc.is_none() => !(below(&p.path) && in_variants.contains(&Arc::as_ptr(t))),
         Some(t) => !t.arc.as_ref().is_some_and(|a| below(&a.at)),
     });
     prims.extend(shown(&MadeSet(Arc::new(made))));
@@ -835,20 +856,42 @@ def Xform \"car\" (
             panic!()
         };
         assert!(at(&ground, "/asset/ground").is_some() && at(&ground, "/asset/car/body").is_none());
-        // A stage at its own paths cannot go in.
-        let sublayered = create(
+    }
+
+    /// A stage at its own paths (sublayered) goes in a variant with what it
+    /// has below the set's prim, written as references to the file's prims
+    /// there, as a variant can hold no sublayer.
+    #[test]
+    fn a_sublayered_stage_goes_in_a_variant_by_its_prims() {
+        let made = create(
             None,
             &[Some(EvalResult::Named(loaded(&car())))],
-            "/asset",
+            "/car",
             "model",
-            &[],
+            &["car".into()],
             "",
         );
         assert!(
-            sublayered.notes.iter().any(|n| n.contains("Reference or Payload")),
-            "{:?}",
-            sublayered.notes
+            made.notes.iter().any(|n| n.contains("only what is below /car")),
+            "the ground is not: {:?}",
+            made.notes
         );
+        let EvalResult::Named(prims) = made.result else {
+            panic!()
+        };
+        assert!(at(&prims, "/car/wheel").is_some() && at(&prims, "/ground").is_none());
+        assert!(made_set_of(at(&prims, "/car/wheel").unwrap()).is_some());
+        let out = std::env::temp_dir().join("xms_variant_test/sublayered.usda");
+        crate::usd_write::write_override(&prims, &out, &Default::default()).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        for line in [
+            "variantSet \"model\" = {",
+            "prepend references = @./car.usda@</car/wheel>",
+            "prepend references = @./car.usda@</car/body>",
+        ] {
+            assert!(text.contains(line), "{line} in\n{text}");
+        }
+        assert!(!text.contains("subLayers"), "a variant holds no sublayer: {text}");
     }
 
     /// Write USD writes each variant's stage as its reference inside the

@@ -373,7 +373,11 @@ pub fn draw(
     let (live_layers, why) = crate::live::with(|live| {
         let Some(live) = live else { return (None, None) };
         let key = (revision, graph.frame().to_bits());
-        let why = live.update(&graph.scene, key, graph.frame(), || scene(graph, subnets));
+        let why = live.update(&graph.scene, key, graph.frame(), || {
+            let prims = scene(graph, subnets)?;
+            let motion = crate::live::motion(graph, subnets, graph.frame(), &prims);
+            Some((prims, motion))
+        });
         // At once when it is done: what a snapshot keeps.
         // The Viewer's render is the Viewer's to show.
         let shown = !live.in_viewer() && (live.done() || due);
@@ -736,7 +740,9 @@ fn start(
         return;
     }
     let layer = dir.join("scene.usda");
-    if let Err(e) = crate::usd_write::write_override(&prims, &layer, &graph.scene) {
+    // What moves in the shutter, sampled at its open and close too.
+    let motion = crate::live::motion(graph, subnets, graph.frame(), &prims);
+    if let Err(e) = crate::live::write_scene(&prims, &motion, graph.frame(), &layer, &graph.scene) {
         st.message = format!("The scene could not be written: {e}");
         return;
     }
@@ -779,6 +785,7 @@ fn render_live(
         return Err("A stage is still being read: render when it is done".into());
     }
     let prims = scene(graph, subnets).ok_or("The view flag shows no scene")?;
+    let motion = crate::live::motion(graph, subnets, graph.frame(), &prims);
     let renderer = crate::live::renderer_for(settings.renderer)
         .ok_or_else(|| format!("{} does not render live in Imago", settings.renderer))?;
     // The layer's camera: the Viewer stops rendering.
@@ -790,6 +797,7 @@ fn render_live(
         };
         l.insert(live).render(
             prims,
+            motion,
             &graph.scene,
             (revision, graph.frame().to_bits()),
             graph.frame(),

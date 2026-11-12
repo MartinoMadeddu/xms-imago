@@ -53,6 +53,30 @@ renderer's own settings.
 
 The Scene Explorer marks the one rendered (`RenderSettings · rendered`).
 
+**Motion blur.** What moves blurs over the camera's shutter: the Camera
+operator's **Shutter** (open and close, in frames from the frame rendered:
+-0.25 to 0.25 is a 180° shutter about it; both 0, USD's default, no blur),
+written as `shutter:open` and `shutter:close`. The shutter is that of the
+camera the RenderSettings names, else of the scene's one camera; Render
+Commons' Motion Blur off (`disableMotionBlur`) turns it off.
+
+A render from Imago (Arnold in the Viewer and the Image Viewer, `xms
+--render`, the Image Viewer's husk) cooks the scene at the shutter's open and
+close as well as at the frame, and writes what changes between them as time
+samples: keyed Transforms, rigs, deformers, animation layers, ICE. Nothing
+changing in the shutter (the same cook key at the three times), the scene is
+cooked once. A file's own animation is the file's time samples, which blur as
+they are. While motion blur is on, IPR loads the layer again on every change,
+since a renderer takes the samples only from it. A cook that keeps state from
+frame to frame (a simulation) is cooked at the in-between times as at any
+other.
+
+Points whose count changes over time (particles) cannot be sampled; a Point
+attribute `velocities` (and `accelerations`), three numbers a point, is
+written as the schema's `velocities` (`accelerations`), which renderers blur
+such points by. Write USD's own frames (with a step of 0.5, say) are time
+samples too, for husk or kick to blur.
+
 ## Render Settings
 
 How a renderer renders it. Choose the **Renderer** from its menu: **Karma**,
@@ -593,6 +617,7 @@ kick): the renderer reads the RenderSettings prim the layer names.
 - A file's products and RenderVars read as relationships
 - A camera or resolution per product
 - Settings that change over time
+- Velocities made from the points' motion (an ICE graph can set `velocities`)
 
 ## The xms command line
 

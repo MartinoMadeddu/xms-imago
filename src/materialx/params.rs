@@ -67,6 +67,12 @@ fn summary(ui: &mut egui::Ui, graph: &Graph) {
         let wrong = graph.nodes.iter().flat_map(|n| n.inputs.iter().map(move |(i, _)| (n.id, i.clone())))
             .filter(|(id, i)| !graph.wire_ok(lib, *id, i)).count();
         if wrong > 0 { f.status(Status::Bad, format!("{wrong} wire(s) between types that do not join: drawn red")); }
+        // What a renderer would fail on: Imago does not render such a material.
+        let problems = xms_matx::check::problems(graph, lib, None);
+        for p in problems.iter().take(6) {
+            f.status(Status::Bad, format!("A renderer would fail: {p}"));
+        }
+        if problems.len() > 6 { f.status(Status::Bad, format!("and {} more", problems.len() - 6)); }
     });
 }
 

@@ -1026,6 +1026,8 @@ fn read_scene(data: Layer, convert: bool) -> UsdScene {
                         clipping_range: clip,
                         f_stop: one(&mut r, "fStop", 0.0),
                         focus_distance: one(&mut r, "focusDistance", 0.0),
+                        shutter_open: one(&mut r, "shutter:open", 0.0),
+                        shutter_close: one(&mut r, "shutter:close", 0.0),
                     };
                     scene.cameras.push(UsdCamera {
                         path: prim.clone(),

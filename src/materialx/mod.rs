@@ -13,6 +13,7 @@
 //! selected in it. What the canvas shows (pan, zoom, which node is selected) is
 //! view state, kept with the pane, not in the graph.
 
+pub mod check;
 pub mod from_usd;
 pub mod params;
 pub mod ui;

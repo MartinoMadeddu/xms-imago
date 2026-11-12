@@ -775,6 +775,8 @@ impl Walk<'_> {
                     clipping_range: [c.clipping_range[0] as f32, c.clipping_range[1] as f32],
                     f_stop: c.f_stop.at(t).unwrap_or(0.0) as f32,
                     focus_distance: c.focus_distance.at(t).unwrap_or(0.0) as f32,
+                    shutter_open: c.shutter_open as f32,
+                    shutter_close: c.shutter_close as f32,
                 },
                 place: Placement::One(world.as_mat4()),
                 purpose,

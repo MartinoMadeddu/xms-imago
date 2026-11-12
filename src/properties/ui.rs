@@ -3741,6 +3741,14 @@ fn camera_rows(
         });
         f.drag("f-stop", Some("0: no depth of field. Written for renderers, not shown in the Viewer"), &mut c.f_stop, 0.05, "");
         f.drag("Focus distance", Some("In scene units. Written for renderers; leaving the camera in the Viewer keeps this far a point to orbit about"), &mut c.focus_distance, 0.05, "");
+        f.row("Shutter", Some("When the shutter opens and closes, in frames from the frame rendered: -0.25 to 0.25 is a 180° shutter about the frame. Both 0: no motion blur. Renders sample what moves at both, and at the frame"), |ui| {
+            ui.horizontal(|ui| {
+                let h = ui.spacing().interact_size.y;
+                let w = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(30.0);
+                form::number(ui, Some([w, h]), &mut c.shutter_open, |d| d.speed(0.01).range(-10.0..=10.0).prefix("open "));
+                form::number(ui, Some([w, h]), &mut c.shutter_close, |d| d.speed(0.01).range(-10.0..=10.0).prefix("close "));
+            });
+        });
         if c.projection == Projection::Perspective {
             f.value("Field of view", format!("{:.1}° wide, {:.1}° high", 2.0 * (c.horizontal_aperture * 0.5 / c.focal_length.max(1e-6)).atan().to_degrees(),
                 c.fov(c.gate_aspect()).to_degrees()));

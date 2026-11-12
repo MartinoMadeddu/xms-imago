@@ -77,6 +77,84 @@ pub fn scene(graph: &crate::node_graph::NodeGraphState, subnets: &crate::ice::Ic
     }
 }
 
+/// The scene at the times a render's shutter opens and closes about `frame`,
+/// each its time code: what moves in the shutter blurs, as Write USD's time
+/// samples give it. Empty when the shutter is shut (motion blur off, no camera
+/// with a shutter) or nothing changes in it (the same cook key at each time).
+/// `prims`: the scene at `frame`, what says the shutter.
+pub fn motion(
+    graph: &crate::node_graph::NodeGraphState,
+    subnets: &crate::ice::IceGraphStore,
+    frame: f64,
+    prims: &[Prim],
+) -> Vec<(f64, Vec<Prim>)> {
+    let Some((open, close)) = shutter(prims) else {
+        return vec![];
+    };
+    let Some(id) = graph.display_source() else {
+        return vec![];
+    };
+    let at = [frame + open, frame + close];
+    let key = |f: f64| graph.with_time(graph.scene.seconds(f), || graph.cook_key(id, graph.viewed_output()));
+    let now = key(frame);
+    if now.is_some() && at.iter().all(|f| key(*f) == now) {
+        return vec![];
+    }
+    at.iter()
+        .filter_map(|f| {
+            let prims = graph.with_time(graph.scene.seconds(*f), || scene(graph, subnets))?;
+            Some((*f, prims))
+        })
+        .collect()
+}
+
+/// When a render of `prims` opens and closes its shutter, in frames from the
+/// frame: the shutter of the camera the Render Settings names (else of the
+/// scene's one camera), unless the Render Settings turn motion blur off.
+pub fn shutter(prims: &[Prim]) -> Option<(f64, f64)> {
+    use crate::core::render::RenderKind;
+    let settings = prims
+        .iter()
+        .filter_map(|p| p.render.as_deref())
+        .filter(|r| r.kind == RenderKind::Settings)
+        .max_by_key(|r| r.primary);
+    let camera = |path: &str| prims.iter().find(|p| p.path == path).and_then(|p| p.camera.as_deref());
+    if let Some(r) = settings {
+        if r.attrs
+            .get("disableMotionBlur")
+            .is_some_and(|a| a.literal.trim() == "true")
+        {
+            return None;
+        }
+        if let Some(path) = r.rels.get("camera").and_then(|c| c.targets.first()) {
+            return camera(path)?.shutter();
+        }
+    }
+    let mut cameras = prims.iter().filter_map(|p| p.camera.as_deref());
+    match (cameras.next(), cameras.next()) {
+        (Some(c), None) => c.shutter(),
+        _ => None,
+    }
+}
+
+/// The scene written for a renderer: at `frame`, with what moves in the
+/// shutter (`motion`) as time samples.
+pub fn write_scene(
+    prims: &[Prim],
+    motion: &[(f64, Vec<Prim>)],
+    frame: f64,
+    layer: &Path,
+    scene: &SceneRange,
+) -> Result<crate::usd_write::WriteReport, String> {
+    if motion.is_empty() {
+        return crate::usd_write::write_override(prims, layer, scene);
+    }
+    let mut frames: Vec<(f64, Vec<Prim>)> = motion.to_vec();
+    frames.push((frame, prims.to_vec()));
+    frames.sort_by(|a, b| a.0.total_cmp(&b.0));
+    crate::usd_write::write_frames(&frames, layer, scene)
+}
+
 /// A view to render `scene` through: a camera placed at `world` (Imago's
 /// space, looking down -Z), `vertical_fov` (radians), `size` pixels.
 pub fn view(scene: &SceneRange, world: Mat4, vertical_fov: f32, size: [u32; 2]) -> xms_render::View {
@@ -115,6 +193,9 @@ pub struct Session {
     /// Where the scene is written, when it must be.
     layer: PathBuf,
     sent: Vec<Prim>,
+    /// The scene at the shutter's open and close, with `sent`: what moves in
+    /// it written as time samples (`motion`). Empty: no motion blur.
+    motion: Vec<(f64, Vec<Prim>)>,
     /// The graph's revision and the frame the scene sent is of.
     key: (u64, u64),
     /// Its up axis, unit and rate: what it is written in.
@@ -133,6 +214,9 @@ pub struct Session {
     since: Instant,
     /// The image's generation last taken.
     taken: u64,
+    /// The MaterialX definitions the renderer's SDK ships: a material using
+    /// another's is not rendered (`materialx::check`).
+    definitions: Option<Arc<std::collections::HashSet<String>>>,
     /// The renderer's own log, its warnings and errors: the last `LOG_KEPT`.
     log: std::collections::VecDeque<String>,
 }
@@ -165,6 +249,7 @@ impl Session {
         outputs: Option<PathBuf>,
     ) -> Result<Session, String> {
         let config = arnold_config(renderer, dir, outputs)?;
+        let definitions = crate::materialx::check::sdk_definitions(&config.sdk);
         let live = xms_render::Live::start(move |pixels| {
             Ok(Box::new(xms_render::arnold::Arnold::new(config, pixels)?) as Box<dyn xms_render::Renderer>)
         });
@@ -172,6 +257,7 @@ impl Session {
             live,
             layer: dir.join("live.usda"),
             sent: vec![],
+            motion: vec![],
             key: (0, 0),
             scene: SceneRange::default(),
             rendering: false,
@@ -182,6 +268,7 @@ impl Session {
             since: Instant::now(),
             taken: 0,
             log: Default::default(),
+            definitions,
         })
     }
 
@@ -192,16 +279,26 @@ impl Session {
     pub fn render(
         &mut self,
         prims: Vec<Prim>,
+        motion: Vec<(f64, Vec<Prim>)>,
         scene: &SceneRange,
         key: (u64, u64),
         frame: f64,
         ipr: bool,
         through: Option<xms_render::View>,
     ) -> Result<(), String> {
+        if let Some(why) = self.refused(&prims) {
+            self.rendering = false;
+            return Err(why);
+        }
         // Light: the points deformers moved left out, sent in memory before
         // the first bucket; the whole layer written only if they cannot be.
-        let (light, heavier) = lighter(&prims);
-        let written = crate::usd_write::write_override(&light, &self.layer, scene)
+        // With motion blur, whole: the points' samples are the layer's.
+        let (light, heavier) = if motion.is_empty() {
+            lighter(&prims)
+        } else {
+            (prims.clone(), vec![])
+        };
+        let written = write_scene(&light, &motion, frame, &self.layer, scene)
             .map_err(|e| format!("The scene could not be written: {e}"))?;
         // What the layer has otherwise than the stages: in the Log too, once.
         for n in heavier.into_iter().chain(written.notes) {
@@ -211,10 +308,11 @@ impl Session {
             }
         }
         let moved = changes(&light, &prims, scene.axes());
-        let (all, layer, at) = (prims.clone(), self.layer.clone(), *scene);
+        let (all, samples, layer, at) = (prims.clone(), motion.clone(), self.layer.clone(), *scene);
         self.live.load_then(&self.layer, frame, ipr, through, moved, move || {
-            crate::usd_write::write_override(&all, &layer, &at).map(|_| layer)
+            write_scene(&all, &samples, frame, &layer, &at).map(|_| layer)
         });
+        self.motion = motion;
         self.scene = *scene;
         self.ipr = ipr;
         self.through = through;
@@ -223,6 +321,14 @@ impl Session {
         self.rendering = true;
         self.since = Instant::now();
         Ok(())
+    }
+
+    /// Why the scene is not rendered: a MaterialX material the renderer would
+    /// fail on.
+    fn refused(&self, prims: &[Prim]) -> Option<String> {
+        let problems =
+            crate::materialx::check::render_problems(prims, self.definitions.as_deref().map(|d| (d, "Arnold")));
+        crate::materialx::check::refusal(&problems, "Arnold")
     }
 
     /// Stop rendering; the renderer keeps what it has loaded.
@@ -270,22 +376,27 @@ impl Session {
         scene: &SceneRange,
         key: (u64, u64),
         frame: f64,
-        prims: impl FnOnce() -> Option<Vec<Prim>>,
+        prims: impl FnOnce() -> Option<(Vec<Prim>, Vec<(f64, Vec<Prim>)>)>,
     ) -> Option<String> {
         if !self.rendering {
             return None;
         }
         let mut failed = None;
         if self.ipr && self.key != key && !crate::usd_scene::any_reading() {
-            if let Some(prims) = prims() {
-                if self.key.1 != key.1 || self.scene != *scene {
-                    // Another frame, or other axes, unit or rate: loaded.
-                    if let Err(e) = self.render(prims, scene, key, frame, true, self.through) {
+            if let Some((prims, motion)) = prims() {
+                if self.key.1 != key.1 || self.scene != *scene || !motion.is_empty() || !self.motion.is_empty() {
+                    // Another frame, other axes, unit or rate; or motion
+                    // blur, whose samples only the layer gives: loaded.
+                    if let Err(e) = self.render(prims, motion, scene, key, frame, true, self.through) {
                         failed = Some(e);
                     }
                 } else {
                     let edits = changes(&self.sent, &prims, scene.axes());
-                    if !edits.is_empty() {
+                    if let Some(why) = (!edits.is_empty()).then(|| self.refused(&prims)).flatten() {
+                        // The renderer keeps the scene it has.
+                        failed = Some(why);
+                        self.key = key;
+                    } else if !edits.is_empty() {
                         // Written only if the renderer cannot take them live.
                         let (now, layer, at) = (prims.clone(), self.layer.clone(), *scene);
                         self.live.edit(edits, move || {
@@ -765,6 +876,40 @@ mod tests {
             place: Placement::One(Mat4::IDENTITY),
             ..Prim::new(path.into(), crate::types::MeshData::default())
         }
+    }
+
+    #[test]
+    fn the_shutter_is_the_render_camera_s_unless_motion_blur_is_off() {
+        use crate::core::render::{RAttr, RenderKind, RenderPrim};
+        let camera = |path: &str, open: f32, close: f32| Prim {
+            camera: Some(Arc::new(crate::core::camera::Camera {
+                shutter_open: open,
+                shutter_close: close,
+                ..Default::default()
+            })),
+            ..Prim::new(path.into(), crate::types::MeshData::default())
+        };
+        let a = camera("/cameras/a", -0.25, 0.25);
+        let b = camera("/cameras/b", 0.0, 0.5);
+        assert_eq!(shutter(&[a.clone()]), Some((-0.25, 0.25)), "the one camera");
+        assert_eq!(shutter(&[a.clone(), b.clone()]), None, "which one is not said");
+        let mut st = RenderPrim::new(RenderKind::Settings);
+        st.primary = true;
+        st.targets("camera", vec!["/cameras/b".into()]);
+        let settings = |st: &RenderPrim| Prim {
+            render: Some(Arc::new(st.clone())),
+            ..Prim::new("/Render/settings".into(), crate::types::MeshData::default())
+        };
+        assert_eq!(
+            shutter(&[a.clone(), b.clone(), settings(&st)]),
+            Some((0.0, 0.5)),
+            "the one rendered through"
+        );
+        st.set(
+            "disableMotionBlur",
+            RAttr::of(&crate::core::properties::Value::Bool(true)).uniform(),
+        );
+        assert_eq!(shutter(&[a, b, settings(&st)]), None);
     }
 
     /// A prim whose points alone moved from its file (a deformer): its file's

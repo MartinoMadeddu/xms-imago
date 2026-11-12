@@ -848,6 +848,7 @@ pub fn stage_prims(
                         hidden: i.hidden.clone(),
                         geo: i.geo.clone(),
                         place: i.place.clone(),
+                        file: None,
                     })
                 }),
                 shading: None,
@@ -895,6 +896,7 @@ pub fn stage_prims(
                         hidden: o.hidden.clone(),
                         geo: o.geo.clone(),
                         place: o.place.clone(),
+                        file: None,
                     })
                 })
             }),
@@ -1968,6 +1970,22 @@ fn instanced(
                 if q.instancing.is_some() {
                     continue;
                 }
+                // From a stage: the file's prim it is, to be referenced.
+                let file = q.stage.as_deref().and_then(|t| {
+                    let prim = t.file_path(proto)?;
+                    let as_read = q.source.as_deref().is_some_and(|s| {
+                        q.geo.as_ref().is_none_or(|g| Arc::ptr_eq(g, &s.geo)) && q.material == s.material
+                    });
+                    Some(Arc::new(crate::types::ProtoFile {
+                        root: roots[k].clone(),
+                        source: t.source.clone(),
+                        prim,
+                        world: t.world(proto, true),
+                        geo: q.geo.clone(),
+                        material: q.material.clone(),
+                        as_read,
+                    }))
+                });
                 let by = InstancedBy {
                     instancer: path.clone(),
                     index: k as u32,
@@ -1975,6 +1993,7 @@ fn instanced(
                     hidden: Arc::new(vec![]),
                     geo: geo.clone(),
                     place: place.clone(),
+                    file,
                 };
                 let copies = crate::core::instancing::copies(&geo, &place, &by);
                 out.push(Prim {
