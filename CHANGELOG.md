@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-12
+
 ### Rendering
 
 - **Arnold in Imago writes nothing big**: a file's primitive a deformer or
