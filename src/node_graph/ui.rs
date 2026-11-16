@@ -1319,8 +1319,9 @@ fn draw_node(
 
     // A prim dragged from the Scene Explorer onto an operator that works on
     // primitives joins its Primitive Locations; the operator is selected
-    // with its Prims Location tab open.
-    if crate::core::locations::takes_locations(&node.node_type)
+    // with its Prims Location tab open. On a Light Linker, a link for it.
+    let linker = matches!(node.node_type, NodeType::LightLinker { .. });
+    if (crate::core::locations::takes_locations(&node.node_type) || linker)
         && egui::DragAndDrop::has_payload_of_type::<crate::types::DraggedPrims>(ui.ctx())
     {
         let over = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| rect.contains(p));
@@ -1334,9 +1335,15 @@ fn draw_node(
             if ui.input(|i| i.pointer.any_released()) {
                 if let Some(p) = egui::DragAndDrop::take_payload::<crate::types::DraggedPrims>(ui.ctx()) {
                     if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == node.id) {
-                        for path in &p.0 {
-                            if !n.locations.iter().any(|l| l.trim() == path) {
-                                n.locations.push(path.clone());
+                        if let NodeType::LightLinker { links } = &mut n.node_type {
+                            for path in &p.0 {
+                                crate::core::light_link::add_prim(links, path);
+                            }
+                        } else {
+                            for path in &p.0 {
+                                if !n.locations.iter().any(|l| l.trim() == path) {
+                                    n.locations.push(path.clone());
+                                }
                             }
                         }
                     }
@@ -1551,7 +1558,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Disk)), "A disk that emits from one side, along its -Z: a spot's lens"),
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Cylinder)), "A cylinder along its X: a tube"),
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Distant)), "Parallel light from far away, along its -Z: the sun"),
-            (NodeType::LightLinker { links: vec![] }, "Which prims each light lights and shadows: a table of links, each its lights and prims (paths, patterns or %collections) with Light and Shadow on or off"),
+            (NodeType::LightLinker { links: vec![crate::core::light_link::Link::new("", "")] }, "Which prims each light lights and shadows: a table of links, each its lights and prims (paths, patterns or %collections) with Light and Shadow on or off. Prims dropped on it get a link each"),
         ]),
         ("📽", "Render", vec![
             (NodeType::RenderCommons { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),

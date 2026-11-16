@@ -94,8 +94,19 @@ fn add_links(links: &mut Vec<Link>, paths: &[String], scene_lights: &[String]) {
     }
     for l in &lights {
         for p in &prims {
-            if !links.iter().any(|x| x.light == *l && x.prim == **p) {
-                links.push(Link::new(l, p));
+            if links.iter().any(|x| x.light == *l && x.prim == **p) {
+                continue;
+            }
+            // An empty row (the one a new operator has) is filled first.
+            match links
+                .iter_mut()
+                .find(|x| x.prim.trim().is_empty() && (x.light.trim().is_empty() || x.light == *l))
+            {
+                Some(x) => {
+                    x.light = l.clone();
+                    x.prim = p.to_string();
+                }
+                None => links.push(Link::new(l, p)),
             }
         }
     }
@@ -214,13 +225,11 @@ mod tests {
     #[test]
     fn selected_lights_and_prims_make_a_row_each() {
         let lights = vec!["/lights/key".to_string(), "/lights/rim".to_string()];
-        let mut links = vec![];
+        let mut links = vec![Link::new("", "")];
         let sel = vec!["/lights/key".to_string(), "/set/a".to_string(), "/set/b".to_string()];
         add_links(&mut links, &sel, &lights);
-        assert_eq!(links.len(), 2);
-        assert!(links
-            .iter()
-            .all(|l| l.light == "/lights/key" && l.lights == Some(false)));
+        assert_eq!(links.len(), 2, "the empty row filled, one more");
+        assert!(links.iter().all(|l| l.light == "/lights/key" && l.lights == Some(true)));
         // No light selected: the last row's.
         add_links(&mut links, &["/set/c".to_string()], &lights);
         assert_eq!(links[2].light, "/lights/key");

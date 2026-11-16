@@ -776,11 +776,13 @@ shadows on, as a table, a row per link:
 | Light | On: those lights light those prims. Off: they do not |
 | Shadow | On: those lights cast shadows on them. Off: they do not |
 
-A new row has Light and Shadow off, the commonest link. Right-click a toggle to
+A new operator has one empty row. A new row has Light and Shadow on, to be
+turned off. Prims dropped on the operator in the Node Graph get a link each,
+the empty row first, its Lights left to fill in. Right-click a toggle to
 leave it as it comes in (—); right-click Light or Shadow's name for the whole
 column. **+ Add Link** makes a row for each prim selected in the Scene Explorer,
-for the lights selected with them (or the last row's); prims can be dropped on
-it too.
+for the lights selected with them (or the last row's), filling an empty row
+first; prims can be dropped on it too.
 
 A light lights and shadows everything until linked. Off takes the prim (and
 what is below it) out of the light's collection, on puts it back. Rows are

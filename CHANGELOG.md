@@ -16,7 +16,8 @@ version's heading when you tag it.
   list takes its members. The Scene Explorer lists them under the prim holding them;
   clicking one selects its members.
 - **Light linking**: the Light Linker operator, a table of links: each row's
-  lights and prims (or collections), with Light and Shadow toggles, written as the lights' `lightLink` and `shadowLink`, which Arnold reads.
+  lights and prims (or collections), with Light and Shadow toggles (prims
+  dropped on the node get a link each), written as the lights' `lightLink` and `shadowLink`, which Arnold reads.
 
 ### Files
 

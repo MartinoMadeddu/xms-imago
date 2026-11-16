@@ -32,13 +32,13 @@ pub struct Link {
 }
 
 impl Link {
-    /// A new row: both off, the commonest link (a prim the light leaves out).
+    /// A new row: Light and Shadow on, to be turned off.
     pub fn new(light: &str, prim: &str) -> Link {
         Link {
             light: light.to_string(),
             prim: prim.to_string(),
-            lights: Some(false),
-            shadows: Some(false),
+            lights: Some(true),
+            shadows: Some(true),
         }
     }
 
@@ -47,6 +47,18 @@ impl Link {
         !self.light.trim().is_empty()
             && !self.prim.trim().is_empty()
             && (self.lights.is_some() || self.shadows.is_some())
+    }
+}
+
+/// A link for a prim dropped on the operator: in the first row without
+/// prims, else a new row, its lights left to fill in. None for one it has.
+pub fn add_prim(links: &mut Vec<Link>, prim: &str) {
+    if links.iter().any(|l| l.prim == prim) {
+        return;
+    }
+    match links.iter_mut().find(|l| l.prim.trim().is_empty()) {
+        Some(l) => l.prim = prim.to_string(),
+        None => links.push(Link::new("", prim)),
     }
 }
 
@@ -178,6 +190,7 @@ mod tests {
     fn a_link_off_takes_the_prim_out_of_what_the_light_lights() {
         let scene = EvalResult::Named(vec![light("/lights/key"), prim("/set/a"), prim("/set/b")]);
         let links = vec![Link {
+            lights: Some(false),
             shadows: None,
             ..Link::new("/lights/key", "/set/b")
         }];
@@ -193,12 +206,12 @@ mod tests {
     #[test]
     fn a_later_row_on_below_an_earlier_off_is_lit_alone() {
         let scene = EvalResult::Named(vec![light("/lights/rim"), prim("/set/hero"), prim("/set/wall")]);
-        let on = Link {
-            lights: Some(true),
-            shadows: Some(true),
-            ..Link::new("/lights", "/set/hero")
+        let off = Link {
+            lights: Some(false),
+            shadows: Some(false),
+            ..Link::new("/lights/*", "/set")
         };
-        let links = vec![Link::new("/lights/*", "/set"), on];
+        let links = vec![off, Link::new("/lights", "/set/hero")];
         let out = link_lights(&scene, &links);
         for name in [LIGHT_LINK, SHADOW_LINK] {
             let c = collection_of(&out, "/lights/rim", name).unwrap();
@@ -212,7 +225,10 @@ mod tests {
     #[test]
     fn only_lights_are_linked() {
         let mut scene = vec![prim("/set/a")];
-        let links = vec![Link::new("/lights/sun", "/set/a")];
+        let links = vec![Link {
+            lights: Some(false),
+            ..Link::new("/lights/sun", "/set/a")
+        }];
         let EvalResult::Named(out) = link_lights(&EvalResult::Named(scene.clone()), &links) else {
             panic!()
         };
@@ -222,6 +238,19 @@ mod tests {
         assert!(!collection_of(&out, "/lights/sun", LIGHT_LINK).unwrap().has("/set/a"));
         // A row without its prims says nothing.
         assert!(!Link::new("/lights/sun", " ").says_something());
+    }
+
+    #[test]
+    fn a_prim_dropped_fills_the_empty_row_then_adds_one() {
+        let mut links = vec![Link::new("", "")];
+        add_prim(&mut links, "/set/a");
+        add_prim(&mut links, "/set/b");
+        add_prim(&mut links, "/set/a");
+        let prims: Vec<&str> = links.iter().map(|l| l.prim.as_str()).collect();
+        assert_eq!(prims, ["/set/a", "/set/b"]);
+        assert!(links
+            .iter()
+            .all(|l| l.light.is_empty() && l.lights == Some(true) && l.shadows == Some(true)));
     }
 
     #[test]
