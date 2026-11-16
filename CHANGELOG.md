@@ -11,13 +11,16 @@ version's heading when you tag it.
 ### USD
 
 - **Collections**: the Collection operator makes a named set of prims on a
-  Collection Location (`/collections`), paths or patterns included and excluded, written as
-  a USD collection; files' collections are read. `%name` in any Prims Location
-  list takes its members. The Scene Explorer lists them under the prim holding them;
-  clicking one selects its members.
+  Collection Location (`/collections`), paths or patterns included and
+  excluded, written as a USD collection; files' collections are read. `%name`
+  in any Prims Location list takes its members. The Scene Explorer lists them
+  under the prim holding them; clicking one selects its members.
 - **Light linking**: the Light Linker operator, a table of links: each row's
   lights and prims (or collections), with Light and Shadow toggles (prims
-  dropped on the node get a link each), written as the lights' `lightLink` and `shadowLink`, which Arnold reads.
+  dropped on the node get a link each), written as the lights' `lightLink` and
+  `shadowLink`, which Arnold reads.
+- **Light Linker pane**: the table big, beside the lights coming in; a light
+  clicked shows its links alone, prims dropped on it get links for it.
 
 ### Files
 

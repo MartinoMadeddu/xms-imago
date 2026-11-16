@@ -1028,6 +1028,71 @@ impl NodeGraphState {
         Some(id)
     }
 
+    /// A Light Linker wired after the operator with the view flag, viewed and
+    /// selected (the Light Linker pane's button). Its id; `None` with nothing
+    /// viewed.
+    pub fn add_light_linker(&mut self) -> Option<NodeId> {
+        let view = self.view_flag?;
+        let output = self.view_output;
+        let at = self
+            .nodes
+            .iter()
+            .find(|n| n.id == view)
+            .map(|n| n.position + egui::vec2(0.0, 110.0))
+            .unwrap_or_default();
+        let id = self.add_node(
+            "LightLinker".into(),
+            NodeType::LightLinker {
+                links: vec![crate::core::light_link::Link::new("", "")],
+            },
+            at,
+        );
+        self.add_connection(view, output, id, 0);
+        self.view_flag = Some(id);
+        self.view_output = 0;
+        self.selected_node = Some(id);
+        self.selected_nodes = vec![id];
+        Some(id)
+    }
+
+    /// The Light Linker the Light Linker pane edits: the one selected, else
+    /// `kept` (the last it edited) while it is one, else the nearest above
+    /// the viewed operator (it too), else the first of the graph.
+    pub fn light_linker(&self, kept: Option<NodeId>) -> Option<NodeId> {
+        let is = |id: NodeId| {
+            self.nodes
+                .iter()
+                .any(|n| n.id == id && matches!(n.node_type, NodeType::LightLinker { .. }))
+        };
+        if let Some(id) = self.selected_node.filter(|id| is(*id)) {
+            return Some(id);
+        }
+        if let Some(id) = kept.filter(|id| is(*id)) {
+            return Some(id);
+        }
+        let mut at = self.view_flag;
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = at {
+            if !seen.insert(id) {
+                break;
+            }
+            if is(id) {
+                return Some(id);
+            }
+            at = self
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .and_then(|n| n.inputs.first())
+                .and_then(|i| i.connected_output)
+                .map(|(src, _)| src);
+        }
+        self.nodes
+            .iter()
+            .find(|n| matches!(n.node_type, NodeType::LightLinker { .. }))
+            .map(|n| n.id)
+    }
+
     // 👁️ NEW - VIEW FLAG SYSTEM
 
     /// Put the view flag on an operator. On the operator that has it already,

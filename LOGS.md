@@ -890,3 +890,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 16/11/2026: Light Linker operator (core::light_link, properties::light_link): grid of lights by prims, Light and Shadow per cell, written as lightLink/shadowLink collections; collections now nearest-rule as USD (collections::simplify, put, expand_rows). (Martino)
 - 16/11/2026: Light Linker as a table: a row per link (lights, prims), Light and Shadow as columns of toggles, right-click for as it comes in and whole columns; + Add Link from the selection. (Martino)
 - 16/11/2026: Light Linker: starts with one empty row, Light and Shadow on by default, prims dropped on the node get a link each (light_link::add_prim). (Martino)
+- 16/11/2026: Light Linker pane (light_linker.rs, Pane::LightLinker, a tab behind the Node Graph): the linker's table big, the lights coming in beside it to show one's rows and take dropped prims; NodeGraphState::light_linker, add_light_linker. (Martino)

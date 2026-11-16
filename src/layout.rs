@@ -35,10 +35,12 @@ pub enum Pane {
     /// Renders and images: layers (AOVs), exposure, the values under the
     /// pointer.
     ImageViewer,
+    /// The Light Linker's table, big, with the scene's lights beside it.
+    LightLinker,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 11] = [
+    pub const ALL: [Pane; 12] = [
         Pane::Viewer,
         Pane::NodeGraph,
         Pane::SceneExplorer,
@@ -50,6 +52,7 @@ impl Pane {
         Pane::History,
         Pane::CurveEditor,
         Pane::ImageViewer,
+        Pane::LightLinker,
     ];
 
     pub fn title(self) -> &'static str {
@@ -65,6 +68,7 @@ impl Pane {
             Pane::History => "History",
             Pane::CurveEditor => "Curve Editor",
             Pane::ImageViewer => "Image Viewer",
+            Pane::LightLinker => "Light Linker",
         }
     }
 }
@@ -197,14 +201,14 @@ pub fn take_default_request() -> bool {
 /// with the UV editor and the Image Viewer as tabs behind, the primitive
 /// inspector under both. Then the node graph, then the properties over the
 /// operator stack. Timeline along the bottom of those, History down the whole
-/// right side. The Curve Editor is a tab behind the node graph. Built in
-/// code: what is used if `xms_main_layout` could not be read.
+/// right side. The Curve Editor and the Light Linker are tabs behind the node
+/// graph. Built in code: what is used if `xms_main_layout` could not be read.
 pub fn built_dock() -> DockState<Pane> {
     let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
     let s = dock.main_surface_mut();
     let [work, _history] = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
     let [top, _timeline] = s.split_below(work, 0.862, vec![Pane::Timeline]);
-    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor]);
+    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor, Pane::LightLinker]);
     let [view, _prim] = s.split_below(left, 0.72, vec![Pane::PrimInspector]);
     s.split_left(view, 0.163, vec![Pane::SceneExplorer]);
     let [_graph, side] = s.split_right(right, 0.648, vec![Pane::Parameters]);
@@ -774,10 +778,10 @@ mod tests {
             sized: vec![],
             tab_drag: None,
         };
-        // Every pane of that time; the Curve Editor and the Image Viewer
-        // came later, and are ticked in the Window menu.
-        assert_eq!(open(&l), ALL - 2);
-        assert!(!l.is_open(Pane::CurveEditor) && !l.is_open(Pane::ImageViewer));
+        // Every pane of that time; the Curve Editor, the Image Viewer and the
+        // Light Linker came later, and are ticked in the Window menu.
+        assert_eq!(open(&l), ALL - 3);
+        assert!(!l.is_open(Pane::CurveEditor) && !l.is_open(Pane::ImageViewer) && !l.is_open(Pane::LightLinker));
         assert!(l.is_floating(Pane::Parameters) && !l.is_floating(Pane::Viewer));
         let tree = &l.dock[egui_dock::SurfaceIndex::main()];
         match &tree[NodeIndex::root()] {

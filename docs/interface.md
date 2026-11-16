@@ -26,7 +26,8 @@ Save As Shift+S, Quit Q.
 ## Panes
 
 Viewer, Image Viewer, Node Graph, Curve Editor, UV Editor, Scene Explorer,
-Operator Stack, History, Parameters, Primitive Inspector and Timeline, each a
+Operator Stack, History, Parameters, Primitive Inspector, Timeline and Light
+Linker (a tab behind the Node Graph; see [USD](usd.md#light-linking)), each a
 tab. **Window > Layout** has three layouts (xms_main_layout, the default;
 xms_2split_layout; xms_4split_layout) and **Save current as default**. Imago
 opens in the default layout, and File > New and Reset layout go back to it.

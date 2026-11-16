@@ -24,6 +24,7 @@ mod image_viewer;
 mod inside_compound;
 mod keys_ui;
 mod layout;
+mod light_linker;
 mod live;
 mod materialx;
 mod menus;
@@ -1319,6 +1320,11 @@ impl egui_dock::TabViewer for Panes<'_> {
 
             Pane::History => {
                 history::draw(ui, self.history, self.graph.selected_node);
+            }
+
+            Pane::LightLinker => {
+                let selected = self.hierarchy.selected_prim_paths();
+                light_linker::draw(ui, self.graph, &selected);
             }
 
             Pane::ImageViewer => {

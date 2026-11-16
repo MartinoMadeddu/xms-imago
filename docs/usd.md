@@ -790,6 +790,14 @@ taken in order, a later one winning on the same prim, and the nearest prim set
 above another decides: `/set` off, then `/set/hero` on, lights only the hero of
 the set.
 
+**The Light Linker pane** (a tab behind the Node Graph) shows a Light
+Linker's table big: the one selected, else the last it edited, else the
+nearest above the viewed operator; its menu picks another, **+ New** adds one
+after the viewed operator. Beside the table, the lights coming in, each with
+how many rows are for it: click one to show its rows alone (new rows are then
+for it), **All lights** for every row; prims dropped on a light get a row each
+for it.
+
 It is written as the light's `lightLink` and `shadowLink` collections
 (`collection:lightLink:includes`, `:excludes`, `:includeRoot`), on the light
 made in Imago, or as an `over` on a file's; Arnold reads them. What a file
