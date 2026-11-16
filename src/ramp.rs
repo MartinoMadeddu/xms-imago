@@ -3,11 +3,13 @@
 //! A colour ramp is a gradient bar with its keys as handles below it; a float
 //! ramp a small curve with its keys as points. Click to add a key (a colour
 //! key takes the colour there; a float key the value clicked), drag a key to
-//! move it (between the keys either side: they keep their order), right-click it (or Delete with it selected) to take it away. The
-//! key selected has its position and value in fields under the ramp, and the
-//! ramp one interpolation: Step, Linear, Smooth, and Cubic where the target
-//! has it. A ramp is one Rust type, mapped to what holds it: MaterialX's
-//! `ramp` node (`materialx::params`), and next Arnold's ramps and ICE's.
+//! move it (between the keys either side: they keep their order), right-click
+//! it (or Delete with it selected) to take it away. Under it: the
+//! interpolation (Step, Linear, Smooth, and Cubic where the target has it),
+//! Flip and Reset, then a row per key: its number (selecting its handle), its
+//! position, its value (a colour's swatch and RGBA, a float), 🗑. A ramp is one
+//! Rust type, mapped to what holds it: MaterialX's `ramp` node
+//! (`materialx::params`), and next Arnold's ramps and ICE's.
 
 /// How a ramp goes from one key to the next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +20,7 @@ pub enum Interp {
     /// Smoothstep between the two keys (MaterialX's `smooth`).
     Smooth,
     /// Catmull-Rom through the keys around.
+    #[allow(dead_code)] // For Arnold's ramps and ICE's: MaterialX's has none.
     Cubic,
 }
 
@@ -256,44 +259,33 @@ pub fn colour_ramp(ui: &mut egui::Ui, id: egui::Id, ramp: &mut Ramp<[f32; 4]>, l
         changed = true;
     }
 
-    // The interpolation, and the key selected.
-    ui.horizontal(|ui| {
-        changed |= interp_menu(ui, id, &mut ramp.interp, limits.interps);
-        if let Some(k) = selected {
-            ui.separator();
-            ui.label("Position");
-            let (lo, hi) = (between(&ramp.keys, k, 0.0), between(&ramp.keys, k, 1.0));
+    // The interpolation, Flip and Reset; then every key: its place and
+    // colour.
+    let (more, reset) = controls(ui, id, ramp, limits.interps, [0.0, 0.0, 0.0, 1.0], [1.0; 4]);
+    changed |= more;
+    if reset {
+        selected = None;
+    }
+    changed |= key_rows(ui, id, ramp, &mut selected, limits.min_keys, |ui, c| {
+        let mut changed = false;
+        let mut v = *c;
+        if ui.color_edit_button_rgba_unmultiplied(&mut v).changed() {
+            *c = v;
+            changed = true;
+        }
+        for x in c.iter_mut() {
             changed |= ui
-                .add(
-                    egui::DragValue::new(&mut ramp.keys[k].pos)
-                        .range(lo..=hi)
-                        .speed(0.005)
-                        .max_decimals(3),
+                .add_sized(
+                    [46.0, ui.spacing().interact_size.y],
+                    egui::DragValue::new(x)
+                        .speed(0.01)
+                        .max_decimals(3)
+                        .update_while_editing(false),
                 )
                 .changed();
-            let mut c = ramp.keys[k].value;
-            if ui.color_edit_button_rgba_unmultiplied(&mut c).changed() {
-                ramp.keys[k].value = c;
-                changed = true;
-            }
-            for v in ramp.keys[k].value.iter_mut() {
-                changed |= ui
-                    .add(
-                        egui::DragValue::new(v)
-                            .speed(0.01)
-                            .max_decimals(3)
-                            .update_while_editing(false),
-                    )
-                    .changed();
-            }
-        } else {
-            ui.label(egui::RichText::new(format!("{} keys", ramp.keys.len())).weak());
         }
+        changed
     });
-    if flip_reset(ui, ramp, [0.0, 0.0, 0.0, 1.0], [1.0; 4]) {
-        selected = None;
-        changed = true;
-    }
     ui.data_mut(|d| d.insert_temp(selected_id(id), selected));
     changed
 }
@@ -301,7 +293,6 @@ pub fn colour_ramp(ui: &mut egui::Ui, id: egui::Id, ramp: &mut Ramp<[f32; 4]>, l
 /// A float ramp: a curve from `range.0` to `range.1`, its keys as points; the
 /// interpolation, and the key selected's position and value. Whether it
 /// changed.
-#[allow(dead_code)] // Arnold's ramp_float and ICE's Ramp come next.
 pub fn float_ramp(ui: &mut egui::Ui, id: egui::Id, ramp: &mut Ramp<f32>, range: (f32, f32), limits: &Limits) -> bool {
     const H: f32 = 90.0;
     let mut changed = false;
@@ -391,34 +382,21 @@ pub fn float_ramp(ui: &mut egui::Ui, id: egui::Id, ramp: &mut Ramp<f32>, range: 
         selected = None;
         changed = true;
     }
-    ui.horizontal(|ui| {
-        changed |= interp_menu(ui, id, &mut ramp.interp, limits.interps);
-        if let Some(k) = selected {
-            ui.separator();
-            ui.label("Position");
-            let (lo, hi) = (between(&ramp.keys, k, 0.0), between(&ramp.keys, k, 1.0));
-            changed |= ui
-                .add(
-                    egui::DragValue::new(&mut ramp.keys[k].pos)
-                        .range(lo..=hi)
-                        .speed(0.005)
-                        .max_decimals(3),
-                )
-                .changed();
-            ui.label("Value");
-            changed |= ui
-                .add(
-                    egui::DragValue::new(&mut ramp.keys[k].value)
-                        .speed(0.01)
-                        .max_decimals(3),
-                )
-                .changed();
-        }
-    });
-    if flip_reset(ui, ramp, lo, hi) {
+    let (more, reset) = controls(ui, id, ramp, limits.interps, lo, hi);
+    changed |= more;
+    if reset {
         selected = None;
-        changed = true;
     }
+    changed |= key_rows(ui, id, ramp, &mut selected, limits.min_keys, |ui, v| {
+        ui.add_sized(
+            [70.0, ui.spacing().interact_size.y],
+            egui::DragValue::new(v)
+                .speed(0.01)
+                .max_decimals(3)
+                .update_while_editing(false),
+        )
+        .changed()
+    });
     ui.data_mut(|d| d.insert_temp(selected_id(id), selected));
     changed
 }
@@ -468,16 +446,26 @@ fn interp_menu(ui: &mut egui::Ui, id: egui::Id, interp: &mut Interp, offered: &[
     changed
 }
 
-/// Flip (the keys end to end) and Reset (two keys, `from` to `to`).
-fn flip_reset<T: RampValue>(ui: &mut egui::Ui, ramp: &mut Ramp<T>, from: T, to: T) -> bool {
-    let mut changed = false;
+/// The interpolation (of those the target has), Flip (the keys end to end)
+/// and Reset (two keys, `from` to `to`). Whether it changed, and whether the
+/// keys were remade (their selection then gone).
+fn controls<T: RampValue>(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    ramp: &mut Ramp<T>,
+    interps: &[Interp],
+    from: T,
+    to: T,
+) -> (bool, bool) {
+    let (mut changed, mut remade) = (false, false);
     ui.horizontal(|ui| {
-        if ui.small_button("⇄ Flip").on_hover_text("The keys end to end").clicked() {
+        changed |= interp_menu(ui, id, &mut ramp.interp, interps);
+        if ui.small_button("Flip").on_hover_text("The keys end to end").clicked() {
             for k in ramp.keys.iter_mut() {
                 k.pos = 1.0 - k.pos;
             }
             ramp.keys.reverse();
-            changed = true;
+            remade = true;
         }
         if ui
             .small_button("↺ Reset")
@@ -485,9 +473,67 @@ fn flip_reset<T: RampValue>(ui: &mut egui::Ui, ramp: &mut Ramp<T>, from: T, to: 
             .clicked()
         {
             ramp.keys = vec![Key { pos: 0.0, value: from }, Key { pos: 1.0, value: to }];
-            changed = true;
+            remade = true;
         }
     });
+    (changed || remade, remade)
+}
+
+/// A row per key, in order: its number (click: selected, its handle lit), its
+/// position (between the keys either side), its value (`value`: a colour's
+/// swatch and RGBA, a float), and 🗑 while there are more than `min_keys`.
+fn key_rows<T: RampValue>(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    ramp: &mut Ramp<T>,
+    selected: &mut Option<usize>,
+    min_keys: usize,
+    mut value: impl FnMut(&mut egui::Ui, &mut T) -> bool,
+) -> bool {
+    let mut changed = false;
+    let mut remove = None;
+    egui::Grid::new(id.with("keys"))
+        .num_columns(4)
+        .spacing([6.0, 2.0])
+        .striped(true)
+        .show(ui, |ui| {
+            for k in 0..ramp.keys.len() {
+                let on = *selected == Some(k);
+                if ui
+                    .selectable_label(on, format!("{}", k + 1))
+                    .on_hover_text("Select its handle")
+                    .clicked()
+                {
+                    *selected = if on { None } else { Some(k) };
+                }
+                let (lo, hi) = (between(&ramp.keys, k, 0.0), between(&ramp.keys, k, 1.0));
+                changed |= ui
+                    .add_sized(
+                        [56.0, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut ramp.keys[k].pos)
+                            .range(lo..=hi)
+                            .speed(0.005)
+                            .max_decimals(3),
+                    )
+                    .on_hover_text("Position, 0 to 1: between the keys either side")
+                    .changed();
+                ui.horizontal(|ui| changed |= value(ui, &mut ramp.keys[k].value));
+                let can = ramp.keys.len() > min_keys;
+                if ui
+                    .add_enabled(can, egui::Button::new("🗑").small())
+                    .on_hover_text("Take the key away")
+                    .clicked()
+                {
+                    remove = Some(k);
+                }
+                ui.end_row();
+            }
+        });
+    if let Some(k) = remove {
+        ramp.keys.remove(k);
+        *selected = None;
+        changed = true;
+    }
     changed
 }
 

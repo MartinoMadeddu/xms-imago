@@ -192,43 +192,72 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
 
 /// A `ramp` node's keys in the ramp widget: its colours along the bar, its
 /// interpolation (Linear, Smooth, Step, as MaterialX has them), two to ten
-/// keys.
+/// keys. Shown as **Float** instead, a curve: each key's value its grey (R, G
+/// and B the value, alpha 1), for a ramp read as a float (its `out` through an
+/// `extract` or `convert`). MaterialX has no float `ramp`; `ramplr`,
+/// `ramptb` and `ramp4` are two or four values blended, edited as they are.
 fn ramp_group(ui: &mut egui::Ui, op: NodeId, id: u32, keys: &xms_matx::ramp::Keys, graph: &mut Graph) {
-    use crate::ramp::{colour_ramp, Interp, Key, Limits, Ramp};
+    use crate::ramp::{colour_ramp, float_ramp, Interp, Key, Limits, Ramp};
     let interp = match keys.interpolation {
         0 => Interp::Linear,
         2 => Interp::Step,
         _ => Interp::Smooth,
-    };
-    let mut ramp = Ramp {
-        keys: keys.keys.iter().map(|&(pos, value)| Key { pos, value }).collect(),
-        interp,
     };
     let limits = Limits {
         interps: &[Interp::Linear, Interp::Smooth, Interp::Step],
         min_keys: xms_matx::ramp::MIN_KEYS,
         max_keys: xms_matx::ramp::MAX_KEYS,
     };
-    let mut changed = false;
+    let widget = egui::Id::new(("matx_ramp", op.0, id));
+    // Float or colour, as last chosen for it: colour to start with.
+    let mut as_float = ui.data(|d| d.get_temp::<bool>(widget.with("float"))).unwrap_or(false);
+    let mut out: Option<Vec<(f32, [f32; 4])>> = None;
+    let mut new_interp = interp;
     group(
         ui,
         "Ramp",
-        Some("Its keys along the ramp: click the bar for a key, drag a handle to move it, right-click it to take it away. Two to ten keys, as MaterialX's ramp takes; the colours are linear, shown as sRGB"),
+        Some("Its keys along the ramp: click for a key, drag one to move it, right-click it to take it away; each key listed under it with its place and value. Two to ten keys, as MaterialX's ramp takes. Colour: linear colours, shown as sRGB. Float: a curve, each key's value its grey, for a ramp read as a float"),
         |f| {
-            changed = colour_ramp(&mut *f.ui, egui::Id::new(("matx_ramp", op.0, id)), &mut ramp, &limits);
+            let ui = &mut *f.ui;
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut as_float, false, "Colour")
+                    .on_hover_text("Its keys as colours along a bar");
+                ui.selectable_value(&mut as_float, true, "Float")
+                    .on_hover_text("Its keys as values on a curve: each colour's grey (the mean of R, G and B), written back as R, G and B with alpha 1");
+            });
+            if as_float {
+                let mut ramp = Ramp {
+                    keys: keys
+                        .keys
+                        .iter()
+                        .map(|&(pos, c)| Key { pos, value: (c[0] + c[1] + c[2]) / 3.0 })
+                        .collect(),
+                    interp,
+                };
+                if float_ramp(ui, widget.with("f"), &mut ramp, (0.0, 1.0), &limits) {
+                    out = Some(ramp.keys.iter().map(|k| (k.pos, [k.value, k.value, k.value, 1.0])).collect());
+                    new_interp = ramp.interp;
+                }
+            } else {
+                let mut ramp = Ramp {
+                    keys: keys.keys.iter().map(|&(pos, value)| Key { pos, value }).collect(),
+                    interp,
+                };
+                if colour_ramp(ui, widget, &mut ramp, &limits) {
+                    out = Some(ramp.keys.iter().map(|k| (k.pos, k.value)).collect());
+                    new_interp = ramp.interp;
+                }
+            }
         },
     );
-    if changed {
-        let interpolation = match ramp.interp {
+    ui.data_mut(|d| d.insert_temp(widget.with("float"), as_float));
+    if let Some(keys) = out {
+        let interpolation = match new_interp {
             Interp::Linear => 0,
             Interp::Step => 2,
             _ => 1,
         };
-        let keys = xms_matx::ramp::Keys {
-            keys: ramp.keys.iter().map(|k| (k.pos, k.value)).collect(),
-            interpolation,
-        };
-        xms_matx::ramp::write(graph, id, &keys);
+        xms_matx::ramp::write(graph, id, &xms_matx::ramp::Keys { keys, interpolation });
     }
 }
 

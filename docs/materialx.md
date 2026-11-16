@@ -107,15 +107,25 @@ Viewer shows of it.
 
 A **`ramp`** (Procedural 2D: MaterialX 1.39's, up to ten keys along its UVs,
 or along a value fed into its `texcoord`) has its keys as a **Ramp** in place
-of their forty inputs: a gradient bar with a handle under each key. Click the
-bar for a key of the colour there; drag a handle to move it (between the keys
-either side, so they keep their order); right-click it, or Delete with it
-selected, to take it away. Under the bar: the interpolation (Linear, Smooth,
-Step), and the key selected's position and colour (a swatch and RGBA). ⇄ Flip
-turns the keys end to end, ↺ Reset makes it black to white. Two to ten keys,
-as the node takes; written as its `num_intervals`, `intervalN` and `colorN`,
-in order. A key's input connected to another node, the ramp is edited input
-by input instead. Colours are linear, shown as sRGB.
+of their forty inputs, shown as **Colour** or **Float**:
+
+- **Colour:** a gradient bar with a handle under each key. Click the bar for a
+  key of the colour there; drag a handle to move it (between the keys either
+  side, so they keep their order); right-click it, or Delete with it selected,
+  to take it away.
+- **Float:** a curve, each key a point: click for a key at the value clicked,
+  drag a point (along and up), right-click it to take it away. Each key's value
+  is its grey, written as R, G and B with alpha 1: for a ramp read as a float,
+  its `out` through an `extract` or `convert`. MaterialX has no float `ramp`.
+- **Under it:** the interpolation (Linear, Smooth, Step), Flip (the keys end to
+  end), ↺ Reset, then a row per key: its number (click: its handle selected),
+  its position, its colour (a swatch and RGBA) or value, and 🗑.
+
+Two to ten keys, as the node takes; written as its `num_intervals`,
+`intervalN` and `colorN`, in order. A key's input connected to another node,
+the ramp is edited input by input instead. Colours are linear, shown as sRGB.
+`ramplr`, `ramptb` and `ramp4` blend two or four values (left and right, top
+and bottom, the corners): their inputs are those values, edited as they are.
 
 A texture's file has a **Colour Space** under it (MaterialX's and USD's own
 image nodes; a renderer's image node has its own input for it): what its

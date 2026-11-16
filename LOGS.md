@@ -895,3 +895,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 16/11/2026: Release 0.3.5. (Martino)
 - 16/11/2026: Texture colour spaces: xms_matx Node::spaces and Graph::colorspace (space_of), read and written in .mtlx (document, import's input/node/nodegraph/document colorspace) and USD (colorSpace metadata, UsdUVTexture sourceColorSpace), from_usd and to_scene read colorSpace on any input; Colour Space menu under a texture's file in the MaterialX parameters. (Martino)
 - 16/11/2026: Ramp widget (ramp.rs: Ramp<T>, Interp Step/Linear/Smooth/Cubic, colour_ramp bar and float_ramp curve; keys kept in order while dragged) and MaterialX's ramp edited with it (xms_matx::ramp read/write of num_intervals, intervalN, colorN, interpolation). (Martino)
+- 16/11/2026: Ramp widget: a row per key (number selecting its handle, position, colour picker and RGBA or value, remove); MaterialX's ramp as Colour or Float (keys as greys). (Martino)
