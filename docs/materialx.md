@@ -105,6 +105,18 @@ put it back to its default. Inputs the library marks advanced show when
 scene graph, the pane shows the material's name, its surface shader and what the
 Viewer shows of it.
 
+A **`ramp`** (Procedural 2D: MaterialX 1.39's, up to ten keys along its UVs,
+or along a value fed into its `texcoord`) has its keys as a **Ramp** in place
+of their forty inputs: a gradient bar with a handle under each key. Click the
+bar for a key of the colour there; drag a handle to move it (between the keys
+either side, so they keep their order); right-click it, or Delete with it
+selected, to take it away. Under the bar: the interpolation (Linear, Smooth,
+Step), and the key selected's position and colour (a swatch and RGBA). ⇄ Flip
+turns the keys end to end, ↺ Reset makes it black to white. Two to ten keys,
+as the node takes; written as its `num_intervals`, `intervalN` and `colorN`,
+in order. A key's input connected to another node, the ramp is edited input
+by input instead. Colours are linear, shown as sRGB.
+
 A texture's file has a **Colour Space** under it (MaterialX's and USD's own
 image nodes; a renderer's image node has its own input for it): what its
 colours are in, for the renderer to convert from. **Auto** gives none: the

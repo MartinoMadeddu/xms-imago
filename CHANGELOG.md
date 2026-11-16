@@ -10,6 +10,11 @@ version's heading when you tag it.
 
 ### MaterialX
 
+- **Ramp widget**: MaterialX's `ramp` node edited as a gradient bar with its
+  keys as handles (click to add, drag, right-click to remove), its
+  interpolation and the selected key's position and colour; Flip and Reset.
+  The same widget draws float ramps as a curve, for Arnold's and ICE's ramps
+  next.
 - **Texture colour spaces**: a Colour Space under a texture's file (Auto,
   `srgb_texture`, `lin_rec709`, `acescg`, `raw`, or any of the OCIO config's),
   kept from `.mtlx` files (input, node, node graph and document `colorspace`)

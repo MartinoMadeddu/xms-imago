@@ -132,6 +132,12 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
         }
     });
 
+    // A `ramp`: its keys as a ramp, in place of their inputs.
+    let keys = xms_matx::ramp::read(graph, lib, id);
+    if let Some(k) = &keys {
+        ramp_group(ui, op, id, k, graph);
+    }
+
     // Its inputs, by folder
     let mut advanced = ui.data(|d| d.get_temp::<bool>(advanced_id(op))).unwrap_or(false);
     let has_advanced = def.inputs.iter().any(|i| i.ui.advanced && i.ui.visible);
@@ -149,6 +155,7 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
             .enumerate()
             .filter(|(_, i)| i.ui.folder.as_deref().unwrap_or("Inputs") == folder)
             .filter(|(_, i)| i.ui.visible && (advanced || !i.ui.advanced || node.binding(&i.name).is_some()))
+            .filter(|(_, i)| keys.is_none() || !xms_matx::ramp::is_key_input(&i.name))
             .collect();
         if inputs.is_empty() {
             continue;
@@ -181,6 +188,48 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
             f.value(&o.name, o.ty.name());
         }
     });
+}
+
+/// A `ramp` node's keys in the ramp widget: its colours along the bar, its
+/// interpolation (Linear, Smooth, Step, as MaterialX has them), two to ten
+/// keys.
+fn ramp_group(ui: &mut egui::Ui, op: NodeId, id: u32, keys: &xms_matx::ramp::Keys, graph: &mut Graph) {
+    use crate::ramp::{colour_ramp, Interp, Key, Limits, Ramp};
+    let interp = match keys.interpolation {
+        0 => Interp::Linear,
+        2 => Interp::Step,
+        _ => Interp::Smooth,
+    };
+    let mut ramp = Ramp {
+        keys: keys.keys.iter().map(|&(pos, value)| Key { pos, value }).collect(),
+        interp,
+    };
+    let limits = Limits {
+        interps: &[Interp::Linear, Interp::Smooth, Interp::Step],
+        min_keys: xms_matx::ramp::MIN_KEYS,
+        max_keys: xms_matx::ramp::MAX_KEYS,
+    };
+    let mut changed = false;
+    group(
+        ui,
+        "Ramp",
+        Some("Its keys along the ramp: click the bar for a key, drag a handle to move it, right-click it to take it away. Two to ten keys, as MaterialX's ramp takes; the colours are linear, shown as sRGB"),
+        |f| {
+            changed = colour_ramp(&mut *f.ui, egui::Id::new(("matx_ramp", op.0, id)), &mut ramp, &limits);
+        },
+    );
+    if changed {
+        let interpolation = match ramp.interp {
+            Interp::Linear => 0,
+            Interp::Step => 2,
+            _ => 1,
+        };
+        let keys = xms_matx::ramp::Keys {
+            keys: ramp.keys.iter().map(|k| (k.pos, k.value)).collect(),
+            interpolation,
+        };
+        xms_matx::ramp::write(graph, id, &keys);
+    }
 }
 
 /// One input: where it is connected from, or its value.

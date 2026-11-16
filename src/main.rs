@@ -33,6 +33,7 @@ mod node_graph;
 mod prim_inspector;
 mod properties;
 mod ragdoll;
+mod ramp;
 mod recent;
 #[cfg(test)]
 mod regress;

@@ -31,6 +31,7 @@ pub mod graph;
 pub mod import;
 pub mod library;
 pub mod preview;
+pub mod ramp;
 pub mod types;
 pub mod usd;
 pub mod xml;
