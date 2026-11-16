@@ -143,8 +143,7 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, selected: &[String]) 
                 Some(f) => ui.label(egui::RichText::new(format!("Links of {f}")).strong()),
                 None => ui.label(egui::RichText::new("Every link").strong()),
             };
-            let w = ((body.width() - 220.0) / 2.0).clamp(150.0, 420.0);
-            table(ui, links, &scene, kept.focus.as_deref(), w);
+            table(ui, links, &scene, kept.focus.as_deref());
         });
     ui.allocate_rect(all, egui::Sense::hover());
     ui.data_mut(|d| d.insert_temp(kept_id, kept));

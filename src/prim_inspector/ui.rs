@@ -14,7 +14,7 @@ const MAX_ROWS: usize = 200; // max rows rendered at once (virtual scroll)
 const ARRAY_CHAR_W: f32 = 6.2;
 const ARRAY_COL_MAX_W: f32 = 420.0;
 
-mod xsi {
+pub(crate) mod xsi {
     // Light-theme colours. `theme::c` returns the dark counterpart in dark mode.
     #![allow(non_snake_case)]
     use egui::Color32;
