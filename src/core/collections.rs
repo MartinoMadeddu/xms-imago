@@ -7,8 +7,9 @@
 //!   are matched against the scene coming in when the collection is made, so
 //!   the collection holds paths, as USD writes it (`rel …:includes`).
 //! - Expand Prims (the default): an include takes its prim and everything
-//!   below it, an exclude takes its prim and everything below it out. Explicit
-//!   Only: the prims named, and only those.
+//!   below it, an exclude takes its prim and everything below it out; the
+//!   nearest of them above a prim decides, as in USD. Explicit Only: the prims
+//!   named, and only those.
 //! - `%other` in a collection's rows takes the other collection's includes and
 //!   excludes into this one.
 //! - Two collections of one name (on different prims): `%name` takes both.
@@ -97,17 +98,28 @@ pub fn parse_row(row: &str) -> Option<(bool, Vec<&str>, Vec<&str>)> {
     Some((explicit, inc, exc))
 }
 
-/// Whether a path is a member: under an include (Expand Prims) and under no
-/// exclude, or (Explicit Only) named by an include and by no exclude.
+/// Whether a path is a member. Expand Prims: the nearest include or exclude
+/// at or above it decides, as USD has it (`/` included, `/set` excluded,
+/// `/set/lamp` included: the lamp is in, the rest of `/set` out); one path
+/// both is out. Explicit Only: named by an include and by no exclude.
 fn member<S: AsRef<str>>(explicit: bool, includes: &[S], excludes: &[S], path: &str) -> bool {
-    let at_or_below = |p: &str| {
-        let p = p.trim_end_matches('/');
-        p.is_empty() || path == p || path.strip_prefix(p).is_some_and(|r| r.starts_with('/'))
-    };
     if explicit {
-        includes.iter().any(|i| i.as_ref() == path) && !excludes.iter().any(|e| e.as_ref() == path)
-    } else {
-        includes.iter().any(|i| at_or_below(i.as_ref())) && !excludes.iter().any(|e| at_or_below(e.as_ref()))
+        return includes.iter().any(|i| i.as_ref() == path) && !excludes.iter().any(|e| e.as_ref() == path);
+    }
+    // How deep the nearest of a list at or above the path is.
+    let nearest = |list: &[S]| {
+        list.iter()
+            .filter_map(|p| {
+                let p = p.as_ref().trim_end_matches('/');
+                let above = p.is_empty() || path == p || path.strip_prefix(p).is_some_and(|r| r.starts_with('/'));
+                above.then(|| p.len())
+            })
+            .max()
+    };
+    match (nearest(includes), nearest(excludes)) {
+        (Some(i), Some(e)) => i > e,
+        (Some(_), None) => true,
+        _ => false,
     }
 }
 
@@ -244,11 +256,17 @@ pub fn clean_name(name: &str) -> String {
     out
 }
 
+/// Rows as paths (see `paths`): what they take, and what `%other` takes out.
+/// What the Light Linker links.
+pub fn expand_rows(rows: &[String], known: &[String], held: &[Held]) -> (Vec<String>, Vec<String>) {
+    paths(rows, known, held, true)
+}
+
 /// Rows as paths: a path as it is, a pattern as every prim of the scene it
 /// names (`known`), `%other` as that collection's rows (`own` takes its
-/// includes, else its excludes). For Expand Prims, a path below another is
-/// left out.
-fn paths(rows: &[String], known: &[String], held: &[Held], explicit: bool, own: bool) -> (Vec<String>, Vec<String>) {
+/// includes, else its excludes): the paths, and what `%other` brings to the
+/// other list.
+fn paths(rows: &[String], known: &[String], held: &[Held], own: bool) -> (Vec<String>, Vec<String>) {
     let (mut main, mut other) = (vec![], vec![]);
     let push = |v: &mut Vec<String>, p: String| {
         if !v.contains(&p) {
@@ -274,20 +292,34 @@ fn paths(rows: &[String], known: &[String], held: &[Held], explicit: bool, own: 
             push(&mut main, format!("/{p}"));
         }
     }
-    if !explicit {
-        main = topmost(main);
-    }
     (main, other)
 }
 
-/// Paths without those below another of them.
-fn topmost(paths: Vec<String>) -> Vec<String> {
-    let below = |p: &str, of: &str| of == "/" || p.strip_prefix(of).is_some_and(|r| r.starts_with('/'));
-    paths
-        .iter()
-        .filter(|p| !paths.iter().any(|o| o != *p && below(p, o)))
-        .cloned()
-        .collect()
+/// An Expand Prims collection without the paths that change nothing: an
+/// include where what is above it includes it already, an exclude where it is
+/// out already.
+pub fn simplify(c: &mut Collection) {
+    if c.explicit_only {
+        return;
+    }
+    let mut k = 0;
+    while k < c.includes.len() {
+        let p = c.includes.remove(k);
+        if member(false, &c.includes, &c.excludes, &p) {
+            continue;
+        }
+        c.includes.insert(k, p);
+        k += 1;
+    }
+    let mut k = 0;
+    while k < c.excludes.len() {
+        let p = c.excludes.remove(k);
+        if !member(false, &c.includes, &c.excludes, &p) {
+            continue;
+        }
+        c.excludes.insert(k, p);
+        k += 1;
+    }
 }
 
 /// The collection a Collection operator makes, from the scene coming in.
@@ -298,8 +330,8 @@ pub fn collection(m: &Made, prims: &[Prim]) -> Option<Collection> {
     }
     let known = crate::node_graph::scene_paths(prims);
     let held = gather(prims);
-    let (mut includes, from_inc) = paths(m.includes, &known, &held, m.explicit_only, true);
-    let (mut excludes, from_exc) = paths(m.excludes, &known, &held, m.explicit_only, false);
+    let (mut includes, from_inc) = paths(m.includes, &known, &held, true);
+    let (mut excludes, from_exc) = paths(m.excludes, &known, &held, false);
     // What `%other` brings: its excludes go with this one's, and the reverse.
     for p in from_inc {
         if !excludes.contains(&p) {
@@ -311,16 +343,14 @@ pub fn collection(m: &Made, prims: &[Prim]) -> Option<Collection> {
             includes.push(p);
         }
     }
-    if !m.explicit_only {
-        includes = topmost(includes);
-        excludes = topmost(excludes);
-    }
-    Some(Collection {
+    let mut c = Collection {
         name,
         includes,
         excludes,
         explicit_only: m.explicit_only,
-    })
+    };
+    simplify(&mut c);
+    Some(c)
 }
 
 /// Its variables put in (`$OPNAME`).
@@ -360,23 +390,28 @@ pub fn make(input: &EvalResult, m: &Made) -> EvalResult {
     let Some(c) = collection(m, prims) else {
         return input.clone();
     };
-    let holder = holder_path(m.location);
     let mut out = prims.clone();
-    let k = match out.iter().position(|p| p.path == holder && p.instanced_by.is_none()) {
+    put(&mut out, &holder_path(m.location), c);
+    EvalResult::Named(out)
+}
+
+/// A collection put on the prim at `holder` (one made where there is none),
+/// in the place of one of its name there.
+pub fn put(prims: &mut Vec<Prim>, holder: &str, c: Collection) {
+    let k = match prims.iter().position(|p| p.path == holder && p.instanced_by.is_none()) {
         Some(k) => k,
         None => {
-            out.push(holder_prim(&holder));
-            out.len() - 1
+            prims.push(holder_prim(holder));
+            prims.len() - 1
         }
     };
-    let p = &mut out[k];
+    let p = &mut prims[k];
     let mut list: Vec<Collection> = p.collections.as_deref().cloned().unwrap_or_default();
     match list.iter_mut().find(|x| x.name == c.name) {
         Some(x) => *x = c,
         None => list.push(c),
     }
     p.collections = Some(Arc::new(list));
-    EvalResult::Named(out)
 }
 
 // USD
@@ -481,6 +516,10 @@ mod tests {
             explicit_only: false,
         };
         assert!(c.has("/a") && c.has("/a/x/y") && !c.has("/a/b/z") && !c.has("/ab"));
+        // The nearest decides: an include below an exclude is in.
+        c.includes.push("/a/b/keep".into());
+        assert!(c.has("/a/b/keep/x") && !c.has("/a/b/other"));
+        c.includes.pop();
         c.explicit_only = true;
         assert!(c.has("/a") && !c.has("/a/x"));
     }

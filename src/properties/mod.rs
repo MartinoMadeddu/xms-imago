@@ -3,6 +3,7 @@ pub mod edit_primitive;
 pub mod form;
 pub mod frames;
 pub mod light;
+pub mod light_link;
 pub mod render;
 pub mod rename;
 pub mod reparent;

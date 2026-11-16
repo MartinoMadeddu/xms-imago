@@ -340,6 +340,18 @@ pub enum NodeType {
         #[serde(default)]
         bitangents: bool,
     },
+    /// Light linking as a grid: a row per light (`lights`: paths, patterns,
+    /// `%collection`), a column per prim (`prims`), and in each cell (`links`)
+    /// Light and Shadow on, off or as they come in. Written as the lights'
+    /// `lightLink` and `shadowLink` collections. See `core::light_link`.
+    LightLinker {
+        #[serde(default)]
+        lights: Vec<String>,
+        #[serde(default)]
+        prims: Vec<String>,
+        #[serde(default)]
+        links: Vec<crate::core::light_link::Link>,
+    },
     /// A collection `name` on the prim at `location` (made where there is none):
     /// the prims `includes` names (paths or patterns, `%other`) less those
     /// `excludes` names, with what is below them unless `explicit_only`.
@@ -1223,6 +1235,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Normals { .. } => "⊥",
         NodeType::Tangents { .. } => "∥",
         NodeType::Collection { .. } => "▦",
+        NodeType::LightLinker { .. } => "🔦",
         NodeType::Variant { .. } => "🔀",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
@@ -1326,6 +1339,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Normals { .. } => "Normals",
         NodeType::Tangents { .. } => "Tangents",
         NodeType::Collection { .. } => "Collection",
+        NodeType::LightLinker { .. } => "Light Linker",
         NodeType::Variant { .. } => "Variant",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",

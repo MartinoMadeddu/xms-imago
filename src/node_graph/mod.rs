@@ -661,6 +661,7 @@ impl NodeGraphState {
             | NodeType::Normals { .. }
             | NodeType::Tangents { .. }
             | NodeType::Collection { .. }
+            | NodeType::LightLinker { .. }
             | NodeType::RenameAttribute { .. } => (vec![i("Scene")], vec![o("Scene")]),
             // Create: the scene, then a variant per input, one kept free.
             NodeType::Variant { mode, names, .. } => (
@@ -1278,6 +1279,34 @@ impl NodeGraphState {
             self.eval_node_out(id, output, &mut HashMap::new(), eval_subnet)
                 .as_ref(),
         );
+        if let Ok(mut last) = LAST.lock() {
+            *last = Some((key, id.0, output, value.clone()));
+        }
+        value
+    }
+
+    /// The paths of the lights of the scene an output puts out, for a Light
+    /// Linker's panel. Kept until the graph changes.
+    pub fn eval_light_paths(
+        &self,
+        id: NodeId,
+        output: usize,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
+    ) -> Vec<String> {
+        type Kept = (u64, usize, usize, Vec<String>);
+        static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+        let key = self.content_hash();
+        if let Ok(last) = LAST.lock() {
+            if let Some((k, i, o, value)) = &*last {
+                if *k == key && *i == id.0 && *o == output {
+                    return value.clone();
+                }
+            }
+        }
+        let value = match self.eval_node_out(id, output, &mut HashMap::new(), eval_subnet) {
+            Some(EvalResult::Named(prims)) => crate::core::light_link::light_paths(&prims),
+            _ => vec![],
+        };
         if let Ok(mut last) = LAST.lock() {
             *last = Some((key, id.0, output, value.clone()));
         }

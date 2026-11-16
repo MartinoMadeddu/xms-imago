@@ -23,6 +23,8 @@ pub mod instancing;
 pub mod keys;
 /// Lights: UsdLux's types and values, from `assets/usdlux.json`.
 pub mod light;
+/// Light linking: what each light lights and shadows (lightLink, shadowLink).
+pub mod light_link;
 /// Primitive Locations: the paths an operator works on.
 pub mod locations;
 pub mod manip;

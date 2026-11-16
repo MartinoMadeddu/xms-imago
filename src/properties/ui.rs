@@ -510,7 +510,29 @@ pub fn draw_properties(
         .nodes
         .iter()
         .find(|n| n.id == sel_id)
-        .is_some_and(|n| matches!(n.node_type, NodeType::Collection { .. }));
+        .is_some_and(|n| matches!(n.node_type, NodeType::Collection { .. } | NodeType::LightLinker { .. }));
+    let linking = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == sel_id)
+        .is_some_and(|n| matches!(n.node_type, NodeType::LightLinker { .. }));
+    // The lights coming into a Light Linker.
+    let lights_in: Vec<String> = if linking {
+        graph
+            .nodes
+            .iter()
+            .find(|n| n.id == sel_id)
+            .and_then(|n| n.inputs.first())
+            .and_then(|i| i.connected_output)
+            .map(|(src, out)| {
+                let pass =
+                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                graph.eval_light_paths(src, out, &pass)
+            })
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
     // The collections coming in: `%name` rows, and a Collection's own.
     let held_in: Vec<crate::core::collections::Held> = if on_locations || collecting {
         graph
@@ -1250,6 +1272,18 @@ pub fn draw_properties(
             uv,
             bitangents,
         } => super::frames::tangents_rows(ui, context, from, uv, bitangents),
+        NodeType::LightLinker { lights, prims, links } => super::light_link::rows(
+            ui,
+            lights,
+            prims,
+            links,
+            &super::light_link::Scene {
+                paths: &scene_in,
+                lights: &lights_in,
+                selected: &io.scene_paths,
+                held: &held_in,
+            },
+        ),
         NodeType::Collection {
             name,
             location,

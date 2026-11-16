@@ -550,7 +550,7 @@ Rigid Bind, Rigid Skin, Rig Proxy; see `docs/rigging.md`).
 
 ## 8. Collections & Linking
 
-Status: **8.1 done**, 8.2 and 8.3 not yet. Collections are the third kind of
+Status: **8.1 and 8.2 done**, 8.3 not yet. Collections are the third kind of
 Primitive Locations entry (1.3): `%name`.
 
 ### 8.1 Create Collection
@@ -567,6 +567,9 @@ Primitive Locations entry (1.3): `%name`.
 - **Parameters:** include collection; exclude collection
 - **USD mapping:** `collection:lightLink`, `collection:shadowLink` on
   `UsdLuxLightAPI`
+- **Done**: the **Light Linker**, a grid of lights by prims (paths, patterns,
+  `%collection`), each cell's Light and Shadow on, off or as they come in;
+  files' links are where it starts from. See `docs/usd.md`
 
 ### 8.3 Material Binding by Collection
 - **Parameters:** collection; material; binding strength

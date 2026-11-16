@@ -15,6 +15,9 @@ version's heading when you tag it.
   a USD collection; files' collections are read. `%name` in any Prims Location
   list takes its members. The Scene Explorer lists them under the prim holding them;
   clicking one selects its members.
+- **Light linking**: the Light Linker operator, a grid of lights by prims (or
+  collections), each cell's Light and Shadow on, off or as they come in,
+  written as the lights' `lightLink` and `shadowLink`, which Arnold reads.
 
 ### Files
 
