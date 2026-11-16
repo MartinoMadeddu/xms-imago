@@ -634,6 +634,10 @@ pub enum NodeType {
         outputs: Vec<String>,
         #[serde(default)]
         description: String,
+        /// An operator this Imago cannot read (a newer Imago's), as the file
+        /// had it: written back in its place on saving, so nothing is lost.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unknown: Option<serde_json::Value>,
     },
     /// Hands what comes in on to what follows, unchanged: geometry, a clip, a
     /// material. For laying out big graphs: a place to gather wires, a named

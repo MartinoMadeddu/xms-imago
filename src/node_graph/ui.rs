@@ -1484,7 +1484,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::TestClip { seconds: 4.0, fps_num: 30, fps_den: 1 }, "A walk on the spot, to try the animation nodes"),
         ]),
         ("📝", "Placeholder", vec![
-            (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new() }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
+            (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new(), unknown: None }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
         ]),
         ("↓", "Organise", vec![
             (NodeType::SetVariable { vars: vec![crate::core::vars::Variable::new("shot", "")] }, "Variables of its own, written {name}, for every operator below it: a shot, a variant, a folder. What comes in goes on"),

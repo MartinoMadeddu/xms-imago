@@ -885,3 +885,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 12/11/2026: Live Arnold layer stays light on every reload: files' prims changed by deformers/graphs are the file's in the layer; points (PointKeys with motion blur) and primvars (user data, widths as radius) go in memory (Change::PointKeys, Change::Primvars, Live::edit's light reload). (Martino)
 - 12/11/2026: ICE Tangent: intrinsic:tangent (Point on meshes and curves, Corner on meshes, xms_geo::frames), a Geometry menu entry, @intrinsic:tangent in ISL. (Martino)
 - 12/11/2026: Release 0.3.4. (Martino)
+- 16/11/2026: Graph files: FORMAT_VERSION; a newer layout refused with which Imago saved it; unknown operators open as Placeholders keeping the original (Placeholder::unknown) and are written back on saving and copying. (Martino)

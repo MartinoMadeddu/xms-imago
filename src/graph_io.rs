@@ -4,6 +4,13 @@
 //! A graph file holds the scene graph's nodes and wires, and the graph of each
 //! ICE node (`trees`), as copied nodes carry them. A file saved before ICE
 //! graphs were saved opens with empty ones, as it did.
+//!
+//! Every file carries its layout's version (`version`, `FORMAT_VERSION` when
+//! written) and the Imago that wrote it (`saved_with`). An older layout is
+//! brought up to date as it is read (`upgrade_json`, `upgrade`). A newer one
+//! is refused, with what to do. An operator this Imago does not know (a newer
+//! Imago's, in a layout it reads) opens as a Placeholder with its wires, and
+//! is written back as it was on saving.
 
 use std::path::Path;
 
@@ -45,11 +52,19 @@ struct SavedNode {
     spare: crate::node_graph::spare::Spare,
 }
 
+/// The layout of graph files this Imago writes, and the newest it reads. Raised
+/// when a file's meaning changes so that an older one must be read otherwise
+/// (`upgrade_json`, `upgrade` and `restore_tree` look at it); not for an
+/// operator or a parameter added, which older files simply lack.
+///
+/// - 1: the first.
+/// - 2: Get Data's Index alone reads elements by number (in 1, at the place
+///   (0, 0) of that Polygon).
+pub const FORMAT_VERSION: u32 = 2;
+
 #[derive(Serialize, Deserialize)]
 struct SavedGraph {
-    /// The file's layout, for reading older files (not Imago's version): 2
-    /// since Get Data's Index alone reads elements by number (before it, at
-    /// the place (0, 0) of that Polygon).
+    /// The file's layout (`FORMAT_VERSION`), not Imago's version.
     version: u32,
     /// The Imago that wrote it (`crate::version`), to tell later which build
     /// a file came from. Files written before it have none.
@@ -146,7 +161,7 @@ fn json_listing(
     let all: Vec<&crate::node_graph::GraphNode> = graph.nodes.iter().collect();
     let saved = SavedGraph {
         trees: saved_trees(&all, subnets),
-        version: 2,
+        version: FORMAT_VERSION,
         saved_with: crate::version(),
         nodes: graph
             .nodes
@@ -176,14 +191,114 @@ fn json_listing(
         variables: graph.variables.clone(),
         display_attributes,
     };
-    serde_json::to_string_pretty(&saved).unwrap_or_default()
+    let mut value = serde_json::to_value(&saved).unwrap_or_default();
+    unknown_back(&mut value, graph.nodes.iter().map(|n| &n.node_type));
+    serde_json::to_string_pretty(&value).unwrap_or_default()
+}
+
+/// The operators this Imago could not read written back as the file had them,
+/// in place of their Placeholders (`nodes`, in the order of the saved nodes).
+fn unknown_back<'a>(value: &mut serde_json::Value, nodes: impl Iterator<Item = &'a NodeType>) {
+    let Some(saved) = value.get_mut("nodes").and_then(|n| n.as_array_mut()) else {
+        return;
+    };
+    for (node, t) in saved.iter_mut().zip(nodes) {
+        if let NodeType::Placeholder {
+            unknown: Some(original),
+            ..
+        } = t
+        {
+            node["node_type"] = original.clone();
+        }
+    }
+}
+
+/// A graph's text checked before it is read: a layout newer than this Imago
+/// reads is refused, saying which Imago wrote it.
+fn check_version(value: &serde_json::Value) -> Result<(), String> {
+    let version = value.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
+    if version > FORMAT_VERSION as u64 {
+        let by = value
+            .get("saved_with")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map_or("a newer Imago".to_string(), |s| format!("Imago {s}"));
+        return Err(format!(
+            "This graph was saved by {by}, in a newer layout ({version}) than this Imago ({}) reads ({FORMAT_VERSION}): open it with that Imago or a newer one",
+            crate::version()
+        ));
+    }
+    Ok(())
+}
+
+/// Each operator of a graph's text that this Imago cannot read (a newer
+/// Imago's, or one changed past reading) made a Placeholder with as many
+/// inputs and outputs as its wires use and the operator kept in it, so the
+/// graph opens with its wires and saving writes it back as it was.
+fn keep_unknown(value: &mut serde_json::Value) {
+    use serde_json::{json, Value};
+    let by = value
+        .get("saved_with")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map_or("an Imago".to_string(), |s| format!("Imago {s}"));
+    let wires: Vec<[u64; 4]> = value
+        .get("connections")
+        .and_then(Value::as_array)
+        .map(|c| {
+            c.iter()
+                .filter_map(|w| {
+                    let w = w.as_array()?;
+                    Some([
+                        w.first()?.as_u64()?,
+                        w.get(1)?.as_u64()?,
+                        w.get(2)?.as_u64()?,
+                        w.get(3)?.as_u64()?,
+                    ])
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(nodes) = value.get_mut("nodes").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for node in nodes {
+        let Some(t) = node.get("node_type") else { continue };
+        let Err(why) = serde_json::from_value::<NodeType>(t.clone()) else {
+            continue;
+        };
+        let original = t.clone();
+        let name = match &original {
+            Value::String(s) => s.clone(),
+            Value::Object(o) => o.keys().next().cloned().unwrap_or_default(),
+            _ => "?".into(),
+        };
+        let id = node.get("id").and_then(Value::as_u64).unwrap_or(u64::MAX);
+        let ins = wires.iter().filter(|w| w[2] == id).map(|w| w[3] + 1).max().unwrap_or(1);
+        let outs = wires.iter().filter(|w| w[0] == id).map(|w| w[1] + 1).max().unwrap_or(1);
+        let names = |n: u64, base: &str| (1..=n).map(|k| format!("{base} {k}")).collect::<Vec<_>>();
+        let unknown = why.to_string().contains("unknown variant");
+        let description = if unknown {
+            format!("{name} is an operator of {by} that this Imago ({}) does not have. Its inputs go through unchanged; saving writes it back as it was", crate::version())
+        } else {
+            format!("{name} could not be read ({why}): saved by {by}. Its inputs go through unchanged; saving writes it back as it was")
+        };
+        node["node_type"] = json!({ "Placeholder": {
+            "inputs": names(ins, "In"),
+            "outputs": names(outs, "Out"),
+            "description": description,
+            "unknown": original,
+        }});
+    }
 }
 
 /// Replace the contents of `graph` with a saved graph. View settings (pan,
 /// zoom) are kept. Each ICE node's graph is made in `subnets`.
 pub fn from_json(graph: &mut NodeGraphState, subnets: &mut IceGraphStore, json: &str) -> Result<(), String> {
     let mut value: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    check_version(&value)?;
     upgrade_json(&mut value);
+    keep_unknown(&mut value);
     let mut saved: SavedGraph = serde_json::from_value(value).map_err(|e| e.to_string())?;
     upgrade(&mut saved);
     clear(graph);
@@ -495,13 +610,16 @@ impl Fragment {
     }
 
     pub fn to_text(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_default()
+        let mut value = serde_json::to_value(self).unwrap_or_default();
+        unknown_back(&mut value, self.nodes.iter().map(|n| &n.node_type));
+        serde_json::to_string_pretty(&value).unwrap_or_default()
     }
 
     /// The fragment in a text, if the text is one.
     pub fn from_text(text: &str) -> Option<Self> {
         let mut value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
         upgrade_json(&mut value);
+        keep_unknown(&mut value);
         let f: Self = serde_json::from_value(value).ok()?;
         (f.xms_nodes >= 1 && !f.nodes.is_empty()).then_some(f)
     }
@@ -1727,6 +1845,7 @@ mod tests {
                 inputs: vec!["Mesh".into(), "Clip".into()],
                 outputs: vec!["Mesh".into(), "Locked clip".into()],
                 description: "Locks feet that should not slide.".into(),
+                unknown: None,
             },
             egui::pos2(100.0, 100.0),
         );
@@ -1790,7 +1909,7 @@ mod tests {
         from_json(&mut h, &mut IceGraphStore::default(), &json).unwrap();
         let back = h.nodes.iter().find(|n| n.name == "FootLocker").unwrap();
         assert!(
-            matches!(&back.node_type, NodeType::Placeholder { inputs, outputs, description }
+            matches!(&back.node_type, NodeType::Placeholder { inputs, outputs, description, .. }
             if inputs.len() == 3 && outputs == &vec!["Mesh".to_string()] && description.starts_with("Locks"))
         );
         assert_eq!(back.inputs.len(), 3);
@@ -1887,7 +2006,7 @@ mod tests {
             }
         ));
         assert!(
-            matches!(&node(2).node_type, NodeType::Placeholder { inputs, outputs, description }
+            matches!(&node(2).node_type, NodeType::Placeholder { inputs, outputs, description, .. }
             if inputs == &["Surface"] && outputs == &["Points"] && description.contains("Scatter Points"))
         );
         assert!(matches!(&node(4).node_type, NodeType::Placeholder { inputs, .. } if inputs.len() == 2));
@@ -2188,5 +2307,44 @@ mod tests {
                 "{old}"
             );
         }
+    }
+
+    /// A graph from a newer Imago: a newer layout is refused, saying which
+    /// Imago wrote it; an operator this one does not have opens as a
+    /// Placeholder with its wires, and saving writes it back as it was.
+    #[test]
+    fn graphs_from_a_newer_imago() {
+        let newer = r#"{"version":99,"saved_with":"9.0.0","nodes":[],"connections":[],"view_flag":null}"#;
+        let e = from_json(&mut NodeGraphState::default(), &mut IceGraphStore::default(), newer).unwrap_err();
+        assert!(e.contains("Imago 9.0.0") && e.contains("newer layout (99)"), "{e}");
+        let json = r#"{"version":2,"saved_with":"9.0.0","nodes":[
+            {"id":1,"name":"In","position":[0,0],"node_type":"PassThrough"},
+            {"id":2,"name":"Melt","position":[0,100],"node_type":{"Melt":{"amount":0.5,"axis":[0,1,0]}}},
+            {"id":3,"name":"Out","position":[0,200],"node_type":"PassThrough"}
+        ],"connections":[[1,0,2,0],[2,0,3,0]],"view_flag":3}"#;
+        let mut g = NodeGraphState::default();
+        from_json(&mut g, &mut IceGraphStore::default(), json).unwrap();
+        let melt = g.nodes.iter().find(|n| n.name == "Melt").unwrap();
+        assert!(
+            matches!(&melt.node_type, NodeType::Placeholder { description, unknown: Some(_), .. }
+                if description.starts_with("Melt is an operator of Imago 9.0.0")),
+            "{:?}",
+            melt.node_type
+        );
+        assert_eq!(melt.inputs.len(), 1);
+        assert!(melt.inputs[0].connected_output.is_some(), "its wires kept");
+        let saved: serde_json::Value = serde_json::from_str(&to_json(&g, &IceGraphStore::default())).unwrap();
+        assert_eq!(saved["version"], FORMAT_VERSION);
+        let back = saved["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["name"] == "Melt")
+            .unwrap();
+        assert_eq!(
+            back["node_type"],
+            serde_json::json!({"Melt":{"amount":0.5,"axis":[0,1,0]}}),
+            "as it was"
+        );
     }
 }

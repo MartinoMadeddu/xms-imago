@@ -1483,7 +1483,7 @@ pub fn draw_properties(
             });
             clip_summary(ui, anim, true);
         }
-        NodeType::Placeholder { inputs, outputs, description } => {
+        NodeType::Placeholder { inputs, outputs, description, .. } => {
             group(ui, "Placeholder", Some("A node that does not exist yet. Each input goes to the output of the same number unchanged. Save the graph to show how a new node should work: its name, its inputs and outputs and the description travel in the file"), |f| {
                 f.status(Status::Info, "Input 1 goes to output 1 unchanged, input 2 to output 2, and so on");
             });

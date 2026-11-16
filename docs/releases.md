@@ -29,6 +29,19 @@ true`). Before 1.0 it reads `0.MINOR.PATCH`:
 A file's own layout has its own number, apart from the program's (a graph's
 `version`, a compound's `format_version`), changed only when the layout does.
 
+**Graph files** (`graph_io::FORMAT_VERSION`, now 2) are raised when a file's
+meaning changes so an older one must be read otherwise, not for an operator or
+parameter added, which older files simply lack:
+
+- **Older:** brought up to date as it is read (`upgrade_json`, `upgrade`).
+- **Newer layout:** refused, saying which Imago saved it: open it with that
+  Imago or a newer one, rather than read wrong.
+- **An operator this Imago does not have** (a newer Imago's, in a layout it
+  reads; or one that cannot be read any more): it opens as a Placeholder with
+  its wires and a note saying which Imago saved it; its inputs pass through,
+  and saving (or copying it) writes it back as the file had it, so nothing is
+  lost going through an older Imago.
+
 ## Making a release
 
 1. In `CHANGELOG.md`, move what is under **Unreleased** under a new heading,

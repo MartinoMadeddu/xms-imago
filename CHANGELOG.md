@@ -8,6 +8,12 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Files
+
+- **Graph files from a newer Imago**: a newer layout is refused, saying which
+  Imago saved it; an operator this Imago does not have opens as a Placeholder
+  with its wires and is written back as it was on saving.
+
 ## [0.3.4] - 2026-11-12
 
 ### Rendering
