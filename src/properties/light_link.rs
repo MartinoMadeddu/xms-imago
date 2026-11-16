@@ -1,11 +1,11 @@
-//! A Light Linker's parameters (`core::light_link`): its lights and prims as
-//! Prims Location lists, then the grid of their links.
+//! A Light Linker's parameters (`core::light_link`): a table, a row per link,
+//! its lights and prims, then Light and Shadow as columns of toggles.
 
-use crate::core::collections::Held;
-use crate::core::light_link::{cell, cell_mut, Link};
+use crate::core::collections::{self, Held};
+use crate::core::light_link::Link;
+use crate::core::locations;
 
 use super::form::{group, ink, Status};
-use super::ui::{locations_tab, TabKind};
 
 /// What comes into the operator.
 pub struct Scene<'a> {
@@ -19,186 +19,192 @@ pub struct Scene<'a> {
     pub held: &'a [Held],
 }
 
-pub fn rows(
-    ui: &mut egui::Ui,
-    lights: &mut Vec<String>,
-    prims: &mut Vec<String>,
-    links: &mut Vec<Link>,
-    scene: &Scene,
-) {
-    let (lights_were, prims_were) = (lights.clone(), prims.clone());
-    locations_tab(
-        ui,
-        lights,
-        scene.lights,
-        scene.selected,
-        TabKind::Collects,
-        None,
-        Some("Lights"),
-        scene.held,
-    );
-    locations_tab(
-        ui,
-        prims,
-        scene.paths,
-        scene.selected,
-        TabKind::Collects,
-        None,
-        Some("Prims"),
-        scene.held,
-    );
-    keep_cells(links, &lights_were, lights, true);
-    keep_cells(links, &prims_were, prims, false);
-    grid(ui, lights, prims, links);
-}
-
-/// The cells follow a row or column whose text changed, and go with one
-/// taken away. `light`: the light rows, else the prim columns.
-fn keep_cells(links: &mut Vec<Link>, was: &[String], now: &[String], light: bool) {
-    let side = |l: &Link| if light { l.light.clone() } else { l.prim.clone() };
-    if was.len() == now.len() {
-        for (a, b) in was.iter().zip(now).filter(|(a, b)| a != b) {
-            for l in links.iter_mut().filter(|l| side(l) == *a) {
-                if light {
-                    l.light = b.clone();
-                } else {
-                    l.prim = b.clone();
-                }
-            }
-        }
-    }
-    links.retain(|l| now.contains(&side(l)) && !l.is_empty());
-}
-
-/// A cell's state, shown: as it comes in, off, on.
-fn mark(ui: &mut egui::Ui, letter: &str, v: Option<bool>, what: &str) -> egui::Response {
-    let (text, colour, tip) = match v {
-        None => (
-            "·".to_string(),
-            ink::DIM(),
-            format!("{what}: as it comes in. Click: off"),
-        ),
-        Some(false) => (letter.to_string(), ink::BAD(), format!("{what}: off. Click: on")),
-        Some(true) => (
-            letter.to_string(),
-            ink::OK(),
-            format!("{what}: on. Click: as it comes in"),
-        ),
-    };
-    let r = ui.add(
-        egui::Button::new(egui::RichText::new(text).monospace().strong().color(colour))
-            .min_size(egui::vec2(18.0, 16.0))
-            .small(),
-    );
-    r.on_hover_text(tip)
-}
-
-/// The next state of a cell clicked: off, on, as it comes in.
-fn next(v: Option<bool>) -> Option<bool> {
-    match v {
-        None => Some(false),
-        Some(false) => Some(true),
-        Some(true) => None,
-    }
-}
-
-/// A row's or a column's text, short: its last name, or `%name`.
-fn short(text: &str) -> String {
-    let t = text.trim();
-    if t.starts_with('%') {
-        return t.to_string();
-    }
-    t.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|n| !n.is_empty())
-        .unwrap_or(t)
-        .to_string()
-}
-
-/// Every cell of a light row, or of a prim column, set to one state.
-fn set_all(
-    links: &mut Vec<Link>,
-    cells: &[(String, String)],
-    lights: Option<Option<bool>>,
-    shadows: Option<Option<bool>>,
-) {
-    for (l, p) in cells {
-        let c = cell_mut(links, l, p);
-        if let Some(v) = lights {
-            c.lights = v;
-        }
-        if let Some(v) = shadows {
-            c.shadows = v;
-        }
-    }
-}
-
-/// The menu on a row's or a column's name: all its cells at once.
-fn all_menu(ui: &mut egui::Ui, links: &mut Vec<Link>, cells: &[(String, String)]) {
-    for (label, l, s) in [
-        ("Light and Shadow on", Some(Some(true)), Some(Some(true))),
-        ("Light and Shadow off", Some(Some(false)), Some(Some(false))),
-        ("Light off", Some(Some(false)), None),
-        ("Shadow off", None, Some(Some(false))),
-        ("As they come in", Some(None), Some(None)),
-    ] {
-        if ui.button(label).clicked() {
-            set_all(links, cells, l, s);
-            ui.close();
-        }
-    }
-}
-
-fn grid(ui: &mut egui::Ui, lights: &[String], prims: &[String], links: &mut Vec<Link>) {
-    let lights: Vec<&String> = lights.iter().filter(|l| !l.trim().is_empty()).collect();
-    let prims: Vec<&String> = prims.iter().filter(|p| !p.trim().is_empty()).collect();
+pub fn rows(ui: &mut egui::Ui, links: &mut Vec<Link>, scene: &Scene) {
     group(
         ui,
         "Links",
-        Some("L: lights it, S: casts its shadows on it, each on, off or as it comes in (·). The nearest prim set above another decides: /set off and /set/hero on lights the hero alone. Right-click a light or a prim for all of its cells"),
+        Some("A row per link: the lights it is for (a path takes the lights at and below it; a pattern, or %collection) and the prims (a prim with what is below it), then whether those lights light them (Light) and cast shadows on them (Shadow). Lights light and shadow everything until linked. Later rows win; the nearest prim set above another decides: /set off then /set/hero on lights the hero alone"),
         |f| {
-            if lights.is_empty() || prims.is_empty() {
-                f.status(Status::Info, "Add lights and prims above: a cell for each light and prim");
-                return;
-            }
-            let set = links.iter().filter(|l| !l.is_empty()).count();
-            f.status(
-                Status::Info,
-                format!("{} lights by {} prims, {set} cells set", lights.len(), prims.len()),
-            );
             let ui = &mut *f.ui;
-            egui::ScrollArea::horizontal().id_salt("light_link_grid").show(ui, |ui| {
-                egui::Grid::new("light_link_cells").spacing([6.0, 2.0]).striped(true).show(ui, |ui| {
-                    ui.label("");
-                    for p in &prims {
-                        let r = ui.add(egui::Label::new(egui::RichText::new(short(p)).small()).sense(egui::Sense::click()));
-                        let cells: Vec<(String, String)> = lights.iter().map(|l| (l.to_string(), p.to_string())).collect();
-                        r.on_hover_text(p.as_str()).context_menu(|ui| all_menu(ui, links, &cells));
-                    }
-                    ui.end_row();
-                    for l in &lights {
-                        let r = ui.add(egui::Label::new(egui::RichText::new(short(l)).small()).sense(egui::Sense::click()));
-                        let cells: Vec<(String, String)> = prims.iter().map(|p| (l.to_string(), p.to_string())).collect();
-                        r.on_hover_text(l.as_str()).context_menu(|ui| all_menu(ui, links, &cells));
-                        for p in &prims {
-                            let now = cell(links, l, p).cloned().unwrap_or_default();
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 1.0;
-                                if mark(ui, "L", now.lights, "Light").clicked() {
-                                    cell_mut(links, l, p).lights = next(now.lights);
-                                }
-                                if mark(ui, "S", now.shadows, "Shadow").clicked() {
-                                    cell_mut(links, l, p).shadows = next(now.shadows);
-                                }
-                            });
-                        }
+            let mut remove = None;
+            if !links.is_empty() {
+                egui::Grid::new("light_link_table")
+                    .num_columns(6)
+                    .spacing([8.0, 3.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("");
+                        ui.label(egui::RichText::new("Lights").strong());
+                        ui.label(egui::RichText::new("Prims").strong());
+                        column_header(ui, "Light", links, lights_of);
+                        column_header(ui, "Shadow", links, shadows_of);
+                        ui.label("");
                         ui.end_row();
-                    }
-                });
+                        for (k, l) in links.iter_mut().enumerate() {
+                            ui.label(egui::RichText::new(format!("{}", k + 1)).small().color(ink::DIM()));
+                            path_cell(ui, &mut l.light, scene.lights, scene.held, "/lights/key");
+                            path_cell(ui, &mut l.prim, scene.paths, scene.held, "/set/hero");
+                            toggle(ui, &mut l.lights, "Light", "these lights light these prims");
+                            toggle(ui, &mut l.shadows, "Shadow", "these lights cast shadows on these prims");
+                            if ui.small_button("🗑").on_hover_text("Remove this link").clicked() {
+                                remove = Some(k);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            }
+            if let Some(k) = remove {
+                links.remove(k);
+            }
+            ui.horizontal(|ui| {
+                let tip = "Add a link. Lights and prims selected in the Scene Explorer go in it: a row for each prim, for the lights selected (or the last row's). Prims dragged from the Scene Explorer can be dropped here";
+                let add = ui.button("+ Add Link").on_hover_text(tip);
+                if add.clicked() {
+                    add_links(links, scene.selected, scene.lights);
+                }
+                if let Some(p) = add.dnd_release_payload::<crate::types::DraggedPrims>() {
+                    add_links(links, &p.0, scene.lights);
+                }
             });
+            let set = links.iter().filter(|l| l.says_something()).count();
+            match (links.len(), set) {
+                (0, _) => f.status(Status::Info, "No links: every light lights and shadows everything it did"),
+                (n, s) if s < n => f.status(Status::Info, format!("{s} of {n} links say something: each needs its lights and prims")),
+                (n, _) => f.status(Status::Info, format!("{n} links")),
+            }
         },
     );
+}
+
+/// Rows for what is selected (or dropped): each prim with the lights among
+/// them, else the last row's lights; an empty row when nothing is.
+fn add_links(links: &mut Vec<Link>, paths: &[String], scene_lights: &[String]) {
+    let (lights, prims): (Vec<&String>, Vec<&String>) = paths.iter().partition(|p| scene_lights.contains(p));
+    let last = links.last().map(|l| l.light.clone()).unwrap_or_default();
+    let lights: Vec<String> = if lights.is_empty() {
+        vec![last]
+    } else {
+        lights.into_iter().cloned().collect()
+    };
+    if prims.is_empty() {
+        for l in &lights {
+            links.push(Link::new(l, ""));
+        }
+        return;
+    }
+    for l in &lights {
+        for p in &prims {
+            if !links.iter().any(|x| x.light == *l && x.prim == **p) {
+                links.push(Link::new(l, p));
+            }
+        }
+    }
+}
+
+fn lights_of(l: &mut Link) -> &mut Option<bool> {
+    &mut l.lights
+}
+
+fn shadows_of(l: &mut Link) -> &mut Option<bool> {
+    &mut l.shadows
+}
+
+/// A column's name: right-click sets the whole column.
+fn column_header(ui: &mut egui::Ui, name: &str, links: &mut [Link], side: fn(&mut Link) -> &mut Option<bool>) {
+    let r = ui
+        .add(egui::Label::new(egui::RichText::new(name).strong()).sense(egui::Sense::click()))
+        .on_hover_text("Right-click: the whole column");
+    r.context_menu(|ui| {
+        for (label, v) in [
+            ("All on", Some(true)),
+            ("All off", Some(false)),
+            ("All as they come in", None),
+        ] {
+            if ui.button(label).clicked() {
+                for l in links.iter_mut() {
+                    *side(l) = v;
+                }
+                ui.close();
+            }
+        }
+    });
+}
+
+/// A path, a pattern or `%collection`, typed or picked from `options` (and
+/// the collections), with how many of them it takes. A prim dropped on it
+/// is put in.
+fn path_cell(ui: &mut egui::Ui, text: &mut String, options: &[String], held: &[Held], hint: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let field = crate::properties::form::typed(ui, &mut *text, |ui, t| {
+            use crate::properties::form::FieldExt;
+            ui.field(
+                egui::TextEdit::singleline(t)
+                    .desired_width(150.0)
+                    .hint_text(hint)
+                    .font(egui::TextStyle::Monospace)
+                    .background_color(super::ui::location_bg()),
+            )
+        });
+        if let Some(p) = field.dnd_release_payload::<crate::types::DraggedPrims>() {
+            if let Some(first) = p.0.first() {
+                *text = first.clone();
+            }
+        }
+        crate::menus::menu(ui, "▾", |ui| {
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                let mut names: Vec<String> = vec![];
+                for h in held {
+                    let n = format!("%{}", h.collection.name);
+                    if !names.contains(&n) {
+                        names.push(n);
+                    }
+                }
+                for p in names.iter().chain(options) {
+                    if ui.selectable_label(text.trim() == p, p).clicked() {
+                        *text = p.clone();
+                        ui.close();
+                    }
+                }
+            });
+        })
+        .response
+        .on_hover_text("Pick one coming in, or a collection");
+        if !text.trim().is_empty() && !options.is_empty() {
+            let read = collections::resolve(std::slice::from_ref(text), held).into_owned();
+            let n = options.iter().filter(|p| locations::matches(&read[0], p)).count();
+            let label = egui::RichText::new(format!("{n}")).monospace().small();
+            if n == 0 {
+                ui.colored_label(ink::BAD(), label)
+                    .on_hover_text("Takes none coming in");
+            } else {
+                ui.label(label).on_hover_text(format!("Takes {n} coming in"));
+            }
+        }
+    });
+}
+
+/// A Light or Shadow cell: a toggle, on or off; right-click leaves it as it
+/// comes in (—), and a click on that turns it on.
+fn toggle(ui: &mut egui::Ui, v: &mut Option<bool>, name: &str, what: &str) {
+    let r = if let Some(on) = v.as_mut() {
+        let r = crate::properties::form::check(ui, on);
+        let state = if *on { "on" } else { "off" };
+        r.on_hover_text(format!("{name} {state}: {what}. Right-click: as it comes in"))
+    } else {
+        let r = ui.add(egui::Button::new(egui::RichText::new("—").color(ink::DIM())).small());
+        let r = r.on_hover_text(format!("{name} as it comes in. Click: on"));
+        if r.clicked() {
+            *v = Some(true);
+        }
+        r
+    };
+    r.context_menu(|ui| {
+        if ui.button("As it comes in").clicked() {
+            *v = None;
+            ui.close();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -206,36 +212,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cells_follow_their_row_and_go_with_it() {
-        let mut links = vec![
-            Link {
-                light: "/lights/key".into(),
-                prim: "/set".into(),
-                lights: Some(false),
-                shadows: None,
-            },
-            Link {
-                light: "/lights/rim".into(),
-                prim: "/set".into(),
-                lights: Some(true),
-                shadows: None,
-            },
-        ];
-        let was = vec!["/lights/key".to_string(), "/lights/rim".to_string()];
-        let now = vec!["/lights/key1".to_string(), "/lights/rim".to_string()];
-        keep_cells(&mut links, &was, &now, true);
-        assert_eq!(links[0].light, "/lights/key1");
-        keep_cells(&mut links, &now, &now[1..], true);
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].light, "/lights/rim");
-    }
-
-    #[test]
-    fn a_click_goes_off_on_and_back() {
-        assert_eq!(next(None), Some(false));
-        assert_eq!(next(Some(false)), Some(true));
-        assert_eq!(next(Some(true)), None);
-        assert_eq!(short("/set/props/lamp"), "lamp");
-        assert_eq!(short("%keys"), "%keys");
+    fn selected_lights_and_prims_make_a_row_each() {
+        let lights = vec!["/lights/key".to_string(), "/lights/rim".to_string()];
+        let mut links = vec![];
+        let sel = vec!["/lights/key".to_string(), "/set/a".to_string(), "/set/b".to_string()];
+        add_links(&mut links, &sel, &lights);
+        assert_eq!(links.len(), 2);
+        assert!(links
+            .iter()
+            .all(|l| l.light == "/lights/key" && l.lights == Some(false)));
+        // No light selected: the last row's.
+        add_links(&mut links, &["/set/c".to_string()], &lights);
+        assert_eq!(links[2].light, "/lights/key");
+        assert_eq!(links[2].prim, "/set/c");
+        // Nothing selected: an empty row for the last row's lights.
+        add_links(&mut links, &[], &lights);
+        assert_eq!(links[3].prim, "");
+        assert!(!links[3].says_something());
     }
 }

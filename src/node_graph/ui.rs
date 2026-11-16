@@ -1551,7 +1551,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Disk)), "A disk that emits from one side, along its -Z: a spot's lens"),
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Cylinder)), "A cylinder along its X: a tube"),
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Distant)), "Parallel light from far away, along its -Z: the sun"),
-            (NodeType::LightLinker { lights: vec![], prims: vec![], links: vec![] }, "Which prims each light lights and shadows: a grid of lights by prims (paths, patterns or %collections), each cell's Light and Shadow on, off or as they come in"),
+            (NodeType::LightLinker { links: vec![] }, "Which prims each light lights and shadows: a table of links, each its lights and prims (paths, patterns or %collections) with Light and Shadow on or off"),
         ]),
         ("📽", "Render", vec![
             (NodeType::RenderCommons { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),

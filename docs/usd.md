@@ -19,7 +19,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Rename | Renames the prims its Prims Location tab names: Find replaced, a Prefix and Suffix added |
 | Duplicate | Copies the prims its Prims Location tab names beside them, each a step further |
 | Delete Attribute, Rename Attribute | Take attributes (primvars) away from the primitives' geometry, or rename them |
-| Light Linker | Which prims each light lights and shadows: a grid of lights by prims, written as the lights' `lightLink` and `shadowLink` collections |
+| Light Linker | Which prims each light lights and shadows: a table of links, each its lights, its prims, Light and Shadow, written as the lights' `lightLink` and `shadowLink` collections |
 | Collection | A named set of prims on the prim at its Collection Location, written as a USD collection: paths or patterns included and excluded. `%name` in any Prims Location list takes its members |
 | Variant | Chooses variants of the scene's variant sets (Select): a stage is composed again with them, what was done above carried over. Makes a variant set on a prim, a variant per input (Create) |
 | Unpack | Merges every primitive into one mesh |
@@ -767,28 +767,33 @@ file's light's values edited, ShapingAPI, ShadowAPI and portals in the operator.
 ### Light linking
 
 The **Light Linker** (Lights) says which prims each light lights and casts
-shadows on, as a grid:
+shadows on, as a table, a row per link:
 
-- **Lights**: a row each, a path (taking the lights at and below it), a pattern
-  or `%collection`. Pick lists the scene's lights and collections.
-- **Prims**: a column each, a path (the prim and what is below it), a pattern
-  or `%collection`.
-- **Links**: in each cell **L** (lights it) and **S** (casts its shadows on it),
-  each as it comes in (·), off (red) or on (green); a click goes off, on, back.
-  Right-click a light or a prim to set all its cells at once.
+| Column | Is |
+|---|---|
+| Lights | The lights it is for: a path (the lights at and below it), a pattern or `%collection`. ▾ picks one of the scene's lights or collections; the number says how many it takes |
+| Prims | The prims: a path (the prim and what is below it), a pattern or `%collection`. A prim dragged from the Scene Explorer can be dropped on it |
+| Light | On: those lights light those prims. Off: they do not |
+| Shadow | On: those lights cast shadows on them. Off: they do not |
+
+A new row has Light and Shadow off, the commonest link. Right-click a toggle to
+leave it as it comes in (—); right-click Light or Shadow's name for the whole
+column. **+ Add Link** makes a row for each prim selected in the Scene Explorer,
+for the lights selected with them (or the last row's); prims can be dropped on
+it too.
 
 A light lights and shadows everything until linked. Off takes the prim (and
-what is below it) out of the light's collection, on puts it back; the nearest
-prim set above another decides, so `/set` off and `/set/hero` on lights only
-the hero of the set. A cell follows its row or column when its text is edited,
-and goes when it is removed.
+what is below it) out of the light's collection, on puts it back. Rows are
+taken in order, a later one winning on the same prim, and the nearest prim set
+above another decides: `/set` off, then `/set/hero` on, lights only the hero of
+the set.
 
 It is written as the light's `lightLink` and `shadowLink` collections
 (`collection:lightLink:includes`, `:excludes`, `:includeRoot`), on the light
 made in Imago, or as an `over` on a file's; Arnold reads them. What a file
 says is where it starts from. The Scene Explorer lists them under each light,
 selecting their members as any collection. Not yet: links shown in the Viewer;
-what a `%collection` column excludes is not linked.
+what a `%collection` of prims excludes is not linked.
 
 ## Volumes
 

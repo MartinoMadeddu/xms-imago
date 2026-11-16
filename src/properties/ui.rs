@@ -1272,10 +1272,8 @@ pub fn draw_properties(
             uv,
             bitangents,
         } => super::frames::tangents_rows(ui, context, from, uv, bitangents),
-        NodeType::LightLinker { lights, prims, links } => super::light_link::rows(
+        NodeType::LightLinker { links } => super::light_link::rows(
             ui,
-            lights,
-            prims,
             links,
             &super::light_link::Scene {
                 paths: &scene_in,
@@ -4265,7 +4263,7 @@ fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, mask: &[String], io
 /// field holds one expression and picking replaces it. The background of a
 /// Primitive Location field: a grey of its own, between the panel and the other
 /// fields, in light and dark schemes alike.
-fn location_bg() -> egui::Color32 {
+pub(crate) fn location_bg() -> egui::Color32 {
     ink::LOCATION()
 }
 

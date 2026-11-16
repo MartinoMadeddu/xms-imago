@@ -2,11 +2,13 @@
 //! the light's `lightLink` and `shadowLink` collections (`core::collections`).
 //! A light without them lights and shadows everything (`includeRoot`).
 //!
-//! The Light Linker operator is a grid: a row per light (a path taking the
-//! lights at and below it, a pattern or `%collection`), a column per prim (the same), and in each cell Light and
-//! Shadow, each on, off or as it comes in. On adds the prim to the light's
-//! collection, off takes it out; the nearest of them above a prim decides, so
-//! `/set` off and `/set/hero` on lights the hero alone of the set.
+//! The Light Linker operator is a table, a row per link: its lights (a path
+//! taking the lights at and below it, a pattern or `%collection`), its prims
+//! (the same, a prim with what is below it), and Light and Shadow, each on,
+//! off or as it comes in. On adds the prims to the light's collection, off
+//! takes them out; the nearest of them above a prim decides, so `/set` off and
+//! `/set/hero` on lights the hero alone of the set. Rows are applied in order:
+//! a later row wins on the same prim.
 
 use crate::core::collections::{self, Collection, Held};
 use crate::core::locations;
@@ -17,7 +19,7 @@ pub const LIGHT_LINK: &str = "lightLink";
 /// The collection a light casts shadows by.
 pub const SHADOW_LINK: &str = "shadowLink";
 
-/// One cell of the grid: a light row's and a prim column's text, and what it
+/// One link: a row of the table, its lights' and prims' text, and what it
 /// says (`None`: as it comes in).
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Link {
@@ -30,29 +32,21 @@ pub struct Link {
 }
 
 impl Link {
-    /// Whether it says nothing.
-    pub fn is_empty(&self) -> bool {
-        self.lights.is_none() && self.shadows.is_none()
-    }
-}
-
-/// The cell of a row and a column, if it says something.
-pub fn cell<'a>(links: &'a [Link], light: &str, prim: &str) -> Option<&'a Link> {
-    links.iter().find(|l| l.light == light && l.prim == prim)
-}
-
-/// The cell of a row and a column to change, made where there is none.
-pub fn cell_mut<'a>(links: &'a mut Vec<Link>, light: &str, prim: &str) -> &'a mut Link {
-    match links.iter().position(|l| l.light == light && l.prim == prim) {
-        Some(k) => &mut links[k],
-        None => {
-            links.push(Link {
-                light: light.to_string(),
-                prim: prim.to_string(),
-                ..Default::default()
-            });
-            links.last_mut().expect("just pushed")
+    /// A new row: both off, the commonest link (a prim the light leaves out).
+    pub fn new(light: &str, prim: &str) -> Link {
+        Link {
+            light: light.to_string(),
+            prim: prim.to_string(),
+            lights: Some(false),
+            shadows: Some(false),
         }
+    }
+
+    /// Whether it changes anything.
+    pub fn says_something(&self) -> bool {
+        !self.light.trim().is_empty()
+            && !self.prim.trim().is_empty()
+            && (self.lights.is_some() || self.shadows.is_some())
     }
 }
 
@@ -113,51 +107,45 @@ fn link(c: &mut Collection, path: &str, on: bool) {
     }
 }
 
-/// What a Light Linker puts out: the scene coming in with the lights its rows
-/// take linked to the prims its columns take, cell by cell, as each says.
-pub fn link_lights(input: &EvalResult, lights: &[String], prims: &[String], links: &[Link]) -> EvalResult {
+/// What a Light Linker puts out: the scene coming in with each row's lights
+/// linked to its prims, as it says, row after row.
+pub fn link_lights(input: &EvalResult, links: &[Link]) -> EvalResult {
     let EvalResult::Named(scene) = input else {
         return input.clone();
     };
-    if links.iter().all(Link::is_empty) {
+    if !links.iter().any(Link::says_something) {
         return input.clone();
     }
     let held = collections::gather(scene);
     let known = crate::node_graph::scene_paths(scene);
     let all_lights = light_paths(scene);
-    // Each column as the paths it takes (and what its `%other` takes out).
-    let columns: Vec<(Vec<String>, Vec<String>)> = prims
-        .iter()
-        .map(|c| collections::expand_rows(std::slice::from_ref(c), &known, &held))
-        .collect();
-    let mut out = scene.clone();
-    for row in locations::rows(lights) {
-        let read = collections::resolve(std::slice::from_ref(&row.to_string()), &held).into_owned();
-        let taken: Vec<&String> = all_lights.iter().filter(|p| locations::matches(&read[0], p)).collect();
-        for light in taken {
-            for (name, says) in [
-                (LIGHT_LINK, (|l: &Link| l.lights) as fn(&Link) -> Option<bool>),
-                (SHADOW_LINK, |l: &Link| l.shadows),
-            ] {
-                let mut c = coming_in(&held, light, name);
-                let mut changed = false;
-                // A `%collection` column links what it includes; what it
-                // excludes is left as it was.
-                for (column, (on, _)) in prims.iter().zip(&columns) {
-                    let Some(v) = cell(links, row, column).and_then(says) else {
-                        continue;
-                    };
-                    for p in on {
-                        link(&mut c, p, v);
+    // Each light's collections as they become, in the order first changed.
+    let mut made: Vec<(String, Collection)> = vec![];
+    for l in links.iter().filter(|l| l.says_something()) {
+        let read = collections::resolve(std::slice::from_ref(&l.light), &held).into_owned();
+        // A `%collection` of prims links what it includes; what it excludes is
+        // left as it was.
+        let (on, _) = collections::expand_rows(std::slice::from_ref(&l.prim), &known, &held);
+        for light in all_lights.iter().filter(|p| locations::matches(&read[0], p)) {
+            for (name, says) in [(LIGHT_LINK, l.lights), (SHADOW_LINK, l.shadows)] {
+                let Some(v) = says else { continue };
+                let k = match made.iter().position(|(p, c)| p == light && c.name == name) {
+                    Some(k) => k,
+                    None => {
+                        made.push((light.clone(), coming_in(&held, light, name)));
+                        made.len() - 1
                     }
-                    changed = true;
-                }
-                if changed {
-                    collections::simplify(&mut c);
-                    collections::put(&mut out, light, c);
+                };
+                for p in &on {
+                    link(&mut made[k].1, p, v);
                 }
             }
         }
+    }
+    let mut out = scene.clone();
+    for (light, mut c) in made {
+        collections::simplify(&mut c);
+        collections::put(&mut out, &light, c);
     }
     EvalResult::Named(out)
 }
@@ -178,10 +166,6 @@ mod tests {
         }
     }
 
-    fn rows(r: &[&str]) -> Vec<String> {
-        r.iter().map(|s| s.to_string()).collect()
-    }
-
     fn collection_of(out: &EvalResult, light: &str, name: &str) -> Option<Collection> {
         let EvalResult::Named(p) = out else { return None };
         collections::gather(p)
@@ -191,15 +175,13 @@ mod tests {
     }
 
     #[test]
-    fn a_cell_off_takes_the_prim_out_of_what_the_light_lights() {
+    fn a_link_off_takes_the_prim_out_of_what_the_light_lights() {
         let scene = EvalResult::Named(vec![light("/lights/key"), prim("/set/a"), prim("/set/b")]);
         let links = vec![Link {
-            light: "/lights/key".into(),
-            prim: "/set/b".into(),
-            lights: Some(false),
             shadows: None,
+            ..Link::new("/lights/key", "/set/b")
         }];
-        let out = link_lights(&scene, &rows(&["/lights/key"]), &rows(&["/set/b"]), &links);
+        let out = link_lights(&scene, &links);
         let c = collection_of(&out, "/lights/key", LIGHT_LINK).expect("a lightLink");
         assert!(c.has("/set/a") && !c.has("/set/b"));
         assert!(
@@ -209,16 +191,15 @@ mod tests {
     }
 
     #[test]
-    fn a_prim_on_below_a_group_off_is_lit_alone() {
+    fn a_later_row_on_below_an_earlier_off_is_lit_alone() {
         let scene = EvalResult::Named(vec![light("/lights/rim"), prim("/set/hero"), prim("/set/wall")]);
-        let cells = |light: &str, prim: &str, on: bool| Link {
-            light: light.into(),
-            prim: prim.into(),
-            lights: Some(on),
-            shadows: Some(on),
+        let on = Link {
+            lights: Some(true),
+            shadows: Some(true),
+            ..Link::new("/lights", "/set/hero")
         };
-        let links = vec![cells("/lights/*", "/set", false), cells("/lights/*", "/set/hero", true)];
-        let out = link_lights(&scene, &rows(&["/lights/*"]), &rows(&["/set", "/set/hero"]), &links);
+        let links = vec![Link::new("/lights/*", "/set"), on];
+        let out = link_lights(&scene, &links);
         for name in [LIGHT_LINK, SHADOW_LINK] {
             let c = collection_of(&out, "/lights/rim", name).unwrap();
             assert!(
@@ -231,31 +212,16 @@ mod tests {
     #[test]
     fn only_lights_are_linked() {
         let mut scene = vec![prim("/set/a")];
-        let links = vec![Link {
-            light: "/lights/sun".into(),
-            prim: "/set/a".into(),
-            lights: Some(false),
-            shadows: None,
-        }];
-        let EvalResult::Named(out) = link_lights(
-            &EvalResult::Named(scene.clone()),
-            &rows(&["/lights/sun"]),
-            &rows(&["/set/a"]),
-            &links,
-        ) else {
+        let links = vec![Link::new("/lights/sun", "/set/a")];
+        let EvalResult::Named(out) = link_lights(&EvalResult::Named(scene.clone()), &links) else {
             panic!()
         };
-        // No light by that path: nothing linked.
-        assert_eq!(out.len(), 1);
-        // One made in Imago: linked.
+        assert_eq!(out.len(), 1, "no light by that path: nothing linked");
         scene.push(light("/lights/sun"));
-        let out = link_lights(
-            &EvalResult::Named(scene),
-            &rows(&["/lights/sun"]),
-            &rows(&["/set/a"]),
-            &links,
-        );
+        let out = link_lights(&EvalResult::Named(scene), &links);
         assert!(!collection_of(&out, "/lights/sun", LIGHT_LINK).unwrap().has("/set/a"));
+        // A row without its prims says nothing.
+        assert!(!Link::new("/lights/sun", " ").says_something());
     }
 
     #[test]

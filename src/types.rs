@@ -340,15 +340,11 @@ pub enum NodeType {
         #[serde(default)]
         bitangents: bool,
     },
-    /// Light linking as a grid: a row per light (`lights`: paths, patterns,
-    /// `%collection`), a column per prim (`prims`), and in each cell (`links`)
-    /// Light and Shadow on, off or as they come in. Written as the lights'
-    /// `lightLink` and `shadowLink` collections. See `core::light_link`.
+    /// Light linking as a table: a row per link, its lights and prims (paths,
+    /// patterns, `%collection`) with Light and Shadow on, off or as they come
+    /// in. Written as the lights' `lightLink` and `shadowLink` collections.
+    /// See `core::light_link`.
     LightLinker {
-        #[serde(default)]
-        lights: Vec<String>,
-        #[serde(default)]
-        prims: Vec<String>,
         #[serde(default)]
         links: Vec<crate::core::light_link::Link>,
     },

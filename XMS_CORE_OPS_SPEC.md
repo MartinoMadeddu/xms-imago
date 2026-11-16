@@ -567,8 +567,8 @@ Primitive Locations entry (1.3): `%name`.
 - **Parameters:** include collection; exclude collection
 - **USD mapping:** `collection:lightLink`, `collection:shadowLink` on
   `UsdLuxLightAPI`
-- **Done**: the **Light Linker**, a grid of lights by prims (paths, patterns,
-  `%collection`), each cell's Light and Shadow on, off or as they come in;
+- **Done**: the **Light Linker**, a table of links: lights and prims (paths,
+  patterns, `%collection`), Light and Shadow on, off or as they come in;
   files' links are where it starts from. See `docs/usd.md`
 
 ### 8.3 Material Binding by Collection
