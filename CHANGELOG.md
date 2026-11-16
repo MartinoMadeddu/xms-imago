@@ -8,6 +8,14 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### MaterialX
+
+- **Texture colour spaces**: a Colour Space under a texture's file (Auto,
+  `srgb_texture`, `lin_rec709`, `acescg`, `raw`, or any of the OCIO config's),
+  kept from `.mtlx` files (input, node, node graph and document `colorspace`)
+  and USD stages (`colorSpace`, UsdUVTexture's `sourceColorSpace`), written
+  back to both, so the renderer converts each texture as it should.
+
 ## [0.3.5] - 2026-11-16
 
 ### USD

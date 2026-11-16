@@ -19,6 +19,11 @@ pub fn from_usd(m: &rs::Material) -> Result<(Graph, Vec<String>), String> {
             path: n.path.as_str().to_string(),
             id: n.id.clone(),
             inputs: n.inputs.iter().map(|i| (i.name.clone(), value(&i.value))).collect(),
+            spaces: n
+                .inputs
+                .iter()
+                .filter_map(|i| Some((i.name.clone(), i.color_space.clone()?)))
+                .collect(),
         })
         .collect();
     read_network(

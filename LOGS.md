@@ -893,3 +893,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 16/11/2026: Light Linker pane (light_linker.rs, Pane::LightLinker, a tab behind the Node Graph): the linker's table big, the lights coming in beside it to show one's rows and take dropped prims; NodeGraphState::light_linker, add_light_linker. (Martino)
 - 16/11/2026: Light Linker pane a tab beside the Scene Explorer (bottom left) in the main and built layouts; its fields sized so remove stays in view; pickers show ⏷. (Martino)
 - 16/11/2026: Release 0.3.5. (Martino)
+- 16/11/2026: Texture colour spaces: xms_matx Node::spaces and Graph::colorspace (space_of), read and written in .mtlx (document, import's input/node/nodegraph/document colorspace) and USD (colorSpace metadata, UsdUVTexture sourceColorSpace), from_usd and to_scene read colorSpace on any input; Colour Space menu under a texture's file in the MaterialX parameters. (Martino)

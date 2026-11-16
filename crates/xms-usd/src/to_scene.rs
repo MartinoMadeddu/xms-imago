@@ -1467,15 +1467,13 @@ impl<'s> Translator<'s> {
                 Source::None => self.value(&node, full).and_then(shader_value),
             };
             if let Some(value) = value {
-                // Color space: only texture `file` inputs carry it (as the importer reads)
-                let color_space = (name == "file")
-                    .then(|| {
-                        attr.metadata::<Value>("colorSpace")
-                            .ok()
-                            .flatten()
-                            .and_then(|v| tok(&v))
-                    })
-                    .flatten();
+                // Its colour space (`colorSpace` metadata): a texture's file, a
+                // colour.
+                let color_space = attr
+                    .metadata::<Value>("colorSpace")
+                    .ok()
+                    .flatten()
+                    .and_then(|v| tok(&v));
                 inputs.push(rs::ShaderInput {
                     name: name.to_string(),
                     value,

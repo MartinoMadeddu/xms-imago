@@ -9,7 +9,9 @@
 //! output goes to the node behind it, and an input reading the graph's
 //! interface (`interfacename`) takes what the interface input is set to. A file
 //! name takes the `fileprefix` in force where it is written, and, relative, the
-//! folder of the document.
+//! folder of the document. A value's colour space (`colorspace`) is the one in
+//! force where it is written: its input's, its node's, its node graph's; the
+//! document's is the graph's own (`Graph::colorspace`).
 //!
 //! Documents it includes (`xi:include`) are read as part of it, from its
 //! folder. A document with no `surfacematerial` gives a material for each
@@ -56,8 +58,9 @@ type Key = (Option<String>, String);
 
 /// What an input reads, once followed through node graphs.
 enum Source {
-    /// A value as written, and the file prefix in force where it is.
-    Value(String, String),
+    /// A value as written, the file prefix in force where it is, and the
+    /// colour space given below the document (its input's, node's, graph's).
+    Value(String, String, Option<String>),
     /// A node's output.
     Node(Key, String),
     Nothing,
@@ -131,6 +134,7 @@ pub fn import(text: &str, lib: &Library, dir: Option<&Path>) -> Result<Imported,
     for m in materials {
         let name = m.attr("name").unwrap_or("material").to_string();
         let mut g = Graph::new();
+        g.colorspace = r.root.attr("colorspace").map(str::to_string);
         let mut ids = HashMap::new();
         let made = r.visit(&mut g, &mut ids, (None, name.clone()), 0, &mut out.notes);
         match made {
@@ -240,6 +244,21 @@ impl<'a> Reader<'a> {
             .to_string()
     }
 
+    /// The colour space given to a value below the document: its input's, its
+    /// node's, its node graph's.
+    fn space(&self, scope: &Option<String>, el: &Element, input: &Element) -> Option<String> {
+        input
+            .attr("colorspace")
+            .or_else(|| el.attr("colorspace"))
+            .or_else(|| {
+                scope
+                    .as_deref()
+                    .and_then(|g| self.graphs.get(g))
+                    .and_then(|g| g.attr("colorspace"))
+            })
+            .map(str::to_string)
+    }
+
     /// The definition a node element is: the one it names, else the one its
     /// types give. A name the library does not have (one of an older
     /// MaterialX, as 1.38's `ND_normalmap`, 1.39's `ND_normalmap_float`) is
@@ -322,7 +341,7 @@ impl<'a> Reader<'a> {
             return self.source(&None, graph, port, depth + 1);
         }
         match input.attr("value") {
-            Some(v) => Source::Value(v.to_string(), self.prefix(scope, node)),
+            Some(v) => Source::Value(v.to_string(), self.prefix(scope, node), self.space(scope, node, input)),
             None => Source::Nothing,
         }
     }
@@ -357,14 +376,19 @@ impl<'a> Reader<'a> {
                 continue;
             };
             match self.source(&key.0, el, input, 0) {
-                Source::Value(text, prefix) => {
+                Source::Value(text, prefix, space) => {
                     let text = if idef.ty == Type::Filename {
                         self.file(&prefix, &text)
                     } else {
                         text
                     };
                     match Value::parse(idef.ty, &text) {
-                        Some(v) => g.set_value(id, iname, v),
+                        Some(v) => {
+                            g.set_value(id, iname, v);
+                            if let Some(n) = g.node_mut(id) {
+                                n.set_space(iname, space.as_deref());
+                            }
+                        }
                         None => notes.push(format!(
                             "{}.{iname}: {text:?} is not a {}: left at its default",
                             key.1, idef.ty
@@ -438,6 +462,15 @@ mod tests {
         let (name, g) = &got.materials[0];
         assert_eq!(name, "Tiled_Wood");
         assert_eq!(g.nodes.len(), 4);
+        // Colour spaces: the document's the graph's, the colour texture's its own.
+        assert_eq!(g.colorspace.as_deref(), Some("lin_rec709"));
+        let colour = g.by_name("image_color").unwrap();
+        assert_eq!(colour.space("file"), Some("srgb_texture"));
+        let rough = g.by_name("image_roughness").unwrap();
+        assert_eq!(rough.space("file"), None);
+        assert_eq!(g.space_of(lib(), colour.id, "file").as_deref(), Some("srgb_texture"));
+        // A float texture is data: the document's space is not for it.
+        assert_eq!(g.space_of(lib(), rough.id, "file"), None);
         let s = g.surface_shader().unwrap();
         assert_eq!(g.node(s).unwrap().name, "SR_wood1");
         let (img, _) = g.source(s, "base_color").unwrap();

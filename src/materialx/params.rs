@@ -274,6 +274,82 @@ fn input_row(
     } else if changed {
         graph.set_value(id, &input.name, v);
     }
+    // A texture's colour space, under its file: MaterialX's and USD's own
+    // nodes (a renderer's image node has its own input for it).
+    let own = graph.def(lib, id).is_some_and(|d| d.target.is_none());
+    if input.ty == Type::Filename && own {
+        space_row(f, id, &input.name, graph);
+    }
+}
+
+/// The colour spaces offered first: MaterialX's names, which OpenColorIO
+/// configs know as aliases (Imago's, ACES's).
+const SPACES: [(&str, &str); 5] = [
+    ("srgb_texture", "sRGB texture: 8-bit colour maps"),
+    ("lin_rec709", "Linear Rec.709: linear colour, USD's default"),
+    ("acescg", "ACEScg: linear, Imago's rendering space"),
+    ("lin_displayp3", "Linear P3-D65"),
+    ("raw", "Raw: data, not converted (roughness, normals, masks)"),
+];
+
+/// The Colour Space of an input: Auto (none given: the graph's, else the
+/// renderer's rule, 8-bit sRGB and float linear), one of MaterialX's, or any
+/// of the OCIO config's.
+fn space_row(f: &mut crate::properties::form::Rows, id: u32, input: &str, graph: &mut Graph) {
+    let lib = lib();
+    let given = graph.node(id).and_then(|n| n.space(input)).map(str::to_string);
+    let from_graph = match &given {
+        None => graph.space_of(lib, id, input),
+        Some(_) => None,
+    };
+    let auto = match &from_graph {
+        Some(s) => format!("Auto ({s}, the document's)"),
+        None => "Auto".to_string(),
+    };
+    let shown = given.clone().unwrap_or_else(|| auto.clone());
+    let mut pick: Option<Option<String>> = None;
+    f.row(
+        "Colour Space",
+        Some("What the texture's colours are in, converted from to the rendering space by the renderer and the Viewer. Auto: the renderer's rule (8-bit files sRGB, float files linear). Raw for data: roughness, normals, masks. Written as the file input's colorSpace"),
+        |ui| {
+            egui::ComboBox::from_id_salt(("matx_space", id, input))
+                .selected_text(shown.clone())
+                .width(ui.available_width() - 8.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(given.is_none(), auto.as_str()).clicked() {
+                        pick = Some(None);
+                    }
+                    for (name, what) in SPACES {
+                        let r = ui.selectable_label(given.as_deref() == Some(name), name).on_hover_text(what);
+                        if r.clicked() {
+                            pick = Some(Some(name.to_string()));
+                        }
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("The OCIO config's").weak());
+                    for name in crate::colour::Colour::get().spaces() {
+                        if ui.selectable_label(given.as_deref() == Some(name.as_str()), name.as_str()).clicked() {
+                            pick = Some(Some(name));
+                        }
+                    }
+                    // One not in either, as read: kept, shown.
+                    if let Some(g) = &given {
+                        let known = SPACES.iter().any(|(n, _)| n == g)
+                            || crate::colour::Colour::get().spaces().iter().any(|n| n == g);
+                        if !known {
+                            ui.separator();
+                            let _ = ui.selectable_label(true, g.as_str()).on_hover_text("As read: not a name of the config");
+                        }
+                    }
+                })
+                .response
+        },
+    );
+    if let Some(p) = pick {
+        if let Some(n) = graph.node_mut(id) {
+            n.set_space(input, p.as_deref());
+        }
+    }
 }
 
 /// The value an input with no default starts from when edited.

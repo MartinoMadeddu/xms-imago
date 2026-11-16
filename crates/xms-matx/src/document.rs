@@ -3,7 +3,9 @@
 //! Each node is an element named after its node, with its name, the type of its
 //! output (`multioutput` for nodes with several), its definition, and where it
 //! is drawn (`xpos`, `ypos`, in canvas units). Under it, the inputs set on it:
-//! a value, or the node (and output, for nodes with several) it reads. This is
+//! a value (with its `colorspace` when it has one), or the node (and output,
+//! for nodes with several) it reads. The document's `colorspace` is the
+//! graph's (`Graph::colorspace`). This is
 //! how Imago saves a MaterialX operator's graph, and how it writes `.mtlx`
 //! files.
 
@@ -15,7 +17,14 @@ use crate::xml::{self, escape};
 /// The graph as a MaterialX document.
 pub fn write(graph: &Graph, lib: &Library) -> String {
     let mut out = String::from("<?xml version=\"1.0\"?>\n");
-    out.push_str(&format!("<materialx version=\"{}\">\n", crate::MATERIALX_VERSION));
+    let space = match &graph.colorspace {
+        Some(s) => format!(" colorspace=\"{}\"", escape(s)),
+        None => String::new(),
+    };
+    out.push_str(&format!(
+        "<materialx version=\"{}\"{space}>\n",
+        crate::MATERIALX_VERSION
+    ));
     for n in &graph.nodes {
         let def = graph.find_def(lib, &n.def);
         let ty = match def {
@@ -41,9 +50,13 @@ pub fn write(graph: &Graph, lib: &Library) -> String {
             let ity = def.and_then(|d| d.input(input)).map(|i| i.ty.name()).unwrap_or("float");
             match b {
                 Binding::Value(v) => out.push_str(&format!(
-                    "    <input name=\"{}\" type=\"{ity}\" value=\"{}\" />\n",
+                    "    <input name=\"{}\" type=\"{ity}\" value=\"{}\"{} />\n",
                     escape(input),
-                    escape(&v.to_text())
+                    escape(&v.to_text()),
+                    match n.space(input) {
+                        Some(s) => format!(" colorspace=\"{}\"", escape(s)),
+                        None => String::new(),
+                    }
                 )),
                 Binding::Connect { node, output } => {
                     let Some(src) = graph.node(*node) else { continue };
@@ -95,6 +108,7 @@ pub fn read(text: &str, lib: &Library) -> Result<Graph, String> {
         "backdrop",
     ];
     let mut g = Graph::new();
+    g.colorspace = root.attr("colorspace").map(str::to_string);
     let mut wires: Vec<(u32, String, String, String)> = vec![];
     for el in root.children.iter().filter(|e| !NOT_NODES.contains(&e.name.as_str())) {
         let name = el.attr("name").ok_or_else(|| format!("a <{}> has no name", el.name))?;
@@ -150,6 +164,9 @@ pub fn read(text: &str, lib: &Library) -> Result<Graph, String> {
                     .parse(text)
                     .ok_or_else(|| format!("{name}.{input}: {text:?} is not a {}", idef.ty))?;
                 g.set_value(id, input, v);
+                if let (Some(s), Some(n)) = (i.attr("colorspace"), g.node_mut(id)) {
+                    n.set_space(input, Some(s));
+                }
             }
         }
     }
@@ -266,8 +283,15 @@ mod tests {
         g.set_value(s, "specular_roughness", Value::Floats(vec![0.35]));
         let sep = g.add(lib, "separate3", [-500.0, 0.0]).unwrap();
         g.connect(lib, sep, "outg", s, "metalness").unwrap();
+        g.node_mut(img).unwrap().set_space("file", Some("srgb_texture"));
+        g.colorspace = Some("lin_rec709".into());
 
         let text = write(&g, lib);
+        assert!(
+            text.contains("<materialx version=\"1.39\" colorspace=\"lin_rec709\">"),
+            "{text}"
+        );
+        assert!(text.contains("colorspace=\"srgb_texture\" />"), "{text}");
         assert!(text.contains("<standard_surface name=\"standard_surface1\" type=\"surfaceshader\" nodedef=\"ND_standard_surface_surfaceshader\""), "{text}");
         assert!(
             text.contains("<input name=\"base_color\" type=\"color3\" nodename=\"image1\" />"),
@@ -297,6 +321,8 @@ mod tests {
             Some(&Value::String("tex/wood <1>.png".into()))
         );
         assert_eq!(back.source(s2, "metalness").map(|(_, o)| o), Some("outg"));
+        assert_eq!(back.node(src).unwrap().space("file"), Some("srgb_texture"));
+        assert_eq!(back.colorspace.as_deref(), Some("lin_rec709"));
         // Written again, the same document.
         assert_eq!(write(&back, lib), text);
     }

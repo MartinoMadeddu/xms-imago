@@ -66,8 +66,10 @@ shown. Alpha is shown as it is.
 
 ## Not done yet
 
-- The colour space of a texture as USD names it (`sourceColorSpace`,
-  `colorSpace` metadata): textures are sRGB or raw
+- The Viewer showing a texture in the colour space it is given (MaterialX's
+  Colour Space, `colorSpace`, `sourceColorSpace`: kept and written for the
+  renderer, see [MaterialX](materialx.md)): it takes 8-bit files as sRGB, float
+  files as linear
 - Looks, and the Viewer's own exposure and gamma
 - Choosing the config inside Imago (it is `$OCIO`, or Imago's)
 - Overlays drawn after the transform, so they keep their colours under a

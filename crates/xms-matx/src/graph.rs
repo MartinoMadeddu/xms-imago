@@ -37,6 +37,11 @@ pub struct Node {
     pub pos: [f32; 2],
     /// Its inputs that are set, in the order they were set.
     pub inputs: Vec<(String, Binding)>,
+    /// The colour space of an input's value (MaterialX's `colorspace` on the
+    /// input: a texture's file, a colour): `srgb_texture`, `lin_rec709`,
+    /// `acescg`, `raw`, or a name of the OCIO config. None given: the graph's
+    /// (`Graph::colorspace`), else the renderer's own rule.
+    pub spaces: Vec<(String, String)>,
 }
 
 impl Node {
@@ -55,6 +60,19 @@ impl Node {
     fn unset(&mut self, input: &str) {
         self.inputs.retain(|(n, _)| n != input);
     }
+
+    /// The colour space given to an input, if one is.
+    pub fn space(&self, input: &str) -> Option<&str> {
+        self.spaces.iter().find(|(n, _)| n == input).map(|(_, s)| s.as_str())
+    }
+
+    /// Give an input a colour space; None or empty: none.
+    pub fn set_space(&mut self, input: &str, space: Option<&str>) {
+        self.spaces.retain(|(n, _)| n != input);
+        if let Some(s) = space.map(str::trim).filter(|s| !s.is_empty()) {
+            self.spaces.push((input.to_string(), s.to_string()));
+        }
+    }
 }
 
 /// A graph of MaterialX nodes.
@@ -67,6 +85,9 @@ pub struct Graph {
     /// document described them: its nodes keep their values and wires, and
     /// are written out as they were read.
     pub missing: Vec<NodeDef>,
+    /// The document's colour space (`<materialx colorspace="lin_rec709">`):
+    /// what colours and colour textures are in when their input gives none.
+    pub colorspace: Option<String>,
 }
 
 /// A name MaterialX and USD take: letters, digits and `_`, not starting with a
@@ -115,6 +136,22 @@ impl Graph {
         self.nodes.iter().find(|n| n.name == name)
     }
 
+    /// The colour space an input's value is in: the one it is given, else,
+    /// for a colour (or a colour texture's file: of a node putting out a
+    /// colour), the graph's. None: the renderer's own rule (8-bit sRGB, float
+    /// linear), or not a colour.
+    pub fn space_of(&self, lib: &Library, id: u32, input: &str) -> Option<String> {
+        let node = self.node(id)?;
+        if let Some(s) = node.space(input) {
+            return Some(s.to_string());
+        }
+        let def = self.find_def(lib, &node.def)?;
+        let colour = |t: Type| matches!(t, Type::Color3 | Type::Color4);
+        let ty = def.input(input)?.ty;
+        let applies = colour(ty) || (ty == Type::Filename && colour(def.out_type()));
+        applies.then(|| self.colorspace.clone()).flatten()
+    }
+
     /// The definition a node is.
     pub fn def<'l>(&self, lib: &'l Library, id: u32) -> Option<&'l NodeDef> {
         lib.def(&self.node(id)?.def)
@@ -160,6 +197,7 @@ impl Graph {
             def: def.name.clone(),
             pos,
             inputs: vec![],
+            spaces: vec![],
         });
         Some(id)
     }
@@ -176,6 +214,7 @@ impl Graph {
             def,
             pos,
             inputs: vec![],
+            spaces: vec![],
         });
         id
     }

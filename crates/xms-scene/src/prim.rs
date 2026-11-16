@@ -202,7 +202,7 @@ pub struct ShaderNode {
 pub struct ShaderInput {
     pub name: String,
     pub value: ShaderValue,
-    /// `colorSpace` metadata authored on the input (texture `file` inputs)
+    /// `colorSpace` metadata authored on the input (a texture's file, a colour)
     pub color_space: Option<String>,
 }
 

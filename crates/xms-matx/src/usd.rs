@@ -140,6 +140,25 @@ fn input_type(node: &str, input: &str, t: Type) -> &'static str {
     usd_type(t)
 }
 
+/// A colour space as a UsdUVTexture's `sourceColorSpace` says it: `sRGB`,
+/// `raw`. None for one it cannot say (written as `colorSpace` instead).
+fn source_color_space(space: &str) -> Option<&'static str> {
+    match space.to_ascii_lowercase().as_str() {
+        "srgb_texture" | "srgb" | "srgb_tx" => Some("sRGB"),
+        "raw" | "none" => Some("raw"),
+        _ => None,
+    }
+}
+
+/// A UsdUVTexture's `sourceColorSpace` as a colour space: `auto`, none.
+fn space_of_source(t: &str) -> Option<&'static str> {
+    match t {
+        "sRGB" => Some("srgb_texture"),
+        "raw" => Some("raw"),
+        _ => None,
+    }
+}
+
 /// A shader prim of the network: its name under the material, and its attribute
 /// lines.
 #[derive(Clone, Debug, PartialEq)]
@@ -275,7 +294,30 @@ fn shader(graph: &Graph, lib: &Library, id: u32, path: &str) -> Option<Shader> {
                     ("UsdUVTexture", "wrapS" | "wrapT", Value::String(w)) => Value::String(wrap_to_usd(w).to_string()),
                     _ => v.clone(),
                 };
-                lines.push(format!("{uniform}{ty} inputs:{input} = {}", usd_value(idef.ty, &v)));
+                // Its colour space as metadata: a texture's file the one in
+                // force (its own, else the graph's for a colour texture), a
+                // colour only its own.
+                let space = match idef.ty {
+                    Type::Filename => graph.space_of(lib, id, input),
+                    _ => node.space(input).map(str::to_string),
+                };
+                // A UsdUVTexture says sRGB and raw as USD has it, by its
+                // `sourceColorSpace`.
+                let source = match (node.node.as_str(), input.as_str(), space.as_deref()) {
+                    ("UsdUVTexture", "file", Some(s)) => source_color_space(s),
+                    _ => None,
+                };
+                let meta = match (&space, source) {
+                    (Some(s), None) => format!(" (colorSpace = \"{}\")", s.replace('"', "")),
+                    _ => String::new(),
+                };
+                lines.push(format!(
+                    "{uniform}{ty} inputs:{input} = {}{meta}",
+                    usd_value(idef.ty, &v)
+                ));
+                if let Some(t) = source {
+                    lines.push(format!("token inputs:sourceColorSpace = \"{t}\""));
+                }
             }
             Binding::Connect { node: src, output } => {
                 let Some(src) = graph.node(*src) else { continue };
@@ -323,6 +365,8 @@ pub struct UsdShader {
     pub path: String,
     pub id: String,
     pub inputs: Vec<(String, UsdValue)>,
+    /// The inputs' colour spaces (`colorSpace` metadata), where given.
+    pub spaces: Vec<(String, String)>,
 }
 
 /// A graph of a USD material's network: each shader a node, by its prim name,
@@ -375,7 +419,19 @@ pub fn read_network(
     for s in shaders {
         let id = ids[s.path.as_str()];
         let def = defs[&id];
+        if let Some(n) = g.node_mut(id) {
+            for (input, space) in &s.spaces {
+                n.set_space(input, Some(space));
+            }
+        }
         for (input, v) in &s.inputs {
+            // A UsdUVTexture's `sourceColorSpace`: its file's colour space.
+            if def.node == "UsdUVTexture" && input == "sourceColorSpace" {
+                if let (UsdValue::Text(t), Some(n)) = (v, g.node_mut(id)) {
+                    n.set_space("file", space_of_source(t));
+                }
+                continue;
+            }
             let Some(idef) = def.input(input) else {
                 notes.push(format!("{}: {} has no input {input}: left out", s.path, def.name));
                 continue;
@@ -522,6 +578,62 @@ mod tests {
         assert!(surface.contains(&"token outputs:out".to_string()));
     }
 
+    /// A texture's colour space is the file input's `colorSpace`: its own, or
+    /// the graph's for a colour texture; and read back.
+    #[test]
+    fn a_texture_s_colour_space_is_written_and_read() {
+        let lib = Library::standard();
+        let mut g = Graph::standard_surface(lib);
+        let s = g.surface_shader().unwrap();
+        let img = g.add(lib, "image", [0.0, 0.0]).unwrap();
+        g.set_value(img, "file", Value::String("tex/wood.png".into()));
+        g.node_mut(img).unwrap().set_space("file", Some("srgb_texture"));
+        g.connect(lib, img, "out", s, "base_color").unwrap();
+        let (_, shaders) = network(&g, lib, "/m").unwrap();
+        let line = "uniform asset inputs:file = @tex/wood.png@ (colorSpace = \"srgb_texture\")";
+        assert!(shaders[0].lines.contains(&line.to_string()), "{:?}", shaders[0].lines);
+        // None its own: the graph's.
+        g.node_mut(img).unwrap().set_space("file", None);
+        g.colorspace = Some("acescg".into());
+        let (_, shaders) = network(&g, lib, "/m").unwrap();
+        assert!(shaders[0]
+            .lines
+            .iter()
+            .any(|l| l.ends_with("(colorSpace = \"acescg\")")));
+        // Read back from USD.
+        let usd = vec![UsdShader {
+            path: "/m/tex".into(),
+            id: "ND_image_color3".into(),
+            inputs: vec![("file".into(), UsdValue::Text("tex/wood.png".into()))],
+            spaces: vec![("file".into(), "raw".into())],
+        }];
+        let (back, _) = read_network(&usd, None, None, None, lib).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(back.nodes[0].space("file"), Some("raw"));
+        // A UsdUVTexture by its sourceColorSpace, both ways.
+        let usd = vec![UsdShader {
+            path: "/m/uv".into(),
+            id: "UsdUVTexture".into(),
+            inputs: vec![
+                ("file".into(), UsdValue::Text("tex/wood.png".into())),
+                ("sourceColorSpace".into(), UsdValue::Text("sRGB".into())),
+            ],
+            spaces: vec![],
+        }];
+        let (back, notes) = read_network(&usd, None, None, None, lib).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(back.nodes[0].space("file"), Some("srgb_texture"));
+        assert!(notes.is_empty(), "{notes:?}");
+        let mut g = Graph::new();
+        let uv = g.add(lib, "UsdUVTexture", [0.0, 0.0]).unwrap();
+        g.set_value(uv, "file", Value::String("tex/wood.png".into()));
+        g.node_mut(uv).unwrap().set_space("file", Some("srgb_texture"));
+        let lines = shader(&g, lib, uv, "/m").unwrap().lines;
+        assert!(
+            lines.contains(&"token inputs:sourceColorSpace = \"sRGB\"".to_string()),
+            "{lines:?}"
+        );
+        assert!(lines.iter().all(|l| !l.contains("colorSpace =")), "{lines:?}");
+    }
+
     /// The UsdPreviewSurface family is written as USD has it, and read back.
     #[test]
     fn a_preview_surface_is_written_as_usd_has_it() {
@@ -574,6 +686,7 @@ mod tests {
         // Read back as the scene layer would give it.
         let usd = vec![
             UsdShader {
+                spaces: vec![],
                 path: "/m/surface".into(),
                 id: "UsdPreviewSurface".into(),
                 inputs: vec![
@@ -590,6 +703,7 @@ mod tests {
                 ],
             },
             UsdShader {
+                spaces: vec![],
                 path: "/m/tex".into(),
                 id: "UsdUVTexture".into(),
                 inputs: vec![
@@ -605,6 +719,7 @@ mod tests {
                 ],
             },
             UsdShader {
+                spaces: vec![],
                 path: "/m/st".into(),
                 id: "UsdPrimvarReader_float2".into(),
                 inputs: vec![("varname".into(), UsdValue::Text("st".into()))],
@@ -632,6 +747,7 @@ mod tests {
             .all(|n| n.inputs.iter().all(|(i, _)| back.wire_ok(lib, n.id, i))));
         // A MaterialX network reads by its definitions.
         let mx = vec![UsdShader {
+            spaces: vec![],
             path: "/x/sr".into(),
             id: "ND_standard_surface_surfaceshader".into(),
             inputs: vec![("base_color".into(), UsdValue::Floats(vec![1.0, 0.0, 0.0]))],
@@ -643,6 +759,7 @@ mod tests {
         );
         // An unknown shader is refused.
         let bad = vec![UsdShader {
+            spaces: vec![],
             path: "/x/s".into(),
             id: "ArnoldStandard".into(),
             inputs: vec![],
@@ -711,6 +828,7 @@ mod tests {
         // Back from USD: the Arnold shader by its definition, into a
         // volumematerial; a choice by its name where it takes a number.
         let usd = vec![UsdShader {
+            spaces: vec![],
             path: "/mtl/smoke/vol".into(),
             id: "arnold:standard_volume".into(),
             inputs: vec![

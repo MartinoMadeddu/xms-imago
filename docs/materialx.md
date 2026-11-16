@@ -105,6 +105,17 @@ put it back to its default. Inputs the library marks advanced show when
 scene graph, the pane shows the material's name, its surface shader and what the
 Viewer shows of it.
 
+A texture's file has a **Colour Space** under it (MaterialX's and USD's own
+image nodes; a renderer's image node has its own input for it): what its
+colours are in, for the renderer to convert from. **Auto** gives none: the
+document's when it has one (for a colour texture), else the renderer's rule,
+8-bit files sRGB and float files linear. Then MaterialX's names, which
+OpenColorIO configs know (Imago's and ACES's): `srgb_texture`, `lin_rec709`,
+`acescg`, `lin_displayp3`, and `raw` for data (roughness, normals, masks: not
+converted). Then every colour space of the OCIO config. It is MaterialX's
+`colorspace` on the input, kept from the files read and written back to them,
+and `colorSpace` on the file input in USD (see [In USD](#in-usd)).
+
 The graph is saved in the graph file as the MaterialX document it is (`.mtlx`
 text, with each node's place as `xpos` and `ypos`), and goes with its operator
 when copied, pasted, undone and redone.
@@ -180,6 +191,10 @@ What it holds is read as follows:
 - **File names** take the `fileprefix` in force where they are written (the
   node's, its node graph's, the document's), and, relative, the file's folder:
   textures are found wherever the file is.
+- **Colour spaces** (`colorspace`): a value's is the one in force where it is
+  written (its input's, its node's, its node graph's); the document's is the
+  graph's own, for the colours and colour textures given none, and is written
+  back on Save .mtlx.
 - **Included files** (`xi:include`) are read as part of it, from its folder.
 - **Older documents:** a definition the library has under another name (1.38's
   `ND_normalmap`, now `ND_normalmap_float`) is found by the node and its
@@ -266,7 +281,16 @@ it: `info:id = "UsdPreviewSurface"`, `"UsdUVTexture"`,
 with MaterialX's `periodic` written as USD's `repeat`), `normal3f` for the
 normal; and a material whose surface is a UsdPreviewSurface connected by
 `outputs:surface`, not `outputs:mtlx:surface`. Nodes the material does not read
-are not written. A graph with nothing going into its `surfacematerial` is
+are not written. A texture's colour space is its file input's `colorSpace`
+(its own, else the document's for a colour texture), which renderers read:
+
+```
+uniform asset inputs:file = @tex/wood.png@ (colorSpace = "srgb_texture")
+```
+
+A UsdUVTexture says sRGB and raw by its `sourceColorSpace` (`"sRGB"`, `"raw"`)
+as USD has it, another space by `colorSpace`; both are read back from a stage.
+A graph with nothing going into its `surfacematerial` is
 written as the grey the Viewer shows. The Primitive Inspector lists the surface
 shader's definition and what is set on it.
 
@@ -318,8 +342,12 @@ to it on the way is not shown. Another shader shows grey.
 - Looks and material assignments of `.mtlx` files
 - A stage's material edited where it is (`→ MaterialX` makes a copy to bind in
   its place)
-- Shader inputs USD has and MaterialX's definition does not (`UsdUVTexture`'s
-  `sourceColorSpace`): left out, and said so
+- Shader inputs USD has and MaterialX's definition does not: left out, and
+  said so (`UsdUVTexture`'s `sourceColorSpace` is read as its file's colour
+  space)
+- The Viewer showing textures in their colour space (it takes 8-bit files as
+  sRGB, float files as linear); a colour value's colour space is kept and
+  written, not applied
 - The Viewer: the whole graph as a shader (procedurals, maths, layers); today
   the surface shader's values and the first texture behind each
 - Node graphs of the libraries (nodes MaterialX defines as graphs) are written
