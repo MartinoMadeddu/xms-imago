@@ -201,15 +201,15 @@ pub fn take_default_request() -> bool {
 /// with the UV editor and the Image Viewer as tabs behind, the primitive
 /// inspector under both. Then the node graph, then the properties over the
 /// operator stack. Timeline along the bottom of those, History down the whole
-/// right side. The Curve Editor and the Light Linker are tabs behind the node
-/// graph. Built in code: what is used if `xms_main_layout` could not be read.
+/// right side. The Curve Editor is a tab behind the node graph, the Light
+/// Linker behind the primitive inspector. Built in code: what is used if `xms_main_layout` could not be read.
 pub fn built_dock() -> DockState<Pane> {
     let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
     let s = dock.main_surface_mut();
     let [work, _history] = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
     let [top, _timeline] = s.split_below(work, 0.862, vec![Pane::Timeline]);
-    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor, Pane::LightLinker]);
-    let [view, _prim] = s.split_below(left, 0.72, vec![Pane::PrimInspector]);
+    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor]);
+    let [view, _prim] = s.split_below(left, 0.72, vec![Pane::PrimInspector, Pane::LightLinker]);
     s.split_left(view, 0.163, vec![Pane::SceneExplorer]);
     let [_graph, side] = s.split_right(right, 0.648, vec![Pane::Parameters]);
     s.split_below(side, 0.718, vec![Pane::OperatorStack]);
@@ -813,7 +813,8 @@ mod tests {
     }
 
     /// The tabs in front are the layout's own: Prim Inspector's leaf shows
-    /// the Scene Explorer, the Operator Stack's the History, in the main one.
+    /// the Scene Explorer (the Light Linker a tab beside them, bottom left),
+    /// the Operator Stack's the History, in the main one.
     #[test]
     fn the_main_layout_opens_with_its_tabs_in_front() {
         let dock = main_dock();
@@ -825,8 +826,22 @@ mod tests {
                 _ => false,
             }
         };
-        assert!(front(Pane::SceneExplorer) && !front(Pane::PrimInspector));
+        assert!(front(Pane::SceneExplorer) && !front(Pane::PrimInspector) && !front(Pane::LightLinker));
+        let leaf_of = |p: Pane| tree.find_tab(&p).unwrap().0;
+        assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::PrimInspector));
+        assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::SceneExplorer));
         assert!(front(Pane::History) && front(Pane::Viewer) && front(Pane::NodeGraph));
+    }
+
+    /// The layout built in code when the file cannot be read: the Light
+    /// Linker a tab behind the Primitive Inspector, bottom left.
+    #[test]
+    fn the_built_layout_has_the_light_linker_bottom_left() {
+        let dock = built_dock();
+        let tree = &dock[egui_dock::SurfaceIndex::main()];
+        let leaf_of = |p: Pane| tree.find_tab(&p).unwrap().0;
+        assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::PrimInspector));
+        assert!(is_valid(&dock) && dock.iter_all_tabs().count() == Pane::ALL.len());
     }
 
     #[test]

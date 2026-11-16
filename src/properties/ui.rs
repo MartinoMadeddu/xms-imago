@@ -1817,7 +1817,7 @@ fn spare_rows(ui: &mut egui::Ui, node: &mut crate::node_graph::GraphNode) {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut d.group).desired_width(140.0));
                     ui.add_enabled_ui(!groups.is_empty(), |ui| {
-                        crate::menus::menu(ui, "▾", |ui| {
+                        crate::menus::menu(ui, "⏷", |ui| {
                             for g in &groups {
                                 if ui.button(g).clicked() {
                                     d.group = g.clone();

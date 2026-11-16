@@ -771,7 +771,7 @@ shadows on, as a table, a row per link:
 
 | Column | Is |
 |---|---|
-| Lights | The lights it is for: a path (the lights at and below it), a pattern or `%collection`. ▾ picks one of the scene's lights or collections; the number says how many it takes |
+| Lights | The lights it is for: a path (the lights at and below it), a pattern or `%collection`. ⏷ picks one of the scene's lights or collections; the number says how many it takes |
 | Prims | The prims: a path (the prim and what is below it), a pattern or `%collection`. A prim dragged from the Scene Explorer can be dropped on it |
 | Light | On: those lights light those prims. Off: they do not |
 | Shadow | On: those lights cast shadows on them. Off: they do not |
@@ -790,7 +790,7 @@ taken in order, a later one winning on the same prim, and the nearest prim set
 above another decides: `/set` off, then `/set/hero` on, lights only the hero of
 the set.
 
-**The Light Linker pane** (a tab behind the Node Graph) shows a Light
+**The Light Linker pane** (a tab beside the Scene Explorer, bottom left) shows a Light
 Linker's table big: the one selected, else the last it edited, else the
 nearest above the viewed operator; its menu picks another, **+ New** adds one
 after the viewed operator. Beside the table, the lights coming in, each with

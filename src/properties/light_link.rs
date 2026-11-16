@@ -21,7 +21,7 @@ pub struct Scene<'a> {
 
 pub fn rows(ui: &mut egui::Ui, links: &mut Vec<Link>, scene: &Scene) {
     group(ui, "Links", Some(HINT), |f| {
-        table(&mut *f.ui, links, scene, None);
+        table(&mut *f.ui, links, scene, None, 150.0);
         status(f, links);
     });
 }
@@ -56,133 +56,43 @@ pub fn shows(l: &Link, focus: Option<&str>, held: &[Held]) -> bool {
     locations::matches(&read[0], light)
 }
 
-const ROW_H: f32 = 24.0;
-const HEADER_H: f32 = 22.0;
-const IDX_W: f32 = 30.0;
-const TOGGLE_W: f32 = 62.0;
-const DEL_W: f32 = 34.0;
-/// What a path cell gives its ▾ and its count, beside the field.
-const PATH_EXTRA_W: f32 = 66.0;
-
-/// The table, as the Primitive Inspector's: a header, then a row per link
-/// (those of the light `focus` when one is chosen) in full-width bands, its
-/// lights and prims sharing the width left by Light, Shadow and remove; then
-/// + Add Link, new rows for `focus` when one is chosen.
-pub fn table(ui: &mut egui::Ui, links: &mut Vec<Link>, scene: &Scene, focus: Option<&str>) {
-    use crate::prim_inspector::ui::xsi;
-    let shown: Vec<usize> = (0..links.len())
-        .filter(|k| shows(&links[*k], focus, scene.held))
-        .collect();
-    let fixed = IDX_W + 2.0 * TOGGLE_W + DEL_W;
-    let path_w = ((ui.available_width() - fixed) / 2.0).max(140.0);
-    let widths = [IDX_W, path_w, path_w, TOGGLE_W, TOGGLE_W, DEL_W];
-    let width: f32 = widths.iter().sum();
-    let (outer, _) = ui.allocate_exact_size(
-        egui::vec2(width, HEADER_H + ROW_H * shown.len() as f32),
-        egui::Sense::hover(),
-    );
-    // A cell: row `None` the header.
-    let cell = |row: Option<usize>, c: usize| {
-        let x = outer.min.x + widths[..c].iter().sum::<f32>();
-        let (y, h) = match row {
-            None => (outer.min.y, HEADER_H),
-            Some(r) => (outer.min.y + HEADER_H + r as f32 * ROW_H, ROW_H),
-        };
-        egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(widths[c], h))
-    };
-    let painter = ui.painter_at(outer);
-    painter.rect_filled(
-        egui::Rect::from_min_size(outer.min, egui::vec2(width, HEADER_H)),
-        0.0,
-        xsi::HEADER_BG(),
-    );
-    for r in 0..shown.len() {
-        let band = egui::Rect::from_min_size(
-            egui::pos2(outer.min.x, outer.min.y + HEADER_H + r as f32 * ROW_H),
-            egui::vec2(width, ROW_H),
-        );
-        painter.rect_filled(band, 0.0, if r % 2 == 0 { xsi::ROW_EVEN() } else { xsi::ROW_ODD() });
-    }
-    let border = egui::Stroke::new(1.0, xsi::BORDER());
-    for row in std::iter::once(None).chain((0..shown.len()).map(Some)) {
-        for c in 0..widths.len() {
-            painter.rect_stroke(cell(row, c), 0.0, border, egui::StrokeKind::Middle);
-        }
-    }
-    for (c, name) in ["", "Lights", "Prims", "Light", "Shadow", ""].iter().enumerate() {
-        painter.text(
-            cell(None, c).center(),
-            egui::Align2::CENTER_CENTER,
-            *name,
-            egui::FontId::proportional(11.0),
-            xsi::TEXT(),
-        );
-    }
-    let sides: [(usize, fn(&mut Link) -> &mut Option<bool>); 2] = [(3, lights_of), (4, shadows_of)];
-    for (c, side) in sides {
-        let r = ui
-            .interact(
-                cell(None, c),
-                ui.id().with(("light_link_header", c)),
-                egui::Sense::click(),
-            )
-            .on_hover_text("Right-click: the whole column");
-        r.context_menu(|ui| column_menu(ui, links, &shown, side));
-    }
-
-    // The rows' widgets, each in its cell.
+/// The table: a row per link (those of the light `focus` when one is
+/// chosen), its lights and prims (fields `field_w` wide), Light and Shadow;
+/// then + Add Link, new rows for `focus` when one is chosen.
+pub fn table(ui: &mut egui::Ui, links: &mut Vec<Link>, scene: &Scene, focus: Option<&str>, field_w: f32) {
     let mut remove = None;
-    let left = egui::Layout::left_to_right(egui::Align::Center);
-    for (r, &k) in shown.iter().enumerate() {
-        let inside = |ui: &mut egui::Ui, c: usize| {
-            ui.new_child(
-                egui::UiBuilder::new()
-                    .max_rect(cell(Some(r), c).shrink2(egui::vec2(4.0, 1.0)))
-                    .id_salt(("light_link_cell", k, c))
-                    .layout(left),
-            )
-        };
-        let l = &mut links[k];
-        let mut u = inside(ui, 0);
-        u.label(egui::RichText::new(format!("{}", k + 1)).small().color(xsi::TEXT_IDX()));
-        let field = path_w - PATH_EXTRA_W;
-        path_cell(
-            &mut inside(ui, 1),
-            &mut l.light,
-            scene.lights,
-            scene.held,
-            "/lights/key",
-            field,
-        );
-        path_cell(
-            &mut inside(ui, 2),
-            &mut l.prim,
-            scene.paths,
-            scene.held,
-            "/set/hero",
-            field,
-        );
-        let mut u = inside(ui, 3);
-        u.add_space((TOGGLE_W - 26.0) / 2.0);
-        toggle(&mut u, &mut l.lights, "Light", "these lights light these prims");
-        let mut u = inside(ui, 4);
-        u.add_space((TOGGLE_W - 26.0) / 2.0);
-        toggle(
-            &mut u,
-            &mut l.shadows,
-            "Shadow",
-            "these lights cast shadows on these prims",
-        );
-        let mut u = inside(ui, 5);
-        u.add_space((DEL_W - 30.0) / 2.0);
-        if u.small_button("🗑").on_hover_text("Remove this link").clicked() {
-            remove = Some(k);
-        }
+    if !links.is_empty() {
+        egui::Grid::new("light_link_table")
+            .num_columns(6)
+            .spacing([8.0, 3.0])
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("");
+                ui.label(egui::RichText::new("Lights").strong());
+                ui.label(egui::RichText::new("Prims").strong());
+                column_header(ui, "Light", links, lights_of);
+                column_header(ui, "Shadow", links, shadows_of);
+                ui.label("");
+                ui.end_row();
+                for (k, l) in links.iter_mut().enumerate() {
+                    if !shows(l, focus, scene.held) {
+                        continue;
+                    }
+                    ui.label(egui::RichText::new(format!("{}", k + 1)).small().color(ink::DIM()));
+                    path_cell(ui, &mut l.light, scene.lights, scene.held, "/lights/key", field_w);
+                    path_cell(ui, &mut l.prim, scene.paths, scene.held, "/set/hero", field_w);
+                    toggle(ui, &mut l.lights, "Light", "these lights light these prims");
+                    toggle(ui, &mut l.shadows, "Shadow", "these lights cast shadows on these prims");
+                    if ui.small_button("🗑").on_hover_text("Remove this link").clicked() {
+                        remove = Some(k);
+                    }
+                    ui.end_row();
+                }
+            });
     }
     if let Some(k) = remove {
         links.remove(k);
     }
-    ui.add_space(4.0);
     ui.horizontal(|ui| {
         let tip = "Add a link. Lights and prims selected in the Scene Explorer go in it: a row for each prim, for the lights selected (or the light chosen, or the last row's). Prims dragged from the Scene Explorer can be dropped here";
         let add = ui.button("+ Add Link").on_hover_text(tip);
@@ -242,20 +152,25 @@ fn shadows_of(l: &mut Link) -> &mut Option<bool> {
     &mut l.shadows
 }
 
-/// The menu on Light's or Shadow's name: the column, for the rows shown.
-fn column_menu(ui: &mut egui::Ui, links: &mut [Link], shown: &[usize], side: fn(&mut Link) -> &mut Option<bool>) {
-    for (label, v) in [
-        ("All on", Some(true)),
-        ("All off", Some(false)),
-        ("All as they come in", None),
-    ] {
-        if ui.button(label).clicked() {
-            for &k in shown {
-                *side(&mut links[k]) = v;
+/// A column's name: right-click sets the whole column.
+fn column_header(ui: &mut egui::Ui, name: &str, links: &mut [Link], side: fn(&mut Link) -> &mut Option<bool>) {
+    let r = ui
+        .add(egui::Label::new(egui::RichText::new(name).strong()).sense(egui::Sense::click()))
+        .on_hover_text("Right-click: the whole column");
+    r.context_menu(|ui| {
+        for (label, v) in [
+            ("All on", Some(true)),
+            ("All off", Some(false)),
+            ("All as they come in", None),
+        ] {
+            if ui.button(label).clicked() {
+                for l in links.iter_mut() {
+                    *side(l) = v;
+                }
+                ui.close();
             }
-            ui.close();
         }
-    }
+    });
 }
 
 /// A path, a pattern or `%collection`, typed or picked from `options` (and
@@ -279,7 +194,7 @@ fn path_cell(ui: &mut egui::Ui, text: &mut String, options: &[String], held: &[H
                 *text = first.clone();
             }
         }
-        crate::menus::menu(ui, "▾", |ui| {
+        crate::menus::menu(ui, "⏷", |ui| {
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 let mut names: Vec<String> = vec![];
                 for h in held {
