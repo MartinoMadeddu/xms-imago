@@ -89,6 +89,8 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             let mut draw_set: Option<(String, Option<crate::types::DrawMode>)> = None;
             // The row clicked, with Ctrl (Cmd) and Shift.
             let mut clicked: Option<(Option<String>, bool, bool)> = None;
+            // A collection's row clicked: its key.
+            let mut collection_clicked: Option<String> = None;
             // Prims to edit: Edit Selected on a row's right-click.
             let mut edit: Option<Vec<String>> = None;
             // A variant chosen on a row's right-click.
@@ -147,7 +149,10 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         let depth = obj.depth;
                         let is_last = last_of_siblings[idx];
 
-                        let is_sel = hierarchy.is_selected(obj.path.as_deref());
+                        // A collection's row: selected, its members are.
+                        let collection = hierarchy.collection_of(&obj.key).map(str::to_string);
+                        let is_sel = hierarchy.is_selected(obj.path.as_deref())
+                            || (collection.is_some() && hierarchy.is_collection_selected(&obj.key));
 
                         // Allocate a full-width row
                         let (row_rect, row_resp) = ui.allocate_exact_size(
@@ -158,6 +163,11 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         // operator or its Prims Location tab: every selected
                         // row when the one dragged is selected, else that one.
                         if row_resp.drag_started() {
+                            // A collection goes as `%name`, for a Prims
+                            // Location list.
+                            if let Some(name) = &collection {
+                                egui::DragAndDrop::set_payload(ui.ctx(), crate::types::DraggedPrims(vec![format!("%{name}")]));
+                            }
                             if let Some(path) = &obj.path {
                                 // An instance goes as its instancer: a prim path.
                                 let prim = crate::core::instancing::instance_path(path).map(|(i, _)| i.to_string()).unwrap_or_else(|| path.clone());
@@ -167,8 +177,17 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         }
                         if row_resp.clicked() {
                             let m = ui.input(|i| i.modifiers);
-                            clicked = Some((obj.path.clone(), m.command, m.shift));
+                            if collection.is_some() {
+                                collection_clicked = Some(obj.key.clone());
+                            } else {
+                                clicked = Some((obj.path.clone(), m.command, m.shift));
+                            }
                         }
+                        let row_resp = if collection.is_some() {
+                            row_resp.on_hover_text("A collection: click to select its members. Drag it to a Prims Location list for %name")
+                        } else {
+                            row_resp
+                        };
                         // Right-click a prim: edit it (the selection, when it
                         // is in it), and how the Viewer draws it and what is
                         // below it (not an instance: its instancer's row).
@@ -374,6 +393,9 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             // A row without a path (a joint, a plain mesh) has nothing of its
             // own to show: a click on it selects nothing, and the Inspector
             // shows the whole scene. Shift takes the rows in view between.
+            if let Some(key) = &collection_clicked {
+                hierarchy.select_collection(key);
+            }
             if let (Some((path, toggle, range)), None) = (clicked, geometry_toggle) {
                 match path {
                     Some(p) => {

@@ -93,7 +93,12 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
             else {
                 return None;
             };
-            let (parents, [t, r, s]) = handles(&prims, &node.locations, *kind, edits)?;
+            let (parents, [t, r, s]) = handles(
+                &prims,
+                &crate::core::collections::resolved(&node.locations, &prims),
+                *kind,
+                edits,
+            )?;
             let r = r.map(f32::to_radians);
             Some(Target {
                 node: id,

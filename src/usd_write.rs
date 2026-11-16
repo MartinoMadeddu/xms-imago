@@ -491,6 +491,10 @@ fn specs_in(
             continue;
         }
         new_prim(root.at(&p.path), p, frame_of(&p.path));
+        // A prim made to hold collections where a stage has one: an `over`.
+        if p.is_holder() && in_a_stage(&p.path) {
+            root.at(&p.path).def = None;
+        }
         // A render prim of a file, changed: an `over`.
         if p.render.as_ref().is_some_and(|r| r.over) {
             report.changed += 1;
@@ -502,7 +506,7 @@ fn specs_in(
             let parent = format!("/{}", segments[..n].join("/"));
             let spec = root.at(&parent);
             if spec.def.is_none() && !in_a_stage(&parent) {
-                spec.def = Some(if p.shading.is_some() || p.render.is_some() {
+                spec.def = Some(if p.shading.is_some() || p.render.is_some() || p.is_holder() {
                     "Scope"
                 } else {
                     "Xform"
@@ -570,8 +574,38 @@ fn specs_in(
             .map(|t| format!("@{}@", relative(&t.source, dir).display()))
             .collect(),
     };
+    // Collections, on the prims holding them: each one's API schema and its
+    // properties (an `over` on a prim of a stage).
+    for p in prims {
+        let Some(cs) = &p.collections else { continue };
+        let spec = root.at(&p.path);
+        for c in cs.iter() {
+            api_schema(spec, &crate::core::collections::api(c));
+            let decl = |l: &str| l.split(" = ").next().unwrap_or("").to_string();
+            let lines = crate::core::collections::usda_lines(c);
+            spec.lines.retain(|l| !lines.iter().any(|n| decl(n) == decl(l)));
+            spec.lines.extend(lines);
+        }
+        if p.stage.is_some() {
+            report.changed += 1;
+        }
+    }
     root.prune();
     (root, header, report)
+}
+
+/// An API schema applied to a prim: added to its `prepend apiSchemas`.
+fn api_schema(spec: &mut Spec, name: &str) {
+    const START: &str = "prepend apiSchemas = [";
+    let quoted = format!("\"{name}\"");
+    match spec.meta.iter_mut().find(|m| m.starts_with(START)) {
+        Some(m) if m.contains(&quoted) => {}
+        Some(m) => {
+            let inner = m[START.len()..].trim_end_matches(']').to_string();
+            *m = format!("{START}{inner}, {quoted}]");
+        }
+        None => spec.meta.push(format!("{START}{quoted}]")),
+    }
 }
 
 /// The frames from `start` to `end` (both included when the step lands on
@@ -1324,6 +1358,11 @@ fn prim_opinions(spec: &mut Spec, p: &Prim, e: &PrimEdit, node: &StageNode, tree
 
 /// A prim that is not in the stage (or not in any): written whole, as new.
 fn new_prim(spec: &mut Spec, p: &Prim, root: Mat4) {
+    // A prim made to hold collections: a Scope (they are written after).
+    if p.is_holder() {
+        spec.def = Some("Scope");
+        return;
+    }
     // A material: its shaders below it, and no place of its own.
     if let Some(m) = &p.shading {
         spec.def = Some("Material");
@@ -1803,7 +1842,7 @@ fn extent(spec: &mut Spec, geo: &Geo) {
 }
 
 fn bind(spec: &mut Spec, material: Option<&str>) {
-    spec.meta.push("prepend apiSchemas = [\"MaterialBindingAPI\"]".into());
+    api_schema(spec, "MaterialBindingAPI");
     match material {
         Some(m) => spec.lines.push(format!("rel material:binding = <{m}>")),
         None => spec.lines.push("rel material:binding = None".into()),
@@ -1815,7 +1854,6 @@ fn bind(spec: &mut Spec, material: Option<&str>) {
 /// relationship: a stronger binding for all is written again with it.
 fn more_bindings(spec: &mut Spec, b: &crate::core::material::Bindings, all: Option<&str>) {
     use crate::core::material::BindPurpose;
-    const API: &str = "prepend apiSchemas = [\"MaterialBindingAPI\"]";
     for purpose in BindPurpose::ALL {
         let stronger = b.stronger[purpose as usize];
         let Some(target) = b.of(purpose, all) else { continue };
@@ -1825,9 +1863,7 @@ fn more_bindings(spec: &mut Spec, b: &crate::core::material::Bindings, all: Opti
             }
             spec.lines.retain(|l| !l.starts_with("rel material:binding ="));
         }
-        if !spec.meta.iter().any(|m| m == API) {
-            spec.meta.push(API.into());
-        }
+        api_schema(spec, "MaterialBindingAPI");
         let line = format!("rel {} = <{target}>", purpose.relationship());
         spec.lines.push(if stronger {
             format!("{line} (\n    bindMaterialAs = \"strongerThanDescendants\"\n)")
@@ -2469,6 +2505,65 @@ def BasisCurves "hair" {
         assert!(
             text.contains("defaultPrim = \"cube\"") && text.contains("def Mesh \"cube\""),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn collections_are_written_on_their_holders() {
+        use crate::core::collections::{make, Made};
+        let scene = EvalResult::Named(vec![cube_at("/set/a"), cube_at("/set/b")]);
+        let inc = vec!["/set".to_string()];
+        let exc = vec!["/set/b".to_string()];
+        let made = |name: &'static str, location: &'static str| Made {
+            name,
+            location,
+            includes: &inc,
+            excludes: &exc,
+            explicit_only: false,
+        };
+        let scene = make(&scene, &made("all", "/collections"));
+        let scene = make(&scene, &made("more", "/collections"));
+        let EvalResult::Named(prims) = make(&scene, &made("mine", "/set/a")) else {
+            panic!()
+        };
+        let out = std::env::temp_dir().join("xms_usd_write_test/collections.usda");
+        let (text, _) = override_layer(&prims, &out, &SceneRange::default()).unwrap();
+        assert!(
+            text.contains(
+                "def Scope \"collections\" (\n    prepend apiSchemas = [\"CollectionAPI:all\", \"CollectionAPI:more\"]\n)"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("rel collection:all:includes = </set>"), "{text}");
+        assert!(text.contains("rel collection:all:excludes = </set/b>"), "{text}");
+        assert!(
+            text.contains("uniform token collection:more:expansionRule = \"expandPrims\""),
+            "{text}"
+        );
+        assert!(
+            text.contains("def Mesh \"a\" (\n        prepend apiSchemas = [\"CollectionAPI:mine\"]"),
+            "{text}"
+        );
+        // Read back as the file's collections.
+        write_override(&prims, &out, &SceneRange::default()).unwrap();
+        let back = crate::usd_scene::load(&out).unwrap();
+        let all = back
+            .tree
+            .node("/collections")
+            .and_then(|n| n.collections.iter().find(|c| c.name == "all").cloned())
+            .expect("read back");
+        assert!(all.has("/set/a") && !all.has("/set/b"));
+    }
+
+    #[test]
+    fn api_schemas_are_one_list() {
+        let mut spec = Spec::default();
+        bind(&mut spec, Some("/m/paint"));
+        api_schema(&mut spec, "CollectionAPI:a");
+        api_schema(&mut spec, "CollectionAPI:a");
+        assert_eq!(
+            spec.meta,
+            ["prepend apiSchemas = [\"MaterialBindingAPI\", \"CollectionAPI:a\"]"]
         );
     }
 

@@ -1532,6 +1532,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Reparent { parent: String::new(), mode: Default::default(), keep_world: true }, "Move prims under another prim, with what is below them: those named, or the whole scene"),
             (NodeType::Rename { find: String::new(), replace: String::new(), prefix: String::new(), suffix: String::new() }, "Rename prims: part of the name replaced, a prefix or suffix added"),
             (NodeType::Duplicate { copies: Default::default() }, "Copies of prims beside them, with what is below them, each moved a step further"),
+            (NodeType::Collection { name: "$OPNAME".into(), location: crate::core::collections::DEFAULT_LOCATION.into(), includes: vec![], excludes: vec![], explicit_only: false }, "A named set of prims (USD's collections): paths or patterns included and excluded. %name in any Prims Location list takes its members"),
             (NodeType::DeleteAttribute { names: String::new(), context: None }, "Take attributes (primvars) away from the primitives' geometry, by name"),
             (NodeType::RenameAttribute { from: String::new(), to: String::new(), context: None }, "Give attributes (primvars) of the primitives' geometry new names"),
             (NodeType::variant(Default::default()), "Choose variants of the stages' variant sets (Select), or make a variant set, its variants from the inputs (Create)"),

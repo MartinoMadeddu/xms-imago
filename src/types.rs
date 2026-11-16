@@ -340,6 +340,22 @@ pub enum NodeType {
         #[serde(default)]
         bitangents: bool,
     },
+    /// A collection `name` on the prim at `location` (made where there is none):
+    /// the prims `includes` names (paths or patterns, `%other`) less those
+    /// `excludes` names, with what is below them unless `explicit_only`.
+    /// Taken by `%name` in any Prims Location list. See `core::collections`.
+    Collection {
+        #[serde(default)]
+        name: String,
+        #[serde(default = "collection_location", alias = "holder")]
+        location: String,
+        #[serde(default)]
+        includes: Vec<String>,
+        #[serde(default)]
+        excludes: Vec<String>,
+        #[serde(default)]
+        explicit_only: bool,
+    },
     /// Variants of the stages coming in: `choices` chooses them (Select),
     /// composing the stage again. See `core::variant`.
     /// Create: a variant set `set` on the prim at `location`, a variant per
@@ -1206,6 +1222,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::RenameAttribute { .. } => "✎",
         NodeType::Normals { .. } => "⊥",
         NodeType::Tangents { .. } => "∥",
+        NodeType::Collection { .. } => "▦",
         NodeType::Variant { .. } => "🔀",
         NodeType::Material { .. } => "🎨",
         NodeType::MaterialX { .. } => "💎",
@@ -1308,6 +1325,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::RenameAttribute { .. } => "Rename Attribute",
         NodeType::Normals { .. } => "Normals",
         NodeType::Tangents { .. } => "Tangents",
+        NodeType::Collection { .. } => "Collection",
         NodeType::Variant { .. } => "Variant",
         NodeType::Material { .. } => "Material",
         NodeType::MaterialX { .. } => "MaterialX",
@@ -2175,6 +2193,9 @@ pub struct Prim {
     /// A volume: this prim is one (a USD `Volume`, its fields in a VDB file),
     /// with no geometry of its own. `None` for the rest.
     pub volume: Option<std::sync::Arc<crate::core::volume::Volume>>,
+    /// The collections it holds (Collection): written as its `CollectionAPI`s.
+    /// A prim made only to hold them (`is_holder`) is a Scope.
+    pub collections: Option<std::sync::Arc<Vec<crate::core::collections::Collection>>>,
 }
 
 /// Which instancer a prototype mesh is drawn by, and what its placements were
@@ -2344,13 +2365,31 @@ impl Prim {
             render: None,
             light: None,
             volume: None,
+            collections: None,
         }
+    }
+
+    /// Whether it is only there to hold collections: no geometry, nothing
+    /// else of its own.
+    pub fn is_holder(&self) -> bool {
+        self.collections.is_some()
+            && self.geo.is_none()
+            && self.stage.is_none()
+            && self.mesh.vertices.is_empty()
+            && self.mesh.points.is_empty()
+            && self.instancing.is_none()
+            && self.shading.is_none()
+            && self.camera.is_none()
+            && self.render.is_none()
+            && self.light.is_none()
+            && self.volume.is_none()
     }
 
     /// Whether it is geometry, drawn and bound to materials: not a material, a
     /// camera, a render prim, a light or a volume (bound to materials too).
     pub fn is_geometry(&self) -> bool {
-        self.shading.is_none()
+        !self.is_holder()
+            && self.shading.is_none()
             && self.camera.is_none()
             && self.render.is_none()
             && self.light.is_none()
@@ -2589,6 +2628,7 @@ impl EvalResult {
                             render: p.render.clone(),
                             light: p.light.clone(),
                             volume: p.volume.clone(),
+                            collections: p.collections.clone(),
                         });
                     }
                 }
@@ -2919,6 +2959,11 @@ pub struct SceneHierarchy {
     /// A variant chosen with a right-click: a Variant choosing it is added
     /// after the viewed operator (or the viewed Variant takes it).
     pub variant_request: Option<crate::core::variant::Choice>,
+    /// The collections listed, by their rows' keys: the name, and the row it
+    /// stands for in a Prims Location list (what selecting it selects).
+    collection_rows: std::collections::HashMap<String, (String, String)>,
+    /// The collection row selected: its members are the selection.
+    selected_collection: Option<String>,
 }
 
 /// How the Viewer draws geometry, as USD's `model:drawMode` has it: as it is,
@@ -3032,6 +3077,97 @@ impl SceneHierarchy {
             }
         }
         self.display_revision += 1;
+    }
+
+    /// A row listing a collection: its name (what `%name` calls it).
+    pub fn collection_of(&self, key: &str) -> Option<&str> {
+        self.collection_rows.get(key).map(|(n, _)| n.as_str())
+    }
+
+    /// Whether a collection row is the one selected.
+    pub fn is_collection_selected(&self, key: &str) -> bool {
+        self.selected_collection.as_deref() == Some(key)
+    }
+
+    /// A click on a collection's row: its members are selected (the rows of
+    /// the prims in it), the Viewer and the Primitive Inspector showing them.
+    /// Clicked again, nothing.
+    pub fn select_collection(&mut self, key: &str) {
+        if self.is_collection_selected(key) {
+            self.clear_selection();
+            return;
+        }
+        let Some(members) = self.members(key) else {
+            return;
+        };
+        self.selected_paths = members;
+        self.anchor = None;
+        self.selected_collection = Some(key.to_string());
+    }
+
+    /// The paths of the rows of a collection's members.
+    fn members(&self, key: &str) -> Option<Vec<String>> {
+        let (_, row) = self.collection_rows.get(key)?;
+        let mut members: Vec<String> = vec![];
+        for o in &self.objects {
+            if let Some(p) = o.path.as_deref() {
+                if crate::core::locations::names(row, p) && !members.iter().any(|m| m == p) {
+                    members.push(p.to_string());
+                }
+            }
+        }
+        Some(members)
+    }
+
+    /// A row per collection of the scene, under the row of the prim holding
+    /// it (rows from `from` on), with how many prims listed are in it.
+    fn push_collections(&mut self, prims: &[Prim], from: usize) {
+        let held = crate::core::collections::gather(prims);
+        if held.is_empty() {
+            return;
+        }
+        let mut rows = std::mem::take(&mut self.objects);
+        let tail = rows.split_off(from.min(rows.len()));
+        let mut extra: std::collections::HashMap<usize, Vec<SceneObject>> = Default::default();
+        for h in &held {
+            let Some(k) = tail.iter().position(|o| o.path.as_deref() == Some(h.holder.as_str())) else {
+                continue;
+            };
+            let row = h.collection.row();
+            let members = tail
+                .iter()
+                .filter(|o| {
+                    o.path
+                        .as_deref()
+                        .is_some_and(|p| crate::core::locations::names(&row, p))
+                })
+                .count();
+            let key = format!("collection:{}:{}", h.holder, h.collection.name);
+            self.collection_rows
+                .insert(key.clone(), (h.collection.name.clone(), row));
+            let id = self.next_id();
+            extra.entry(k).or_default().push(SceneObject {
+                id,
+                name: h.collection.name.clone(),
+                icon: "▦",
+                depth: tail[k].depth + 1,
+                has_children: false,
+                expanded: true,
+                key,
+                stage_path: None,
+                path: None,
+                type_name: format!("Collection · {}", thousands(members)),
+            });
+        }
+        for (k, mut o) in tail.into_iter().enumerate() {
+            let under = extra.remove(&k);
+            if under.is_some() {
+                o.has_children = true;
+            }
+            rows.push(o);
+            rows.extend(under.into_iter().flatten());
+        }
+        self.objects = rows;
     }
 
     /// The variant sets of the prim at `path`; none for most prims.
@@ -3236,6 +3372,8 @@ impl SceneHierarchy {
                             "⁘"
                         } else if let Some(r) = &prim.render {
                             render_icon(r.kind)
+                        } else if prim.is_holder() {
+                            prim_icon(&name, true)
                         } else {
                             prim_icon(&name, has_children)
                         },
@@ -3257,6 +3395,7 @@ impl SceneHierarchy {
                                 prim.render.as_ref().map(|r| r.kind.usd()).unwrap_or_default().into()
                             }
                             _ if prim.volume.is_some() => "Volume".into(),
+                            _ if prim.is_holder() => "Scope".into(),
                             Some(crate::core::geo::Topology::Curves { .. }) => "BasisCurves".into(),
                             Some(crate::core::geo::Topology::Points) => "Points".into(),
                             _ => "Mesh".into(),
@@ -3404,6 +3543,14 @@ impl SceneHierarchy {
             self.anchor = None;
         }
         self.selected_paths = kept;
+        // A collection selected stays while it is listed, its members as
+        // they are now.
+        if let Some(k) = self.selected_collection.clone() {
+            match self.members(&k) {
+                Some(m) => self.selected_paths = m,
+                None => self.selected_collection = None,
+            }
+        }
     }
 
     /// The selected rows' paths: the parts of the scene the Primitive Inspector
@@ -3422,6 +3569,7 @@ impl SceneHierarchy {
     /// Shift: every row with a path from the last one clicked to this one, as
     /// listed. `listed`: the paths of the rows in view, in order.
     pub fn click(&mut self, path: &str, toggle: bool, range: bool, listed: &[&str]) {
+        self.selected_collection = None;
         if range {
             if let Some(a) = self.anchor.clone() {
                 let (i, j) = (
@@ -3456,6 +3604,7 @@ impl SceneHierarchy {
     /// A box dragged in the Viewer over `paths`: they are the selection; with
     /// `add`, added to it; with `remove`, taken out of it.
     pub fn select_boxed(&mut self, paths: Vec<String>, add: bool, remove: bool) {
+        self.selected_collection = None;
         if remove {
             self.selected_paths.retain(|p| !paths.contains(p));
         } else if add {
@@ -3472,6 +3621,7 @@ impl SceneHierarchy {
 
     /// Select nothing: the Primitive Inspector shows the whole scene.
     pub fn clear_selection(&mut self) {
+        self.selected_collection = None;
         self.selected_paths.clear();
         self.anchor = None;
     }
@@ -3482,6 +3632,7 @@ impl SceneHierarchy {
     pub fn rebuild(&mut self, entries: Vec<(NodeId, String, EvalResult)>) {
         self.objects.clear();
         self.variant_prims.clear();
+        self.collection_rows.clear();
 
         for (node_id, node_name, result) in entries {
             let node_key = format!("node:{}", node_id.0);
@@ -3636,7 +3787,7 @@ impl SceneHierarchy {
                     // Location, /Render) Scopes.
                     let holds_geometry: std::collections::HashSet<String> = prims
                         .iter()
-                        .filter(|p| p.shading.is_none() && p.render.is_none())
+                        .filter(|p| p.shading.is_none() && p.render.is_none() && !p.is_holder())
                         .flat_map(|p| {
                             let segs: Vec<&str> = p.path.trim_start_matches('/').split('/').collect();
                             (1..segs.len()).map(move |n| segs[..n].join("/")).collect::<Vec<_>>()
@@ -3652,6 +3803,8 @@ impl SceneHierarchy {
                     let at = self.objects.iter().position(|o| o.id == group_id).map_or(0, |k| k + 1);
                     let rows = self.objects.split_off(at);
                     self.objects.extend(merged(rows));
+                    // Collections, under the prims holding them.
+                    self.push_collections(&prims, at);
                     // The RenderSettings prim a render of this scene uses.
                     if let Some(used) = crate::core::render::layer_settings(&prims) {
                         if let Some(row) = self
@@ -4098,6 +4251,10 @@ mod location_tests {
         h.select_boxed(vec![], false, false);
         assert!(h.selected_paths().is_empty(), "a box over nothing: nothing");
     }
+}
+
+fn collection_location() -> String {
+    crate::core::collections::DEFAULT_LOCATION.into()
 }
 
 fn point_context() -> crate::core::geo::Context {

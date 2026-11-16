@@ -7,6 +7,8 @@
 //! - `*` stands for any run of characters within one name, `?` for one
 //!   character, and `**` for any number of levels: `/set/**/lamp*`.
 //! - `/` matches everything. The leading `/` may be left out.
+//! - `%name` takes the members of the collection `name` (`core::collections`),
+//!   put in as a row `{expand: /a -/a/b}` before the list is read.
 //! - An empty list (or one of empty rows only) means every primitive: the
 //!   operator works as it did without a list, on what an upstream Pick
 //!   Primitives chose, or on everything.
@@ -62,6 +64,12 @@ pub fn is_set(list: &[String]) -> bool {
 /// Whether one location matches a primitive path: the primitive at it, or any
 /// below it.
 pub fn matches(location: &str, path: &str) -> bool {
+    if let Some(m) = crate::core::collections::row_has(location, path) {
+        return m;
+    }
+    if crate::core::collections::reference(location).is_some() {
+        return false;
+    }
     let pattern: Vec<&str> = location.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     prefix(&pattern, &segments)
@@ -77,6 +85,12 @@ pub fn any_matches(list: &[String], path: &str) -> bool {
 /// on a group is not a value on each prim below. `/set/*` names the children of
 /// `/set`, `/set/**` `/set` and everything below it.
 pub fn names(location: &str, path: &str) -> bool {
+    if let Some(m) = crate::core::collections::row_has(location, path) {
+        return m;
+    }
+    if crate::core::collections::reference(location).is_some() {
+        return false;
+    }
     let pattern: Vec<&str> = location.split('/').map(str::trim).filter(|s| !s.is_empty()).collect();
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     !segments.is_empty() && whole(&pattern, &segments)

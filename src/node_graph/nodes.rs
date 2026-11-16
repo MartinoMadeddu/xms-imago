@@ -188,6 +188,24 @@ pub fn evaluate_node_type(
         } => inputs
             .first()
             .map(|r| crate::core::frames::tangents(r, *context, *from, uv, *bitangents)),
+        NodeType::Collection {
+            name,
+            location,
+            includes,
+            excludes,
+            explicit_only,
+        } => inputs.first().map(|r| {
+            crate::core::collections::make(
+                r,
+                &crate::core::collections::Made {
+                    name,
+                    location,
+                    includes,
+                    excludes,
+                    explicit_only: *explicit_only,
+                },
+            )
+        }),
         NodeType::DeleteAttribute { names, context } => inputs
             .first()
             .map(|r| crate::core::attribute_edit::delete(r, names, *context)),
@@ -579,6 +597,7 @@ pub fn evaluate_node_type(
                         render: None,
                         light: None,
                         volume: None,
+                        collections: None,
                     })
                     .collect(),
             ))
@@ -871,6 +890,7 @@ pub fn stage_prims(
                 render: None,
                 light: None,
                 volume: None,
+                collections: None,
             })
         })
         .collect();
@@ -920,6 +940,7 @@ pub fn stage_prims(
             render: None,
             light: None,
             volume: None,
+            collections: None,
         })
     }));
     // Each camera, a primitive with no geometry. Its geometry is the same

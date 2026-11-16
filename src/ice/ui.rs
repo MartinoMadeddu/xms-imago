@@ -794,6 +794,7 @@ pub fn draw_subnet_node_properties(
                 crate::properties::ui::TabKind::Names,
                 None,
                 None,
+                &[],
             );
         }
         IceGraphNodeType::Instancer { path, seed, draw_mode } => group(ui, "Instancer", None, |f| {
@@ -939,6 +940,7 @@ pub fn draw_subnet_node_properties(
                     crate::properties::ui::TabKind::Names,
                     None,
                     Some(&title),
+                    &[],
                 );
             }
         }

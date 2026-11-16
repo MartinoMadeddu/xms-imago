@@ -145,6 +145,8 @@ pub struct StageNode {
     /// Its variant sets: each set's variants and the one selected, read when
     /// the stage loads; the other variants are composed only when chosen.
     pub variants: Vec<xms_scene::VariantSet>,
+    /// The collections it holds (`CollectionAPI`), as authored.
+    pub collections: Vec<crate::core::collections::Collection>,
 }
 
 /// The stage hierarchy, depth first (parents before their children). Shared by
@@ -351,10 +353,23 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
     for n in &tree.nodes {
         let Some(path) = arc.place(&n.path) else { continue };
         let name = path.rsplit('/').next().unwrap_or("").to_string();
+        // Its collections' paths where the arc puts them.
+        let place =
+            |v: &[String]| -> Vec<String> { v.iter().map(|p| arc.place(p).unwrap_or_else(|| p.clone())).collect() };
+        let collections = n
+            .collections
+            .iter()
+            .map(|c| crate::core::collections::Collection {
+                includes: place(&c.includes),
+                excludes: place(&c.excludes),
+                ..c.clone()
+            })
+            .collect();
         nodes.push(StageNode {
             path,
             name,
             depth: at.len() + n.depth - from,
+            collections,
             ..n.clone()
         });
     }
@@ -2155,6 +2170,37 @@ def Xform "asset" {
             Some("Mesh")
         );
         assert_eq!(arc.place("/other"), None, "what the reference leaves out");
+    }
+
+    #[test]
+    fn collections_are_read_from_the_file() {
+        let path = write(
+            "collections.usda",
+            r#"#usda 1.0
+def Scope "collections" (
+    prepend apiSchemas = ["CollectionAPI:lamps", "CollectionAPI:all"]
+)
+{
+    uniform token collection:lamps:expansionRule = "explicitOnly"
+    rel collection:lamps:includes = [</set/a>, </set/b>]
+    rel collection:lamps:excludes = </set/b>
+    uniform bool collection:all:includeRoot = 1
+}
+def Xform "set" {
+    def Xform "a" {}
+    def Xform "b" {}
+}
+"#,
+        );
+        let scene = load(&path).unwrap();
+        let node = scene.tree.node("/collections").expect("the holder");
+        let lamps = node.collections.iter().find(|c| c.name == "lamps").expect("lamps");
+        assert!(lamps.explicit_only);
+        assert_eq!(lamps.includes, ["/set/a", "/set/b"]);
+        assert_eq!(lamps.excludes, ["/set/b"]);
+        assert!(lamps.has("/set/a") && !lamps.has("/set/b"));
+        let all = node.collections.iter().find(|c| c.name == "all").expect("all");
+        assert!(all.has("/set/b"));
     }
 
     #[test]

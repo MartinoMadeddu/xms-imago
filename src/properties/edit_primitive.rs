@@ -41,8 +41,8 @@ pub fn edit_in(graph: &NodeGraphState, id: NodeId) -> EditIn {
     let Some(EvalResult::Named(prims)) = scene else {
         return EditIn::default();
     };
-    let (count, first, other) = survey(&prims, &n.locations, *kind);
-    let all = targets(&prims, &n.locations);
+    let (count, first, other) = survey(&prims, &crate::core::collections::resolved(&n.locations, &prims), *kind);
+    let all = targets(&prims, &crate::core::collections::resolved(&n.locations, &prims));
     let shown = all.iter().find(|t| kind.takes(t.kind()));
     EditIn {
         targets: count,

@@ -834,6 +834,7 @@ fn mesh_prim(mesh: &ufbx::Mesh, node: &ufbx::Node, dir: &std::path::Path) -> Opt
         render: None,
         light: None,
         volume: None,
+        collections: None,
     })
 }
 

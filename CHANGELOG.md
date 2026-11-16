@@ -8,6 +8,14 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### USD
+
+- **Collections**: the Collection operator makes a named set of prims on a
+  Collection Location (`/collections`), paths or patterns included and excluded, written as
+  a USD collection; files' collections are read. `%name` in any Prims Location
+  list takes its members. The Scene Explorer lists them under the prim holding them;
+  clicking one selects its members.
+
 ### Files
 
 - **Graph files from a newer Imago**: a newer layout is refused, saying which

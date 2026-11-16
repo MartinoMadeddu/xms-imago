@@ -405,6 +405,19 @@ pub struct Prim {
     /// Its variant sets, as the stage composed them: names and selections
     /// only, the variants not chosen are not read.
     pub variants: Vec<VariantSet>,
+    /// Its collections (`CollectionAPI`): relationship-mode ones, as authored.
+    pub collections: Vec<CollectionSpec>,
+}
+
+/// A collection of a prim, as authored: `collection:<name>:…`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CollectionSpec {
+    pub name: String,
+    /// `expansionRule`: `expandPrims` when not authored.
+    pub expansion_rule: String,
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub include_root: bool,
 }
 
 /// A variant set of a prim: its variants, and the one selected (empty when
@@ -432,6 +445,7 @@ impl Prim {
             primvars: Vec::new(),
             authored: Vec::new(),
             variants: Vec::new(),
+            collections: Vec::new(),
         }
     }
 

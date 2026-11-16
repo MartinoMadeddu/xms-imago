@@ -961,6 +961,7 @@ impl<'s> Translator<'s> {
                 .map(|v| v != 0.0);
             p.authored = self.authored(prim);
             p.variants = variant_sets(prim);
+            p.collections = self.collections(prim);
         }
         self.scene.insert(p);
         if descend {
@@ -992,6 +993,58 @@ impl<'s> Translator<'s> {
             }
             if let Some(v) = self.value(prim, name).and_then(one_value) {
                 out.push((name.to_string(), v));
+            }
+        }
+        out
+    }
+
+    /// A prim's collections: every `collection:<name>:includes` or
+    /// `:excludes` it authors, with the collection's expansion rule and
+    /// `includeRoot`. Targets as the scene files paths.
+    fn collections(&self, prim: &Prim) -> Vec<rs::CollectionSpec> {
+        let mut out: Vec<rs::CollectionSpec> = vec![];
+        for name in prim.authored_property_names().unwrap_or_default() {
+            let name = name.as_str();
+            let Some(rest) = name.strip_prefix("collection:") else {
+                continue;
+            };
+            let Some((c, what)) = rest.rsplit_once(':') else {
+                continue;
+            };
+            if !matches!(what, "includes" | "excludes" | "expansionRule" | "includeRoot") {
+                continue;
+            }
+            let k = match out.iter().position(|x| x.name == c) {
+                Some(k) => k,
+                None => {
+                    out.push(rs::CollectionSpec {
+                        name: c.to_string(),
+                        expansion_rule: "expandPrims".into(),
+                        ..Default::default()
+                    });
+                    out.len() - 1
+                }
+            };
+            let targets = || -> Vec<String> {
+                prim.relationship(name)
+                    .targets()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|t| {
+                        let t = t.to_string();
+                        self.target_path(&t).map(|p| p.to_string()).unwrap_or(t)
+                    })
+                    .collect()
+            };
+            match what {
+                "includes" => out[k].includes = targets(),
+                "excludes" => out[k].excludes = targets(),
+                "expansionRule" => {
+                    if let Some(t) = self.value(prim, name).and_then(|v| tok(&v)) {
+                        out[k].expansion_rule = t;
+                    }
+                }
+                _ => out[k].include_root = matches!(self.value(prim, name), Some(Value::Bool(true))),
             }
         }
         out

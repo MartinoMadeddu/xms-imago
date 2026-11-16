@@ -19,6 +19,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Rename | Renames the prims its Prims Location tab names: Find replaced, a Prefix and Suffix added |
 | Duplicate | Copies the prims its Prims Location tab names beside them, each a step further |
 | Delete Attribute, Rename Attribute | Take attributes (primvars) away from the primitives' geometry, or rename them |
+| Collection | A named set of prims on the prim at its Collection Location, written as a USD collection: paths or patterns included and excluded. `%name` in any Prims Location list takes its members |
 | Variant | Chooses variants of the scene's variant sets (Select): a stage is composed again with them, what was done above carried over. Makes a variant set on a prim, a variant per input (Create) |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
@@ -341,6 +342,41 @@ The panels list the attributes coming in and what changes, with how many
 primitives have each. Write USD writes an attribute taken away as blocked
 (`primvars:Cd = None`), so the file's value is not seen, and a rename as the
 new name written and the old one blocked.
+
+## Collections
+
+A **Collection** is a named set of prims, as USD's `CollectionAPI` has it.
+
+- **Name**: what `%name` calls it (letters, digits and `_`; `$OPNAME` by
+  default).
+- **Collection Location**: the prim it is written on, `/collections` by
+  default. Where the scene has no prim there, one is made: a `Scope` (an `over`
+  where a stage has the prim).
+- **Includes** and **Excludes**: paths or patterns (`*`, `?`, `**`), and
+  `%other` for another collection's. Patterns are matched against the scene
+  coming in, so the collection holds paths, as USD writes it.
+- **Explicit Only** off (Expand Prims): an include takes its prim and
+  everything below it, an exclude takes its prim and what is below it out. On:
+  the prims named alone.
+
+A collection of the same name on the same prim is replaced. Collections in the
+files loaded are read too (their includes and excludes, `expansionRule`,
+`includeRoot`).
+
+**`%name`** in any Prims Location list (Transform, Set Attribute, Material
+Binding, Prune, Edit Primitive, ICE, …) takes the collection's members, as the
+scene coming into that operator has them. Two collections of one name take both;
+an unknown name takes nothing. Pick on a Prims Location tab lists the
+collections coming in.
+
+In the **Scene Explorer** a collection is a row under the prim holding it, with
+how many prims listed are in it. Clicking it selects its members, so the Viewer
+and the Primitive Inspector show them; dragging it to a Prims Location list adds
+`%name`.
+
+Write USD writes each as `prepend apiSchemas = ["CollectionAPI:name"]` with
+`collection:name:expansionRule`, `:includes` and `:excludes` (`:includeRoot`
+for `/`).
 
 ## Variants
 
@@ -886,6 +922,11 @@ is made beside it first and taken away once flattened.
   `full`), collections; the colour of a file's material no primitive wore before
 - Set Attribute: inherited Object values read by ICE; arrays of `double`,
   `float2`, `float4`, `asset`
+- Collections: pattern-based ones (`membershipExpression`) and properties as
+  members are not read; a collection taking another is written with its paths
+  (`%other` is put in when it is made); Reparent and Rename do not move a
+  collection's paths with the prims; `%name` is not resolved in the Primitive
+  Inspector's list of the operators touching a prim
 - Arrays, dictionaries (`customData`) and relationships other than the material
   binding are not listed in the Properties tab
 - Write USD writes nothing for a stage none of whose primitives is left (all

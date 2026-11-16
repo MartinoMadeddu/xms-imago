@@ -660,6 +660,7 @@ impl NodeGraphState {
             | NodeType::DeleteAttribute { .. }
             | NodeType::Normals { .. }
             | NodeType::Tangents { .. }
+            | NodeType::Collection { .. }
             | NodeType::RenameAttribute { .. } => (vec![i("Scene")], vec![o("Scene")]),
             // Create: the scene, then a variant per input, one kept free.
             NodeType::Variant { mode, names, .. } => (
@@ -1255,6 +1256,34 @@ impl NodeGraphState {
         value
     }
 
+    /// The collections of the scene an output puts out, for a Properties
+    /// panel (`%name` rows). Kept until the graph changes.
+    pub fn eval_collections(
+        &self,
+        id: NodeId,
+        output: usize,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
+    ) -> Vec<crate::core::collections::Held> {
+        type Kept = (u64, usize, usize, Vec<crate::core::collections::Held>);
+        static LAST: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+        let key = self.content_hash();
+        if let Ok(last) = LAST.lock() {
+            if let Some((k, i, o, value)) = &*last {
+                if *k == key && *i == id.0 && *o == output {
+                    return value.clone();
+                }
+            }
+        }
+        let value = crate::core::collections::gather_in(
+            self.eval_node_out(id, output, &mut HashMap::new(), eval_subnet)
+                .as_ref(),
+        );
+        if let Ok(mut last) = LAST.lock() {
+            *last = Some((key, id.0, output, value.clone()));
+        }
+        value
+    }
+
     /// What reaches a render operator's input: the cameras, products and
     /// RenderSettings prim of the scene (`core::render::context`), for its
     /// Properties panel. Kept until the graph changes.
@@ -1686,6 +1715,9 @@ impl NodeGraphState {
         // `$OPNAME` in its text is its name while it cooks; `{name}` what
         // comes down the wires to it.
         let _operator = self.reading(node);
+        // Its Prims Location list, `%name` rows put in from the collections
+        // coming in.
+        let locs = crate::core::collections::resolved_in(&node.locations, inputs.first());
 
         let result = if node.bypassed {
             node.inputs
@@ -1719,7 +1751,7 @@ impl NodeGraphState {
                 ports.first().and_then(|r| r.as_ref()),
                 &materials,
                 library,
-                &node.locations,
+                &locs,
                 bindings,
                 options,
             ))
@@ -1744,7 +1776,7 @@ impl NodeGraphState {
             // The whole scene needs no locations.
             inputs
                 .first()
-                .map(|r| crate::core::reparent::reparent(r, &node.locations, parent, *mode, *keep_world))
+                .map(|r| crate::core::reparent::reparent(r, &locs, parent, *mode, *keep_world))
         } else if let NodeType::Rename {
             find,
             replace,
@@ -1754,11 +1786,9 @@ impl NodeGraphState {
         {
             inputs
                 .first()
-                .map(|r| crate::core::rename::rename(r, &node.locations, find, replace, prefix, suffix))
+                .map(|r| crate::core::rename::rename(r, &locs, find, replace, prefix, suffix))
         } else if let NodeType::Duplicate { copies } = node_type {
-            inputs
-                .first()
-                .map(|r| crate::core::rename::duplicate(r, &node.locations, copies))
+            inputs.first().map(|r| crate::core::rename::duplicate(r, &locs, copies))
         } else if let NodeType::Variant {
             mode: crate::core::variant::VariantMode::Create,
             location,
@@ -1798,25 +1828,22 @@ impl NodeGraphState {
                     s.result
                 })
             })
-        } else if crate::core::locations::takes_locations(node_type) && crate::core::locations::is_set(&node.locations)
-        {
+        } else if crate::core::locations::takes_locations(node_type) && crate::core::locations::is_set(&locs) {
             // The operator works on the primitives its Prims Location tab
             // lists; what comes after it sees the picks that came in.
             use crate::core::locations;
             let first = inputs.first()?;
             match node_type {
-                NodeType::PrunePrims { keep, .. } => Some(locations::prune(first, &node.locations, *keep)),
+                NodeType::PrunePrims { keep, .. } => Some(locations::prune(first, &locs, *keep)),
                 // Set Attribute names prims, groups and other prims without
                 // geometry among them: it reads the list itself.
-                NodeType::SetAttribute { rows } => {
-                    Some(crate::core::set_attribute::set_attributes(first, rows, &node.locations))
-                }
+                NodeType::SetAttribute { rows } => Some(crate::core::set_attribute::set_attributes(first, rows, &locs)),
                 NodeType::EditPrimitive { kind, edits } => {
-                    Some(crate::core::edit_primitive::edit(first, &node.locations, *kind, edits))
+                    Some(crate::core::edit_primitive::edit(first, &locs, *kind, edits))
                 }
                 t => {
                     let mut targeted = inputs.clone();
-                    targeted[0] = locations::target(first, &node.locations);
+                    targeted[0] = locations::target(first, &locs);
                     evaluate_node_type(t, &targeted, eval_subnet, output).map(|r| locations::restore_picks(r, first))
                 }
             }

@@ -38,11 +38,22 @@ pub fn rename_in(graph: &NodeGraphState, id: NodeId) -> RenameIn {
             replace,
             prefix,
             suffix,
-        } => plan(&prims, &n.locations, find, replace, prefix, suffix),
-        NodeType::Duplicate { copies } => copies_plan(&prims, &n.locations, copies)
-            .into_iter()
-            .map(|(o, to, _)| (o, to))
-            .collect(),
+        } => plan(
+            &prims,
+            &crate::core::collections::resolved(&n.locations, &prims),
+            find,
+            replace,
+            prefix,
+            suffix,
+        ),
+        NodeType::Duplicate { copies } => copies_plan(
+            &prims,
+            &crate::core::collections::resolved(&n.locations, &prims),
+            copies,
+        )
+        .into_iter()
+        .map(|(o, to, _)| (o, to))
+        .collect(),
         _ => vec![],
     };
     RenameIn { moves, wired: true }
@@ -155,7 +166,10 @@ pub fn attrs_in(graph: &NodeGraphState, id: NodeId) -> AttrsIn {
     else {
         return AttrsIn::default();
     };
-    let scene = crate::core::locations::target(&scene, &n.locations);
+    let scene = crate::core::locations::target(
+        &scene,
+        &crate::core::collections::resolved_in(&n.locations, Some(&scene)),
+    );
     let names = found(&scene, &|g| {
         crate::core::geo::Context::ALL
             .into_iter()

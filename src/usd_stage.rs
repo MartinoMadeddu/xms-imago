@@ -694,6 +694,19 @@ impl Walk<'_> {
             prototype: self.listing > 0,
             authored: authored(prim),
             variants: prim.variants.clone(),
+            collections: prim
+                .collections
+                .iter()
+                .map(|c| {
+                    crate::core::collections::from_file(
+                        &c.name,
+                        &c.expansion_rule,
+                        c.includes.clone(),
+                        c.excludes.clone(),
+                        c.include_root,
+                    )
+                })
+                .collect(),
         });
 
         let world = if prim.reset_xform_stack {

@@ -615,6 +615,7 @@ fn prim_changes(b: &Prim, p: &Prim, axes: Mat4) -> Option<Vec<Edit>> {
         || !shared(&b.instanced_by, &p.instanced_by)
         || b.above != p.above
         || !same(&b.camera, &p.camera)
+        || !same(&b.collections, &p.collections)
     {
         return None;
     }

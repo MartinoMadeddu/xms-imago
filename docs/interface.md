@@ -155,9 +155,10 @@ in groups, with explanations in the tooltips.
   [Compounds](compounds.md)).
 - **Prims Location**, on the operators that work on primitives, lists the
   Primitive Locations they work on: a path takes
-  that prim and below, `*`, `?` and `**` match names and levels, and each row
-  counts its matches (red when none). An empty list means everything. Rows
-  dragged from the Scene Explorer join the list.
+  that prim and below, `*`, `?` and `**` match names and levels, `%name` a
+  collection's members (see [USD](usd.md#collections)), and each row counts its
+  matches (red when none). An empty list means everything. Rows dragged from
+  the Scene Explorer join the list.
 
 ## Node buttons
 

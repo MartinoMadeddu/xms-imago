@@ -75,7 +75,7 @@ List entries accept:
 |---|---|
 | Absolute paths: `/root/char/geo/head`. A path takes that prim **and everything below it** | **Done** |
 | Wildcards: `*` any run of characters within a name, `?` one character, `**` any number of levels: `/root/*/*/glass`, `/set/**/lamp*`. `/` takes everything | **Done** |
-| Collection references (section 8) | Not yet |
+| Collection references (section 8): `%name` takes the collection's members | **Done** |
 | Exclusion entries (proposed: prefix `-`) | Not yet |
 
 Rules:
@@ -550,13 +550,17 @@ Rigid Bind, Rigid Skin, Rig Proxy; see `docs/rigging.md`).
 
 ## 8. Collections & Linking
 
-Status for the whole section: **Not yet.** Collections would also be the third
-kind of Primitive Locations entry (1.3).
+Status: **8.1 done**, 8.2 and 8.3 not yet. Collections are the third kind of
+Primitive Locations entry (1.3): `%name`.
 
 ### 8.1 Create Collection
-- **Parameters:** name; include list; exclude list; expansion rule
-  (`explicitOnly`, `expandPrims`, `expandPrimsAndProperties`)
+- **Parameters:** name; Collection Location (`/collections`); include list; exclude
+  list (paths, patterns, `%other`); Explicit Only (`explicitOnly`, else
+  `expandPrims`)
 - **USD mapping:** `UsdCollectionAPI`
+- **Done**: the **Collection** operator; collections read from files; listed
+  in the Scene Explorer under the prim holding them, selecting their members. Not yet:
+  `expandPrimsAndProperties`, `membershipExpression`. See `docs/usd.md`
 
 ### 8.2 Light Linking / Shadow Linking
 - **Targeting:** Primitive Locations of the lights

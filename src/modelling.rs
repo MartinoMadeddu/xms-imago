@@ -78,7 +78,11 @@ pub fn input_mesh(
     // On packed primitives with some picked, the tools see only those: the
     // ones its Prims Location tab lists, or else what came in picked.
     let input = graph.eval_node_out(src, out, &mut cache, eval_subnet)?;
-    let mesh = crate::core::locations::target(&input, &node.locations).work_mesh();
+    let mesh = crate::core::locations::target(
+        &input,
+        &crate::core::collections::resolved_in(&node.locations, Some(&input)),
+    )
+    .work_mesh();
     if mesh.vertices.is_empty() {
         return None;
     }

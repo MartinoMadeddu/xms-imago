@@ -1,3 +1,4 @@
+pub mod collections;
 pub mod edit_primitive;
 pub mod form;
 pub mod frames;

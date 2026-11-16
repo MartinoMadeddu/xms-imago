@@ -9,6 +9,8 @@ pub mod anim_tools;
 pub mod attribute_edit;
 /// Cameras: a UsdGeomCamera's values, looked through by the Viewer.
 pub mod camera;
+/// Collections: named sets of prims (USD's CollectionAPI), taken by `%name`.
+pub mod collections;
 /// Command lines run on the system (Render Command): tokens, running in the
 /// background, output and progress.
 pub mod command;

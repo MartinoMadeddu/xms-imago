@@ -886,3 +886,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 12/11/2026: ICE Tangent: intrinsic:tangent (Point on meshes and curves, Corner on meshes, xms_geo::frames), a Geometry menu entry, @intrinsic:tangent in ISL. (Martino)
 - 12/11/2026: Release 0.3.4. (Martino)
 - 16/11/2026: Graph files: FORMAT_VERSION; a newer layout refused with which Imago saved it; unknown operators open as Placeholders keeping the original (Placeholder::unknown) and are written back on saving and copying. (Martino)
+- 16/11/2026: Collections: Collection operator (core::collections, CollectionAPI written on its holder, a Scope made where none), files' collections read (xms-usd, StageNode::collections), `%name` in Prims Location lists (resolved in the cook and panels), Scene Explorer rows selecting members. (Martino)

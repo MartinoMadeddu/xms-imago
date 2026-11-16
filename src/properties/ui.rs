@@ -506,7 +506,29 @@ pub fn draw_properties(
         .iter()
         .find(|n| n.id == sel_id)
         .is_some_and(|n| crate::core::locations::names_prims(&n.node_type));
-    let scene_in: Vec<String> = if on_locations && names {
+    let collecting = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == sel_id)
+        .is_some_and(|n| matches!(n.node_type, NodeType::Collection { .. }));
+    // The collections coming in: `%name` rows, and a Collection's own.
+    let held_in: Vec<crate::core::collections::Held> = if on_locations || collecting {
+        graph
+            .nodes
+            .iter()
+            .find(|n| n.id == sel_id)
+            .and_then(|n| n.inputs.first())
+            .and_then(|i| i.connected_output)
+            .map(|(src, out)| {
+                let pass =
+                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                graph.eval_collections(src, out, &pass)
+            })
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+    let scene_in: Vec<String> = if (on_locations && names) || collecting {
         graph
             .nodes
             .iter()
@@ -735,7 +757,16 @@ pub fn draw_properties(
                 }),
                 _ => None,
             };
-            locations_tab(ui, &mut node.locations, paths, &io.scene_paths, kind, binds, None);
+            locations_tab(
+                ui,
+                &mut node.locations,
+                paths,
+                &io.scene_paths,
+                kind,
+                binds,
+                None,
+                &held_in,
+            );
             return;
         }
     }
@@ -1219,6 +1250,25 @@ pub fn draw_properties(
             uv,
             bitangents,
         } => super::frames::tangents_rows(ui, context, from, uv, bitangents),
+        NodeType::Collection {
+            name,
+            location,
+            includes,
+            excludes,
+            explicit_only,
+        } => super::collections::rows(
+            ui,
+            &mut super::collections::Rows {
+                name,
+                location,
+                includes,
+                excludes,
+                explicit_only,
+            },
+            &scene_in,
+            &io.scene_paths,
+            &held_in,
+        ),
         NodeType::DeleteAttribute { names, context } => super::rename::delete_attribute_rows(ui, names, context, &attrs_in),
         NodeType::RenameAttribute { from, to, context } => {
             super::rename::rename_attribute_rows(ui, from, to, context, &attrs_in)
@@ -4476,6 +4526,8 @@ pub(crate) enum TabKind {
     Names,
     /// As Takes, each row with the material it binds: empty binds nothing.
     Binds,
+    /// A Collection's includes or excludes: as Takes, empty takes nothing.
+    Collects,
 }
 
 /// Material Binding's Material column: what each row binds, the material on
@@ -4490,6 +4542,7 @@ pub(crate) struct BindColumn<'a> {
 /// The Prims Location tab: the Primitive Locations an operator works on, one
 /// per row, each with how many of the primitives coming in it matches.
 /// `title`: its group's, when not Primitive Locations (a snippet's reference).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn locations_tab(
     ui: &mut egui::Ui,
     list: &mut Vec<String>,
@@ -4498,10 +4551,14 @@ pub(crate) fn locations_tab(
     kind: TabKind,
     mut binds: Option<BindColumn>,
     title: Option<&str>,
+    held: &[crate::core::collections::Held],
 ) {
     use crate::core::locations;
+    // Each row as it is read: `%name` the collection's members.
+    let read: Vec<String> = crate::core::collections::resolve(list, held).into_owned();
     let names = kind == TabKind::Names;
-    let prune = kind == TabKind::Prune;
+    let collects = kind == TabKind::Collects;
+    let prune = kind == TabKind::Prune || collects;
     let binding = kind == TabKind::Binds;
     let hits = |row: &str, p: &str| {
         if names {
@@ -4510,7 +4567,9 @@ pub(crate) fn locations_tab(
             locations::matches(row, p)
         }
     };
-    let hint = if binding {
+    let hint = if collects {
+        "A path takes that prim and everything below it (Explicit Only: the prim alone). * stands for any run of characters in a name, ? for one, ** for any number of levels; %name another collection. Patterns are matched against the scene coming in"
+    } else if binding {
         "Each row binds a material to the primitive at its path and every one below it: the material input of the row's number, unless another input is chosen in its Material column, or Location, a material already in the scene by its path. On a primitive two rows take, the later row wins"
     } else if names {
         "A path names that prim alone: a group, a camera or a light as well as a mesh. * stands for any run of characters in a name, ? for one, ** for any number of levels: /set/* names the children of /set, /set/** /set and everything below it"
@@ -4540,18 +4599,24 @@ pub(crate) fn locations_tab(
                         });
                         // How many of the primitives coming in this row matches.
                         if !row.trim().is_empty() && !paths.is_empty() {
-                            let n = paths.iter().filter(|p| hits(row, p)).count();
+                            let n = paths.iter().filter(|p| hits(&read[k], p)).count();
                             let text = egui::RichText::new(format!("{n}")).monospace();
                             let label = if n == 0 {
                                 ui.colored_label(ink::BAD(), text)
                             } else {
                                 ui.label(text)
                             };
-                            label.on_hover_text(if n == 0 {
-                                "Matches no primitive coming in".to_string()
-                            } else {
-                                format!("Matches {n} of the primitives coming in")
-                            });
+                            label.on_hover_text(
+                                if crate::core::collections::reference(row)
+                                    .is_some_and(|c| !held.iter().any(|h| h.collection.name == c))
+                                {
+                                    "No collection of this name coming in".to_string()
+                                } else if n == 0 {
+                                    "Matches no primitive coming in".to_string()
+                                } else {
+                                    format!("Matches {n} of the primitives coming in")
+                                },
+                            );
                         }
                         if let Some(col) = binds.as_mut() {
                             bind_choice(ui, k, col);
@@ -4595,7 +4660,13 @@ pub(crate) fn locations_tab(
                 ui.add_enabled_ui(!paths.is_empty(), |ui| {
                     crate::menus::menu(ui, "Pick", |ui| {
                         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                            for p in paths {
+                            // The scene's collections first, as `%name`.
+                            let mut names: Vec<String> = vec![];
+                            for h in held {
+                                let n = format!("%{}", h.collection.name);
+                                if !names.contains(&n) { names.push(n); }
+                            }
+                            for p in names.iter().chain(paths) {
                                 let listed = list.iter().any(|l| l.trim() == p);
                                 if ui.selectable_label(listed, p).clicked() && !listed { add_location(list, p); }
                             }
@@ -4607,7 +4678,7 @@ pub(crate) fn locations_tab(
             let set = locations::is_set(list);
             let taken = paths
                 .iter()
-                .filter(|p| list.iter().any(|row| !row.trim().is_empty() && hits(row, p)))
+                .filter(|p| read.iter().any(|row| !row.trim().is_empty() && hits(row, p)))
                 .count();
             match (set, prune) {
                 (false, _) if binding => f.status(
@@ -4618,6 +4689,7 @@ pub(crate) fn locations_tab(
                     Status::Info,
                     "Empty: every primitive coming in (or those an earlier Pick Primitives chose)",
                 ),
+                (false, true) if collects => f.status(Status::Info, "Empty: none"),
                 (false, true) => f.status(Status::Info, "Empty: nothing is pruned"),
                 (true, _) if paths.is_empty() => f.status(Status::Info, "No primitives coming in"),
                 (true, _) if names => f.status(

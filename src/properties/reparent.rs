@@ -34,7 +34,12 @@ pub fn reparent_in(graph: &NodeGraphState, id: NodeId) -> ReparentIn {
         return ReparentIn::default();
     };
     ReparentIn {
-        plan: plan(&prims, &n.locations, parent, *mode),
+        plan: plan(
+            &prims,
+            &crate::core::collections::resolved(&n.locations, &prims),
+            parent,
+            *mode,
+        ),
         paths: crate::node_graph::scene_paths(&prims),
         wired: true,
     }
