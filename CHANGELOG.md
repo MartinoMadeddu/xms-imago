@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-16
+
 ### USD
 
 - **Collections**: the Collection operator makes a named set of prims on a
