@@ -498,6 +498,41 @@ fn shader_value(v: Value) -> Option<rs::ShaderValue> {
                     .unwrap_or_else(|| ap.asset_path().to_string()),
             )
         }
+        // Arrays, whole.
+        Value::IntVec(a) => rs::ShaderValue::Ints(a),
+        Value::Int64Vec(a) => rs::ShaderValue::Ints(a.into_iter().map(|x| x as i32).collect()),
+        Value::BoolVec(a) => rs::ShaderValue::Ints(a.into_iter().map(i32::from).collect()),
+        Value::StringVec(a) => rs::ShaderValue::Strings(a),
+        Value::TokenVec(a) => rs::ShaderValue::Strings(a.iter().map(|t| t.as_str().to_string()).collect()),
+        Value::Vec4fVec(a) => rs::ShaderValue::Floats {
+            width: 4,
+            values: a.iter().flat_map(|p| [p.x, p.y, p.z, p.w]).collect(),
+        },
+        Value::Vec4dVec(a) => rs::ShaderValue::Floats {
+            width: 4,
+            values: a
+                .iter()
+                .flat_map(|p| [p.x as f32, p.y as f32, p.z as f32, p.w as f32])
+                .collect(),
+        },
+        v @ (Value::FloatVec(_)
+        | Value::DoubleVec(_)
+        | Value::HalfVec(_)
+        | Value::Vec2fVec(_)
+        | Value::Vec2dVec(_)
+        | Value::Vec2hVec(_)
+        | Value::Vec3fVec(_)
+        | Value::Vec3dVec(_)
+        | Value::Vec3hVec(_)) => {
+            let (width, values) = numeric_values(v)?;
+            rs::ShaderValue::Floats {
+                width,
+                values: values
+                    .into_iter()
+                    .flat_map(|x| x.into_iter().take(width as usize))
+                    .collect(),
+            }
+        }
         Value::Bool(b) => rs::ShaderValue::Bool(b),
         Value::Int(i) => rs::ShaderValue::Int(i),
         Value::Int64(i) => rs::ShaderValue::Int(i as i32),
@@ -1815,6 +1850,62 @@ def Mesh "with_extent" {{
             }
         }
         assert_eq!(n, 3);
+    }
+
+    /// A shader's array inputs are read whole: numbers (a colour three of
+    /// them), ints, tokens.
+    #[test]
+    fn a_shader_s_arrays_are_read_whole() {
+        let dir = std::env::temp_dir().join("xms_usd_shader_arrays");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ramp.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+def Material "m"
+{
+    token outputs:surface.connect = </m/ramp.outputs:out>
+    def Shader "ramp"
+    {
+        uniform token info:id = "arnold:ramp_rgb"
+        float[] inputs:position = [0, 0.5, 1]
+        color3f[] inputs:color = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
+        int[] inputs:interpolation = [1, 1, 3]
+        token[] inputs:names = ["a", "b"]
+        float inputs:input = 0.25
+        token outputs:out
+    }
+}
+"#,
+        )
+        .unwrap();
+        let scene = translate(&path, SceneOptions::default()).unwrap().scene;
+        let m = scene.get(&Path::new("/m").unwrap()).unwrap();
+        let PrimKind::Material(m) = &m.kind else {
+            panic!("not a material")
+        };
+        let ramp = m.nodes.iter().find(|n| n.path.as_str() == "/m/ramp").unwrap();
+        let input = |name: &str| ramp.inputs.iter().find(|i| i.name == name).map(|i| i.value.clone());
+        assert_eq!(
+            input("position"),
+            Some(rs::ShaderValue::Floats {
+                width: 1,
+                values: vec![0.0, 0.5, 1.0]
+            })
+        );
+        assert_eq!(
+            input("color"),
+            Some(rs::ShaderValue::Floats {
+                width: 3,
+                values: vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+            })
+        );
+        assert_eq!(input("interpolation"), Some(rs::ShaderValue::Ints(vec![1, 1, 3])));
+        assert_eq!(
+            input("names"),
+            Some(rs::ShaderValue::Strings(vec!["a".into(), "b".into()]))
+        );
+        assert_eq!(input("input"), Some(rs::ShaderValue::Float(0.25)));
     }
 
     /// A prim's variant sets are listed with their variants and selection;

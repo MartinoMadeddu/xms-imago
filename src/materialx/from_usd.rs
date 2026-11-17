@@ -44,6 +44,9 @@ fn value(v: &rs::ShaderValue) -> UsdValue {
         rs::ShaderValue::Vec3(v) => UsdValue::Floats(v.to_vec()),
         rs::ShaderValue::Vec4(v) => UsdValue::Floats(v.to_vec()),
         rs::ShaderValue::String(s) | rs::ShaderValue::Asset(s) => UsdValue::Text(s.clone()),
+        rs::ShaderValue::Floats { values, .. } => UsdValue::FloatArray(values.clone()),
+        rs::ShaderValue::Ints(v) => UsdValue::IntArray(v.clone()),
+        rs::ShaderValue::Strings(v) => UsdValue::TextArray(v.clone()),
         rs::ShaderValue::Connection { node, output } => UsdValue::Connect {
             path: node.as_str().to_string(),
             output: output.clone(),

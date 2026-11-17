@@ -322,8 +322,10 @@ uniform asset inputs:file = @tex/wood.png@ (colorSpace = "srgb_texture")
 
 A UsdUVTexture says sRGB and raw by its `sourceColorSpace` (`"sRGB"`, `"raw"`)
 as USD has it, another space by `colorSpace`; both are read back from a stage.
-A graph with nothing going into its `surfacematerial` is
-written as the grey the Viewer shows. The Primitive Inspector lists the surface
+Array inputs (`float[]`, `color3f[]`, `int[]`, `string[]`) are written and read
+back whole (a colour array three numbers a colour, as MaterialX keeps them). A
+graph with nothing going into its `surfacematerial` is written as the grey the
+Viewer shows. The Primitive Inspector lists the surface
 shader's definition and what is set on it.
 
 ## Checked before rendering

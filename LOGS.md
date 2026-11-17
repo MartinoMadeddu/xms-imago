@@ -898,3 +898,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 16/11/2026: Ramp widget: a row per key (number selecting its handle, position, colour picker and RGBA or value, remove); MaterialX's ramp as Colour or Float (keys as greys). (Martino)
 - 16/11/2026: ICE Ramp and Colour Ramp (xms_ice::ramp: the ramp model moved there with RampOp, Op::Ramp, Ins::Ramp evaluating sorted keys per batch; IceGraphNodeType::Ramp with Gives Float/Colour and the ramp widget, alpha hidden for ICE's RGB). (Martino)
 - 17/11/2026: Arnold ramps in the ramp widget (xms_matx::ramp read_arnold/write_arnold of position, color/value, interpolation arrays; ai_ramp_rgb color written as color3f[]); Interp::MonotoneCubic (Fritsch-Butland) for Arnold and ICE. (Martino)
+- 17/11/2026: USD arrays read whole: ShaderValue Floats{width}/Ints/Strings (xms-usd shader_value), UsdValue FloatArray/IntArray/TextArray into MaterialX array inputs, authored arrays as Set Attribute's. (Martino)

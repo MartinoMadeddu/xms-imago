@@ -140,6 +140,19 @@ fn input_type(node: &str, input: &str, t: Type) -> &'static str {
     usd_type(t)
 }
 
+/// Whether a type is an array of numbers, kept flat (`Value::FloatArray`).
+fn is_number_array(t: Type) -> bool {
+    matches!(
+        t,
+        Type::FloatArray
+            | Type::Color3Array
+            | Type::Color4Array
+            | Type::Vector2Array
+            | Type::Vector3Array
+            | Type::Vector4Array
+    )
+}
+
 /// A colour space as a UsdUVTexture's `sourceColorSpace` says it: `sRGB`,
 /// `raw`. None for one it cannot say (written as `colorSpace` instead).
 fn source_color_space(space: &str) -> Option<&'static str> {
@@ -355,6 +368,12 @@ pub enum UsdValue {
     Floats(Vec<f32>),
     /// A string, token or asset path.
     Text(String),
+    /// An array of numbers, flat (`float[]`, `color3f[]`: three a colour).
+    FloatArray(Vec<f32>),
+    /// `int[]`.
+    IntArray(Vec<i32>),
+    /// `string[]`, `token[]`.
+    TextArray(Vec<String>),
     /// The output `output` of the shader at `path`.
     Connect {
         path: String,
@@ -476,6 +495,21 @@ pub fn read_network(
                 UsdValue::Bool(b) => match idef.ty {
                     Type::Boolean => Some(Value::Boolean(*b)),
                     Type::Integer => Some(Value::Integer(*b as i32)),
+                    _ => None,
+                },
+                // Arrays, as the input's array type has them.
+                UsdValue::FloatArray(f) => match idef.ty {
+                    Type::IntegerArray => Some(Value::IntegerArray(f.iter().map(|x| *x as i32).collect())),
+                    t if is_number_array(t) => Some(Value::FloatArray(f.clone())),
+                    _ => None,
+                },
+                UsdValue::IntArray(v) => match idef.ty {
+                    Type::IntegerArray => Some(Value::IntegerArray(v.clone())),
+                    t if is_number_array(t) => Some(Value::FloatArray(v.iter().map(|x| *x as f32).collect())),
+                    _ => None,
+                },
+                UsdValue::TextArray(v) => match idef.ty {
+                    Type::StringArray | Type::GeomnameArray => Some(Value::StringArray(v.clone())),
                     _ => None,
                 },
                 // Colours read as three or four: the ones the type has.
@@ -635,6 +669,47 @@ mod tests {
             "{lines:?}"
         );
         assert!(lines.iter().all(|l| !l.contains("colorSpace =")), "{lines:?}");
+    }
+
+    /// Array inputs read from USD: numbers flat (a colour three of them), ints,
+    /// as the input's array type; Arnold's ramp read back as its keys.
+    #[test]
+    fn arrays_are_read_from_usd() {
+        let arnold = crate::Renderer {
+            prefix: "ai_".into(),
+            context: "arnold".into(),
+            label: "Arnold".into(),
+        };
+        let text = r#"<materialx version="1.38">
+  <nodedef name="ARNOLD_ND_ramp_rgb" node="ramp_rgb">
+    <output name="out" type="color3" />
+    <input name="position" type="floatarray" value="0.0, 1.0" />
+    <input name="color" type="floatarray" value="0.0, 0.0, 0.0, 1.0, 1.0, 1.0" />
+    <input name="interpolation" type="integerarray" value="2, 2" />
+  </nodedef>
+</materialx>"#;
+        let (lib, _) = Library::standard()
+            .with_renderer(&arnold, "nodedefs.mtlx", text)
+            .unwrap();
+        let usd = vec![UsdShader {
+            path: "/m/ramp".into(),
+            id: "arnold:ramp_rgb".into(),
+            inputs: vec![
+                ("position".into(), UsdValue::FloatArray(vec![0.0, 0.5, 1.0])),
+                (
+                    "color".into(),
+                    UsdValue::FloatArray(vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+                ),
+                ("interpolation".into(), UsdValue::IntArray(vec![1, 1, 1])),
+            ],
+            spaces: vec![],
+        }];
+        let (g, notes) = read_network(&usd, None, None, None, &lib).unwrap_or_else(|e| panic!("{e}"));
+        assert!(notes.is_empty(), "{notes:?}");
+        let k = crate::ramp::read_arnold(&g, &lib, g.nodes[0].id).unwrap();
+        assert_eq!(k.keys.len(), 3);
+        assert_eq!(k.keys[1], (0.5, [0.0, 1.0, 0.0, 1.0]));
+        assert_eq!(k.interpolation, Some(1));
     }
 
     /// Arnold's ramp_rgb's colours, numbers three a key in its definition, are

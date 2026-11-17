@@ -1162,8 +1162,8 @@ fn authored(prim: &rs::Prim) -> Vec<(String, crate::core::properties::Value)> {
     use crate::core::properties::Value;
     prim.authored
         .iter()
-        .map(|(name, v)| {
-            (
+        .filter_map(|(name, v)| {
+            Some((
                 name.clone(),
                 match v {
                     rs::ShaderValue::Float(x) => Value::Float(*x),
@@ -1177,8 +1177,16 @@ fn authored(prim: &rs::Prim) -> Vec<(String, crate::core::properties::Value)> {
                     rs::ShaderValue::Connection { node, output } => {
                         Value::String(format!("{}.{output}", node.as_str()))
                     }
+                    rs::ShaderValue::Ints(v) => Value::IntArray(v.clone()),
+                    rs::ShaderValue::Strings(v) => Value::TokenArray(v.clone()),
+                    rs::ShaderValue::Floats { width: 1, values } => Value::FloatArray(values.clone()),
+                    rs::ShaderValue::Floats { width: 3, values } => {
+                        Value::Float3Array(values.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect())
+                    }
+                    // Arrays of 2 or 4: none Set Attribute has.
+                    rs::ShaderValue::Floats { .. } => return None,
                 },
-            )
+            ))
         })
         .collect()
 }

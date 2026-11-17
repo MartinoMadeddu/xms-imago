@@ -16,6 +16,9 @@ version's heading when you tag it.
 
 ### MaterialX
 
+- **Arrays read from USD**: a shader's array inputs (`float[]`, `color3f[]`,
+  `int[]`, `token[]`) are read whole, not their first value: Arnold's ramps,
+  and MaterialX's array inputs, come back from a stage as they were written.
 - **Ramp widget**: MaterialX's `ramp` node edited as a gradient bar with its
   keys as handles (click to add, drag, right-click to remove), or as a float
   curve (keys as greys); its interpolation, Flip and Reset, and a row per key

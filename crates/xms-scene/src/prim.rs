@@ -217,6 +217,16 @@ pub enum ShaderValue {
     String(String),
     /// A file path (`asset`)
     Asset(String),
+    /// An array of numbers, flat, `width` to a value: 1 for `float[]`, 2, 3
+    /// for `color3f[]` and `float3[]`, 4.
+    Floats {
+        width: u8,
+        values: Vec<f32>,
+    },
+    /// `int[]` (and `bool[]`, `int64[]`).
+    Ints(Vec<i32>),
+    /// `string[]`, `token[]`.
+    Strings(Vec<String>),
     /// Connected to `node`'s output `output`
     Connection {
         node: Path,
