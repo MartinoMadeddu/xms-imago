@@ -237,6 +237,32 @@ pub fn arnold_config(
         materialx: materialx_folder(dir),
         licence: renderer.licence,
         outputs,
+        colour: colour_manager(dir),
+    })
+}
+
+/// Imago's colour management for a renderer: the config Imago uses (`$OCIO`'s
+/// file, or Imago's own written in `dir`), the space it renders in, the one
+/// 8-bit textures with no colour space are in. So renders are in the space the
+/// Viewer and the Image Viewer take them to be (ACEScg in Imago's config).
+fn colour_manager(dir: &Path) -> Option<xms_render::arnold::ColourManager> {
+    let c = crate::colour::Colour::get();
+    let config = match &c.source {
+        xms_colour::Source::Env(path) => PathBuf::from(path),
+        xms_colour::Source::Imago => {
+            let file = dir.join("colour").join("imago.ocio");
+            let same = std::fs::read_to_string(&file).is_ok_and(|t| t == xms_colour::IMAGO_CONFIG);
+            if !same {
+                std::fs::create_dir_all(file.parent()?).ok()?;
+                std::fs::write(&file, xms_colour::IMAGO_CONFIG).ok()?;
+            }
+            file
+        }
+    };
+    Some(xms_render::arnold::ColourManager {
+        config,
+        linear: c.rendering(),
+        narrow: c.texture_space(),
     })
 }
 

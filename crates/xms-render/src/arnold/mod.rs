@@ -28,6 +28,21 @@ pub struct Config {
     pub licence: bool,
     /// The folder relative products are written from; `None`, the layer's.
     pub outputs: Option<PathBuf>,
+    /// The colour management Arnold renders with: Imago's (see
+    /// `ColourManager`). `None`: Arnold's own.
+    pub colour: Option<ColourManager>,
+}
+
+/// Arnold's OCIO colour manager, as Imago's colour is: its config, the space
+/// it renders in (the config's `rendering` role: ACEScg in Imago's), and the
+/// space it takes 8-bit textures with no colour space to be in (sRGB
+/// texture). Made the options' `color_manager` after a layer loads, unless the
+/// layer gives Arnold one of its own.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColourManager {
+    pub config: PathBuf,
+    pub linear: String,
+    pub narrow: Option<String>,
 }
 
 impl Config {
@@ -853,6 +868,39 @@ unsafe extern "C" fn update(data: Ptr, kind: c_int, info: *const UpdateInfo) -> 
     }
 }
 
+/// Imago's colour management (`cm`) as Arnold's `color_manager`: a
+/// `color_manager_ocio` with Imago's config and spaces, unless the layer set
+/// one (then that, and a note in `notes`).
+///
+/// SAFETY: `options` is `universe`'s options node, loaded.
+unsafe fn colour_manager(ai: &Api, universe: Ptr, options: Ptr, cm: Option<&ColourManager>, notes: &mut Vec<String>) {
+    let Some(cm) = cm else { return };
+    let was = (ai.AiNodeGetPtr)(options, ai.string("color_manager"));
+    if !was.is_null() {
+        let name = ffi::text((ai.AiNodeGetName)(was));
+        notes.push(format!(
+            "The scene gives Arnold its own colour manager ({name}): Imago's is not used"
+        ));
+        return;
+    }
+    let node = (ai.AiNode)(
+        universe,
+        ai.string("color_manager_ocio"),
+        ai.string("imago_color_manager"),
+        std::ptr::null_mut(),
+    );
+    if node.is_null() {
+        notes.push("Arnold has no color_manager_ocio: it renders with its own colour management".into());
+        return;
+    }
+    (ai.AiNodeSetStr)(node, ai.string("config"), ai.string(&cm.config.to_string_lossy()));
+    (ai.AiNodeSetStr)(node, ai.string("color_space_linear"), ai.string(&cm.linear));
+    if let Some(n) = &cm.narrow {
+        (ai.AiNodeSetStr)(node, ai.string("color_space_narrow"), ai.string(n));
+    }
+    (ai.AiNodeSetPtr)(options, ai.string("color_manager"), node);
+}
+
 impl Renderer for Arnold {
     fn load(&mut self, layer: &Path, frame: f64) -> Result<Vec<PathBuf>, String> {
         self.unload();
@@ -872,6 +920,7 @@ impl Renderer for Arnold {
             }
             // After the load: the layer's Render Settings set the options.
             (ai.AiNodeSetBool)(options, ai.string("skip_license_check"), !self.config.licence);
+            colour_manager(ai, self.universe, options, self.config.colour.as_ref(), &mut self.notes);
             // The products' frame tokens, left for the renderer, put in; the
             // folders made. Relative paths are from the layer's folder.
             self.folder = match &self.config.outputs {

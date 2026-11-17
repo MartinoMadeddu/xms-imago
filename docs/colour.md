@@ -64,12 +64,37 @@ renders are in, or another of the config's spaces chosen in the ⚙ settings
 before the transform, gamma after; the sRGB switch is not needed and is not
 shown. Alpha is shown as it is.
 
+## Renders
+
+Arnold renders with Imago's colour management, so a render is in the space the
+Image Viewer takes it to be: after the scene loads, Imago gives Arnold an OCIO
+colour manager (`color_manager_ocio`) with
+
+- **config**: the one Imago uses, `$OCIO`'s file, or Imago's own (written
+  beside the render's scene, `colour/imago.ocio`);
+- **rendering space** (`color_space_linear`): the config's `rendering` role,
+  else `scene_linear` (ACEScg in Imago's);
+- **8-bit textures' space** (`color_space_narrow`): sRGB texture (`srgb_texture`
+  and its usual names), else the `texture_paint` role: what an 8-bit texture
+  with no colour space of its own is taken to be.
+
+A texture's own Colour Space (MaterialX, USD's `colorSpace`) is converted from
+into the rendering space. A scene that gives Arnold its own colour manager (in
+its Render Settings) keeps it, and the render says so. Live renders, renders
+from Imago and headless renders all do the same.
+
+Colours typed as values (a base colour) are taken as they are, in the
+rendering space, as Arnold does; the Viewer takes them as linear Rec.709,
+USD's default, and turns them into ACEScg.
+
 ## Not done yet
 
 - The Viewer showing a texture in the colour space it is given (MaterialX's
   Colour Space, `colorSpace`, `sourceColorSpace`: kept and written for the
   renderer, see [MaterialX](materialx.md)): it takes 8-bit files as sRGB, float
   files as linear
+- Colours typed as values converted for the renderer as the Viewer converts
+  them (USD's `renderingColorSpace`, the colour spaces of values)
 - Looks, and the Viewer's own exposure and gamma
 - Choosing the config inside Imago (it is `$OCIO`, or Imago's)
 - Overlays drawn after the transform, so they keep their colours under a

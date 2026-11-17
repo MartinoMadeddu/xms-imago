@@ -8,6 +8,13 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Rendering
+
+- **Renders in Imago's colour space**: Arnold is given Imago's OCIO config
+  (`$OCIO`'s, or Imago's own), its rendering space (ACEScg) and sRGB texture
+  for untagged 8-bit textures, so renders match the Viewer and Image Viewer. A
+  scene with its own colour manager keeps it.
+
 ### ICE
 
 - **Ramp** and **Colour Ramp** nodes: In, 0 to 1, through a float curve or a

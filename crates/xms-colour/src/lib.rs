@@ -175,6 +175,25 @@ impl Colour {
         }
     }
 
+    /// The first of `names` the config has (a space's name or alias), by its
+    /// name.
+    pub fn space_named(&self, names: &[&str]) -> Option<String> {
+        names
+            .iter()
+            .find_map(|n| self.config.get_color_space(n))
+            .map(|cs| cs.name().to_string())
+    }
+
+    /// Its 8-bit textures' space: sRGB texture by its usual names and aliases,
+    /// else the `texture_paint` role.
+    pub fn texture_space(&self) -> Option<String> {
+        self.space_named(&["srgb_texture", "sRGB - Texture", "Utility - sRGB - Texture", "srgb_tx"])
+            .or_else(|| {
+                let r = self.config.role_color_space("texture_paint");
+                (!r.is_empty()).then(|| r.to_string())
+            })
+    }
+
     /// A display's view `view` if it has one, else its default.
     pub fn on_display(&self, display: &str, view: &str) -> View {
         let view = if self.config.has_view(display, view) {
@@ -289,6 +308,15 @@ mod tests {
         let mut p = [[rgb[0], rgb[1], rgb[2], 1.0]];
         c.cpu("", v).unwrap().apply(&mut p);
         [p[0][0], p[0][1], p[0][2]]
+    }
+
+    /// What a renderer is told: the space renders are in, 8-bit textures'.
+    #[test]
+    fn imago_s_config_names_its_texture_and_rendering_spaces() {
+        let c = Colour::load(None);
+        assert_eq!(c.rendering(), "ACEScg");
+        assert_eq!(c.texture_space().as_deref(), Some("sRGB Encoded Rec.709 (sRGB)"));
+        assert_eq!(c.space_named(&["nothing", "lin_ap1"]).as_deref(), Some("ACEScg"));
     }
 
     /// Imago's config: three displays, ACES first, ACEScg the working and
