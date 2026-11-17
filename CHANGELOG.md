@@ -19,7 +19,9 @@ version's heading when you tag it.
 - **Ramp widget**: MaterialX's `ramp` node edited as a gradient bar with its
   keys as handles (click to add, drag, right-click to remove), or as a float
   curve (keys as greys); its interpolation, Flip and Reset, and a row per key
-  with its position and colour picker (or value).
+  with its position and colour picker (or value). Arnold's `ai_ramp_rgb` and
+  `ai_ramp_float` (SDK definitions) edited the same way, their colours written
+  as `color3f[]`; Monotone Cubic interpolation (Arnold's, and ICE's ramps).
 - **Texture colour spaces**: a Colour Space under a texture's file (Auto,
   `srgb_texture`, `lin_rec709`, `acescg`, `raw`, or any of the OCIO config's),
   kept from `.mtlx` files (input, node, node graph and document `colorspace`)

@@ -127,6 +127,16 @@ the ramp is edited input by input instead. Colours are linear, shown as sRGB.
 `ramplr`, `ramptb` and `ramp4` blend two or four values (left and right, top
 and bottom, the corners): their inputs are those values, edited as they are.
 
+Arnold's **`ai_ramp_rgb`** and **`ai_ramp_float`** (from the SDK's
+definitions: Settings, Renderers) have the same **Ramp** in place of their
+`position`, `color` (or `value`) and `interpolation` arrays: a colour bar (RGB)
+or a curve, as many keys as wanted, one interpolation for them all, Arnold's:
+Step (constant), Linear, Cubic (Catmull-Rom) and Monotone Cubic (no higher or
+lower than its keys). A ramp read whose keys' interpolations differ keeps
+them until one is chosen. Its Type, Input, Wrap, UV set and the rest stay
+inputs. Its colours are written as USD's colour array (`color3f[]`), as
+Arnold's shader takes them (its definition gives them as numbers, three a key).
+
 A texture's file has a **Colour Space** under it (MaterialX's and USD's own
 image nodes; a renderer's image node has its own input for it): what its
 colours are in, for the renderer to convert from. **Auto** gives none: the

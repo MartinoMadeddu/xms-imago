@@ -13,6 +13,9 @@ pub enum Interp {
     Smooth,
     /// Catmull-Rom through the keys around.
     Cubic,
+    /// A cubic through the keys that goes no higher or lower than they do
+    /// (Fritsch-Butland): Arnold's monotone cubic.
+    MonotoneCubic,
 }
 
 impl Interp {
@@ -22,6 +25,7 @@ impl Interp {
             Interp::Linear => "Linear",
             Interp::Smooth => "Smooth",
             Interp::Cubic => "Cubic",
+            Interp::MonotoneCubic => "Monotone Cubic",
         }
     }
 }
@@ -31,6 +35,9 @@ pub trait RampValue: Copy + PartialEq {
     fn add(a: Self, b: Self) -> Self;
     fn sub(a: Self, b: Self) -> Self;
     fn scale(a: Self, s: f32) -> Self;
+    /// Its numbers (a float's the first), and it made from them.
+    fn parts(self) -> [f32; 4];
+    fn from_parts(p: [f32; 4]) -> Self;
     fn mix(a: Self, b: Self, f: f32) -> Self {
         Self::add(a, Self::scale(Self::sub(b, a), f))
     }
@@ -46,6 +53,12 @@ impl RampValue for f32 {
     fn scale(a: f32, s: f32) -> f32 {
         a * s
     }
+    fn parts(self) -> [f32; 4] {
+        [self, 0.0, 0.0, 0.0]
+    }
+    fn from_parts(p: [f32; 4]) -> f32 {
+        p[0]
+    }
 }
 
 impl RampValue for [f32; 4] {
@@ -57,6 +70,12 @@ impl RampValue for [f32; 4] {
     }
     fn scale(a: [f32; 4], s: f32) -> [f32; 4] {
         std::array::from_fn(|i| a[i] * s)
+    }
+    fn parts(self) -> [f32; 4] {
+        self
+    }
+    fn from_parts(p: [f32; 4]) -> [f32; 4] {
+        p
     }
 }
 
@@ -122,6 +141,50 @@ pub fn eval_sorted<T: RampValue>(k: &[Key<T>], interp: Interp, t: f32) -> Option
                 T::add(T::scale(a.value, h00), T::scale(m0, h10)),
                 T::add(T::scale(b.value, h01), T::scale(m1, h11)),
             )
+        }
+        Interp::MonotoneCubic => {
+            let h = b.pos - a.pos;
+            let (f2, f3) = (f * f, f * f * f);
+            let h00 = 2.0 * f3 - 3.0 * f2 + 1.0;
+            let h10 = f3 - 2.0 * f2 + f;
+            let h01 = -2.0 * f3 + 3.0 * f2;
+            let h11 = f3 - f2;
+            let (m0, m1) = (monotone_slope(k, i), monotone_slope(k, i + 1));
+            let (pa, pb) = (a.value.parts(), b.value.parts());
+            T::from_parts(std::array::from_fn(|c| {
+                h00 * pa[c] + h10 * h * m0[c] + h01 * pb[c] + h11 * h * m1[c]
+            }))
+        }
+    })
+}
+
+/// The slope of a monotone cubic at key `i` of keys in order, each number on
+/// its own: none where the curve turns (the slopes either side of differing
+/// sign), else the weighted harmonic mean of the slopes either side
+/// (Fritsch-Butland); at an end, the slope of its one side.
+fn monotone_slope<T: RampValue>(k: &[Key<T>], i: usize) -> [f32; 4] {
+    let slope = |j: usize| -> [f32; 4] {
+        let h = k[j + 1].pos - k[j].pos;
+        let (a, b) = (k[j].value.parts(), k[j + 1].value.parts());
+        std::array::from_fn(|c| if h > 0.0 { (b[c] - a[c]) / h } else { 0.0 })
+    };
+    let n = k.len();
+    if n < 2 {
+        return [0.0; 4];
+    }
+    if i == 0 {
+        return slope(0);
+    }
+    if i >= n - 1 {
+        return slope(n - 2);
+    }
+    let (d0, d1) = (slope(i - 1), slope(i));
+    let (h0, h1) = (k[i].pos - k[i - 1].pos, k[i + 1].pos - k[i].pos);
+    std::array::from_fn(|c| {
+        if d0[c] * d1[c] <= 0.0 {
+            0.0
+        } else {
+            3.0 * (h0 + h1) / ((2.0 * h1 + h0) / d0[c] + (h1 + 2.0 * h0) / d1[c])
         }
     })
 }
@@ -216,6 +279,36 @@ mod tests {
         }
         assert_eq!(RampOp::float().output(), crate::Ty::Float);
         assert_eq!(RampOp::colour().output(), crate::Ty::Vec3);
+    }
+
+    #[test]
+    fn monotone_cubic_goes_no_higher_than_its_keys() {
+        // A step up then flat: Catmull-Rom overshoots past 1, monotone not.
+        let keys = vec![
+            Key { pos: 0.0, value: 0.0 },
+            Key { pos: 0.4, value: 1.0 },
+            Key { pos: 0.6, value: 1.0 },
+            Key { pos: 1.0, value: 1.0 },
+        ];
+        let m = Ramp {
+            keys: keys.clone(),
+            interp: Interp::MonotoneCubic,
+        };
+        let c = Ramp {
+            keys,
+            interp: Interp::Cubic,
+        };
+        let (mut top_m, mut top_c) = (0.0_f32, 0.0_f32);
+        for s in 0..=100 {
+            let t = s as f32 / 100.0;
+            top_m = top_m.max(m.eval(t).unwrap());
+            top_c = top_c.max(c.eval(t).unwrap());
+        }
+        assert!(top_m <= 1.0 + 1e-6, "{top_m}");
+        assert!(top_c > 1.0, "{top_c}");
+        // Through its keys, rising between them.
+        assert!((m.eval(0.4).unwrap() - 1.0).abs() < 1e-6);
+        assert!(m.eval(0.1).unwrap() < m.eval(0.2).unwrap());
     }
 
     #[test]

@@ -286,7 +286,13 @@ fn shader(graph: &Graph, lib: &Library, id: u32, path: &str) -> Option<Shader> {
     let mut lines = vec![format!("uniform token info:id = \"{}\"", usd_id(def))];
     for (input, b) in &node.inputs {
         let Some(idef) = def.input(input) else { continue };
-        let ty = input_type(&node.node, input, idef.ty);
+        // Arnold's ramp_rgb defines its colours as numbers, three a key; its
+        // shader takes colours: written as USD's colour array.
+        let vt = match (crate::ramp::arnold_ramp(lib, &node.node), input.as_str(), idef.ty) {
+            (Some(true), "color", Type::FloatArray) => Type::Color3Array,
+            _ => idef.ty,
+        };
+        let ty = input_type(&node.node, input, vt);
         let uniform = if idef.uniform { "uniform " } else { "" };
         match b {
             Binding::Value(v) if !idef.ty.is_shading() => {
@@ -311,10 +317,7 @@ fn shader(graph: &Graph, lib: &Library, id: u32, path: &str) -> Option<Shader> {
                     (Some(s), None) => format!(" (colorSpace = \"{}\")", s.replace('"', "")),
                     _ => String::new(),
                 };
-                lines.push(format!(
-                    "{uniform}{ty} inputs:{input} = {}{meta}",
-                    usd_value(idef.ty, &v)
-                ));
+                lines.push(format!("{uniform}{ty} inputs:{input} = {}{meta}", usd_value(vt, &v)));
                 if let Some(t) = source {
                     lines.push(format!("token inputs:sourceColorSpace = \"{t}\""));
                 }
@@ -632,6 +635,53 @@ mod tests {
             "{lines:?}"
         );
         assert!(lines.iter().all(|l| !l.contains("colorSpace =")), "{lines:?}");
+    }
+
+    /// Arnold's ramp_rgb's colours, numbers three a key in its definition, are
+    /// written as colours, as its shader takes them.
+    #[test]
+    fn an_arnold_ramp_s_colours_are_written_as_colours() {
+        let arnold = crate::Renderer {
+            prefix: "ai_".into(),
+            context: "arnold".into(),
+            label: "Arnold".into(),
+        };
+        let text = r#"<materialx version="1.38">
+  <nodedef name="ARNOLD_ND_ramp_rgb" node="ramp_rgb">
+    <output name="out" type="color3" />
+    <input name="position" type="floatarray" value="0.0, 1.0" />
+    <input name="color" type="floatarray" value="0.0, 0.0, 0.0, 1.0, 1.0, 1.0" />
+    <input name="interpolation" type="integerarray" value="2, 2" />
+  </nodedef>
+</materialx>"#;
+        let (lib, _) = Library::standard()
+            .with_renderer(&arnold, "nodedefs.mtlx", text)
+            .unwrap();
+        let mut g = Graph::new();
+        let r = g.add(&lib, "ai_ramp_rgb", [0.0, 0.0]).unwrap();
+        crate::ramp::write_arnold(
+            &mut g,
+            &lib,
+            r,
+            &crate::ramp::ArnoldKeys {
+                colour: true,
+                keys: vec![(0.0, [1.0, 0.0, 0.0, 1.0]), (1.0, [0.0, 0.0, 1.0, 1.0])],
+                interpolation: Some(1),
+            },
+        );
+        let lines = shader(&g, &lib, r, "/m").unwrap().lines;
+        assert!(
+            lines.contains(&"color3f[] inputs:color = [(1, 0, 0), (0, 0, 1)]".to_string()),
+            "{lines:?}"
+        );
+        assert!(
+            lines.contains(&"float[] inputs:position = [0, 1]".to_string()),
+            "{lines:?}"
+        );
+        assert!(
+            lines.contains(&"int[] inputs:interpolation = [1, 1]".to_string()),
+            "{lines:?}"
+        );
     }
 
     /// The UsdPreviewSurface family is written as USD has it, and read back.

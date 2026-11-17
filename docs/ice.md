@@ -171,10 +171,11 @@ the tree's parameters).
   its keys as points, or a gradient bar with a handle under each key. Click for
   a key, drag one to move it (between its neighbours), right-click it to take
   it away; under it the interpolation (Step, Linear, Smooth, Cubic: through the
-  keys, Catmull-Rom), Flip, Reset, and a row per key with its position and its
-  value (a colour picker and R, G, B). Before the first key, the first's value;
-  after the last, the last's. An int In is taken as a float; per element, one
-  value, or an array element by element.
+  keys, Catmull-Rom; Monotone Cubic, no higher or lower than its keys), Flip,
+  Reset, and a row per key with its position and its value (a colour picker
+  and R, G, B). Before the first key, the first's value; after the last, the
+  last's. An int In is taken as a float; per element, one value, or an array
+  element by element.
 - **Decompose** takes a vector apart, an output per part, as its **From** says:
   2D, 3D or 4D Vector to Floats (X, Y, Z, W), 3D Vector to 2D Vector and Float
   (XY, Z), 4D Vector to 3D Vector and Float (XYZ, W), Rotation to Floats (I, J,

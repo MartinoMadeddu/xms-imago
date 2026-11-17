@@ -137,6 +137,11 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
     if let Some(k) = &keys {
         ramp_group(ui, op, id, k, graph);
     }
+    // Arnold's ramp_rgb and ramp_float: their arrays as a ramp.
+    let arnold = xms_matx::ramp::read_arnold(graph, lib, id);
+    if let Some(k) = &arnold {
+        arnold_ramp_group(ui, op, id, k, graph);
+    }
 
     // Its inputs, by folder
     let mut advanced = ui.data(|d| d.get_temp::<bool>(advanced_id(op))).unwrap_or(false);
@@ -156,6 +161,7 @@ pub fn inner(ui: &mut egui::Ui, op: NodeId, op_name: &str, graph: &mut Graph, io
             .filter(|(_, i)| i.ui.folder.as_deref().unwrap_or("Inputs") == folder)
             .filter(|(_, i)| i.ui.visible && (advanced || !i.ui.advanced || node.binding(&i.name).is_some()))
             .filter(|(_, i)| keys.is_none() || !xms_matx::ramp::is_key_input(&i.name))
+            .filter(|(_, i)| arnold.is_none() || !xms_matx::ramp::is_arnold_key_input(&i.name))
             .collect();
         if inputs.is_empty() {
             continue;
@@ -259,6 +265,85 @@ fn ramp_group(ui: &mut egui::Ui, op: NodeId, id: u32, keys: &xms_matx::ramp::Key
             _ => 1,
         };
         xms_matx::ramp::write(graph, id, &xms_matx::ramp::Keys { keys, interpolation });
+    }
+}
+
+/// Arnold's interpolations by their numbers: 0 constant, 1 linear, 2
+/// Catmull-Rom, 3 monotone cubic.
+const ARNOLD_INTERPS: [(i32, crate::ramp::Interp); 4] = [
+    (0, crate::ramp::Interp::Step),
+    (1, crate::ramp::Interp::Linear),
+    (2, crate::ramp::Interp::Cubic),
+    (3, crate::ramp::Interp::MonotoneCubic),
+];
+
+/// Arnold's `ramp_rgb` (a colour bar, RGB) or `ramp_float` (a curve) in the
+/// ramp widget, in place of its position, colour or value and interpolation
+/// arrays: as many keys as wanted, one interpolation for them all (Step,
+/// Linear, Cubic: Catmull-Rom, Monotone Cubic). Keys of differing
+/// interpolations, as read, keep theirs until one is chosen.
+fn arnold_ramp_group(ui: &mut egui::Ui, op: NodeId, id: u32, keys: &xms_matx::ramp::ArnoldKeys, graph: &mut Graph) {
+    use crate::ramp::{colour_ramp, float_ramp, Interp, Key, Limits, Ramp};
+    let shown = keys
+        .interpolation
+        .and_then(|i| ARNOLD_INTERPS.iter().find(|(n, _)| *n == i))
+        .map(|(_, t)| *t)
+        .unwrap_or(Interp::Cubic);
+    let limits = Limits {
+        interps: &[Interp::Step, Interp::Linear, Interp::Cubic, Interp::MonotoneCubic],
+        min_keys: 1,
+        max_keys: 256,
+        alpha: false,
+    };
+    let widget = egui::Id::new(("arnold_ramp", op.0, id));
+    let mut out: Option<(Vec<(f32, [f32; 4])>, Interp)> = None;
+    group(
+        ui,
+        "Ramp",
+        Some("Its keys along the ramp: click for a key, drag one to move it, right-click it to take it away; each key listed under it with its place and value. Written as Arnold's position, color (or value) and interpolation arrays, one interpolation for every key"),
+        |f| {
+            if keys.interpolation.is_none() {
+                f.status(
+                    Status::Info,
+                    "Its keys' interpolations differ: kept until one is chosen",
+                );
+            }
+            let ui = &mut *f.ui;
+            if keys.colour {
+                let mut ramp = Ramp {
+                    keys: keys.keys.iter().map(|&(pos, value)| Key { pos, value }).collect(),
+                    interp: shown,
+                };
+                if colour_ramp(ui, widget, &mut ramp, &limits) {
+                    out = Some((ramp.keys.iter().map(|k| (k.pos, k.value)).collect(), ramp.interp));
+                }
+            } else {
+                let mut ramp = Ramp {
+                    keys: keys.keys.iter().map(|&(pos, c)| Key { pos, value: c[0] }).collect(),
+                    interp: shown,
+                };
+                if float_ramp(ui, widget, &mut ramp, (0.0, 1.0), &limits) {
+                    out = Some((
+                        ramp.keys.iter().map(|k| (k.pos, [k.value, k.value, k.value, 1.0])).collect(),
+                        ramp.interp,
+                    ));
+                }
+            }
+        },
+    );
+    if let Some((k, interp)) = out {
+        // The interpolation chosen, or, untouched where the keys differ, theirs.
+        let interpolation = if keys.interpolation.is_none() && interp == shown {
+            None
+        } else {
+            ARNOLD_INTERPS.iter().find(|(_, t)| *t == interp).map(|(n, _)| *n)
+        };
+        let new = xms_matx::ramp::ArnoldKeys {
+            colour: keys.colour,
+            keys: k,
+            interpolation,
+        };
+        xms_matx::ramp::write_arnold(graph, lib(), id, &new);
     }
 }
 

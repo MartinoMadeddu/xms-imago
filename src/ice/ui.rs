@@ -440,7 +440,13 @@ fn ramp_rows(ui: &mut egui::Ui, id: egui::Id, ramp: &mut xms_ice::ramp::RampOp) 
     use crate::ramp::{colour_ramp, float_ramp, Interp, Key, Limits, Ramp};
     use xms_ice::ramp::RampOp;
     let limits = Limits {
-        interps: &[Interp::Step, Interp::Linear, Interp::Smooth, Interp::Cubic],
+        interps: &[
+            Interp::Step,
+            Interp::Linear,
+            Interp::Smooth,
+            Interp::Cubic,
+            Interp::MonotoneCubic,
+        ],
         min_keys: 1,
         max_keys: 256,
         alpha: false,
