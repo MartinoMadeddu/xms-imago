@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-17
+
 ### Rendering
 
 - **Renders in Imago's colour space**: Arnold is given Imago's OCIO config

@@ -900,3 +900,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 17/11/2026: Arnold ramps in the ramp widget (xms_matx::ramp read_arnold/write_arnold of position, color/value, interpolation arrays; ai_ramp_rgb color written as color3f[]); Interp::MonotoneCubic (Fritsch-Butland) for Arnold and ICE. (Martino)
 - 17/11/2026: USD arrays read whole: ShaderValue Floats{width}/Ints/Strings (xms-usd shader_value), UsdValue FloatArray/IntArray/TextArray into MaterialX array inputs, authored arrays as Set Attribute's. (Martino)
 - 17/11/2026: Arnold renders with Imago's colour management: xms_render ColourManager (color_manager_ocio: config, color_space_linear, color_space_narrow) set on the options after load unless the scene has one; live::colour_manager writes Imago's config beside the scene; xms_colour space_named/texture_space. (Martino)
+- 17/11/2026: Release 0.3.6. (Martino)
