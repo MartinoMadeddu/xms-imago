@@ -1248,6 +1248,32 @@ fn exec(program: &Program, regs: &mut [Reg], env: &Env, start: usize, len: usize
                 );
                 regs[dst] = out;
             }
+            Ins::Ramp { ref ramp, dst, src } => {
+                use crate::ramp::{eval_sorted, RampOp};
+                let out = match (&**ramp, &regs[src]) {
+                    (RampOp::Float(r), Reg::Float(v)) => {
+                        let keys = r.sorted();
+                        Reg::Float(
+                            v.iter()
+                                .map(|&t| eval_sorted(&keys, r.interp, t).unwrap_or(0.0))
+                                .collect(),
+                        )
+                    }
+                    (RampOp::Colour(r), Reg::Float(v)) => {
+                        let keys = r.sorted();
+                        Reg::Vec3(
+                            v.iter()
+                                .map(|&t| {
+                                    let c = eval_sorted(&keys, r.interp, t).unwrap_or([0.0; 4]);
+                                    Vec3::new(c[0], c[1], c[2])
+                                })
+                                .collect(),
+                        )
+                    }
+                    _ => Reg::Bool(vec![]),
+                };
+                regs[dst] = out;
+            }
             Ins::ToFloat { dst, src } => {
                 let mut out = std::mem::replace(&mut regs[dst], Reg::Bool(vec![]));
                 match &regs[src] {

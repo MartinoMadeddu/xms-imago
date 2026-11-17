@@ -36,6 +36,7 @@ pub mod exec;
 pub mod graph;
 pub mod lang;
 pub mod noise;
+pub mod ramp;
 pub mod spatial;
 pub mod surface;
 pub mod types;

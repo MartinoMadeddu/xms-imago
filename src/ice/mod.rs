@@ -571,6 +571,14 @@ impl IceGraph {
                 vec![output("Value", "Any")],
             ),
             IceGraphNodeType::Concat => (vec![array_port(1), array_port(2)], vec![output("Array", "Any")]),
+            // What it reads along the ramp, 0 to 1; a float or a colour out.
+            IceGraphNodeType::Ramp { ramp } => (
+                vec![input("In", 0.0)],
+                vec![match ramp {
+                    xms_ice::ramp::RampOp::Float(_) => output("Value", "Any"),
+                    xms_ice::ramp::RampOp::Colour(_) => output("Colour", "Any"),
+                }],
+            ),
             // Its parts, by what it makes: numbers 0 (a rotation's real
             // part 1: none), vectors zero.
             IceGraphNodeType::Compose { op } => (
@@ -1057,6 +1065,7 @@ impl IceGraph {
                     IceGraphNodeType::Random { seed } => Op::Random { seed: *seed },
                     IceGraphNodeType::Array { op } => Op::Array(*op),
                     IceGraphNodeType::Compose { op } => Op::Compose(*op),
+                    IceGraphNodeType::Ramp { ramp } => Op::Ramp(ramp.clone()),
                     IceGraphNodeType::Decompose { op } => Op::Decompose(*op),
                     IceGraphNodeType::Scatter { seed, weight } => Op::Scatter {
                         seed: *seed,

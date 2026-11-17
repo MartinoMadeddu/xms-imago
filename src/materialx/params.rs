@@ -207,6 +207,7 @@ fn ramp_group(ui: &mut egui::Ui, op: NodeId, id: u32, keys: &xms_matx::ramp::Key
         interps: &[Interp::Linear, Interp::Smooth, Interp::Step],
         min_keys: xms_matx::ramp::MIN_KEYS,
         max_keys: xms_matx::ramp::MAX_KEYS,
+        alpha: true,
     };
     let widget = egui::Id::new(("matx_ramp", op.0, id));
     // Float or colour, as last chosen for it: colour to start with.

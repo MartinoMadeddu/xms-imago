@@ -8,127 +8,10 @@
 //! interpolation (Step, Linear, Smooth, and Cubic where the target has it),
 //! Flip and Reset, then a row per key: its number (selecting its handle), its
 //! position, its value (a colour's swatch and RGBA, a float), 🗑. A ramp is one
-//! Rust type, mapped to what holds it: MaterialX's `ramp` node
-//! (`materialx::params`), and next Arnold's ramps and ICE's.
+//! Rust type (`xms_ice::ramp`), mapped to what holds it: MaterialX's `ramp`
+//! node (`materialx::params`) and ICE's Ramp node (`ice::ui`).
 
-/// How a ramp goes from one key to the next.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Interp {
-    /// The key's value until the next key.
-    Step,
-    Linear,
-    /// Smoothstep between the two keys (MaterialX's `smooth`).
-    Smooth,
-    /// Catmull-Rom through the keys around.
-    #[allow(dead_code)] // For Arnold's ramps and ICE's: MaterialX's has none.
-    Cubic,
-}
-
-impl Interp {
-    pub fn label(self) -> &'static str {
-        match self {
-            Interp::Step => "Step",
-            Interp::Linear => "Linear",
-            Interp::Smooth => "Smooth",
-            Interp::Cubic => "Cubic",
-        }
-    }
-}
-
-/// What a ramp holds: a float, or a colour (RGBA, linear).
-pub trait RampValue: Copy + PartialEq {
-    fn add(a: Self, b: Self) -> Self;
-    fn sub(a: Self, b: Self) -> Self;
-    fn scale(a: Self, s: f32) -> Self;
-    fn mix(a: Self, b: Self, f: f32) -> Self {
-        Self::add(a, Self::scale(Self::sub(b, a), f))
-    }
-}
-
-impl RampValue for f32 {
-    fn add(a: f32, b: f32) -> f32 {
-        a + b
-    }
-    fn sub(a: f32, b: f32) -> f32 {
-        a - b
-    }
-    fn scale(a: f32, s: f32) -> f32 {
-        a * s
-    }
-}
-
-impl RampValue for [f32; 4] {
-    fn add(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-        std::array::from_fn(|i| a[i] + b[i])
-    }
-    fn sub(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-        std::array::from_fn(|i| a[i] - b[i])
-    }
-    fn scale(a: [f32; 4], s: f32) -> [f32; 4] {
-        std::array::from_fn(|i| a[i] * s)
-    }
-}
-
-/// A key: where along the ramp (0 to 1), and its value.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Key<T> {
-    pub pos: f32,
-    pub value: T,
-}
-
-/// Keys, in any order, and how the ramp goes between them.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Ramp<T> {
-    pub keys: Vec<Key<T>>,
-    pub interp: Interp,
-}
-
-impl<T: RampValue> Ramp<T> {
-    /// The keys by position.
-    pub fn sorted(&self) -> Vec<Key<T>> {
-        let mut k = self.keys.clone();
-        k.sort_by(|a, b| a.pos.total_cmp(&b.pos));
-        k
-    }
-
-    /// The value at `t`: the first key's before it, the last's after.
-    pub fn eval(&self, t: f32) -> Option<T> {
-        let k = self.sorted();
-        let (first, last) = (k.first()?, k.last()?);
-        if t <= first.pos {
-            return Some(first.value);
-        }
-        if t >= last.pos {
-            return Some(last.value);
-        }
-        let i = k.windows(2).position(|w| t >= w[0].pos && t < w[1].pos)?;
-        let (a, b) = (k[i], k[i + 1]);
-        let span = b.pos - a.pos;
-        let f = if span > 0.0 { (t - a.pos) / span } else { 1.0 };
-        Some(match self.interp {
-            Interp::Step => a.value,
-            Interp::Linear => T::mix(a.value, b.value, f),
-            Interp::Smooth => T::mix(a.value, b.value, f * f * (3.0 - 2.0 * f)),
-            Interp::Cubic => {
-                // Hermite with Catmull-Rom tangents; at an end, its key stands
-                // for the one beyond.
-                let before = if i > 0 { k[i - 1] } else { a };
-                let after = k.get(i + 2).copied().unwrap_or(b);
-                let m0 = T::scale(T::sub(b.value, before.value), 0.5);
-                let m1 = T::scale(T::sub(after.value, a.value), 0.5);
-                let (f2, f3) = (f * f, f * f * f);
-                let h00 = 2.0 * f3 - 3.0 * f2 + 1.0;
-                let h10 = f3 - 2.0 * f2 + f;
-                let h01 = -2.0 * f3 + 3.0 * f2;
-                let h11 = f3 - f2;
-                T::add(
-                    T::add(T::scale(a.value, h00), T::scale(m0, h10)),
-                    T::add(T::scale(b.value, h01), T::scale(m1, h11)),
-                )
-            }
-        })
-    }
-}
+pub use xms_ice::ramp::{Interp, Key, Ramp, RampValue};
 
 /// What a widget is told: which interpolations the target has, how few keys
 /// and how many it takes.
@@ -136,6 +19,9 @@ pub struct Limits<'a> {
     pub interps: &'a [Interp],
     pub min_keys: usize,
     pub max_keys: usize,
+    /// Whether a colour's alpha is edited (MaterialX's ramp gives it; ICE's
+    /// colour ramp gives RGB).
+    pub alpha: bool,
 }
 
 /// The key selected in a ramp's widget.
@@ -266,14 +152,24 @@ pub fn colour_ramp(ui: &mut egui::Ui, id: egui::Id, ramp: &mut Ramp<[f32; 4]>, l
     if reset {
         selected = None;
     }
+    let alpha = limits.alpha;
     changed |= key_rows(ui, id, ramp, &mut selected, limits.min_keys, |ui, c| {
         let mut changed = false;
-        let mut v = *c;
-        if ui.color_edit_button_rgba_unmultiplied(&mut v).changed() {
-            *c = v;
-            changed = true;
+        if alpha {
+            let mut v = *c;
+            if ui.color_edit_button_rgba_unmultiplied(&mut v).changed() {
+                *c = v;
+                changed = true;
+            }
+        } else {
+            let mut v = [c[0], c[1], c[2]];
+            if ui.color_edit_button_rgb(&mut v).changed() {
+                c[..3].copy_from_slice(&v);
+                changed = true;
+            }
         }
-        for x in c.iter_mut() {
+        let shown = if alpha { 4 } else { 3 };
+        for x in c.iter_mut().take(shown) {
             changed |= ui
                 .add_sized(
                     [46.0, ui.spacing().interact_size.y],
@@ -541,72 +437,16 @@ fn key_rows<T: RampValue>(
 mod tests {
     use super::*;
 
-    fn ramp(interp: Interp) -> Ramp<f32> {
-        Ramp {
-            keys: vec![
-                Key { pos: 1.0, value: 1.0 },
-                Key { pos: 0.0, value: 0.0 },
-                Key { pos: 0.5, value: 0.2 },
-            ],
-            interp,
-        }
-    }
-
-    #[test]
-    fn keys_are_read_in_order_whatever_their_order() {
-        let r = ramp(Interp::Linear);
-        assert_eq!(r.eval(-1.0), Some(0.0));
-        assert_eq!(r.eval(2.0), Some(1.0));
-        assert!((r.eval(0.25).unwrap() - 0.1).abs() < 1e-6);
-        assert!((r.eval(0.75).unwrap() - 0.6).abs() < 1e-6);
-    }
-
-    #[test]
-    fn step_holds_smooth_eases_cubic_passes_the_keys() {
-        assert_eq!(ramp(Interp::Step).eval(0.49), Some(0.0));
-        assert_eq!(ramp(Interp::Step).eval(0.5), Some(0.2));
-        // Smoothstep: a quarter of the way, 0.15625 of the value.
-        let s = ramp(Interp::Smooth).eval(0.125).unwrap();
-        assert!((s - 0.2 * 0.15625).abs() < 1e-6, "{s}");
-        let c = ramp(Interp::Cubic);
-        for (t, v) in [(0.0, 0.0), (0.5, 0.2), (1.0, 1.0)] {
-            assert!((c.eval(t).unwrap() - v).abs() < 1e-5);
-        }
-        assert!(c.eval(0.25).unwrap() > 0.0 && c.eval(0.75).unwrap() > 0.2);
-    }
-
     #[test]
     fn a_key_dragged_stays_between_its_neighbours() {
-        let r = ramp(Interp::Linear);
+        let keys = [
+            Key { pos: 1.0, value: 1.0 },
+            Key { pos: 0.0, value: 0.0 },
+            Key { pos: 0.5, value: 0.2 },
+        ];
         // The key at 0.5 (index 2) between 0 and 1; the one at 0 below 0.5.
-        assert_eq!(between(&r.keys, 2, 1.4), 1.0);
-        assert_eq!(between(&r.keys, 1, 0.9), 0.5);
-        assert_eq!(between(&r.keys, 2, 0.3), 0.3);
-    }
-
-    #[test]
-    fn a_colour_ramp_mixes_each_channel() {
-        let r = Ramp {
-            keys: vec![
-                Key {
-                    pos: 0.0,
-                    value: [0.0, 0.0, 1.0, 1.0],
-                },
-                Key {
-                    pos: 1.0,
-                    value: [1.0, 0.0, 0.0, 0.0],
-                },
-            ],
-            interp: Interp::Linear,
-        };
-        assert_eq!(r.eval(0.5), Some([0.5, 0.0, 0.5, 0.5]));
-        assert_eq!(
-            Ramp::<f32> {
-                keys: vec![],
-                interp: Interp::Linear
-            }
-            .eval(0.5),
-            None
-        );
+        assert_eq!(between(&keys, 2, 1.4), 1.0);
+        assert_eq!(between(&keys, 1, 0.9), 0.5);
+        assert_eq!(between(&keys, 2, 0.3), 0.3);
     }
 }

@@ -8,6 +8,12 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### ICE
+
+- **Ramp** and **Colour Ramp** nodes: In, 0 to 1, through a float curve or a
+  colour gradient of keys (Step, Linear, Smooth, Cubic), edited with the ramp
+  widget in their parameters.
+
 ### MaterialX
 
 - **Ramp widget**: MaterialX's `ramp` node edited as a gradient bar with its

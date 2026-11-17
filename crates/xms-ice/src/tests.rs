@@ -2871,3 +2871,54 @@ fn a_reference_input_s_prims_are_searched_alone() {
         "{got:?}: on input 2's floor, not input 1's"
     );
 }
+
+/// Ramp: each point's heat, scaled to 0 to 1, through a float ramp and a
+/// colour ramp; an int taken as a float.
+#[test]
+fn a_ramp_maps_values_through_its_keys() {
+    use crate::ramp::{Interp, Key, Ramp, RampOp};
+    let geo = cloud(3);
+    let run_point = |g: &mut Graph, out: usize| {
+        let set = g.add(Op::set("v"), vec![wire(out)]);
+        g.add(
+            Op::Root {
+                context: Context::Point,
+            },
+            vec![wire(set)],
+        );
+        run(&compile(g, &geo).unwrap(), &geo, &no_params(), &[])
+            .geo
+            .attr(Context::Point, "v")
+            .unwrap()
+            .column
+            .clone()
+    };
+    // Heat 0, 1, 2 halved: 0, 0.5, 1.
+    let mut g = Graph::default();
+    let heat = g.add(Op::get("heat"), vec![]);
+    let t = g.add(
+        Op::Math(Math::Multiply),
+        vec![wire(heat), Input::Value(Value::Float(0.5))],
+    );
+    let float = RampOp::Float(Ramp {
+        keys: vec![Key { pos: 0.0, value: 1.0 }, Key { pos: 1.0, value: 3.0 }],
+        interp: Interp::Linear,
+    });
+    let r = g.add(Op::Ramp(float), vec![wire(t)]);
+    assert_eq!(run_point(&mut g, r).floats().unwrap(), &[1.0, 2.0, 3.0]);
+    let mut g = Graph::default();
+    let heat = g.add(Op::get("heat"), vec![]);
+    let t = g.add(
+        Op::Math(Math::Multiply),
+        vec![wire(heat), Input::Value(Value::Float(0.5))],
+    );
+    let r = g.add(Op::Ramp(RampOp::colour()), vec![wire(t)]);
+    assert_eq!(
+        run_point(&mut g, r).vec3s().unwrap(),
+        &[[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [1.0, 1.0, 1.0]]
+    );
+    // One value: the ramp at it, for every point.
+    let mut g = Graph::default();
+    let r = g.add(Op::Ramp(RampOp::float()), vec![Input::Value(Value::Float(0.25))]);
+    assert_eq!(run_point(&mut g, r).floats().unwrap(), &[0.25, 0.25, 0.25]);
+}

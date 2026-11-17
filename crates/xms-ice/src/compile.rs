@@ -153,6 +153,12 @@ pub(crate) enum Ins {
         dst: usize,
         args: [usize; 3],
     },
+    /// A float through a ramp: a float, or a colour (Vec3).
+    Ramp {
+        ramp: std::sync::Arc<crate::ramp::RampOp>,
+        dst: usize,
+        src: usize,
+    },
     /// An int as a float, where an int meets a float.
     ToFloat {
         dst: usize,
@@ -887,6 +893,7 @@ impl Lower<'_> {
             Op::GetDataAt { name, context } => self.at_location(node, name, *context)?,
             Op::RandomOrientation { seed } => self.random_orientation(node, *seed)?,
             Op::Concat => self.concat(node)?,
+            Op::Ramp(r) => self.ramp(node, r)?,
             Op::GetArrayData { name, context } if !n.inputs.is_empty() => {
                 self.get_array_data_from(node, name, *context)?
             }
@@ -2029,6 +2036,32 @@ impl Lower<'_> {
         )
     }
 
+    /// Ramp: its In (a float; an int as one) through the ramp's keys. One
+    /// value, per element, or an array element by element.
+    fn ramp(&mut self, node: usize, op: &crate::ramp::RampOp) -> Result<Val, CompileError> {
+        let mut v = self.input(node, 0, Some(Ty::Float))?;
+        if v.ty == Ty::Int {
+            let (src, array) = (v.reg, v.array);
+            v = self.emit(v.uniform, Ty::Float, |dst| Ins::ToFloat { dst, src });
+            v.array = array;
+        }
+        if v.ty != Ty::Float {
+            return error(node, format!("A ramp takes a float, not a {}", v.ty.name()));
+        }
+        if v.is_list() {
+            return error(
+                node,
+                "A ramp works on values and the graph's arrays, not on lists per element yet",
+            );
+        }
+        let (uniform, array) = (v.uniform, v.array);
+        let src = if uniform { v.reg } else { self.varying(v) };
+        let ramp = std::sync::Arc::new(op.clone());
+        let mut out = self.emit(uniform, op.output(), |dst| Ins::Ramp { ramp, dst, src });
+        out.array = array;
+        Ok(out)
+    }
+
     /// Compose: a vector from its parts, each taken as its type (an int as a
     /// number). One value, per element, or arrays element by element.
     fn compose(&mut self, node: usize, op: Compose) -> Result<Val, CompileError> {
@@ -2553,6 +2586,7 @@ fn type_of(
             .find_map(|c| find_in(geo, c, name))
             .and_then(|f| f.ty),
         Op::Compose(c) => Some(c.output()),
+        Op::Ramp(r) => Some(r.output()),
         Op::Decompose(d) => Some(d.outputs()[0].1),
         Op::Array(op) => {
             let of = match n.inputs.first() {
@@ -2648,7 +2682,7 @@ fn is_array(graph: &Graph, node: usize, memo: &mut Vec<Option<bool>>, depth: usi
             };
             counted || from_array(3, memo) || (matches!(n.op, Op::RandomOrientation { .. }) && from_array(0, memo))
         }
-        Op::Math(_) | Op::GetDataAt { .. } | Op::Compose(_) | Op::Decompose(_) => {
+        Op::Math(_) | Op::GetDataAt { .. } | Op::Compose(_) | Op::Decompose(_) | Op::Ramp(_) => {
             let mut any = false;
             for input in &n.inputs {
                 if let Input::Wire { node: from, .. } = input {

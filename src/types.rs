@@ -1469,6 +1469,11 @@ pub enum IceGraphNodeType {
     Array {
         op: xms_ice::ArrayOp,
     },
+    /// A value along a ramp: In (0 to 1 along it) through its keys, a float
+    /// or a colour (see `xms_ice::ramp`, `xms_ice::Op::Ramp`).
+    Ramp {
+        ramp: xms_ice::ramp::RampOp,
+    },
     /// A vector from its parts (see `xms_ice::Compose`).
     Compose {
         op: xms_ice::Compose,
@@ -1709,6 +1714,10 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
             op: xms_ice::Compose::Matrix,
         } => "Compose Matrix",
         IceGraphNodeType::Compose { .. } => "Compose",
+        IceGraphNodeType::Ramp {
+            ramp: xms_ice::ramp::RampOp::Float(_),
+        } => "Ramp",
+        IceGraphNodeType::Ramp { .. } => "Colour Ramp",
         IceGraphNodeType::Decompose {
             op: xms_ice::Decompose::Matrix,
         } => "Decompose Matrix",
@@ -1744,6 +1753,7 @@ pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
         IceGraphNodeType::Instancer { .. } => "❖",
         IceGraphNodeType::Array { .. } => "▤",
         IceGraphNodeType::Compose { .. } => "⊞",
+        IceGraphNodeType::Ramp { .. } => "◩",
         IceGraphNodeType::Decompose { .. } => "⊟",
         IceGraphNodeType::Compound { .. } => "◆",
         IceGraphNodeType::CompoundInput { .. } => "▶",

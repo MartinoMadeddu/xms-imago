@@ -227,6 +227,10 @@ fn value_text(node: &IceGraphNode) -> Option<String> {
             })
         }
         IceGraphNodeType::Compose { op } => Some(op.output().name().to_string()),
+        IceGraphNodeType::Ramp { ramp } => Some(match ramp {
+            xms_ice::ramp::RampOp::Float(r) => format!("{} keys, {}", r.keys.len(), r.interp.label().to_lowercase()),
+            xms_ice::ramp::RampOp::Colour(r) => format!("{} keys, {}", r.keys.len(), r.interp.label().to_lowercase()),
+        }),
         IceGraphNodeType::Decompose { op } => Some(match op {
             xms_ice::Decompose::AxisAngle => "axis and angle".to_string(),
             op => op.input().name().to_string(),
@@ -428,6 +432,67 @@ fn inks(body: egui::Color32) -> (egui::Color32, egui::Color32) {
     }
 }
 
+/// A Ramp's parameters: what it gives (a float or a colour; changing it keeps
+/// the keys, a colour's grey its value), and its keys in the ramp widget.
+/// Whether what it gives changed (its output is made again).
+fn ramp_rows(ui: &mut egui::Ui, id: egui::Id, ramp: &mut xms_ice::ramp::RampOp) -> bool {
+    use crate::properties::form::group;
+    use crate::ramp::{colour_ramp, float_ramp, Interp, Key, Limits, Ramp};
+    use xms_ice::ramp::RampOp;
+    let limits = Limits {
+        interps: &[Interp::Step, Interp::Linear, Interp::Smooth, Interp::Cubic],
+        min_keys: 1,
+        max_keys: 256,
+        alpha: false,
+    };
+    let mut gives_colour = matches!(ramp, RampOp::Colour(_));
+    let was = gives_colour;
+    group(
+        ui,
+        "Ramp",
+        Some("Its In, 0 to 1 along it, through its keys: a float, or a colour. Click for a key, drag one to move it, right-click it to take it away; each key listed with its place and value. Before the first key, the first's value; after the last, the last's"),
+        |f| {
+            f.choice(
+                "Gives",
+                Some("A float (a width, a weight, a falloff) or a colour (RGB). Changed, the keys stay: a float key becomes its grey, a colour key the mean of its R, G and B"),
+                &mut gives_colour,
+                &[(false, "Float"), (true, "Colour")],
+            );
+            let ui = &mut *f.ui;
+            match ramp {
+                RampOp::Float(r) => {
+                    float_ramp(ui, id, r, (0.0, 1.0), &limits);
+                }
+                RampOp::Colour(r) => {
+                    colour_ramp(ui, id, r, &limits);
+                }
+            }
+        },
+    );
+    if gives_colour != was {
+        let grey = |pos: f32, v: f32| Key {
+            pos,
+            value: [v, v, v, 1.0],
+        };
+        let mean = |pos: f32, c: [f32; 4]| Key {
+            pos,
+            value: (c[0] + c[1] + c[2]) / 3.0,
+        };
+        *ramp = match ramp {
+            RampOp::Float(r) => RampOp::Colour(Ramp {
+                keys: r.keys.iter().map(|k| grey(k.pos, k.value)).collect(),
+                interp: r.interp,
+            }),
+            RampOp::Colour(r) => RampOp::Float(Ramp {
+                keys: r.keys.iter().map(|k| mean(k.pos, k.value)).collect(),
+                interp: r.interp,
+            }),
+        };
+        return true;
+    }
+    false
+}
+
 /// A node's colour, by kind.
 fn tint(t: &IceGraphNodeType) -> egui::Color32 {
     match t {
@@ -440,6 +505,7 @@ fn tint(t: &IceGraphNodeType) -> egui::Color32 {
         | IceGraphNodeType::RandomOrientation { .. }
         | IceGraphNodeType::Concat
         | IceGraphNodeType::Compose { .. }
+        | IceGraphNodeType::Ramp { .. }
         | IceGraphNodeType::Decompose { .. } => pal::GREEN(),
         IceGraphNodeType::GetReference { .. } | IceGraphNodeType::GetArrayData { .. } => pal::BLUE(),
         // The Geometry category: what makes or queries geometry.
@@ -649,6 +715,7 @@ pub fn draw_subnet_node_properties(
     // `properties::form::probing`); the node is put back after.
     let before = node.clone();
     crate::properties::form::probing(true, whose, promoted);
+    let ramp_id = egui::Id::new(("ice_ramp", node.id.0));
     match &mut node.node_type {
         IceGraphNodeType::Root { context } => group(ui, "Runs over", None, |f| {
             f.choice(
@@ -803,6 +870,11 @@ pub fn draw_subnet_node_properties(
             f.text("Primitive Location", Some("Where the point instancer is made: a path (/root/instancer), or a name alone, beside the primitive the graph runs on (scatter on /set/ground is /set/scatter). Its prototypes go under it, in Prototypes"), path, "/root/instancer");
             f.row("Seed", Some("Which prototype each instance takes when Proto Indices is -1: another seed, other picks; the same seed, the same every time"), |ui| crate::properties::form::number(ui, None, seed, |d| d.speed(1)));
         }),
+        IceGraphNodeType::Ramp { ramp } => {
+            if ramp_rows(ui, ramp_id, ramp) {
+                resync = true;
+            }
+        }
         IceGraphNodeType::Compose { op } => group(ui, "Compose", None, |f| {
             let choices: Vec<(xms_ice::Compose, &str)> =
                 xms_ice::Compose::ALL.iter().map(|c| (*c, c.label())).collect();
@@ -1847,6 +1919,8 @@ fn catalog() -> Vec<(&'static str, IceGraphNodeType, &'static str)> {
         ("Data Access", IceGraphNodeType::GetReference { input: 1, paths: vec![] }, "Prims on one of the operator's reference inputs, by path (an array): all, or those its rows name, picked from the scene wired there"),
         ("Geometry", IceGraphNodeType::Instancer { path: "/root/instancer".into(), seed: 0, draw_mode: crate::types::DrawMode::Default }, "A point instancer, as USD's: prototypes (paths) at positions, with proto indices, orientations and scales, at the Primitive Location you choose; an Execute"),
     ];
+    out.push(("Math", IceGraphNodeType::Ramp { ramp: xms_ice::ramp::RampOp::float() }, "A float through a ramp: In, 0 to 1 along it, mapped by its keys (a width along a curve, a falloff, a remap). Edit the keys in its parameters"));
+    out.push(("Math", IceGraphNodeType::Ramp { ramp: xms_ice::ramp::RampOp::colour() }, "A colour from a ramp: In, 0 to 1 along it, mapped by its keys to a colour (colour by age, by height). Edit the keys in its parameters"));
     out.push(("Math", IceGraphNodeType::Compose { op: xms_ice::Compose::Vec3 }, "A vector from its parts: numbers into a 2D, 3D or 4D vector, a vector and a number into a bigger one, numbers into a rotation. Choose in its parameters"));
     out.push(("Math", IceGraphNodeType::Decompose { op: xms_ice::Decompose::Vec3 }, "A vector taken apart, an output per part: into its numbers, or a smaller vector and a number; a rotation into its numbers, or its axis and angle. Choose in its parameters"));
     for op in xms_ice::ArrayOp::ALL {

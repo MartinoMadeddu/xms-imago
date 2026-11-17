@@ -27,6 +27,9 @@ pub enum Input {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
+    /// A value along a ramp: its In (a float, 0 to 1 along it) through the
+    /// ramp's keys, a float or a colour (see `crate::ramp`).
+    Ramp(crate::ramp::RampOp),
     /// The graph's end. Its inputs are Execute ports, run in order; it runs
     /// over every element of `context`.
     Root {
@@ -616,6 +619,7 @@ impl Op {
             Op::RandomOrientation { .. } => Some(4),
             Op::GetReference { .. } => Some(0),
             Op::Instancer { .. } => Some(5),
+            Op::Ramp(_) => Some(1),
         }
     }
 }

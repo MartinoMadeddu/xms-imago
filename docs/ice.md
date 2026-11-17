@@ -163,6 +163,18 @@ the tree's parameters).
   made unit). An int is taken as a number. Per element, one value, or the
   graph's arrays element by element. Changing what it makes changes its inputs;
   the wires into those still there stay.
+- **Ramp** and **Colour Ramp** (Math) map their **In**, 0 to 1 along the
+  ramp, through its keys: a float (a width along a curve's u, a falloff by
+  distance, a remap) or a colour, RGB (colour by age, by height). Its
+  parameters: **Gives** (Float or Colour: changed, the keys stay, a float key
+  its grey, a colour key the mean of R, G and B), then the ramp: a curve with
+  its keys as points, or a gradient bar with a handle under each key. Click for
+  a key, drag one to move it (between its neighbours), right-click it to take
+  it away; under it the interpolation (Step, Linear, Smooth, Cubic: through the
+  keys, Catmull-Rom), Flip, Reset, and a row per key with its position and its
+  value (a colour picker and R, G, B). Before the first key, the first's value;
+  after the last, the last's. An int In is taken as a float; per element, one
+  value, or an array element by element.
 - **Decompose** takes a vector apart, an output per part, as its **From** says:
   2D, 3D or 4D Vector to Floats (X, Y, Z, W), 3D Vector to 2D Vector and Float
   (XY, Z), 4D Vector to 3D Vector and Float (XYZ, W), Rotation to Floats (I, J,
@@ -548,6 +560,7 @@ parameters.
 - Reading at a place on a reference mesh in the editor's types: the port shows
   its type once the graph has run on that mesh
 - ISL: loops over a count per element ([ISL](isl.md), Not in ISL yet)
+- A ramp in ISL, and a Ramp on lists per element
 
 ## Tests
 
