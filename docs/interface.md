@@ -88,7 +88,7 @@ apart; `$$` is a `$`.
 |---|---|
 | Add a node | Right-click or Tab: type to search, Enter adds |
 | Add one after another | Right-click an output |
-| Wire | Drag from an output to an input |
+| Wire | Drag from an output to an input. A node of one input takes the wire anywhere across its top (in an ICE graph, along its input's row), not only on the dot |
 | Rewire | Drag from a wired input; Ctrl+drag an output moves all its wires |
 | Remove a wire | Right-click it, or click it and Delete |
 | Put a node into a wire | Drag it over the wire with Shift held (the wire lights), let go: what fed the wire feeds its first input, its first output goes where the wire went. Without Shift, nothing joins |
@@ -150,7 +150,11 @@ The selected operator's name (one word: spaces become `_`) and its parameters,
 in groups, with explanations in the tooltips.
 
 - **A typed value takes effect on Enter** or when the field is left, as one
-  undo step; Escape leaves it as it was. Dragging a number changes it live.
+  undo step; Escape leaves it as it was. Dragging a number changes it live;
+  Shift held, finely.
+- **Alt held** (Option on macOS), dragging one number of a row (X, Y, Z; a
+  colour's or a vector's parts) moves the others by as much: a uniform scale,
+  a move along all three axes. Shift and Alt together, finely.
 - **Right-click a row** to Promote it inside a compound, or Copy and Paste as
   Reference; **+ Spare Parameter** adds one of the operator's own (see
   [Compounds](compounds.md)).

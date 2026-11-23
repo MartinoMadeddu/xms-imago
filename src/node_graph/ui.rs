@@ -1125,19 +1125,35 @@ fn draw_node(
     }
 
     // Input sockets
+    let lone = node.inputs.len() == 1;
     for (i, inp) in node.inputs.iter().enumerate() {
         let sp = to_screen(input_socket_pos(node, i));
         let side = side_input(node, i);
         let hit = egui::Rect::from_center_size(sp, egui::vec2(SOCKET_HIT, SOCKET_HIT));
         let sr = ui.allocate_rect(hit, egui::Sense::click_and_drag());
+        // A wire carried to a node of one input goes in anywhere across it,
+        // from above it to half way down: no aiming at the dot. Only while
+        // carrying one, so the title still takes clicks and drags.
+        let drop = if lone && !side && graph.connecting_from.is_some() {
+            egui::Rect::from_min_max(
+                egui::pos2(rect.left(), sp.y - SOCKET_HIT * zoom.max(1.0)),
+                egui::pos2(rect.right(), rect.center().y),
+            )
+        } else {
+            hit
+        };
+        let over = ui
+            .input(|i| i.pointer.hover_pos())
+            .is_some_and(|p| drop.contains(p) && ui.ctx().layer_id_at(p).is_none_or(|l| l == ui.layer_id()));
+        let lit = sr.hovered() || (over && graph.connecting_from.is_some());
 
-        let r = SOCKET_RADIUS * zoom * if sr.hovered() { 1.3 } else { 1.0 };
+        let r = SOCKET_RADIUS * zoom * if lit { 1.3 } else { 1.0 };
         painter.circle_filled(sp, r + 1.0, egui::Color32::from_rgb(30, 30, 30));
         let purple = material_socket(node, Some(i));
         painter.circle_filled(
             sp,
             r,
-            if sr.hovered() {
+            if lit {
                 if purple {
                     xsi::SOCK_MAT_HOV()
                 } else {
@@ -1198,7 +1214,8 @@ fn draw_node(
                 graph.unplug = None;
             }
         }
-        if sr.contains_pointer() && ui.input(|inp| inp.pointer.primary_released()) {
+        let released = ui.input(|inp| inp.pointer.primary_released());
+        if released && (sr.contains_pointer() || (over && graph.connecting_from.is_some())) {
             if let Some((fn_, fo)) = graph.connecting_from {
                 if fn_ != id {
                     graph.add_connection(fn_, fo, id, i);

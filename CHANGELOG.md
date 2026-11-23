@@ -17,6 +17,11 @@ version's heading when you tag it.
 
 ### Interface
 
+- **Alt-drag a number of a row** (X, Y, Z, a vector's parts; Option on macOS)
+  and the others move by as much. Shift, egui's finer dragging, still works
+  with it.
+- **A node of one input takes a wire anywhere across its top** (in an ICE
+  graph, along the input's row), not only on the port's dot.
 - **Enter** goes inside the selected ICE, MaterialX or compound node, as ↓ and
   a double-click do, in the scene graph and in ICE graphs.
 

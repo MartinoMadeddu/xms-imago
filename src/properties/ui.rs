@@ -4469,7 +4469,9 @@ fn set_attribute_rows(
 /// A value's field, for its type. Tokens with fixed values are a choice.
 fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&str]) {
     use crate::core::properties::Value;
+    // Alt held, dragging one moves them all (`form::together`).
     let fields = |ui: &mut egui::Ui, v: &mut [f32]| {
+        let before = v.to_vec();
         ui.horizontal(|ui| {
             let gap = ui.spacing().item_spacing.x;
             let n = v.len() as f32;
@@ -4479,6 +4481,7 @@ fn value_row(f: &mut Rows, v: &mut crate::core::properties::Value, tokens: &[&st
                 form::number(ui, Some([w, h]), x, |d| d.speed(0.01).max_decimals(4));
             }
         });
+        form::moved_together(ui, &before, v);
     };
     match v {
         Value::Bool(b) => {

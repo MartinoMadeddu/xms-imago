@@ -688,8 +688,10 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
     }
 }
 
-/// Floats side by side, filling the width.
+/// Floats side by side, filling the width. Alt held, dragging one moves them
+/// all (`form::together`).
 fn floats(ui: &mut egui::Ui, f: &mut [f32], speed: f64) -> bool {
+    let before = f.to_vec();
     let n = f.len().max(1) as f32;
     let gap = ui.spacing().item_spacing.x;
     let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
@@ -708,5 +710,6 @@ fn floats(ui: &mut egui::Ui, f: &mut [f32], speed: f64) -> bool {
                 .changed();
         }
     });
+    crate::properties::form::moved_together(ui, &before, f);
     changed
 }

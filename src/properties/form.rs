@@ -274,20 +274,24 @@ impl<'a> Rows<'a> {
         self.row(label, hint, |ui| xyz_fields(ui, v, speed, unit))
     }
 
-    /// Two values side by side: U and V.
+    /// Two values side by side: U and V. Alt held, dragging one moves both.
     pub fn uv(&mut self, label: &str, hint: Option<&str>, v: &mut [f32; 2], speed: f64) -> bool {
         self.row(label, hint, |ui| {
-            ui.horizontal(|ui| {
-                let gap = ui.spacing().item_spacing.x;
-                let w = ((ui.available_width() - gap) / 2.0).max(30.0);
-                let h = ui.spacing().interact_size.y;
-                let mut changed = false;
-                for (a, p) in v.iter_mut().zip(["U ", "V "]) {
-                    changed |= number(ui, Some([w, h]), a, |d| d.speed(speed).max_decimals(4).prefix(p)).changed();
-                }
-                changed
-            })
-            .inner
+            let before = *v;
+            let changed = ui
+                .horizontal(|ui| {
+                    let gap = ui.spacing().item_spacing.x;
+                    let w = ((ui.available_width() - gap) / 2.0).max(30.0);
+                    let h = ui.spacing().interact_size.y;
+                    let mut changed = false;
+                    for (a, p) in v.iter_mut().zip(["U ", "V "]) {
+                        changed |= number(ui, Some([w, h]), a, |d| d.speed(speed).max_decimals(4).prefix(p)).changed();
+                    }
+                    changed
+                })
+                .inner;
+            moved_together(ui, &before, &mut v[..]);
+            changed
         })
     }
 
@@ -766,22 +770,59 @@ pub fn status_label(ui: &mut egui::Ui, s: Status, text: &str) -> egui::Response 
     ui.add(egui::Label::new(egui::RichText::new(format!("{mark}{text}")).color(col)).wrap())
 }
 
-/// X, Y, Z fields filling the width.
-pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -> bool {
-    ui.horizontal(|ui| {
-        let gap = ui.spacing().item_spacing.x;
-        let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(30.0);
-        let h = ui.spacing().interact_size.y;
-        let mut changed = false;
-        for (a, p) in v.iter_mut().zip(["X ", "Y ", "Z "]) {
-            let r = number(ui, Some([w, h]), a, |d| {
-                d.speed(speed).max_decimals(3).prefix(p).suffix(unit)
-            });
-            changed |= r.changed();
+/// Held while dragging one number of a row (X, Y, Z…), the others move by as
+/// much: Alt, Option on macOS. Not Shift, which egui's fields take for finer
+/// dragging (the two together: all of them, finely).
+pub fn together(ui: &egui::Ui) -> bool {
+    ui.input(|i| i.modifiers.alt)
+}
+
+/// A row of numbers drawn, `before` what they were: with `together` held and
+/// one of them changed, the others changed by as much.
+pub fn moved_together(ui: &egui::Ui, before: &[f32], v: &mut [f32]) {
+    if together(ui) {
+        all_by_one(before, v);
+    }
+}
+
+/// One of `v` changed from `before`: the others changed by as much. None or
+/// several changed: as it is.
+fn all_by_one(before: &[f32], v: &mut [f32]) {
+    if before.len() != v.len() {
+        return;
+    }
+    let changed: Vec<usize> = (0..v.len()).filter(|&k| v[k] != before[k]).collect();
+    if let [k] = changed[..] {
+        let by = v[k] - before[k];
+        for (j, x) in v.iter_mut().enumerate() {
+            if j != k {
+                *x += by;
+            }
         }
-        changed
-    })
-    .inner
+    }
+}
+
+/// X, Y, Z fields filling the width. Alt held, dragging one moves all three
+/// (`together`).
+pub fn xyz_fields(ui: &mut egui::Ui, v: &mut [f32; 3], speed: f64, unit: &str) -> bool {
+    let before = *v;
+    let changed = ui
+        .horizontal(|ui| {
+            let gap = ui.spacing().item_spacing.x;
+            let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(30.0);
+            let h = ui.spacing().interact_size.y;
+            let mut changed = false;
+            for (a, p) in v.iter_mut().zip(["X ", "Y ", "Z "]) {
+                let r = number(ui, Some([w, h]), a, |d| {
+                    d.speed(speed).max_decimals(3).prefix(p).suffix(unit)
+                });
+                changed |= r.changed();
+            }
+            changed
+        })
+        .inner;
+    moved_together(ui, &before, &mut v[..]);
+    changed
 }
 
 /// Side-by-side buttons for up to four short choices, else a drop-down.
@@ -1347,5 +1388,21 @@ mod tests {
             assert!(contrast(ok, bg) >= 2.75, "green on grey {g}: {}", contrast(ok, bg));
             assert!(contrast(bad, bg) >= 2.75, "red on grey {g}: {}", contrast(bad, bg));
         }
+    }
+
+    /// Dragging one of a row with Alt: the others move by as much; nothing or
+    /// several changed (a value typed, a paste), they are left.
+    #[test]
+    fn one_number_dragged_moves_the_others_by_as_much() {
+        let before = [1.0, 2.0, -1.0];
+        let mut v = [1.5, 2.0, -1.0];
+        all_by_one(&before, &mut v);
+        assert_eq!(v, [1.5, 2.5, -0.5]);
+        let mut same = before;
+        all_by_one(&before, &mut same);
+        assert_eq!(same, before);
+        let mut two = [0.0, 0.0, -1.0];
+        all_by_one(&before, &mut two);
+        assert_eq!(two, [0.0, 0.0, -1.0]);
     }
 }

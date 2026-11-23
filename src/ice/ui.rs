@@ -1477,9 +1477,11 @@ pub fn value_row(f: &mut crate::properties::form::Rows, label: &str, value: &mut
         }
         Value::Vec4(v) | Value::Quat(v) => {
             f.row(label, None, |ui| {
+                let before = *v;
                 for c in v.iter_mut() {
                     crate::properties::form::number(ui, None, c, |d| d.speed(0.01));
                 }
+                crate::properties::form::moved_together(ui, &before, &mut v[..]);
             });
         }
         // Its axes and origin, a row each (its columns).
@@ -2406,14 +2408,29 @@ fn draw_subnet_node(
     }
 
     // Input ports (left edge)
+    let lone = node.inputs.len() == 1;
     for (i, inp) in node.inputs.iter().enumerate() {
         let sp = np + lay.inputs[i] * z;
         let hit = egui::Rect::from_center_size(sp, egui::Vec2::splat((SOCK_HIT * z).max(10.0)));
         let sr = ui
             .allocate_rect(hit, egui::Sense::click_and_drag())
             .on_hover_text(in_text(graph, inp));
+        // A wire carried to a node of one input goes in anywhere along its
+        // row, across the node: no aiming at the dot. Only while carrying
+        // one, so the node still takes clicks and drags.
+        let drop = if lone && graph.connecting_from.is_some() {
+            egui::Rect::from_min_max(
+                egui::pos2(hit.left(), hit.top()),
+                egui::pos2(rect.right(), hit.bottom()),
+            )
+        } else {
+            hit
+        };
+        let over = ui
+            .input(|s| s.pointer.hover_pos())
+            .is_some_and(|p| drop.contains(p) && ui.ctx().layer_id_at(p).is_none_or(|l| l == ui.layer_id()));
         // Hovered while a wire is being drawn: a target.
-        let target = sr.hovered() && graph.connecting_from.is_some();
+        let target = (sr.hovered() || over) && graph.connecting_from.is_some();
         draw_port(painter, sp, in_colour(graph, inp), target, z);
         if !folded {
             painter.text(
@@ -2445,7 +2462,8 @@ fn draw_subnet_node(
                 graph.unplug = None;
             }
         }
-        if sr.contains_pointer() && ui.input(|s| s.pointer.primary_released()) {
+        let released = ui.input(|s| s.pointer.primary_released());
+        if released && (sr.contains_pointer() || (over && graph.connecting_from.is_some())) {
             if let Some((fn_, fo)) = graph.connecting_from {
                 if fn_ != id {
                     graph.add_connection(fn_, fo, id, i);

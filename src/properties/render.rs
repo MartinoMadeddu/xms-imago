@@ -18,18 +18,23 @@ pub(super) fn value_field(ui: &mut egui::Ui, v: &mut Value, range: Option<(f64, 
     let h = ui.spacing().interact_size.y;
     let w = ui.available_width();
     let speed = |r: Option<(f64, f64)>| r.map_or(0.01, |(a, b)| ((b - a) / 300.0).clamp(0.001, 10.0));
+    // Alt held, dragging one moves them all (`form::together`).
     let fields = |ui: &mut egui::Ui, v: &mut [f32]| -> bool {
-        ui.horizontal(|ui| {
-            let gap = ui.spacing().item_spacing.x;
-            let n = v.len() as f32;
-            let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
-            let mut changed = false;
-            for x in v.iter_mut() {
-                changed |= form::number(ui, Some([w, h]), x, |d| d.speed(0.01).max_decimals(4)).changed();
-            }
-            changed
-        })
-        .inner
+        let before = v.to_vec();
+        let changed = ui
+            .horizontal(|ui| {
+                let gap = ui.spacing().item_spacing.x;
+                let n = v.len() as f32;
+                let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(30.0);
+                let mut changed = false;
+                for x in v.iter_mut() {
+                    changed |= form::number(ui, Some([w, h]), x, |d| d.speed(0.01).max_decimals(4)).changed();
+                }
+                changed
+            })
+            .inner;
+        form::moved_together(ui, &before, v);
+        changed
     };
     match v {
         Value::Bool(b) => form::check(ui, b).changed(),
