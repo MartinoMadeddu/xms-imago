@@ -22,8 +22,8 @@ version's heading when you tag it.
   Parameters, Scene Explorer and Primitive Inspector can be open in several
   tabs. Layouts saved before load as they were.
 - **A Parameters tab follows** the selection, the display flag, or is pinned
-  to one operator: the row over it, or the tab's Follows menu. Its title says
-  which ("Parameters · Transform1 📌").
+  to one operator: an icon dropdown on its tab, before its cross. A pinned
+  tab names its operator ("Parameters · Transform1").
 - **Alt-drag a number of a row** (X, Y, Z, a vector's parts; Option on macOS)
   and the others move by as much. Shift, egui's finer dragging, still works
   with it.
