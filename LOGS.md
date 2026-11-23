@@ -911,3 +911,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 23/11/2026: Follows shown as an icon in the tab title (🔗 selection, 👁 display flag, 📌 pinned) and changed from the tab's right-click menu (Follows); the dropdown over the tab gone. (Martino)
 - 23/11/2026: Follows shown as S, D or P in a thin circle at the tab's right before its cross (follows_mark, painted on the tab's layer), in place of the emoji. (Martino)
 - 23/11/2026: The tab's circled letter is the Follows menu (Panes::follows_mark, a frameless menu button in an Area over the tab); Follows gone from the tab's right-click menu. (Martino)
+- 23/11/2026: Release 0.3.7. (Martino)

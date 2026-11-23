@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-11-23
+
 ### USD
 
 - **Layer Break**, as Solaris': a Write USD below it writes only what the
