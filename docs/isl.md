@@ -131,6 +131,7 @@ is true where it is not 0.
 | `vector2(u, v)`, `vector4(x, y, z, w)` | two, four parts |
 | `quat(x, y, z, w)` | a rotation, its parts |
 | `matrix(1)` | the identity (times the number) |
+| `matrix(x, y, z, origin)` | a frame: three axes and an origin, its columns |
 | `float(i)` | an int as a float |
 
 ### Parts and items
@@ -245,7 +246,8 @@ Highest first.
 
 - **An int with a float** is a float; **a number with a vector** is spread
   over it (`@P + 1` adds 1 to each part); vectors of different sizes do not
-  mix.
+  mix. A list of vectors times a list of numbers is item by item
+  (`sum(tri * w)`).
 - **Roles:** a point less a point is a vector; a point plus a vector is a
   point.
 - **`&&` and `||` work out both sides:** nothing has a side effect, so the
@@ -339,8 +341,25 @@ snippet steps (float k = 0.5)
 }
 ```
 
-The add menu has more (Snippet: roughen, relax, stick), and Templates >
-Martino > ICE two scenes of ISnippets.
+A frame at a place on a surface, from the points it is made from, as the
+binding deformers build it:
+
+```c
+matrix frame(point tri[], float w[])
+{
+    point o = sum(tri * w);
+    vector e1 = tri[1] - tri[0];
+    vector e2 = tri[2] - tri[0];
+    vector t = normalize(e1);
+    vector n = normalize(cross(e1, e2));
+    return matrix(t, n, cross(n, t), o);
+}
+```
+
+The add menu has more (Snippet: roughen, relax, stick, and the deformers':
+capture and deform, root bind, carry and carry points, guide bind and guide
+deform). Templates > Martino > ICE has five scenes of ISnippets: roughen and
+relax, stick to a surface, and the three binding deformers as snippets.
 
 ## Not in ISL yet
 

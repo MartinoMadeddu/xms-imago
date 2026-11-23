@@ -315,6 +315,14 @@ fn decompose_of(ty: Ty) -> Option<(Decompose, Compose)> {
     })
 }
 
+/// The type ICE reads intrinsic `name` as, wherever it is.
+fn intrinsic_type(name: &str) -> Option<Ty> {
+    xms_geo::intrinsics::ALL
+        .iter()
+        .find(|i| i.name == name && i.ice)
+        .and_then(|i| crate::compile::kind_ty(i.kind))
+}
+
 fn context_named(name: &str) -> Option<Context> {
     Some(match name {
         "point" => Context::Point,
@@ -670,6 +678,19 @@ impl<'a> Lower<'a> {
                     _ => Math::NotEqual,
                 };
                 Ok(self.math(m, &[&a, &b], T::of(Ty::Bool).listed(list)))
+            }
+            // A vector by a number: the number as it is, not spread into a
+            // vector (which a list per element cannot be yet).
+            "*" | "/" if a.t.ty.is_vector() && matches!(b.t.ty, Ty::Int | Ty::Float | Ty::Bool) => {
+                let b = self.to(b, Ty::Float, pos)?;
+                let m = if op == "*" { Math::Multiply } else { Math::Divide };
+                let t = a.t.listed(list);
+                Ok(self.math(m, &[&a, &b], t))
+            }
+            "*" if b.t.ty.is_vector() && matches!(a.t.ty, Ty::Int | Ty::Float | Ty::Bool) => {
+                let a = self.to(a, Ty::Float, pos)?;
+                let t = b.t.listed(list);
+                Ok(self.math(Math::Multiply, &[&a, &b], t))
             }
             "+" | "-" | "*" | "/" | "%" => {
                 let (a, b) = self.unify(a, b, pos)?;
@@ -1230,6 +1251,16 @@ impl<'a> Lower<'a> {
                         Some(k) => Ok(self.constant(Value::Mat4((glam::Mat4::IDENTITY * k as f32).to_cols_array()))),
                         None => self.err(pos, "matrix(1): a number known when compiling"),
                     },
+                    // Axes and origin as its columns.
+                    ("matrix", 4) => {
+                        let mut parts = vec![];
+                        let mut list = false;
+                        for v in vals {
+                            list |= v.t.list;
+                            parts.push(self.to(v, Ty::Vec3, pos)?.at);
+                        }
+                        Ok(self.made(Op::Compose(Compose::Matrix), parts, 0, t.listed(list)))
+                    }
                     (_, 1) => {
                         let v = vals.into_iter().next().expect("one");
                         self.convert(v, t, pos)
@@ -1653,14 +1684,18 @@ impl<'a> Lower<'a> {
         };
         let declared = self.declared.get(&name).copied();
         let found = |l: &Self, c: Option<Context>| -> Option<T> {
-            declared.or_else(|| {
-                let geo = l.geo?;
-                let cs = match c {
-                    Some(c) => vec![c],
-                    None => vec![Context::Point, Context::Face, Context::Corner, Context::Object],
-                };
-                cs.into_iter().find_map(|c| attribute_type(geo, c, &name)).map(T::of)
-            })
+            declared
+                .or_else(|| {
+                    let geo = l.geo?;
+                    let cs = match c {
+                        Some(c) => vec![c],
+                        None => vec![Context::Point, Context::Face, Context::Corner, Context::Object],
+                    };
+                    cs.into_iter().find_map(|c| attribute_type(geo, c, &name)).map(T::of)
+                })
+                // An intrinsic not on the snippet's own geometry (`triP` read on
+                // a mesh by a point cloud): its type is its own.
+                .or_else(|| intrinsic_type(&name).map(T::of))
         };
         let typed = |l: &Self, c: Option<Context>| -> Result<T, Error> {
             found(l, c).ok_or_else(|| {

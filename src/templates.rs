@@ -75,6 +75,12 @@ pub const TEMPLATES: &[Template] = &[
         hint: "A sphere roughened by OSL's Perlin noise, then relaxed towards its nearest points: two Snippet operators, code instead of nodes (noise(), near_points(), get_data())" },
     Template { by: MARTINO, group: "ICE", name: "Snippets: stick to a surface", build: snippet_stick,
         hint: "A subdivided cube stuck onto a squashed sphere wired into Reference 1: a Snippet operator with closest_point_on_surface(), its ground a geometry parameter (its References)" },
+    Template { by: MARTINO, group: "ICE", name: "Snippets: bind simple point deformer", build: snippet_point_deform,
+        hint: "Bind simple point deformer in two ISnippets, code instead of nodes: Capture binds each sphere point to the pig's head at rest (closest_point_on_surface, a frame from intrinsic:triP and intrinsic:bary), Deform carries it by the animated head" },
+    Template { by: MARTINO, group: "ICE", name: "Snippets: bind simple hair deform by guides", build: snippet_guide_deform,
+        hint: "Bind simple hair deform by guides in two ISnippets: GuideBind stores each hair's nearest guide, per curve; GuideDeform reads the guide at each point's u along its hair, at rest and animated, and moves and turns the point with it" },
+    Template { by: MARTINO, group: "ICE", name: "Snippets: bind rigid hair deform by skin", build: snippet_rigid_hair,
+        hint: "Bind rigid hair deform by skin in three ISnippets: RootBind binds each hair's root to the head at rest, per curve; Carry makes its move each frame, one matrix; Deform puts every point through its curve's move" },
     Template { by: MARTINO, group: "ICE", name: "ICE: instancing", build: ice_instancing,
         hint: "Cubes, spheres and the DeLorean scattered on a grid by an ICE graph: Scatter on Surface, Get Reference twice joined by Concatenate Arrays, Random Orientation and Random Value into an Instancer" },
     Template { by: SIMON, group: "Basics", name: "Shapes", build: primitives,
@@ -2866,6 +2872,142 @@ fn snippet_stick(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     "Snippet: every point of the subdivided cube goes onto the nearest place of the squashed sphere wired into Reference 1. Select Stick for its code: closest_point_on_surface(@P, ground, face, uv, hit) searches ground, a geometry parameter whose References are Reference 1's prims; Weight blends from the cube (try 0.5).".into()
 }
 
+/// An Alembic cache of the examples loaded as USD (`examples::path`),
+/// referenced at `location`, `prim` its prim to reference (none: its root).
+fn load_abc(g: &mut NodeGraphState, name: &str, file: &str, prim: &str, location: &str, x: f32) -> NodeId {
+    g.add_node(
+        name.into(),
+        NodeType::LoadUsd {
+            path: examples::path(file),
+            mode: crate::usd_scene::LoadMode::Reference,
+            location: location.into(),
+            prim: prim.into(),
+            convert: false,
+            mask: vec![],
+        },
+        p(x, 20.0),
+    )
+}
+
+/// Frames `start` to `end` at 25 fps.
+fn frames(g: &mut NodeGraphState, start: i64, end: i64) {
+    g.scene = crate::node_graph::SceneRange {
+        start,
+        end,
+        fps_num: 25,
+        fps_den: 1,
+        ..Default::default()
+    };
+}
+
+/// `ice_binding_alembic` in two ISnippets: Capture binds each sphere point to
+/// the head at rest, Deform carries it by the animated head.
+fn snippet_point_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    frames(g, 1001, 1025);
+    let rest = load_abc(g, "RestHead", examples::PIG_REST_ABC, "", "/rest", 40.0);
+    let anim = load_abc(g, "AnimatedHead", examples::PIG_ANIM_ABC, "", "/anim", 240.0);
+    let spheres = load_abc(g, "Spheres", examples::PIG_SPHERES_ABC, "", "/spheres", 440.0);
+    let capture = snippet_op(
+        g,
+        store,
+        "Snippet: capture (bind to a surface)",
+        "Capture",
+        p(300.0, 220.0),
+    );
+    let deform = snippet_op(
+        g,
+        store,
+        "Snippet: deform (by a bound surface)",
+        "Deform",
+        p(300.0, 330.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 440.0));
+    g.add_connection(spheres, 0, capture, 0);
+    g.add_connection(rest, 0, capture, 1);
+    g.add_connection(capture, 0, deform, 0);
+    g.add_connection(anim, 0, deform, 1);
+    g.add_connection(deform, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, capture);
+    "Snippets: Bind simple point deformer, as Houdini's capture and deform, in two ISnippets on the same Alembic caches: the spheres (Spheres, at /spheres) over the pig's head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). Capture (kept: it cooks once) binds each point to the nearest place on the head at rest: closest_point_on_surface gives the face and Param UV, frame() builds a matrix there from intrinsic:triP and intrinsic:bary (get_array_data at the face and Param UV), and the point in it is stored (bindPoly, bindParamUV, bindLocal). Deform, every frame, builds the same frame on the animated head and puts the point back through it. Select either for its code. Space plays frames 1001 to 1025.".into()
+}
+
+/// `ice_rigid_hair` in three ISnippets: Root Bind and Carry per curve, Carry
+/// Points per point.
+fn snippet_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    frames(g, 1001, 1025);
+    let rest = load_abc(g, "RestHead", examples::PIG_REST_ABC, "", "/rest", 40.0);
+    let anim = load_abc(g, "AnimatedHead", examples::PIG_ANIM_ABC, "", "/anim", 240.0);
+    let hair = load_abc(
+        g,
+        "Hair",
+        examples::HAIR_ABC,
+        "/ASSET/groom/pighead/GRM_hair",
+        "/hair",
+        440.0,
+    );
+    let bound = snippet_op(g, store, "Snippet: root bind (curves)", "RootBind", p(440.0, 120.0));
+    let moved = snippet_op(g, store, "Snippet: carry (curves)", "Carry", p(440.0, 220.0));
+    let carried = snippet_op(
+        g,
+        store,
+        "Snippet: carry points (by their curve)",
+        "Deform",
+        p(300.0, 320.0),
+    );
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 420.0));
+    g.add_connection(hair, 0, bound, 0);
+    g.add_connection(rest, 0, bound, 1);
+    g.add_connection(bound, 0, moved, 0);
+    g.add_connection(anim, 0, moved, 1);
+    g.add_connection(moved, 0, carried, 0);
+    g.add_connection(carried, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, bound);
+    "Snippets: Bind rigid hair deform by skin, in three ISnippets on the same Alembic caches: the groom (Hair, at /hair) and the pig's head at rest (RestHead, at /rest) and animated (AnimatedHead, at /anim). RootBind, per curve (its context pinned to face; kept: it cooks once), finds the place on the head at rest nearest the hair's first point and stores it with the inverse of the frame there (bindPoly, bindParamUV, bindInverse). Carry, per curve, every frame, multiplies the frame at that place on the animated head by the inverse: the curve's move (carry). Deform, per point, reads its curve's carry (get_data(@carry, \"face\")) and puts the point through it, so each hair moves as one piece. Space plays frames 1001 to 1025.".into()
+}
+
+/// `ice_guide_deform` in two ISnippets: Guide Bind per curve, Guide Deform per
+/// point.
+fn snippet_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
+    crate::graph_io::clear(g);
+    frames(g, 1001, 1050);
+    let guides = "/ASSET/groom/pighead/GRM_guide";
+    let rest = load_abc(g, "RestGuides", examples::GUIDES_REST_ABC, guides, "/restGuides", 40.0);
+    let anim = load_abc(
+        g,
+        "AnimatedGuides",
+        examples::GUIDES_ANIM_ABC,
+        guides,
+        "/animGuides",
+        240.0,
+    );
+    let hair = load_abc(
+        g,
+        "Hair",
+        examples::HAIR_ABC,
+        "/ASSET/groom/pighead/GRM_hair",
+        "/hair",
+        440.0,
+    );
+    let both = g.add_node("Guides".into(), NodeType::merge(), p(140.0, 120.0));
+    let bound = snippet_op(g, store, "Snippet: guide bind (curves)", "GuideBind", p(440.0, 120.0));
+    let carried = snippet_op(g, store, "Snippet: guide deform", "GuideDeform", p(300.0, 220.0));
+    let result = g.add_node("Result".into(), NodeType::merge(), p(300.0, 320.0));
+    g.add_connection(rest, 0, both, 0);
+    g.add_connection(anim, 0, both, 1);
+    g.add_connection(hair, 0, bound, 0);
+    g.add_connection(rest, 0, bound, 1);
+    g.add_connection(bound, 0, carried, 0);
+    g.add_connection(both, 0, carried, 1);
+    g.add_connection(carried, 0, result, 0);
+    g.add_connection(anim, 0, result, 1);
+    finish(g, result, carried);
+    "Snippets: Bind simple hair deform by guides, in two ISnippets on the same Alembic caches: the hair (Hair, at /hair) and the guides at rest (RestGuides) and animated (AnimatedGuides). GuideBind, per curve (kept: it cooks once), stores the guide nearest each hair's first point (guide), by closest_point_on_surface on the rest guides. GuideDeform, per point, reads its curve's guide at the point's u along the hair ((intrinsic:ptIndex - intrinsic:firstCorner) / (intrinsic:corners - 1)) on the rest and the animated guides, both on Reference 1 at their own paths, and moves the point with the guide there, turned as the guide's direction there turned. Space plays frames 1001 to 1050.".into()
+}
+
 /// A point deformer on Alembic caches Martino wrote from Houdini: 1,000
 /// spheres scattered over a pig's head (266,000 points) bound to the head at
 /// rest and carried by the animated head, frames 1001 to 1025 at 25 fps. Each
@@ -4727,6 +4869,44 @@ mod tests {
             .map(|(i, j)| ((carried[i] - carried[j]).length() - (start[i] - start[j]).length()).abs())
             .fold(0.0f32, f32::max);
         assert!(bent < 1e-4, "a hair bent by {bent}");
+    }
+
+    /// The snippet deformers give what their ICE graphs give: the same points,
+    /// carried the same way.
+    #[test]
+    fn the_snippet_deformers_carry_as_their_ice_graphs_do() {
+        let pairs = [
+            (
+                "Bind simple point deformer",
+                "Snippets: bind simple point deformer",
+                "/spheres",
+            ),
+            (
+                "Bind simple hair deform by guides",
+                "Snippets: bind simple hair deform by guides",
+                "/hair",
+            ),
+            (
+                "Bind rigid hair deform by skin",
+                "Snippets: bind rigid hair deform by skin",
+                "/hair",
+            ),
+        ];
+        for (ice, snippet, prim) in pairs {
+            let of = |name: &str| -> Vec<Vec3> {
+                let prims = ice_points(name, None, |_, _| {});
+                prims
+                    .into_iter()
+                    .filter(|(p, _)| p.starts_with(prim))
+                    .flat_map(|(_, pts)| pts)
+                    .collect()
+            };
+            let (a, b) = (of(ice), of(snippet));
+            assert!(!a.is_empty(), "{ice}: nothing at {prim}");
+            assert_eq!(a.len(), b.len(), "{snippet}");
+            let most = a.iter().zip(&b).map(|(a, b)| (*a - *b).length()).fold(0.0f32, f32::max);
+            assert!(most < 1e-3, "{snippet}: up to {most} from {ice}");
+        }
     }
 
     #[test]

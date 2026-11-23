@@ -278,3 +278,116 @@ fn a_geometry_s_default_is_its_reference_input() {
     );
     assert!(e.contains("numbered from 1"), "{e}");
 }
+
+#[test]
+fn a_matrix_is_made_of_its_axes_and_origin() {
+    let geo = cloud(3);
+    let text = r#"
+        snippet turn ()
+        {
+            matrix m = matrix(vector(0, 1, 0), vector(-1, 0, 0), vector(0, 0, 1), point(0, 0, 5));
+            matrix back = inverse(m) * m;
+            @P = transform(back * m, @P);
+        }
+    "#;
+    let out = ran(text, Context::Point, &geo, &[]);
+    // X turned onto Y, then moved up Z by 5.
+    let p = out.points()[2];
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+    assert!(near(p[0], 0.0) && near(p[1], 2.0) && near(p[2], 5.0), "{p:?}");
+    let e = error_of("snippet s () { matrix m = matrix(1, 2, 3); }", Context::Point, &geo);
+    assert!(e.contains("matrix"), "{e}");
+}
+
+/// `text` run over `context` of `geo`, with reference input 1 holding `meshes`
+/// (path and geometry, at the origin).
+fn ran_on(text: &str, context: Context, geo: &Geo, meshes: &[(&str, Geo)]) -> Geo {
+    let s = parse(text).unwrap_or_else(|e| panic!("{e}"));
+    let mut g = Graph::default();
+    let lowered = lower(&s, context, &[], Some(geo), &mut g).unwrap_or_else(|e| panic!("{e}"));
+    let sets = lowered.sets.iter().map(|n| wire(*n)).collect();
+    g.add(Op::Root { context }, sets);
+    let refs = vec![crate::Reference {
+        paths: meshes.iter().map(|(p, _)| p.to_string()).collect(),
+        meshes: meshes
+            .iter()
+            .map(|(path, geo)| crate::RefMesh {
+                path: path.to_string(),
+                world: glam::Mat4::IDENTITY,
+                geo: crate::RefGeo::ready(Arc::new(geo.clone())),
+            })
+            .collect(),
+    }];
+    let plan = crate::compile_with(&g, geo, &refs).unwrap_or_else(|e| panic!("{e:?} at {:?}", lowered.pos_of(e.node)));
+    run(&plan, geo, &HashMap::new(), &refs).geo
+}
+
+/// The binding deformer's snippets: points bound to a mesh at rest are carried
+/// rigidly when the mesh is turned and moved, as the frame at their place is.
+#[test]
+fn points_bound_to_a_surface_are_carried_by_it() {
+    const FRAME: &str = r#"
+        matrix frame(point tri[], float w[])
+        {
+            point o = sum(tri * w);
+            vector e1 = tri[1] - tri[0];
+            vector e2 = tri[2] - tri[0];
+            vector t = normalize(e1);
+            vector n = normalize(cross(e1, e2));
+            return matrix(t, n, cross(n, t), o);
+        }
+    "#;
+    let capture = format!(
+        "{FRAME}{}",
+        r#"
+        snippet capture (geometry rest = get_reference(1, "/rest"))
+        {
+            int @bindPoly;
+            vector2 @bindParamUV;
+            vector @bindLocal;
+            int face; vector2 uv; point hit;
+            closest_point_on_surface(@P, rest, face, uv, hit);
+            matrix m = frame(get_array_data(@intrinsic:triP, face, uv, rest),
+                             get_array_data(@intrinsic:bary, face, uv, rest));
+            @bindPoly = face;
+            @bindParamUV = uv;
+            @bindLocal = transform(inverse(m), @P);
+        }
+    "#
+    );
+    let deform = format!(
+        "{FRAME}{}",
+        r#"
+        snippet deform (geometry anim = get_reference(1, "/anim"))
+        {
+            int @bindPoly;
+            vector2 @bindParamUV;
+            vector @bindLocal;
+            matrix m = frame(get_array_data(@intrinsic:triP, @bindPoly, @bindParamUV, anim),
+                             get_array_data(@intrinsic:bary, @bindPoly, @bindParamUV, anim));
+            @P = transform(m, point(@bindLocal));
+        }
+    "#
+    );
+    let rest = two_quads();
+    // Turned a quarter about Y and moved up.
+    let moved = glam::Mat4::from_translation(glam::Vec3::new(0.5, 2.0, -1.0))
+        * glam::Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    let mut anim = rest.clone();
+    for p in anim.points_mut().iter_mut() {
+        *p = moved.transform_point3((*p).into()).into();
+    }
+    let start = [[0.3, 0.4, 0.5], [1.6, 0.7, -0.2], [1.0, 0.5, 0.0]];
+    let pts = Geo::from_points(start.to_vec());
+    let bound = ran_on(
+        &capture,
+        Context::Point,
+        &pts,
+        &[("/rest", rest.clone()), ("/anim", anim.clone())],
+    );
+    let out = ran_on(&deform, Context::Point, &bound, &[("/rest", rest), ("/anim", anim)]);
+    for (p, s) in out.points().iter().zip(start) {
+        let want = moved.transform_point3(s.into());
+        assert!(glam::Vec3::from(*p).distance(want) < 1e-4, "{p:?} not {want:?}");
+    }
+}

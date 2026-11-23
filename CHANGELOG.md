@@ -8,6 +8,17 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### ICE
+
+- **The binding deformers as snippets**: Templates > Martino > ICE has the
+  point deformer, the hair deformed by guides and the rigid hair deformed by
+  skin as ISnippets, code instead of nodes, carrying as their ICE graphs do.
+  Their snippets are in the add menu.
+- **ISL**: `matrix(x, y, z, origin)` makes a frame from its axes; a list of
+  vectors times a list of numbers is item by item; intrinsics read on another
+  geometry (`intrinsic:triP` on a mesh, from a point cloud) are typed by
+  themselves.
+
 ## [0.3.6] - 2026-11-17
 
 ### Rendering

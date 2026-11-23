@@ -460,7 +460,7 @@ fn gathered(name: &str, from: Option<Context>) -> (&str, Option<Context>) {
 }
 
 /// The type ICE reads a column kind as (`None`: tokens, not yet).
-fn kind_ty(k: xms_geo::Kind) -> Option<Ty> {
+pub(crate) fn kind_ty(k: xms_geo::Kind) -> Option<Ty> {
     use xms_geo::Kind;
     Some(match k {
         Kind::Bool => Ty::Bool,

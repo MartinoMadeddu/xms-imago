@@ -64,9 +64,12 @@ A rotation by its parts (w last: `quat(0, 0, 0, 1)` turns nothing).
 
 ```c
 matrix matrix(float k)
+matrix matrix(vector x, vector y, vector z, point origin)
 ```
 
 The identity times `k`, known when compiling: `matrix(1)` is the identity.
+Or a frame: the axes and the origin as its columns, as Axes and Origin to
+Matrix makes it (`transform` puts a point from the frame into the world).
 
 ```c
 snippet move (matrix m = matrix(1)) { @P = transform(m, @P); }

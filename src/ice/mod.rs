@@ -255,8 +255,8 @@ fn editor_type(op: &Op) -> Option<IceGraphNodeType> {
 pub const NEW_SNIPPET: IceGraphId = IceGraphId(usize::MAX - 1);
 
 /// Example snippets, by name, for the add menu and the Templates: noise,
-/// Near Points, Closest Point on Surface.
-pub const SNIPPET_EXAMPLES: [(&str, &str, &str); 3] = [
+/// Near Points, Closest Point on Surface, and the binding deformers'.
+pub const SNIPPET_EXAMPLES: [(&str, &str, &str); 10] = [
     (
         "Snippet: roughen (noise)",
         "Each point pushed out from the middle by OSL's Perlin noise of where it is",
@@ -311,6 +311,207 @@ snippet stick (
         far = distance(@P, hit);
         @P = mix(@P, hit, weight);
     }
+}
+"#,
+    ),
+    (
+        "Snippet: capture (bind to a surface)",
+        "Each point bound to the nearest place on a surface at rest: its face, Param UV and where it is in the frame there, stored for Deform",
+        r#"// Capture, as Houdini's: each point bound to the nearest place on the
+// surface at rest, once. The place (bindPoly, bindParamUV) and the point in
+// the frame there (bindLocal) are stored for Deform.
+// The frame at a place, from the points it is made from and their weights:
+// origin where the place is, tangent along the first edge, normal square to
+// the first two.
+matrix frame(point tri[], float w[])
+{
+    point o = sum(tri * w);
+    vector e1 = tri[1] - tri[0];
+    vector e2 = tri[2] - tri[0];
+    vector t = normalize(e1);
+    vector n = normalize(cross(e1, e2));
+    return matrix(t, n, cross(n, t), o);
+}
+
+snippet capture (
+    geometry rest = get_reference(1, "/rest/geo/pighead") [[ string label = "Rest" ]]
+)
+{
+    int @bindPoly;
+    vector2 @bindParamUV;
+    vector @bindLocal;
+    int face;
+    vector2 uv;
+    point hit;
+    closest_point_on_surface(@P, rest, face, uv, hit);
+    matrix m = frame(get_array_data(@intrinsic:triP, face, uv, rest),
+                     get_array_data(@intrinsic:bary, face, uv, rest));
+    @bindPoly = face;
+    @bindParamUV = uv;
+    @bindLocal = transform(inverse(m), @P);
+}
+"#,
+    ),
+    (
+        "Snippet: deform (by a bound surface)",
+        "Each point carried by the surface Capture bound it to: the frame at its place on the moving surface, the point put back through it",
+        r#"// Deform, after Capture: the frame at each point's place (bindPoly,
+// bindParamUV) on the moving surface, of the rest surface's topology, and the
+// point put back through it. No search: every frame reads the place.
+// The frame at a place, from the points it is made from and their weights:
+// origin where the place is, tangent along the first edge, normal square to
+// the first two.
+matrix frame(point tri[], float w[])
+{
+    point o = sum(tri * w);
+    vector e1 = tri[1] - tri[0];
+    vector e2 = tri[2] - tri[0];
+    vector t = normalize(e1);
+    vector n = normalize(cross(e1, e2));
+    return matrix(t, n, cross(n, t), o);
+}
+
+snippet deform (
+    geometry anim = get_reference(1, "/anim/geo/pighead") [[ string label = "Moving" ]]
+)
+{
+    int @bindPoly;
+    vector2 @bindParamUV;
+    vector @bindLocal;
+    matrix m = frame(get_array_data(@intrinsic:triP, @bindPoly, @bindParamUV, anim),
+                     get_array_data(@intrinsic:bary, @bindPoly, @bindParamUV, anim));
+    @P = transform(m, point(@bindLocal));
+}
+"#,
+    ),
+    (
+        "Snippet: root bind (curves)",
+        "Each curve bound at its root to the nearest place on a surface at rest: the place and the inverse of the frame there",
+        r#"// Per curve, once: the place on the surface at rest nearest the curve's
+// first point, and the inverse of the frame there (bindInverse). Carry
+// makes each curve's move from it.
+// The frame at a place, from the points it is made from and their weights:
+// origin where the place is, tangent along the first edge, normal square to
+// the first two.
+matrix frame(point tri[], float w[])
+{
+    point o = sum(tri * w);
+    vector e1 = tri[1] - tri[0];
+    vector e2 = tri[2] - tri[0];
+    vector t = normalize(e1);
+    vector n = normalize(cross(e1, e2));
+    return matrix(t, n, cross(n, t), o);
+}
+
+snippet root_bind [[ string context = "face" ]] (
+    geometry rest = get_reference(1, "/rest/geo/pighead") [[ string label = "Rest" ]]
+)
+{
+    int @bindPoly;
+    vector2 @bindParamUV;
+    matrix @bindInverse;
+    point pts[] = get_array_data(@P, "point");
+    int face;
+    vector2 uv;
+    point hit;
+    closest_point_on_surface(pts[0], rest, face, uv, hit);
+    matrix m = frame(get_array_data(@intrinsic:triP, face, uv, rest),
+                     get_array_data(@intrinsic:bary, face, uv, rest));
+    @bindPoly = face;
+    @bindParamUV = uv;
+    @bindInverse = inverse(m);
+}
+"#,
+    ),
+    (
+        "Snippet: carry (curves)",
+        "Each curve's move from rest, one matrix: the frame at its root's place on the moving surface by the inverse Root Bind stored",
+        r#"// Per curve, every frame: the frame at the root's place on the moving
+// surface, by the inverse of the rest one: the curve's move (carry).
+// The frame at a place, from the points it is made from and their weights:
+// origin where the place is, tangent along the first edge, normal square to
+// the first two.
+matrix frame(point tri[], float w[])
+{
+    point o = sum(tri * w);
+    vector e1 = tri[1] - tri[0];
+    vector e2 = tri[2] - tri[0];
+    vector t = normalize(e1);
+    vector n = normalize(cross(e1, e2));
+    return matrix(t, n, cross(n, t), o);
+}
+
+snippet carry [[ string context = "face" ]] (
+    geometry anim = get_reference(1, "/anim/geo/pighead") [[ string label = "Moving" ]]
+)
+{
+    int @bindPoly;
+    vector2 @bindParamUV;
+    matrix @bindInverse;
+    matrix m = frame(get_array_data(@intrinsic:triP, @bindPoly, @bindParamUV, anim),
+                     get_array_data(@intrinsic:bary, @bindPoly, @bindParamUV, anim));
+    matrix @carry = m * @bindInverse;
+}
+"#,
+    ),
+    (
+        "Snippet: carry points (by their curve)",
+        "Each point put through its curve's carry, so a curve moves as one piece",
+        r#"// Per point: through its curve's move (carry, per curve), so each curve
+// moves as one piece.
+snippet carry_points ()
+{
+    matrix m = get_data(@carry, "face");
+    @P = transform(m, @P);
+}
+"#,
+    ),
+    (
+        "Snippet: guide bind (curves)",
+        "Each curve bound to the guide curve nearest its root: the guide's number, stored",
+        r#"// Per curve, once: the guide nearest the curve's first point (guide, a
+// curve of the guides at rest).
+snippet guide_bind [[ string context = "face" ]] (
+    geometry guides = get_reference(1, "/restGuides") [[ string label = "Guides" ]]
+)
+{
+    int @guide;
+    point pts[] = get_array_data(@P, "point");
+    int face;
+    vector2 uv;
+    point hit;
+    closest_point_on_surface(pts[0], guides, face, uv, hit);
+    @guide = face;
+}
+"#,
+    ),
+    (
+        "Snippet: guide deform",
+        "Each point carried by its curve's guide: read at its u along the curve on the guides at rest and moving, moved and turned with it",
+        r#"// Per point: its curve's guide (guide) read at the point's u along the
+// curve, on the guides at rest and moving; the point moved with the guide
+// there and turned as its direction there turned.
+snippet guide_deform (
+    geometry rest = get_reference(1, "/restGuides") [[ string label = "Rest guides" ]],
+    geometry anim = get_reference(1, "/animGuides") [[ string label = "Moving guides" ]]
+)
+{
+    int guide = get_data(@guide, "face");
+    // A curve's Param UV counts segments: the point's number along it, over
+    // its segments.
+    float k = @intrinsic:ptIndex - get_data(@intrinsic:firstCorner, "face");
+    float u = k / (get_data(@intrinsic:corners, "face") - 1);
+    vector2 uv = vector2(u, 0);
+    point a = get_data(@P, guide, uv, rest);
+    point b = get_data(@P, guide, uv, anim);
+    point ra[] = get_array_data(@intrinsic:triP, guide, uv, rest);
+    point rb[] = get_array_data(@intrinsic:triP, guide, uv, anim);
+    vector d0 = normalize(ra[1] - ra[0]);
+    vector d1 = normalize(rb[1] - rb[0]);
+    // The turn from one direction to the other: (d0 x d1, 1 + d0 . d1).
+    vector axis = cross(d0, d1);
+    quat q = quat(axis.x, axis.y, axis.z, 1 + dot(d0, d1));
+    @P = b + rotate(q, @P - a);
 }
 "#,
     ),
@@ -2093,6 +2294,14 @@ mod tests {
         let error = g.error.lock().unwrap().clone().unwrap();
         assert_eq!(error.0, snippet);
         assert!(error.1.starts_with("line 2"), "{}", error.1);
+    }
+
+    /// Every example snippet parses.
+    #[test]
+    fn every_example_snippet_parses() {
+        for (name, _, text) in SNIPPET_EXAMPLES {
+            xms_ice::lang::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
     }
 
     /// Make ICE Graph: a snippet's nodes, as editor nodes of their own, give
