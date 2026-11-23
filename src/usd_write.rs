@@ -638,9 +638,23 @@ pub fn frames_layer(
     out: &Path,
     scene: &SceneRange,
 ) -> Result<(String, WriteReport), String> {
+    let (root, header, report, time) = layer_specs(frames, out, scene)?;
+    Ok((header.text(&root, time), report))
+}
+
+/// The layer of `frames`, before it is text: its prims, its header, what was
+/// written, and the frames it spans when it has time samples.
+fn layer_specs(
+    frames: &[(f64, Vec<Prim>)],
+    out: &Path,
+    scene: &SceneRange,
+) -> Result<(Spec, Header, WriteReport, Option<(f64, f64)>), String> {
     match frames {
         [] => return Err("No frames to write".into()),
-        [(_, prims)] => return override_layer(prims, out, scene),
+        [(_, prims)] => {
+            let (root, header, report) = specs(prims, out, None, scene);
+            return Ok((root, header, report, None));
+        }
         _ => {}
     }
     // What any frame edits, by stage and prim, is written at every frame.
@@ -705,7 +719,85 @@ pub fn frames_layer(
     }
     report.frames = frames.len();
     let (first, last) = (frames[0].0, frames[frames.len() - 1].0);
-    Ok((made[0].2.text(&root, Some((first, last))), report))
+    let header = made.into_iter().next().map(|m| m.2).expect("frames");
+    Ok((root, header, report, Some((first, last))))
+}
+
+/// Write the layer of `frames` over the layers of `bases` (see
+/// `frames_layer_above`) to `out`.
+pub fn write_frames_above(
+    frames: &[(f64, Vec<Prim>)],
+    bases: &[Vec<(f64, Vec<Prim>)>],
+    out: &Path,
+    scene: &SceneRange,
+) -> Result<WriteReport, String> {
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let (text, report) = frames_layer_above(frames, bases, out, scene)?;
+    std::fs::write(out, text).map_err(|e| format!("{}: {e}", out.display()))?;
+    Ok(report)
+}
+
+/// The layer of `frames` over the layers of `bases`, each what a Layer Break
+/// gives at the same frames, as Solaris' Layer Break: only what it says that
+/// they do not. Their sublayers are stripped (the layer is to be composed over
+/// theirs), and prims they have that no longer arrive are deactivated. Each
+/// is compared with its frames merged, so a value is left out only when it is
+/// the same at every frame.
+pub fn frames_layer_above(
+    frames: &[(f64, Vec<Prim>)],
+    bases: &[Vec<(f64, Vec<Prim>)>],
+    out: &Path,
+    scene: &SceneRange,
+) -> Result<(String, WriteReport), String> {
+    let (mut root, mut header, mut report, time) = layer_specs(frames, out, scene)?;
+    let now: std::collections::HashSet<&str> = frames
+        .iter()
+        .flat_map(|(_, prims)| prims.iter().map(|p| p.path.as_str()))
+        .collect();
+    let mut gone: Vec<&str> = vec![];
+    for base in bases {
+        let Ok((under, above, _, _)) = layer_specs(base, out, scene) else {
+            continue;
+        };
+        root.subtract(&under);
+        header.sublayers.retain(|l| !above.sublayers.contains(l));
+        if header.render_settings == above.render_settings {
+            header.render_settings = None;
+        }
+        gone.extend(
+            base.iter()
+                .flat_map(|(_, prims)| prims.iter().map(|p| p.path.as_str()))
+                .filter(|p| p.starts_with('/') && !now.contains(p)),
+        );
+    }
+    gone.sort_unstable();
+    gone.dedup();
+    // The highest of them: what is below goes with it.
+    let tops: Vec<&str> = gone
+        .iter()
+        .copied()
+        .filter(|p| !gone.iter().any(|g| g != p && is_below(p, g)))
+        .collect();
+    for path in tops {
+        let spec = root.at(path);
+        if !spec.meta.iter().any(|m| m == "active = false") {
+            spec.meta.push("active = false".into());
+        }
+    }
+    root.prune();
+    let (changed, deactivated, added, referenced) = root.tally();
+    report.changed = changed;
+    report.deactivated = deactivated;
+    report.added = added;
+    report.referenced = referenced;
+    report.notes.push(format!(
+        "Layer Break: only what is below {} written; the stages' files above {} are not sublayered",
+        if bases.len() == 1 { "it" } else { "them" },
+        if bases.len() == 1 { "it" } else { "them" },
+    ));
+    Ok((header.text(&root, time), report))
 }
 
 /// A line of a prim spec as its declaration, its value and the metadata after
@@ -1201,6 +1293,77 @@ impl Spec {
                 v.prune();
             }
         }
+    }
+
+    /// Less what `under` says, as a layer composed over it: its lines, metadata
+    /// and custom data the same left out, a `def` it has the same an `over`,
+    /// children and variants likewise. Not pruned.
+    fn subtract(&mut self, under: &Spec) {
+        use std::collections::HashSet;
+        if self.def.is_some() && self.def == under.def {
+            self.def = None;
+        }
+        let meta: HashSet<&String> = under.meta.iter().collect();
+        self.meta.retain(|m| !meta.contains(m));
+        self.custom.retain(|k, v| under.custom.get(k) != Some(&*v));
+        let lines: HashSet<&String> = under.lines.iter().collect();
+        self.lines.retain(|l| !lines.contains(l));
+        for (name, child) in self.children.iter_mut() {
+            if let Some(u) = under.children.get(name) {
+                child.subtract(u);
+            }
+        }
+        for (set, variants) in self.variant_sets.iter_mut() {
+            let Some((_, theirs)) = under.variant_sets.iter().find(|(n, _)| *n == *set) else {
+                continue;
+            };
+            for (name, v) in variants.iter_mut() {
+                if let Some((_, u)) = theirs.iter().find(|(n, _)| *n == *name) {
+                    v.subtract(u);
+                }
+            }
+        }
+        // A set none of whose variants says anything left: the one under it
+        // stands.
+        self.variant_sets
+            .retain(|(_, variants)| variants.iter().any(|(_, v)| !v.says_nothing()));
+    }
+
+    /// Whether it, and everything in it, says nothing: what `prune` takes
+    /// away.
+    fn says_nothing(&self) -> bool {
+        self.def.is_none()
+            && self.meta.is_empty()
+            && self.custom.is_empty()
+            && self.lines.is_empty()
+            && self.children.values().all(Spec::says_nothing)
+            && self
+                .variant_sets
+                .iter()
+                .all(|(_, vs)| vs.iter().all(|(_, v)| v.says_nothing()))
+    }
+
+    /// The prims below this one written: (changed, deactivated, added,
+    /// brought in by a reference or a payload).
+    fn tally(&self) -> (usize, usize, usize, usize) {
+        let mut t = (0, 0, 0, 0);
+        for c in self.children.values() {
+            if c.meta
+                .iter()
+                .any(|m| m.contains("references = @") || m.contains("payload = @"))
+            {
+                t.3 += 1;
+            } else if c.def.is_some() {
+                t.2 += 1;
+            } else if c.meta.iter().any(|m| m == "active = false") {
+                t.1 += 1;
+            } else if !c.lines.is_empty() || !c.meta.is_empty() || !c.custom.is_empty() {
+                t.0 += 1;
+            }
+            let below = c.tally();
+            t = (t.0 + below.0, t.1 + below.1, t.2 + below.2, t.3 + below.3);
+        }
+        t
     }
 
     /// The spec at a path, made (as `over`s) on the way.
@@ -2031,6 +2194,43 @@ def Xform "set" {{
 }}
 "#
         )
+    }
+
+    /// Below a Layer Break, only what the operators after it change: the
+    /// stage is not sublayered, what was moved or pruned above it says
+    /// nothing, what moves below it is an `over`, a prim made below it a
+    /// `def`, and a prim made above it and pruned below it deactivated.
+    #[test]
+    fn below_a_layer_break_only_what_changes_after_it_is_written() {
+        let (_, loaded) = load("break.usda", &stage_text());
+        let up = |p: &mut Prim| p.place = p.place.moved(glam::Mat4::from_translation(glam::Vec3::Y));
+        let made = |p: &Prim, path: &str| Prim {
+            path: path.into(),
+            stage: None,
+            source: None,
+            ..p.clone()
+        };
+        // Above the break: b moved, c pruned, /above made.
+        let mut at_break: Vec<Prim> = loaded.iter().filter(|p| p.path != "/set/c").cloned().collect();
+        up(at_break.iter_mut().find(|p| p.path == "/set/b").unwrap());
+        at_break.push(made(&loaded[0], "/above"));
+        // Below it: a moved, /above pruned, /extra made.
+        let mut after: Vec<Prim> = at_break.iter().filter(|p| p.path != "/above").cloned().collect();
+        up(after.iter_mut().find(|p| p.path == "/set/a").unwrap());
+        after.push(made(&loaded[0], "/extra"));
+        let out = std::env::temp_dir().join("xms_usd_write_test/break_over.usda");
+        let scene = SceneRange::default();
+        let (text, report) =
+            frames_layer_above(&[(1.0, after.clone())], &[vec![(1.0, at_break)]], &out, &scene).unwrap();
+        assert!(!text.contains("subLayers"), "{text}");
+        assert!(text.contains("over \"set\"") && text.contains("over \"a\""), "{text}");
+        assert!(!text.contains("\"b\"") && !text.contains("\"c\""), "{text}");
+        assert!(text.contains("def Mesh \"extra\""), "{text}");
+        assert!(text.contains("over \"above\" (\n    active = false"), "{text}");
+        assert_eq!((report.added, report.deactivated), (1, 1), "{report:?}");
+        // With nothing above it, as Write USD writes it.
+        let (whole, _) = override_layer(&after, &out, &scene).unwrap();
+        assert!(whole.contains("subLayers") && whole.contains("\"b\""), "{whole}");
     }
 
     /// A stage of 25 time codes a second in a scene of 24: the layer says the

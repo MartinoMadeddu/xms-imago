@@ -357,6 +357,8 @@ pub fn evaluate_node_type(
         // Socket by socket, in `NodeGraphState::eval_node_out`.
         NodeType::Placeholder { .. } => inputs.get(output).cloned(),
         NodeType::PassThrough => inputs.first().cloned(),
+        // Read by Write USD below it (`main::layer_breaks`).
+        NodeType::LayerBreak => inputs.first().cloned(),
 
         // Animation
         // Clip, Geometry, Rest.

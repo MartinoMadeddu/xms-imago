@@ -55,8 +55,8 @@ In the add menu under Materials. A new one is a `standard_surface` wired into a
 Material operator's: wire it into a Material Binding, which puts it in the scene
 under its Material Library Location by the operator's name.
 
-Double-click it, or select it and press ↓, to open its graph in the Node Graph
-pane (see [Interface](interface.md#materialx-graphs)). Inside:
+Double-click it, or select it and press ↓ or Enter, to open its graph in the
+Node Graph pane (see [Interface](interface.md#materialx-graphs)). Inside:
 
 - **Adding:** right-click or Tab. The surface shaders, `surfacematerial` and the
   image nodes come first; then every node of the library by group (Shading,

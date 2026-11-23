@@ -44,8 +44,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
   Input** inside for each output wired in from outside, a **Compound Output**
   for each output wired out (the viewed operator's, or the lowest's, when none
   is). It is **editable**: its definition is its own, kept in the graph.
-- **Go inside:** double-click it, select it and press ↓, or **Go Inside** in its
-  parameters. Every pane shows the graph inside: the Node Graph, the Viewer
+- **Go inside:** double-click it, select it and press ↓ or Enter, or **Go
+  Inside** in its parameters. Every pane shows the graph inside: the Node Graph, the Viewer
   (its Compound Output viewed), the Scene Explorer, the Parameters. Its
   Compound Inputs give what came into the instance when you went in. The bar
   over the Node Graph shows the way back: **Root**, the instances entered, **↑
@@ -130,8 +130,8 @@ Reference, Paste as Reference) and a **Ramp** parameter type.
 - **Not yet:** Promote is not a step of the undo history inside the compound
   (leaving it is).
 - **In an ICE graph** it is the same: select nodes, **Compounds > Make
-  Compound** in the add menu, double-click or ↓ to go inside, ↑ to come out,
-  Save as Definition, Make Editable. Inside a locked scene compound, the ICE
+  Compound** in the add menu, double-click, ↓ or Enter to go inside, ↑ to come
+  out, Save as Definition, Make Editable. Inside a locked scene compound, the ICE
   graphs of its operators are locked too. Its ports are its Compound Input and
   Compound Output nodes, and its input ports hold values as any ICE node's
   inputs do: those are what an ICE compound offers to set, rather than

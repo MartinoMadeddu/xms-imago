@@ -97,7 +97,7 @@ apart; `$$` is a `$`.
 | Select | Drag a box, Shift+click to add |
 | Frame, tidy | F or A; Tidy in the header |
 | Copy, paste | Ctrl+C, Ctrl+V, also between windows and sessions |
-| Go into an ICE or MaterialX graph | Double-click it, or ↓; ↑ goes back |
+| Go into an ICE or MaterialX graph, or a compound | Double-click it, or select it and press ↓ or Enter; ↑ goes back |
 
 Wires, ports and selection work the same in the scene, ICE and MaterialX
 graphs. In a MaterialX graph, a node goes into a wire by the types its
@@ -108,7 +108,7 @@ inputs and outputs take, not only its first.
 | Create | Cube, Sphere, Grid, Camera, Test Clip |
 | Placeholder | Placeholder: a stand-in with named inputs and outputs, passing them through, and a description of the node to build |
 | Organise | Set Variable, Pass Through, Compound Input, Compound Output, and making a [compound](compounds.md) |
-| File | Load USD, Write USD, Load FBX, Load FBX Folder, Write FBX |
+| File | Load USD, Write USD, Layer Break, Load FBX, Load FBX Folder, Write FBX |
 | Modify | Transform, Edit Poly, Normals, Tangents, Merge, ICE |
 | Primitives | Pick Primitives, Prune Primitives, Set Attribute, Edit Primitive, Reparent, Rename, Duplicate, Delete Attribute, Rename Attribute, Unpack |
 | Materials | Material, MaterialX, Material Binding |

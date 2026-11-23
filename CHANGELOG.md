@@ -8,6 +8,18 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### USD
+
+- **Layer Break**, as Solaris': a Write USD below it writes only what the
+  operators after it change. The opinions above it, and the files of the
+  stages loaded above it, are left out; prims gone since are deactivated. The
+  Viewer and renders still see everything.
+
+### Interface
+
+- **Enter** goes inside the selected ICE, MaterialX or compound node, as ↓ and
+  a double-click do, in the scene graph and in ICE graphs.
+
 ### ICE
 
 - **The binding deformers as snippets**: Templates > Martino > ICE has the

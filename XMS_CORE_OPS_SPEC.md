@@ -190,6 +190,19 @@ and **Status**.
   changes (keyed by parameters and inputs). Not yet: keeping a frozen result on
   disk.
 
+### 2.5 Layer Break
+- **Purpose:** Write USD below it writes only what comes after it (Solaris'
+  Layer Break).
+- **Inputs:** scene
+- **Parameters:** none
+- **Targeting:** none
+- **USD mapping:** the layers above stripped from the written layer
+- **Status:** **Done.** Write USD writes its layer less the layer at the
+  nearest Layer Break on each way up (through Merges): opinions there already
+  left out, the stages' files above it not sublayered, prims gone since
+  deactivated. The Viewer and renders see everything. Not yet: a Layer Break
+  inside a compound.
+
 ---
 
 ## 3. Prim Creation

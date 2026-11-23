@@ -556,9 +556,14 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.inside.request = Some(super::compound::Request::Leave);
     }
 
-    // Down arrow: into the selected ICE, MaterialX or compound node, as a
-    // double-click does
-    if ptr_in_canvas && !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+    // Down arrow or Enter: into the selected ICE, MaterialX or compound node,
+    // as a double-click does. Not while the add menu is open (Enter picks
+    // there).
+    if ptr_in_canvas
+        && !ui.ctx().egui_wants_keyboard_input()
+        && graph.tab_menu_screen_pos.is_none()
+        && ui.input(|i| i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::Enter))
+    {
         let selected = graph
             .selected_node
             .and_then(|id| graph.nodes.iter().find(|n| n.id == id));
@@ -1502,6 +1507,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
         ("📂", "File", vec![
             (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
             (NodeType::write_usd(""), "What the scene graph changed in its USD stages, as an override layer"),
+            (NodeType::LayerBreak, "A Write USD below it writes only what the operators after it change: the opinions and files above it are left out, as Solaris' Layer Break"),
             (NodeType::LoadImage { path: String::new(), colour: String::new() }, "An image, or a sequence (plate.####.exr): viewed, the Image Viewer shows it. Every layer of an EXR"),
             (NodeType::LoadVdb { path: String::new(), location: crate::core::volume::DEFAULT_LOCATION.into() }, "An OpenVDB file, or a sequence (smoke.$F4.vdb), as a USD Volume: a field per grid, rendered from the file; its box in the Viewer"),
             (NodeType::LoadFbx { path: String::new(), take: 0 }, "Everything in an FBX file: the clip, every mesh with its weights and materials, the rest skeleton"),

@@ -51,6 +51,7 @@ have **parameters**.
 | The colour a port and its wires get from what they carry | **data type colour** (`type_colours::DataType`) | One table for every graph: see docs/interface.md, Data type colours. |
 | The operator making a light | **Light**, with a **Type**: Dome, Rect, Point, Sphere, Disk, Cylinder, Distant | UsdLux's types by their schema names; the add menu lists one entry per type, all the one operator. A **point light** is a sphere light treated as a point, as USD has it. |
 | A node that hands on what comes in, unchanged, to lay a graph out | **Pass Through** | Says what it does. |
+| The point above which a Write USD writes nothing | **Layer Break** | Solaris' name and meaning: the layers above it are stripped from what is written. |
 | The operator making the RenderSettings prim and its product | **Render Commons** | What is rendered, whatever renders it: camera, resolution, overscan, motion blur, purposes, the output image. |
 | The operator setting a renderer's own settings | **Render Settings** | The name artists know for a renderer's settings. Its **Renderer** is Karma, Arnold, one from a **renderer definition** (a JSON file), or **Custom**, whose settings you name under its **namespace** (`rray:spp`). |
 | One AOV a renderer writes | **RenderVar** (USD's word), made by **Render Variables**; Render Settings' **AOVs** tab ticks a renderer's standard ones | USD's `UsdRenderVar`. "AOV" stays in the UI for the standard ones, the word artists use. |

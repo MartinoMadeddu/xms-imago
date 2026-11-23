@@ -4,8 +4,8 @@ An **ICreationEngine** operator (ICE for short; Modify → ICreationEngine in th
 add menu) holds an **ICE graph**: a graph of its own that runs on every
 primitive coming in (or those its **Prims Location** tab lists, as for
 Transform), in the primitive's own space, and sets its attributes. Loosely
-modelled after Softimage ICE and Houdini VOPs. Double-click the ICE operator, or
-select it and press ↓, to open its graph; ↑ comes back.
+modelled after Softimage ICE and Houdini VOPs. Double-click the ICE operator,
+or select it and press ↓ or Enter, to open its graph; ↑ comes back.
 
 ## How a graph runs
 
@@ -460,9 +460,9 @@ node's, used while nothing is wired in. Its definition's **Name** takes
 variables when entered (`$OPNAME` is the compound's own name), as a scene
 compound's does.
 
-- **Go inside:** double-click it, or select it and press ↓. The bar over the
-  graph shows the way back (the ICE operator, the compounds entered, **↑ Up**,
-  or ↑). The graph keeps running with the inside as it is edited.
+- **Go inside:** double-click it, or select it and press ↓ or Enter. The bar
+  over the graph shows the way back (the ICE operator, the compounds entered,
+  **↑ Up**, or ↑). The graph keeps running with the inside as it is edited.
 - **Ports** are the Compound Input and Compound Output nodes inside, top to
   bottom, by name: add or rename one there, and the compound's port follows
   when you come back out. A Compound Input's value is the port's, for while

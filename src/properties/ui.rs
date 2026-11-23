@@ -1698,6 +1698,9 @@ pub fn draw_properties(
         NodeType::PassThrough => group(ui, "Pass Through", Some("Hands what comes in on to what follows, unchanged: for laying out a big graph. Rename it to say what passes through it"), |f| {
             f.status(Status::Info, "Nothing to set: what comes in goes out");
         }),
+        NodeType::LayerBreak => group(ui, "Layer Break", Some("As Solaris' Layer Break: a Write USD below it writes only what the operators after it change, for a layer to compose over another (a shot's over its assets'). The opinions above it are left out, and so are the files of the stages loaded above it (not sublayered); prims it has that no longer arrive are deactivated. The Viewer and renders still see everything"), |f| {
+            f.status(Status::Info, "Nothing to set: what comes in goes out");
+        }),
         NodeType::SetVariable { vars } => set_variable_rows(ui, vars),
         NodeType::Compound { .. } => {
             let (enter, back) = compound_rows(ui, &mut node.node_type, sel_id, io);

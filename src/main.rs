@@ -2855,6 +2855,34 @@ pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {
 // Skeleton display
 // Draws the clip of the viewed node (view flag, else Output) at the playhead.
 
+/// The Layer Breaks above node `from`, not bypassed: the nearest on each way
+/// up the scene's inputs (every input of a Merge, the first of any other
+/// node), not those above them.
+fn layer_breaks(graph: &NodeGraphState, from: types::NodeId) -> Vec<types::NodeId> {
+    let mut found = vec![];
+    let mut seen = std::collections::HashSet::new();
+    let mut up = vec![from];
+    while let Some(id) = up.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let Some(n) = graph.nodes.iter().find(|n| n.id == id) else {
+            continue;
+        };
+        if matches!(n.node_type, NodeType::LayerBreak) && !n.bypassed {
+            found.push(id);
+            continue;
+        }
+        let inputs = match n.node_type {
+            NodeType::Merge { .. } if !n.bypassed => &n.inputs[..],
+            _ => &n.inputs[..n.inputs.len().min(1)],
+        };
+        up.extend(inputs.iter().filter_map(|i| i.connected_output.map(|(s, _)| s)));
+    }
+    found.sort_by_key(|n| n.0);
+    found
+}
+
 /// Run a Write USD node: evaluate what enters it and write its edits.
 fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId) {
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
@@ -2913,14 +2941,23 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
             .collect();
         let still = keys.iter().all(|k| k.is_some() && *k == keys[0]);
         let at = if still { at[..at.len().min(1)].to_vec() } else { at };
+        // The Layer Breaks above it, cooked at the same frames: what they
+        // give is left out of the layer.
+        let breaks = layer_breaks(graph, src);
         let mut cooked = vec![];
+        let mut bases: Vec<Vec<(f64, Vec<crate::types::Prim>)>> = vec![vec![]; breaks.len()];
         for f in &at {
-            let r = graph.with_time(seconds(*f), || {
-                graph.eval_node_out(src, out, &mut std::collections::HashMap::new(), &eval)
-            });
+            let mut cache = std::collections::HashMap::new();
+            let r = graph.with_time(seconds(*f), || graph.eval_node_out(src, out, &mut cache, &eval));
             match r {
                 Some(types::EvalResult::Named(prims)) => cooked.push((*f, prims)),
                 other => return Err(not_prims(other)),
+            }
+            for (k, b) in breaks.iter().enumerate() {
+                let r = graph.with_time(seconds(*f), || graph.eval_node_out(*b, 0, &mut cache, &eval));
+                if let Some(types::EvalResult::Named(prims)) = r {
+                    bases[k].push((*f, prims));
+                }
             }
         }
         let out = std::path::Path::new(&path);
@@ -2931,7 +2968,9 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
             out.file_stem().and_then(|s| s.to_str()).unwrap_or("scene")
         ));
         let layer = if *flatten { over.as_path() } else { out };
-        let mut report = if still || cooked.len() == 1 {
+        let mut report = if !breaks.is_empty() {
+            usd_write::write_frames_above(&cooked, &bases, layer, &graph.scene)?
+        } else if still || cooked.len() == 1 {
             usd_write::write_override(&cooked[0].1, layer, &graph.scene)?
         } else {
             usd_write::write_frames(&cooked, layer, &graph.scene)?
@@ -3018,6 +3057,49 @@ fn not_prims(r: Option<types::EvalResult>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Write USD finds the nearest Layer Break on each way up: through every
+    /// input of a Merge, not one above another, not a bypassed one, and not on
+    /// an ICE operator's reference input.
+    #[test]
+    fn write_usd_finds_the_layer_breaks_above_it() {
+        let mut g = NodeGraphState::default();
+        let at = |y: f32| egui::pos2(0.0, y);
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), at(0.0));
+        let high = g.add_node("High".into(), NodeType::LayerBreak, at(100.0));
+        let low = g.add_node("Low".into(), NodeType::LayerBreak, at(200.0));
+        let sphere = g.add_node("Sphere".into(), NodeType::sphere(0.5, 8), at(0.0));
+        let off = g.add_node("Off".into(), NodeType::LayerBreak, at(100.0));
+        let merge = g.add_node("Merge".into(), NodeType::merge(), at(300.0));
+        let write = g.add_node("Write".into(), NodeType::write_usd(""), at(400.0));
+        g.add_connection(cube, 0, high, 0);
+        g.add_connection(high, 0, low, 0);
+        g.add_connection(sphere, 0, off, 0);
+        g.add_connection(low, 0, merge, 0);
+        g.add_connection(off, 0, merge, 1);
+        g.add_connection(merge, 0, write, 0);
+        assert_eq!(layer_breaks(&g, merge), vec![low, off]);
+        g.nodes.iter_mut().find(|n| n.id == off).unwrap().bypassed = true;
+        assert_eq!(layer_breaks(&g, merge), vec![low]);
+        g.nodes.iter_mut().find(|n| n.id == low).unwrap().bypassed = true;
+        assert_eq!(layer_breaks(&g, merge), vec![high]);
+        assert!(layer_breaks(&g, sphere).is_empty());
+        // On an ICE operator's reference input: not the scene's way up.
+        let ice = g.add_node(
+            "Ice".into(),
+            NodeType::Ice {
+                id: IceGraphId(0),
+                name: "Ice".into(),
+                references: 1,
+                params: Default::default(),
+                snippet: false,
+            },
+            at(500.0),
+        );
+        g.add_connection(sphere, 0, ice, 0);
+        g.add_connection(low, 0, ice, 1);
+        assert!(layer_breaks(&g, ice).is_empty());
+    }
 
     /// Opening a file or loading a template over unsaved changes waits for the
     /// question; over a saved graph it goes ahead.

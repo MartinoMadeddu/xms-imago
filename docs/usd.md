@@ -24,6 +24,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Variant | Chooses variants of the scene's variant sets (Select): a stage is composed again with them, what was done above carried over. Makes a variant set on a prim, a variant per input (Create) |
 | Unpack | Merges every primitive into one mesh |
 | Write USD | Writes what the scene graph changed in its stages as a USD override layer |
+| Layer Break | Hands the scene on unchanged; a Write USD below it writes only what the operators after it change (see [Layer Break](#layer-break)) |
 
 ## Composed stages
 
@@ -56,6 +57,26 @@ baked into the points, so what is written back matches the file.
 
 A file is read once and kept until it changes on disk. A `.usdz` is unpacked
 beside itself so its textures are files the Viewer can read.
+
+## Layer Break
+
+As Solaris' Layer Break: a Write USD below it writes only what the operators
+after it change, for a layer to be composed over another (a shot's over the
+assets', a lighting layer over the layout's).
+
+- **Left out:** every opinion the scene already had at the Layer Break (the
+  layer Write USD would write there), and the files of the stages loaded above
+  it, which are not sublayered. A value is left out only when it is the same at
+  every frame written.
+- **Written:** what changes after it, as `over`s; prims made after it as
+  `def`s; prims it has that no longer arrive (pruned or merged after it)
+  deactivated.
+- **Where:** the nearest Layer Break on each way up from the Write USD, through
+  every input of a Merge and the first input of any other operator (not an ICE
+  operator's reference inputs); one above another is not read. Bypassed, it is
+  not there. Inside a compound it is not seen yet.
+- **Only Write USD:** the Viewer, the Scene Explorer and renders see the whole
+  scene. A Karma render of the Write USD's layer renders that layer alone.
 
 ## Big stages: boxes first
 

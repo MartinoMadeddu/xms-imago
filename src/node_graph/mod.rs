@@ -652,6 +652,7 @@ impl NodeGraphState {
             | NodeType::PrunePrims { .. }
             | NodeType::UnpackPrims
             | NodeType::WriteUsd { .. }
+            | NodeType::LayerBreak
             | NodeType::SetAttribute { .. }
             | NodeType::EditPrimitive { .. }
             | NodeType::Reparent { .. }

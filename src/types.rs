@@ -667,6 +667,11 @@ pub enum NodeType {
     /// material. For laying out big graphs: a place to gather wires, a named
     /// point to branch from. Drawn narrower and square-cornered.
     PassThrough,
+    /// What comes in goes on unchanged; a Write USD below it writes only what
+    /// the operators after it change, as Solaris' Layer Break: the opinions
+    /// above it, and the stages' files above it, are not in its layer. For a
+    /// layer to compose over another (a shot's over its assets').
+    LayerBreak,
     /// A compound placed in the graph (see `docs/compounds.md`): it cooks the
     /// graph of its definition, found in the library by name, or of its own
     /// copy once made editable. Its ports, and its definition's version and
@@ -1253,6 +1258,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::Ice { .. } => "▣",
         NodeType::Placeholder { .. } => "📝",
         NodeType::PassThrough => "↓",
+        NodeType::LayerBreak => "✂",
         NodeType::LoadFbx { .. } => "🎬",
         NodeType::TestClip { .. } => "🚶",
         NodeType::RenameJoints { .. } => "✏",
@@ -1357,6 +1363,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::Ice { .. } => "ICreationEngine",
         NodeType::Placeholder { .. } => "Placeholder",
         NodeType::PassThrough => "Pass Through",
+        NodeType::LayerBreak => "Layer Break",
         NodeType::LoadFbx { .. } => "Load FBX",
         NodeType::TestClip { .. } => "Test Clip",
         NodeType::RenameJoints { .. } => "Rename Joints",

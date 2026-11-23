@@ -1515,7 +1515,7 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
     let keys_free = response.hovered() && !ui.ctx().egui_wants_keyboard_input();
 
     // Up arrow: out of the compound looked at, else back up to the scene
-    // network. Down arrow: inside the compound selected.
+    // network. Down arrow or Enter: inside the compound selected.
     if keys_free && ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
         if graph.outer.is_empty() {
             return (true, None);
@@ -1528,7 +1528,8 @@ pub fn draw_subnet_graph(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Opti
             .iter()
             .any(|n| n.id == *s && matches!(n.node_type, IceGraphNodeType::Compound { .. }))
     });
-    if let Some(id) = compound_selected.filter(|_| keys_free && ui.input(|i| i.key_pressed(egui::Key::ArrowDown))) {
+    let down = ui.input(|i| i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::Enter));
+    if let Some(id) = compound_selected.filter(|_| keys_free && down) {
         ui.data_mut(|d| d.insert_temp(enter_id(), id));
     }
 
