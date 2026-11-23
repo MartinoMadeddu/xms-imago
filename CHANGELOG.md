@@ -17,6 +17,10 @@ version's heading when you tag it.
 
 ### Interface
 
+- **Tabs are instances**: right-click a tab for **Pane** (what it shows
+  instead) and **New Tab** (another beside it), or use the **+** of a tab bar.
+  Parameters, Scene Explorer and Primitive Inspector can be open in several
+  tabs. Layouts saved before load as they were.
 - **Alt-drag a number of a row** (X, Y, Z, a vector's parts; Option on macOS)
   and the others move by as much. Shift, egui's finer dragging, still works
   with it.

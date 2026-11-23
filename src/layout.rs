@@ -9,6 +9,11 @@
 //! - **The layouts it comes with** (`PRESETS`, Window > Layout), and any saved
 //!   to a file (Save layout..., Load layout...).
 //! - **The lock** is kept from one run to the next (`layout.json`).
+//! - **Tabs are instances** (`Tab`): a pane and a number of its own, so some
+//!   panes can be open twice (`Pane::multiple`), each a tab. A tab's right-click
+//!   menu changes what it shows (Pane) or opens another beside it (New Tab), as
+//!   does the + of each tab bar. Layouts saved before name the panes alone: they
+//!   load, each tab given its number.
 
 use egui_dock::{DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
@@ -55,6 +60,13 @@ impl Pane {
         Pane::LightLinker,
     ];
 
+    /// Panes that can be open more than once, each a tab of its own. The
+    /// others are one of a kind: what they show, and how, is the program's
+    /// (one Viewer, one Timeline).
+    pub fn multiple(self) -> bool {
+        matches!(self, Pane::Parameters | Pane::SceneExplorer | Pane::PrimInspector)
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Pane::Viewer => "Viewer",
@@ -71,6 +83,84 @@ impl Pane {
             Pane::LightLinker => "Light Linker",
         }
     }
+}
+
+/// One open pane: which, and its own number (unique in the layout), so two
+/// of a kind are two tabs. Written `{"id": 3, "pane": "Parameters"}`; read
+/// from the pane's name alone too, as layouts saved before had it (numbered
+/// when the layout loads, `numbered`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "TabFile")]
+pub struct Tab {
+    pub id: u32,
+    pub pane: Pane,
+}
+
+/// A tab as a layout file has it: today's, or a pane's name.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum TabFile {
+    Pane(Pane),
+    Tab { id: u32, pane: Pane },
+}
+
+impl From<TabFile> for Tab {
+    fn from(t: TabFile) -> Tab {
+        match t {
+            // Numbered once the whole layout is read.
+            TabFile::Pane(pane) => Tab { id: 0, pane },
+            TabFile::Tab { id, pane } => Tab { id, pane },
+        }
+    }
+}
+
+/// The next tab's number: above every one in a layout loaded.
+static NEXT_TAB: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+impl Tab {
+    /// A new tab of `pane`, a number of its own.
+    pub fn new(pane: Pane) -> Tab {
+        Tab {
+            id: NEXT_TAB.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            pane,
+        }
+    }
+}
+
+/// Every tab a number of its own: those read without one (0), or with one
+/// another has, get a new one; new tabs are numbered above them all.
+fn numbered(dock: &mut DockState<Tab>) {
+    use std::sync::atomic::Ordering;
+    let top = dock.iter_all_tabs().map(|(_, t)| t.id).max().unwrap_or(0);
+    NEXT_TAB.fetch_max(top + 1, Ordering::Relaxed);
+    let mut seen = std::collections::HashSet::new();
+    for (_, t) in dock.iter_all_tabs_mut() {
+        if t.id == 0 || !seen.insert(t.id) {
+            t.id = NEXT_TAB.fetch_add(1, Ordering::Relaxed);
+            seen.insert(t.id);
+        }
+    }
+}
+
+/// Where the first tab of `pane` is in a tree of a surface: its node and its
+/// place among the node's tabs.
+fn find_in(tree: &egui_dock::Tree<Tab>, pane: Pane) -> Option<(NodeIndex, usize)> {
+    tree.iter().enumerate().find_map(|(i, node)| {
+        let k = node.tabs()?.iter().position(|t| t.pane == pane)?;
+        Some((NodeIndex(i), k))
+    })
+}
+
+/// Whether, with `open` the tabs open, a tab of `pane` can be added: a pane
+/// that can be open twice, or one of a kind while none is open.
+pub fn may_add(open: &[Tab], pane: Pane) -> bool {
+    pane.multiple() || !open.iter().any(|t| t.pane == pane)
+}
+
+/// Whether, with `open` the tabs open, tab `tab` can show `pane` instead: its
+/// own, one that can be open twice, or one of a kind no other tab shows.
+pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
+    tab.pane == pane || pane.multiple() || !open.iter().any(|t| t.pane == pane && t.id != tab.id)
 }
 
 /// A side of the program window.
@@ -120,15 +210,15 @@ impl Edge {
 }
 
 pub struct Layout {
-    pub dock: DockState<Pane>,
+    pub dock: DockState<Tab>,
     /// Locked: tabs cannot be moved, floated or closed. Dividers still resize.
     pub locked: bool,
     /// The layout as last written to disk.
     saved: String,
     /// Floating windows that have been given their starting size.
     sized: Vec<usize>,
-    /// Pane whose tab the mouse went down on, and whether it has moved since.
-    pub tab_drag: Option<(Pane, bool)>,
+    /// The tab the mouse went down on, and whether it has moved since.
+    pub tab_drag: Option<(Tab, bool)>,
 }
 
 /// The layouts Imago comes with, in Window > Layout: name (its file's),
@@ -150,7 +240,7 @@ pub const PRESETS: [(&str, &str); 3] = [
 
 /// A layout Imago comes with, by name. Its lock is not taken: choosing a
 /// layout does not lock or unlock.
-pub fn preset(name: &str) -> Option<DockState<Pane>> {
+pub fn preset(name: &str) -> Option<DockState<Tab>> {
     PRESETS
         .iter()
         .find(|(n, _)| *n == name)
@@ -159,7 +249,7 @@ pub fn preset(name: &str) -> Option<DockState<Pane>> {
 }
 
 /// `xms_main_layout`: the default when none is saved.
-pub fn main_dock() -> DockState<Pane> {
+pub fn main_dock() -> DockState<Tab> {
     preset(PRESETS[0].0).unwrap_or_else(built_dock)
 }
 
@@ -169,7 +259,7 @@ fn default_file() -> Option<std::path::PathBuf> {
 }
 
 /// The layout saved as default, if one is and it reads.
-fn saved_default() -> Option<DockState<Pane>> {
+fn saved_default() -> Option<DockState<Tab>> {
     let text = std::fs::read_to_string(default_file()?).ok()?;
     from_json(&text).map(|(dock, _)| dock)
 }
@@ -181,7 +271,7 @@ pub fn has_saved_default() -> bool {
 
 /// The layout Imago opens with, and File > New and Reset go back to: the
 /// one saved as default, else `xms_main_layout`.
-pub fn default_dock() -> DockState<Pane> {
+pub fn default_dock() -> DockState<Tab> {
     saved_default().unwrap_or_else(main_dock)
 }
 
@@ -203,30 +293,37 @@ pub fn take_default_request() -> bool {
 /// operator stack. Timeline along the bottom of those, History down the whole
 /// right side. The Curve Editor is a tab behind the node graph, the Light
 /// Linker behind the primitive inspector. Built in code: what is used if `xms_main_layout` could not be read.
-pub fn built_dock() -> DockState<Pane> {
-    let mut dock = DockState::new(vec![Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]);
+pub fn built_dock() -> DockState<Tab> {
+    let tabs = |panes: &[Pane]| panes.iter().map(|p| Tab::new(*p)).collect::<Vec<Tab>>();
+    let mut dock = DockState::new(tabs(&[Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]));
     let s = dock.main_surface_mut();
-    let [work, _history] = s.split_right(NodeIndex::root(), 0.928, vec![Pane::History]);
-    let [top, _timeline] = s.split_below(work, 0.862, vec![Pane::Timeline]);
-    let [left, right] = s.split_right(top, 0.476, vec![Pane::NodeGraph, Pane::CurveEditor]);
-    let [view, _prim] = s.split_below(left, 0.72, vec![Pane::PrimInspector, Pane::LightLinker]);
-    s.split_left(view, 0.163, vec![Pane::SceneExplorer]);
-    let [_graph, side] = s.split_right(right, 0.648, vec![Pane::Parameters]);
-    s.split_below(side, 0.718, vec![Pane::OperatorStack]);
+    let [work, _history] = s.split_right(NodeIndex::root(), 0.928, tabs(&[Pane::History]));
+    let [top, _timeline] = s.split_below(work, 0.862, tabs(&[Pane::Timeline]));
+    let [left, right] = s.split_right(top, 0.476, tabs(&[Pane::NodeGraph, Pane::CurveEditor]));
+    let [view, _prim] = s.split_below(left, 0.72, tabs(&[Pane::PrimInspector, Pane::LightLinker]));
+    s.split_left(view, 0.163, tabs(&[Pane::SceneExplorer]));
+    let [_graph, side] = s.split_right(right, 0.648, tabs(&[Pane::Parameters]));
+    s.split_below(side, 0.718, tabs(&[Pane::OperatorStack]));
     dock
 }
 
-/// A layout is usable when no pane is in it twice. Panes that are missing are
-/// closed, and can be shown again from the Panes menu.
-pub fn is_valid(dock: &DockState<Pane>) -> bool {
-    let tabs: Vec<Pane> = dock.iter_all_tabs().map(|(_, t)| *t).collect();
-    Pane::ALL.iter().all(|p| tabs.iter().filter(|t| *t == p).count() <= 1)
+/// A layout is usable when no tab number is in it twice, nor a pane of one
+/// of a kind (`Pane::multiple`). Panes that are missing are closed, and can be
+/// shown again from the Panes menu.
+pub fn is_valid(dock: &DockState<Tab>) -> bool {
+    let tabs: Vec<Tab> = dock.iter_all_tabs().map(|(_, t)| *t).collect();
+    let ids: std::collections::HashSet<u32> = tabs.iter().map(|t| t.id).collect();
+    ids.len() == tabs.len()
+        && Pane::ALL
+            .iter()
+            .filter(|p| !p.multiple())
+            .all(|p| tabs.iter().filter(|t| t.pane == *p).count() <= 1)
 }
 
 /// The layout as text. Rectangles of panes that have not been laid out yet are
 /// infinite, which JSON cannot hold: they are written as zero. They are worked
 /// out again on the first frame anyway.
-pub fn to_json(dock: &DockState<Pane>, locked: bool) -> Option<String> {
+pub fn to_json(dock: &DockState<Tab>, locked: bool) -> Option<String> {
     fn fix(v: &mut serde_json::Value, in_rect: bool) {
         match v {
             serde_json::Value::Null if in_rect => *v = serde_json::json!(0.0),
@@ -250,7 +347,7 @@ pub fn to_json(dock: &DockState<Pane>, locked: bool) -> Option<String> {
 
 /// Layout and lock state from text. Files written before the lock existed hold
 /// the layout alone.
-pub fn from_json(json: &str) -> Option<(DockState<Pane>, bool)> {
+pub fn from_json(json: &str) -> Option<(DockState<Tab>, bool)> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
     let (dock, locked) = match value.get("dock") {
         Some(d) => (
@@ -259,7 +356,8 @@ pub fn from_json(json: &str) -> Option<(DockState<Pane>, bool)> {
         ),
         None => (value, false),
     };
-    let dock: DockState<Pane> = serde_json::from_value(dock).ok()?;
+    let mut dock: DockState<Tab> = serde_json::from_value(dock).ok()?;
+    numbered(&mut dock);
     is_valid(&dock).then_some((dock, locked))
 }
 
@@ -321,7 +419,7 @@ impl Layout {
 
     /// Another layout in place of this one, its floating windows where it
     /// has them.
-    fn set_dock(&mut self, dock: DockState<Pane>) {
+    fn set_dock(&mut self, dock: DockState<Tab>) {
         self.dock = dock;
         self.sized.clear();
         self.restore_windows();
@@ -383,7 +481,7 @@ impl Layout {
     /// once. Not while it shares its place with other tabs, nor floating.
     pub fn fit_timeline(&mut self, need: f32, margin: f32) {
         let tree = &mut self.dock[egui_dock::SurfaceIndex::main()];
-        let Some((node, _)) = tree.find_tab(&Pane::Timeline) else {
+        let Some((node, _)) = find_in(tree, Pane::Timeline) else {
             return;
         };
         let (rect, viewport) = match &tree[node] {
@@ -412,25 +510,40 @@ impl Layout {
         }
     }
 
-    pub fn is_open(&self, pane: Pane) -> bool {
-        self.dock.find_tab(&pane).is_some()
+    /// The first tab of `pane`, if one is open.
+    pub fn first(&self, pane: Pane) -> Option<Tab> {
+        self.dock.iter_all_tabs().map(|(_, t)| *t).find(|t| t.pane == pane)
     }
 
-    /// True when the pane sits in a floating window.
+    /// Whether any tab of `pane` is open.
+    pub fn is_open(&self, pane: Pane) -> bool {
+        self.first(pane).is_some()
+    }
+
+    /// True when a tab of `pane` sits in a floating window.
     pub fn is_floating(&self, pane: Pane) -> bool {
         self.dock
-            .find_tab(&pane)
-            .map(|at| !at.surface.is_main())
-            .unwrap_or(false)
+            .iter_all_tabs()
+            .any(|(at, t)| t.pane == pane && !at.surface.is_main())
+    }
+
+    fn tab_floats(&self, tab: Tab) -> bool {
+        self.dock.find_tab(&tab).is_some_and(|at| !at.surface.is_main())
     }
 
     pub fn any_floating(&self) -> bool {
         Pane::ALL.iter().any(|p| self.is_floating(*p))
     }
 
-    /// Close a pane. It can be shown again with `show`.
+    /// Close every tab of a pane. It can be shown again with `show`.
     pub fn hide(&mut self, pane: Pane) {
-        if let Some(at) = self.dock.find_tab(&pane) {
+        while let Some(at) = self.dock.find_tab_from(|t| t.pane == pane) {
+            self.dock.remove_tab(at);
+        }
+    }
+
+    fn remove(&mut self, tab: Tab) {
+        if let Some(at) = self.dock.find_tab(&tab) {
             self.dock.remove_tab(at);
         }
     }
@@ -440,43 +553,97 @@ impl Layout {
         if self.is_open(pane) {
             return;
         }
-        self.dock.main_surface_mut().push_to_focused_leaf(pane);
+        self.dock.main_surface_mut().push_to_focused_leaf(Tab::new(pane));
     }
 
-    /// Bring a floating pane back into the main area.
+    /// Whether a tab of `pane` can be added (`add_tab`): see `may_add`.
+    pub fn may_add(&self, pane: Pane) -> bool {
+        may_add(&self.tabs(), pane)
+    }
+
+    /// Whether tab `tab` can show `pane` instead: see `may_become`.
+    pub fn may_become(&self, tab: Tab, pane: Pane) -> bool {
+        may_become(&self.tabs(), tab, pane)
+    }
+
+    /// Every open tab.
+    pub fn tabs(&self) -> Vec<Tab> {
+        self.dock.iter_all_tabs().map(|(_, t)| *t).collect()
+    }
+
+    /// A new tab of `pane` beside the tabs at `at` (a tab bar), in front;
+    /// anywhere when that place is gone. Nothing when `may_add` says no.
+    pub fn add_tab(&mut self, pane: Pane, at: Option<egui_dock::NodePath>) {
+        if !self.may_add(pane) {
+            return;
+        }
+        let tab = Tab::new(pane);
+        match at.and_then(|at| self.dock.leaf_mut(at).ok()) {
+            Some(leaf) => leaf.append_tab(tab),
+            None => self.dock.main_surface_mut().push_to_focused_leaf(tab),
+        }
+    }
+
+    /// Bring a floating tab back into the main area.
+    pub fn dock_tab(&mut self, tab: Tab) {
+        if !self.tab_floats(tab) {
+            return;
+        }
+        self.remove(tab);
+        self.dock.main_surface_mut().push_to_focused_leaf(tab);
+    }
+
+    /// Pull a docked tab out as a floating window.
+    pub fn float_tab(&mut self, tab: Tab) {
+        if self.dock.find_tab(&tab).is_none() || self.tab_floats(tab) {
+            return;
+        }
+        self.remove(tab);
+        self.dock.add_window(vec![tab]);
+    }
+
+    pub fn toggle_float_tab(&mut self, tab: Tab) {
+        if self.tab_floats(tab) {
+            self.dock_tab(tab);
+        } else {
+            self.float_tab(tab);
+        }
+    }
+
+    /// Bring a pane's floating tabs back into the main area.
     pub fn dock_pane(&mut self, pane: Pane) {
-        if !self.is_floating(pane) {
-            return;
+        let floating: Vec<Tab> = self
+            .dock
+            .iter_all_tabs()
+            .filter(|(at, t)| t.pane == pane && !at.surface.is_main())
+            .map(|(_, t)| *t)
+            .collect();
+        for t in floating {
+            self.dock_tab(t);
         }
-        self.hide(pane);
-        self.show(pane);
     }
 
-    /// Pull a docked pane out as a floating window.
+    /// Pull a pane's first tab out as a floating window.
     pub fn float_pane(&mut self, pane: Pane) {
-        if !self.is_open(pane) || self.is_floating(pane) {
-            return;
+        if let Some(t) = self.first(pane) {
+            self.float_tab(t);
         }
-        self.hide(pane);
-        self.dock.add_window(vec![pane]);
     }
 
     pub fn toggle_float(&mut self, pane: Pane) {
-        if self.is_floating(pane) {
-            self.dock_pane(pane);
-        } else {
-            self.float_pane(pane);
+        if let Some(t) = self.first(pane) {
+            self.toggle_float_tab(t);
         }
     }
 
-    /// Dock a pane along a whole side of the window, next to everything else:
+    /// Dock a tab along a whole side of the window, next to everything else:
     /// the place the timeline has in the default layout.
-    pub fn dock_to_edge(&mut self, pane: Pane, edge: Edge) {
+    pub fn dock_tab_to_edge(&mut self, tab: Tab, edge: Edge) {
         use egui_dock::{Node, Split};
-        self.hide(pane);
+        self.remove(tab);
         let tree = self.dock.main_surface_mut();
         if tree.root_node().map(|n| n.is_empty()).unwrap_or(true) {
-            tree.push_to_first_leaf(pane);
+            tree.push_to_first_leaf(tab);
             return;
         }
         // The fraction is the share of the left or upper part.
@@ -486,7 +653,13 @@ impl Layout {
             Edge::Right => (Split::Right, 1.0 - edge.share()),
             Edge::Bottom => (Split::Below, 1.0 - edge.share()),
         };
-        tree.split(NodeIndex::root(), split, fraction, Node::leaf(pane));
+        tree.split(NodeIndex::root(), split, fraction, Node::leaf(tab));
+    }
+
+    /// A pane's first tab (a new one when none is open) along a side.
+    pub fn dock_to_edge(&mut self, pane: Pane, edge: Edge) {
+        let tab = self.first(pane).unwrap_or_else(|| Tab::new(pane));
+        self.dock_tab_to_edge(tab, edge);
     }
 
     pub fn dock_all(&mut self) {
@@ -543,6 +716,10 @@ mod tests {
         }
     }
     const ALL: usize = Pane::ALL.len();
+    /// The first tab of `pane`, wherever it is.
+    fn find(dock: &DockState<Tab>, pane: Pane) -> Option<egui_dock::TabPath> {
+        dock.find_tab_from(|t| t.pane == pane)
+    }
     fn open(l: &Layout) -> usize {
         Pane::ALL.iter().filter(|p| l.is_open(**p)).count()
     }
@@ -578,13 +755,13 @@ mod tests {
     fn layout_and_lock_survive_the_file() {
         let mut l = layout();
         // Stack the properties with the node graph, close the timeline, float the inspector.
-        let at = l.dock.find_tab(&Pane::Parameters).unwrap();
+        let at = find(&l.dock, Pane::Parameters).unwrap();
         let tab = l.dock.remove_tab(at).unwrap();
-        let at = l.dock.find_tab(&Pane::NodeGraph).unwrap();
+        let at = find(&l.dock, Pane::NodeGraph).unwrap();
         l.dock.leaf_mut(at.node_path()).unwrap().append_tab(tab);
         l.hide(Pane::Timeline);
         l.hide(Pane::PrimInspector);
-        l.dock.add_window(vec![Pane::PrimInspector]);
+        l.dock.add_window(vec![Tab::new(Pane::PrimInspector)]);
         assert!(is_valid(&l.dock));
         assert!(l.is_floating(Pane::PrimInspector) && !l.is_open(Pane::Timeline));
 
@@ -599,8 +776,8 @@ mod tests {
             sized: vec![],
             tab_drag: None,
         };
-        let a = back.dock.find_tab(&Pane::Parameters).unwrap();
-        let b = back.dock.find_tab(&Pane::NodeGraph).unwrap();
+        let a = find(&back.dock, Pane::Parameters).unwrap();
+        let b = find(&back.dock, Pane::NodeGraph).unwrap();
         assert_eq!((a.surface, a.node), (b.surface, b.node));
         assert!(back.is_floating(Pane::PrimInspector));
         assert!(!back.is_open(Pane::Timeline));
@@ -619,9 +796,9 @@ mod tests {
         assert!(is_valid(&l.dock));
 
         l.hide(Pane::Parameters);
-        l.dock.add_window(vec![Pane::Parameters]);
+        l.dock.add_window(vec![Tab::new(Pane::Parameters)]);
         l.hide(Pane::NodeGraph);
-        l.dock.add_window(vec![Pane::NodeGraph]);
+        l.dock.add_window(vec![Tab::new(Pane::NodeGraph)]);
         assert!(l.is_floating(Pane::Parameters) && l.any_floating());
         l.dock_pane(Pane::Parameters);
         assert!(!l.is_floating(Pane::Parameters) && l.is_floating(Pane::NodeGraph));
@@ -663,7 +840,7 @@ mod tests {
             assert!(is_valid(&l.dock) && !l.is_floating(Pane::Timeline));
             assert_eq!(open(&l), ALL);
             // It is a child of the root: it spans the whole side.
-            let (node, _) = l.dock.find_main_surface_tab(&Pane::Timeline).unwrap();
+            let (node, _) = find_in(&l.dock[egui_dock::SurfaceIndex::main()], Pane::Timeline).unwrap();
             assert_eq!(node.parent(), Some(NodeIndex::root()), "{edge:?}");
             let first = matches!(edge, Edge::Left | Edge::Top);
             assert_eq!(node == NodeIndex::root().left(), first, "{edge:?}");
@@ -685,7 +862,7 @@ mod tests {
         assert!(from_json("{ nonsense").is_none());
         // The same pane twice.
         let mut dock = main_dock();
-        dock.add_window(vec![Pane::Timeline]);
+        dock.add_window(vec![Tab::new(Pane::Timeline)]);
         assert!(!is_valid(&dock));
         assert!(from_json(&to_json(&dock, false).unwrap()).is_none());
         // A file from before the lock: the layout alone.
@@ -699,7 +876,7 @@ mod tests {
 
     /// Where each pane sits in a layout: tab order in its place, and the
     /// fractions of the splits above it, rounded.
-    fn shape(dock: &DockState<Pane>) -> Vec<(Vec<Pane>, Vec<i32>)> {
+    fn shape(dock: &DockState<Tab>) -> Vec<(Vec<Pane>, Vec<i32>)> {
         let tree = &dock[egui_dock::SurfaceIndex::main()];
         let mut out = vec![];
         for (i, node) in tree.iter().enumerate() {
@@ -718,7 +895,7 @@ mod tests {
                     }
                     at = p;
                 }
-                out.push((tabs.to_vec(), fr));
+                out.push((tabs.iter().map(|t| t.pane).collect(), fr));
             }
         }
         out.sort_by_key(|(t, _)| format!("{t:?}"));
@@ -788,7 +965,7 @@ mod tests {
             egui_dock::Node::Horizontal(split) => assert!((split.fraction - 0.6).abs() < 1e-6),
             other => panic!("the root split was lost: {other:?}"),
         }
-        let (node, _) = l.dock.find_main_surface_tab(&Pane::UvEditor).unwrap();
+        let (node, _) = find_in(&l.dock[egui_dock::SurfaceIndex::main()], Pane::UvEditor).unwrap();
         assert_eq!(node, NodeIndex::root().left());
         // And it is written back in today's form, which loads again.
         assert!(from_json(&to_json(&l.dock, true).unwrap()).is_some());
@@ -820,14 +997,14 @@ mod tests {
         let dock = main_dock();
         let tree = &dock[egui_dock::SurfaceIndex::main()];
         let front = |p: Pane| {
-            let (node, tab) = tree.find_tab(&p).unwrap();
+            let (node, tab) = find_in(tree, p).unwrap();
             match &tree[node] {
-                egui_dock::Node::Leaf(leaf) => leaf.active.0 == tab.0,
+                egui_dock::Node::Leaf(leaf) => leaf.active.0 == tab,
                 _ => false,
             }
         };
         assert!(front(Pane::SceneExplorer) && !front(Pane::PrimInspector) && !front(Pane::LightLinker));
-        let leaf_of = |p: Pane| tree.find_tab(&p).unwrap().0;
+        let leaf_of = |p: Pane| find_in(tree, p).unwrap().0;
         assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::PrimInspector));
         assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::SceneExplorer));
         assert!(front(Pane::History) && front(Pane::Viewer) && front(Pane::NodeGraph));
@@ -839,7 +1016,7 @@ mod tests {
     fn the_built_layout_has_the_light_linker_bottom_left() {
         let dock = built_dock();
         let tree = &dock[egui_dock::SurfaceIndex::main()];
-        let leaf_of = |p: Pane| tree.find_tab(&p).unwrap().0;
+        let leaf_of = |p: Pane| find_in(tree, p).unwrap().0;
         assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::PrimInspector));
         assert!(is_valid(&dock) && dock.iter_all_tabs().count() == Pane::ALL.len());
     }
@@ -849,5 +1026,67 @@ mod tests {
         let d = main_dock();
         assert!(is_valid(&d));
         assert_eq!(d.iter_all_tabs().count(), Pane::ALL.len());
+    }
+
+    /// Some panes open twice, each a tab of its own number; one of a kind
+    /// never; a tab turns into another pane only where that keeps the rule.
+    /// Saved and read again, the numbers stay.
+    #[test]
+    fn tabs_are_instances_some_of_them_twice() {
+        let mut l = layout();
+        let at = find(&l.dock, Pane::Parameters).map(|p| p.node_path());
+        l.add_tab(Pane::Parameters, at);
+        l.add_tab(Pane::Timeline, at);
+        let tabs: Vec<Tab> = l.dock.iter_all_tabs().map(|(_, t)| *t).collect();
+        assert_eq!(tabs.iter().filter(|t| t.pane == Pane::Parameters).count(), 2);
+        assert_eq!(tabs.iter().filter(|t| t.pane == Pane::Timeline).count(), 1);
+        assert!(is_valid(&l.dock));
+        // Beside the first, in the same tab bar.
+        let both: Vec<egui_dock::TabPath> = l
+            .dock
+            .iter_all_tabs()
+            .filter(|(_, t)| t.pane == Pane::Parameters)
+            .map(|(at, _)| at)
+            .collect();
+        assert_eq!((both[0].surface, both[0].node), (both[1].surface, both[1].node));
+        let params = l.first(Pane::Parameters).unwrap();
+        assert!(l.may_become(params, Pane::SceneExplorer) && !l.may_become(params, Pane::Viewer));
+        let viewer = l.first(Pane::Viewer).unwrap();
+        assert!(l.may_become(viewer, Pane::Viewer));
+        // Through the file: the same numbers.
+        let (back, _) = from_json(&to_json(&l.dock, false).unwrap()).unwrap();
+        let ids = |d: &DockState<Tab>| {
+            let mut v: Vec<u32> = d.iter_all_tabs().map(|(_, t)| t.id).collect();
+            v.sort_unstable();
+            v
+        };
+        assert_eq!(ids(&back), ids(&l.dock));
+        // Closing the pane closes both.
+        l.hide(Pane::Parameters);
+        assert!(!l.is_open(Pane::Parameters));
+    }
+
+    /// A layout naming panes alone (as saved before tabs had numbers), and
+    /// two tabs of one number: each tab is given one of its own, new tabs
+    /// numbered above them; two Viewers are refused.
+    #[test]
+    fn tabs_read_without_numbers_are_numbered() {
+        let dock = main_dock();
+        let mut ids: Vec<u32> = dock.iter_all_tabs().map(|(_, t)| t.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert!(ids.len() == Pane::ALL.len() && ids[0] > 0);
+        assert!(Tab::new(Pane::Viewer).id > *ids.last().unwrap());
+        let mut twice = main_dock();
+        let first = twice.iter_all_tabs().map(|(_, t)| *t).next().unwrap();
+        twice.add_window(vec![Tab {
+            id: first.id,
+            pane: Pane::Parameters,
+        }]);
+        let (back, _) = from_json(&to_json(&twice, false).unwrap()).expect("renumbered");
+        assert!(is_valid(&back));
+        let mut viewers = main_dock();
+        viewers.add_window(vec![Tab::new(Pane::Viewer)]);
+        assert!(from_json(&to_json(&viewers, false).unwrap()).is_none());
     }
 }

@@ -65,7 +65,7 @@ use ice::{
     ui::{draw_breadcrumb, draw_subnet_graph},
     GraphNavigation, IceGraphStore,
 };
-use layout::{Layout, Pane};
+use layout::{Layout, Pane, Tab};
 use node_graph::ui::draw_node_graph;
 use node_graph::NodeGraphState;
 use prim_inspector::ui::draw_prim_inspector;
@@ -637,6 +637,10 @@ pub(crate) fn draw_ui(
     let mut toggle_float = None;
     let mut dock_rect = ctx.content_rect();
     let mut tab_pressed = None;
+    // Tabs asked for from a tab bar (its + or a tab's New Tab): added once the
+    // dock area is drawn.
+    let mut new_tabs: Vec<(Pane, Option<egui_dock::NodePath>)> = vec![];
+    let open_tabs = layout.tabs();
     {
         let mut panes = Panes {
             graph: &mut *graph,
@@ -662,6 +666,9 @@ pub(crate) fn draw_ui(
             locked,
             toggle_float: &mut toggle_float,
             tab_pressed: &mut tab_pressed,
+            new_tabs: &mut new_tabs,
+            open_tabs: &open_tabs,
+            parameters_drawn: false,
             uv_state: &mut *uv_state,
             history: &mut *history,
             confirm: &mut *confirm,
@@ -689,12 +696,18 @@ pub(crate) fn draw_ui(
                 .show_leaf_close_all_buttons(false)
                 .show_leaf_collapse_buttons(false)
                 .tab_context_menus(!locked)
+                // The + of each tab bar: a tab of any pane beside the others.
+                .show_add_buttons(!locked)
+                .show_add_popup(!locked)
                 .show_inside(ui, &mut panes);
         });
     }
 
-    if let Some(pane) = toggle_float {
-        layout.toggle_float(pane);
+    for (pane, at) in new_tabs {
+        layout.add_tab(pane, at);
+    }
+    if let Some(tab) = toggle_float {
+        layout.toggle_float_tab(tab);
     }
     // The Timeline's pane is as tall as its rows, no taller.
     if let Some(need) = timeline::ui::need(ctx) {
@@ -719,17 +732,17 @@ pub(crate) fn draw_ui(
             i.pointer.primary_released(),
         )
     });
-    if let Some(pane) = tab_pressed {
+    if let Some(tab) = tab_pressed {
         if layout.tab_drag.is_none() {
-            layout.tab_drag = Some((pane, false));
+            layout.tab_drag = Some((tab, false));
         }
     }
-    if let Some((pane, moved)) = layout.tab_drag {
+    if let Some((tab, moved)) = layout.tab_drag {
         let released = let_go || !down;
         if released {
             layout.tab_drag = None;
         } else if moving {
-            layout.tab_drag = Some((pane, true));
+            layout.tab_drag = Some((tab, true));
         }
         let moved = moved || moving;
         let screen = dock_rect;
@@ -740,7 +753,7 @@ pub(crate) fn draw_ui(
             // A click on a tab, not a drag.
         } else if released {
             if let Some(edge) = edge {
-                layout.dock_to_edge(pane, edge);
+                layout.dock_tab_to_edge(tab, edge);
             }
         } else {
             let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("edge_dock")));
@@ -1042,10 +1055,17 @@ struct Panes<'a> {
     space_plays: bool,
     revision: u64,
     locked: bool,
-    /// Pane whose tab was double-clicked this frame.
-    toggle_float: &'a mut Option<Pane>,
-    /// Pane whose tab the mouse button went down on this frame.
-    tab_pressed: &'a mut Option<Pane>,
+    /// The tab double-clicked this frame.
+    toggle_float: &'a mut Option<Tab>,
+    /// The tab the mouse button went down on this frame.
+    tab_pressed: &'a mut Option<Tab>,
+    /// Tabs asked for this frame: a pane, beside the tabs of a tab bar.
+    new_tabs: &'a mut Vec<(Pane, Option<egui_dock::NodePath>)>,
+    /// The tabs open as the frame began.
+    open_tabs: &'a [Tab],
+    /// A Parameters tab drawn this frame: what is drawn over every pane (a
+    /// row's menu, Promote Group) only by the first.
+    parameters_drawn: bool,
     uv_state: &'a mut uv_editor::UvEditorState,
     curve_editor: &'a mut curve_editor::CurveEditor,
     image_viewer: &'a mut image_viewer::ImageViewerState,
@@ -1056,23 +1076,64 @@ struct Panes<'a> {
     nav_settings: viewport::nav::NavSettings,
 }
 
-impl egui_dock::TabViewer for Panes<'_> {
-    type Tab = Pane;
+impl Panes<'_> {
+    /// The panes a tab can be added of, beside the tabs at `path` (a tab
+    /// bar): a click asks for one (`new_tabs`). One of a kind open is greyed.
+    fn pane_list(&mut self, ui: &mut egui::Ui, path: egui_dock::NodePath) {
+        for p in Pane::ALL {
+            let free = layout::may_add(self.open_tabs, p);
+            let r = ui
+                .add_enabled(free, egui::Button::new(p.title()))
+                .on_disabled_hover_text("Open in another tab: there is one of it");
+            if r.clicked() {
+                self.new_tabs.push((p, Some(path)));
+                ui.close();
+            }
+        }
+    }
+}
 
-    // By its title, as egui_dock named tabs before it asked for an id: the
-    // state a pane keeps (scroll positions) carries over.
-    fn id(&mut self, tab: &mut Pane) -> egui::Id {
-        egui::Id::new(tab.title())
+impl egui_dock::TabViewer for Panes<'_> {
+    type Tab = Tab;
+
+    // By its number: two tabs of one pane are two, each with the state it
+    // keeps (scroll positions).
+    fn id(&mut self, tab: &mut Tab) -> egui::Id {
+        egui::Id::new(("pane", tab.id))
     }
-    fn title(&mut self, tab: &mut Pane) -> egui::WidgetText {
-        tab.title().into()
+    fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
+        tab.pane.title().into()
     }
-    // Closing hides the pane. The Panes menu shows it again.
-    fn is_closeable(&self, _tab: &Pane) -> bool {
+    // Closing takes the tab away. The Panes menu, or a tab bar's +, opens one.
+    fn is_closeable(&self, _tab: &Tab) -> bool {
         !self.locked
     }
+    // Right-click a tab: Pane, what it shows instead; New Tab, another beside
+    // it. A pane of one of a kind (`Pane::multiple`) open elsewhere is greyed.
+    fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Tab, path: egui_dock::NodePath) {
+        let now = *tab;
+        ui.menu_button("Pane", |ui| {
+            for p in Pane::ALL {
+                let free = layout::may_become(self.open_tabs, now, p);
+                let r = ui
+                    .add_enabled_ui(free, |ui| ui.selectable_label(p == now.pane, p.title()))
+                    .inner
+                    .on_disabled_hover_text("Open in another tab: there is one of it");
+                if r.clicked() && p != now.pane {
+                    tab.pane = p;
+                    ui.close();
+                }
+            }
+        });
+        ui.menu_button("New Tab", |ui| self.pane_list(ui, path));
+        ui.separator();
+    }
+    // A tab bar's +: a tab of any pane that can be added, beside the others.
+    fn add_popup(&mut self, ui: &mut egui::Ui, path: egui_dock::NodePath) {
+        self.pane_list(ui, path);
+    }
     // Double-click a tab to float it, or to dock it back.
-    fn on_tab_button(&mut self, tab: &mut Pane, response: &egui::Response) {
+    fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
         if self.locked {
             return;
         }
@@ -1086,16 +1147,16 @@ impl egui_dock::TabViewer for Panes<'_> {
         }
     }
     // Panes scroll their own content where they need to.
-    fn scroll_bars(&self, _tab: &Pane) -> [bool; 2] {
+    fn scroll_bars(&self, _tab: &Tab) -> [bool; 2] {
         [false, false]
     }
     // The 3D view is drawn by the camera behind the interface.
-    fn clear_background(&self, tab: &Pane) -> bool {
-        *tab != Pane::Viewer || self.viewer.is_some()
+    fn clear_background(&self, tab: &Tab) -> bool {
+        tab.pane != Pane::Viewer || self.viewer.is_some()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Pane) {
-        match tab {
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+        match tab.pane {
             Pane::Viewer => {
                 self.vp_rect.0 = Some(ui.max_rect());
                 if let Some(v) = self.viewer.as_deref_mut() {
@@ -1249,8 +1310,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                         }
                         _ => {}
                     }
+                    // What is drawn over every pane, by the first Parameters
+                    // tab of the frame alone.
+                    let first = !self.parameters_drawn;
+                    self.parameters_drawn = true;
                     // A group's title right-clicked: Promote Group.
-                    if own_parameters {
+                    if own_parameters && first {
                         let id = editing.as_ref().map(|(id, _)| *id);
                         if let Some(m) = crate::keys_ui::group_menu(ui.ctx(), self.graph, id, &ice_settings) {
                             self.graph_file.message = m;
@@ -1265,8 +1330,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                         }
                     }
                     // A number's menu from its row, and the Promote window.
-                    if let Some(m) = crate::keys_ui::row_menu(ui.ctx(), self.graph) {
-                        self.graph_file.message = m;
+                    if first {
+                        if let Some(m) = crate::keys_ui::row_menu(ui.ctx(), self.graph) {
+                            self.graph_file.message = m;
+                        }
                     }
                     // Operators the panel asked for: a MaterialX operator from a stage's material.
                     for (name, t) in std::mem::take(&mut io.add) {

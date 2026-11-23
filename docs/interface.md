@@ -38,10 +38,17 @@ opens in the default layout, and File > New and Reset layout go back to it.
 | Dock along a side of the window | Drag the tab to that edge |
 | Float or dock a pane | Double-click its tab, or drop it off the squares |
 | Show a closed pane | Tick it in the Window menu |
+| Show another pane in a tab | Right-click the tab > **Pane** |
+| Open another tab beside it | Right-click the tab > **New Tab**, or the **+** of the tab bar |
 | Keep a layout | Window > Save layout... and Load layout... |
 
-The padlock locks the layout: tabs can't be moved or closed, panes still
-resize. A hidden Viewer is not drawn.
+Parameters, Scene Explorer and Primitive Inspector can be open in several
+tabs at once; for now they show the same. The other panes are one of a kind:
+open in a tab, they are greyed in the menus. Unticking a pane in the Window
+menu closes all its tabs.
+
+The padlock locks the layout: tabs can't be moved, closed or added, panes
+still resize. A hidden Viewer is not drawn.
 
 ## Files
 
