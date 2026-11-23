@@ -255,6 +255,32 @@ pub fn node_name(name: &str) -> String {
     name.chars().map(|c| if c.is_whitespace() { '_' } else { c }).collect()
 }
 
+/// What one Node Graph tab looks at and is in the middle of doing: where it
+/// is panned and zoomed, and its drags, wires and menus. A graph holds the view
+/// of the tab last used; another tab's is swapped in while it is drawn
+/// (`swap_view`), so two tabs look at the graph each their own way.
+#[derive(Clone, Default)]
+pub struct GraphView {
+    pub pan_offset: egui::Vec2,
+    pub zoom: f32,
+    pub tab_menu_screen_pos: Option<egui::Pos2>,
+    pub tab_menu_canvas_pos: Option<egui::Pos2>,
+    pub marquee_start: Option<egui::Pos2>,
+    pub renaming_node: Option<NodeId>,
+    pub rename_buffer: String,
+    pub dragging_node: Option<NodeId>,
+    pub drag_offset: egui::Vec2,
+    pub connecting_from: Option<(NodeId, usize)>,
+    pub carrying: Vec<(NodeId, usize)>,
+    pub wire_dragged: bool,
+    pub pressed_input: Option<(NodeId, usize)>,
+    pub unplug: Option<crate::graph_ports::Picked<NodeId, usize>>,
+    pub drop_on_wire: Option<ConnectionId>,
+    pub pulled_out: bool,
+    pub info_node: Option<NodeId>,
+    pub frame_request: bool,
+}
+
 #[derive(Clone)]
 pub struct NodeGraphState {
     pub nodes: Vec<GraphNode>,
@@ -527,6 +553,45 @@ pub fn scene_paths(prims: &[crate::types::Prim]) -> Vec<String> {
 }
 
 impl NodeGraphState {
+    /// Its view (`GraphView`) and `v` swapped.
+    pub fn swap_view(&mut self, v: &mut GraphView) {
+        macro_rules! swap {
+            ($($f:ident),*) => {
+                $(std::mem::swap(&mut self.$f, &mut v.$f);)*
+            };
+        }
+        swap!(
+            pan_offset,
+            zoom,
+            tab_menu_screen_pos,
+            tab_menu_canvas_pos,
+            marquee_start,
+            renaming_node,
+            rename_buffer,
+            dragging_node,
+            drag_offset,
+            connecting_from,
+            carrying,
+            wire_dragged,
+            pressed_input,
+            unplug,
+            drop_on_wire,
+            pulled_out,
+            info_node,
+            frame_request
+        );
+    }
+
+    /// A new tab's view: where this one is panned and zoomed, nothing under
+    /// way.
+    pub fn view(&self) -> GraphView {
+        GraphView {
+            pan_offset: self.pan_offset,
+            zoom: self.zoom,
+            ..Default::default()
+        }
+    }
+
     /// Hash of everything evaluation and display depend on: nodes with their
     /// parameters, wires, the view flag and the selection. Node positions,
     /// panning and drags in progress are left out.

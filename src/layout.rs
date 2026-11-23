@@ -64,16 +64,20 @@ impl Pane {
     /// otherwise (`Tab::follows`). `None`: it shows no one operator.
     pub fn follows(self) -> Option<Follows> {
         match self {
-            Pane::Parameters => Some(Follows::Selection),
+            Pane::Parameters | Pane::CurveEditor | Pane::UvEditor => Some(Follows::Selection),
             _ => None,
         }
     }
 
     /// Panes that can be open more than once, each a tab of its own. The
     /// others are one of a kind: what they show, and how, is the program's
-    /// (one Viewer, one Timeline).
+    /// (one Viewer, one Timeline, one History, one Operator Stack), or they
+    /// share what they draw with (the Image Viewer's image on the GPU).
     pub fn multiple(self) -> bool {
-        matches!(self, Pane::Parameters | Pane::SceneExplorer | Pane::PrimInspector)
+        !matches!(
+            self,
+            Pane::Viewer | Pane::Timeline | Pane::History | Pane::OperatorStack | Pane::ImageViewer
+        )
     }
 
     pub fn title(self) -> &'static str {
@@ -227,6 +231,44 @@ pub fn may_add(open: &[Tab], pane: Pane) -> bool {
 /// own, one that can be open twice, or one of a kind no other tab shows.
 pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
     tab.pane == pane || pane.multiple() || !open.iter().any(|t| t.pane == pane && t.id != tab.id)
+}
+
+/// What tabs keep of their own, beyond the first of their pane (which uses
+/// the program's): a Node Graph tab's view and the graph it is in (ICE,
+/// MaterialX), a Curve Editor's, a UV Editor's. Forgotten when the tab closes.
+#[derive(Default)]
+pub struct TabStates {
+    /// Node Graph tabs not the one last used: their views, swapped into the
+    /// graph while each is drawn.
+    pub graphs: std::collections::HashMap<u32, (crate::node_graph::GraphView, crate::ice::GraphNavigation)>,
+    /// The Node Graph tab last used: its view is the graph's own, its graph
+    /// the one Parameters shows the nodes of.
+    pub active_graph: Option<u32>,
+    pub curves: std::collections::HashMap<u32, crate::curve_editor::CurveEditor>,
+    pub uvs: std::collections::HashMap<u32, crate::uv_editor::UvEditorState>,
+}
+
+impl TabStates {
+    /// Each kept only while its tab is open. The Node Graph tab last used
+    /// closed, the first open takes its place, its view put into the graph.
+    pub fn tidy(
+        &mut self,
+        open: &[Tab],
+        graph: &mut crate::node_graph::NodeGraphState,
+        nav: &mut crate::ice::GraphNavigation,
+    ) {
+        let is_open = |id: u32| open.iter().any(|t| t.id == id);
+        if self.active_graph.is_some_and(|a| !is_open(a)) {
+            self.active_graph = open.iter().find(|t| t.pane == Pane::NodeGraph).map(|t| t.id);
+            if let Some((mut view, mut at)) = self.active_graph.and_then(|id| self.graphs.remove(&id)) {
+                graph.swap_view(&mut view);
+                std::mem::swap(nav, &mut at);
+            }
+        }
+        self.graphs.retain(|id, _| is_open(*id));
+        self.curves.retain(|id, _| is_open(*id));
+        self.uvs.retain(|id, _| is_open(*id));
+    }
 }
 
 /// A side of the program window.
@@ -1173,5 +1215,50 @@ mod tests {
         let mut viewers = main_dock();
         viewers.add_window(vec![Tab::new(Pane::Viewer)]);
         assert!(from_json(&to_json(&viewers, false).unwrap()).is_none());
+    }
+
+    /// Which panes open twice: not the Viewer, Timeline, History, Operator
+    /// Stack or Image Viewer. Which follow: Parameters, Curve and UV Editors.
+    #[test]
+    fn most_panes_open_twice() {
+        let twice: Vec<Pane> = Pane::ALL.into_iter().filter(|p| p.multiple()).collect();
+        assert_eq!(
+            twice,
+            [
+                Pane::NodeGraph,
+                Pane::SceneExplorer,
+                Pane::Parameters,
+                Pane::PrimInspector,
+                Pane::UvEditor,
+                Pane::CurveEditor,
+                Pane::LightLinker
+            ]
+        );
+        let follow: Vec<Pane> = Pane::ALL.into_iter().filter(|p| p.follows().is_some()).collect();
+        assert_eq!(follow, [Pane::Parameters, Pane::UvEditor, Pane::CurveEditor]);
+    }
+
+    /// What tabs keep is forgotten as they close; the Node Graph tab last
+    /// used closed, the next one open takes its place, its view put into the
+    /// graph.
+    #[test]
+    fn tab_states_follow_their_tabs() {
+        let (a, b) = (Tab::new(Pane::NodeGraph), Tab::new(Pane::NodeGraph));
+        let curve = Tab::new(Pane::CurveEditor);
+        let mut graph = crate::node_graph::NodeGraphState::default();
+        let mut nav = crate::ice::GraphNavigation::default();
+        let mut states = TabStates::default();
+        states.active_graph = Some(a.id);
+        let mut b_view = graph.view();
+        b_view.zoom = 2.5;
+        states.graphs.insert(b.id, (b_view, Default::default()));
+        states.curves.insert(curve.id, Default::default());
+        states.tidy(&[a, b, curve], &mut graph, &mut nav);
+        assert_eq!((states.graphs.len(), states.curves.len()), (1, 1));
+        // a closed: b's view is the graph's.
+        states.tidy(&[b], &mut graph, &mut nav);
+        assert_eq!(states.active_graph, Some(b.id));
+        assert_eq!(graph.zoom, 2.5);
+        assert!(states.graphs.is_empty() && states.curves.is_empty());
     }
 }

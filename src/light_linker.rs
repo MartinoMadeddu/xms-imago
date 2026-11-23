@@ -30,7 +30,8 @@ fn short(path: &str) -> &str {
 }
 
 pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, selected: &[String]) {
-    let kept_id = egui::Id::new("light_linker_pane");
+    // Each tab its own.
+    let kept_id = ui.id().with("light_linker_pane");
     let mut kept: Kept = ui.data(|d| d.get_temp(kept_id)).unwrap_or_default();
     let linker = graph.light_linker(kept.linker.map(NodeId));
 

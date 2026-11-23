@@ -182,6 +182,7 @@ pub(crate) fn draw_ui(
         curve_editor,
         image_viewer,
         inside,
+        tabs,
         ..
     } = app;
     // Inside a locked compound its ICE graphs cannot be changed either.
@@ -641,6 +642,7 @@ pub(crate) fn draw_ui(
     // dock area is drawn.
     let mut new_tabs: Vec<(Pane, Option<egui_dock::NodePath>)> = vec![];
     let open_tabs = layout.tabs();
+    tabs.tidy(&open_tabs, graph, nav);
     {
         let mut panes = Panes {
             graph: &mut *graph,
@@ -673,6 +675,7 @@ pub(crate) fn draw_ui(
             history: &mut *history,
             confirm: &mut *confirm,
             curve_editor: &mut *curve_editor,
+            tabs: &mut *tabs,
             image_viewer: &mut *image_viewer,
         };
         let style = theme::dock_style(root.style());
@@ -1068,6 +1071,8 @@ struct Panes<'a> {
     parameters_drawn: bool,
     uv_state: &'a mut uv_editor::UvEditorState,
     curve_editor: &'a mut curve_editor::CurveEditor,
+    /// What tabs beyond the first of their pane keep of their own.
+    tabs: &'a mut layout::TabStates,
     image_viewer: &'a mut image_viewer::ImageViewerState,
     history: &'a mut history::History,
     confirm: &'a mut Confirm,
@@ -1076,7 +1081,88 @@ struct Panes<'a> {
     nav_settings: viewport::nav::NavSettings,
 }
 
+/// A tab following something other than the selection, drawn: the operator
+/// it shows put as the selection, and the selection as it was (`unfollow`).
+struct Followed {
+    own: bool,
+    shown: Option<types::NodeId>,
+    kept: (Option<types::NodeId>, Vec<types::NodeId>),
+}
+
 impl Panes<'_> {
+    /// Before drawing a tab that follows (`layout::Follows`): the operator it
+    /// shows put as the selection, while it is drawn. `None`, said in the tab:
+    /// nothing to show (no display flag, a pin gone or in another compound).
+    fn follow(&mut self, ui: &mut egui::Ui, tab: &mut Tab) -> Option<Followed> {
+        let level = layout::level_of(&self.graph.inside.path);
+        let follows = tab.follows().unwrap_or(Follows::Selection);
+        let own = follows == Follows::Selection;
+        let shown = shown_by(self.graph, follows, level);
+        if !own && shown.is_none() {
+            ui.add_space(8.0);
+            ui.label(match follows {
+                Follows::Display => "No operator has the display flag in this graph.",
+                _ => "The operator pinned is gone, or in another compound.",
+            });
+            if ui.button("Follow the selection").clicked() {
+                tab.follows = Some(Follows::Selection);
+            }
+            return None;
+        }
+        let kept = (self.graph.selected_node, self.graph.selected_nodes.clone());
+        if !own {
+            self.graph.selected_node = shown;
+            self.graph.selected_nodes = shown.into_iter().collect();
+        }
+        Some(Followed { own, shown, kept })
+    }
+
+    /// After: the selection back as it was, unless the tab chose another.
+    fn unfollow(&mut self, f: Followed) {
+        if !f.own && self.graph.selected_node == f.shown {
+            (self.graph.selected_node, self.graph.selected_nodes) = f.kept;
+        }
+    }
+
+    /// Whether `tab` is the first open of its pane: it uses the program's
+    /// state, the others their own (`TabStates`).
+    fn first_of(&self, tab: &Tab) -> bool {
+        self.open_tabs
+            .iter()
+            .find(|t| t.pane == tab.pane)
+            .is_none_or(|t| t.id == tab.id)
+    }
+
+    /// A Node Graph tab: drawn with its own view (`GraphView`) and graph
+    /// (ICE, MaterialX) swapped in, unless it is the one last used, whose are
+    /// the program's. Pressed in, it becomes that one.
+    fn node_graph_tab(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+        let active = *self.tabs.active_graph.get_or_insert(tab.id);
+        if active == tab.id {
+            return self.draw_tab(ui, tab);
+        }
+        let rect = ui.max_rect();
+        let pressed =
+            ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p)));
+        let (mut view, mut at) = self
+            .tabs
+            .graphs
+            .remove(&tab.id)
+            .unwrap_or_else(|| (self.graph.view(), self.nav.clone()));
+        self.graph.swap_view(&mut view);
+        std::mem::swap(&mut *self.nav, &mut at);
+        self.draw_tab(ui, tab);
+        if pressed {
+            // Its view stays; the last one's is kept for its tab.
+            self.tabs.active_graph = Some(tab.id);
+            self.tabs.graphs.insert(active, (view, at));
+        } else {
+            self.graph.swap_view(&mut view);
+            std::mem::swap(&mut *self.nav, &mut at);
+            self.tabs.graphs.insert(tab.id, (view, at));
+        }
+    }
+
     /// On a tab whose pane follows (`Pane::follows`), at its right before its
     /// close cross: an icon of what it follows, opening the choices
     /// (`follow_choices`). Drawn over the tab, just above its layer, so a
@@ -1207,6 +1293,17 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+        if tab.pane == Pane::NodeGraph {
+            self.node_graph_tab(ui, tab);
+        } else {
+            self.draw_tab(ui, tab);
+        }
+    }
+}
+
+impl Panes<'_> {
+    /// A tab's pane, drawn.
+    fn draw_tab(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match tab.pane {
             Pane::Viewer => {
                 self.vp_rect.0 = Some(ui.max_rect());
@@ -1243,26 +1340,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                 // the one with the display flag, or the one it is pinned to,
                 // put as the selection while it is drawn, at the scene's level
                 // (not inside an ICE or MaterialX graph open).
-                let level = layout::level_of(&self.graph.inside.path);
-                let follows = tab.follows().unwrap_or(Follows::Selection);
-                let own = follows == Follows::Selection;
-                let shown = shown_by(self.graph, follows, level);
-                if !own && shown.is_none() {
-                    ui.add_space(8.0);
-                    ui.label(match follows {
-                        Follows::Display => "No operator has the display flag in this graph.",
-                        _ => "The operator pinned is gone, or in another compound.",
-                    });
-                    if ui.button("Follow the selection").clicked() {
-                        tab.follows = Some(Follows::Selection);
-                    }
+                let Some(followed) = self.follow(ui, tab) else {
                     return;
-                }
-                let kept = (self.graph.selected_node, self.graph.selected_nodes.clone());
-                if !own {
-                    self.graph.selected_node = shown;
-                    self.graph.selected_nodes = shown.into_iter().collect();
-                }
+                };
+                let own = followed.own;
                 let plain = GraphNavigation::default();
                 let nav: &GraphNavigation = if own { &*self.nav } else { &plain };
                 // A scroll area that never shrinks keeps the pane at the size
@@ -1434,10 +1515,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                         self.poly_tool.tool = tool;
                     }
                 });
-                // The selection back as it was, unless the panel chose another.
-                if !own && self.graph.selected_node == shown {
-                    (self.graph.selected_node, self.graph.selected_nodes) = kept;
-                }
+                self.unfollow(followed);
             }
 
             Pane::SceneExplorer => {
@@ -1456,7 +1534,16 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::CurveEditor => {
-                curve_editor::draw(ui, self.curve_editor, self.graph, self.playback);
+                let Some(followed) = self.follow(ui, tab) else {
+                    return;
+                };
+                let ed = if self.first_of(tab) {
+                    &mut *self.curve_editor
+                } else {
+                    self.tabs.curves.entry(tab.id).or_default()
+                };
+                curve_editor::draw(ui, ed, self.graph, self.playback);
+                self.unfollow(followed);
             }
 
             Pane::History => {
@@ -1480,6 +1567,9 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::UvEditor => {
+                let Some(followed) = self.follow(ui, tab) else {
+                    return;
+                };
                 let subnets = &*self.subnets;
                 let get_mesh = |g: &NodeGraphState| -> Option<MeshData> {
                     let id = g.selected_node?;
@@ -1495,7 +1585,13 @@ impl egui_dock::TabViewer for Panes<'_> {
                     g.eval_node(id, &mut std::collections::HashMap::new(), &eval)
                         .map(|r| r.into_mesh())
                 };
-                uv_editor::draw_uv_editor(ui, self.graph, self.uv_state, self.revision, &get_mesh);
+                let state = if self.first_of(tab) {
+                    &mut *self.uv_state
+                } else {
+                    self.tabs.uvs.entry(tab.id).or_default()
+                };
+                uv_editor::draw_uv_editor(ui, self.graph, state, self.revision, &get_mesh);
+                self.unfollow(followed);
             }
 
             Pane::PrimInspector => {

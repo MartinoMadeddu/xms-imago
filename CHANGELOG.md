@@ -21,6 +21,11 @@ version's heading when you tag it.
   instead) and **New Tab** (another beside it), or use the **+** of a tab bar.
   Parameters, Scene Explorer and Primitive Inspector can be open in several
   tabs. Layouts saved before load as they were.
+- **Most panes open twice**: Node Graph tabs each with their own view and
+  graph (the one last clicked in drives the Parameters), Curve Editor and UV
+  Editor tabs each with their own view and Follows, Light Linker tabs each
+  their own operator. One of a kind: Viewer, Timeline, History, Operator
+  Stack, Image Viewer.
 - **A Parameters tab follows** the selection, the display flag, or is pinned
   to one operator: an icon dropdown on its tab, before its cross. A pinned
   tab names its operator ("Parameters · Transform1").

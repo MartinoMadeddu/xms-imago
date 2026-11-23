@@ -53,6 +53,8 @@ pub struct AppState {
     pub downloads: Downloads,
     /// The Curve Editor's view and selection.
     pub curve_editor: crate::curve_editor::CurveEditor,
+    /// What tabs beyond the first of their pane keep of their own.
+    pub tabs: crate::layout::TabStates,
     /// The Image Viewer: the image shown, and the render going.
     pub image_viewer: crate::image_viewer::ImageViewerState,
     /// The graphs waiting while a compound's inside is looked at: `graph`,

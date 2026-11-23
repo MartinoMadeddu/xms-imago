@@ -42,8 +42,15 @@ opens in the default layout, and File > New and Reset layout go back to it.
 | Open another tab beside it | Right-click the tab > **New Tab**, or the **+** of the tab bar |
 | Keep a layout | Window > Save layout... and Load layout... |
 
-Parameters, Scene Explorer and Primitive Inspector can be open in several
-tabs at once.
+Most panes can be open in several tabs at once. One of a kind: the Viewer,
+Timeline, History, Operator Stack and Image Viewer.
+
+- **Node Graph** tabs each have their own view: panned, zoomed and inside
+  an ICE or MaterialX graph each their own way. The one last clicked in is the
+  one the Parameters show the nodes of. Compounds are entered by all at once.
+- **Curve Editor, UV Editor** tabs each have their own view, and follow as a
+  Parameters tab does (below).
+- **Light Linker** tabs each choose their own Light Linker operator.
 
 A Parameters tab **follows** the selection (👆), the **display flag** (👁),
 or is **pinned** to one operator (📌): the icon at the right of its tab,
@@ -52,8 +59,8 @@ whatever is selected (pick Pinned again to follow the selection), and the tab
 names it: "Parameters · Transform1". A pin is kept with the layout, for the
 compound it was made in; there, an operator deleted leaves a button to follow
 the selection again. Two tabs side by side, one pinned, one following the
-selection, compare two operators. A pane that can follow nothing else has no
-icon. The other panes are one of a kind:
+selection, compare two operators. Curve Editor and UV Editor tabs follow the
+same way. A pane that can follow nothing else has no icon. The other panes are one of a kind:
 open in a tab, they are greyed in the menus. Unticking a pane in the Window
 menu closes all its tabs.
 

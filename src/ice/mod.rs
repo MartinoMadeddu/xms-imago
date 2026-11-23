@@ -67,7 +67,7 @@ pub fn set_space(world: glam::Mat4) {
     SPACE.with(|s| s.set(world));
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct GraphNavigation {
     pub current_subnet: Option<IceGraphId>,
     /// The MaterialX operator whose graph the Node Graph pane shows.
