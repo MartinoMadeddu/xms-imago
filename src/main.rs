@@ -1163,6 +1163,67 @@ impl Panes<'_> {
         }
     }
 
+    /// On a tab that follows (`Pane::follows`), at its right before its close
+    /// cross: the letter of what it follows (`follows_letter`) in a thin
+    /// circle, a menu of the choices (`follow_choices`). Drawn over the tab,
+    /// just above its layer, so a window over the tab bar still covers it.
+    fn follows_mark(&mut self, tab: &mut Tab, response: &egui::Response) {
+        let Some(now) = tab.follows() else {
+            return;
+        };
+        let ctx = response.ctx.clone();
+        let rect = response.rect;
+        let r = (rect.height() * 0.32).clamp(5.0, 9.0);
+        let right = if self.locked {
+            rect.right() - 4.0
+        } else {
+            rect.right() - rect.height()
+        };
+        let centre = egui::pos2(right - r - 3.0, rect.center().y);
+        let level = layout::level_of(&self.graph.inside.path);
+        let graph = &*self.graph;
+        let shown = egui::Area::new(egui::Id::new(("follows_mark", tab.id)))
+            .order(response.layer_id.order)
+            .fixed_pos(centre - egui::vec2(r + 1.0, r + 1.0))
+            .constrain(false)
+            .show(&ctx, |ui| {
+                // A button of the letter alone: no frame, the circle drawn.
+                ui.spacing_mut().button_padding = egui::Vec2::ZERO;
+                ui.spacing_mut().interact_size = egui::vec2(2.0 * r + 2.0, 2.0 * r + 2.0);
+                let v = ui.visuals_mut();
+                for w in [
+                    &mut v.widgets.inactive,
+                    &mut v.widgets.hovered,
+                    &mut v.widgets.active,
+                    &mut v.widgets.open,
+                ] {
+                    w.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    w.bg_fill = egui::Color32::TRANSPARENT;
+                    w.bg_stroke = egui::Stroke::NONE;
+                }
+                let dim = ui.visuals().widgets.inactive.fg_stroke.color;
+                let lit = ui.visuals().widgets.hovered.fg_stroke.color;
+                let letter = egui::RichText::new(follows_letter(now)).size(r * 1.3).color(dim);
+                let mut chosen = None;
+                let menu = ui.menu_button(letter, |ui| {
+                    chosen = follow_choices(ui, graph, now, level);
+                    if chosen.is_some() {
+                        ui.close();
+                    }
+                });
+                let b = &menu.response;
+                let ink = if b.hovered() { lit } else { dim };
+                ui.painter()
+                    .circle_stroke(b.rect.center(), r, egui::Stroke::new(1.0, ink));
+                b.clone().on_hover_text(follows_hint(now));
+                chosen
+            });
+        ctx.set_sublayer(response.layer_id, shown.response.layer_id);
+        if let Some(f) = shown.inner {
+            tab.follows = Some(f);
+        }
+    }
+
     /// The panes a tab can be added of, beside the tabs at `path` (a tab
     /// bar): a click asks for one (`new_tabs`). One of a kind open is greyed.
     fn pane_list(&mut self, ui: &mut egui::Ui, path: egui_dock::NodePath) {
@@ -1226,15 +1287,6 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
         });
         ui.menu_button("New Tab", |ui| self.pane_list(ui, path));
-        if let Some(now) = tab.follows() {
-            ui.menu_button("Follows", |ui| {
-                let level = layout::level_of(&self.graph.inside.path);
-                if let Some(f) = follow_choices(ui, self.graph, now, level) {
-                    tab.follows = Some(f);
-                    ui.close();
-                }
-            });
-        }
         ui.separator();
     }
     // A tab bar's +: a tab of any pane that can be added, beside the others.
@@ -1243,9 +1295,7 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
     // Double-click a tab to float it, or to dock it back.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
-        if let Some(f) = tab.follows() {
-            follows_mark(response, f, !self.locked);
-        }
+        self.follows_mark(tab, response);
         if self.locked {
             return;
         }
@@ -3147,6 +3197,15 @@ fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level
 /// Room at the end of a tab's title for its `follows_mark`.
 const MARK_ROOM: &str = "       ";
 
+/// What a tab's letter means, and that it is a menu.
+fn follows_hint(f: Follows) -> &'static str {
+    match f {
+        Follows::Selection => "Follows the selection. Click to follow the display flag, or to pin it",
+        Follows::Display => "Follows the display flag. Click to follow the selection, or to pin it",
+        Follows::Pinned { .. } => "Pinned to its operator. Click to follow the selection or the display flag",
+    }
+}
+
 /// The letter of what a tab follows: Selection, Display flag, Pinned.
 fn follows_letter(f: Follows) -> &'static str {
     match f {
@@ -3154,30 +3213,6 @@ fn follows_letter(f: Follows) -> &'static str {
         Follows::Display => "D",
         Follows::Pinned { .. } => "P",
     }
-}
-
-/// On a tab that follows (its button `tab`), at its right, before its close
-/// cross (`cross`: it has one): the letter of what it follows in a thin
-/// circle. Drawn only: right-click the tab > Follows changes it.
-fn follows_mark(tab: &egui::Response, f: Follows, cross: bool) {
-    let rect = tab.rect;
-    let r = (rect.height() * 0.32).clamp(5.0, 9.0);
-    let right = if cross {
-        rect.right() - rect.height()
-    } else {
-        rect.right() - 4.0
-    };
-    let centre = egui::pos2(right - r - 3.0, rect.center().y);
-    let ink = tab.ctx.global_style().visuals.widgets.inactive.fg_stroke.color;
-    let painter = tab.ctx.layer_painter(tab.layer_id).with_clip_rect(rect);
-    painter.circle_stroke(centre, r, egui::Stroke::new(1.0, ink));
-    painter.text(
-        centre,
-        egui::Align2::CENTER_CENTER,
-        follows_letter(f),
-        egui::FontId::proportional(r * 1.3),
-        ink,
-    );
 }
 
 /// Run a Write USD node: evaluate what enters it and write its edits.

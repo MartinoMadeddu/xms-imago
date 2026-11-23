@@ -54,7 +54,7 @@ Timeline, History, Operator Stack and Image Viewer.
 
 A Parameters tab **follows** the selection (S), the **display flag** (D), or
 is **pinned** to one operator (P): its tab shows the letter in a circle, at
-its right before its cross; right-click the tab > **Follows** to change it. Pinned keeps the operator it shows now,
+its right before its cross; click the letter to change it. Pinned keeps the operator it shows now,
 whatever is selected (pick Pinned again to follow the selection), and the tab
 names it: "Parameters · Transform1". A pin is kept with the layout, for
 the compound it was made in; an operator deleted leaves a button to follow the

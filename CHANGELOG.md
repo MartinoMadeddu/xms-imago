@@ -28,7 +28,7 @@ version's heading when you tag it.
   Stack, Image Viewer.
 - **A Parameters tab follows** the selection, the display flag, or is pinned
   to one operator: its tab shows which, S, D or P in a circle before its
-  cross; right-click it > Follows to change it. A pinned tab names its
+  cross; click the letter to change it. A pinned tab names its
   operator ("Parameters · Transform1").
 - **Alt-drag a number of a row** (X, Y, Z, a vector's parts; Option on macOS)
   and the others move by as much. Shift, egui's finer dragging, still works
