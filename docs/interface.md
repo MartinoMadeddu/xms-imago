@@ -43,7 +43,16 @@ opens in the default layout, and File > New and Reset layout go back to it.
 | Keep a layout | Window > Save layout... and Load layout... |
 
 Parameters, Scene Explorer and Primitive Inspector can be open in several
-tabs at once; for now they show the same. The other panes are one of a kind:
+tabs at once.
+
+A Parameters tab **follows** the selection, the **display flag**, or is
+**pinned** to one operator: choose in the row over it, or right-click its tab >
+Follows. Pinned shows the operator it shows now, whatever is selected (pick
+Pinned again to follow the selection); its tab says so, "Parameters ·
+Transform1 📌", as "Parameters · Display" says a tab follows the flag. A pin
+is kept with the layout, for the compound it was made in; there, an operator
+deleted leaves a button to follow the selection again. Two tabs side by side:
+one pinned, one following the selection, compare two operators. The other panes are one of a kind:
 open in a tab, they are greyed in the menus. Unticking a pane in the Window
 menu closes all its tabs.
 

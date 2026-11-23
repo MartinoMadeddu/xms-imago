@@ -65,7 +65,7 @@ use ice::{
     ui::{draw_breadcrumb, draw_subnet_graph},
     GraphNavigation, IceGraphStore,
 };
-use layout::{Layout, Pane, Tab};
+use layout::{Follows, Layout, Pane, Tab};
 use node_graph::ui::draw_node_graph;
 use node_graph::NodeGraphState;
 use prim_inspector::ui::draw_prim_inspector;
@@ -1101,8 +1101,21 @@ impl egui_dock::TabViewer for Panes<'_> {
     fn id(&mut self, tab: &mut Tab) -> egui::Id {
         egui::Id::new(("pane", tab.id))
     }
+    // What a tab that follows shows, when not the selection: "Parameters ·
+    // Display", "Parameters · Transform1 📌".
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
-        tab.pane.title().into()
+        let title = tab.pane.title();
+        match tab.follows() {
+            Some(Follows::Display) => format!("{title} · Display").into(),
+            Some(f @ Follows::Pinned { node, .. }) => {
+                let level = layout::level_of(&self.graph.inside.path);
+                let name = shown_by(self.graph, f, level)
+                    .and_then(|_| self.graph.nodes.iter().find(|n| n.id == node))
+                    .map_or("elsewhere".to_string(), |n| n.name.clone());
+                format!("{title} · {name} 📌").into()
+            }
+            _ => title.into(),
+        }
     }
     // Closing takes the tab away. The Panes menu, or a tab bar's +, opens one.
     fn is_closeable(&self, _tab: &Tab) -> bool {
@@ -1126,6 +1139,15 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
         });
         ui.menu_button("New Tab", |ui| self.pane_list(ui, path));
+        if let Some(now) = tab.follows() {
+            ui.menu_button("Follows", |ui| {
+                let level = layout::level_of(&self.graph.inside.path);
+                if let Some(f) = follow_choices(ui, self.graph, now, level) {
+                    tab.follows = Some(f);
+                    ui.close();
+                }
+            });
+        }
         ui.separator();
     }
     // A tab bar's +: a tab of any pane that can be added, beside the others.
@@ -1188,6 +1210,36 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
 
             Pane::Parameters => {
+                // What it shows (`layout::Follows`): the operator selected,
+                // the one with the display flag, or the one it is pinned to,
+                // put as the selection while it is drawn, at the scene's level
+                // (not inside an ICE or MaterialX graph open).
+                let level = layout::level_of(&self.graph.inside.path);
+                let now = tab.follows().unwrap_or(Follows::Selection);
+                if let Some(f) = follow_bar(ui, self.graph, now, level) {
+                    tab.follows = Some(f);
+                }
+                let follows = tab.follows().unwrap_or(Follows::Selection);
+                let own = follows == Follows::Selection;
+                let shown = shown_by(self.graph, follows, level);
+                if !own && shown.is_none() {
+                    ui.add_space(8.0);
+                    ui.label(match follows {
+                        Follows::Display => "No operator has the display flag in this graph.",
+                        _ => "The operator pinned is gone, or in another compound.",
+                    });
+                    if ui.button("Follow the selection").clicked() {
+                        tab.follows = Some(Follows::Selection);
+                    }
+                    return;
+                }
+                let kept = (self.graph.selected_node, self.graph.selected_nodes.clone());
+                if !own {
+                    self.graph.selected_node = shown;
+                    self.graph.selected_nodes = shown.into_iter().collect();
+                }
+                let plain = GraphNavigation::default();
+                let nav: &GraphNavigation = if own { &*self.nav } else { &plain };
                 // A scroll area that never shrinks keeps the pane at the size
                 // it was given: text wraps, anything still too big scrolls.
                 egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
@@ -1237,7 +1289,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // of numbers that follow others are found to draw them
                     // orange: only on an operator's own parameters, not an ICE
                     // or MaterialX node's.
-                    let own_parameters = self.nav.current_subnet.is_none() && self.nav.materialx.is_none();
+                    let own_parameters = nav.current_subnet.is_none() && nav.materialx.is_none();
                     let selected = editing
                         .as_ref()
                         .and_then(|(id, _)| self.graph.nodes.iter().find(|n| n.id == *id));
@@ -1274,15 +1326,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                     // Each operator's fields are its own: a value being typed
                     // when another operator is selected is not put in its field.
                     ui.push_id(("parameters_of", self.graph.selected_node.map(|n| n.0)), |ui| {
-                        draw_properties_panel(
-                            ui,
-                            self.graph,
-                            &*self.stack,
-                            self.subnets,
-                            self.nav,
-                            self.anim_ctx,
-                            &mut io,
-                        )
+                        draw_properties_panel(ui, self.graph, &*self.stack, self.subnets, nav, self.anim_ctx, &mut io)
                     });
                     // An ICE operator's parameters, for those it keeps only once set.
                     let ice_settings = io.ice_settings.clone();
@@ -1365,6 +1409,10 @@ impl egui_dock::TabViewer for Panes<'_> {
                         self.poly_tool.tool = tool;
                     }
                 });
+                // The selection back as it was, unless the panel chose another.
+                if !own && self.graph.selected_node == shown {
+                    (self.graph.selected_node, self.graph.selected_nodes) = kept;
+                }
             }
 
             Pane::SceneExplorer => {
@@ -2950,6 +2998,66 @@ fn layer_breaks(graph: &NodeGraphState, from: types::NodeId) -> Vec<types::NodeI
     found
 }
 
+/// The operator a tab following `f` shows in `graph`, the compounds entered
+/// being `level` (`layout::level_of`): the one selected, the one with the
+/// display flag, the one pinned (when it is still there, at its level).
+fn shown_by(graph: &NodeGraphState, f: Follows, level: u64) -> Option<types::NodeId> {
+    let there = |id: types::NodeId| graph.nodes.iter().any(|n| n.id == id);
+    match f {
+        Follows::Selection => graph.selected_node,
+        Follows::Display => graph.view_flag.filter(|id| there(*id)),
+        Follows::Pinned { node, level: at } => (at == level && there(node)).then_some(node),
+    }
+}
+
+/// The choices of what a tab follows, `now` the one it has: Selection,
+/// Display Flag, Pinned (to the operator it shows; chosen again, back to the
+/// selection). The one clicked.
+fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level: u64) -> Option<Follows> {
+    let mut out = None;
+    let small = |t: &str| egui::RichText::new(t).small();
+    if ui
+        .selectable_label(now == Follows::Selection, small("Selection"))
+        .on_hover_text("The operator selected")
+        .clicked()
+    {
+        out = Some(Follows::Selection);
+    }
+    if ui
+        .selectable_label(now == Follows::Display, small("Display Flag"))
+        .on_hover_text("The operator with the display flag, whatever is selected")
+        .clicked()
+    {
+        out = Some(Follows::Display);
+    }
+    let pinned = matches!(now, Follows::Pinned { .. });
+    let here = shown_by(graph, now, level);
+    let r = ui
+        .add_enabled_ui(pinned || here.is_some(), |ui| {
+            ui.selectable_label(pinned, small("📌 Pinned"))
+        })
+        .inner
+        .on_hover_text("The operator shown now, whatever is selected. Click again to follow the selection");
+    if r.clicked() {
+        out = match (pinned, here) {
+            (true, _) => Some(Follows::Selection),
+            (false, Some(node)) => Some(Follows::Pinned { node, level }),
+            (false, None) => None,
+        };
+    }
+    out
+}
+
+/// A row over a tab that follows (`layout::Follows`): its choices, small.
+fn follow_bar(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level: u64) -> Option<Follows> {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(egui::RichText::new("Follows").small().weak());
+        follow_choices(ui, graph, now, level)
+    })
+    .inner
+}
+
 /// Run a Write USD node: evaluate what enters it and write its edits.
 fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId) {
     let Some(node) = graph.nodes.iter().find(|n| n.id == id) else {
@@ -3124,6 +3232,29 @@ fn not_prims(r: Option<types::EvalResult>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a Parameters tab shows by what it follows: the operator
+    /// selected, the one with the display flag, the one pinned while it is
+    /// there at its level; nothing for a pin gone or in another compound.
+    #[test]
+    fn a_tab_shows_the_operator_it_follows() {
+        let mut g = NodeGraphState::default();
+        let a = g.add_node("A".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), NodeType::sphere(0.5, 8), egui::pos2(0.0, 100.0));
+        g.selected_node = Some(a);
+        g.view_flag = Some(b);
+        let top = layout::level_of(&[]);
+        let inside = layout::level_of(&["Rig".to_string()]);
+        assert_eq!(shown_by(&g, Follows::Selection, top), Some(a));
+        assert_eq!(shown_by(&g, Follows::Display, top), Some(b));
+        let pin = Follows::Pinned { node: b, level: top };
+        assert_eq!(shown_by(&g, pin, top), Some(b));
+        assert_eq!(shown_by(&g, pin, inside), None, "another compound's graph");
+        g.view_flag = None;
+        assert_eq!(shown_by(&g, Follows::Display, top), None);
+        g.nodes.retain(|n| n.id != b);
+        assert_eq!(shown_by(&g, pin, top), None, "gone");
+    }
 
     /// Write USD finds the nearest Layer Break on each way up: through every
     /// input of a Merge, not one above another, not a bypassed one, and not on

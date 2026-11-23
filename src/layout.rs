@@ -60,6 +60,15 @@ impl Pane {
         Pane::LightLinker,
     ];
 
+    /// How a tab of this pane chooses the operator it shows, unless told
+    /// otherwise (`Tab::follows`). `None`: it shows no one operator.
+    pub fn follows(self) -> Option<Follows> {
+        match self {
+            Pane::Parameters => Some(Follows::Selection),
+            _ => None,
+        }
+    }
+
     /// Panes that can be open more than once, each a tab of its own. The
     /// others are one of a kind: what they show, and how, is the program's
     /// (one Viewer, one Timeline).
@@ -85,15 +94,55 @@ impl Pane {
     }
 }
 
-/// One open pane: which, and its own number (unique in the layout), so two
-/// of a kind are two tabs. Written `{"id": 3, "pane": "Parameters"}`; read
-/// from the pane's name alone too, as layouts saved before had it (numbered
-/// when the layout loads, `numbered`).
+/// What a tab showing an operator shows (`Pane::follows`): the operator
+/// selected, the one with the display flag, or one it is pinned to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Follows {
+    Selection,
+    Display,
+    /// `node`, of the graph at `level` (`level_of` the compounds entered):
+    /// shown only there.
+    Pinned {
+        node: crate::types::NodeId,
+        level: u64,
+    },
+}
+
+/// The compounds entered (`Inside::path`), as one number a pin keeps.
+pub fn level_of(path: &[String]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    h.finish()
+}
+
+/// One open pane: which, and its own number (unique in the layout), so two
+/// of a kind are two tabs; what it follows, for a pane that follows
+/// (`None`: the pane's own way, `Pane::follows`). Written `{"id": 3, "pane":
+/// "Parameters"}`; read from the pane's name alone too, as layouts saved
+/// before had it (numbered when the layout loads, `numbered`). Two tabs are
+/// the same by their number.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(from = "TabFile")]
 pub struct Tab {
     pub id: u32,
     pub pane: Pane,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub follows: Option<Follows>,
+}
+
+impl PartialEq for Tab {
+    fn eq(&self, other: &Tab) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Tab {}
+
+impl std::hash::Hash for Tab {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.id.hash(h);
+    }
 }
 
 /// A tab as a layout file has it: today's, or a pane's name.
@@ -101,15 +150,24 @@ pub struct Tab {
 #[serde(untagged)]
 enum TabFile {
     Pane(Pane),
-    Tab { id: u32, pane: Pane },
+    Tab {
+        id: u32,
+        pane: Pane,
+        #[serde(default)]
+        follows: Option<Follows>,
+    },
 }
 
 impl From<TabFile> for Tab {
     fn from(t: TabFile) -> Tab {
         match t {
             // Numbered once the whole layout is read.
-            TabFile::Pane(pane) => Tab { id: 0, pane },
-            TabFile::Tab { id, pane } => Tab { id, pane },
+            TabFile::Pane(pane) => Tab {
+                id: 0,
+                pane,
+                follows: None,
+            },
+            TabFile::Tab { id, pane, follows } => Tab { id, pane, follows },
         }
     }
 }
@@ -123,7 +181,15 @@ impl Tab {
         Tab {
             id: NEXT_TAB.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             pane,
+            follows: None,
         }
+    }
+
+    /// What it follows: its own choice, else its pane's way. `None` for a
+    /// pane that follows nothing.
+    pub fn follows(&self) -> Option<Follows> {
+        let own = self.pane.follows()?;
+        Some(self.follows.unwrap_or(own))
     }
 }
 
@@ -1061,6 +1127,24 @@ mod tests {
             v
         };
         assert_eq!(ids(&back), ids(&l.dock));
+        // What a tab follows, kept through the file; a tab the same by its
+        // number whatever it follows.
+        let pin = Follows::Pinned {
+            node: crate::types::NodeId(7),
+            level: level_of(&["Rig".to_string()]),
+        };
+        for (_, t) in l.dock.iter_all_tabs_mut() {
+            if t.id == params.id {
+                t.follows = Some(pin);
+            }
+        }
+        assert!(l.dock.find_tab(&params).is_some());
+        let (back, _) = from_json(&to_json(&l.dock, false).unwrap()).unwrap();
+        let kept = back.iter_all_tabs().find(|(_, t)| t.id == params.id).unwrap().1;
+        assert_eq!(kept.follows(), Some(pin));
+        assert_eq!(Tab::new(Pane::Parameters).follows(), Some(Follows::Selection));
+        assert_eq!(Tab::new(Pane::Timeline).follows(), None);
+        assert_ne!(level_of(&[]), level_of(&["Rig".to_string()]));
         // Closing the pane closes both.
         l.hide(Pane::Parameters);
         assert!(!l.is_open(Pane::Parameters));
@@ -1082,6 +1166,7 @@ mod tests {
         twice.add_window(vec![Tab {
             id: first.id,
             pane: Pane::Parameters,
+            follows: None,
         }]);
         let (back, _) = from_json(&to_json(&twice, false).unwrap()).expect("renumbered");
         assert!(is_valid(&back));
