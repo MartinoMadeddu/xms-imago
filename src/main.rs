@@ -1163,43 +1163,6 @@ impl Panes<'_> {
         }
     }
 
-    /// On a tab whose pane follows (`Pane::follows`), at its right before its
-    /// close cross: an icon of what it follows, opening the choices
-    /// (`follow_choices`). Drawn over the tab, just above its layer, so a
-    /// window over the tab bar still covers it.
-    fn follows_menu(&mut self, tab: &mut Tab, response: &egui::Response) {
-        let Some(now) = tab.follows() else {
-            return;
-        };
-        let ctx = response.ctx.clone();
-        let side = response.rect.height();
-        let at = egui::pos2(response.rect.right() - 2.0 * side, response.rect.top());
-        let level = layout::level_of(&self.graph.inside.path);
-        let graph = &*self.graph;
-        let shown = egui::Area::new(egui::Id::new(("follows_menu", tab.id)))
-            .order(response.layer_id.order)
-            .fixed_pos(at)
-            .constrain(false)
-            .show(&ctx, |ui| {
-                ui.spacing_mut().button_padding = egui::vec2(3.0, 1.0);
-                ui.set_min_height(side);
-                let mut chosen = None;
-                ui.menu_button(follows_icon(now), |ui| {
-                    chosen = follow_choices(ui, graph, now, level);
-                    if chosen.is_some() {
-                        ui.close();
-                    }
-                })
-                .response
-                .on_hover_text(follows_hint(now));
-                chosen
-            });
-        ctx.set_sublayer(response.layer_id, shown.response.layer_id);
-        if let Some(f) = shown.inner {
-            tab.follows = Some(f);
-        }
-    }
-
     /// The panes a tab can be added of, beside the tabs at `path` (a tab
     /// bar): a click asks for one (`new_tabs`). One of a kind open is greyed.
     fn pane_list(&mut self, ui: &mut egui::Ui, path: egui_dock::NodePath) {
@@ -1224,8 +1187,8 @@ impl egui_dock::TabViewer for Panes<'_> {
     fn id(&mut self, tab: &mut Tab) -> egui::Id {
         egui::Id::new(("pane", tab.id))
     }
-    // A pinned tab's operator after its pane: "Parameters · Transform1". A
-    // tab that follows has room at its end for the dropdown (`follows_menu`).
+    // A tab that follows says what with an icon (`follows_icon`), a pinned
+    // one its operator too: "Parameters 🔗", "Parameters · Transform1 📌".
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
         let title = tab.pane.title();
         match tab.follows() {
@@ -1234,9 +1197,9 @@ impl egui_dock::TabViewer for Panes<'_> {
                 let name = shown_by(self.graph, f, level)
                     .and_then(|_| self.graph.nodes.iter().find(|n| n.id == node))
                     .map_or("elsewhere".to_string(), |n| n.name.clone());
-                format!("{title} · {name}{FOLLOWS_ROOM}").into()
+                format!("{title} · {name}  {}", follows_icon(f)).into()
             }
-            Some(_) => format!("{title}{FOLLOWS_ROOM}").into(),
+            Some(f) => format!("{title}  {}", follows_icon(f)).into(),
             None => title.into(),
         }
     }
@@ -1262,6 +1225,15 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
         });
         ui.menu_button("New Tab", |ui| self.pane_list(ui, path));
+        if let Some(now) = tab.follows() {
+            ui.menu_button("Follows", |ui| {
+                let level = layout::level_of(&self.graph.inside.path);
+                if let Some(f) = follow_choices(ui, self.graph, now, level) {
+                    tab.follows = Some(f);
+                    ui.close();
+                }
+            });
+        }
         ui.separator();
     }
     // A tab bar's +: a tab of any pane that can be added, beside the others.
@@ -1270,7 +1242,6 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
     // Double-click a tab to float it, or to dock it back.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
-        self.follows_menu(tab, response);
         if self.locked {
             return;
         }
@@ -3138,7 +3109,7 @@ fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level
     let mut out = None;
     let small = |t: &str| egui::RichText::new(t);
     if ui
-        .selectable_label(now == Follows::Selection, small("👆 Selection"))
+        .selectable_label(now == Follows::Selection, small("🔗 Selection"))
         .on_hover_text("The operator selected")
         .clicked()
     {
@@ -3169,25 +3140,13 @@ fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level
     out
 }
 
-/// Room at the end of a tab's title for its Follows dropdown, which is drawn
-/// over it.
-const FOLLOWS_ROOM: &str = "        ";
-
-/// The icon of what a tab follows, on its dropdown.
+/// The icon of what a tab follows, in its title: linked to the selection, the
+/// display flag's eye, a pin.
 fn follows_icon(f: Follows) -> &'static str {
     match f {
-        Follows::Selection => "👆",
+        Follows::Selection => "🔗",
         Follows::Display => "👁",
         Follows::Pinned { .. } => "📌",
-    }
-}
-
-/// What the dropdown's icon means.
-fn follows_hint(f: Follows) -> &'static str {
-    match f {
-        Follows::Selection => "Follows the selection. Click for the display flag, or to pin it",
-        Follows::Display => "Follows the display flag. Click for the selection, or to pin it",
-        Follows::Pinned { .. } => "Pinned to its operator. Click to follow the selection or the display flag",
     }
 }
 
