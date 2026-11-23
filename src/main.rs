@@ -1187,8 +1187,9 @@ impl egui_dock::TabViewer for Panes<'_> {
     fn id(&mut self, tab: &mut Tab) -> egui::Id {
         egui::Id::new(("pane", tab.id))
     }
-    // A tab that follows says what with an icon (`follows_icon`), a pinned
-    // one its operator too: "Parameters 🔗", "Parameters · Transform1 📌".
+    // A pinned tab names its operator: "Parameters · Transform1". A tab that
+    // follows has room at its end for the letter of what it follows, drawn
+    // there (`follows_mark`).
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
         let title = tab.pane.title();
         match tab.follows() {
@@ -1197,9 +1198,9 @@ impl egui_dock::TabViewer for Panes<'_> {
                 let name = shown_by(self.graph, f, level)
                     .and_then(|_| self.graph.nodes.iter().find(|n| n.id == node))
                     .map_or("elsewhere".to_string(), |n| n.name.clone());
-                format!("{title} · {name}  {}", follows_icon(f)).into()
+                format!("{title} · {name}{MARK_ROOM}").into()
             }
-            Some(f) => format!("{title}  {}", follows_icon(f)).into(),
+            Some(_) => format!("{title}{MARK_ROOM}").into(),
             None => title.into(),
         }
     }
@@ -1242,6 +1243,9 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
     // Double-click a tab to float it, or to dock it back.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
+        if let Some(f) = tab.follows() {
+            follows_mark(response, f, !self.locked);
+        }
         if self.locked {
             return;
         }
@@ -3109,14 +3113,14 @@ fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level
     let mut out = None;
     let small = |t: &str| egui::RichText::new(t);
     if ui
-        .selectable_label(now == Follows::Selection, small("🔗 Selection"))
+        .selectable_label(now == Follows::Selection, small("S  Selection"))
         .on_hover_text("The operator selected")
         .clicked()
     {
         out = Some(Follows::Selection);
     }
     if ui
-        .selectable_label(now == Follows::Display, small("👁 Display Flag"))
+        .selectable_label(now == Follows::Display, small("D  Display Flag"))
         .on_hover_text("The operator with the display flag, whatever is selected")
         .clicked()
     {
@@ -3126,7 +3130,7 @@ fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level
     let here = shown_by(graph, now, level);
     let r = ui
         .add_enabled_ui(pinned || here.is_some(), |ui| {
-            ui.selectable_label(pinned, small("📌 Pinned"))
+            ui.selectable_label(pinned, small("P  Pinned"))
         })
         .inner
         .on_hover_text("The operator shown now, whatever is selected. Click again to follow the selection");
@@ -3140,14 +3144,40 @@ fn follow_choices(ui: &mut egui::Ui, graph: &NodeGraphState, now: Follows, level
     out
 }
 
-/// The icon of what a tab follows, in its title: linked to the selection, the
-/// display flag's eye, a pin.
-fn follows_icon(f: Follows) -> &'static str {
+/// Room at the end of a tab's title for its `follows_mark`.
+const MARK_ROOM: &str = "       ";
+
+/// The letter of what a tab follows: Selection, Display flag, Pinned.
+fn follows_letter(f: Follows) -> &'static str {
     match f {
-        Follows::Selection => "🔗",
-        Follows::Display => "👁",
-        Follows::Pinned { .. } => "📌",
+        Follows::Selection => "S",
+        Follows::Display => "D",
+        Follows::Pinned { .. } => "P",
     }
+}
+
+/// On a tab that follows (its button `tab`), at its right, before its close
+/// cross (`cross`: it has one): the letter of what it follows in a thin
+/// circle. Drawn only: right-click the tab > Follows changes it.
+fn follows_mark(tab: &egui::Response, f: Follows, cross: bool) {
+    let rect = tab.rect;
+    let r = (rect.height() * 0.32).clamp(5.0, 9.0);
+    let right = if cross {
+        rect.right() - rect.height()
+    } else {
+        rect.right() - 4.0
+    };
+    let centre = egui::pos2(right - r - 3.0, rect.center().y);
+    let ink = tab.ctx.global_style().visuals.widgets.inactive.fg_stroke.color;
+    let painter = tab.ctx.layer_painter(tab.layer_id).with_clip_rect(rect);
+    painter.circle_stroke(centre, r, egui::Stroke::new(1.0, ink));
+    painter.text(
+        centre,
+        egui::Align2::CENTER_CENTER,
+        follows_letter(f),
+        egui::FontId::proportional(r * 1.3),
+        ink,
+    );
 }
 
 /// Run a Write USD node: evaluate what enters it and write its edits.

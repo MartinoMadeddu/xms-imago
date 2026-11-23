@@ -52,15 +52,15 @@ Timeline, History, Operator Stack and Image Viewer.
   Parameters tab does (below).
 - **Light Linker** tabs each choose their own Light Linker operator.
 
-A Parameters tab **follows** the selection (🔗), the **display flag** (👁),
-or is **pinned** to one operator (📌): its tab shows the icon; right-click
-the tab > **Follows** to change it. Pinned keeps the operator it shows now,
+A Parameters tab **follows** the selection (S), the **display flag** (D), or
+is **pinned** to one operator (P): its tab shows the letter in a circle, at
+its right before its cross; right-click the tab > **Follows** to change it. Pinned keeps the operator it shows now,
 whatever is selected (pick Pinned again to follow the selection), and the tab
-names it: "Parameters · Transform1 📌". A pin is kept with the layout, for
+names it: "Parameters · Transform1". A pin is kept with the layout, for
 the compound it was made in; an operator deleted leaves a button to follow the
 selection again. Two tabs side by side, one pinned, one following the
 selection, compare two operators. Curve Editor and UV Editor tabs follow the
-same way; other panes have no icon.
+same way; other panes have no letter.
 
 A pane of one of a kind, open in a tab, is greyed in the menus. Unticking a
 pane in the Window menu closes all its tabs.
