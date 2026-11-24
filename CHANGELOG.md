@@ -8,6 +8,11 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Node graph
+
+- **The wheel zooms over a node too**: in the Node Graph, ICE and MaterialX
+  graphs it stopped while the pointer was on a node.
+
 ### USD
 
 - **Layers with nothing to draw are read**: a layer of materials and `over`s

@@ -679,8 +679,9 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         graph.pan_offset += response.drag_delta();
     }
 
-    // Zoom (scroll wheel, zoom toward cursor)
-    if response.hovered() {
+    // Zoom (scroll wheel, zoom toward cursor): over a node too, which
+    // takes the hover from the canvas; not under a menu or window.
+    if ui.rect_contains_pointer(canvas_rect) {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 {
             let factor = 1.0 + scroll * 0.002;
@@ -2133,4 +2134,59 @@ pub fn info_popup(
                 }
             });
         });
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    /// The wheel zooms the graph with the pointer over a node, as over the
+    /// empty canvas: the node takes the hover, not the wheel.
+    #[test]
+    fn the_wheel_zooms_over_a_node_too() {
+        let ctx = egui::Context::default();
+        crate::icons::install(&ctx);
+        let mut g = NodeGraphState::default();
+        g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(100.0, 100.0));
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        // A frame drawn: where the node is on screen.
+        let frame = |g: &mut NodeGraphState, events: Vec<egui::Event>| {
+            let mut node = egui::Rect::NOTHING;
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ui| {
+                let at = ui.max_rect().min;
+                draw_node_graph(ui, g);
+                let n = &g.nodes[0];
+                node = egui::Rect::from_min_size(
+                    at + (n.position.to_vec2() * g.zoom + g.pan_offset),
+                    egui::vec2(node_width(n), node_height(n)) * g.zoom,
+                );
+            })
+            .drop_without_applying_deltas();
+            node
+        };
+        let over = frame(&mut g, vec![]).center();
+        frame(&mut g, vec![egui::Event::PointerMoved(over)]);
+        assert_eq!(g.zoom, 1.0);
+        frame(
+            &mut g,
+            vec![
+                egui::Event::PointerMoved(over),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, 120.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        for _ in 0..10 {
+            frame(&mut g, vec![egui::Event::PointerMoved(over)]);
+        }
+        assert!(g.zoom > 1.0, "zoomed in over the node: {}", g.zoom);
+    }
 }

@@ -296,8 +296,9 @@ pub fn draw(ui: &mut egui::Ui, op: NodeId, graph: &mut Graph) -> bool {
         view.framed = true;
         ui.ctx().request_repaint();
     }
-    // Zoom toward the pointer.
-    if response.hovered() {
+    // Zoom toward the pointer: over a node too, which takes the hover from
+    // the canvas; not under a menu or window.
+    if ui.rect_contains_pointer(canvas) {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 {
             let cursor = ui.input(|i| i.pointer.hover_pos()).unwrap_or(canvas.center());
