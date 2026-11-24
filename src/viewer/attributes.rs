@@ -594,14 +594,17 @@ pub fn drawn(
 }
 
 /// Whether `path` is shown under `scope`: every prim, or the selected ones and
-/// those below them.
-pub fn in_scope(scope: Scope, path: &str, selected: &[String]) -> bool {
+/// those below them. Looked up by `path` and the prims above it, not by going
+/// through the selection: it can be a hundred thousand instances long.
+pub fn in_scope(scope: Scope, path: &str, selected: &std::collections::HashSet<String>) -> bool {
     match scope {
         Scope::All => true,
-        Scope::Selected => selected.iter().any(|s| {
-            let s = s.trim_end_matches('/');
-            path == s || path.strip_prefix(s).is_some_and(|rest| rest.starts_with('/'))
-        }),
+        Scope::Selected => {
+            selected.contains(path)
+                || path
+                    .match_indices('/')
+                    .any(|(i, _)| selected.contains(&path[..i.max(1)]) || selected.contains(&path[..=i]))
+        }
     }
 }
 
@@ -1021,10 +1024,16 @@ mod tests {
 
     #[test]
     fn the_selected_scope_takes_what_is_below_them() {
-        let sel = vec!["/set".to_string()];
-        assert!(in_scope(Scope::Selected, "/set/a", &sel));
+        let sel = ["/set".to_string()].into();
+        assert!(in_scope(Scope::Selected, "/set", &sel));
+        assert!(in_scope(Scope::Selected, "/set/a/b", &sel));
         assert!(!in_scope(Scope::Selected, "/settle", &sel));
         assert!(in_scope(Scope::All, "/settle", &sel));
+        let root = ["/".to_string()].into();
+        assert!(in_scope(Scope::Selected, "/settle", &root), "the root: everything");
+        let slashed = ["/set/".to_string()].into();
+        assert!(in_scope(Scope::Selected, "/set/a", &slashed));
+        assert!(!in_scope(Scope::Selected, "/settle", &slashed));
     }
 
     /// Labels nearest first: those in front drawn, however close together;

@@ -2962,6 +2962,9 @@ pub struct SceneHierarchy {
     /// selected. The Primitive Inspector shows what is at or below them;
     /// nothing selected, the whole scene. Dragged out, they all go.
     selected_paths: Vec<String>,
+    /// What is worked out from them once, at each change, not on every frame:
+    /// a box over a scatter can select a hundred thousand instances.
+    chosen: Chosen,
     /// The row a Shift+click selects from.
     anchor: Option<String>,
     next_id: usize,
@@ -2999,6 +3002,44 @@ pub struct SceneHierarchy {
     collection_rows: std::collections::HashMap<String, (String, String)>,
     /// The collection row selected: its members are the selection.
     selected_collection: Option<String>,
+}
+
+/// What the Scene Explorer and the Viewer look up in the selection, made once
+/// at each change of it.
+#[derive(Default)]
+struct Chosen {
+    /// The selected paths.
+    set: std::collections::HashSet<String>,
+    /// As prims, an instance (`/forest/trees[12]`) as its point instancer, in
+    /// the selection's order.
+    prims: Vec<String>,
+    /// The prims above the selected ones.
+    above: std::collections::HashSet<String>,
+    revision: u64,
+}
+
+impl Chosen {
+    /// Made from `paths`, a path selected twice kept once.
+    fn of(paths: &mut Vec<String>, revision: u64) -> Self {
+        let mut set = std::collections::HashSet::with_capacity(paths.len());
+        paths.retain(|p| set.insert(p.clone()));
+        let mut prims = vec![];
+        let mut seen = std::collections::HashSet::new();
+        let mut above = std::collections::HashSet::new();
+        for p in paths.iter() {
+            let prim = crate::core::instancing::instance_path(p).map_or(p.as_str(), |(i, _)| i);
+            if seen.insert(prim) {
+                prims.push(prim.to_string());
+                above.extend(crate::core::properties::parents(p));
+            }
+        }
+        Chosen {
+            set,
+            prims,
+            above,
+            revision,
+        }
+    }
 }
 
 /// How the Viewer draws geometry, as USD's `model:drawMode` has it: as it is,
@@ -3138,6 +3179,7 @@ impl SceneHierarchy {
         self.selected_paths = members;
         self.anchor = None;
         self.selected_collection = Some(key.to_string());
+        self.reselected();
     }
 
     /// The paths of the rows of a collection's members.
@@ -3218,16 +3260,7 @@ impl SceneHierarchy {
     /// The selected paths as prims: an instance (`/forest/trees[12]`) is its
     /// point instancer. For the Primitive Inspector and Prims Location tabs.
     pub fn selected_prim_paths(&self) -> Vec<String> {
-        let mut out: Vec<String> = vec![];
-        for p in &self.selected_paths {
-            let prim = crate::core::instancing::instance_path(p)
-                .map(|(i, _)| i.to_string())
-                .unwrap_or_else(|| p.clone());
-            if !out.contains(&prim) {
-                out.push(prim);
-            }
-        }
-        out
+        self.chosen.prims.clone()
     }
 
     /// Draw a prim of a composed stage as geometry, or as a box again.
@@ -3577,14 +3610,22 @@ impl SceneHierarchy {
         if self.anchor.as_deref().is_some_and(|a| !here(a)) {
             self.anchor = None;
         }
+        // Only taken from: the same length, the same selection.
+        let mut changed = kept.len() != self.selected_paths.len();
         self.selected_paths = kept;
         // A collection selected stays while it is listed, its members as
         // they are now.
         if let Some(k) = self.selected_collection.clone() {
             match self.members(&k) {
-                Some(m) => self.selected_paths = m,
+                Some(m) => {
+                    changed |= m != self.selected_paths;
+                    self.selected_paths = m;
+                }
                 None => self.selected_collection = None,
             }
+        }
+        if changed {
+            self.reselected();
         }
     }
 
@@ -3594,9 +3635,38 @@ impl SceneHierarchy {
         &self.selected_paths
     }
 
+    /// The selected paths, to look up.
+    pub fn selected_set(&self) -> &std::collections::HashSet<String> {
+        &self.chosen.set
+    }
+
+    /// The prims above the selected ones: their rows are marked, closed.
+    pub fn above_selected(&self) -> &std::collections::HashSet<String> {
+        &self.chosen.above
+    }
+
+    /// Counts changes to the selection: what is drawn of it is made again
+    /// when it moves.
+    pub fn selection_revision(&self) -> u64 {
+        self.chosen.revision
+    }
+
     /// Whether a row is selected.
     pub fn is_selected(&self, path: Option<&str>) -> bool {
-        path.is_some_and(|p| self.selected_paths.iter().any(|s| s == p))
+        path.is_some_and(|p| self.chosen.set.contains(p))
+    }
+
+    /// `path` added to the selection, unless it is in it.
+    fn add_selected(&mut self, path: String) {
+        if self.chosen.set.insert(path.clone()) {
+            self.selected_paths.push(path);
+        }
+    }
+
+    /// After any change to `selected_paths`: what is worked out from them.
+    fn reselected(&mut self) {
+        let revision = self.chosen.revision + 1;
+        self.chosen = Chosen::of(&mut self.selected_paths, revision);
     }
 
     /// A click on a row with a path. Alone: that row only (clicked again,
@@ -3614,10 +3684,9 @@ impl SceneHierarchy {
                 if let (Some(i), Some(j)) = (i, j) {
                     let (lo, hi) = (i.min(j), i.max(j));
                     for p in &listed[lo..=hi] {
-                        if !self.is_selected(Some(p)) {
-                            self.selected_paths.push(p.to_string());
-                        }
+                        self.add_selected(p.to_string());
                     }
+                    self.reselected();
                     return;
                 }
             }
@@ -3634,6 +3703,7 @@ impl SceneHierarchy {
             self.selected_paths = vec![path.to_string()];
         }
         self.anchor = Some(path.to_string());
+        self.reselected();
     }
 
     /// A box dragged in the Viewer over `paths`: they are the selection; with
@@ -3641,17 +3711,17 @@ impl SceneHierarchy {
     pub fn select_boxed(&mut self, paths: Vec<String>, add: bool, remove: bool) {
         self.selected_collection = None;
         if remove {
-            self.selected_paths.retain(|p| !paths.contains(p));
+            let gone: std::collections::HashSet<&String> = paths.iter().collect();
+            self.selected_paths.retain(|p| !gone.contains(p));
         } else if add {
             for p in paths {
-                if !self.is_selected(Some(&p)) {
-                    self.selected_paths.push(p);
-                }
+                self.add_selected(p);
             }
         } else {
             self.selected_paths = paths;
         }
         self.anchor = self.selected_paths.last().cloned();
+        self.reselected();
     }
 
     /// Select nothing: the Primitive Inspector shows the whole scene.
@@ -3659,6 +3729,7 @@ impl SceneHierarchy {
         self.selected_collection = None;
         self.selected_paths.clear();
         self.anchor = None;
+        self.reselected();
     }
 
     /// Rebuild from the evaluated node graph results. Expansion is kept by each
@@ -4286,6 +4357,33 @@ mod location_tests {
         assert_eq!(h.selected_paths(), paths(&["/b"]), "Shift: taken away");
         h.select_boxed(vec![], false, false);
         assert!(h.selected_paths().is_empty(), "a box over nothing: nothing");
+    }
+
+    /// What is looked up in the selection follows it: its paths once each,
+    /// its prims, the prims above them, and a count of its changes.
+    #[test]
+    fn the_selection_is_looked_up_as_it_changes() {
+        let mut h = SceneHierarchy::default();
+        let paths = |ps: &[&str]| ps.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        let before = h.selection_revision();
+        h.select_boxed(
+            paths(&["/set/trees[1]", "/set/trees[2]", "/set/trees[1]", "/set/rock"]),
+            false,
+            false,
+        );
+        assert_eq!(
+            h.selected_paths(),
+            paths(&["/set/trees[1]", "/set/trees[2]", "/set/rock"])
+        );
+        assert!(h.is_selected(Some("/set/trees[2]")) && !h.is_selected(Some("/set/trees")));
+        assert_eq!(h.selected_prim_paths(), paths(&["/set/trees", "/set/rock"]));
+        assert!(h.above_selected().contains("/set") && !h.above_selected().contains("/set/trees"));
+        assert!(h.selection_revision() > before);
+        h.click("/set/rock", true, false, &[]);
+        assert!(!h.is_selected(Some("/set/rock")), "Ctrl+click: taken out");
+        assert_eq!(h.selected_prim_paths(), paths(&["/set/trees"]));
+        h.clear_selection();
+        assert!(h.selected_set().is_empty() && h.above_selected().is_empty());
     }
 }
 

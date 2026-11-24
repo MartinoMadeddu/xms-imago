@@ -217,7 +217,7 @@ pub fn prim_at_drawn(
             }
         }
     }
-    best.map(|(_, p, copy)| copy_path(p, copy))
+    best.map(|(_, p, copy)| copy_path(p, copy_points(p).as_deref(), copy))
 }
 
 /// Where `p`'s copies are: its placements, or where it is.
@@ -230,16 +230,20 @@ fn matrices(p: &Prim) -> &[Mat4] {
 }
 
 /// What selecting copy `copy` of `p` selects: a point instancer's instance
-/// (`/forest/trees[12]`) for a copy of its prototype, else the prim.
-fn copy_path(p: &Prim, copy: usize) -> String {
-    match p
-        .instanced_by
-        .as_ref()
-        .and_then(|by| crate::core::instancing::point_of_copy(by, copy).map(|i| (by, i)))
-    {
+/// (`/forest/trees[12]`) for a copy of its prototype, else the prim. `points`:
+/// the instancer's points `p` is drawn at (`instancing::points_of`), made once
+/// for all its copies.
+fn copy_path(p: &Prim, points: Option<&[usize]>, copy: usize) -> String {
+    let at = p.instanced_by.as_ref().zip(points);
+    match at.and_then(|(by, points)| crate::core::instancing::point_of_copy(points, copy).map(|i| (by, i))) {
         Some((by, i)) => crate::core::instancing::instance_name(&by.instancer, i),
         None => p.path.clone(),
     }
+}
+
+/// The points a copy of `p` is drawn at, if it is a prototype's.
+fn copy_points(p: &Prim) -> Option<Vec<usize>> {
+    p.instanced_by.as_deref().map(crate::core::instancing::points_of)
 }
 
 /// Whether the convex shape `points` (a triangle, a segment) and the box `lo`
@@ -263,6 +267,11 @@ fn overlaps(points: &[Vec2], lo: Vec2, hi: Vec2) -> bool {
 /// drawn (`standins` by their boxes, copies of a point instancer's prototype
 /// as its instances), behind others too. A triangle partly behind the camera
 /// does not count.
+///
+/// A scatter has a million copies: they are tried on every core, a copy's box
+/// first. One whose box on screen misses is passed over, one whose box is all
+/// inside is taken; only those across the edge are tried triangle by
+/// triangle.
 pub fn prims_in_rect(
     view: &PickView,
     a: Vec2,
@@ -270,35 +279,65 @@ pub fn prims_in_rect(
     prims: &[Prim],
     standins: &std::collections::HashSet<String>,
 ) -> Vec<String> {
+    use rayon::prelude::*;
     let (lo, hi) = (a.min(b), a.max(b));
-    let mut out: Vec<String> = vec![];
-    let mut take = |path: String| {
-        if !out.contains(&path) {
-            out.push(path);
-        }
-    };
-    for p in prims.iter().filter(|p| p.light.is_some() || p.camera.is_some()) {
-        let touched = glyph_lines(p)
+    let each: Vec<Vec<String>> = prims
+        .par_iter()
+        .map(|p| touched(view, lo, hi, p, standins.contains(&p.path)))
+        .collect();
+    // Once each, in the order of the prims.
+    let mut seen = std::collections::HashSet::new();
+    each.into_iter().flatten().filter(|p| seen.insert(p.clone())).collect()
+}
+
+/// Where a box on screen (`s0`, `s1`) is against the box dragged.
+#[derive(PartialEq)]
+enum Against {
+    Apart,
+    Inside,
+    Across,
+}
+
+fn against(s0: Vec2, s1: Vec2, lo: Vec2, hi: Vec2) -> Against {
+    if s1.cmplt(lo).any() || s0.cmpgt(hi).any() {
+        Against::Apart
+    } else if s0.cmpge(lo).all() && s1.cmple(hi).all() {
+        Against::Inside
+    } else {
+        Against::Across
+    }
+}
+
+/// What of `p` the box `lo` to `hi` touches: the prim, or its instances.
+/// `boxed`: drawn as its box.
+fn touched(view: &PickView, lo: Vec2, hi: Vec2, p: &Prim, boxed: bool) -> Vec<String> {
+    use rayon::prelude::*;
+    let mut out = vec![];
+    if p.light.is_some() || p.camera.is_some() {
+        let hit = glyph_lines(p)
             .iter()
             .any(|[a, b]| match (view.project(*a), view.project(*b)) {
                 (Some(sa), Some(sb)) => overlaps(&[sa, sb], lo, hi),
                 _ => false,
             });
-        if touched {
-            take(p.path.clone());
+        if hit {
+            out.push(p.path.clone());
         }
     }
-    for p in prims.iter().filter(|p| !standins.contains(&p.path)) {
-        let lines = strand_lines(p);
-        let Some(local) = bounds::local_bounds(&p.mesh).filter(|_| !lines.is_empty()) else {
-            continue;
-        };
-        for (k, m) in matrices(p).iter().enumerate() {
-            match screen_box(view, local, m) {
-                Some((s0, s1)) if !(s1.cmplt(lo).any() || s0.cmpgt(hi).any()) => {}
-                _ => continue,
-            }
-            let touched = lines.iter().any(|[a, b]| {
+    let lines = if boxed { vec![] } else { strand_lines(p) };
+    let meshed = !p.mesh.indices.is_empty() || boxed;
+    let Some(local) = bounds::local_bounds(&p.mesh).filter(|_| !lines.is_empty() || meshed) else {
+        return out;
+    };
+    let points = copy_points(p);
+    let points = points.as_deref();
+    let copies = matrices(p);
+    let strands = |m: &Mat4| match screen_box(view, local, m) {
+        None => false,
+        Some((s0, s1)) => match against(s0, s1, lo, hi) {
+            Against::Apart => false,
+            Against::Inside => true,
+            Against::Across => lines.iter().any(|[a, b]| {
                 match (
                     view.project(m.transform_point3(*a)),
                     view.project(m.transform_point3(*b)),
@@ -306,124 +345,163 @@ pub fn prims_in_rect(
                     (Some(sa), Some(sb)) => overlaps(&[sa, sb], lo, hi),
                     _ => false,
                 }
-            });
-            if touched {
-                take(copy_path(p, k));
-            }
-        }
-    }
-    for p in prims {
-        let boxed = standins.contains(&p.path);
-        if p.mesh.indices.is_empty() && !boxed {
-            continue;
-        }
-        let Some(local) = bounds::local_bounds(&p.mesh) else {
-            continue;
+            }),
+        },
+    };
+    let mesh = |m: &Mat4| {
+        let (b0, b1) = bounds::moved_bounds(local, m);
+        let corner = |i: usize| {
+            Vec3::new(
+                if i & 1 == 0 { b0.x } else { b1.x },
+                if i & 2 == 0 { b0.y } else { b1.y },
+                if i & 4 == 0 { b0.z } else { b1.z },
+            )
         };
-        for (k, m) in matrices(p).iter().enumerate() {
-            let (b0, b1) = bounds::moved_bounds(local, m);
-            let corner = |i: usize| {
-                Vec3::new(
-                    if i & 1 == 0 { b0.x } else { b1.x },
-                    if i & 2 == 0 { b0.y } else { b1.y },
-                    if i & 4 == 0 { b0.z } else { b1.z },
-                )
-            };
-            let screen: Vec<Option<Vec2>> = (0..8).map(|i| view.project(corner(i))).collect();
-            // Cheap first: a copy wholly in front whose box on screen misses.
-            if screen.iter().all(Option::is_some) {
-                let (s0, s1) = screen
-                    .iter()
-                    .flatten()
-                    .fold((Vec2::MAX, Vec2::MIN), |(a, b), s| (a.min(*s), b.max(*s)));
-                if s1.cmplt(lo).any() || s0.cmpgt(hi).any() {
-                    continue;
-                }
-            }
-            let touched = if boxed {
-                // The box's faces, as the corners' quads.
-                [
-                    [0, 1, 3, 2],
-                    [4, 5, 7, 6],
-                    [0, 1, 5, 4],
-                    [2, 3, 7, 6],
-                    [0, 2, 6, 4],
-                    [1, 3, 7, 5],
-                ]
+        let screen: Vec<Option<Vec2>> = (0..8).map(|i| view.project(corner(i))).collect();
+        // Cheap first: a copy wholly in front, by its box on screen.
+        if screen.iter().all(Option::is_some) {
+            let (s0, s1) = screen
                 .iter()
-                .any(|face| {
-                    let q: Option<Vec<Vec2>> = face.iter().map(|i| screen[*i]).collect();
-                    q.is_some_and(|q| overlaps(&q, lo, hi))
-                })
-            } else {
-                let at: Vec<Option<Vec2>> = p
-                    .mesh
-                    .vertices
-                    .iter()
-                    .map(|v| view.project(m.transform_point3(Vec3::from_array(*v))))
-                    .collect();
-                p.mesh.indices.chunks_exact(3).any(|t| {
-                    match (at[t[0] as usize], at[t[1] as usize], at[t[2] as usize]) {
-                        (Some(x), Some(y), Some(z)) => overlaps(&[x, y, z], lo, hi),
-                        _ => false,
-                    }
-                })
-            };
-            if touched {
-                take(copy_path(p, k));
+                .flatten()
+                .fold((Vec2::MAX, Vec2::MIN), |(a, b), s| (a.min(*s), b.max(*s)));
+            match against(s0, s1, lo, hi) {
+                Against::Apart => return false,
+                Against::Inside => return true,
+                Against::Across => {}
             }
         }
+        if boxed {
+            // The box's faces, as the corners' quads.
+            return [
+                [0, 1, 3, 2],
+                [4, 5, 7, 6],
+                [0, 1, 5, 4],
+                [2, 3, 7, 6],
+                [0, 2, 6, 4],
+                [1, 3, 7, 5],
+            ]
+            .iter()
+            .any(|face| {
+                let q: Option<Vec<Vec2>> = face.iter().map(|i| screen[*i]).collect();
+                q.is_some_and(|q| overlaps(&q, lo, hi))
+            });
+        }
+        let at: Vec<Option<Vec2>> = p
+            .mesh
+            .vertices
+            .iter()
+            .map(|v| view.project(m.transform_point3(Vec3::from_array(*v))))
+            .collect();
+        p.mesh
+            .indices
+            .chunks_exact(3)
+            .any(|t| match (at[t[0] as usize], at[t[1] as usize], at[t[2] as usize]) {
+                (Some(x), Some(y), Some(z)) => overlaps(&[x, y, z], lo, hi),
+                _ => false,
+            })
+    };
+    let hit = |m: &Mat4| (!lines.is_empty() && strands(m)) || (meshed && mesh(m));
+    if copies.len() == 1 {
+        if hit(&copies[0]) {
+            out.push(copy_path(p, points, 0));
+        }
+        return out;
     }
+    let hits: Vec<usize> = copies
+        .par_iter()
+        .enumerate()
+        .filter(|&(_, m)| hit(m))
+        .map(|(k, _)| k)
+        .collect();
+    out.extend(hits.into_iter().map(|k| copy_path(p, points, k)));
     out
 }
 
 /// The lines of the selected lights and cameras, drawn in the selection's
 /// colour: they have no bounds to outline.
-pub fn selected_glyphs(prims: &[Prim], selected: &[String]) -> Vec<[Vec3; 2]> {
+pub fn selected_glyphs(prims: &[Prim], selected: &std::collections::HashSet<String>) -> Vec<[Vec3; 2]> {
     prims
         .iter()
-        .filter(|p| selected.iter().any(|s| *s == p.path))
+        .filter(|p| (p.light.is_some() || p.camera.is_some()) && selected.contains(&p.path))
         .flat_map(glyph_lines)
         .collect()
 }
 
+/// More boxes than this, and each instancer's selected instances are outlined
+/// by one box around them all, the selected prims by one around theirs: a box
+/// over a scatter can select a hundred thousand instances.
+pub const OUTLINES: usize = 2000;
+
 /// The world bounds of the primitives whose paths are selected, to outline; a
-/// selected instance (`/forest/trees[12]`), the box of each prim of its
-/// prototype where that instance is.
-pub fn selected_bounds(prims: &[Prim], selected: &[String]) -> Vec<Bounds> {
+/// selected instance (`/forest/trees[12]`), the box of its prototype where
+/// that instance is.
+pub fn selected_bounds(prims: &[Prim], selected: &std::collections::HashSet<String>) -> Vec<Bounds> {
+    use rayon::prelude::*;
+    use std::collections::HashMap;
     let mut out: Vec<Bounds> = prims
-        .iter()
-        .filter(|p| selected.iter().any(|s| *s == p.path))
+        .par_iter()
+        .filter(|p| selected.contains(&p.path))
         .filter_map(bounds::world_bounds)
         .collect();
+    // The selected instances, by instancer.
+    let mut chosen: HashMap<&str, Vec<usize>> = HashMap::new();
     for (inst, i) in selected
         .iter()
         .filter_map(|s| crate::core::instancing::instance_path(s))
     {
-        let Some(instancer) = prims.iter().find(|p| p.path == inst && p.instancing.is_some()) else {
-            continue;
-        };
-        let Some(geo) = &instancer.geo else { continue };
-        let proto = geo
-            .attr(crate::core::geo::Context::Point, "protoIndex")
-            .and_then(|a| a.column.ints())
-            .and_then(|ix| ix.get(i))
-            .copied()
-            .unwrap_or(0);
-        let at = crate::core::instancing::instance_matrices(geo, &instancer.place, i);
+        chosen.entry(inst).or_default().push(i);
+    }
+    let mut many = out.len() > OUTLINES;
+    let mut instanced: Vec<Vec<Bounds>> = vec![];
+    if !chosen.is_empty() {
+        // Each prototype's box, in its own space: around its meshes.
+        let mut protos: HashMap<(&str, i32), Bounds> = HashMap::new();
         for p in prims {
             let Some(by) = p
                 .instanced_by
                 .as_ref()
-                .filter(|by| by.instancer == inst && by.index as i32 == proto)
+                .filter(|by| chosen.contains_key(by.instancer.as_str()))
             else {
                 continue;
             };
             let Some(local) = bounds::local_bounds(&p.mesh) else {
                 continue;
             };
-            out.extend(at.iter().map(|m| bounds::moved_bounds(local, &(*m * by.inside))));
+            let b = bounds::moved_bounds(local, &by.inside);
+            protos
+                .entry((by.instancer.as_str(), by.index as i32))
+                .and_modify(|a| *a = (a.0.min(b.0), a.1.max(b.1)))
+                .or_insert(b);
         }
+        for p in prims.iter().filter(|p| p.instancing.is_some()) {
+            let (Some(ix), Some(geo)) = (chosen.get(p.path.as_str()), &p.geo) else {
+                continue;
+            };
+            let index = geo
+                .attr(crate::core::geo::Context::Point, "protoIndex")
+                .and_then(|a| a.column.ints());
+            let boxes: Vec<Bounds> = ix
+                .par_iter()
+                .flat_map_iter(|&i| {
+                    let proto = index.and_then(|x| x.get(i)).copied().unwrap_or(0);
+                    let b = protos.get(&(p.path.as_str(), proto)).copied();
+                    let at = b.map(|_| crate::core::instancing::instance_matrices(geo, &p.place, i));
+                    at.into_iter()
+                        .flatten()
+                        .filter_map(move |m| b.map(|b| bounds::moved_bounds(b, &m)))
+                })
+                .collect();
+            many |= boxes.len() > OUTLINES;
+            instanced.push(boxes);
+        }
+        many |= out.len() + instanced.iter().map(Vec::len).sum::<usize>() > OUTLINES;
+    }
+    let around = |bs: &[Bounds]| bs.iter().copied().reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)));
+    if many {
+        out = around(&out).into_iter().collect();
+        out.extend(instanced.iter().filter_map(|bs| around(bs)));
+    } else {
+        out.extend(instanced.into_iter().flatten());
     }
     out
 }
@@ -496,7 +574,7 @@ mod tests {
             prim_at(&v, at(Vec3::new(-2.0, 0.0, 0.5)), &three).as_deref(),
             Some("/front")
         );
-        let b = selected_bounds(&three, &["/right".into(), "/front".into()]);
+        let b = selected_bounds(&three, &["/right".to_string(), "/front".to_string()].into());
         assert_eq!(b.len(), 2);
         assert!((b[0].1.y - 3.5).abs() < 1e-5, "{:?}", b[0]);
     }
@@ -574,8 +652,8 @@ mod tests {
         assert_eq!(prim_at(&v, edge, &shown).as_deref(), Some("/lights/rect"));
         let off = v.project(Vec3::new(-1.5, 1.5, 0.0)).unwrap();
         assert_eq!(prim_at(&v, off, &shown), None);
-        assert!(!selected_glyphs(&shown, &["/lights/rect".into()]).is_empty());
-        assert!(selected_glyphs(&shown, &[]).is_empty());
+        assert!(!selected_glyphs(&shown, &["/lights/rect".to_string()].into()).is_empty());
+        assert!(selected_glyphs(&shown, &Default::default()).is_empty());
     }
 
     /// A curve is picked by its line, as drawn, the pointer near it, not beside
@@ -617,5 +695,83 @@ mod tests {
             vec!["/hair"]
         );
         assert!(boxed(Vec3::new(-0.5, -0.5, 0.0), Vec3::new(0.5, 0.5, 0.0)).is_empty());
+    }
+
+    /// A point instancer of `n` points in a row along X, `step` apart, the
+    /// second hidden, and a cube drawn at each of the others.
+    fn scatter(n: usize, step: f32) -> Vec<Prim> {
+        use crate::core::geo::{Attr, Column, Context, Geo, Role};
+        use crate::core::geo_mesh::GeoMesh;
+        use std::sync::Arc;
+        let xs = (0..n).map(|k| [(k as f32 - 2.0) * step, 0.0, 0.0]).collect();
+        let mut geo = Geo::from_points(xs);
+        geo.set(
+            Context::Point,
+            "protoIndex",
+            Attr::new(Column::Int(Arc::new(vec![0; n])), Role::None),
+        );
+        let geo = Arc::new(geo);
+        let place = Placement::One(Mat4::IDENTITY);
+        let instancer = Prim {
+            geo: Some(geo.clone()),
+            place: place.clone(),
+            instancing: Some(Arc::new(vec!["/inst/cube".into()])),
+            ..Prim::new("/inst".into(), geo.to_mesh())
+        };
+        let by = crate::types::InstancedBy {
+            instancer: "/inst".into(),
+            index: 0,
+            inside: Mat4::IDENTITY,
+            hidden: Arc::new(vec![1]),
+            geo: geo.clone(),
+            place: place.clone(),
+            file: None,
+        };
+        let cube = Prim {
+            mesh: Arc::new(crate::node_graph::nodes::create_cube(1.0)),
+            place: Placement::Many(crate::core::instancing::copies(&geo, &place, &by).into()),
+            instanced_by: Some(Arc::new(by)),
+            ..Prim::new("/inst/cube".into(), MeshData::default())
+        };
+        vec![instancer, cube]
+    }
+
+    /// A box over a scatter selects the instances it touches, by their
+    /// points (a hidden one is not drawn, so not counted); they are outlined
+    /// one by one, and past `OUTLINES` by one box around them all.
+    #[test]
+    fn a_box_over_a_scatter_selects_its_instances() {
+        let shown = scatter(5, 1.2);
+        let v = view();
+        let s = |p: Vec3| v.project(p).unwrap();
+        let none = Default::default();
+        let boxed = |a: Vec3, b: Vec3| prims_in_rect(&v, s(a), s(b), &shown, &none);
+        // Over the cube at 0 and where the hidden one at -1.2 would be.
+        assert_eq!(
+            boxed(Vec3::new(-1.5, -0.1, 0.5), Vec3::new(0.3, 0.1, 0.5)),
+            vec!["/inst[2]"]
+        );
+        assert_eq!(
+            boxed(Vec3::new(-3.0, -1.0, 0.0), Vec3::new(3.0, 1.0, 0.0)),
+            vec!["/inst[0]", "/inst[2]", "/inst[3]", "/inst[4]"]
+        );
+        // Wholly inside: taken by its box.
+        assert_eq!(
+            boxed(Vec3::new(-0.6, -0.6, 0.0), Vec3::new(0.6, 0.6, 0.0)),
+            vec!["/inst[2]"]
+        );
+        let mut b = selected_bounds(&shown, &["/inst[2]".to_string(), "/inst[4]".to_string()].into());
+        b.sort_by(|x, y| x.0.x.total_cmp(&y.0.x));
+        assert_eq!(b.len(), 2);
+        assert!((b[0].0.x + 0.5).abs() < 1e-5 && (b[1].1.x - 2.9).abs() < 1e-5, "{b:?}");
+        // Many: one box around them.
+        let many = scatter(OUTLINES + 10, 1.0);
+        let all = (0..OUTLINES + 10)
+            .filter(|&k| k != 1)
+            .map(|k| format!("/inst[{k}]"))
+            .collect();
+        let b = selected_bounds(&many, &all);
+        assert_eq!(b.len(), 1);
+        assert!((b[0].0.x + 2.5).abs() < 1e-4, "{b:?}");
     }
 }

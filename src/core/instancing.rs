@@ -105,23 +105,25 @@ pub fn instance_path(path: &str) -> Option<(&str, usize)> {
 }
 
 /// The instancer's points a prototype mesh is drawn at, in the order of its
-/// copies (`copies`' `local`): those of its prototype, not hidden.
-fn points_of(geo: &Geo, by: &InstancedBy) -> Vec<usize> {
+/// copies (`copies`' `local`): those of its prototype, not hidden. Made once
+/// for many copies: it goes through every point.
+pub fn points_of(by: &InstancedBy) -> Vec<usize> {
+    let geo = &by.geo;
     let index = geo.attr(Context::Point, "protoIndex").and_then(|a| a.column.ints());
     let ids = geo.attr(Context::Point, "id").and_then(|a| a.column.ints());
+    let hidden: std::collections::HashSet<i64> = by.hidden.iter().copied().collect();
     (0..geo.points().len())
         .filter(|&k| index.map_or(by.index == 0, |ix| ix.get(k).copied() == Some(by.index as i32)))
         .filter(|&k| {
             let id = ids.and_then(|i| i.get(k).copied()).map_or(k as i64, |i| i as i64);
-            !by.hidden.contains(&id)
+            !hidden.contains(&id)
         })
         .collect()
 }
 
-/// Which point of its instancer copy `copy` of a prototype mesh is drawn at:
-/// the instance a click on that copy picks.
-pub fn point_of_copy(by: &InstancedBy, copy: usize) -> Option<usize> {
-    let points = points_of(&by.geo, by);
+/// Which point of its instancer copy `copy` of a prototype mesh is drawn at,
+/// among `points` (`points_of`): the instance a click on that copy picks.
+pub fn point_of_copy(points: &[usize], copy: usize) -> Option<usize> {
     if points.is_empty() {
         return None;
     }
@@ -305,7 +307,11 @@ mod tests {
         let prims = scene();
         let by = prims[1].instanced_by.clone().unwrap();
         // Copies 0 and 1 are points 0 and 2: point 1 (id 11) is hidden.
-        assert_eq!((point_of_copy(&by, 0), point_of_copy(&by, 1)), (Some(0), Some(2)));
+        let points = points_of(&by);
+        assert_eq!(
+            (point_of_copy(&points, 0), point_of_copy(&points, 1)),
+            (Some(0), Some(2))
+        );
         assert_eq!(
             instance_matrices(prims[0].geo.as_ref().unwrap(), &prims[0].place, 2)[0]
                 .w_axis

@@ -91,13 +91,6 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             // A variant chosen on a row's right-click.
             let mut chosen: Option<crate::core::variant::Choice> = None;
             let selected_now = hierarchy.selected_prim_paths();
-            // The rows above a selected prim (clicked in the Viewer, say),
-            // marked without opening them.
-            let above_selected: std::collections::HashSet<String> = hierarchy
-                .selected_paths()
-                .iter()
-                .flat_map(|p| crate::core::properties::parents(p))
-                .collect();
 
             let n = hierarchy.objects.len();
             // Whether each row is the last of its siblings, in one pass
@@ -272,7 +265,7 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         // selected prim below it.
                         if is_sel {
                             painter.rect_filled(row_rect, 0.0, xsi::SEL_BG());
-                        } else if obj.path.as_ref().is_some_and(|p| above_selected.contains(p)) {
+                        } else if obj.path.as_ref().is_some_and(|p| hierarchy.above_selected().contains(p)) {
                             painter.rect_filled(row_rect, 0.0, xsi::ABOVE_SEL_BG());
                         }
 
