@@ -913,3 +913,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 23/11/2026: The tab's circled letter is the Follows menu (Panes::follows_mark, a frameless menu button in an Area over the tab); Follows gone from the tab's right-click menu. (Martino)
 - 23/11/2026: Release 0.3.7. (Martino)
 - 24/11/2026: Phosphor Light icons: the font in assets/fonts (MIT, its licence beside it), installed after egui's fonts (icons::install), each icon a named constant (src/icons.rs, tested present in the font); every operator's icon one of them (types::node_type_icon). (Martino)
+- 24/11/2026: Phosphor Regular shipped beside Light, Regular the default; icons::Weight chosen in File > Settings > Interface (icons.txt in the config folder), both fonts loaded, each its own family for the preview; ICE nodes' icons (subnet_node_icon) and the Scene Explorer's (prim and stage icons, made prims, render prims) on Phosphor. (Martino)

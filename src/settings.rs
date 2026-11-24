@@ -65,7 +65,11 @@ pub fn window(
                     Page::Scene => scene_page(ui, scene),
                     Page::Viewer => viewer(ui, nav),
                     Page::Renderers => renderers(ui, scene),
-                    Page::Interface => crate::ui_scale::settings(ui),
+                    Page::Interface => {
+                        crate::ui_scale::settings(ui);
+                        ui.add_space(14.0);
+                        crate::icons::settings(ui);
+                    }
                 });
             });
         });

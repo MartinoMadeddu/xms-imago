@@ -1,47 +1,176 @@
-//! Imago's icons: Phosphor Light (phosphoricons.com, MIT: see
-//! `assets/fonts/Phosphor-LICENSE.txt`), a font added to egui's (`install`),
-//! each icon one of its characters, named here as Phosphor names it. Draw an
-//! icon with these, as text: never a glyph typed in place. Any other
-//! Phosphor Light icon is a constant away: its code point is in the font
-//! (`@phosphor-icons/web`, `src/light/style.css`).
+//! Imago's icons: Phosphor (phosphoricons.com, MIT: see
+//! `assets/fonts/Phosphor-LICENSE.txt`), in two weights, Regular and Light,
+//! fonts added after egui's (`install`). Each icon is one of their characters,
+//! the same in both, named here as Phosphor names it. Draw an icon with these,
+//! as text: never a glyph typed in place. Any other Phosphor icon is a
+//! constant away: its code point is in the fonts (`@phosphor-icons/web`,
+//! `src/regular/style.css`). File > Settings > Interface chooses the weight
+//! (`settings`), kept in the config folder.
 
 // Some not used yet: the interface's own icons move to them next.
 #![allow(dead_code)]
 
-/// The font, Phosphor Light 2.1.
-pub const FONT: &[u8] = include_bytes!("../assets/fonts/Phosphor-Light.ttf");
+use std::sync::Mutex;
 
-/// Phosphor added to egui's fonts, after its own in every family: a character
-/// they lack (Phosphor's are in the private-use area) is drawn from it.
+/// The fonts, Phosphor 2.1.
+pub const REGULAR: &[u8] = include_bytes!("../assets/fonts/Phosphor-Regular.ttf");
+pub const LIGHT: &[u8] = include_bytes!("../assets/fonts/Phosphor-Light.ttf");
+
+/// The weight icons are drawn in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Weight {
+    #[default]
+    Regular,
+    Light,
+}
+
+impl Weight {
+    pub const ALL: [Weight; 2] = [Weight::Regular, Weight::Light];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Weight::Regular => "Regular",
+            Weight::Light => "Light",
+        }
+    }
+
+    /// Its font's name among egui's, and a family of it alone (for showing
+    /// the two side by side).
+    fn font(self) -> &'static str {
+        match self {
+            Weight::Regular => "phosphor-regular",
+            Weight::Light => "phosphor-light",
+        }
+    }
+
+    pub fn family(self) -> egui::FontFamily {
+        egui::FontFamily::Name(self.font().into())
+    }
+}
+
+static CHOSEN: Mutex<Option<Weight>> = Mutex::new(None);
+
+fn file() -> Option<std::path::PathBuf> {
+    crate::file_browser::config_path("icons.txt")
+}
+
+fn parse(t: &str) -> Weight {
+    match t.trim() {
+        "light" => Weight::Light,
+        _ => Weight::Regular,
+    }
+}
+
+fn text(w: Weight) -> &'static str {
+    match w {
+        Weight::Regular => "regular\n",
+        Weight::Light => "light\n",
+    }
+}
+
+/// The weight chosen, read from the config folder once: Regular unless
+/// Light was chosen.
+pub fn chosen() -> Weight {
+    let mut g = CHOSEN.lock().unwrap_or_else(|e| e.into_inner());
+    *g.get_or_insert_with(|| {
+        file()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .map(|t| parse(&t))
+            .unwrap_or_default()
+    })
+}
+
+/// Draw icons in `w` from now on, and keep it.
+pub fn choose(ctx: &egui::Context, w: Weight) {
+    if let Ok(mut g) = CHOSEN.lock() {
+        *g = Some(w);
+    }
+    if let Some(f) = file() {
+        if let Some(dir) = f.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(f, text(w));
+    }
+    install(ctx);
+}
+
+/// Both weights added to egui's fonts, each a family of its own; the one
+/// chosen after egui's own fonts in every family, so a character they lack
+/// (Phosphor's are in the private-use area) is drawn from it.
 pub fn install(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "phosphor-light".into(),
-        std::sync::Arc::new(egui::FontData::from_static(FONT)),
-    );
+    for (w, bytes) in [(Weight::Regular, REGULAR), (Weight::Light, LIGHT)] {
+        fonts
+            .font_data
+            .insert(w.font().into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
+        fonts.families.insert(w.family(), vec![w.font().into()]);
+    }
+    let shown = chosen().font();
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-        fonts.families.entry(family).or_default().push("phosphor-light".into());
+        fonts.families.entry(family).or_default().push(shown.into());
     }
     ctx.set_fonts(fonts);
+}
+
+/// File > Settings > Interface: the weight of the icons, each shown.
+pub fn settings(ui: &mut egui::Ui) {
+    ui.strong("Icons");
+    let now = chosen();
+    let mut pick = now;
+    let sample = [
+        CUBE,
+        SPHERE,
+        VIDEO_CAMERA,
+        LIGHTBULB,
+        STACK,
+        GRAPH,
+        BONE,
+        TRASH,
+        FOLDER_OPEN,
+        GEAR,
+    ];
+    for w in Weight::ALL {
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut pick, w, w.label());
+            ui.add_space(8.0);
+            let font = egui::FontId::new(16.0, w.family());
+            ui.label(egui::RichText::new(sample.join("  ")).font(font));
+        });
+    }
+    if pick != now {
+        choose(ui.ctx(), pick);
+    }
+    let dim = crate::properties::form::ink::DIM();
+    ui.label(
+        egui::RichText::new("Phosphor icons, on operators and buttons. Light's strokes are thinner")
+            .small()
+            .color(dim),
+    );
 }
 
 pub const ARROW_COUNTER_CLOCKWISE: &str = "\u{e038}";
 pub const ARROW_DOWN: &str = "\u{e03e}";
 pub const ARROW_FAT_LINE_UP: &str = "\u{e522}";
 pub const ARROW_LINE_DOWN: &str = "\u{e05c}";
+pub const ARROW_SQUARE_IN: &str = "\u{e5dc}";
+pub const ARROW_SQUARE_OUT: &str = "\u{e5de}";
 pub const ARROW_U_UP_LEFT: &str = "\u{e08a}";
 pub const ARROW_U_UP_RIGHT: &str = "\u{e08c}";
 pub const ARROW_UP: &str = "\u{e08e}";
 pub const ARROWS_CLOCKWISE: &str = "\u{e094}";
 pub const ARROWS_HORIZONTAL: &str = "\u{eb06}";
+pub const ARROWS_IN_LINE_HORIZONTAL: &str = "\u{e530}";
 pub const ARROWS_MERGE: &str = "\u{ed3e}";
 pub const ARROWS_OUT: &str = "\u{e0a2}";
 pub const ARROWS_OUT_CARDINAL: &str = "\u{e0a4}";
+pub const ARROWS_OUT_LINE_HORIZONTAL: &str = "\u{e534}";
 pub const ARROWS_OUT_SIMPLE: &str = "\u{e0a6}";
 pub const ARROWS_SPLIT: &str = "\u{ed3c}";
 pub const BACKSPACE: &str = "\u{e0ae}";
+pub const BEZIER_CURVE: &str = "\u{eb00}";
 pub const BONE: &str = "\u{e7f2}";
 pub const BRACKETS_CURLY: &str = "\u{e860}";
+pub const BRACKETS_SQUARE: &str = "\u{e85e}";
 pub const CAMERA: &str = "\u{e10e}";
 pub const CAR_SIMPLE: &str = "\u{e114}";
 pub const CARET_DOWN: &str = "\u{e136}";
@@ -49,19 +178,26 @@ pub const CARET_LEFT: &str = "\u{e138}";
 pub const CARET_RIGHT: &str = "\u{e13a}";
 pub const CARET_UP: &str = "\u{e13c}";
 pub const CHECK: &str = "\u{e182}";
+pub const CIRCLE: &str = "\u{e18a}";
 pub const CIRCLE_DASHED: &str = "\u{e602}";
 pub const CIRCLE_HALF: &str = "\u{e18c}";
+pub const CIRCLES_THREE: &str = "\u{e192}";
 pub const CLOCK: &str = "\u{e19a}";
 pub const CLOUD: &str = "\u{e1aa}";
 pub const CODE: &str = "\u{e1bc}";
+pub const COMPASS: &str = "\u{e1c8}";
 pub const COMPASS_TOOL: &str = "\u{ea0e}";
 pub const COPY: &str = "\u{e1ca}";
 pub const CROP: &str = "\u{e1d4}";
+pub const CROSSHAIR: &str = "\u{e1d6}";
 pub const CROSSHAIR_SIMPLE: &str = "\u{e1d8}";
 pub const CUBE: &str = "\u{e1da}";
 pub const CUBE_TRANSPARENT: &str = "\u{ec7c}";
 pub const CURSOR_CLICK: &str = "\u{e7c8}";
+pub const CYLINDER: &str = "\u{e8fc}";
 pub const DIAMOND: &str = "\u{e1ec}";
+pub const DICE_FIVE: &str = "\u{e1ee}";
+pub const DOTS_NINE: &str = "\u{e1fc}";
 pub const DROP: &str = "\u{e210}";
 pub const DROP_HALF: &str = "\u{e566}";
 pub const ERASER: &str = "\u{e21e}";
@@ -81,12 +217,15 @@ pub const FLOPPY_DISK: &str = "\u{e248}";
 pub const FLOPPY_DISK_BACK: &str = "\u{eaf4}";
 pub const FOLDER: &str = "\u{e24a}";
 pub const FOLDER_OPEN: &str = "\u{e256}";
+pub const FOLDER_SIMPLE: &str = "\u{e25a}";
 pub const FOLDERS: &str = "\u{e260}";
 pub const GAUGE: &str = "\u{e628}";
 pub const GEAR: &str = "\u{e270}";
 pub const GIT_BRANCH: &str = "\u{e278}";
 pub const GIT_FORK: &str = "\u{e27e}";
 pub const GIT_MERGE: &str = "\u{e280}";
+pub const GRADIENT: &str = "\u{eb42}";
+pub const GRAINS: &str = "\u{ec68}";
 pub const GRAPH: &str = "\u{eb58}";
 pub const GRID_FOUR: &str = "\u{e296}";
 pub const HAND_GRABBING: &str = "\u{e57c}";
@@ -98,10 +237,14 @@ pub const KNIFE: &str = "\u{e636}";
 pub const LIGHTBULB: &str = "\u{e2dc}";
 pub const LIGHTNING: &str = "\u{e2de}";
 pub const LINK: &str = "\u{e2e2}";
+pub const LINK_SIMPLE: &str = "\u{e2e6}";
+pub const LIST_NUMBERS: &str = "\u{e2f6}";
+pub const LIST_PLUS: &str = "\u{e2f8}";
 pub const LOCK: &str = "\u{e2fa}";
 pub const LOCK_SIMPLE: &str = "\u{e308}";
 pub const MAP_PIN: &str = "\u{e316}";
 pub const MAP_TRIFOLD: &str = "\u{e31a}";
+pub const MATH_OPERATIONS: &str = "\u{e31e}";
 pub const NUT: &str = "\u{e38c}";
 pub const PACKAGE: &str = "\u{e390}";
 pub const PAINT_BUCKET: &str = "\u{e392}";
@@ -129,9 +272,11 @@ pub const SIGN_IN: &str = "\u{e428}";
 pub const SIGN_OUT: &str = "\u{e42a}";
 pub const SKIP_BACK: &str = "\u{e5a4}";
 pub const SKIP_FORWARD: &str = "\u{e5a6}";
+pub const SLIDERS: &str = "\u{e432}";
 pub const SLIDERS_HORIZONTAL: &str = "\u{e434}";
 pub const SPHERE: &str = "\u{ee66}";
 pub const SQUARE: &str = "\u{e45e}";
+pub const SQUARES_FOUR: &str = "\u{e464}";
 pub const STACK: &str = "\u{e466}";
 pub const STACK_MINUS: &str = "\u{edf4}";
 pub const STOP: &str = "\u{e46c}";
@@ -145,6 +290,7 @@ pub const TEXTBOX: &str = "\u{eb0a}";
 pub const TIMER: &str = "\u{e492}";
 pub const TRASH: &str = "\u{e4a6}";
 pub const TREE_STRUCTURE: &str = "\u{e67c}";
+pub const TRIANGLE: &str = "\u{e4b0}";
 pub const USER_FOCUS: &str = "\u{e6fc}";
 pub const USER_SWITCH: &str = "\u{e756}";
 pub const VIDEO_CAMERA: &str = "\u{e4da}";
@@ -192,41 +338,51 @@ mod tests {
         0
     }
 
-    /// Every icon is a character of the font: drawn, not a box.
+    /// Every icon is a character of both fonts: drawn, not a box.
     #[test]
     fn every_icon_is_in_the_font() {
-        for icon in super::ALL {
-            let c = icon.chars().next().unwrap() as u32;
-            assert!(
-                c <= 0xffff && glyph(super::FONT, c as u16) != 0,
-                "{c:x} is not in the font"
-            );
+        for font in [super::REGULAR, super::LIGHT] {
+            for icon in super::ALL {
+                let c = icon.chars().next().unwrap() as u32;
+                assert!(c <= 0xffff && glyph(font, c as u16) != 0, "{c:x} is not in the font");
+            }
+            // And a character it has not, none.
+            assert_eq!(glyph(font, 'A' as u16), 0);
         }
-        // And a character it has not, none.
-        assert_eq!(glyph(super::FONT, 'A' as u16), 0);
+        // The weight chosen reads back as written.
+        for w in super::Weight::ALL {
+            assert_eq!(super::parse(super::text(w)), w);
+        }
+        assert_eq!(super::parse("nonsense"), super::Weight::Regular);
     }
 }
 
 /// Every icon named here, for the test.
 #[cfg(test)]
-const ALL: [&str; 127] = [
+const ALL: [&str; 150] = [
     ARROW_COUNTER_CLOCKWISE,
     ARROW_DOWN,
     ARROW_FAT_LINE_UP,
     ARROW_LINE_DOWN,
+    ARROW_SQUARE_IN,
+    ARROW_SQUARE_OUT,
     ARROW_U_UP_LEFT,
     ARROW_U_UP_RIGHT,
     ARROW_UP,
     ARROWS_CLOCKWISE,
     ARROWS_HORIZONTAL,
+    ARROWS_IN_LINE_HORIZONTAL,
     ARROWS_MERGE,
     ARROWS_OUT,
     ARROWS_OUT_CARDINAL,
+    ARROWS_OUT_LINE_HORIZONTAL,
     ARROWS_OUT_SIMPLE,
     ARROWS_SPLIT,
     BACKSPACE,
+    BEZIER_CURVE,
     BONE,
     BRACKETS_CURLY,
+    BRACKETS_SQUARE,
     CAMERA,
     CAR_SIMPLE,
     CARET_DOWN,
@@ -234,19 +390,26 @@ const ALL: [&str; 127] = [
     CARET_RIGHT,
     CARET_UP,
     CHECK,
+    CIRCLE,
     CIRCLE_DASHED,
     CIRCLE_HALF,
+    CIRCLES_THREE,
     CLOCK,
     CLOUD,
     CODE,
+    COMPASS,
     COMPASS_TOOL,
     COPY,
     CROP,
+    CROSSHAIR,
     CROSSHAIR_SIMPLE,
     CUBE,
     CUBE_TRANSPARENT,
     CURSOR_CLICK,
+    CYLINDER,
     DIAMOND,
+    DICE_FIVE,
+    DOTS_NINE,
     DROP,
     DROP_HALF,
     ERASER,
@@ -266,12 +429,15 @@ const ALL: [&str; 127] = [
     FLOPPY_DISK_BACK,
     FOLDER,
     FOLDER_OPEN,
+    FOLDER_SIMPLE,
     FOLDERS,
     GAUGE,
     GEAR,
     GIT_BRANCH,
     GIT_FORK,
     GIT_MERGE,
+    GRADIENT,
+    GRAINS,
     GRAPH,
     GRID_FOUR,
     HAND_GRABBING,
@@ -283,10 +449,14 @@ const ALL: [&str; 127] = [
     LIGHTBULB,
     LIGHTNING,
     LINK,
+    LINK_SIMPLE,
+    LIST_NUMBERS,
+    LIST_PLUS,
     LOCK,
     LOCK_SIMPLE,
     MAP_PIN,
     MAP_TRIFOLD,
+    MATH_OPERATIONS,
     NUT,
     PACKAGE,
     PAINT_BUCKET,
@@ -314,9 +484,11 @@ const ALL: [&str; 127] = [
     SIGN_OUT,
     SKIP_BACK,
     SKIP_FORWARD,
+    SLIDERS,
     SLIDERS_HORIZONTAL,
     SPHERE,
     SQUARE,
+    SQUARES_FOUR,
     STACK,
     STACK_MINUS,
     STOP,
@@ -330,6 +502,7 @@ const ALL: [&str; 127] = [
     TIMER,
     TRASH,
     TREE_STRUCTURE,
+    TRIANGLE,
     USER_FOCUS,
     USER_SWITCH,
     VIDEO_CAMERA,

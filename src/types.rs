@@ -1744,31 +1744,32 @@ pub fn subnet_node_label(t: &IceGraphNodeType) -> &'static str {
     }
 }
 
+/// An ICE node's icon (`crate::icons`).
 pub fn subnet_node_icon(t: &IceGraphNodeType) -> &'static str {
     match t {
-        IceGraphNodeType::Root { .. } => "◀",
-        IceGraphNodeType::GetData { .. } => "▶",
-        IceGraphNodeType::SetData { .. } => "■",
-        IceGraphNodeType::Constant { .. } => "●",
-        IceGraphNodeType::Math { .. } => "±",
-        IceGraphNodeType::Random { .. } => "⚂",
-        IceGraphNodeType::Scatter { .. } => "⁘",
-        IceGraphNodeType::ClosestPoint => "⌖",
-        IceGraphNodeType::NearPoints => "⁙",
-        IceGraphNodeType::GetArrayData { .. } => "▶",
-        IceGraphNodeType::RandomOrientation { .. } => "⟳",
-        IceGraphNodeType::Concat => "⧺",
-        IceGraphNodeType::GetReference { .. } => "⇲",
-        IceGraphNodeType::Instancer { .. } => "❖",
-        IceGraphNodeType::Array { .. } => "▤",
-        IceGraphNodeType::Compose { .. } => "⊞",
-        IceGraphNodeType::Ramp { .. } => "◩",
-        IceGraphNodeType::Decompose { .. } => "⊟",
-        IceGraphNodeType::Compound { .. } => "◆",
-        IceGraphNodeType::CompoundInput { .. } => "▶",
-        IceGraphNodeType::CompoundOutput { .. } => "◀",
-        IceGraphNodeType::Parameter { .. } => "⚙",
-        IceGraphNodeType::Snippet { .. } => "λ",
+        IceGraphNodeType::Root { .. } => crate::icons::FLAG_CHECKERED,
+        IceGraphNodeType::GetData { .. } => crate::icons::ARROW_SQUARE_IN,
+        IceGraphNodeType::SetData { .. } => crate::icons::ARROW_SQUARE_OUT,
+        IceGraphNodeType::Constant { .. } => crate::icons::CIRCLE,
+        IceGraphNodeType::Math { .. } => crate::icons::MATH_OPERATIONS,
+        IceGraphNodeType::Random { .. } => crate::icons::DICE_FIVE,
+        IceGraphNodeType::Scatter { .. } => crate::icons::GRAINS,
+        IceGraphNodeType::ClosestPoint => crate::icons::CROSSHAIR,
+        IceGraphNodeType::NearPoints => crate::icons::CIRCLES_THREE,
+        IceGraphNodeType::GetArrayData { .. } => crate::icons::BRACKETS_SQUARE,
+        IceGraphNodeType::RandomOrientation { .. } => crate::icons::COMPASS,
+        IceGraphNodeType::Concat => crate::icons::LIST_PLUS,
+        IceGraphNodeType::GetReference { .. } => crate::icons::LINK_SIMPLE,
+        IceGraphNodeType::Instancer { .. } => crate::icons::COPY,
+        IceGraphNodeType::Array { .. } => crate::icons::LIST_NUMBERS,
+        IceGraphNodeType::Compose { .. } => crate::icons::ARROWS_IN_LINE_HORIZONTAL,
+        IceGraphNodeType::Ramp { .. } => crate::icons::GRADIENT,
+        IceGraphNodeType::Decompose { .. } => crate::icons::ARROWS_OUT_LINE_HORIZONTAL,
+        IceGraphNodeType::Compound { .. } => crate::icons::DIAMOND,
+        IceGraphNodeType::CompoundInput { .. } => crate::icons::SIGN_IN,
+        IceGraphNodeType::CompoundOutput { .. } => crate::icons::SIGN_OUT,
+        IceGraphNodeType::Parameter { .. } => crate::icons::SLIDERS,
+        IceGraphNodeType::Snippet { .. } => crate::icons::CODE,
     }
 }
 
@@ -2884,43 +2885,48 @@ fn prim_icon(name: &str, has_children: bool) -> &'static str {
     let lower = name.to_lowercase();
     if has_children {
         if lower.contains("geom") {
-            return "🔷";
+            return crate::icons::CUBE_TRANSPARENT;
         }
         if lower.contains("xform") {
-            return "⟲";
+            return crate::icons::ARROWS_OUT_CARDINAL;
         }
         if lower.contains("look") || lower.contains("mat") {
-            return "🎨";
+            return crate::icons::PALETTE;
         }
-        return "📁"; // generic xform / group
+        return crate::icons::FOLDER_SIMPLE; // generic xform / group
     }
     // Leaf mesh — guess from name
     if lower.contains("cylinder") || lower.contains("tube") {
-        return "🔩";
+        return crate::icons::CYLINDER;
     }
     if lower.contains("sphere") || lower.contains("ball") {
-        return "🔵";
+        return crate::icons::SPHERE;
     }
     if lower.contains("cube") || lower.contains("box") {
-        return "⬛";
+        return crate::icons::CUBE;
     }
     if lower.contains("plane") || lower.contains("grid") {
-        return "⬜";
+        return crate::icons::GRID_FOUR;
     }
     if lower.contains("cone") {
-        return "🔺";
+        return crate::icons::TRIANGLE;
     }
-    "🔹" // generic mesh leaf
+    crate::icons::POLYGON // generic mesh leaf
 }
 
 /// Icon for a prim of a composed stage, by its type.
 fn stage_icon(n: &crate::usd_scene::StageNode, has_children: bool) -> &'static str {
     match n.type_name.as_str() {
-        "Mesh" | "BasisCurves" | "NurbsCurves" | "HermiteCurves" | "Points" => prim_icon(&n.name, false),
-        "Material" => "🎨",
-        "Camera" => "🎥",
-        "Skeleton" | "SkelRoot" => "🦴",
-        t if t.ends_with("Light") || t.ends_with("Light_1") => "💡",
+        "Mesh" => prim_icon(&n.name, false),
+        "BasisCurves" | "NurbsCurves" | "HermiteCurves" => crate::icons::BEZIER_CURVE,
+        "Points" => crate::icons::DOTS_NINE,
+        "PointInstancer" => crate::icons::SQUARES_FOUR,
+        "Volume" => crate::icons::CLOUD,
+        "Material" => crate::icons::PALETTE,
+        "Camera" => crate::icons::VIDEO_CAMERA,
+        "Skeleton" | "SkelRoot" => crate::icons::BONE,
+        "RenderSettings" | "RenderProduct" | "RenderVar" => crate::icons::SLIDERS_HORIZONTAL,
+        t if t.ends_with("Light") || t.ends_with("Light_1") => crate::icons::LIGHTBULB,
         _ => prim_icon(&n.name, has_children),
     }
 }
@@ -3178,7 +3184,7 @@ impl SceneHierarchy {
             extra.entry(k).or_default().push(SceneObject {
                 id,
                 name: h.collection.name.clone(),
-                icon: "▦",
+                icon: crate::icons::SELECTION_ALL,
                 depth: tail[k].depth + 1,
                 has_children: false,
                 expanded: true,
@@ -3390,15 +3396,15 @@ impl SceneHierarchy {
                     self.objects.push(SceneObject {
                         id,
                         icon: if prim.shading.is_some() {
-                            "🎨"
+                            crate::icons::PALETTE
                         } else if prim.camera.is_some() {
-                            "🎥"
+                            crate::icons::VIDEO_CAMERA
                         } else if prim.light.is_some() {
-                            "💡"
+                            crate::icons::LIGHTBULB
                         } else if prim.volume.is_some() {
-                            "☁"
+                            crate::icons::CLOUD
                         } else if prim.instancing.is_some() {
-                            "⁘"
+                            crate::icons::SQUARES_FOUR
                         } else if let Some(r) = &prim.render {
                             render_icon(r.kind)
                         } else if prim.is_holder() {
@@ -3508,7 +3514,7 @@ impl SceneHierarchy {
             self.objects.push(SceneObject {
                 id,
                 name: format!("Instances ({})", thousands(points)),
-                icon: "⁘",
+                icon: crate::icons::DOTS_NINE,
                 depth: depth + 1,
                 has_children: points > 0,
                 expanded: open,
@@ -3672,7 +3678,7 @@ impl SceneHierarchy {
                     self.objects.push(SceneObject {
                         id,
                         name: node_name.clone(),
-                        icon: "🔹",
+                        icon: crate::icons::POLYGON,
                         depth: 0,
                         has_children: false,
                         expanded: true,
@@ -3689,7 +3695,7 @@ impl SceneHierarchy {
                     self.objects.push(SceneObject {
                         id,
                         name: m.name.clone(),
-                        icon: "🎨",
+                        icon: crate::icons::PALETTE,
                         depth: 0,
                         has_children: false,
                         expanded: true,
@@ -3706,7 +3712,7 @@ impl SceneHierarchy {
                     self.objects.push(SceneObject {
                         id,
                         name: format!("{node_name}: {} × {}", img.width, img.height),
-                        icon: "🖼",
+                        icon: crate::icons::IMAGE,
                         depth: 0,
                         has_children: false,
                         expanded: true,
@@ -3723,7 +3729,7 @@ impl SceneHierarchy {
                     self.objects.push(SceneObject {
                         id,
                         name: node_name.clone(),
-                        icon: "🎬",
+                        icon: crate::icons::FILM_STRIP,
                         depth: 0,
                         has_children: !anim.joints.is_empty(),
                         expanded: node_open,
@@ -3756,6 +3762,7 @@ impl SceneHierarchy {
                         self.objects.push(SceneObject {
                             id,
                             name,
+                            // Not icons: the Scene Explorer draws a dot for each.
                             icon: if is_parent[i] { "●" } else { "○" },
                             depth: depths[i] + 1,
                             has_children: is_parent[i],
@@ -3781,7 +3788,7 @@ impl SceneHierarchy {
                     self.objects.push(SceneObject {
                         id: group_id,
                         name: node_name.clone(),
-                        icon: "📂",
+                        icon: crate::icons::FOLDER_SIMPLE,
                         depth: 0,
                         has_children: !prims.is_empty(),
                         expanded: node_open,
@@ -3941,9 +3948,9 @@ fn thousands(n: usize) -> String {
 fn render_icon(kind: crate::core::render::RenderKind) -> &'static str {
     use crate::core::render::RenderKind;
     match kind {
-        RenderKind::Settings => "⚙",
-        RenderKind::Product => "🖼",
-        RenderKind::Var => "📑",
+        RenderKind::Settings => crate::icons::SLIDERS_HORIZONTAL,
+        RenderKind::Product => crate::icons::IMAGE,
+        RenderKind::Var => crate::icons::ROWS,
     }
 }
 

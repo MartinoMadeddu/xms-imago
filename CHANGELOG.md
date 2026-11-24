@@ -10,9 +10,10 @@ version's heading when you tag it.
 
 ### Interface
 
-- **Phosphor icons**: every operator's icon is now one of Phosphor's Light
-  icons, one drawing style throughout, shipped with Imago as a font. The
-  interface's own icons follow.
+- **Phosphor icons**: every operator's, ICE node's and Scene Explorer row's
+  icon is now one of Phosphor's, one drawing style throughout, shipped with
+  Imago as fonts. File > Settings > Interface > Icons: Regular (the default)
+  or Light. The interface's own buttons follow.
 
 ## [0.3.7] - 2026-11-23
 

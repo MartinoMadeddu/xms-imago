@@ -315,6 +315,10 @@ and Display. Stop keeps the frames so far.
   [MaterialX](materialx.md#renderers-shaders)).
 - **Interface:** the size of everything but the Viewer's picture: Auto (from
   the screen's height) or 60% to 160%, also Ctrl+= and Ctrl+-, Ctrl+0 for Auto.
+  **Icons:** the weight of the icons, Regular (the default) or Light, each
+  shown beside its choice. They are [Phosphor](https://phosphoricons.com)'s,
+  shipped with Imago: on operators, ICE nodes, Scene Explorer rows and
+  buttons.
 
 ![File > Settings > Interface: Auto, 90% on a screen 1080 pixels tall](xms_interface_size.png)
 
