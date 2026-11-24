@@ -8,6 +8,13 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### USD
+
+- **Layers with nothing to draw are read**: a layer of materials and `over`s
+  (a look-dev layer for another's prims) showed nothing; it is now listed
+  whole in the Scene Explorer, as Solaris lists it. What is under an `over`
+  root is listed but not drawn, as USD draws only defined prims.
+
 ### Interface
 
 - **Phosphor icons everywhere**: the buttons, menus, History, Timeline

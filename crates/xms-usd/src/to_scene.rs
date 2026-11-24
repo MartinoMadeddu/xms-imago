@@ -261,6 +261,7 @@ fn translate_reading(
         import_curves: opts.import_curves,
         boxes_only: opts.boxes_only,
         skip_render: opts.skip_render_meshes && !opts.boxes_only,
+        undefined: false,
         payloads: opts.load_none || !opts.load_rules.is_empty(),
         purposes: vec![],
         render_protos: HashSet::new(),
@@ -299,11 +300,13 @@ fn translate_reading(
     // Root prims come back as names
     for name in roots {
         if let Ok(prim) = stage.prim(format!("/{}", name.as_str()).as_str()) {
-            // An `over` no layer defines is not drawn (an Alembic file's
+            // An `over` no layer defines is listed, as Solaris does (a layer
+            // of materials and overs for another's prims), but nothing in it
+            // is drawn, as USD draws only defined prims (an Alembic file's
             // instance prototypes are such).
-            if prim.is_defined().unwrap_or(true) {
-                tr.walk(&prim);
-            }
+            tr.undefined = !prim.is_defined().unwrap_or(true);
+            tr.walk(&prim);
+            tr.undefined = false;
         }
     }
     {
@@ -428,6 +431,9 @@ struct Translator<'s> {
     boxes_only: bool,
     /// `SceneOptions::skip_render_meshes`, in a full pass.
     skip_render: bool,
+    /// Walking below a root prim no layer defines (an `over`): its prims are
+    /// listed, their geometry, lights and cameras not read.
+    undefined: bool,
     /// Some payloads may be unloaded (`SceneOptions::load_none`,
     /// `load_rules`): each prim is asked whether it is loaded.
     payloads: bool,
@@ -962,7 +968,10 @@ impl<'s> Translator<'s> {
         // when it has one, and nothing below it composed or read.
         let unloaded = self.payloads && self.proto_stack.is_empty() && !prim.is_loaded().unwrap_or(true);
         let mut descend = true;
-        let kind = if unloaded {
+        let kind = if self.undefined && ty != "Material" {
+            // Under an `over` root: listed, not drawn; its materials read.
+            PrimKind::Group
+        } else if unloaded {
             descend = false;
             let hinted = self.hint_box(prim);
             let mut p = self.profile.borrow_mut();

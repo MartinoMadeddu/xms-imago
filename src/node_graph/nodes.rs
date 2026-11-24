@@ -794,8 +794,9 @@ fn over(weak: &Prim, strong: &Prim) -> Prim {
 /// `stage_prims`), with `variants` chosen over the file's (Variant), at the
 /// frame being cooked when the stage changes over time (its time code there:
 /// `usd_scene::cook_time`). One per mesh prim,
-/// shared with the cached stage. `None` with nothing to show: no geometry,
-/// instancer, camera or light.
+/// shared with the cached stage. A stage with nothing to draw (materials and
+/// overs) is one primitive with no geometry, carrying it. `None` for a stage
+/// with no prims.
 pub fn load_stage(
     path: &str,
     convert: bool,
@@ -811,7 +812,7 @@ pub fn load_stage(
         Some(t) => crate::usd_scene::at_frame(&scene, t),
         None => scene,
     };
-    if scene.meshes.is_empty() && scene.instancers.is_empty() && scene.cameras.is_empty() && scene.lights.is_empty() {
+    if scene.tree.nodes.is_empty() {
         return None;
     }
     stage_prims(&scene, mode, location, prim)
@@ -996,6 +997,28 @@ pub fn stage_prims(
             ..Prim::new(String::new(), MeshData::default())
         })
     }));
+    // Nothing to draw (a layer of materials and overs): one primitive with
+    // no geometry, at its top prim, carries the stage, so the Scene Explorer
+    // lists it and Write USD sublayers or references it. As loaded, it is no
+    // edit.
+    if prims.is_empty() {
+        let top = match &arc {
+            Some(a) => tree.node(&a.at),
+            None => tree.nodes.iter().find(|n| n.depth == 1),
+        }?;
+        prims.push(Prim {
+            path: top.path.clone(),
+            stage: Some(tree.clone()),
+            geo: Some(empty.clone()),
+            source: Some(Arc::new(crate::types::Source {
+                geo: empty.clone(),
+                place: Default::default(),
+                material: None,
+                purpose: Default::default(),
+            })),
+            ..Prim::new(String::new(), MeshData::default())
+        });
+    }
     Some(prims)
 }
 

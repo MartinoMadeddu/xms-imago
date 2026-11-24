@@ -1289,11 +1289,13 @@ fn load_phased(
         },
     );
     let mut scene = match composed {
-        Ok(scene) if !scene.meshes.is_empty() => scene,
+        // Prims listed, drawn or not (a layer of materials and overs): as
+        // composed.
+        Ok(scene) if !scene.meshes.is_empty() || !scene.tree.nodes.is_empty() => scene,
         // A mask may take no meshes: it says what is read.
         Ok(scene) if !mask.is_empty() => scene,
         other => {
-            // Nothing drawn from the composed stage: the root layer on its own
+            // Nothing composed (no prims at all): the root layer on its own
             // may still give meshes (older reader, more lenient).
             let why = match &other {
                 Ok(_) => "no meshes found".to_string(),
@@ -2112,6 +2114,63 @@ def Mesh "plain" {{
             .map(|m| m.path.as_str())
             .collect();
         assert_eq!(drawn, vec!["/asset/proxy/lo", "/plain"]);
+    }
+
+    /// A layer of materials and overs (for another layer's prims) is listed
+    /// whole, as Solaris lists it: an `over` root and what is below it, its
+    /// materials read; geometry under an `over` root is listed, not drawn.
+    /// Nothing to draw, one primitive with no geometry carries the stage, as
+    /// loaded: no edit.
+    #[test]
+    fn a_layer_of_materials_and_overs_is_listed() {
+        let path = write(
+            "overs.usda",
+            &format!(
+                r#"#usda 1.0
+(
+    defaultPrim = "ASSET"
+)
+over "ASSET" {{
+    over "geo" {{
+        over "body" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        ) {{
+            rel material:binding = </ASSET/mtl/body_mat>
+        }}
+        def Mesh "stray" {{
+{QUAD}        }}
+    }}
+    def Scope "mtl" {{
+        def Material "body_mat" {{
+        }}
+    }}
+}}
+"#
+            ),
+        );
+        let scene = load(&path).unwrap();
+        let nodes: Vec<&str> = scene.tree.nodes.iter().map(|n| n.path.as_str()).collect();
+        for p in ["/ASSET", "/ASSET/geo/body", "/ASSET/geo/stray", "/ASSET/mtl/body_mat"] {
+            assert!(nodes.contains(&p), "{p} listed: {nodes:?}");
+        }
+        assert_eq!(scene.materials.len(), 1);
+        assert!(scene.meshes.is_empty(), "the mesh under an over root is not drawn");
+        let prims = crate::node_graph::nodes::stage_prims(&scene, LoadMode::Sublayer, "", "").unwrap();
+        assert_eq!(prims.len(), 1);
+        assert_eq!(prims[0].path, "/ASSET");
+        assert!(prims[0].stage.is_some());
+        assert!(
+            crate::edits::prim_edit(&prims[0]).is_some_and(|e| e.is_empty()),
+            "as loaded"
+        );
+        let mut h = crate::types::SceneHierarchy::default();
+        h.rebuild_scene(Some((
+            crate::types::NodeId(0),
+            "Load".into(),
+            crate::types::EvalResult::Named(prims),
+        )));
+        let rows: Vec<String> = h.objects.iter().filter_map(|o| o.path.clone()).collect();
+        assert!(rows.contains(&"/ASSET/mtl/body_mat".to_string()), "{rows:?}");
     }
 
     /// Payload rules: one at a path takes over those at it and below it; one

@@ -32,6 +32,12 @@ A file is read as a stage, with its composition resolved: sublayers, references,
 payloads, inherits, specializes and variants, in text and binary layers alike.
 What you see is what usdview would show.
 
+A layer with nothing to draw is read too: one of materials and `over`s for
+another layer's prims is listed whole in the Scene Explorer, as Solaris lists
+it, and Write USD sublayers it. Under a root prim no layer defines (an `over`
+alone), everything is listed and materials are read, but nothing is drawn, as
+USD draws only defined prims.
+
 Every prim keeps what the file says about it. Geometry stays in its own space,
 as authored, and each primitive is placed by its world transform. Nothing is
 baked into the points, so what is written back matches the file.
