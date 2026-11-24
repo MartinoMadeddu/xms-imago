@@ -42,6 +42,12 @@ pub struct SceneOptions {
     /// read: the heavy geometry a viewport showing proxies does not draw.
     /// The prims are there, with everything else read.
     pub skip_render_meshes: bool,
+    /// Payloads left unloaded as the stage opens (USD's
+    /// `InitialLoadSet::LoadNone`), else all loaded.
+    pub load_none: bool,
+    /// Then, in order, payloads loaded (`true`, with those below them) or
+    /// unloaded (`false`, with those below them) at these paths of the stage.
+    pub load_rules: Vec<(String, bool)>,
     /// Every time sample of the stage, over its authored time range (all of
     /// them when it states none), not those of the shutter alone: a stage to
     /// be shown at any frame from one translation.
@@ -91,6 +97,9 @@ struct Profile {
     /// (`SceneOptions::skip_render_meshes`), by path: one met again in full
     /// (a prototype's) is taken out.
     render_boxed: HashSet<String>,
+    /// Payloads left unloaded, and those of them drawn as their
+    /// `extentsHint`.
+    unloaded: (usize, usize),
 }
 
 /// What the boxes pass read that the full pass needs too, by the prim's path
@@ -114,6 +123,8 @@ impl Default for SceneOptions {
             curve_primvars: Some(CURVE_PRIMVAR_PREFIX.to_string()),
             boxes_only: false,
             skip_render_meshes: false,
+            load_none: false,
+            load_rules: vec![],
             all_samples: false,
             session_layer: None,
             mask: vec![],
@@ -121,13 +132,26 @@ impl Default for SceneOptions {
     }
 }
 
-/// The stage at `path`, with `opts`' session layer over it when it has one.
+/// The stage at `path`, with `opts`' session layer over it when it has one,
+/// and its payloads loaded as `opts` says (`load_none`, `load_rules`).
 fn open(path: &str, opts: &SceneOptions) -> Result<Stage, String> {
-    let stage = match &opts.session_layer {
-        Some(session) => Stage::builder().session_layer(session.as_str()).open(path),
-        None => Stage::open(path),
-    };
-    stage.map_err(|e| format!("Failed to open stage: {e}"))
+    let mut builder = Stage::builder();
+    if let Some(session) = &opts.session_layer {
+        builder = builder.session_layer(session.as_str());
+    }
+    if opts.load_none {
+        builder = builder.load(openusd::usd::InitialLoadSet::LoadNone);
+    }
+    let stage = builder.open(path).map_err(|e| format!("Failed to open stage: {e}"))?;
+    for (at, load) in &opts.load_rules {
+        let done = if *load {
+            stage.load(at.as_str(), openusd::usd::LoadPolicy::WithDescendants)
+        } else {
+            stage.unload(at.as_str())
+        };
+        done.map_err(|e| format!("Payload rule {at}: {e}"))?;
+    }
+    Ok(stage)
 }
 
 /// A translated stage.
@@ -237,6 +261,7 @@ fn translate_reading(
         import_curves: opts.import_curves,
         boxes_only: opts.boxes_only,
         skip_render: opts.skip_render_meshes && !opts.boxes_only,
+        payloads: opts.load_none || !opts.load_rules.is_empty(),
         purposes: vec![],
         render_protos: HashSet::new(),
         scene: rs::Scene::new(),
@@ -362,6 +387,14 @@ fn translate_reading(
             ));
         }
         warnings.push(note);
+        if p.unloaded.0 > 0 {
+            warnings.push(format!(
+                "{} payloads not loaded: {} drawn as the box of their extentsHint, {} without one",
+                p.unloaded.0,
+                p.unloaded.1,
+                p.unloaded.0 - p.unloaded.1
+            ));
+        }
         if !p.render_boxed.is_empty() {
             warnings.push(format!(
                 "{} render-purpose meshes, curves or points shown as their boxes, not read: they are read when render is shown, and for a render or Write USD",
@@ -395,6 +428,9 @@ struct Translator<'s> {
     boxes_only: bool,
     /// `SceneOptions::skip_render_meshes`, in a full pass.
     skip_render: bool,
+    /// Some payloads may be unloaded (`SceneOptions::load_none`,
+    /// `load_rules`): each prim is asked whether it is loaded.
+    payloads: bool,
     /// The purpose each prim being walked has, its own or inherited: the
     /// innermost last.
     purposes: Vec<rs::Purpose>,
@@ -922,8 +958,18 @@ impl<'s> Translator<'s> {
         if !render {
             self.profile.borrow_mut().render_boxed.remove(&key);
         }
+        // A payload left unloaded: the prim, as the box of its `extentsHint`
+        // when it has one, and nothing below it composed or read.
+        let unloaded = self.payloads && self.proto_stack.is_empty() && !prim.is_loaded().unwrap_or(true);
         let mut descend = true;
-        let kind = if prim.is_instance().unwrap_or(false) {
+        let kind = if unloaded {
+            descend = false;
+            let hinted = self.hint_box(prim);
+            let mut p = self.profile.borrow_mut();
+            p.unloaded.0 += 1;
+            p.unloaded.1 += usize::from(hinted.is_some());
+            hinted.map_or(PrimKind::Group, |m| PrimKind::Mesh(Box::new(m)))
+        } else if prim.is_instance().unwrap_or(false) {
             descend = false; // instance proxies: the prototype is translated once
                              // `prototype()` gives the prototype's path (`/__Prototype_N`)
             match prim.prototype() {
@@ -1042,6 +1088,7 @@ impl<'s> Translator<'s> {
                 .prims
                 .insert(key, (xf.clone(), reset, visible.clone(), purpose));
         }
+        p.unloaded = unloaded;
         p.local_xform = xf;
         p.reset_xform_stack = reset;
         p.visible = visible;
@@ -1262,6 +1309,33 @@ impl<'s> Translator<'s> {
             .filter(|e| e.len() == 2 && (0..3).all(|k| e[0][k] <= e[1][k]))
             .map(|e| (e[0], e[1]))
             .or_else(from_points)?;
+        Some(box_mesh(lo, hi))
+    }
+
+    /// An unloaded payload's box: around the pairs of its `extentsHint` (one
+    /// per purpose), else its `extent`. `None` without either.
+    fn hint_box(&self, prim: &Prim) -> Option<rs::Mesh> {
+        let around = |e: Vec<[f32; 3]>| {
+            e.chunks_exact(2)
+                .filter(|p| (0..3).all(|k| p[0][k] <= p[1][k]))
+                .map(|p| (p[0], p[1]))
+                .reduce(|(a, b), (c, d)| {
+                    (
+                        std::array::from_fn(|k| a[k].min(c[k])),
+                        std::array::from_fn(|k| b[k].max(d[k])),
+                    )
+                })
+        };
+        let (lo, hi) = ["extentsHint", "extent"]
+            .iter()
+            .find_map(|n| self.value(prim, n).and_then(vec3_array).and_then(around))?;
+        Some(box_mesh(lo, hi))
+    }
+}
+
+/// A box, a mesh of six quads.
+fn box_mesh(lo: [f32; 3], hi: [f32; 3]) -> rs::Mesh {
+    {
         let corner = |c: u32| {
             [
                 if c & 1 != 0 { hi[0] } else { lo[0] },
@@ -1270,14 +1344,16 @@ impl<'s> Translator<'s> {
             ]
         };
         const FACES: [u32; 24] = [0, 2, 3, 1, 4, 5, 7, 6, 0, 1, 5, 4, 2, 6, 7, 3, 0, 4, 6, 2, 1, 3, 7, 5];
-        Some(rs::Mesh {
+        rs::Mesh {
             points: Sampled::constant((0..8).map(corner).collect()),
             face_vertex_counts: vec![4; 6],
             face_vertex_indices: FACES.to_vec(),
             ..Default::default()
-        })
+        }
     }
+}
 
+impl<'s> Translator<'s> {
     fn mesh(&self, prim: &Prim) -> Option<rs::Mesh> {
         // Points the boxes pass read, when they do not change over time (one
         // value, read as `sampled` reads it); else read now.
@@ -2123,5 +2199,104 @@ def Xform "light" (
             .collect();
         assert_eq!(protos.len(), 1, "{protos:?}");
         assert_eq!(points(&skipped.scene, &protos[0]), 4);
+    }
+
+    /// Payloads: all loaded by default; left unloaded (`load_none`), each is
+    /// its prim alone, the box of its `extentsHint` when it has one; a rule
+    /// loads one back, or unloads one of those loaded.
+    #[test]
+    fn payloads_load_as_asked() {
+        let dir = std::env::temp_dir().join("xms_usd_payloads");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("rock.usda"),
+            "#usda 1.0\ndef Xform \"Rock\" {\n    def Mesh \"geo\" {\n        int[] faceVertexCounts = [3]\n        int[] faceVertexIndices = [0, 1, 2]\n        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]\n    }\n}\n",
+        )
+        .unwrap();
+        let path = dir.join("set.usda");
+        std::fs::write(
+            &path,
+            r#"#usda 1.0
+def Xform "set" {
+    def Xform "rock" (
+        payload = @./rock.usda@</Rock>
+    ) {
+        float3[] extentsHint = [(-1, -2, -3), (1, 2, 3)]
+    }
+    def Xform "tree" (
+        payload = @./rock.usda@</Rock>
+    ) {
+    }
+}
+"#,
+        )
+        .unwrap();
+        let read = |load_none: bool, load_rules: Vec<(String, bool)>| {
+            translate(
+                &path,
+                SceneOptions {
+                    load_none,
+                    load_rules,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let has = |t: &Translated, p: &str| t.scene.get(&Path::new(p).unwrap()).is_some();
+        let prim = |t: &Translated, p: &str| t.scene.get(&Path::new(p).unwrap()).unwrap().clone();
+        let all = read(false, vec![]);
+        assert!(has(&all, "/set/rock/geo") && has(&all, "/set/tree/geo"));
+        assert!(!prim(&all, "/set/rock").unloaded);
+        assert!(!all.warnings.iter().any(|w| w.contains("payloads not loaded")));
+
+        let none = read(true, vec![]);
+        assert!(
+            !has(&none, "/set/rock/geo") && !has(&none, "/set/tree/geo"),
+            "nothing below them"
+        );
+        let rock = prim(&none, "/set/rock");
+        assert!(rock.unloaded && rock.type_name == "Xform");
+        match &rock.kind {
+            PrimKind::Mesh(m) => {
+                let pts = m.points.first().unwrap();
+                assert_eq!(pts.len(), 8);
+                assert!(pts.contains(&[-1.0, -2.0, -3.0]) && pts.contains(&[1.0, 2.0, 3.0]));
+            }
+            other => panic!("{other:?}"),
+        }
+        let tree = prim(&none, "/set/tree");
+        assert!(tree.unloaded && matches!(tree.kind, PrimKind::Group), "no hint: no box");
+        assert!(!prim(&none, "/set").unloaded);
+        assert!(
+            none.warnings
+                .iter()
+                .any(|w| w.starts_with("2 payloads not loaded: 1 drawn")),
+            "{:?}",
+            none.warnings
+        );
+
+        let one = read(true, vec![("/set/rock".into(), true)]);
+        assert!(
+            has(&one, "/set/rock/geo") && !has(&one, "/set/tree/geo"),
+            "the rock loaded back"
+        );
+        let but = read(false, vec![("/set/tree".into(), false)]);
+        assert!(
+            has(&but, "/set/rock/geo") && !has(&but, "/set/tree/geo"),
+            "the tree unloaded"
+        );
+        assert!(prim(&but, "/set/tree").unloaded);
+
+        // Read in two passes, the same.
+        let phased = translate_phased(
+            &path,
+            SceneOptions {
+                load_none: true,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert!(prim(&phased, "/set/rock").unloaded && !has(&phased, "/set/rock/geo"));
     }
 }

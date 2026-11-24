@@ -115,6 +115,21 @@ Write USD, which first says *Reading the stages' render meshes: try again when
 they are read*. From then on, stages are read whole for the rest of the
 session.
 
+**Payloads.** Load USD's **Payloads** says which of a stage's payloads are
+loaded: **Load All** (the default, as before) or **Load None**. An unloaded
+payload is its prim alone: nothing below it is composed or read, so a set
+whose assets come in as payloads opens in a fraction of the time. It is drawn
+as the box of its `extentsHint` (else its `extent`; a payload with neither is
+listed but not drawn), and its Scene Explorer row says *unloaded*.
+Right-click a row for **Load Payload** or **Unload Payload**: the payloads
+there and below it, or those of the rows selected. Each is kept, in order,
+as a rule in the Load USD operator's Payloads (a path of the file, loaded or
+not), where 🗑 takes it away; a rule takes over those at its path and below
+it. The rules are saved with the graph, undone like any parameter, and a
+Variant above reads the stage with them. Imago's own reading only: a layer
+written by Write USD has no say in what loads, and a render loads every
+payload, as the renderer reads the files.
+
 ## Sublayer, Reference, Payload
 
 Load USD's **Mode** says how the file comes into the scene, as in USD:
@@ -968,8 +983,8 @@ is made beside it first and taken away once flattened.
 
 ## Not done yet
 
-- Load USD: a layer offset on a reference, several references on one prim,
-  payloads left unloaded; a population mask's relationship targets (a point
+- Load USD: a layer offset on a reference, several references on one prim;
+  a population mask's relationship targets (a point
   instancer's prototypes outside it) are not added to it
 - Two stages with a prim on one path: Imago shows the stronger one's alone,
   where USD composes the weaker one's attributes under it

@@ -147,6 +147,8 @@ pub struct StageNode {
     pub variants: Vec<xms_scene::VariantSet>,
     /// The collections it holds (`CollectionAPI`), as authored.
     pub collections: Vec<crate::core::collections::Collection>,
+    /// A payload left unloaded: nothing below it read, drawn as its box.
+    pub unloaded: bool,
 }
 
 /// The stage hierarchy, depth first (parents before their children). Shared by
@@ -195,6 +197,8 @@ pub struct StageTree {
     /// Load USD's population mask: only the prims at these paths, below and
     /// above them were read (`xms_usd::SceneOptions::mask`). Empty: all.
     pub mask: Vec<String>,
+    /// Load USD's payloads loaded and not.
+    pub payloads: Payloads,
 }
 
 /// Variants chosen, by a prim's path in the file, then by variant set.
@@ -276,6 +280,36 @@ pub struct Moved {
     pub from: String,
     pub to: String,
     pub copy: bool,
+}
+
+/// Which payloads of a stage are loaded (Load USD's Payloads): all, or none
+/// as it opens; then, in order, those loaded or unloaded since at a path of
+/// the file (a Scene Explorer row's right-click), with those below it. An
+/// unloaded payload is its prim alone, drawn as the box of its `extentsHint`:
+/// nothing below it is composed or read.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Payloads {
+    /// None loaded as the stage opens.
+    #[serde(default)]
+    pub none: bool,
+    /// `(path in the file, loaded)`, in the order chosen.
+    #[serde(default)]
+    pub rules: Vec<(String, bool)>,
+}
+
+impl Payloads {
+    /// All loaded, no rule: as stages always were.
+    pub fn is_default(&self) -> bool {
+        *self == Payloads::default()
+    }
+
+    /// The payload at `path` (a path of the file) and those below it loaded,
+    /// or unloaded: earlier rules there or below it are taken over.
+    pub fn set(&mut self, path: &str, load: bool) {
+        let below = |p: &str| path == "/" || p == path || p.strip_prefix(path).is_some_and(|r| r.starts_with('/'));
+        self.rules.retain(|(p, _)| !below(p));
+        self.rules.push((path.to_string(), load));
+    }
 }
 
 /// How Load USD brings its file in.
@@ -388,6 +422,7 @@ pub fn rebased(tree: &StageTree, arc: &StageArc) -> StageTree {
         convert: tree.convert,
         variants: tree.variants.clone(),
         mask: tree.mask.clone(),
+        payloads: tree.payloads.clone(),
         ..Default::default()
     }
 }
@@ -1195,19 +1230,21 @@ fn open(path: &Path) -> Result<Layer, String> {
 /// Read a USD file as authored. Not cached: see `load_cached`.
 #[cfg(test)]
 pub fn load(path: &Path) -> Result<UsdScene, String> {
-    load_phased(path, false, &Variants::new(), &[], true, |_| {})
+    load_phased(path, false, &Variants::new(), &[], &Payloads::default(), true, |_| {})
 }
 
 /// Read a USD file, giving `boxes` the stage drawn as boxes as soon as that
 /// much is read (see `usd_stage::read_phased`). `convert`: turned to Y-up and
 /// metres. `variants`: the variants chosen in Imago, composed in a session
 /// layer over the file's. `mask`: the population mask, the prims read (all
-/// when empty). `render`: render-purpose meshes read, else their boxes.
+/// when empty). `payloads`: which are loaded. `render`: render-purpose meshes
+/// read, else their boxes.
 fn load_phased(
     path: &Path,
     convert: bool,
     variants: &Variants,
     mask: &[String],
+    payloads: &Payloads,
     render: bool,
     boxes: impl FnOnce(UsdScene),
 ) -> Result<UsdScene, String> {
@@ -1236,12 +1273,21 @@ fn load_phased(
         tree.convert = convert;
         tree.variants = variants.clone();
         tree.mask = mask.to_vec();
+        tree.payloads = payloads.clone();
     };
-    let composed = crate::usd_stage::read_phased(&layer, convert, session.as_deref(), mask, render, |mut first| {
-        first.base_dir = base_dir.clone();
-        as_read(&mut first.tree);
-        boxes(first);
-    });
+    let composed = crate::usd_stage::read_phased(
+        &layer,
+        convert,
+        session.as_deref(),
+        mask,
+        payloads,
+        render,
+        |mut first| {
+            first.base_dir = base_dir.clone();
+            as_read(&mut first.tree);
+            boxes(first);
+        },
+    );
     let mut scene = match composed {
         Ok(scene) if !scene.meshes.is_empty() => scene,
         // A mask may take no meshes: it says what is read.
@@ -1338,8 +1384,8 @@ enum Known {
 }
 
 /// How a file is read: turned to Y-up and metres, the variants chosen, the
-/// population mask, its render meshes read (`render_meshes`).
-type Way = (bool, Variants, Vec<String>, bool);
+/// population mask, its render meshes read (`render_meshes`), its payloads.
+type Way = (bool, Variants, Vec<String>, bool, Payloads);
 
 /// A file, when it was last changed, how it is read (`Way`), and what is
 /// known of it.
@@ -1458,7 +1504,7 @@ pub fn animated(path: &str, convert: bool) -> bool {
     let Ok(cache) = CACHE.lock() else { return false };
     cache
         .iter()
-        .filter(|(p, _, (c, _, _, _), _)| p == path && *c == convert)
+        .filter(|(p, _, (c, _, _, _, _), _)| p == path && *c == convert)
         .any(|(_, _, _, k)| {
             k.lock()
                 .is_ok_and(|k| matches!(&*k, Known::Done(Ok(s)) if s.timed.is_some()))
@@ -1524,7 +1570,7 @@ pub fn reading(path: &str, convert: bool) -> Option<&'static str> {
         .lock()
         .ok()?
         .iter()
-        .find(|(p, _, (c, v, _, r), _)| *p == path && *c == convert && v.is_empty() && *r == render_meshes())
+        .find(|(p, _, (c, v, _, r, _), _)| *p == path && *c == convert && v.is_empty() && *r == render_meshes())
         .map(|(_, _, _, k)| k.clone())?;
     let known = known.lock().ok()?;
     match *known {
@@ -1551,7 +1597,7 @@ pub fn any_reading() -> bool {
 /// once. `convert`: turned to Y-up and metres, a read of its own (turning the
 /// conversion on or off reads the file again).
 pub fn load_cached(path: &str, convert: bool) -> Result<Arc<UsdScene>, String> {
-    load_cached_with(path, convert, &Variants::new(), &[])
+    load_cached_with(path, convert, &Variants::new(), &[], &Payloads::default())
 }
 
 /// `load_cached`, with the variants chosen in Imago (`variants`, by the
@@ -1562,6 +1608,7 @@ pub fn load_cached_with(
     convert: bool,
     variants: &Variants,
     mask: &[String],
+    payloads: &Payloads,
 ) -> Result<Arc<UsdScene>, String> {
     let path = std::path::PathBuf::from(path);
     let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
@@ -1570,7 +1617,7 @@ pub fn load_cached_with(
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty())
         .collect();
-    let way = (convert, variants.clone(), mask, render_meshes());
+    let way = (convert, variants.clone(), mask, render_meshes(), payloads.clone());
     let known = {
         let Ok(mut cache) = CACHE.lock() else {
             return Err("The stage cache is unavailable".into());
@@ -1583,7 +1630,7 @@ pub fn load_cached_with(
                 // back is instant until the file changes. One without its
                 // render meshes goes once they are read: never needed again.
                 cache.retain(|(p, s, w, _)| {
-                    let without = way.3 && !w.3 && (&w.0, &w.1, &w.2) == (&way.0, &way.1, &way.2);
+                    let without = way.3 && !w.3 && (&w.0, &w.1, &w.2, &w.4) == (&way.0, &way.1, &way.2, &way.4);
                     !(*p == path && (*s != stamp || without))
                 });
                 if cache.len() >= 6 {
@@ -1611,9 +1658,13 @@ pub fn load_cached_with(
 }
 
 #[cfg(not(test))]
-fn read_in_background(path: std::path::PathBuf, (convert, variants, mask, render): Way, known: Arc<Mutex<Known>>) {
+fn read_in_background(
+    path: std::path::PathBuf,
+    (convert, variants, mask, render, payloads): Way,
+    known: Arc<Mutex<Known>>,
+) {
     std::thread::spawn(move || {
-        let full = load_phased(&path, convert, &variants, &mask, render, |boxes| {
+        let full = load_phased(&path, convert, &variants, &mask, &payloads, render, |boxes| {
             if let Ok(mut k) = known.lock() {
                 if matches!(*k, Known::Reading) {
                     *k = Known::Boxes(Arc::new(boxes));
@@ -1629,8 +1680,12 @@ fn read_in_background(path: std::path::PathBuf, (convert, variants, mask, render
 }
 
 #[cfg(test)]
-fn read_in_background(path: std::path::PathBuf, (convert, variants, mask, render): Way, known: Arc<Mutex<Known>>) {
-    let full = load_phased(&path, convert, &variants, &mask, render, |_| {}).map(Arc::new);
+fn read_in_background(
+    path: std::path::PathBuf,
+    (convert, variants, mask, render, payloads): Way,
+    known: Arc<Mutex<Known>>,
+) {
+    let full = load_phased(&path, convert, &variants, &mask, &payloads, render, |_| {}).map(Arc::new);
     if let Ok(mut k) = known.lock() {
         *k = Known::Done(full);
     }
@@ -1665,9 +1720,18 @@ mod tests {
                 "#usda 1.0\ndef Xform \"set\" {{\n def Mesh \"hero\" {{ {quad} }}\n def Mesh \"crowd\" {{ {quad} }}\n}}\ndef Mesh \"far\" {{ {quad} }}\n"
             ),
         );
-        let all = load_phased(&path, false, &Variants::new(), &[], true, |_| {}).unwrap();
+        let all = load_phased(&path, false, &Variants::new(), &[], &Payloads::default(), true, |_| {}).unwrap();
         assert_eq!(all.meshes.len(), 3);
-        let masked = load_phased(&path, false, &Variants::new(), &["/set/hero".into()], true, |_| {}).unwrap();
+        let masked = load_phased(
+            &path,
+            false,
+            &Variants::new(),
+            &["/set/hero".into()],
+            &Payloads::default(),
+            true,
+            |_| {},
+        )
+        .unwrap();
         let paths: Vec<&str> = masked.meshes.iter().map(|m| m.path.as_str()).collect();
         assert_eq!(paths, ["/set/hero"]);
         assert!(
@@ -1849,7 +1913,7 @@ def Mesh "m" {{
         assert!((hi - Vec3::new(100.0, 0.0, 200.0)).length() < 1e-4, "{hi}");
         assert_eq!(scene.tree.root, glam::Mat4::IDENTITY);
         // Turned: 200 centimetres up Z is two metres up Y.
-        let scene = load_phased(&path, true, &Variants::new(), &[], true, |_| {}).unwrap();
+        let scene = load_phased(&path, true, &Variants::new(), &[], &Payloads::default(), true, |_| {}).unwrap();
         assert!(scene.converted);
         let (_, hi) = bounds(&world(&scene.meshes[0]));
         assert!((hi - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-4, "{hi}");
@@ -2050,6 +2114,22 @@ def Mesh "plain" {{
         assert_eq!(drawn, vec!["/asset/proxy/lo", "/plain"]);
     }
 
+    /// Payload rules: one at a path takes over those at it and below it; one
+    /// at the root, all of them.
+    #[test]
+    fn a_payload_rule_takes_over_those_below_it() {
+        let mut p = Payloads::default();
+        p.set("/set/rock", false);
+        p.set("/set/tree", false);
+        p.set("/set/rock/moss", true);
+        p.set("/set", true);
+        assert_eq!(p.rules, vec![("/set".to_string(), true)]);
+        p.set("/setting", false);
+        p.set("/", false);
+        assert_eq!(p.rules, vec![("/".to_string(), false)]);
+        assert!(!p.is_default() && Payloads::default().is_default());
+    }
+
     /// Read without render meshes (render hidden, as Imago starts): a render
     /// mesh is its box, of eight corners, at its purpose still; the rest are
     /// read, and the notes say how many were kept as boxes.
@@ -2070,7 +2150,18 @@ def Mesh "plain" {{
 "#
             ),
         );
-        let read = |render: bool| load_phased(&path, false, &Variants::new(), &[], render, |_| {}).unwrap();
+        let read = |render: bool| {
+            load_phased(
+                &path,
+                false,
+                &Variants::new(),
+                &[],
+                &Payloads::default(),
+                render,
+                |_| {},
+            )
+            .unwrap()
+        };
         let points = |scene: &UsdScene, p: &str| {
             let m = scene
                 .meshes

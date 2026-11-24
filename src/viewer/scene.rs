@@ -289,7 +289,13 @@ pub fn draw_modes(
     let chosen: Vec<Option<DrawMode>> = prims
         .iter()
         .map(|p| {
-            if hierarchy.boxes_purpose(crate::core::properties::purpose_of(p)) {
+            // A payload not loaded: the box of its extentsHint, all it has.
+            let unloaded = p
+                .stage
+                .as_ref()
+                .and_then(|t| t.node(&p.path))
+                .is_some_and(|n| n.unloaded);
+            if unloaded || hierarchy.boxes_purpose(crate::core::properties::purpose_of(p)) {
                 Some(DrawMode::Bounds)
             } else {
                 hierarchy.draw_override(&p.path)

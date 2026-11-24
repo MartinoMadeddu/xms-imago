@@ -94,6 +94,8 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             let mut edit: Option<Vec<String>> = None;
             // A variant chosen on a row's right-click.
             let mut chosen: Option<crate::core::variant::Choice> = None;
+            // Payloads loaded or unloaded on a row's right-click.
+            let mut payload: Option<(Vec<String>, bool)> = None;
             let selected_now = hierarchy.selected_prim_paths();
 
             let n = hierarchy.objects.len();
@@ -186,6 +188,8 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         if let Some(path) = obj.path.as_ref().filter(|p| crate::core::instancing::instance_path(p).is_none()) {
                             let set_here = hierarchy.draw_mode_set(path);
                             let sets = hierarchy.variant_sets(path);
+                            let of_stage = obj.stage_path.is_some();
+                            let unloaded = hierarchy.is_unloaded(path);
                             row_resp.context_menu(|ui| {
                                 if ui.button("Edit Selected").on_hover_text("An Edit Primitive naming it, after the viewed operator: its form shows the prim's values (Enter does it too)").clicked() {
                                     edit = Some(if is_sel { selected_now.clone() } else { vec![path.clone()] });
@@ -209,6 +213,20 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                                             });
                                         }
                                     });
+                                }
+                                // Its payload, and those below it (the
+                                // selection's, when it is in it).
+                                if of_stage {
+                                    let (label, tip) = if unloaded {
+                                        ("Load Payload", "Load the payload here and those below it: read with the rest of the stage. Kept in its Load USD operator's Payloads")
+                                    } else {
+                                        ("Unload Payload", "Unload the payloads here and below: each is its prim alone, drawn as the box of its extentsHint, and nothing below it is read. Kept in its Load USD operator's Payloads")
+                                    };
+                                    if ui.button(label).on_hover_text(tip).clicked() {
+                                        let paths = if is_sel { selected_now.clone() } else { vec![path.clone()] };
+                                        payload = Some((paths, unloaded));
+                                        ui.close();
+                                    }
                                 }
                                 ui.separator();
                                 ui.label(egui::RichText::new("Draw in the Viewer as").small());
@@ -317,6 +335,9 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                         if obj.path.as_deref().is_some_and(|p| !hierarchy.variant_sets(p).is_empty()) {
                             type_text = format!("variants · {type_text}");
                         }
+                        if obj.path.as_deref().is_some_and(|p| hierarchy.is_unloaded(p)) {
+                            type_text = format!("unloaded · {type_text}");
+                        }
                         let type_left = if type_text.is_empty() { type_right } else {
                             painter.text(egui::pos2(type_right, mid_y), egui::Align2::RIGHT_CENTER, &type_text,
                                 egui::FontId::proportional(10.5), xsi::TYPE_LABEL()).min.x
@@ -369,6 +390,9 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
             }
             if chosen.is_some() {
                 hierarchy.variant_request = chosen;
+            }
+            if payload.is_some() {
+                hierarchy.payload_request = payload;
             }
             // A click on the geometry square is not a click on the row.
             // What is being dragged, under the pointer, over every pane: the

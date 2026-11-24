@@ -417,6 +417,9 @@ pub struct Prim {
     pub variants: Vec<VariantSet>,
     /// Its collections (`CollectionAPI`): relationship-mode ones, as authored.
     pub collections: Vec<CollectionSpec>,
+    /// A payload left unloaded: what is below it is not composed. Its kind is
+    /// the box of its `extentsHint` when it has one (else a group).
+    pub unloaded: bool,
 }
 
 /// A collection of a prim, as authored: `collection:<name>:…`.
@@ -456,6 +459,7 @@ impl Prim {
             authored: Vec::new(),
             variants: Vec::new(),
             collections: Vec::new(),
+            unloaded: false,
         }
     }
 

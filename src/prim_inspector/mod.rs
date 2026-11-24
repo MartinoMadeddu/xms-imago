@@ -830,15 +830,15 @@ fn variant_of(
 
 /// The Load USD operator upstream of `view` that read this stage: the one whose
 /// file gives a stage from the same layer, else the nearest one.
-fn load_of(
+pub(crate) fn load_of(
     graph: &crate::node_graph::NodeGraphState,
     view: NodeId,
     tree: &crate::usd_scene::StageTree,
 ) -> Option<NodeId> {
     use crate::types::NodeType;
     let reads = |n: &crate::node_graph::GraphNode| {
-        matches!(&n.node_type, NodeType::LoadUsd { path, convert, mask, .. }
-        if crate::usd_scene::load_cached_with(&crate::core::vars::expand(path.trim(), &[]), *convert, &Default::default(), mask).is_ok_and(|s| s.tree.source == tree.source))
+        matches!(&n.node_type, NodeType::LoadUsd { path, convert, mask, payloads, .. }
+        if crate::usd_scene::load_cached_with(&crate::core::vars::expand(path.trim(), &[]), *convert, &Default::default(), mask, payloads).is_ok_and(|s| s.tree.source == tree.source))
     };
     upstream(graph, view, reads)
         .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))

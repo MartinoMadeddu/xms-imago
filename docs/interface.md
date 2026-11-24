@@ -354,7 +354,8 @@ Inspector (Ctrl+click, Shift+click for more). Opening and closing rows decides
 what the Viewer draws as geometry or boxes, and the guide, proxy and render
 toggles which purposes (render starts off, as in usdview: render geometry
 without a proxy is drawn as its box, and is read only once render is on).
-Right-click a row to draw it as Geometry, Bounding Box,
+Right-click a row to load or unload its payload (see
+[USD](usd.md), Payloads), or to draw it as Geometry, Bounding Box,
 Origin or as the scene says. Enter adds an Edit Primitive on the selection. A
 point instancer lists its instances only when its Instances row is opened. See
 [USD](usd.md#the-scene-explorer-and-the-viewer).

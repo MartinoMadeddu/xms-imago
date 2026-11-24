@@ -10,6 +10,11 @@ version's heading when you tag it.
 
 ### USD
 
+- **Payloads**: Load USD loads all of a stage's payloads, or none (Payloads >
+  Load None), and a Scene Explorer row's right-click loads or unloads one,
+  kept as a rule on the Load USD. An unloaded payload is drawn as the box of
+  its `extentsHint`, and nothing below it is read: a set of payloaded assets
+  opens in a fraction of the time.
 - **Render meshes are read when they are needed**: the Scene Explorer's
   render toggle now starts off, as in usdview, and while it is off a stage's
   render-purpose meshes are kept as their boxes and not read. On a production

@@ -1003,18 +1003,19 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             });
             location_group(ui, location, crate::core::volume::DEFAULT_LOCATION);
         }
-        NodeType::LoadUsd { path, mode, location, prim, convert, mask } => {
+        NodeType::LoadUsd { path, mode, location, prim, convert, mask, payloads } => {
             group(ui, "File", Some("A USD file (.usda, .usdc, .usdz), read as primitives. Variables are put in: $GDIR/usd/set.usda"), |f| {
                 path_row(f, path, "/path/to/file.usdz", io, sel_id, BrowseMode::File, "Open USD", &["usda", "usdc", "usdz", "usd", "abc"]);
                 path_status(f, path);
             });
             let read = crate::core::vars::expand(path.trim(), &[]);
-            load_mode_rows(ui, &read, mode, location, prim, *convert, mask);
+            load_mode_rows(ui, &read, mode, location, prim, *convert, mask, payloads);
             mask_rows(ui, mask);
+            payload_rows(ui, payloads);
             group(ui, "Units and axis", None, |f| {
                 f.toggle("Y-up metres", Some("Turn the stage to Y-up and scale it to metres by its upAxis and metersPerUnit, in its placement (the geometry stays as authored). Off: as authored, read as if Y-up metres. Either way, a layer written has it where Imago shows it, in the scene's axes and unit (File > Settings > Scene). Changing it reads the stage again"), convert);
             });
-            if !read.is_empty() { usd_summary(ui, &read, *convert, mask, io); }
+            if !read.is_empty() { usd_summary(ui, &read, *convert, mask, payloads, io); }
         }
         NodeType::WriteUsd { path, frames, start, end, step, flatten } => {
             group(ui, "File", Some("A .usda layer with what the scene graph changed in its USD stages: it sublayers each stage's file and holds only opinions over it. Opened on its own it gives what Imago shows"), |f| {
@@ -3624,8 +3625,43 @@ fn mask_rows(ui: &mut egui::Ui, mask: &mut Vec<String>) {
     });
 }
 
+/// Load USD's payloads: all loaded or none as the stage opens, then those
+/// loaded or unloaded on Scene Explorer rows, each taken away with its 🗑.
+fn payload_rows(ui: &mut egui::Ui, payloads: &mut crate::usd_scene::Payloads) {
+    let hint = "Which of the stage's payloads are loaded. Load None: each payload is its prim alone, drawn as the box of its extentsHint, and nothing below it is read, so a big set opens in a fraction of the time. Right-click a row of the Scene Explorer to load or unload one (with those below it): the rules are listed here, in order. Changing them reads the stage again";
+    group(ui, "Payloads", Some(hint), |f| {
+        f.choice(
+            "",
+            None,
+            &mut payloads.none,
+            &[(false, "Load All"), (true, "Load None")],
+        );
+        let mut remove = None;
+        for (k, (path, load)) in payloads.rules.iter().enumerate() {
+            f.row(if *load { "Loaded" } else { "Unloaded" }, None, |ui| {
+                ui.horizontal(|ui| {
+                    ui.monospace(path.as_str());
+                    if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                        remove = Some(k);
+                    }
+                });
+            });
+        }
+        if let Some(k) = remove {
+            payloads.rules.remove(k);
+        }
+        if payloads.rules.is_empty() {
+            f.status(
+                Status::Info,
+                "Right-click a Scene Explorer row to load or unload its payload",
+            );
+        }
+    });
+}
+
 /// How Load USD brings its file in: sublayered, or one prim of it referenced or
 /// payloaded at a Primitive Location.
+#[allow(clippy::too_many_arguments)]
 fn load_mode_rows(
     ui: &mut egui::Ui,
     path: &str,
@@ -3634,6 +3670,7 @@ fn load_mode_rows(
     prim: &mut String,
     convert: bool,
     mask: &[String],
+    payloads: &crate::usd_scene::Payloads,
 ) {
     use crate::usd_scene::LoadMode;
     let hint = "Sublayer: the whole stage at its own paths; Write USD sublayers the file. Reference: one prim of the file (its default prim) at the Primitive Location, its paths rebased there; Write USD writes a reference on that prim. Payload: as Reference, written as a payload, which other programs load on demand";
@@ -3675,7 +3712,7 @@ fn load_mode_rows(
         let scene = if path.trim().is_empty() {
             None
         } else {
-            crate::usd_scene::load_cached_with(path.trim(), convert, &Default::default(), mask).ok()
+            crate::usd_scene::load_cached_with(path.trim(), convert, &Default::default(), mask, payloads).ok()
         };
         let roots: Vec<String> = scene
             .as_ref()
@@ -4050,11 +4087,18 @@ fn unit_name(metres: f64) -> &'static str {
 
 /// What a USD file holds, from the cached stage (`convert`: read turned to Y-up
 /// and metres).
-fn usd_summary(ui: &mut egui::Ui, path: &str, convert: bool, mask: &[String], io: &mut PanelIo) {
+fn usd_summary(
+    ui: &mut egui::Ui,
+    path: &str,
+    convert: bool,
+    mask: &[String],
+    payloads: &crate::usd_scene::Payloads,
+    io: &mut PanelIo,
+) {
     // A big stage is read in the background: its boxes first, then the
     // whole of it. Say how far it has come.
     let reading = crate::usd_scene::reading(path, convert);
-    let scene = match crate::usd_scene::load_cached_with(path, convert, &Default::default(), mask) {
+    let scene = match crate::usd_scene::load_cached_with(path, convert, &Default::default(), mask, payloads) {
         Ok(s) => s,
         Err(e) if reading.is_some() => {
             group(ui, "Stage", None, |f| f.status(Status::Info, e));

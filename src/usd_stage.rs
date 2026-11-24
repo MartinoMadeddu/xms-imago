@@ -34,7 +34,7 @@ use crate::usd_scene::{StageNode, StageTree, UsdCamera, UsdLight, UsdMaterial, U
 /// unpacked beforehand, so its textures are files on disk).
 #[cfg(test)]
 pub fn read(layer: &Path) -> Result<UsdScene, String> {
-    read_phased(layer, false, None, &[], true, |_| {})
+    read_phased(layer, false, None, &[], &Default::default(), true, |_| {})
 }
 
 /// Read a composed stage in two passes over one open stage: `boxes` is given
@@ -43,13 +43,14 @@ pub fn read(layer: &Path) -> Result<UsdScene, String> {
 /// returned. `convert`: turned to Y-up and metres (see `scene_of`).
 /// `session`: a layer composed over the stage, strongest (the variants chosen
 /// in Imago). `mask`: the population mask, the prims read (all when empty).
-/// `render`: render-purpose meshes read; else kept as their boxes (see
-/// `usd_scene::render_meshes`).
+/// `payloads`: which are loaded. `render`: render-purpose meshes read; else
+/// kept as their boxes (see `usd_scene::render_meshes`).
 pub fn read_phased(
     layer: &Path,
     convert: bool,
     session: Option<&Path>,
     mask: &[String],
+    payloads: &crate::usd_scene::Payloads,
     render: bool,
     boxes: impl FnOnce(UsdScene),
 ) -> Result<UsdScene, String> {
@@ -61,6 +62,8 @@ pub fn read_phased(
         session_layer: session.map(|s| s.to_string_lossy().into_owned()),
         mask: mask.to_vec(),
         skip_render_meshes: !render,
+        load_none: payloads.none,
+        load_rules: payloads.rules.clone(),
         ..Default::default()
     };
     let translated = xms_usd::translate_phased(layer, opts, |b| {
@@ -711,6 +714,7 @@ impl Walk<'_> {
                     )
                 })
                 .collect(),
+            unloaded: prim.unloaded,
         });
 
         let world = if prim.reset_xform_stack {

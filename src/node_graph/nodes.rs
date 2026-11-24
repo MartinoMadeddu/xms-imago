@@ -85,13 +85,24 @@ pub fn evaluate_node_type(
             prim,
             convert,
             mask,
+            payloads,
         } => {
             if path.is_empty() {
                 return None;
             }
             // `$GDIR/usd/street.usda`: its variables put in.
             let path = crate::core::vars::expand(path.trim(), &[]);
-            load_stage(&path, *convert, &Default::default(), mask, *mode, location, prim).map(EvalResult::Named)
+            load_stage(
+                &path,
+                *convert,
+                &Default::default(),
+                mask,
+                payloads,
+                *mode,
+                location,
+                prim,
+            )
+            .map(EvalResult::Named)
         }
 
         NodeType::PickPrims { pattern } => inputs.first().map(|r| match r {
@@ -790,11 +801,12 @@ pub fn load_stage(
     convert: bool,
     variants: &crate::usd_scene::Variants,
     mask: &[String],
+    payloads: &crate::usd_scene::Payloads,
     mode: crate::usd_scene::LoadMode,
     location: &str,
     prim: &str,
 ) -> Option<Vec<Prim>> {
-    let scene = crate::usd_scene::load_cached_with(path, convert, variants, mask).ok()?;
+    let scene = crate::usd_scene::load_cached_with(path, convert, variants, mask, payloads).ok()?;
     let scene = match crate::usd_scene::cook_time(scene.tree.time_codes_per_second.or(scene.time.map(|t| t.2))) {
         Some(t) => crate::usd_scene::at_frame(&scene, t),
         None => scene,

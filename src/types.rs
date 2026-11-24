@@ -222,6 +222,10 @@ pub enum NodeType {
         /// them and the prims above them are read. Empty: the whole stage.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         mask: Vec<String>,
+        /// Which payloads are loaded: all (graphs saved before), or none,
+        /// then those loaded and unloaded on Scene Explorer rows.
+        #[serde(default, skip_serializing_if = "crate::usd_scene::Payloads::is_default")]
+        payloads: crate::usd_scene::Payloads,
     },
     /// Write what the network changed in its stages as a USD override layer,
     /// over `frames`: what changes from frame to frame as time samples.
@@ -1094,6 +1098,7 @@ impl NodeType {
             prim: String::new(),
             convert: false,
             mask: vec![],
+            payloads: Default::default(),
         }
     }
 
@@ -2998,6 +3003,12 @@ pub struct SceneHierarchy {
     /// A variant chosen with a right-click: a Variant choosing it is added
     /// after the viewed operator (or the viewed Variant takes it).
     pub variant_request: Option<crate::core::variant::Choice>,
+    /// Prims of a composed stage whose payload is not loaded: their rows say
+    /// so, and their right-click loads it.
+    unloaded: std::collections::HashSet<String>,
+    /// Payloads loaded (`true`) or unloaded at these prims, asked for with a
+    /// right-click: their Load USD operator's Payloads take it.
+    pub payload_request: Option<(Vec<String>, bool)>,
     /// The collections listed, by their rows' keys: the name, and the row it
     /// stands for in a Prims Location list (what selecting it selects).
     collection_rows: std::collections::HashMap<String, (String, String)>,
@@ -3012,6 +3023,7 @@ pub struct Rows {
     objects: Vec<SceneObject>,
     variant_prims: std::collections::HashMap<String, Vec<xms_scene::VariantSet>>,
     collection_rows: std::collections::HashMap<String, (String, String)>,
+    unloaded: std::collections::HashSet<String>,
 }
 
 /// What the Scene Explorer and the Viewer look up in the selection, made once
@@ -3262,6 +3274,11 @@ impl SceneHierarchy {
         self.variant_prims.get(path).map(|v| v.as_slice()).unwrap_or_default()
     }
 
+    /// Whether the prim of this row is a payload not loaded.
+    pub fn is_unloaded(&self, path: &str) -> bool {
+        self.unloaded.contains(path)
+    }
+
     /// The draw mode chosen on this very row, if any.
     pub fn draw_mode_set(&self, path: &str) -> Option<DrawMode> {
         self.draw_modes.get(path).copied()
@@ -3379,6 +3396,9 @@ impl SceneHierarchy {
             let expanded = self.is_expanded(&n.path);
             if !n.variants.is_empty() {
                 self.variant_prims.insert(n.path.clone(), n.variants.clone());
+            }
+            if n.unloaded {
+                self.unloaded.insert(n.path.clone());
             }
             self.objects.push(SceneObject {
                 id,
@@ -3665,6 +3685,7 @@ impl SceneHierarchy {
             objects: h.objects,
             variant_prims: h.variant_prims,
             collection_rows: h.collection_rows,
+            unloaded: h.unloaded,
         }
     }
 
@@ -3675,6 +3696,7 @@ impl SceneHierarchy {
         std::mem::swap(&mut self.objects, &mut rows.objects);
         std::mem::swap(&mut self.variant_prims, &mut rows.variant_prims);
         std::mem::swap(&mut self.collection_rows, &mut rows.collection_rows);
+        std::mem::swap(&mut self.unloaded, &mut rows.unloaded);
         // Opened or closed in another tab listing the same prims.
         for o in self.objects.iter_mut() {
             if let Some(open) = self.expanded.get(&o.key) {
@@ -3792,6 +3814,7 @@ impl SceneHierarchy {
     pub fn rebuild(&mut self, entries: Vec<(NodeId, String, EvalResult)>) {
         self.objects.clear();
         self.variant_prims.clear();
+        self.unloaded.clear();
         self.collection_rows.clear();
 
         for (node_id, node_name, result) in entries {

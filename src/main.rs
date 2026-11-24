@@ -1615,6 +1615,11 @@ impl Panes<'_> {
                 if let Some(choice) = self.hierarchy.variant_request.take() {
                     self.graph.choose_variant(choice);
                 }
+                // Load or Unload Payload on a row's right-click: its Load USD
+                // keeps it.
+                if let Some((paths, load)) = self.hierarchy.payload_request.take() {
+                    set_payloads(self.graph, self.subnets, shown, &paths, load);
+                }
             }
 
             Pane::CurveEditor => {
@@ -3202,6 +3207,57 @@ fn layer_breaks(graph: &NodeGraphState, from: types::NodeId) -> Vec<types::NodeI
     found
 }
 
+/// Payloads loaded (`load`) or unloaded at the prims of `paths`, in the scene
+/// of operator `shown` (the display flag's when `None`): each kept in the
+/// Payloads of the Load USD operator upstream that read its stage, at its
+/// path in the file. Paths of no stage, or above where a reference puts it,
+/// are passed over.
+fn set_payloads(
+    graph: &mut NodeGraphState,
+    subnets: &IceGraphStore,
+    shown: Option<types::NodeId>,
+    paths: &[String],
+    load: bool,
+) {
+    let eval = |sid: IceGraphId, mesh: &crate::core::geo::Geo, template: &[crate::ice::Reference]| {
+        subnets
+            .get(sid)
+            .map(|sg| sg.evaluate(mesh, template))
+            .unwrap_or_else(|| mesh.clone())
+    };
+    let scene = match shown {
+        Some(id) => graph.evaluate_scene_at(id, &eval),
+        None => graph.evaluate_scene(&eval),
+    };
+    let Some((view, _, types::EvalResult::Named(prims))) = scene else {
+        return;
+    };
+    // Each stage once: the trees of the prims, by the file read.
+    let mut trees: Vec<std::sync::Arc<usd_scene::StageTree>> = vec![];
+    for t in prims.iter().filter_map(|p| p.stage.clone()) {
+        if !trees.iter().any(|x| std::sync::Arc::ptr_eq(x, &t)) {
+            trees.push(t);
+        }
+    }
+    let mut rules: Vec<(types::NodeId, String)> = vec![];
+    for path in paths {
+        let Some(tree) = trees.iter().find(|t| t.node(path).is_some()) else {
+            continue;
+        };
+        let (Some(file), Some(node)) = (tree.file_path(path), prim_inspector::load_of(graph, view, tree)) else {
+            continue;
+        };
+        rules.push((node, file));
+    }
+    for (id, file) in rules {
+        if let Some(types::NodeType::LoadUsd { payloads, .. }) =
+            graph.nodes.iter_mut().find(|n| n.id == id).map(|n| &mut n.node_type)
+        {
+            payloads.set(&file, load);
+        }
+    }
+}
+
 /// The operator a tab following `f` shows in `graph`, the compounds entered
 /// being `level` (`layout::level_of`): the one selected, the one with the
 /// display flag, the one pinned (when it is still there, at its level).
@@ -3476,6 +3532,59 @@ mod tests {
     /// Write USD finds the nearest Layer Break on each way up: through every
     /// input of a Merge, not one above another, not a bypassed one, and not on
     /// an ICE operator's reference input.
+    #[test]
+    fn a_payload_unloaded_on_a_row_is_kept_in_its_load_usd() {
+        let dir = std::env::temp_dir().join("xms_payload_rows");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("rock.usda"),
+            "#usda 1.0\ndef Xform \"Rock\" {\n    def Mesh \"geo\" {\n        int[] faceVertexCounts = [3]\n        int[] faceVertexIndices = [0, 1, 2]\n        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]\n    }\n}\n",
+        )
+        .unwrap();
+        let set = dir.join("set.usda");
+        std::fs::write(
+            &set,
+            "#usda 1.0\ndef Xform \"set\" {\n    def Xform \"rock\" (\n        payload = @./rock.usda@</Rock>\n    ) {\n        float3[] extentsHint = [(0, 0, 0), (1, 1, 1)]\n    }\n}\n",
+        )
+        .unwrap();
+        let mut g = NodeGraphState::default();
+        let load = g.add_node(
+            "Load".into(),
+            NodeType::load_usd(set.to_string_lossy().into_owned()),
+            egui::pos2(0.0, 0.0),
+        );
+        g.view_flag = Some(load);
+        let payloads = |g: &NodeGraphState| match &g.nodes[0].node_type {
+            NodeType::LoadUsd { payloads, .. } => payloads.clone(),
+            _ => unreachable!(),
+        };
+        let store = IceGraphStore::default();
+        set_payloads(&mut g, &store, None, &["/set/rock".into()], false);
+        assert_eq!(payloads(&g).rules, vec![("/set/rock".to_string(), false)]);
+        // Read so: the rock alone, its box, marked.
+        let eval = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+        let Some((_, _, types::EvalResult::Named(prims))) = g.evaluate_scene(&eval) else {
+            panic!()
+        };
+        assert!(!prims.iter().any(|p| p.path == "/set/rock/geo"));
+        let rock = prims.iter().find(|p| p.path == "/set/rock").expect("its box");
+        let node = rock.stage.as_ref().and_then(|t| t.node("/set/rock"));
+        assert!(node.is_some_and(|n| n.unloaded));
+        let (modes, _) = viewer::scene::draw_modes(&prims, &SceneHierarchy::default(), u64::MAX);
+        let at = prims.iter().position(|p| p.path == "/set/rock").unwrap();
+        assert_eq!(modes[at], types::DrawMode::Bounds, "drawn as its box");
+        let mut h = SceneHierarchy::default();
+        h.rebuild_scene(g.evaluate_scene(&eval));
+        assert!(h.is_unloaded("/set/rock"), "its row says so");
+        // Loaded again: the rule replaced, the mesh back.
+        set_payloads(&mut g, &store, None, &["/set/rock".into()], true);
+        assert_eq!(payloads(&g).rules, vec![("/set/rock".to_string(), true)]);
+        let Some((_, _, types::EvalResult::Named(prims))) = g.evaluate_scene(&eval) else {
+            panic!()
+        };
+        assert!(prims.iter().any(|p| p.path == "/set/rock/geo"));
+    }
+
     #[test]
     fn write_usd_finds_the_layer_breaks_above_it() {
         let mut g = NodeGraphState::default();

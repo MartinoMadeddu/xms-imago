@@ -1397,6 +1397,7 @@ fn variant_stages(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
                 prim: String::new(),
                 convert: false,
                 mask: vec![],
+                payloads: Default::default(),
             },
             p(x, 20.0),
         );
@@ -2884,6 +2885,7 @@ fn load_abc(g: &mut NodeGraphState, name: &str, file: &str, prim: &str, location
             prim: prim.into(),
             convert: false,
             mask: vec![],
+            payloads: Default::default(),
         },
         p(x, 20.0),
     )
@@ -3035,6 +3037,7 @@ fn ice_binding_alembic(g: &mut NodeGraphState, store: &mut IceGraphStore) -> Str
                 prim: String::new(),
                 convert: false,
                 mask: vec![],
+                payloads: Default::default(),
             },
             p(x, 20.0),
         )
@@ -3457,6 +3460,7 @@ fn ice_guide_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String
                 prim: prim.into(),
                 convert: false,
                 mask: vec![],
+                payloads: Default::default(),
             },
             p(x, 20.0),
         )
@@ -3712,6 +3716,7 @@ fn ice_rigid_hair(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
                 prim: prim.into(),
                 convert: false,
                 mask: vec![],
+                payloads: Default::default(),
             },
             p(x, 20.0),
         )
@@ -3905,6 +3910,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             prim: String::new(),
             convert: false,
             mask: vec![],
+            payloads: Default::default(),
         },
         p(520.0, 20.0),
     );

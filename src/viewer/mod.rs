@@ -17,7 +17,7 @@ pub(crate) mod gpu;
 pub mod movie;
 mod occlusion;
 mod pick;
-mod scene;
+pub(crate) mod scene;
 
 use std::sync::Arc;
 
