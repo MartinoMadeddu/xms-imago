@@ -3,7 +3,8 @@
 ![Imago's window in the Light theme, each part named: the menus, the graph's
 file and the layout lock along the top; the Viewer, Image Viewer, Node Graph, UV
 Editor, Curve Editor and Parameters; the Primitive Inspector, Scene Explorer,
-Operator Stack and History; the Timeline along the bottom](xms_interface.png)
+Operator Stack (since removed) and History; the Timeline along the
+bottom](xms_interface.png)
 
 ## Top bar
 
@@ -26,8 +27,7 @@ Save As Shift+S, Quit Q.
 ## Panes
 
 Viewer, Image Viewer, Node Graph, Curve Editor, UV Editor, Scene Explorer,
-Operator Stack, History, Parameters, Primitive Inspector, Timeline and Light
-Linker (a tab beside the Scene Explorer, bottom left; see [USD](usd.md#light-linking)), each a
+History, Parameters, Primitive Inspector, Timeline and Light Linker (a tab beside the Scene Explorer, bottom left; see [USD](usd.md#light-linking)), each a
 tab. **Window > Layout** has three layouts (xms_main_layout, the default;
 xms_2split_layout; xms_4split_layout) and **Save current as default**. Imago
 opens in the default layout, and File > New and Reset layout go back to it.
@@ -43,7 +43,7 @@ opens in the default layout, and File > New and Reset layout go back to it.
 | Keep a layout | Window > Save layout... and Load layout... |
 
 Most panes can be open in several tabs at once. One of a kind: the Viewer,
-Timeline, History, Operator Stack and Image Viewer.
+Timeline, History and Image Viewer.
 
 - **Node Graph** tabs each have their own view: panned, zoomed and inside
   an ICE or MaterialX graph each their own way. The one last clicked in is the
@@ -362,11 +362,6 @@ everything.
 
 The geometry is only read when a geometry tab is opened, so a huge stage costs
 nothing until then.
-
-## Operator Stack
-
-One row per operator from the viewed one down to the sources; branches step in
-under operators with several inputs.
 
 ## When the graph is cooked
 

@@ -10,6 +10,9 @@ version's heading when you tag it.
 
 ### Interface
 
+- **The Operator Stack is gone**: the node graph is the chain of operators.
+  Layouts saved with it load, its tabs left out.
+- **The scene graph's grid** is twice as dense.
 - **Phosphor icons**: every operator's, ICE node's and Scene Explorer row's
   icon is now one of Phosphor's, one drawing style throughout, shipped with
   Imago as fonts. File > Settings > Interface > Icons: Regular (the default)

@@ -45,6 +45,9 @@ mod xsi {
     pub fn BG() -> Color32 {
         crate::theme::c(100, 100, 100)
     }
+    pub fn GRID() -> Color32 {
+        crate::theme::c(90, 90, 90)
+    }
     pub fn NODE_BODY() -> Color32 {
         crate::theme::raised(130, 130, 130)
     }
@@ -421,8 +424,30 @@ pub fn draw_node_graph(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> Option<
         }
     }
 
-    // No grid on the scene graph: the nodes on its plain grey (ICE and
-    // MaterialX graphs keep theirs).
+    // The grid, twice as dense as the ICE and MaterialX graphs'; zoomed far
+    // out, every other line, so it never gets closer than 8 pixels.
+    let mut grid_spacing = 25.0 * zoom.max(0.01);
+    while grid_spacing < 8.0 {
+        grid_spacing *= 2.0;
+    }
+    let offset_x = pan.x % grid_spacing;
+    let offset_y = pan.y % grid_spacing;
+    let mut x = canvas_rect.min.x + offset_x;
+    while x < canvas_rect.max.x {
+        painter.line_segment(
+            [egui::pos2(x, canvas_rect.min.y), egui::pos2(x, canvas_rect.max.y)],
+            egui::Stroke::new(1.0, xsi::GRID()),
+        );
+        x += grid_spacing;
+    }
+    let mut y = canvas_rect.min.y + offset_y;
+    while y < canvas_rect.max.y {
+        painter.line_segment(
+            [egui::pos2(canvas_rect.min.x, y), egui::pos2(canvas_rect.max.x, y)],
+            egui::Stroke::new(1.0, xsi::GRID()),
+        );
+        y += grid_spacing;
+    }
 
     // Connections. A node dragged with Shift held over a wire it can go
     // into lights the wire; let go of, it goes in.

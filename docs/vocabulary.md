@@ -13,7 +13,7 @@ have **parameters**.
 | The operator holding an ICE graph | **ICreationEngine** (ICE for short) | Its name in the add menu, on the node and in its parameters, after Softimage's ICE, the Interactive Creative Environment. |
 | The graph inside an ICE node | **ICE graph** | Matches "scene graph". |
 | ICE's language | **ISL**, the ICE Scripting Language | Code in a **Snippet** node (in an ICE graph) or an **ISnippet** (the scene graph's operator holding one, named as ICreationEngine is). |
-| A node of the scene graph | **operator** | Each takes the scene coming in and changes it, hence the Operator Stack. "Node" stays the generic word for any graph element. |
+| A node of the scene graph | **operator** | Each takes the scene coming in and changes it. "Node" stays the generic word for any graph element. |
 | A step inside Edit Poly | **operation** | Distinct from operator: an operator holds operations. |
 | A node's settings | **parameters** | Not to be confused with USD properties (a prim's attributes and relationships). |
 | Text and number fields drawn dark grey with light text | **Dark fields** (`DARK_FIELD_BG`) | A switch in the colour editor, not a colour of the scheme: on in the Light preset, off in Dark and ADHD; Reset keeps it. |
@@ -105,7 +105,6 @@ from the topology. A face's and an edge's points are its
 | **Scene Explorer** | The stage's primitives as a hierarchy. |
 | **Parameters** | The selected node's parameters, matching the term above. |
 | **Primitive Inspector** | Click a primitive in the Scene Explorer and inspect its contents. Tabs: Object, Point, Edge, Face, Corner, Properties (and Joint, Bone for clips). Properties is USD's sense of the word: a prim's attributes and metadata, not an operator's parameters. |
-| **Operator Stack** | The chain of operators feeding the viewed one. |
 | **Timeline** | Playback, the scene range and the selected operator's keys. |
 | **UV Editor** | The UVs of the primitives shown. |
 | **History** | The scene's undo history. |

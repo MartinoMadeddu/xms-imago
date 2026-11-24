@@ -17,7 +17,6 @@ use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
 use crate::ice::ui::draw_subnet_node_properties;
 use crate::ice::{GraphNavigation, IceGraphStore};
 use crate::node_graph::NodeGraphState;
-use crate::scene_explorer::OperatorStack;
 use crate::types::{node_type_icon, node_type_label, BodyView, MergeMode, NodeId, NodeType, RetimeMode, SplitPick};
 use glam::Vec3;
 use glam::{EulerRot, Quat};
@@ -76,7 +75,6 @@ pub struct PanelIo<'a> {
 pub fn draw_properties_panel(
     ui: &mut egui::Ui,
     graph: &mut NodeGraphState,
-    scene: &OperatorStack,
     subnets: &mut IceGraphStore,
     nav: &GraphNavigation,
     anim: &AnimContext,
@@ -128,7 +126,7 @@ pub fn draw_properties_panel(
                 .map(|sg| sg.composed().parameters.clone())
                 .unwrap_or_default();
             io.snippet_here = false;
-            draw_properties(ui, graph, scene, anim, io);
+            draw_properties(ui, graph, anim, io);
             // An ISnippet, its Parameters tab shown: its snippet's text,
             // References and parameters, as if its node were selected inside.
             let op = graph
@@ -419,13 +417,7 @@ fn reach_report(ui: &mut egui::Ui, anim: &AnimContext, reach: bool) {
     });
 }
 
-pub fn draw_properties(
-    ui: &mut egui::Ui,
-    graph: &mut NodeGraphState,
-    _scene: &OperatorStack,
-    anim: &AnimContext,
-    io: &mut PanelIo,
-) {
+pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &AnimContext, io: &mut PanelIo) {
     let Some(sel_id) = graph.selected_node else {
         ui.colored_label(ink::DIM(), "Select a node to see its parameters.");
         return;

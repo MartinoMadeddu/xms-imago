@@ -72,8 +72,7 @@ use node_graph::NodeGraphState;
 use prim_inspector::ui::draw_prim_inspector;
 use properties::ui::draw_properties_panel;
 use properties::ui::{AnimContext, PanelAction, PanelIo};
-use scene_explorer::ui::{draw_operator_stack, draw_scene_explorer};
-use scene_explorer::OperatorStack;
+use scene_explorer::ui::draw_scene_explorer;
 use timeline::{resolve_source, ui::draw_timeline, Playback, TimelineState};
 use types::NodeType;
 use types::{IceGraphId, MeshData, PrimInspectorState, SceneHierarchy};
@@ -163,7 +162,6 @@ pub(crate) fn draw_ui(
     let ctx = &root.ctx().clone();
     let AppState {
         graph,
-        stack,
         hierarchy,
         subnets,
         nav,
@@ -647,7 +645,6 @@ pub(crate) fn draw_ui(
     {
         let mut panes = Panes {
             graph: &mut *graph,
-            stack: &mut *stack,
             hierarchy: &mut *hierarchy,
             subnets: &mut *subnets,
             nav: &mut *nav,
@@ -1041,7 +1038,6 @@ fn lock_button(ui: &mut egui::Ui, locked: bool) -> egui::Response {
 /// Everything the panes draw from, borrowed for one frame.
 struct Panes<'a> {
     graph: &'a mut NodeGraphState,
-    stack: &'a mut OperatorStack,
     hierarchy: &'a mut SceneHierarchy,
     subnets: &'a mut IceGraphStore,
     nav: &'a mut GraphNavigation,
@@ -1458,7 +1454,7 @@ impl Panes<'_> {
                     // Each operator's fields are its own: a value being typed
                     // when another operator is selected is not put in its field.
                     ui.push_id(("parameters_of", self.graph.selected_node.map(|n| n.0)), |ui| {
-                        draw_properties_panel(ui, self.graph, &*self.stack, self.subnets, nav, self.anim_ctx, &mut io)
+                        draw_properties_panel(ui, self.graph, self.subnets, nav, self.anim_ctx, &mut io)
                     });
                     // An ICE operator's parameters, for those it keeps only once set.
                     let ice_settings = io.ice_settings.clone();
@@ -1585,12 +1581,8 @@ impl Panes<'_> {
                 image_viewer::draw(ui, self.image_viewer, self.graph, &*self.subnets, self.revision);
             }
 
-            Pane::OperatorStack => {
-                egui::ScrollArea::both()
-                    .id_salt("operator_stack_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| draw_operator_stack(ui, self.stack, self.graph));
-            }
+            // A pane no longer: its tabs are taken away as a layout loads.
+            Pane::Retired => {}
 
             Pane::UvEditor => {
                 let Some(followed) = self.follow(ui, tab) else {
@@ -3073,19 +3065,6 @@ fn save_first_step(
 }
 
 // Systems
-
-/// The Operator Stack, rebuilt when the graph's revision moved past `seen`.
-pub(crate) fn refresh_operator_stack(app: &mut AppState, seen: &mut u64) {
-    let AppState {
-        graph, revision, stack, ..
-    } = app;
-    if std::mem::replace(seen, revision.0) != revision.0 {
-        stack.rebuild(&graph.nodes, &graph.connections, graph.view_flag);
-        if let Some(sel) = graph.selected_node {
-            stack.selected_entry = Some(sel);
-        }
-    }
-}
 
 /// The Scene Explorer, rebuilt when the graph's revision moved past `seen`.
 pub(crate) fn refresh_scene_hierarchy(app: &mut AppState, seen: &mut u64) {

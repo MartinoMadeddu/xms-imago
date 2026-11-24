@@ -19,7 +19,6 @@ pub struct ImagoApp {
     /// The graph's content hash last seen (revision tracking).
     last_hash: Option<u64>,
     /// The revision the Operator Stack and Scene Explorer were last built at.
-    seen_stack: u64,
     seen_scene: u64,
     /// When the last frame was drawn, for the timeline's step.
     last_frame: Instant,
@@ -50,7 +49,6 @@ impl ImagoApp {
             nav_settings: viewport::nav::NavSettings::default(),
             viewer: crate::viewer::Viewer::default(),
             last_hash: None,
-            seen_stack: 0,
             seen_scene: 0,
             last_frame: Instant::now(),
             closing: false,
@@ -158,7 +156,6 @@ impl eframe::App for ImagoApp {
             }
         }
 
-        crate::refresh_operator_stack(&mut self.app, &mut self.seen_stack);
         crate::refresh_scene_hierarchy(&mut self.app, &mut self.seen_scene);
 
         // A new frame when something happens; while something runs on its

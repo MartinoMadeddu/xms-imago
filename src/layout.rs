@@ -25,7 +25,11 @@ pub enum Pane {
     Viewer,
     NodeGraph,
     SceneExplorer,
-    OperatorStack,
+    /// A pane Imago no longer has: the Operator Stack (the chain feeding the
+    /// viewed operator, which the graph shows). Read from layouts saved with
+    /// it, its tabs taken away as they load (`retired`); never shown.
+    #[serde(alias = "OperatorStack")]
+    Retired,
     /// Was "Properties".
     #[serde(alias = "Properties")]
     Parameters,
@@ -45,11 +49,10 @@ pub enum Pane {
 }
 
 impl Pane {
-    pub const ALL: [Pane; 12] = [
+    pub const ALL: [Pane; 11] = [
         Pane::Viewer,
         Pane::NodeGraph,
         Pane::SceneExplorer,
-        Pane::OperatorStack,
         Pane::Parameters,
         Pane::PrimInspector,
         Pane::Timeline,
@@ -71,12 +74,12 @@ impl Pane {
 
     /// Panes that can be open more than once, each a tab of its own. The
     /// others are one of a kind: what they show, and how, is the program's
-    /// (one Viewer, one Timeline, one History, one Operator Stack), or they
-    /// share what they draw with (the Image Viewer's image on the GPU).
+    /// (one Viewer, one Timeline, one History), or they share what they draw
+    /// with (the Image Viewer's image on the GPU).
     pub fn multiple(self) -> bool {
         !matches!(
             self,
-            Pane::Viewer | Pane::Timeline | Pane::History | Pane::OperatorStack | Pane::ImageViewer
+            Pane::Viewer | Pane::Timeline | Pane::History | Pane::Retired | Pane::ImageViewer
         )
     }
 
@@ -85,7 +88,7 @@ impl Pane {
             Pane::Viewer => "Viewer",
             Pane::NodeGraph => "Node Graph",
             Pane::SceneExplorer => "Scene Explorer",
-            Pane::OperatorStack => "Operator Stack",
+            Pane::Retired => "Retired",
             Pane::Parameters => "Parameters",
             Pane::PrimInspector => "Primitive Inspector",
             Pane::Timeline => "Timeline",
@@ -199,6 +202,14 @@ impl Tab {
 
 /// Every tab a number of its own: those read without one (0), or with one
 /// another has, get a new one; new tabs are numbered above them all.
+/// The tabs of panes Imago no longer has (`Pane::Retired`) taken away; the
+/// panes beside them take their room.
+fn retired(dock: &mut DockState<Tab>) {
+    while let Some(at) = dock.find_tab_from(|t| t.pane == Pane::Retired) {
+        dock.remove_tab(at);
+    }
+}
+
 fn numbered(dock: &mut DockState<Tab>) {
     use std::sync::atomic::Ordering;
     let top = dock.iter_all_tabs().map(|(_, t)| t.id).max().unwrap_or(0);
@@ -397,10 +408,11 @@ pub fn take_default_request() -> bool {
 
 /// Scene Explorer in a narrow column at the far left, the viewport beside it
 /// with the UV editor and the Image Viewer as tabs behind, the primitive
-/// inspector under both. Then the node graph, then the properties over the
-/// operator stack. Timeline along the bottom of those, History down the whole
-/// right side. The Curve Editor is a tab behind the node graph, the Light
-/// Linker behind the primitive inspector. Built in code: what is used if `xms_main_layout` could not be read.
+/// inspector under both. Then the node graph, then the Parameters. Timeline
+/// along the bottom of those, History down the whole right side. The Curve
+/// Editor is a tab behind the node graph, the Light Linker behind the
+/// primitive inspector. Built in code: what is used if `xms_main_layout`
+/// could not be read.
 pub fn built_dock() -> DockState<Tab> {
     let tabs = |panes: &[Pane]| panes.iter().map(|p| Tab::new(*p)).collect::<Vec<Tab>>();
     let mut dock = DockState::new(tabs(&[Pane::Viewer, Pane::UvEditor, Pane::ImageViewer]));
@@ -410,8 +422,7 @@ pub fn built_dock() -> DockState<Tab> {
     let [left, right] = s.split_right(top, 0.476, tabs(&[Pane::NodeGraph, Pane::CurveEditor]));
     let [view, _prim] = s.split_below(left, 0.72, tabs(&[Pane::PrimInspector, Pane::LightLinker]));
     s.split_left(view, 0.163, tabs(&[Pane::SceneExplorer]));
-    let [_graph, side] = s.split_right(right, 0.648, tabs(&[Pane::Parameters]));
-    s.split_below(side, 0.718, tabs(&[Pane::OperatorStack]));
+    s.split_right(right, 0.648, tabs(&[Pane::Parameters]));
     dock
 }
 
@@ -465,6 +476,7 @@ pub fn from_json(json: &str) -> Option<(DockState<Tab>, bool)> {
         None => (value, false),
     };
     let mut dock: DockState<Tab> = serde_json::from_value(dock).ok()?;
+    retired(&mut dock);
     numbered(&mut dock);
     is_valid(&dock).then_some((dock, locked))
 }
@@ -1067,6 +1079,9 @@ mod tests {
         // Light Linker came later, and are ticked in the Window menu.
         assert_eq!(open(&l), ALL - 3);
         assert!(!l.is_open(Pane::CurveEditor) && !l.is_open(Pane::ImageViewer) && !l.is_open(Pane::LightLinker));
+        // Its Operator Stack, a pane no longer, taken away; the others of
+        // its place kept.
+        assert!(!l.is_open(Pane::Retired) && l.is_open(Pane::History) && l.is_open(Pane::NodeGraph));
         assert!(l.is_floating(Pane::Parameters) && !l.is_floating(Pane::Viewer));
         let tree = &l.dock[egui_dock::SurfaceIndex::main()];
         match &tree[NodeIndex::root()] {
@@ -1109,7 +1124,7 @@ mod tests {
 
     /// The tabs in front are the layout's own: Prim Inspector's leaf shows
     /// the Scene Explorer (the Light Linker a tab beside them, bottom left),
-    /// the Operator Stack's the History, in the main one.
+    /// History alone in its own, in the main one.
     #[test]
     fn the_main_layout_opens_with_its_tabs_in_front() {
         let dock = main_dock();

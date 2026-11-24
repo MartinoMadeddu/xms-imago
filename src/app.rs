@@ -12,7 +12,6 @@ use crate::ice::{GraphNavigation, IceGraphStore};
 use crate::layout::Layout;
 use crate::node_graph::{GraphRevision, NodeGraphState};
 use crate::recent::Recent;
-use crate::scene_explorer::OperatorStack;
 use crate::timeline::Playback;
 use crate::types::{PrimInspectorState, SceneHierarchy};
 use crate::uv_editor::UvEditorState;
@@ -31,7 +30,6 @@ pub struct AppState {
     pub subnets: IceGraphStore,
     pub nav: GraphNavigation,
     /// What the panes show.
-    pub stack: OperatorStack,
     pub hierarchy: SceneHierarchy,
     pub prim_state: PrimInspectorState,
     pub uv_state: UvEditorState,

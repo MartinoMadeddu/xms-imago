@@ -406,8 +406,7 @@ the length):
   crossing the selection become its ports. Promote parameters inside, then
   **Save as Definition…**: name, category, icon, help, folder.
 - **Using one:** double-click an instance to go inside (with the path at the
-  top, as for ICE graphs). The Operator Stack shows it as one entry, opening to
-  its inner operators. The Parameters pane shows its promoted parameters,
+  top, as for ICE graphs). The Parameters pane shows its promoted parameters,
   grouped, with their help; its definition's name, version and folder; and Make
   Editable, Open Definition, Save as Definition.
 
