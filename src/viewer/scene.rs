@@ -632,7 +632,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
     // The selected prims' wireframe, in the selection's colour, in every mode.
     let [r, g, b] = super::edit::selection();
     let selected_ink = super::edit::colour(r, g, b, 1.0);
-    let selected = input.hierarchy.selected_paths();
+    let selected = input.hierarchy.selected_set();
     let bg_lin = {
         let c = linear(bg);
         [c[0], c[1], c[2], 1.0]
@@ -773,7 +773,7 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
             // colour a mesh draw it in their colours, in place of its own
             // (not in Wireframe, which draws no surface).
             let surfaces = mode != DisplayMode::Wireframe;
-            let coloured = shown_attributes(&mut s, &prims, &modes, input.hierarchy.selected_paths(), surfaces);
+            let coloured = shown_attributes(&mut s, &prims, &modes, input.hierarchy.selected_set(), surfaces);
             let standin_ink = {
                 let c = ink(crate::theme::c(215, 215, 215));
                 [c[0], c[1], c[2], 1.0]
@@ -1080,7 +1080,7 @@ fn shown_attributes(
     s: &mut Scene,
     prims: &[Prim],
     modes: &[crate::types::DrawMode],
-    selected: &[String],
+    selected: &std::collections::HashSet<String>,
     surfaces: bool,
 ) -> std::collections::HashSet<String> {
     use super::attributes as at;

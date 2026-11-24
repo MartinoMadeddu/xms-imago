@@ -229,7 +229,9 @@ name. **Pick** lists the names coming in; under the field, how many match.
   A everything (F frames the prims selected, and those below them). A
   selected prim is outlined by its box (hidden behind what is in front) and
   its wireframe is drawn over it, in the Viewer's selection blue, whatever the
-  shading.
+  shading. A box over a scatter selects its instances, each outlined by its
+  prototype's box; past 2,000 boxes, one box goes around each instancer's
+  selected instances, and one around the selected prims.
 - A selected Transform, Camera or Edit Primitive has handles: W move, E rotate,
   R scale, Q select. A drag is one undo step.
 - Past 20 million triangles a frame, the heaviest prims are drawn as boxes,

@@ -8,6 +8,13 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Viewer
+
+- **Box select is fast on big scenes**: a box over a scatter of a million
+  instances takes a moment, not seconds, and the selection no longer slows
+  every frame after it. Past 2,000 outlines, one box goes around each
+  instancer's selected instances.
+
 ## [0.3.8] - 2026-11-24
 
 ### Interface

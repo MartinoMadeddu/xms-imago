@@ -82,6 +82,9 @@ pub struct Viewer {
     cache: scene::GeometryCache,
     /// What the scene was last built for.
     built: Option<(u64, u64, u64, u64, u64)>,
+    /// The selection's outlines, and what they were made for (the scene, the
+    /// time, the selection): made again only when one of them moves.
+    outlined: Option<((u64, u64, u64), Arc<Vec<[glam::Vec3; 2]>>)>,
     generation: u64,
     /// The scene camera looked through last frame.
     looked: Option<String>,
@@ -141,7 +144,7 @@ impl Viewer {
                 // Attributes shown, and the selection: its wireframe is drawn,
                 // and attributes may be shown on it.
                 ^ attributes::revision().rotate_left(48)
-                ^ hash_of(&input.hierarchy.selected_paths().join("\n")).rotate_left(8),
+                ^ input.hierarchy.selection_revision().rotate_left(8),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
             crate::viewport::display::key() ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
@@ -390,45 +393,67 @@ impl Viewer {
                 }
             }
         }
-        if !input.hierarchy.selected_paths().is_empty() {
-            // The Viewer's selection colour; the boxes hidden by what is in
-            // front.
-            let [r, g, b] = edit::selection();
-            let c = edit::colour(r, g, b, 1.0);
-            for (lo, hi) in pick::selected_bounds(&prims, input.hierarchy.selected_paths()) {
-                let p = |x: f32, y: f32, z: f32| glam::Vec3::new(x, y, z);
-                let corners = [
-                    p(lo.x, lo.y, lo.z),
-                    p(hi.x, lo.y, lo.z),
-                    p(hi.x, hi.y, lo.z),
-                    p(lo.x, hi.y, lo.z),
-                    p(lo.x, lo.y, hi.z),
-                    p(hi.x, lo.y, hi.z),
-                    p(hi.x, hi.y, hi.z),
-                    p(lo.x, hi.y, hi.z),
-                ];
-                for (a, b) in [
-                    (0, 1),
-                    (1, 2),
-                    (2, 3),
-                    (3, 0),
-                    (4, 5),
-                    (5, 6),
-                    (6, 7),
-                    (7, 4),
-                    (0, 4),
-                    (1, 5),
-                    (2, 6),
-                    (3, 7),
-                ] {
-                    edit::line(&mut overlay.depth, corners[a], corners[b], c);
-                }
+        if input.hierarchy.selected_paths().is_empty() {
+            return;
+        }
+        let made_for = (
+            input.revision,
+            input.playback.time.to_bits(),
+            input.hierarchy.selection_revision(),
+        );
+        let outlines = match &self.outlined {
+            Some((k, lines)) if *k == made_for => lines.clone(),
+            _ => {
+                let lines = Arc::new(Self::outline(&prims, input.hierarchy.selected_set()));
+                self.outlined = Some((made_for, lines.clone()));
+                lines
             }
-            // Lights and cameras: their own lines, in the selection's colour.
-            for [a, b] in pick::selected_glyphs(&prims, input.hierarchy.selected_paths()) {
-                edit::line(&mut overlay.top, a, b, c);
+        };
+        // The Viewer's selection colour; the boxes hidden by what is in front.
+        let [r, g, b] = edit::selection();
+        let c = edit::colour(r, g, b, 1.0);
+        for [a, b] in outlines.iter() {
+            edit::line(&mut overlay.depth, *a, *b, c);
+        }
+        // Lights and cameras: their own lines, in the selection's colour.
+        for [a, b] in pick::selected_glyphs(&prims, input.hierarchy.selected_set()) {
+            edit::line(&mut overlay.top, a, b, c);
+        }
+    }
+
+    /// The lines outlining the selected prims' boxes.
+    fn outline(prims: &[crate::types::Prim], selected: &std::collections::HashSet<String>) -> Vec<[glam::Vec3; 2]> {
+        let mut out = vec![];
+        for (lo, hi) in pick::selected_bounds(prims, selected) {
+            let p = |x: f32, y: f32, z: f32| glam::Vec3::new(x, y, z);
+            let corners = [
+                p(lo.x, lo.y, lo.z),
+                p(hi.x, lo.y, lo.z),
+                p(hi.x, hi.y, lo.z),
+                p(lo.x, hi.y, lo.z),
+                p(lo.x, lo.y, hi.z),
+                p(hi.x, lo.y, hi.z),
+                p(hi.x, hi.y, hi.z),
+                p(lo.x, hi.y, hi.z),
+            ];
+            for (a, b) in [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4),
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7),
+            ] {
+                out.push([corners[a], corners[b]]);
             }
         }
+        out
     }
 
     /// The 📷 at the bottom left, and while it is on the snapshots bar beside
@@ -684,7 +709,7 @@ impl Viewer {
             }
         }
         // The prims selected (and those below them), by their boxes.
-        let selected = input.hierarchy.selected_paths();
+        let selected = input.hierarchy.selected_set();
         if target.is_none() && selection && !selected.is_empty() {
             if let Some(crate::types::EvalResult::Named(prims)) = input.graph.evaluate_for_viewport_packed(&eval) {
                 let mut points: Vec<Vec3> = vec![];
