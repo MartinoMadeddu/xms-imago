@@ -1121,6 +1121,33 @@ impl Panes<'_> {
         }
     }
 
+    /// For a Scene Explorer or Primitive Inspector tab: the operator whose
+    /// scene it shows, `None` for the one at the display flag (the program's
+    /// own, which the Viewer shows too). `Err`, said in the tab (with a way
+    /// back to the display flag): nothing to show.
+    fn scene_of_tab(&self, ui: &mut egui::Ui, tab: &mut Tab) -> Result<Option<types::NodeId>, ()> {
+        let follows = tab.follows().unwrap_or(Follows::Display);
+        if follows == Follows::Display {
+            return Ok(None);
+        }
+        let level = layout::level_of(&self.graph.inside.path);
+        match shown_by(self.graph, follows, level) {
+            Some(id) if Some(id) == self.graph.view_flag => Ok(None),
+            Some(id) => Ok(Some(id)),
+            None => {
+                ui.add_space(8.0);
+                ui.label(match follows {
+                    Follows::Selection => "No operator is selected.",
+                    _ => "The operator pinned is gone, or in another compound.",
+                });
+                if ui.button("Follow the display flag").clicked() {
+                    tab.follows = Some(Follows::Display);
+                }
+                Err(())
+            }
+        }
+    }
+
     /// Whether `tab` is the first open of its pane: it uses the program's
     /// state, the others their own (`TabStates`).
     fn first_of(&self, tab: &Tab) -> bool {
@@ -1541,10 +1568,45 @@ impl Panes<'_> {
             }
 
             Pane::SceneExplorer => {
+                // What it lists (`layout::Follows`): the scene at the display
+                // flag, the program's; another operator's, its own rows,
+                // listed again as the graph changes, swapped in while it is
+                // drawn. The selection, rows opened and draw modes are the
+                // program's, by path, whichever it lists.
+                let Ok(shown) = self.scene_of_tab(ui, tab) else {
+                    return;
+                };
+                let mut own = shown.map(|id| {
+                    let key = (self.revision, id);
+                    match self.tabs.explorers.remove(&tab.id) {
+                        Some((k, rows)) if k == key => (key, rows),
+                        _ => {
+                            let subnets = &*self.subnets;
+                            let eval = |sid: IceGraphId,
+                                        mesh: &crate::core::geo::Geo,
+                                        template: &[crate::ice::Reference]|
+                             -> crate::core::geo::Geo {
+                                subnets
+                                    .get(sid)
+                                    .map(|sg| sg.evaluate(mesh, template))
+                                    .unwrap_or_else(|| mesh.clone())
+                            };
+                            let _t = crate::timings::span("scene explorer: list another operator's scene");
+                            (key, self.hierarchy.rows_of(self.graph.evaluate_scene_at(id, &eval)))
+                        }
+                    }
+                });
+                if let Some((_, rows)) = own.as_mut() {
+                    self.hierarchy.swap_rows(rows);
+                }
                 egui::ScrollArea::both()
-                    .id_salt("scene_explorer_scroll")
+                    .id_salt(("scene_explorer_scroll", tab.id))
                     .auto_shrink([false, false])
                     .show(ui, |ui| draw_scene_explorer(ui, self.hierarchy));
+                if let Some((key, mut rows)) = own {
+                    self.hierarchy.swap_rows(&mut rows);
+                    self.tabs.explorers.insert(tab.id, (key, rows));
+                }
                 // Enter or Edit Selected: an Edit Primitive on the selection.
                 if let Some(paths) = self.hierarchy.edit_request.take() {
                     self.graph.edit_primitives(&paths);
@@ -1613,8 +1675,21 @@ impl Panes<'_> {
             }
 
             Pane::PrimInspector => {
-                // The scene at the view flag: the rows selected in the Scene
-                // Explorer and what is below them, or all of it.
+                // The scene at the view flag, or of the operator it follows
+                // (`layout::Follows`): the rows selected in the Scene Explorer
+                // and what is below them, or all of it.
+                let Ok(shown) = self.scene_of_tab(ui, tab) else {
+                    return;
+                };
+                let scene_of = |g: &NodeGraphState,
+                                eval: &dyn Fn(
+                    IceGraphId,
+                    &crate::core::geo::Geo,
+                    &[crate::ice::Reference],
+                ) -> crate::core::geo::Geo| match shown {
+                    None => g.evaluate_scene(&eval),
+                    Some(id) => g.evaluate_scene_at(id, &eval),
+                };
                 let subnets = &*self.subnets;
                 let paths = self.hierarchy.selected_prim_paths();
                 let get_parts = |g: &NodeGraphState| -> Option<Vec<prim_inspector::Part>> {
@@ -1628,7 +1703,7 @@ impl Panes<'_> {
                             .unwrap_or_else(|| mesh.clone())
                     };
                     let _t = crate::timings::span("primitive inspector: geometry for a tab");
-                    let (_, _, scene) = g.evaluate_scene(&eval)?;
+                    let (_, _, scene) = scene_of(g, &eval)?;
                     Some(prim_inspector::scene_parts(scene, &paths))
                 };
                 let get_summary = |g: &NodeGraphState| -> prim_inspector::Summary {
@@ -1642,12 +1717,15 @@ impl Panes<'_> {
                             .unwrap_or_else(|| mesh.clone())
                     };
                     let _t = crate::timings::span("primitive inspector: counts");
-                    g.evaluate_scene(&eval)
+                    scene_of(g, &eval)
                         .map(|(_, _, scene)| prim_inspector::scene_summary(&scene, &paths))
                         .unwrap_or_default()
                 };
-                let get_clip =
-                    |g: &NodeGraphState| g.display_source().and_then(|id| g.eval_anim_out(id, g.viewed_output()));
+                let get_clip = |g: &NodeGraphState| {
+                    let id = shown.or(g.display_source())?;
+                    let output = if g.view_flag == Some(id) { g.viewed_output() } else { 0 };
+                    g.eval_anim_out(id, output)
+                };
                 let get_props = |g: &NodeGraphState| -> Vec<prim_inspector::PropRow> {
                     let eval = |sid: IceGraphId,
                                 mesh: &crate::core::geo::Geo,
@@ -1659,13 +1737,13 @@ impl Panes<'_> {
                             .unwrap_or_else(|| mesh.clone())
                     };
                     let _t = crate::timings::span("primitive inspector: properties");
-                    match g.evaluate_scene(&eval) {
+                    match scene_of(g, &eval) {
                         Some((view, _, scene)) => prim_inspector::scene_properties(g, view, &scene, &paths),
                         None => vec![],
                     }
                 };
                 let source = prim_inspector::Source {
-                    node: self.graph.display_source(),
+                    node: shown.or(self.graph.display_source()),
                     paths: self.hierarchy.selected_prim_paths(),
                 };
                 let go_to = draw_prim_inspector(

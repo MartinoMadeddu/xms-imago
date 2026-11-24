@@ -2047,9 +2047,24 @@ impl NodeGraphState {
         &self,
         eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
     ) -> Option<(NodeId, String, EvalResult)> {
-        let id = self.display_source()?;
+        self.evaluate_scene_at(self.display_source()?, eval_subnet)
+    }
+
+    /// `evaluate_scene` for operator `id`: its first output, or the one viewed
+    /// when it has the view flag. For a Scene Explorer or Primitive Inspector
+    /// tab following the selection or a pin.
+    pub fn evaluate_scene_at(
+        &self,
+        id: NodeId,
+        eval_subnet: &impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
+    ) -> Option<(NodeId, String, EvalResult)> {
         let name = self.nodes.iter().find(|n| n.id == id)?.name.clone();
-        let result = self.evaluate_for_viewport_packed(eval_subnet)?;
+        let output = if self.view_flag == Some(id) {
+            self.viewed_output()
+        } else {
+            0
+        };
+        let result = self.eval_node_out(id, output, &mut HashMap::new(), eval_subnet)?;
         Some((id, name, result))
     }
 

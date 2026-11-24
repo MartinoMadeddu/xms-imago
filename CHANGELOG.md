@@ -17,6 +17,13 @@ version's heading when you tag it.
   drawn as its box, so nothing disappears; prims with no purpose are drawn as
   always. Turning render on, rendering, or Write USD reads them.
 
+### Interface
+
+- **The Scene Explorer and the Primitive Inspector follow**, as Parameters
+  does: the display flag (D, the default), the selection (S) or a pin (P).
+  Two Scene Explorers can list two operators' scenes side by side; a prim
+  selected in either is selected everywhere.
+
 ### Viewer
 
 - **Box select is fast on big scenes**: a box over a scatter of a million

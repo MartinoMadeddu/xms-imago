@@ -3005,6 +3005,15 @@ pub struct SceneHierarchy {
     selected_collection: Option<String>,
 }
 
+/// A Scene Explorer's rows, for a tab listing another operator's scene than
+/// the one at the display flag (`SceneHierarchy::rows_of`).
+#[derive(Default)]
+pub struct Rows {
+    objects: Vec<SceneObject>,
+    variant_prims: std::collections::HashMap<String, Vec<xms_scene::VariantSet>>,
+    collection_rows: std::collections::HashMap<String, (String, String)>,
+}
+
 /// What the Scene Explorer and the Viewer look up in the selection, made once
 /// at each change of it.
 #[derive(Default)]
@@ -3600,14 +3609,7 @@ impl SceneHierarchy {
     /// it is gone nothing is selected, and the Primitive Inspector shows the
     /// whole scene again.
     pub fn rebuild_scene(&mut self, scene: Option<(NodeId, String, EvalResult)>) {
-        let plain = matches!(scene, Some((_, _, EvalResult::Single(_) | EvalResult::Material(_))));
-        self.rebuild(scene.into_iter().collect());
-        if !plain && self.objects.first().is_some_and(|o| o.key.starts_with("node:")) {
-            self.objects.remove(0);
-            for o in self.objects.iter_mut() {
-                o.depth = o.depth.saturating_sub(1);
-            }
-        }
+        self.list(scene);
         // A selected path stays selected while it is in the scene.
         let present: std::collections::HashSet<&str> = self.objects.iter().filter_map(|o| o.path.as_deref()).collect();
         // An instance, while its instancer is (its row may be closed).
@@ -3634,6 +3636,50 @@ impl SceneHierarchy {
         }
         if changed {
             self.reselected();
+        }
+    }
+
+    /// The rows of `scene`, as its own tree: an operator's row on top only
+    /// for a plain mesh or a material.
+    fn list(&mut self, scene: Option<(NodeId, String, EvalResult)>) {
+        let plain = matches!(scene, Some((_, _, EvalResult::Single(_) | EvalResult::Material(_))));
+        self.rebuild(scene.into_iter().collect());
+        if !plain && self.objects.first().is_some_and(|o| o.key.starts_with("node:")) {
+            self.objects.remove(0);
+            for o in self.objects.iter_mut() {
+                o.depth = o.depth.saturating_sub(1);
+            }
+        }
+    }
+
+    /// The rows of another operator's scene than the one at the display flag,
+    /// for a Scene Explorer tab following it (`swap_rows`), opened and closed
+    /// as these are. The selection is not touched.
+    pub fn rows_of(&self, scene: Option<(NodeId, String, EvalResult)>) -> Rows {
+        let mut h = SceneHierarchy {
+            expanded: self.expanded.clone(),
+            ..Default::default()
+        };
+        h.list(scene);
+        Rows {
+            objects: h.objects,
+            variant_prims: h.variant_prims,
+            collection_rows: h.collection_rows,
+        }
+    }
+
+    /// `rows` listed in place of these (and these kept in `rows`): a Scene
+    /// Explorer tab following another operator, drawn. What is chosen in it
+    /// (the selection, rows opened, draw modes) is the program's, by path.
+    pub fn swap_rows(&mut self, rows: &mut Rows) {
+        std::mem::swap(&mut self.objects, &mut rows.objects);
+        std::mem::swap(&mut self.variant_prims, &mut rows.variant_prims);
+        std::mem::swap(&mut self.collection_rows, &mut rows.collection_rows);
+        // Opened or closed in another tab listing the same prims.
+        for o in self.objects.iter_mut() {
+            if let Some(open) = self.expanded.get(&o.key) {
+                o.expanded = *open;
+            }
         }
     }
 
@@ -4045,6 +4091,40 @@ fn one_tile() -> u32 {
 mod explorer_tests {
     use super::*;
     use crate::core::geo::{Attr, Column, Context, Geo, Role};
+
+    /// A tab listing another operator's scene: its rows swapped in while it
+    /// is drawn, and back; the selection and rows opened shared, by path.
+    #[test]
+    fn a_tab_lists_another_operators_rows_and_shares_the_rest() {
+        let scene = |names: &[&str]| {
+            let prims = names
+                .iter()
+                .map(|n| Prim::new(n.to_string(), MeshData::default()))
+                .collect();
+            Some((NodeId(0), "Op".to_string(), EvalResult::Named(prims)))
+        };
+        let paths = |h: &SceneHierarchy| h.objects.iter().filter_map(|o| o.path.clone()).collect::<Vec<_>>();
+        let mut h = SceneHierarchy::default();
+        h.rebuild_scene(scene(&["/a", "/set/b"]));
+        let shown = paths(&h);
+        let mut other = h.rows_of(scene(&["/set/c"]));
+        h.click("/a", false, false, &[]);
+        h.swap_rows(&mut other);
+        assert_eq!(paths(&h), vec!["/set".to_string(), "/set/c".to_string()]);
+        // Closed here: closed wherever /set is listed.
+        let set = h.objects.iter().find(|o| o.path.as_deref() == Some("/set")).unwrap().id;
+        let open = h.objects.iter().find(|o| o.id == set).unwrap().expanded;
+        h.toggle_expanded(set);
+        assert_eq!(
+            h.selected_paths(),
+            &["/a".to_string()],
+            "the selection is the program's"
+        );
+        h.swap_rows(&mut other);
+        assert_eq!(paths(&h), shown, "the program's rows back");
+        let set_row = h.objects.iter().find(|o| o.path.as_deref() == Some("/set")).unwrap();
+        assert_eq!(set_row.expanded, !open);
+    }
 
     /// A point instancer and its prototype under it: one row each, the
     /// prototype under the instancer (not a second row of its name), and its

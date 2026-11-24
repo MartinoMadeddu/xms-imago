@@ -60,7 +60,12 @@ names it: "Parameters · Transform1". A pin is kept with the layout, for
 the compound it was made in; an operator deleted leaves a button to follow the
 selection again. Two tabs side by side, one pinned, one following the
 selection, compare two operators. Curve Editor and UV Editor tabs follow the
-same way; other panes have no letter.
+same way. Scene Explorer and Primitive Inspector tabs follow too, but start on
+the display flag (D): the scene the Viewer shows. Set to the selection or
+pinned, a tab lists or inspects that operator's scene instead; the prims
+selected, the rows opened and the draw modes chosen are the same in every tab
+(they are by path), so a prim clicked in one is selected in the Viewer and the
+others. Other panes have no letter.
 
 A pane of one of a kind, open in a tab, is greyed in the menus. Unticking a
 pane in the Window menu closes all its tabs.

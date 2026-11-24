@@ -68,6 +68,8 @@ impl Pane {
     pub fn follows(self) -> Option<Follows> {
         match self {
             Pane::Parameters | Pane::CurveEditor | Pane::UvEditor => Some(Follows::Selection),
+            // The scene the Viewer shows, unless told otherwise.
+            Pane::SceneExplorer | Pane::PrimInspector => Some(Follows::Display),
             _ => None,
         }
     }
@@ -257,6 +259,10 @@ pub struct TabStates {
     pub active_graph: Option<u32>,
     pub curves: std::collections::HashMap<u32, crate::curve_editor::CurveEditor>,
     pub uvs: std::collections::HashMap<u32, crate::uv_editor::UvEditorState>,
+    /// Scene Explorer tabs following another operator than the one with the
+    /// display flag: its rows, and what they were listed for (the graph's
+    /// revision, the operator).
+    pub explorers: std::collections::HashMap<u32, ((u64, crate::types::NodeId), crate::types::Rows)>,
 }
 
 impl TabStates {
@@ -279,6 +285,7 @@ impl TabStates {
         self.graphs.retain(|id, _| is_open(*id));
         self.curves.retain(|id, _| is_open(*id));
         self.uvs.retain(|id, _| is_open(*id));
+        self.explorers.retain(|id, _| is_open(*id));
     }
 }
 
@@ -1260,7 +1267,17 @@ mod tests {
             ]
         );
         let follow: Vec<Pane> = Pane::ALL.into_iter().filter(|p| p.follows().is_some()).collect();
-        assert_eq!(follow, [Pane::Parameters, Pane::UvEditor, Pane::CurveEditor]);
+        assert_eq!(
+            follow,
+            [
+                Pane::SceneExplorer,
+                Pane::Parameters,
+                Pane::PrimInspector,
+                Pane::UvEditor,
+                Pane::CurveEditor
+            ]
+        );
+        assert_eq!(Tab::new(Pane::SceneExplorer).follows(), Some(Follows::Display));
     }
 
     /// What tabs keep is forgotten as they close; the Node Graph tab last
