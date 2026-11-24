@@ -87,7 +87,8 @@ Older `.json` graphs open too.
   double-click opens a folder or a file; picking a folder to choose one, the
   button uses it. Rows span the window, the name from the left and the
   columns at the right edge, following it as the window is resized. It opens
-  in the middle and can be moved.
+  in the middle and can be moved. **Show hidden** lists the files and folders
+  whose names start with a dot, hidden otherwise; kept until Imago closes.
 
 ![Picking a template over a graph with nodes](xms_add_or_open.png)
 

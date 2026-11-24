@@ -10,6 +10,8 @@ version's heading when you tag it.
 
 ### Interface
 
+- **Show hidden** in the file browser: files and folders whose names start
+  with a dot.
 - **The Operator Stack is gone**: the node graph is the chain of operators.
   Layouts saved with it load, its tabs left out.
 - **The scene graph's grid** is twice as dense.

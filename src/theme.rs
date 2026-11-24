@@ -212,9 +212,11 @@ pub fn dock_style(style: &egui::Style) -> egui_dock::Style {
     style.tab.hovered.text_color = c(250, 250, 250);
     style.tab.active.text_color = c(250, 250, 250);
     style.tab.focused.text_color = c(245, 245, 245);
-    // The + of a tab bar on the bar's own grey, not the text fields' (near
-    // white in Light).
-    style.buttons.add_tab_bg_fill = style.tab_bar.bg_fill;
+    // The + of a tab bar, and the bar behind it (the tabs fill the rest), on
+    // the tab in front's grey: egui_dock takes the text fields' colour, near
+    // white in Light.
+    style.tab_bar.bg_fill = style.tab.active.bg_fill;
+    style.buttons.add_tab_bg_fill = style.tab.active.bg_fill;
     // Light: tabs behind sit darker than the panel, the one in front is
     // the lightest. egui_dock tints them towards the text-field colour,
     // which in Light is near white and made them look in front. The

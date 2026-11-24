@@ -88,6 +88,8 @@ pub struct FileBrowser {
     collapse: bool,
     /// With `collapse`: a sequence of UDIM tiles listed as its `<UDIM>` path.
     udim: bool,
+    /// Hidden files and folders (`hidden`) listed too. Kept for the session.
+    show_hidden: bool,
 }
 
 impl Default for FileBrowser {
@@ -98,6 +100,7 @@ impl Default for FileBrowser {
             result: None,
             collapse: true,
             udim: true,
+            show_hidden: false,
         }
     }
 }
@@ -106,6 +109,12 @@ impl Default for FileBrowser {
 /// exists asks before replacing it, as in any other program.
 pub fn asks_to_replace(mode: BrowseMode, path: &Path) -> bool {
     mode == BrowseMode::Save && path.is_file()
+}
+
+/// Whether a file or folder is hidden: its name starts with a dot, as macOS
+/// and Linux hide them.
+fn hidden(p: &Path) -> bool {
+    p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))
 }
 
 /// A file in the application's config folder.
@@ -211,11 +220,7 @@ impl FileBrowser {
             Ok(rd) => {
                 for e in rd.filter_map(|e| e.ok()) {
                     let p = e.path();
-                    let hidden = p
-                        .file_name()
-                        .map(|n| n.to_string_lossy().starts_with('.'))
-                        .unwrap_or(false);
-                    if hidden {
+                    if hidden(&p) && !self.show_hidden {
                         continue;
                     }
                     if p.is_dir() {
@@ -246,7 +251,7 @@ impl FileBrowser {
         } else {
             files.iter().cloned().map(crate::core::sequences::Entry::File).collect()
         };
-        let (mut collapse, mut udim) = (self.collapse, self.udim);
+        let (mut collapse, mut udim, mut show_hidden) = (self.collapse, self.udim, self.show_hidden);
 
         let mut go_to: Option<PathBuf> = None;
         let mut confirm: Option<PathBuf> = None;
@@ -379,6 +384,8 @@ impl FileBrowser {
                         }
                     }
                     if ui.button("Cancel").clicked() { cancel = true; }
+                    ui.checkbox(&mut show_hidden, "Show hidden")
+                        .on_hover_text("Files and folders whose names start with a dot (.config, .cache), hidden by default");
                     if req.mode != BrowseMode::Folder && !req.exts.is_empty() {
                         ui.checkbox(&mut req.all_files, "All files");
                         ui.weak(format!("showing .{}", req.exts.join(" .")));
@@ -396,6 +403,7 @@ impl FileBrowser {
 
         self.collapse = collapse;
         self.udim = udim;
+        self.show_hidden = show_hidden;
         if let Some(dir) = go_to {
             self.go(dir);
         }
@@ -640,6 +648,16 @@ fn owner(_: &std::fs::Metadata) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Names starting with a dot are hidden, as macOS and Linux hide them; a
+    /// dot further in (an extension) is not.
+    #[test]
+    fn dot_files_are_hidden() {
+        assert!(hidden(Path::new("/home/me/.config")));
+        assert!(hidden(Path::new(".DS_Store")));
+        assert!(!hidden(Path::new("/shots/plate.1001.exr")));
+        assert!(!hidden(Path::new("/")));
+    }
 
     #[test]
     fn sizes_dates_and_owners_read_as_the_finder_gives_them() {
