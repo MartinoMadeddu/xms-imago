@@ -8,6 +8,8 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-11-24
+
 ### Interface
 
 - **Show hidden** in the file browser: files and folders whose names start

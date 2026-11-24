@@ -917,3 +917,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 24/11/2026: The tab bar's + on the bar's own grey (theme::dock_style add_tab_bg_fill); xms_2split_layout's Primitive Inspector a tab behind the Scene Explorer, bottom left (tested); no grid on the scene graph, ICE and MaterialX graphs keep theirs. (Martino)
 - 24/11/2026: Operator Stack removed (scene_explorer's OperatorStack, its pane, refresh and draw; draw_properties without it); Pane::Retired reads it from layouts saved with it, its tabs taken away on load (layout::retired), the shipped layouts without it; the scene graph's grid back, every 25 points (8 pixels at least). (Martino)
 - 24/11/2026: The tab bar's + and the bar behind it on the front tab's grey (tab_bar.bg_fill was the near-white it had copied); Show hidden in the file browser (file_browser::hidden, kept for the session). (Martino)
+- 24/11/2026: Release 0.3.8. (Martino)
