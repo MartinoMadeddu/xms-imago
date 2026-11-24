@@ -1094,6 +1094,16 @@ mod tests {
         let mut l = layout();
         l.locked = true;
         l.use_preset("xms_2split_layout").unwrap();
+        // Its Primitive Inspector a tab behind the Scene Explorer, bottom left.
+        {
+            let tree = &l.dock[egui_dock::SurfaceIndex::main()];
+            let (scene, front) = find_in(tree, Pane::SceneExplorer).unwrap();
+            assert_eq!(find_in(tree, Pane::PrimInspector).unwrap().0, scene);
+            match &tree[scene] {
+                egui_dock::Node::Leaf(leaf) => assert_eq!(leaf.active.0, front),
+                _ => panic!("not a leaf"),
+            }
+        }
         assert!(l.locked && !l.is_open(Pane::History) && l.is_open(Pane::Viewer));
     }
 
