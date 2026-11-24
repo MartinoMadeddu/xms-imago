@@ -8,10 +8,7 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
-### Node graph
-
-- **The wheel zooms over a node too**: in the Node Graph, ICE and MaterialX
-  graphs it stopped while the pointer was on a node.
+## [0.3.9] - 2026-11-24
 
 ### USD
 
@@ -19,17 +16,6 @@ version's heading when you tag it.
   (a look-dev layer for another's prims) showed nothing; it is now listed
   whole in the Scene Explorer, as Solaris lists it. What is under an `over`
   root is listed but not drawn, as USD draws only defined prims.
-
-### Interface
-
-- **Phosphor icons everywhere**: the buttons, menus, History, Timeline
-  transport, file browser and Add Node categories now use the same Phosphor
-  icons as the operators, in place of emoji and Unicode symbols. Phosphor's
-  Fill weight ships too: the view flag's eye and a key at the playhead are
-  drawn filled in.
-
-### USD
-
 - **Payloads**: Load USD loads all of a stage's payloads, or none (Payloads >
   Load None), and a Scene Explorer row's right-click loads or unloads one,
   kept as a rule on the Load USD. An unloaded payload is drawn as the box of
@@ -38,12 +24,18 @@ version's heading when you tag it.
 - **Render meshes are read when they are needed**: the Scene Explorer's
   render toggle now starts off, as in usdview, and while it is off a stage's
   render-purpose meshes are kept as their boxes and not read. On a production
-  set, reading those meshes was more than half of the load. Render geometry without a proxy is
-  drawn as its box, so nothing disappears; prims with no purpose are drawn as
-  always. Turning render on, rendering, or Write USD reads them.
+  set, reading those meshes was more than half of the load. Render geometry
+  without a proxy is drawn as its box, so nothing disappears; prims with no
+  purpose are drawn as always. Turning render on, rendering, or Write USD
+  reads them.
 
 ### Interface
 
+- **Phosphor icons everywhere**: the buttons, menus, History, Timeline
+  transport, file browser and Add Node categories now use the same Phosphor
+  icons as the operators, in place of emoji and Unicode symbols. Phosphor's
+  Fill weight ships too: the view flag's eye and a key at the playhead are
+  drawn filled in.
 - **The Scene Explorer and the Primitive Inspector follow**, as Parameters
   does: the display flag (D, the default), the selection (S) or a pin (P).
   Two Scene Explorers can list two operators' scenes side by side; a prim
@@ -55,6 +47,11 @@ version's heading when you tag it.
   instances takes a moment, not seconds, and the selection no longer slows
   every frame after it. Past 2,000 outlines, one box goes around each
   instancer's selected instances.
+
+### Node graph
+
+- **The wheel zooms over a node too**: in the Node Graph, ICE and MaterialX
+  graphs it stopped while the pointer was on a node.
 
 ## [0.3.8] - 2026-11-24
 
