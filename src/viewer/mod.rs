@@ -473,9 +473,10 @@ impl Viewer {
                     .inner_margin(3.0)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.toggle_value(&mut self.snaps_shown, "📷").on_hover_text(
-                                "Snapshots: keep the render here, and show any snapshot (the Image Viewer's too)",
-                            );
+                            ui.toggle_value(&mut self.snaps_shown, crate::icons::CAMERA)
+                                .on_hover_text(
+                                    "Snapshots: keep the render here, and show any snapshot (the Image Viewer's too)",
+                                );
                             if !self.snaps_shown {
                                 return;
                             }
@@ -898,7 +899,7 @@ fn gate(ui: &egui::Ui, rect: egui::Rect, path: &str, cam: &crate::core::camera::
     painter.text(
         g.center_top() + egui::vec2(0.0, 10.0),
         egui::Align2::CENTER_TOP,
-        format!("🎥 {name}"),
+        format!("{} {name}", crate::icons::VIDEO_CAMERA),
         egui::FontId::proportional(15.0),
         egui::Color32::from_gray(230),
     );

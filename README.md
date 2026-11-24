@@ -150,5 +150,5 @@ The example files' authors and licences are in
 [Open Shading Language](https://github.com/AcademySoftwareFoundation/OpenShadingLanguage),
 Copyright (c) 2009-present Contributors to the Open Shading Language project,
 BSD-3-Clause (the licence is in `crates/xms-ice/src/noise.rs`). The icons are
-[Phosphor Icons](https://phosphoricons.com), Regular and Light weights, MIT
+[Phosphor Icons](https://phosphoricons.com), Regular, Light and Fill weights, MIT
 (the licence is in `assets/fonts/Phosphor-LICENSE.txt`).

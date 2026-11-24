@@ -303,7 +303,7 @@ type's, with the values of the first prim of that type named.
 | RenderSettings | Render Commons' values by their USD names: camera, resolution, pixel aspect, aspect conform, data window, motion blur and depth of field off. No Xform section. A file's prim shows what it authors (USD's fallbacks elsewhere; its camera is not read yet) and is written as an `over` of what is overridden: it stays the one rendered when it was |
 
 **Only what you change is an override.** A value changed in the form is marked
-✎, with ↺ beside it to give it back to the prim; the **Overrides** group lists
+with a pencil, with a reset arrow beside it to give it back to the prim; the **Overrides** group lists
 them, with **Revert all**. Everything else follows the prim: a value the file
 changes, or animates, still comes through. Overrides can be keyed, and only
 they can (the Keys group lists them). Overrides are absolute: a Translate

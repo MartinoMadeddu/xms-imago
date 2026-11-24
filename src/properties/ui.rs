@@ -16,6 +16,7 @@ use crate::core::poly::{
 use crate::file_browser::{BrowseMode, BrowseTarget, FileBrowser};
 use crate::ice::ui::draw_subnet_node_properties;
 use crate::ice::{GraphNavigation, IceGraphStore};
+use crate::icons;
 use crate::node_graph::NodeGraphState;
 use crate::types::{node_type_icon, node_type_label, BodyView, MergeMode, NodeId, NodeType, RetimeMode, SplitPick};
 use glam::Vec3;
@@ -1079,8 +1080,8 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
                 let name = |i: usize| files[i].file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 f.row("File", None, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(*index > 0, egui::Button::new("◀")).clicked() { *index -= 1; }
-                        if ui.add_enabled(*index < last, egui::Button::new("▶")).clicked() { *index += 1; }
+                        if ui.add_enabled(*index > 0, egui::Button::new(icons::CARET_LEFT)).clicked() { *index -= 1; }
+                        if ui.add_enabled(*index < last, egui::Button::new(icons::CARET_RIGHT)).clicked() { *index += 1; }
                         egui::ComboBox::from_id_salt("fbx_dir_file")
                             .width(ui.available_width() - 8.0)
                             .selected_text(format!("{} of {}  {}", *index + 1, files.len(), name(*index as usize)))
@@ -1351,10 +1352,10 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             for (i, e) in edits.iter_mut().enumerate() {
                 let mut turn = false; let (mut flip_u, mut flip_v) = (false, false);
                 group_with(ui, &format!("Island {}", e.island), None, |ui| {
-                    if ui.small_button("🗑").on_hover_text("Remove this edit").clicked() { remove = Some(i); }
+                    if ui.small_button(icons::TRASH).on_hover_text("Remove this edit").clicked() { remove = Some(i); }
                     if ui.small_button("Flip V").clicked() { flip_v = true; }
                     if ui.small_button("Flip U").clicked() { flip_u = true; }
-                    if ui.small_button("⟲ 90°").clicked() { turn = true; }
+                    if ui.small_button(format!("{} 90°", icons::ARROW_COUNTER_CLOCKWISE)).clicked() { turn = true; }
                 }, |f| {
                     f.uv("Translate", None, &mut e.offset, 0.002);
                     f.drag("Rotate", None, &mut e.rotate, 0.5, "°");
@@ -1528,7 +1529,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
                                         for j in &c.joints { ui.selectable_value(pick, SplitPick::Joint(j.name.clone()), &j.name); }
                                     }
                                 });
-                            if ui.small_button("🗑").on_hover_text("Remove this output").clicked() { remove = Some(n); }
+                            if ui.small_button(icons::TRASH).on_hover_text("Remove this output").clicked() { remove = Some(n); }
                         });
                     });
                 }
@@ -1569,7 +1570,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
                         f.row(&format!("{}", k + 1), None, |ui| {
                             ui.horizontal(|ui| {
                                 if crate::properties::form::typed(ui, &mut *name, |ui, t| ui.field(egui::TextEdit::singleline(t).desired_width(ui.available_width() - 30.0))).changed() { resync = true; }
-                                if ui.small_button("🗑").on_hover_text("Remove").clicked() { remove = Some(k); }
+                                if ui.small_button(icons::TRASH).on_hover_text("Remove").clicked() { remove = Some(k); }
                             });
                         });
                     }
@@ -1655,7 +1656,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             let mut remove = None;
             for (n, e) in edits.iter_mut().enumerate() {
                 group_with(ui, &format!("Correction {}", n + 1), None, |ui| {
-                    if ui.small_button("🗑").on_hover_text("Remove this correction").clicked() { remove = Some(n); }
+                    if ui.small_button(icons::TRASH).on_hover_text("Remove this correction").clicked() { remove = Some(n); }
                 }, |f| {
                     pattern_rows(f, &format!("fix_joint{n}"), "Joints", &mut e.joint, &joints, false);
                     f.xyz("Rotate", None, &mut e.rotation, 0.5, "°");
@@ -1813,7 +1814,7 @@ fn spare_rows(ui: &mut egui::Ui, node: &mut crate::node_graph::GraphNode) {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut d.group).desired_width(140.0));
                     ui.add_enabled_ui(!groups.is_empty(), |ui| {
-                        crate::menus::menu(ui, "⏷", |ui| {
+                        crate::menus::menu(ui, icons::CARET_DOWN, |ui| {
                             for g in &groups {
                                 if ui.button(g).clicked() {
                                     d.group = g.clone();
@@ -1888,7 +1889,7 @@ fn set_variable_rows(ui: &mut egui::Ui, vars: &mut Vec<crate::core::vars::Variab
     crate::variables::complete(ui, &r, t, &[]);
     r
 });
-                    if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
+                    if ui.small_button(icons::TRASH).on_hover_text("Remove this variable").clicked() { remove = Some(k); }
                 });
             });
             let name = v.name.trim();
@@ -2075,7 +2076,12 @@ pub fn definition_rows(
                     &mut d.category,
                     "",
                 );
-                f.text("Icon", Some("Shown before its name in the add menu"), &mut d.icon, "◆");
+                f.text(
+                    "Icon",
+                    Some("Shown before its name in the add menu"),
+                    &mut d.icon,
+                    icons::DIAMOND,
+                );
                 f.text("Help", Some("What it does: the add menu's tooltip"), &mut d.help, "");
                 f.text("Author", None, &mut d.author, "");
                 f.value("Version", d.version.to_string());
@@ -2162,7 +2168,7 @@ fn list_rows(f: &mut Rows, label: &str, hint: Option<&str>, rows: &mut Vec<Strin
                     )
                 })
                 .changed();
-                if ui.small_button("🗑").on_hover_text("Remove this row").clicked() {
+                if ui.small_button(icons::TRASH).on_hover_text("Remove this row").clicked() {
                     remove = Some(k);
                 }
             });
@@ -2979,28 +2985,28 @@ fn edit_poly(
             &title,
             None,
             |ui| {
-                if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                if ui.small_button(icons::TRASH).on_hover_text("Remove").clicked() {
                     change = Some(ListEdit::Delete(i));
                 }
-                if ui.small_button("✔").on_hover_text("Collapse").clicked() {
+                if ui.small_button(icons::CHECK).on_hover_text("Collapse").clicked() {
                     change = Some(ListEdit::Collapse(i));
                 }
                 if ui
-                    .add_enabled(i + 1 < count, egui::Button::new("⏷").small())
+                    .add_enabled(i + 1 < count, egui::Button::new(icons::CARET_DOWN).small())
                     .on_hover_text("Later")
                     .clicked()
                 {
                     change = Some(ListEdit::Down(i));
                 }
                 if ui
-                    .add_enabled(i > 0, egui::Button::new("⏶").small())
+                    .add_enabled(i > 0, egui::Button::new(icons::CARET_UP).small())
                     .on_hover_text("Earlier")
                     .clicked()
                 {
                     change = Some(ListEdit::Up(i));
                 }
                 if ui
-                    .selectable_label(*edit == Some(i), "🎯")
+                    .selectable_label(*edit == Some(i), icons::CROSSHAIR)
                     .on_hover_text("Edit this operation's selection")
                     .clicked()
                 {
@@ -3365,10 +3371,10 @@ fn material_rows(
     crate::variables::complete(ui, &r, t, &[]);
     r
 });
-                    if ui.button("📂").on_hover_text("Browse").clicked() {
+                    if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse").clicked() {
                         io.browser.open(BrowseTarget::Texture(node, input), BrowseMode::File, &format!("Texture for {label}"), &["png", "jpg", "jpeg", "exr", "tif", "tiff", "tga", "hdr"], "");
                     }
-                    if !file.is_empty() && ui.button("✕").on_hover_text("No texture").clicked() { clear = true; }
+                    if !file.is_empty() && ui.button(icons::X).on_hover_text("No texture").clicked() { clear = true; }
                 });
             });
             if clear || file.trim().is_empty() { s.textures.remove(input); } else { s.textures.insert(input.to_string(), file.clone()); }
@@ -3439,7 +3445,7 @@ fn bind_choice(ui: &mut egui::Ui, row: usize, col: &mut BindColumn) {
             ui.selectable_value(&mut o.purpose, p, p.label());
         }
     }).response.on_hover_text("Which renders the binding is for: All (material:binding), Preview (material:binding:preview: viewports, the Viewer draws it) or Full (material:binding:full: final renders)");
-    ui.toggle_value(&mut o.stronger, "⬇").on_hover_text("Stronger than descendants (bindMaterialAs): this binding wins over those of the prims below the ones it binds. Off: weaker, USD's default");
+    ui.toggle_value(&mut o.stronger, icons::ARROW_LINE_DOWN).on_hover_text("Stronger than descendants (bindMaterialAs): this binding wins over those of the prims below the ones it binds. Off: weaker, USD's default");
     if o != col.options.get(row).copied().unwrap_or_default() {
         while col.options.len() <= row {
             col.options.push(BindOptions::default());
@@ -3458,7 +3464,9 @@ fn material_location_row(f: &mut Rows, row: usize, col: &mut BindColumn) {
     };
     f.row("", Some("The material's path in the scene"), |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("↳ 🎨").color(ink::DIM()));
+            ui.label(
+                egui::RichText::new(format!("{} {}", icons::ARROW_BEND_DOWN_RIGHT, icons::PALETTE)).color(ink::DIM()),
+            );
             let w = (ui.available_width() - 52.0).max(60.0);
             let field = crate::properties::form::typed(ui, &mut *path, |ui, t| {
                 ui.field(
@@ -3604,7 +3612,7 @@ fn mask_rows(ui: &mut egui::Ui, mask: &mut Vec<String>) {
                             *row = first.clone();
                         }
                     }
-                    if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                    if ui.small_button(icons::TRASH).on_hover_text("Remove").clicked() {
                         remove = Some(k);
                     }
                 });
@@ -3641,7 +3649,7 @@ fn payload_rows(ui: &mut egui::Ui, payloads: &mut crate::usd_scene::Payloads) {
             f.row(if *load { "Loaded" } else { "Unloaded" }, None, |ui| {
                 ui.horizontal(|ui| {
                     ui.monospace(path.as_str());
-                    if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                    if ui.small_button(icons::TRASH).on_hover_text("Remove").clicked() {
                         remove = Some(k);
                     }
                 });
@@ -3929,7 +3937,7 @@ fn path_row(
                     crate::variables::complete(ui, &r, t, &[]);
                     r
                 });
-                if ui.button("📂").on_hover_text("Browse").clicked() {
+                if ui.button(icons::FOLDER_OPEN).on_hover_text("Browse").clicked() {
                     io.browser.open(BrowseTarget::Node(node), mode, title, exts, "");
                 }
             });
@@ -4351,7 +4359,13 @@ fn set_attribute_rows(
     for (k, row) in rows.iter_mut().enumerate() {
         // Its key at the playhead: filled on one, hollow keyed elsewhere.
         let (on, keyed) = (row.key_at(frame).is_some(), !row.keys.is_empty());
-        let diamond = egui::RichText::new(if on { "◆" } else { "◇" }).color(if keyed {
+        // Filled on a key, an outline elsewhere.
+        let diamond = if on {
+            icons::filled(icons::DIAMOND, 13.0)
+        } else {
+            egui::RichText::new(icons::DIAMOND)
+        };
+        let diamond = diamond.color(if keyed {
             egui::Color32::from_rgb(225, 80, 70)
         } else {
             ink::DIM()
@@ -4370,7 +4384,7 @@ fn set_attribute_rows(
             &title,
             Some("Where two rows set the same name, the later one wins"),
             |ui| {
-                if ui.small_button("🗑").on_hover_text("Remove this row").clicked() {
+                if ui.small_button(icons::TRASH).on_hover_text("Remove this row").clicked() {
                     remove = Some(k);
                 }
                 let tip = if on {
@@ -4381,7 +4395,7 @@ fn set_attribute_rows(
                 if ui.small_button(diamond).on_hover_text(tip).clicked() {
                     key = Some(k);
                 }
-                if k > 0 && ui.small_button("⏶").on_hover_text("Move up").clicked() {
+                if k > 0 && ui.small_button(icons::CARET_UP).on_hover_text("Move up").clicked() {
                     up = Some(k);
                 }
             },
@@ -4695,7 +4709,7 @@ pub(crate) fn locations_tab(
                         if let Some(col) = binds.as_mut() {
                             bind_choice(ui, k, col);
                         }
-                        if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                        if ui.small_button(icons::TRASH).on_hover_text("Remove").clicked() {
                             remove = Some(k);
                         }
                     });

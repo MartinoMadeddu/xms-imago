@@ -592,7 +592,7 @@ pub fn draw_ice_bar(ui: &mut egui::Ui, graph: &mut IceGraph) -> (bool, Option<St
                 out_to = Some(path.len() - 1);
             }
             if locked {
-                ui.label(egui::RichText::new("🔒 Locked").color(pal::TEXT_DIM()));
+                ui.label(egui::RichText::new(format!("{} Locked", crate::icons::LOCK)).color(pal::TEXT_DIM()));
                 if ui
                     .button("Make Editable")
                     .on_hover_text("A copy of the definition for this instance alone, to change here; it no longer follows the library")
@@ -2059,7 +2059,7 @@ fn entries() -> Vec<Entry> {
     });
     out.push(Entry {
         category: "Compounds".into(),
-        label: "◆  Make Compound".into(),
+        label: format!("{}  Make Compound", crate::icons::DIAMOND),
         hint: "The selected nodes as one compound, the wires crossing the selection its ports: double-click it, or ↓, to go inside".into(),
         added: Added::MakeCompound,
     });
@@ -2068,7 +2068,15 @@ fn entries() -> Vec<Entry> {
         let names = |ports: &[crate::compounds::Port]| ports.iter().map(|p| p.name.clone()).collect();
         out.push(Entry {
             category: "Compounds".into(),
-            label: format!("{}  {}", if d.icon.is_empty() { "◆" } else { d.icon.as_str() }, d.name),
+            label: format!(
+                "{}  {}",
+                if d.icon.is_empty() {
+                    crate::icons::DIAMOND
+                } else {
+                    d.icon.as_str()
+                },
+                d.name
+            ),
             hint: d.help.clone(),
             added: Added::Node(IceGraphNodeType::Compound {
                 definition: d.name.clone(),

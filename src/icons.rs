@@ -6,15 +6,31 @@
 //! constant away: its code point is in the fonts (`@phosphor-icons/web`,
 //! `src/regular/style.css`). File > Settings > Interface chooses the weight
 //! (`settings`), kept in the config folder.
-
-// Some not used yet: the interface's own icons move to them next.
-#![allow(dead_code)]
+//!
+//! The Fill weight is there too, the same characters filled in, for a state
+//! that is on beside one that is off (a key set, an outline where none is):
+//! `filled`, whatever the weight chosen.
 
 use std::sync::Mutex;
 
 /// The fonts, Phosphor 2.1.
 pub const REGULAR: &[u8] = include_bytes!("../assets/fonts/Phosphor-Regular.ttf");
 pub const LIGHT: &[u8] = include_bytes!("../assets/fonts/Phosphor-Light.ttf");
+pub const FILL: &[u8] = include_bytes!("../assets/fonts/Phosphor-Fill.ttf");
+
+/// The Fill weight's family: not in egui's own, so only what asks for it.
+const FILLED: &str = "phosphor-fill";
+
+/// The Fill weight, for painting an icon filled in.
+pub fn fill_family() -> egui::FontFamily {
+    egui::FontFamily::Name(FILLED.into())
+}
+
+/// `icon` filled in, at `size` points: a state on, beside the same icon
+/// drawn as usual for off.
+pub fn filled(icon: &str, size: f32) -> egui::RichText {
+    egui::RichText::new(icon).font(egui::FontId::new(size, fill_family()))
+}
 
 /// The weight icons are drawn in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -105,6 +121,12 @@ pub fn install(ctx: &egui::Context) {
             .insert(w.font().into(), std::sync::Arc::new(egui::FontData::from_static(bytes)));
         fonts.families.insert(w.family(), vec![w.font().into()]);
     }
+    fonts
+        .font_data
+        .insert(FILLED.into(), std::sync::Arc::new(egui::FontData::from_static(FILL)));
+    fonts
+        .families
+        .insert(egui::FontFamily::Name(FILLED.into()), vec![FILLED.into()]);
     let shown = chosen().font();
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts.families.entry(family).or_default().push(shown.into());
@@ -148,15 +170,6 @@ pub fn settings(ui: &mut egui::Ui) {
     );
 }
 
-pub const ARROW_COUNTER_CLOCKWISE: &str = "\u{e038}";
-pub const ARROW_DOWN: &str = "\u{e03e}";
-pub const ARROW_FAT_LINE_UP: &str = "\u{e522}";
-pub const ARROW_LINE_DOWN: &str = "\u{e05c}";
-pub const ARROW_SQUARE_IN: &str = "\u{e5dc}";
-pub const ARROW_SQUARE_OUT: &str = "\u{e5de}";
-pub const ARROW_U_UP_LEFT: &str = "\u{e08a}";
-pub const ARROW_U_UP_RIGHT: &str = "\u{e08c}";
-pub const ARROW_UP: &str = "\u{e08e}";
 pub const ARROWS_CLOCKWISE: &str = "\u{e094}";
 pub const ARROWS_HORIZONTAL: &str = "\u{eb06}";
 pub const ARROWS_IN_LINE_HORIZONTAL: &str = "\u{e530}";
@@ -166,22 +179,31 @@ pub const ARROWS_OUT_CARDINAL: &str = "\u{e0a4}";
 pub const ARROWS_OUT_LINE_HORIZONTAL: &str = "\u{e534}";
 pub const ARROWS_OUT_SIMPLE: &str = "\u{e0a6}";
 pub const ARROWS_SPLIT: &str = "\u{ed3c}";
+pub const ARROW_BEND_DOWN_RIGHT: &str = "\u{e01a}";
+pub const ARROW_CLOCKWISE: &str = "\u{e036}";
+pub const ARROW_COUNTER_CLOCKWISE: &str = "\u{e038}";
+pub const ARROW_DOWN: &str = "\u{e03e}";
+pub const ARROW_FAT_LINE_UP: &str = "\u{e522}";
+pub const ARROW_LINE_DOWN: &str = "\u{e05c}";
+pub const ARROW_SQUARE_IN: &str = "\u{e5dc}";
+pub const ARROW_SQUARE_OUT: &str = "\u{e5de}";
+pub const ARROW_UP: &str = "\u{e08e}";
 pub const BACKSPACE: &str = "\u{e0ae}";
 pub const BEZIER_CURVE: &str = "\u{eb00}";
 pub const BONE: &str = "\u{e7f2}";
 pub const BRACKETS_CURLY: &str = "\u{e860}";
 pub const BRACKETS_SQUARE: &str = "\u{e85e}";
 pub const CAMERA: &str = "\u{e10e}";
-pub const CAR_SIMPLE: &str = "\u{e114}";
 pub const CARET_DOWN: &str = "\u{e136}";
 pub const CARET_LEFT: &str = "\u{e138}";
 pub const CARET_RIGHT: &str = "\u{e13a}";
 pub const CARET_UP: &str = "\u{e13c}";
+pub const CAR_SIMPLE: &str = "\u{e114}";
 pub const CHECK: &str = "\u{e182}";
 pub const CIRCLE: &str = "\u{e18a}";
+pub const CIRCLES_THREE: &str = "\u{e192}";
 pub const CIRCLE_DASHED: &str = "\u{e602}";
 pub const CIRCLE_HALF: &str = "\u{e18c}";
-pub const CIRCLES_THREE: &str = "\u{e192}";
 pub const CLOCK: &str = "\u{e19a}";
 pub const CLOUD: &str = "\u{e1aa}";
 pub const CODE: &str = "\u{e1bc}";
@@ -216,9 +238,9 @@ pub const FLIP_HORIZONTAL: &str = "\u{ed6a}";
 pub const FLOPPY_DISK: &str = "\u{e248}";
 pub const FLOPPY_DISK_BACK: &str = "\u{eaf4}";
 pub const FOLDER: &str = "\u{e24a}";
+pub const FOLDERS: &str = "\u{e260}";
 pub const FOLDER_OPEN: &str = "\u{e256}";
 pub const FOLDER_SIMPLE: &str = "\u{e25a}";
-pub const FOLDERS: &str = "\u{e260}";
 pub const GAUGE: &str = "\u{e628}";
 pub const GEAR: &str = "\u{e270}";
 pub const GIT_BRANCH: &str = "\u{e278}";
@@ -228,6 +250,7 @@ pub const GRADIENT: &str = "\u{eb42}";
 pub const GRAINS: &str = "\u{ec68}";
 pub const GRAPH: &str = "\u{eb58}";
 pub const GRID_FOUR: &str = "\u{e296}";
+pub const HAMMER: &str = "\u{e80e}";
 pub const HAND_GRABBING: &str = "\u{e57c}";
 pub const HOUSE: &str = "\u{e2c2}";
 pub const IMAGE: &str = "\u{e2ca}";
@@ -253,6 +276,7 @@ pub const PATH: &str = "\u{e39c}";
 pub const PAUSE: &str = "\u{e39e}";
 pub const PENCIL_SIMPLE: &str = "\u{e3b4}";
 pub const PERSON_ARMS_SPREAD: &str = "\u{ecfe}";
+pub const PERSON_SIMPLE_RUN: &str = "\u{e730}";
 pub const PERSON_SIMPLE_TAI_CHI: &str = "\u{ed5c}";
 pub const PERSON_SIMPLE_WALK: &str = "\u{e73a}";
 pub const PLACEHOLDER: &str = "\u{e650}";
@@ -281,23 +305,23 @@ pub const STACK: &str = "\u{e466}";
 pub const STACK_MINUS: &str = "\u{edf4}";
 pub const STOP: &str = "\u{e46c}";
 pub const SWATCHES: &str = "\u{e5b8}";
-pub const T_SHIRT: &str = "\u{e670}";
 pub const TAG: &str = "\u{e478}";
 pub const TARGET: &str = "\u{e47c}";
 pub const TERMINAL_WINDOW: &str = "\u{eae8}";
-pub const TEXT_AA: &str = "\u{e6ee}";
 pub const TEXTBOX: &str = "\u{eb0a}";
+pub const TEXT_AA: &str = "\u{e6ee}";
 pub const TIMER: &str = "\u{e492}";
 pub const TRASH: &str = "\u{e4a6}";
 pub const TREE_STRUCTURE: &str = "\u{e67c}";
 pub const TRIANGLE: &str = "\u{e4b0}";
+pub const T_SHIRT: &str = "\u{e670}";
 pub const USER_FOCUS: &str = "\u{e6fc}";
 pub const USER_SWITCH: &str = "\u{e756}";
 pub const VIDEO_CAMERA: &str = "\u{e4da}";
+pub const WARNING: &str = "\u{e4e0}";
 pub const WAVE_SINE: &str = "\u{ea9a}";
 pub const WRENCH: &str = "\u{e5d4}";
 pub const X: &str = "\u{e4f6}";
-pub const X_CIRCLE: &str = "\u{e4f8}";
 
 #[cfg(test)]
 mod tests {
@@ -341,7 +365,7 @@ mod tests {
     /// Every icon is a character of both fonts: drawn, not a box.
     #[test]
     fn every_icon_is_in_the_font() {
-        for font in [super::REGULAR, super::LIGHT] {
+        for font in [super::REGULAR, super::LIGHT, super::FILL] {
             for icon in super::ALL {
                 let c = icon.chars().next().unwrap() as u32;
                 assert!(c <= 0xffff && glyph(font, c as u16) != 0, "{c:x} is not in the font");
@@ -359,16 +383,7 @@ mod tests {
 
 /// Every icon named here, for the test.
 #[cfg(test)]
-const ALL: [&str; 150] = [
-    ARROW_COUNTER_CLOCKWISE,
-    ARROW_DOWN,
-    ARROW_FAT_LINE_UP,
-    ARROW_LINE_DOWN,
-    ARROW_SQUARE_IN,
-    ARROW_SQUARE_OUT,
-    ARROW_U_UP_LEFT,
-    ARROW_U_UP_RIGHT,
-    ARROW_UP,
+const ALL: [&str; 152] = [
     ARROWS_CLOCKWISE,
     ARROWS_HORIZONTAL,
     ARROWS_IN_LINE_HORIZONTAL,
@@ -378,22 +393,31 @@ const ALL: [&str; 150] = [
     ARROWS_OUT_LINE_HORIZONTAL,
     ARROWS_OUT_SIMPLE,
     ARROWS_SPLIT,
+    ARROW_BEND_DOWN_RIGHT,
+    ARROW_CLOCKWISE,
+    ARROW_COUNTER_CLOCKWISE,
+    ARROW_DOWN,
+    ARROW_FAT_LINE_UP,
+    ARROW_LINE_DOWN,
+    ARROW_SQUARE_IN,
+    ARROW_SQUARE_OUT,
+    ARROW_UP,
     BACKSPACE,
     BEZIER_CURVE,
     BONE,
     BRACKETS_CURLY,
     BRACKETS_SQUARE,
     CAMERA,
-    CAR_SIMPLE,
     CARET_DOWN,
     CARET_LEFT,
     CARET_RIGHT,
     CARET_UP,
+    CAR_SIMPLE,
     CHECK,
     CIRCLE,
+    CIRCLES_THREE,
     CIRCLE_DASHED,
     CIRCLE_HALF,
-    CIRCLES_THREE,
     CLOCK,
     CLOUD,
     CODE,
@@ -428,9 +452,9 @@ const ALL: [&str; 150] = [
     FLOPPY_DISK,
     FLOPPY_DISK_BACK,
     FOLDER,
+    FOLDERS,
     FOLDER_OPEN,
     FOLDER_SIMPLE,
-    FOLDERS,
     GAUGE,
     GEAR,
     GIT_BRANCH,
@@ -440,6 +464,7 @@ const ALL: [&str; 150] = [
     GRAINS,
     GRAPH,
     GRID_FOUR,
+    HAMMER,
     HAND_GRABBING,
     HOUSE,
     IMAGE,
@@ -465,6 +490,7 @@ const ALL: [&str; 150] = [
     PAUSE,
     PENCIL_SIMPLE,
     PERSON_ARMS_SPREAD,
+    PERSON_SIMPLE_RUN,
     PERSON_SIMPLE_TAI_CHI,
     PERSON_SIMPLE_WALK,
     PLACEHOLDER,
@@ -493,21 +519,21 @@ const ALL: [&str; 150] = [
     STACK_MINUS,
     STOP,
     SWATCHES,
-    T_SHIRT,
     TAG,
     TARGET,
     TERMINAL_WINDOW,
-    TEXT_AA,
     TEXTBOX,
+    TEXT_AA,
     TIMER,
     TRASH,
     TREE_STRUCTURE,
     TRIANGLE,
+    T_SHIRT,
     USER_FOCUS,
     USER_SWITCH,
     VIDEO_CAMERA,
+    WARNING,
     WAVE_SINE,
     WRENCH,
     X,
-    X_CIRCLE,
 ];

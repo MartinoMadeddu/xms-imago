@@ -8,6 +8,14 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- **Phosphor icons everywhere**: the buttons, menus, History, Timeline
+  transport, file browser and Add Node categories now use the same Phosphor
+  icons as the operators, in place of emoji and Unicode symbols. Phosphor's
+  Fill weight ships too: the view flag's eye and a key at the playhead are
+  drawn filled in.
+
 ### USD
 
 - **Payloads**: Load USD loads all of a stage's payloads, or none (Payloads >

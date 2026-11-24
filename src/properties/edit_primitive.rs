@@ -134,7 +134,11 @@ pub fn rows(
                         .unwrap_or_else(|| j.to_string());
                     f.buttons(name, None, |ui| {
                         ui.label(like);
-                        if ui.small_button("↺").on_hover_text("Back to the prim's own").clicked() {
+                        if ui
+                            .small_button(crate::icons::ARROW_COUNTER_CLOCKWISE)
+                            .on_hover_text("Back to the prim's own")
+                            .clicked()
+                        {
                             back.push(name.clone());
                         }
                     });
@@ -169,7 +173,7 @@ fn row(f: &mut Rows, p: &Param, edits: &mut BTreeMap<String, serde_json::Value>)
         .unwrap_or_else(|| p.value.clone());
     let before = v.clone();
     let label = if overridden {
-        format!("{} ✎", p.label)
+        format!("{} {}", p.label, crate::icons::PENCIL_SIMPLE)
     } else {
         p.label.clone()
     };
@@ -214,7 +218,10 @@ fn row(f: &mut Rows, p: &Param, edits: &mut BTreeMap<String, serde_json::Value>)
     }
     if overridden {
         f.buttons("", None, |ui| {
-            back = ui.small_button("↺").on_hover_text("Back to the prim's own").clicked();
+            back = ui
+                .small_button(crate::icons::ARROW_COUNTER_CLOCKWISE)
+                .on_hover_text("Back to the prim's own")
+                .clicked();
         });
     }
     if v != before {

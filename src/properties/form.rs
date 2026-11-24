@@ -763,9 +763,9 @@ pub fn slider_look(ui: &mut egui::Ui) {
 
 pub fn status_label(ui: &mut egui::Ui, s: Status, text: &str) -> egui::Response {
     let (mark, col) = match s {
-        Status::Ok => ("✔ ", ink::OK()),
-        Status::Bad => ("× ", ink::BAD()),
-        Status::Info => ("", ink::DIM()),
+        Status::Ok => (format!("{} ", crate::icons::CHECK), ink::OK()),
+        Status::Bad => (format!("{} ", crate::icons::X), ink::BAD()),
+        Status::Info => (String::new(), ink::DIM()),
     };
     ui.add(egui::Label::new(egui::RichText::new(format!("{mark}{text}")).color(col)).wrap())
 }

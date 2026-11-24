@@ -818,7 +818,7 @@ pub(crate) fn draw_ui(
                             nav_help = !nav_help;
                         }
                         let shown = viewport::display::mode();
-                        crate::menus::menu(ui, format!("{} ⏷", shown.label()), |ui| {
+                        crate::menus::menu(ui, format!("{} {}", shown.label(), crate::icons::CARET_DOWN), |ui| {
                             for m in viewport::display::DisplayMode::ALL {
                                 if ui.radio(shown == m, m.label()).clicked() { viewport::display::set_mode(m); ui.close(); }
                             }
@@ -831,7 +831,7 @@ pub(crate) fn draw_ui(
                         // Through a camera of the scene, or the Viewer's own.
                         let looking = viewer::camera::looking_through();
                         let name = looking.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_else(|| "Perspective".into());
-                        crate::menus::menu(ui, format!("🎥 {name} ⏷"), |ui| {
+                        crate::menus::menu(ui, format!("{} {name} {}", crate::icons::VIDEO_CAMERA, crate::icons::CARET_DOWN), |ui| {
                             if ui.radio(looking.is_none(), "Perspective").clicked() { viewer::camera::look_through(None); ui.close(); }
                             // The scene's cameras, looked for only while the menu is open.
                             let subnets_ref = &*subnets;
@@ -860,7 +860,7 @@ pub(crate) fn draw_ui(
                             None => {
                                 let mut m = viewer::movie::Settings::load();
                                 let before = m;
-                                crate::menus::menu(ui, "Movie ⏷", |ui| {
+                                crate::menus::menu(ui, format!("Movie {}", crate::icons::CARET_DOWN), |ui| {
                                     ui.weak("Codec");
                                     for c in viewer::movie::Codec::ALL {
                                         ui.radio_value(&mut m.codec, c, c.label());
@@ -911,7 +911,7 @@ pub(crate) fn draw_ui(
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                     ui.set_min_width(96.0);
                     let rendered = crate::live::in_viewer();
-                    crate::menus::menu(ui, format!("{} ⏷", if rendered { "Arnold" } else { "Viewport" }), |ui| {
+                    crate::menus::menu(ui, format!("{} {}", if rendered { "Arnold" } else { "Viewport" }, crate::icons::CARET_DOWN), |ui| {
                         if ui.radio(!rendered, "Viewport").on_hover_text("The scene drawn by Imago's viewport (wgpu: Metal on macOS, Vulkan or DirectX 12 elsewhere), as you work").clicked() { crate::live::set_in_viewer(false); ui.close(); }
                         let why = crate::live::why_not("arnold");
                         if ui.add_enabled(why.is_none(), egui::RadioButton::new(rendered, "Arnold")).on_hover_text("Rendered live (IPR) through the Viewer's camera, each change and move sent to Arnold").on_disabled_hover_text(format!("Arnold does not render in Imago here: {}", why.unwrap_or_default())).clicked() { crate::live::set_in_viewer(true); ui.close(); }
@@ -3092,7 +3092,7 @@ fn save_first_step(
                 ui.label(egui::RichText::new(warning).small().weak());
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("💾 Save").clicked() {
+                    if ui.button(format!("{} Save", crate::icons::FLOPPY_DISK)).clicked() {
                         choice = Some(0);
                     }
                     if ui.button("Don't save").clicked() {

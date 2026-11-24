@@ -810,7 +810,7 @@ pub fn menu(ui: &mut egui::Ui, names: impl FnOnce() -> Vec<String>) {
                     .desired_width(150.0)
                     .hint_text("attribute"),
             );
-            ui.menu_button("⏷", |ui| {
+            ui.menu_button(crate::icons::CARET_DOWN, |ui| {
                 let list = all_names.get_or_insert_with(|| make.take().map(|f| f()).unwrap_or_default());
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     for n in list.iter() {
@@ -844,7 +844,7 @@ pub fn menu(ui: &mut egui::Ui, names: impl FnOnce() -> Vec<String>) {
             limit(ui, "Max", &mut a.max);
             ui.add(egui::DragValue::new(&mut a.scale).speed(0.01).prefix("× "))
                 .on_hover_text("A vector's line: its length times this");
-            if ui.small_button("✕").clicked() {
+            if ui.small_button(crate::icons::X).clicked() {
                 gone = Some(k);
             }
         });

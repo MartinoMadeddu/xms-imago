@@ -364,7 +364,7 @@ fn controls<T: RampValue>(
             remade = true;
         }
         if ui
-            .small_button("↺ Reset")
+            .small_button(format!("{} Reset", crate::icons::ARROW_COUNTER_CLOCKWISE))
             .on_hover_text("Two keys, from start to end")
             .clicked()
         {
@@ -416,7 +416,7 @@ fn key_rows<T: RampValue>(
                 ui.horizontal(|ui| changed |= value(ui, &mut ramp.keys[k].value));
                 let can = ramp.keys.len() > min_keys;
                 if ui
-                    .add_enabled(can, egui::Button::new("🗑").small())
+                    .add_enabled(can, egui::Button::new(crate::icons::TRASH).small())
                     .on_hover_text("Take the key away")
                     .clicked()
                 {

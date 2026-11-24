@@ -471,8 +471,8 @@ pub fn draw(
             .inner
             .on_hover_text("Interactive: Render renders in passes, from few samples up, and each change to the graph goes to the renderer while it renders, the scene written again only when it must be. Off: once, each bucket finished at the Render Settings' samples. Both in Imago, with the layer's own RenderSettings and camera")
             .on_disabled_hover_text(match chosen.as_ref().and_then(|s| crate::live::why_not(s.renderer)) {
-                Some(why) => format!("It does not render in Imago here ({why}), so Render runs the command line in ⚙. File > Settings > Renderers says where it is looked for"),
-                None => "In Imago with a renderer whose definition says how (Arnold); this one runs the command line in ⚙".into(),
+                Some(why) => format!("It does not render in Imago here ({why}), so Render runs the command line in the settings (gear). File > Settings > Renderers says where it is looked for"),
+                None => "In Imago with a renderer whose definition says how (Arnold); this one runs the command line in the settings (gear)".into(),
             });
         if ipr == st.ipr_off {
             st.ipr_off = !ipr;
@@ -482,11 +482,11 @@ pub fn draw(
         }
         let can = chosen.is_some() && !running;
         if ui
-            .add_enabled(can, egui::Button::new("▶ Render"))
+            .add_enabled(can, egui::Button::new(format!("{} Render", crate::icons::PLAY)))
             .on_hover_text(match (in_imago, ipr) {
                 (true, true) => "The scene the view flag shows, in Imago, in passes: changes go to it as you work",
                 (true, false) => "The current frame of the scene the view flag shows, in Imago, bucket by bucket at the Render Settings' samples",
-                _ => "The current frame of the scene the view flag shows, with the command line in ⚙, in the background",
+                _ => "The current frame of the scene the view flag shows, with the command line in the settings (gear), in the background",
             })
             .clicked()
         {
@@ -502,7 +502,7 @@ pub fn draw(
                 }
             }
         }
-        if ui.add_enabled(running, egui::Button::new("⏹ Stop")).clicked() {
+        if ui.add_enabled(running, egui::Button::new(format!("{} Stop", crate::icons::STOP))).clicked() {
             // The Viewer's render too: it would start again.
             crate::live::set_in_viewer(false);
             let stopped = crate::live::with(|l| match l.as_mut().filter(|l| l.rendering()) {
@@ -546,7 +546,7 @@ pub fn draw(
             ui.label(egui::RichText::new(st.message.clone()).color(crate::properties::form::ink::BAD()));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.toggle_value(&mut st.show_settings, "⚙").on_hover_text(
+            ui.toggle_value(&mut st.show_settings, crate::icons::GEAR).on_hover_text(
                 "Its command line (husk, kick or your own), and opening an image: in a window of its own",
             );
             ui.toggle_value(&mut st.show_log, "Log")
@@ -901,9 +901,9 @@ fn poll(st: &mut ImageViewerState) {
 fn input_menu(ui: &mut egui::Ui, input: &mut String) {
     let colour = crate::colour::Colour::get();
     let label = if input.is_empty() {
-        format!("Rendering: {} ⏷", colour.rendering())
+        format!("Rendering: {} {}", colour.rendering(), crate::icons::CARET_DOWN)
     } else {
-        format!("{input} ⏷")
+        format!("{input} {}", crate::icons::CARET_DOWN)
     };
     crate::menus::menu(ui, label, |ui| {
         if ui

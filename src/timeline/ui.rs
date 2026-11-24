@@ -355,14 +355,14 @@ fn transport(ui: &mut egui::Ui, pb: &mut Playback, ax: &Axis, keyed: &[f64], inf
     let (lo, hi) = ax.playing(pb);
     let frame = ax.at(pb).clamp(ax.full.0, ax.full.1);
     ui.horizontal(|ui| {
-        if ui.button("⏮").on_hover_text("First frame (Home)").clicked() {
+        if ui.button(crate::icons::SKIP_BACK).on_hover_text("First frame (Home)").clicked() {
             ax.set(pb, lo);
         }
         let now = pb.time;
         let prev = keyed.iter().rev().find(|t| **t < now - 1e-6).copied();
         let next = keyed.iter().find(|t| **t > now + 1e-6).copied();
         if ui
-            .add_enabled(prev.is_some(), egui::Button::new("⏪"))
+            .add_enabled(prev.is_some(), egui::Button::new(crate::icons::REWIND))
             .on_hover_text("Previous key of the selected operator")
             .clicked()
         {
@@ -371,11 +371,11 @@ fn transport(ui: &mut egui::Ui, pb: &mut Playback, ax: &Axis, keyed: &[f64], inf
                 pb.time = t;
             }
         }
-        if ui.button("◀").on_hover_text("Previous frame (Left)").clicked() {
+        if ui.button(crate::icons::CARET_LEFT).on_hover_text("Previous frame (Left)").clicked() {
             pb.playing = false;
             ax.set(pb, frame - 1);
         }
-        let label = if pb.playing { "⏸" } else { "▶" };
+        let label = if pb.playing { crate::icons::PAUSE } else { crate::icons::PLAY };
         if ui
             .add(egui::Button::new(label).min_size(egui::vec2(34.0, 0.0)))
             .on_hover_text("Play / pause (Space)")
@@ -386,12 +386,12 @@ fn transport(ui: &mut egui::Ui, pb: &mut Playback, ax: &Axis, keyed: &[f64], inf
                 ax.set(pb, lo);
             }
         }
-        if ui.button("▶").on_hover_text("Next frame (Right)").clicked() {
+        if ui.button(crate::icons::CARET_RIGHT).on_hover_text("Next frame (Right)").clicked() {
             pb.playing = false;
             ax.set(pb, frame + 1);
         }
         if ui
-            .add_enabled(next.is_some(), egui::Button::new("⏩"))
+            .add_enabled(next.is_some(), egui::Button::new(crate::icons::FAST_FORWARD))
             .on_hover_text("Next key of the selected operator")
             .clicked()
         {
@@ -400,7 +400,7 @@ fn transport(ui: &mut egui::Ui, pb: &mut Playback, ax: &Axis, keyed: &[f64], inf
                 pb.time = t;
             }
         }
-        if ui.button("⏭").on_hover_text("Last frame (End)").clicked() {
+        if ui.button(crate::icons::SKIP_FORWARD).on_hover_text("Last frame (End)").clicked() {
             ax.set(pb, hi);
         }
         ui.checkbox(&mut pb.looping, "Loop");
@@ -640,7 +640,7 @@ fn range_row(ui: &mut egui::Ui, pb: &mut Playback, ax: &Axis, scene: Option<&mut
                     .on_hover_text("The clip's last frame");
             }
             if ui
-                .add_enabled(pb.view.is_some(), egui::Button::new("↔"))
+                .add_enabled(pb.view.is_some(), egui::Button::new(crate::icons::ARROWS_HORIZONTAL))
                 .on_hover_text("View the whole range (or double-click the slider)")
                 .clicked()
             {

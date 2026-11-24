@@ -222,16 +222,16 @@ pub enum Kind {
 impl Kind {
     pub fn icon(self) -> &'static str {
         match self {
-            Kind::Start => "🏁",
-            Kind::Load => "📄",
-            Kind::Add => "➕",
-            Kind::Delete => "✖",
-            Kind::Wire => "🔗",
-            Kind::Edit => "✏",
-            Kind::Rename => "🏷",
-            Kind::Bypass => "⛔",
-            Kind::Display => "👁",
-            Kind::Move => "✋",
+            Kind::Start => crate::icons::FLAG_CHECKERED,
+            Kind::Load => crate::icons::FILE,
+            Kind::Add => crate::icons::PLUS,
+            Kind::Delete => crate::icons::X,
+            Kind::Wire => crate::icons::LINK,
+            Kind::Edit => crate::icons::PENCIL_SIMPLE,
+            Kind::Rename => crate::icons::TAG,
+            Kind::Bypass => crate::icons::PROHIBIT,
+            Kind::Display => crate::icons::EYE,
+            Kind::Move => crate::icons::HAND_GRABBING,
         }
     }
 }
@@ -1169,14 +1169,20 @@ fn row(ui: &mut egui::Ui, indent: f32, icon: &str, label: &str, when: &str, look
 pub fn draw(ui: &mut egui::Ui, history: &mut History, selected: Option<NodeId>) {
     ui.horizontal_wrapped(|ui| {
         if ui
-            .add_enabled(history.can_undo(), egui::Button::new("⟲ Undo"))
+            .add_enabled(
+                history.can_undo(),
+                egui::Button::new(format!("{} Undo", crate::icons::ARROW_COUNTER_CLOCKWISE)),
+            )
             .on_hover_text("Ctrl+Z")
             .clicked()
         {
             history.request = Some(Request::Undo);
         }
         if ui
-            .add_enabled(history.can_redo(), egui::Button::new("⟳ Redo"))
+            .add_enabled(
+                history.can_redo(),
+                egui::Button::new(format!("{} Redo", crate::icons::ARROW_CLOCKWISE)),
+            )
             .on_hover_text("Ctrl+Shift+Z or Ctrl+Y")
             .clicked()
         {
@@ -1207,7 +1213,7 @@ pub fn draw(ui: &mut egui::Ui, history: &mut History, selected: Option<NodeId>) 
                 let shown = filter.map_or(true, |id| s.nodes.contains(&id) || i == current);
                 if shown {
                     let label = if s.pinned {
-                        format!("📌 {}", s.label)
+                        format!("{} {}", crate::icons::PUSH_PIN, s.label)
                     } else {
                         s.label.clone()
                     };
@@ -1242,7 +1248,7 @@ pub fn draw(ui: &mut egui::Ui, history: &mut History, selected: Option<NodeId>) 
                         if n == 1 { "" } else { "s" },
                         t.label
                     );
-                    let resp = row(ui, 14.0, "🔀", &text, &age(t.when), Look::Branch)
+                    let resp = row(ui, 14.0, crate::icons::GIT_BRANCH, &text, &age(t.when), Look::Branch)
                         .on_hover_text("Click to go to the end of that branch");
                     if resp.clicked() {
                         clicked = Some(tip);

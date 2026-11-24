@@ -1306,7 +1306,7 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         g.add_connection(src, 0, merge, k);
     }
     finish(g, merge, front);
-    "Cameras: Front, a 35 mm lens on a full-frame gate, and Top, orthographic, 8 m across. Choose one in the Viewer's camera menu (🎥 Perspective) or press Look through on the operator; navigating leaves it.".into()
+    "Cameras: Front, a 35 mm lens on a full-frame gate, and Top, orthographic, 8 m across. Choose one in the Viewer's camera menu (Perspective) or press Look through on the operator; navigating leaves it.".into()
 }
 
 /// A variant set made in Imago: on /asset, `shape`, its variants a cube and a
@@ -1450,7 +1450,7 @@ fn edit_primitive(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
     g.add_connection(merge, 0, lens, 0);
     g.add_connection(lens, 0, back, 0);
     finish(g, back, lens);
-    "Edit Primitive: the Cameras scene edited after it is made. Lens overrides the Front camera's focal length (85, marked ✎ in its form; the rest of its lens is the camera's own). MoveSet moves /set, the group above the shapes, 1.5 back: the shapes move with it. Select either to see its prim's form; change a value to override it, ↺ to give it back.".into()
+    "Edit Primitive: the Cameras scene edited after it is made. Lens overrides the Front camera's focal length (85, marked with a pencil in its form; the rest of its lens is the camera's own). MoveSet moves /set, the group above the shapes, 1.5 back: the shapes move with it. Select either to see its prim's form; change a value to override it, ↺ to give it back.".into()
 }
 
 /// Martino's material bindings graph: shapes at Primitive Locations under

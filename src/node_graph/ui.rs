@@ -863,7 +863,11 @@ fn draw_node(
 
     // The view flag button, at the top right of the title bar.
     let has_view_flag = graph.has_view_flag(id);
-    let eye_icon = if has_view_flag { "👁" } else { "○" };
+    let eye_icon = if has_view_flag {
+        crate::icons::EYE
+    } else {
+        crate::icons::CIRCLE
+    };
     let eye_size = 16.0 * zoom;
     let eye_pos = egui::pos2(np.x + width * zoom - eye_size - 4.0 * zoom, np.y + 4.0 * zoom);
     let eye_rect = egui::Rect::from_min_size(eye_pos, egui::vec2(eye_size, eye_size));
@@ -890,7 +894,15 @@ fn draw_node(
         egui::pos2(eye_pos.x + eye_size / 2.0, eye_pos.y + eye_size / 2.0),
         egui::Align2::CENTER_CENTER,
         eye_icon,
-        egui::FontId::proportional(glyph_size),
+        // The eye filled in where the view flag is.
+        egui::FontId::new(
+            glyph_size,
+            if has_view_flag {
+                crate::icons::fill_family()
+            } else {
+                egui::FontFamily::Proportional
+            },
+        ),
         eye_color,
     );
 
@@ -1510,23 +1522,23 @@ fn colours_on(r: u8, g: u8, b: u8) -> (egui::Color32, egui::Color32, egui::Color
 pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str)>)> {
     use crate::types::SplitPick;
     vec![
-        ("◼", "Create", vec![
+        (crate::icons::CUBE, "Create", vec![
             (NodeType::cube(1.0), "A cube"),
             (NodeType::sphere(0.5, 32), "A sphere"),
             (NodeType::grid(10, 10, 2.0), "A flat grid of quads"),
             (NodeType::camera(), "A camera at a Primitive Location, with its lens, gate and clipping as USD has them. Look through it from the Viewer's camera menu"),
             (NodeType::TestClip { seconds: 4.0, fps_num: 30, fps_den: 1 }, "A walk on the spot, to try the animation nodes"),
         ]),
-        ("📝", "Placeholder", vec![
+        (crate::icons::PLACEHOLDER, "Placeholder", vec![
             (NodeType::Placeholder { inputs: vec!["In".into()], outputs: vec!["Out".into()], description: String::new(), unknown: None }, "A node that does not exist yet: name it, give it inputs and outputs, describe what it should do. Data goes through unchanged"),
         ]),
-        ("↓", "Organise", vec![
+        (crate::icons::ROWS, "Organise", vec![
             (NodeType::SetVariable { vars: vec![crate::core::vars::Variable::new("shot", "")] }, "Variables of its own, written {name}, for every operator below it: a shot, a variant, a folder. What comes in goes on"),
             (NodeType::PassThrough, "Hands the scene on unchanged: for laying out big graphs, a place to gather wires or branch from"),
             (NodeType::CompoundInput { name: "Scene".into() }, "Inside a compound: what comes into its input port of this name"),
             (NodeType::CompoundOutput { name: "Scene".into() }, "Inside a compound: what goes out of its output port of this name"),
         ]),
-        ("📂", "File", vec![
+        (crate::icons::FOLDER_OPEN, "File", vec![
             (NodeType::load_usd(String::new()), "A USD file, as primitives: sublayered, or its default prim referenced or payloaded at a Primitive Location"),
             (NodeType::write_usd(""), "What the scene graph changed in its USD stages, as an override layer"),
             (NodeType::LayerBreak, "A Write USD below it writes only what the operators after it change: the opinions and files above it are left out, as Solaris' Layer Break"),
@@ -1536,7 +1548,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::LoadFbxDir { dir: String::new(), index: 0, take: 0 }, "One FBX of a folder at a time; Write FBX can run over all of them"),
             (NodeType::WriteFbx { path: crate::types::DEFAULT_WRITE_PATH.into(), mesh: false }, "Write the clip as FBX, with the skeleton it came in with"),
         ]),
-        ("🖼", "Image", vec![
+        (crate::icons::IMAGE, "Image", vec![
             (NodeType::ImageMerge { inputs: 2, op: Default::default(), mix: 1.0, bounds: Default::default() }, "B with each A laid over it: Over, Plus, Multiply, Screen, In, Out…, alpha premultiplied"),
             (NodeType::ColourCorrect { grade: Default::default(), layers: String::new() }, "Exposure, contrast, saturation, gamma, gain and offset, in the rendering space"),
             (NodeType::Shuffle { sources: ["R".into(), "G".into(), "B".into(), "A".into()], to: String::new() }, "Red, green, blue and alpha from any channel, of this image or a second; or into a layer of their own"),
@@ -1550,7 +1562,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Premultiply { undo: true }, "Colour divided by alpha"),
             (NodeType::WriteImage { path: String::new(), colour: String::new(), frames: Default::default(), start: 1, end: 1 }, "Its image written: EXR with every channel, or PNG, JPEG, TIFF; a frame or a range"),
         ]),
-        ("🔨", "Modify", vec![
+        (crate::icons::HAMMER, "Modify", vec![
             (NodeType::Transform { translation: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE, pivot: Default::default(), order: Default::default() }, "Translate, rotate and scale anything: a mesh, primitives or a clip"),
             (NodeType::EditPoly { ops: vec![], pending: Default::default(), edit: None, auto_collapse: false }, "Polygon modelling in one node"),
             (NodeType::Normals { context: crate::core::geo::Context::Point, weighting: Default::default(), cusp: 60.0 }, "Normals made from the geometry: smooth per point, hard past an angle per corner, or flat per face; along curves, what ribbons face"),
@@ -1559,7 +1571,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::Ice { id: IceGraphId(usize::MAX), name: "ICreationEngine".into(), references: 1, params: Default::default(), snippet: false }, "ICE: a graph inside a node, run on every point, face or corner of each primitive"),
             (NodeType::Ice { id: crate::ice::NEW_SNIPPET, name: "ISnippet".into(), references: 1, params: Default::default(), snippet: true }, "Code run on every point, face or corner of each primitive, in OSL's syntax with ICE's attributes (@P): one snippet, locked inside (Make ICE Graph gives its nodes). Its reference inputs are what its geometry parameters read"),
         ]),
-        ("📦", "Primitives", vec![
+        (crate::icons::PACKAGE, "Primitives", vec![
             (NodeType::PickPrims { pattern: String::new() }, "Choose primitives for the operators after this one to work on"),
             (NodeType::PrunePrims { pattern: String::new(), keep: false }, "Remove primitives, or keep only some"),
             (NodeType::SetAttribute { rows: vec![] }, "Set values on prims: a primvar for rendering, or a property such as visibility, purpose, kind or active"),
@@ -1573,12 +1585,12 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::variant(Default::default()), "Choose variants of the stages' variant sets (Select), or make a variant set, its variants from the inputs (Create)"),
             (NodeType::UnpackPrims, "Merge primitives into one mesh"),
         ]),
-        ("🎨", "Materials", vec![
+        (crate::icons::PALETTE, "Materials", vec![
             (NodeType::Material { surface: Default::default() }, "A UsdPreviewSurface material: colour, roughness, metallic, opacity and textures. Named by the node"),
             (NodeType::materialx(), "A material made from a graph of MaterialX nodes: standard_surface, open_pbr_surface, textures, maths. Double-click it to open its graph. Named by the node"),
             (NodeType::MaterialBinding { library: crate::types::material_library(), inputs: 1, bindings: vec![], options: vec![] }, "Put materials in the scene and bind them: each Prims Location row binds the material input of its number"),
         ]),
-        ("💡", "Lights", vec![
+        (crate::icons::LIGHTBULB, "Lights", vec![
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Dome)), "Light from every direction, from an environment image (an HDR): the sky and everything around"),
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Rect)), "A rectangle that emits from one side, along its -Z: a softbox, a window"),
             (NodeType::light(crate::core::light::Light::point()), "A point: light from one place in every direction (a sphere light treated as a point)"),
@@ -1588,20 +1600,20 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Distant)), "Parallel light from far away, along its -Z: the sun"),
             (NodeType::LightLinker { links: vec![crate::core::light_link::Link::new("", "")] }, "Which prims each light lights and shadows: a table of links, each its lights and prims (paths, patterns or %collections) with Light and Shadow on or off. Prims dropped on it get a link each"),
         ]),
-        ("📽", "Render", vec![
+        (crate::icons::FILM_SLATE, "Render", vec![
             (NodeType::RenderCommons { scene: Default::default() }, "The RenderSettings prim: camera, resolution, overscan, motion blur, depth of field, purposes; and the RenderProduct, the image file it makes"),
             (NodeType::RenderSettings { renderer: Default::default() }, "A renderer's settings (Karma, Arnold, or a Custom one typed in) on the scene's RenderSettings prim, and its standard AOVs as RenderVars"),
             (NodeType::RenderVariables { vars: Default::default() }, "RenderVars (AOVs) of a product: add or override them row by row: name, source, type, format, filter"),
         ]),
-        ("🖥", "System Commands", vec![
+        (crate::icons::TERMINAL_WINDOW, "System Commands", vec![
             (NodeType::RenderCommand { command: Default::default() }, "Run a command line on the system: husk on the layer the Write USD above writes ({usd}), over the scene's frames. Runs when you press Run, never on cook"),
         ]),
-        ("🗺", "UV", vec![
+        (crate::icons::MAP_TRIFOLD, "UV", vec![
             (NodeType::UvUnwrap { method: crate::core::uv::UvMethod::Conformal, angle: 66.0, margin: 0.02, axis: 1, tiles: 1 }, "Make texture coordinates"),
             (NodeType::UvTransform { offset: [0.0; 2], rotate: 0.0, scale: [1.0; 2] }, "Translate, rotate and scale the whole UV layout"),
             (NodeType::UvEdit { edits: vec![] }, "Move single UV islands, in the UV Editor"),
         ]),
-        ("🎬", "Animation", vec![
+        (crate::icons::FILM_STRIP, "Animation", vec![
             (NodeType::LocalAnimation { start: 1, end: 48, inherited: serde_json::Value::Null }, "Key the parameters of the operator before it, on frames of its own, from Start to End"),
             (NodeType::MergeAnimation { align: crate::types::AnimAlign::First, match_rate: false, inputs: 2 }, "Inputs as one, each moved in time: to start, end or be centred with input A, or stretched or squeezed to fit"),
             (NodeType::RenameJoints { find: String::new(), replace: String::new(), strip_namespace: true, prefix: String::new() }, "Rename joints by pattern"),
@@ -1617,7 +1629,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::FloorClip { height: 0.0 }, "Put the lowest point on the floor"),
             (NodeType::PruneJoints { words: "finger, thumb".into() }, "Remove joints and everything below them"),
         ]),
-        ("🏃", "Mocap", vec![
+        (crate::icons::PERSON_SIMPLE_RUN, "Mocap", vec![
             (NodeType::SplitSkeleton { picks: vec![SplitPick::Character(0), SplitPick::Character(1)] }, "One output per character in the take"),
             (NodeType::Characterize { picks: vec![] }, "Say which joint is which part of a human, for Body Collide and Retarget"),
             (NodeType::Retarget, "The motion of one skeleton on another"),
@@ -1630,7 +1642,7 @@ pub fn catalog() -> Vec<(&'static str, &'static str, Vec<(NodeType, &'static str
             (NodeType::ProxySkin { thickness: 1.0 }, "A body of spheres and cylinders, bound to the skeleton"),
             (NodeType::Ragdoll { settings: Default::default(), view: Default::default(), limits: Default::default() }, "Keep the character out of the set and out of itself, within what a human body can do"),
         ]),
-        ("🦴", "Rigging", {
+        (crate::icons::BONE, "Rigging", {
             use crate::core::rig::{node::guide, Component, Side};
             vec![
                 (guide(Component::Spine, Side::Centre), "Guide locators for a spine: hips, mid, chest; fitted to the mesh"),
@@ -1721,15 +1733,19 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
         let selected = graph.selected_nodes.len();
         if matches("make compound organise pack the selected operators") {
             let label = match selected {
-                0 => "◆  Make Compound   Organise".to_string(),
-                n => format!("◆  Make Compound ({n} selected)   Organise"),
+                0 => format!("{}  Make Compound   Organise", crate::icons::DIAMOND),
+                n => format!("{}  Make Compound ({n} selected)   Organise", crate::icons::DIAMOND),
             };
             found.push((label, MAKE_COMPOUND_HINT.to_string(), None));
         }
         for f in crate::compounds::library().of_context(crate::compounds::Context::Scene) {
             let d = &f.definition;
             if matches(&format!("{} {} {} compound", d.name, d.category, d.help)) {
-                let icon = if d.icon.is_empty() { "◆" } else { d.icon.as_str() };
+                let icon = if d.icon.is_empty() {
+                    crate::icons::DIAMOND
+                } else {
+                    d.icon.as_str()
+                };
                 found.push((
                     format!("{icon}  {}   Compounds", d.name),
                     d.help.clone(),
@@ -1786,7 +1802,7 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
     let library = crate::compounds::library();
     let found = library.of_context(crate::compounds::Context::Scene);
     if !found.is_empty() {
-        crate::menus::menu(ui, "◆  Compounds", |ui| {
+        crate::menus::menu(ui, format!("{}  Compounds", crate::icons::DIAMOND), |ui| {
             ui.set_min_width(200.0);
             let mut category: Option<&str> = None;
             for f in found {
@@ -1797,7 +1813,11 @@ fn add_node_menu(ui: &mut egui::Ui, graph: &mut NodeGraphState, cp: egui::Pos2, 
                         ui.label(egui::RichText::new(&d.category).small().strong());
                     }
                 }
-                let icon = if d.icon.is_empty() { "◆" } else { d.icon.as_str() };
+                let icon = if d.icon.is_empty() {
+                    crate::icons::DIAMOND
+                } else {
+                    d.icon.as_str()
+                };
                 let hint = format!(
                     "{}\n{} (v{}), {}",
                     d.help,
@@ -1861,8 +1881,8 @@ fn instance_of(d: &crate::compounds::Definition) -> NodeType {
 fn make_compound_item(ui: &mut egui::Ui, graph: &mut NodeGraphState) -> bool {
     let picked: Vec<NodeId> = graph.selected_nodes.clone();
     let label = match picked.len() {
-        0 => "◆  Make Compound".to_string(),
-        n => format!("◆  Make Compound ({n} selected)"),
+        0 => format!("{}  Make Compound", crate::icons::DIAMOND),
+        n => format!("{}  Make Compound ({n} selected)", crate::icons::DIAMOND),
     };
     let r = ui
         .add_enabled(!picked.is_empty(), egui::Button::new(label))

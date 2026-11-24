@@ -49,7 +49,7 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, selected: &[String]) 
             .and_then(|id| linkers.iter().find(|(i, _)| *i == id))
             .map(|(_, n)| n.clone())
             .unwrap_or_else(|| "No Light Linker".into());
-        crate::menus::menu(ui, format!("🔦 {name}"), |ui| {
+        crate::menus::menu(ui, format!("{} {name}", crate::icons::FLASHLIGHT), |ui| {
             for (id, n) in &linkers {
                 if ui.selectable_label(Some(*id) == linker, n.as_str()).clicked() {
                     pick = Some(*id);
@@ -173,9 +173,9 @@ fn lights_list(ui: &mut egui::Ui, links: &mut Vec<Link>, scene: &Scene, focus: &
             .filter(|l| !l.light.trim().is_empty() && shows(l, Some(light.as_str()), scene.held))
             .count();
         let text = if n == 0 {
-            format!("💡 {}", short(light))
+            format!("{} {}", crate::icons::LIGHTBULB, short(light))
         } else {
-            format!("💡 {}  ({n})", short(light))
+            format!("{} {}  ({n})", crate::icons::LIGHTBULB, short(light))
         };
         let on = focus.as_deref() == Some(light.as_str());
         let r = ui.selectable_label(on, text).on_hover_text(format!(

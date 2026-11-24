@@ -198,7 +198,7 @@ fn param_row(
                         crate::variables::complete(ui, &r, t, &[]);
                         r
                     });
-                    if ui.button("📂").on_hover_text("Browse").clicked() {
+                    if ui.button(crate::icons::FOLDER_OPEN).on_hover_text("Browse").clicked() {
                         io.browser.open(
                             crate::file_browser::BrowseTarget::LightFile(node, p.name.as_str()),
                             crate::file_browser::BrowseMode::File,
@@ -207,7 +207,7 @@ fn param_row(
                             "",
                         );
                     }
-                    if !s.is_empty() && ui.button("✕").on_hover_text("No file").clicked() {
+                    if !s.is_empty() && ui.button(crate::icons::X).on_hover_text("No file").clicked() {
                         s.clear();
                     }
                 });

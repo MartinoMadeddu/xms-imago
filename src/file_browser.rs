@@ -270,10 +270,10 @@ impl FileBrowser {
             .show(ctx, |ui| {
                 // Location bar
                 ui.horizontal(|ui| {
-                    if ui.button("⬆ Up").clicked() {
+                    if ui.button(format!("{} Up", crate::icons::ARROW_UP)).clicked() {
                         if let Some(p) = self.dir.parent() { go_to = Some(p.to_path_buf()); }
                     }
-                    if ui.button("🏠 Home").clicked() { go_to = Some(home_dir()); }
+                    if ui.button(format!("{} Home", crate::icons::HOUSE)).clicked() { go_to = Some(home_dir()); }
                     let edit = ui.add(egui::TextEdit::singleline(&mut req.path_edit).desired_width(f32::INFINITY));
                     if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         go_to = Some(PathBuf::from(req.path_edit.trim()));
@@ -307,7 +307,7 @@ impl FileBrowser {
                             let name = d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                             let sel = req.selected.as_ref() == Some(d);
                             let i = info(std::slice::from_ref(d));
-                            let resp = row(ui, k, sel, false, [&format!("📁 {name}"), "folder", &i.modified_text(), i.owner.as_deref().unwrap_or("")]);
+                            let resp = row(ui, k, sel, false, [&format!("{} {name}", crate::icons::FOLDER), "folder", &i.modified_text(), i.owner.as_deref().unwrap_or("")]);
                             if resp.clicked() { req.selected = Some(d.clone()); }
                             if resp.double_clicked() { go_to = Some(d.clone()); }
                             k += 1;
@@ -316,7 +316,7 @@ impl FileBrowser {
                             let f = entry.path();
                             let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                             let sel  = req.selected.as_ref() == Some(&f);
-                            let icon = match entry { crate::core::sequences::Entry::File(_) => "📄", _ => "🎞" };
+                            let icon = match entry { crate::core::sequences::Entry::File(_) => crate::icons::FILE, _ => crate::icons::FILM_STRIP };
                             let i = info(&entry_files(entry));
                             let size = i.size.map(size_text).unwrap_or_default();
                             let resp = row(ui, k, sel, false, [&format!("{icon} {}", entry.label()), &size, &i.modified_text(), i.owner.as_deref().unwrap_or("")]);
@@ -345,7 +345,7 @@ impl FileBrowser {
                 if let Some(existing) = req.replacing.clone() {
                     ui.horizontal(|ui| {
                         let name = existing.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        ui.colored_label(ui.visuals().warn_fg_color, format!("⚠ {name} already exists. Replace it?"));
+                        ui.colored_label(ui.visuals().warn_fg_color, format!("{} {name} already exists. Replace it?", crate::icons::WARNING));
                         if ui.button("Replace").clicked() { confirm = Some(existing.clone()); }
                         if ui.button("Cancel").clicked() { req.replacing = None; }
                     });

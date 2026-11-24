@@ -99,7 +99,11 @@ pub fn rows(
             &title,
             Some("Where two choices set the same variant set of a prim, the later one wins"),
             |ui| {
-                if ui.small_button("🗑").on_hover_text("Remove this choice").clicked() {
+                if ui
+                    .small_button(crate::icons::TRASH)
+                    .on_hover_text("Remove this choice")
+                    .clicked()
+                {
                     remove = Some(k);
                 }
             },

@@ -75,7 +75,7 @@ pub fn window(ctx: &egui::Context, v: &mut vars::Variables) {
                     });
                     ui.horizontal(|ui| {
                         crate::properties::form::typed(ui, &mut var.description, |ui, t| ui.field_sized([ABOUT_W - 30.0, h], egui::TextEdit::singleline(t).hint_text("what it is for")));
-                        if ui.small_button("🗑").on_hover_text("Remove this variable").clicked() { remove = Some(k); }
+                        if ui.small_button(crate::icons::TRASH).on_hover_text("Remove this variable").clicked() { remove = Some(k); }
                     });
                     ui.end_row();
                 }

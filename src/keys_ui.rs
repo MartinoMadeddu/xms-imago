@@ -146,7 +146,7 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                 .show(ui, |ui| {
                     for (p, v, keyed, on, follows, promoted) in &rows {
                         if let Some(source) = follows {
-                            ui.add_enabled(false, egui::Label::new("🔗"))
+                            ui.add_enabled(false, egui::Label::new(crate::icons::LINK))
                                 .on_disabled_hover_text(format!("Follows {source}: Remove Reference to key it"));
                         } else {
                             let tip = match (on, keyed) {
@@ -159,7 +159,7 @@ pub fn channel_box(ui: &mut egui::Ui, graph: &mut NodeGraphState, id: NodeId) ->
                             }
                         }
                         let text = match promoted {
-                            Some(_) => format!("◆ {}", keys::label(p)),
+                            Some(_) => format!("{} {}", crate::icons::DIAMOND, keys::label(p)),
                             None => keys::label(p).to_string(),
                         };
                         let label = egui::RichText::new(text);

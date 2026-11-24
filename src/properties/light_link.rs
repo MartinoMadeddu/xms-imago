@@ -83,7 +83,11 @@ pub fn table(ui: &mut egui::Ui, links: &mut Vec<Link>, scene: &Scene, focus: Opt
                     path_cell(ui, &mut l.prim, scene.paths, scene.held, "/set/hero", field_w);
                     toggle(ui, &mut l.lights, "Light", "these lights light these prims");
                     toggle(ui, &mut l.shadows, "Shadow", "these lights cast shadows on these prims");
-                    if ui.small_button("🗑").on_hover_text("Remove this link").clicked() {
+                    if ui
+                        .small_button(crate::icons::TRASH)
+                        .on_hover_text("Remove this link")
+                        .clicked()
+                    {
                         remove = Some(k);
                     }
                     ui.end_row();
@@ -194,7 +198,7 @@ fn path_cell(ui: &mut egui::Ui, text: &mut String, options: &[String], held: &[H
                 *text = first.clone();
             }
         }
-        crate::menus::menu(ui, "⏷", |ui| {
+        crate::menus::menu(ui, crate::icons::CARET_DOWN, |ui| {
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 let mut names: Vec<String> = vec![];
                 for h in held {

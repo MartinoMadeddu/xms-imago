@@ -381,7 +381,11 @@ fn input_row(
                 } else {
                     text.color(crate::properties::form::ink::BAD())
                 });
-                if ui.small_button("✕").on_hover_text("Take the connection off").clicked() {
+                if ui
+                    .small_button(crate::icons::X)
+                    .on_hover_text("Take the connection off")
+                    .clicked()
+                {
                     off = true;
                 }
             });
@@ -417,7 +421,12 @@ fn input_row(
                     |ui| value_widget(ui, input, &mut v, &mut browse),
                 )
                 .inner;
-            if set && ui.small_button("↺").on_hover_text("Back to the default").clicked() {
+            if set
+                && ui
+                    .small_button(crate::icons::ARROW_COUNTER_CLOCKWISE)
+                    .on_hover_text("Back to the default")
+                    .clicked()
+            {
                 reset = true;
             }
             changed
@@ -653,7 +662,7 @@ fn value_widget(ui: &mut egui::Ui, input: &Input, v: &mut Value, browse: &mut bo
                     r
                 })
                 .changed();
-                if ui.button("📂").on_hover_text("Browse").clicked() {
+                if ui.button(crate::icons::FOLDER_OPEN).on_hover_text("Browse").clicked() {
                     *browse = true;
                 }
             });

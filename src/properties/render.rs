@@ -6,6 +6,7 @@ use crate::core::properties::{Value, ValueType};
 use crate::core::render::{
     self, Context, Definition, Extra, Param, RendererSettings, SceneSettings, VarRow, Variables, CUSTOM,
 };
+use crate::icons;
 use crate::types::NodeId;
 
 use super::form::{self, group, group_with, ink, FieldExt, Rows, Status};
@@ -153,7 +154,11 @@ fn extra_rows(
                             }
                         });
                     }
-                    if ui.small_button("🗑").on_hover_text("Remove this setting").clicked() {
+                    if ui
+                        .small_button(icons::TRASH)
+                        .on_hover_text("Remove this setting")
+                        .clicked()
+                    {
                         remove = Some(k);
                     }
                 });
@@ -887,10 +892,14 @@ pub fn variables_rows(ui: &mut egui::Ui, v: &mut Variables, ctx: &Context) {
             &title,
             Some("A RenderVar: Products/Vars/<name> beside the product"),
             |ui| {
-                if ui.small_button("🗑").on_hover_text("Remove this RenderVar").clicked() {
+                if ui
+                    .small_button(icons::TRASH)
+                    .on_hover_text("Remove this RenderVar")
+                    .clicked()
+                {
                     remove = Some(k);
                 }
-                if k > 0 && ui.small_button("⏶").on_hover_text("Move up").clicked() {
+                if k > 0 && ui.small_button(icons::CARET_UP).on_hover_text("Move up").clicked() {
                     up = Some(k);
                 }
             },
@@ -1001,13 +1010,16 @@ pub fn command_rows(
     group(ui, "Run", None, |f| {
         f.buttons("", None, |ui| {
             if ui
-                .add_enabled(!running && !c.line.trim().is_empty(), egui::Button::new("▶ Run"))
+                .add_enabled(
+                    !running && !c.line.trim().is_empty(),
+                    egui::Button::new(format!("{} Run", icons::PLAY)),
+                )
                 .clicked()
             {
                 io.action = Some(super::ui::PanelAction::RunCommand(node));
             }
             if ui
-                .add_enabled(running, egui::Button::new("⏹ Stop"))
+                .add_enabled(running, egui::Button::new(format!("{} Stop", icons::STOP)))
                 .on_hover_text("Ends the command and what it started")
                 .clicked()
             {
@@ -1236,7 +1248,7 @@ fn command_params(ui: &mut egui::Ui, c: &mut render::CommandSettings, node: Node
                             crate::variables::complete(ui, &r, t, &[]);
                             r
                         });
-                        if ui.small_button("🗑").clicked() {
+                        if ui.small_button(icons::TRASH).clicked() {
                             remove = Some(k);
                         }
                     });
