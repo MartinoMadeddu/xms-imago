@@ -30,6 +30,8 @@ pub struct ImagoApp {
 impl ImagoApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::init(&cc.egui_ctx);
+        // Phosphor's icons among the fonts (`icons`).
+        crate::icons::install(&cc.egui_ctx);
         // Ctrl+= and Ctrl+- set the interface's size, kept (`ui_scale`).
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         // Render folders an Imago that crashed left behind.

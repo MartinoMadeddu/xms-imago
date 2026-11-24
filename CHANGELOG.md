@@ -8,6 +8,12 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- **Phosphor icons**: every operator's icon is now one of Phosphor's Light
+  icons, one drawing style throughout, shipped with Imago as a font. The
+  interface's own icons follow.
+
 ## [0.3.7] - 2026-11-23
 
 ### USD

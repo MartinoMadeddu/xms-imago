@@ -149,4 +149,6 @@ The example files' authors and licences are in
 [examples/CREDITS.md](examples/CREDITS.md). ICE's noises are ported from
 [Open Shading Language](https://github.com/AcademySoftwareFoundation/OpenShadingLanguage),
 Copyright (c) 2009-present Contributors to the Open Shading Language project,
-BSD-3-Clause (the licence is in `crates/xms-ice/src/noise.rs`).
+BSD-3-Clause (the licence is in `crates/xms-ice/src/noise.rs`). The icons are
+[Phosphor Icons](https://phosphoricons.com), Light weight, MIT (the licence is
+in `assets/fonts/Phosphor-LICENSE.txt`).

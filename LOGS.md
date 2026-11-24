@@ -912,3 +912,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 23/11/2026: Follows shown as S, D or P in a thin circle at the tab's right before its cross (follows_mark, painted on the tab's layer), in place of the emoji. (Martino)
 - 23/11/2026: The tab's circled letter is the Follows menu (Panes::follows_mark, a frameless menu button in an Area over the tab); Follows gone from the tab's right-click menu. (Martino)
 - 23/11/2026: Release 0.3.7. (Martino)
+- 24/11/2026: Phosphor Light icons: the font in assets/fonts (MIT, its licence beside it), installed after egui's fonts (icons::install), each icon a named constant (src/icons.rs, tested present in the font); every operator's icon one of them (types::node_type_icon). (Martino)
