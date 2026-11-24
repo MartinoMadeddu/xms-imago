@@ -525,6 +525,13 @@ impl Viewer {
             return None;
         }
         self.render_note = None;
+        // Every stage read whole first, render meshes and all: the Viewer
+        // draws meanwhile, and looks again.
+        if let Err(why) = crate::usd_scene::ready_to_render() {
+            self.render_note = Some(why);
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            return None;
+        }
         // Where the camera is, looking down -Z, without the scale a camera
         // of the scene may have.
         let (world, fov) = match looking {

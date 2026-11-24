@@ -2977,10 +2977,11 @@ pub struct SceneHierarchy {
     /// Every composed stage drawn as geometry: no boxes at all.
     pub show_all_geometry: bool,
     /// Purposes drawn, stored so that the default is guide off, proxy on and
-    /// render on.
+    /// render off, as usdview has them: render meshes, the heavy ones, are
+    /// not read until they are shown (`usd_scene::render_meshes`).
     show_guide: bool,
     hide_proxy: bool,
-    hide_render: bool,
+    show_render: bool,
     /// Counts changes to what the viewport should draw (expansion, geometry
     /// toggles). The viewport redraws when it moves.
     pub display_revision: u64,
@@ -3275,7 +3276,7 @@ impl SceneHierarchy {
         match kind {
             PurposeKind::Guide => self.show_guide,
             PurposeKind::Proxy => !self.hide_proxy,
-            PurposeKind::Render => !self.hide_render,
+            PurposeKind::Render => self.show_render,
         }
     }
 
@@ -3286,7 +3287,7 @@ impl SceneHierarchy {
         match kind {
             PurposeKind::Guide => self.show_guide = on,
             PurposeKind::Proxy => self.hide_proxy = !on,
-            PurposeKind::Render => self.hide_render = !on,
+            PurposeKind::Render => self.show_render = on,
         }
         self.display_revision += 1;
     }
@@ -3299,8 +3300,15 @@ impl SceneHierarchy {
             Purpose::Default => true,
             Purpose::Guide => self.show_guide,
             Purpose::Proxy => !self.hide_proxy,
-            Purpose::Render { has_proxy } => !self.hide_render && !(has_proxy && !self.hide_proxy),
+            Purpose::Render { has_proxy } => self.show_render && !(has_proxy && !self.hide_proxy),
         }
+    }
+
+    /// Whether a primitive of this purpose is drawn as its box: render
+    /// geometry without a proxy to stand in for it, while render is hidden.
+    /// Nothing goes missing from the view, and its mesh need not be read.
+    pub fn boxes_purpose(&self, purpose: Purpose) -> bool {
+        purpose == Purpose::Render { has_proxy: false } && !self.show_render
     }
 
     pub fn set_show_all_geometry(&mut self, on: bool) {
@@ -4195,15 +4203,21 @@ mod purpose_tests {
             Purpose::Proxy,
             Purpose::Guide,
         );
-        // Defaults: guide off, proxy on, render on, a proxied render mesh gives way.
-        assert!(h.draws_purpose(Purpose::Default) && h.draws_purpose(render) && h.draws_purpose(proxy));
-        assert!(!h.draws_purpose(paired) && !h.draws_purpose(guide));
+        // Defaults: guide off, proxy on, render off; unpurposed drawn. A
+        // render mesh without a proxy is its box, one with a proxy gives way.
+        assert!(h.draws_purpose(Purpose::Default) && h.draws_purpose(proxy));
+        assert!(!h.draws_purpose(render) && h.boxes_purpose(render));
+        assert!(!h.draws_purpose(paired) && !h.boxes_purpose(paired) && !h.draws_purpose(guide));
+        assert!(!h.boxes_purpose(Purpose::Default) && !h.boxes_purpose(proxy));
+        // Render on: drawn, a proxied one still giving way to its proxy.
+        h.set_purpose_shown(PurposeKind::Render, true);
+        assert!(h.draws_purpose(render) && !h.boxes_purpose(render) && !h.draws_purpose(paired));
         // Proxy off: the render mesh comes back.
         h.set_purpose_shown(PurposeKind::Proxy, false);
         assert!(h.draws_purpose(paired) && !h.draws_purpose(proxy));
-        // Render off: no render geometry at all; unpurposed still drawn.
+        // Both off: nothing of the asset; unpurposed still drawn.
         h.set_purpose_shown(PurposeKind::Render, false);
-        assert!(!h.draws_purpose(render) && !h.draws_purpose(paired) && h.draws_purpose(Purpose::Default));
+        assert!(!h.draws_purpose(paired) && !h.boxes_purpose(paired) && h.draws_purpose(Purpose::Default));
         h.set_purpose_shown(PurposeKind::Guide, true);
         assert!(h.draws_purpose(guide));
     }

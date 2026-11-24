@@ -365,7 +365,9 @@ fn cook(
         fps: graph.scene.fps(),
         user: graph.variables.clone(),
     });
-    // Stages are read on threads of their own: cooked again once they are.
+    // Stages are read on threads of their own, render meshes and all: cooked
+    // again once they are.
+    crate::usd_scene::read_render_meshes();
     let mut prims = crate::live::scene(graph, subnets);
     while crate::usd_scene::any_reading() {
         std::thread::sleep(Duration::from_millis(50));

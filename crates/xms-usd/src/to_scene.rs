@@ -37,6 +37,11 @@ pub struct SceneOptions {
     /// arrays, primvars, materials, bindings or authored values: a first pass a
     /// big stage can show quickly, before the whole of it.
     pub boxes_only: bool,
+    /// Meshes, curves and points of `render` purpose (their own or inherited)
+    /// kept as their boxes, as `boxes_only` makes them, their arrays not
+    /// read: the heavy geometry a viewport showing proxies does not draw.
+    /// The prims are there, with everything else read.
+    pub skip_render_meshes: bool,
     /// Every time sample of the stage, over its authored time range (all of
     /// them when it states none), not those of the shutter alone: a stage to
     /// be shown at any frame from one translation.
@@ -82,6 +87,10 @@ struct Profile {
     /// What the full pass took from the boxes pass instead of reading again:
     /// prims (transform, visibility, purpose), point arrays.
     reused: (usize, usize),
+    /// Render-purpose meshes, curves and points kept as their boxes
+    /// (`SceneOptions::skip_render_meshes`), by path: one met again in full
+    /// (a prototype's) is taken out.
+    render_boxed: HashSet<String>,
 }
 
 /// What the boxes pass read that the full pass needs too, by the prim's path
@@ -104,6 +113,7 @@ impl Default for SceneOptions {
             import_curves: true,
             curve_primvars: Some(CURVE_PRIMVAR_PREFIX.to_string()),
             boxes_only: false,
+            skip_render_meshes: false,
             all_samples: false,
             session_layer: None,
             mask: vec![],
@@ -226,6 +236,9 @@ fn translate_reading(
         },
         import_curves: opts.import_curves,
         boxes_only: opts.boxes_only,
+        skip_render: opts.skip_render_meshes && !opts.boxes_only,
+        purposes: vec![],
+        render_protos: HashSet::new(),
         scene: rs::Scene::new(),
         warnings: Vec::new(),
         prototypes: HashSet::new(),
@@ -323,6 +336,12 @@ fn translate_reading(
             p.decode.as_secs_f64(),
             p.convert.as_secs_f64()
         );
+        if !p.render_boxed.is_empty() {
+            note.push_str(&format!(
+                " · {} render-purpose meshes, curves or points kept as their boxes, not read",
+                p.render_boxed.len()
+            ));
+        }
         if p.reused != (0, 0) {
             note.push_str(&format!(
                 " · from the boxes pass: {} prims' transforms, visibility and purpose, {} point arrays",
@@ -343,6 +362,12 @@ fn translate_reading(
             ));
         }
         warnings.push(note);
+        if !p.render_boxed.is_empty() {
+            warnings.push(format!(
+                "{} render-purpose meshes, curves or points shown as their boxes, not read: they are read when render is shown, and for a render or Write USD",
+                p.render_boxed.len()
+            ));
+        }
     }
     // The translation itself isn't a change to sync incrementally
     let _ = scene.take_changes();
@@ -368,6 +393,15 @@ struct Translator<'s> {
     window: (f64, f64),
     import_curves: bool,
     boxes_only: bool,
+    /// `SceneOptions::skip_render_meshes`, in a full pass.
+    skip_render: bool,
+    /// The purpose each prim being walked has, its own or inherited: the
+    /// innermost last.
+    purposes: Vec<rs::Purpose>,
+    /// Native-instance prototypes walked under `render` purpose while render
+    /// meshes are skipped: walked again, in full, when an instance of another
+    /// purpose is met.
+    render_protos: HashSet<String>,
     scene: rs::Scene,
     warnings: Vec<String>,
     /// Native-instance prototypes already translated
@@ -857,6 +891,37 @@ impl<'s> Translator<'s> {
             self.proto_drop(prim, 1, format!("type {ty}"));
             return; // captured by their material / mesh
         }
+        // As the boxes pass read them, else read now.
+        let key = prim.path().to_string();
+        let known = self.prior.borrow_mut().prims.remove(&key);
+        let (xf, reset, visible, purpose) = match known {
+            Some(k) => {
+                self.profile.borrow_mut().reused.0 += 1;
+                k
+            }
+            None => {
+                let (xf, reset) = self.local_xform(prim);
+                let visible = self
+                    .sampled(prim, "visibility", |v| tok(&v).map(|t| t != "invisible"))
+                    .unwrap_or_default();
+                let purpose = match self.token_of(prim, "purpose").as_deref() {
+                    Some("render") => rs::Purpose::Render,
+                    Some("proxy") => rs::Purpose::Proxy,
+                    Some("guide") => rs::Purpose::Guide,
+                    _ => rs::Purpose::Default,
+                };
+                (xf, reset, visible, purpose)
+            }
+        };
+        // Its purpose as USD has it: its own, else the one above it.
+        let effective = match purpose {
+            rs::Purpose::Default => self.purposes.last().copied().unwrap_or_default(),
+            own => own,
+        };
+        let render = effective == rs::Purpose::Render;
+        if !render {
+            self.profile.borrow_mut().render_boxed.remove(&key);
+        }
         let mut descend = true;
         let kind = if prim.is_instance().unwrap_or(false) {
             descend = false; // instance proxies: the prototype is translated once
@@ -864,11 +929,20 @@ impl<'s> Translator<'s> {
             match prim.prototype() {
                 Ok(Some(proto)) => {
                     let proto_path = proto.to_string();
-                    if self.prototypes.insert(proto_path.clone()) {
+                    let first = self.prototypes.insert(proto_path.clone());
+                    // Walked as boxes for a render instance, met now from one
+                    // of another purpose: walked again, in full.
+                    let again = !first && !render && self.render_protos.remove(&proto_path);
+                    if first || again {
+                        if self.skip_render && render {
+                            self.render_protos.insert(proto_path.clone());
+                        }
                         match self.stage.prim(proto_path.as_str()) {
                             Ok(proto_prim) => {
                                 let n = proto_prim.children().map(|c| c.len());
+                                self.purposes.push(effective);
                                 self.walk_prototype(&proto_prim, &prim.path().to_string());
+                                self.purposes.pop();
                                 if !matches!(n, Ok(k) if k > 0) {
                                     self.proto_problems.1 += 1;
                                     if self.proto_problems.1 <= 3 {
@@ -907,10 +981,17 @@ impl<'s> Translator<'s> {
                 _ => PrimKind::Group,
             }
         } else {
+            // Geometry, or what stands for it in a render prim skipped.
+            let geometry = matches!(ty.as_str(), "Mesh" | "Points") || (ty == "BasisCurves" && self.import_curves);
             match ty.as_str() {
                 "Mesh" | "BasisCurves" | "Points" if self.boxes_only => self
                     .box_of(prim)
                     .map_or(PrimKind::Group, |m| PrimKind::Mesh(Box::new(m))),
+                _ if geometry && render && self.skip_render => {
+                    self.profile.borrow_mut().render_boxed.insert(key.clone());
+                    self.box_of(prim)
+                        .map_or(PrimKind::Group, |m| PrimKind::Mesh(Box::new(m)))
+                }
                 "Material" if self.boxes_only => {
                     descend = false;
                     PrimKind::Group
@@ -955,28 +1036,6 @@ impl<'s> Translator<'s> {
         if matches!(p.kind, PrimKind::Gprim(_)) {
             p.primvars = self.primvars(prim, &[]);
         }
-        // As the boxes pass read them, else read now.
-        let key = prim.path().to_string();
-        let known = self.prior.borrow_mut().prims.remove(&key);
-        let (xf, reset, visible, purpose) = match known {
-            Some(k) => {
-                self.profile.borrow_mut().reused.0 += 1;
-                k
-            }
-            None => {
-                let (xf, reset) = self.local_xform(prim);
-                let visible = self
-                    .sampled(prim, "visibility", |v| tok(&v).map(|t| t != "invisible"))
-                    .unwrap_or_default();
-                let purpose = match self.token_of(prim, "purpose").as_deref() {
-                    Some("render") => rs::Purpose::Render,
-                    Some("proxy") => rs::Purpose::Proxy,
-                    Some("guide") => rs::Purpose::Guide,
-                    _ => rs::Purpose::Default,
-                };
-                (xf, reset, visible, purpose)
-            }
-        };
         if self.boxes_only {
             self.read
                 .borrow_mut()
@@ -1000,9 +1059,11 @@ impl<'s> Translator<'s> {
         }
         self.scene.insert(p);
         if descend {
+            self.purposes.push(effective);
             for c in prim.children().unwrap_or_default() {
                 self.walk(&c);
             }
+            self.purposes.pop();
         }
     }
 
@@ -1959,5 +2020,108 @@ def Xform "car" (
         assert_eq!(blue.get(&car).unwrap().variants[0].selection, "blue");
         assert!(blue.get(&Path::new("/car/blue_body").unwrap()).is_some());
         assert!(blue.get(&Path::new("/car/red_body").unwrap()).is_none());
+    }
+
+    /// Skipping render meshes: a mesh of `render` purpose, its own or one
+    /// above it, is its box, its points not read; a mesh of no purpose, of
+    /// proxy purpose, or under render but set to proxy itself, is read. A
+    /// prototype first met from a render instance is read in full when an
+    /// instance of no purpose meets it too.
+    #[test]
+    fn render_meshes_are_kept_as_boxes_when_skipped() {
+        let dir = std::env::temp_dir().join("xms_usd_render_skipped");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("purposes.usda");
+        let quad = "int[] faceVertexCounts = [4]\n    int[] faceVertexIndices = [0, 1, 2, 3]\n    point3f[] points = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]";
+        std::fs::write(
+            &path,
+            format!(
+                r#"#usda 1.0
+def Xform "asset" {{
+    def Xform "render" {{
+        uniform token purpose = "render"
+        def Mesh "hi" {{ {quad} }}
+        def Mesh "own_proxy" {{
+            {quad}
+            uniform token purpose = "proxy"
+        }}
+    }}
+    def Mesh "lo" {{
+        {quad}
+        uniform token purpose = "proxy"
+    }}
+}}
+def Mesh "plain" {{ {quad} }}
+class "Rock" {{
+    def Mesh "geo" {{ {quad} }}
+}}
+def Xform "heavy" (
+    instanceable = true
+    inherits = </Rock>
+) {{
+    uniform token purpose = "render"
+}}
+def Xform "light" (
+    instanceable = true
+    inherits = </Rock>
+) {{
+}}
+"#
+            ),
+        )
+        .unwrap();
+        let read = |skip: bool| {
+            let mut boxes = None;
+            let full = translate_phased(
+                &path,
+                SceneOptions {
+                    skip_render_meshes: skip,
+                    ..Default::default()
+                },
+                |b| boxes = Some(b),
+            )
+            .unwrap();
+            (full, boxes.unwrap())
+        };
+        let points = |sc: &rs::Scene, p: &str| match &sc.get(&Path::new(p).unwrap()).unwrap().kind {
+            PrimKind::Mesh(m) => m.points.first().map_or(0, Vec::len),
+            other => panic!("{p}: {other:?}"),
+        };
+        let (all, _) = read(false);
+        let (skipped, boxes) = read(true);
+        // A box is its eight corners; a quad its four points.
+        assert_eq!(points(&all.scene, "/asset/render/hi"), 4);
+        assert_eq!(points(&skipped.scene, "/asset/render/hi"), 8, "render: its box");
+        assert_eq!(points(&boxes.scene, "/asset/render/hi"), 8);
+        for p in ["/asset/render/own_proxy", "/asset/lo", "/plain"] {
+            assert_eq!(points(&skipped.scene, p), 4, "{p}: read");
+        }
+        assert_eq!(
+            skipped
+                .scene
+                .get(&Path::new("/asset/render/hi").unwrap())
+                .unwrap()
+                .purpose,
+            rs::Purpose::Default,
+            "its own purpose, as authored: none"
+        );
+        assert!(
+            skipped
+                .warnings
+                .iter()
+                .any(|w| w.starts_with("1 render-purpose meshes")),
+            "{:?}",
+            skipped.warnings
+        );
+        assert!(!all.warnings.iter().any(|w| w.contains("render-purpose meshes")));
+        // The rock's prototype: read, as "light" has no purpose.
+        let protos: Vec<String> = skipped
+            .scene
+            .prims()
+            .filter(|p| p.path.as_str().starts_with("/__Prototype") && matches!(p.kind, PrimKind::Mesh(_)))
+            .map(|p| p.path.as_str().to_string())
+            .collect();
+        assert_eq!(protos.len(), 1, "{protos:?}");
+        assert_eq!(points(&skipped.scene, &protos[0]), 4);
     }
 }

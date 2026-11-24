@@ -3223,10 +3223,8 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
         if path.is_empty() {
             return Err("No file set".to_string());
         }
-        // Never boxes in place of geometry.
-        if usd_scene::any_reading() {
-            return Err("A stage is still being read: write when it is done".to_string());
-        }
+        // Never boxes in place of geometry: every stage read whole.
+        usd_scene::ready_to_render()?;
         let (src, out) = node
             .inputs
             .first()
@@ -3271,6 +3269,10 @@ fn write_usd(graph: &NodeGraphState, subnets: &IceGraphStore, id: types::NodeId)
                     bases[k].push((*f, prims));
                 }
             }
+        }
+        // A stage first read by this cook: shown as boxes until it is read.
+        if usd_scene::any_reading() {
+            return Err("A stage is still being read: write when it is done".to_string());
         }
         let out = std::path::Path::new(&path);
         // Flattened: the override layer beside the file, composed into it,

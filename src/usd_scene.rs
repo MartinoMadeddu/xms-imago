@@ -1195,19 +1195,20 @@ fn open(path: &Path) -> Result<Layer, String> {
 /// Read a USD file as authored. Not cached: see `load_cached`.
 #[cfg(test)]
 pub fn load(path: &Path) -> Result<UsdScene, String> {
-    load_phased(path, false, &Variants::new(), &[], |_| {})
+    load_phased(path, false, &Variants::new(), &[], true, |_| {})
 }
 
 /// Read a USD file, giving `boxes` the stage drawn as boxes as soon as that
 /// much is read (see `usd_stage::read_phased`). `convert`: turned to Y-up and
 /// metres. `variants`: the variants chosen in Imago, composed in a session
 /// layer over the file's. `mask`: the population mask, the prims read (all
-/// when empty).
+/// when empty). `render`: render-purpose meshes read, else their boxes.
 fn load_phased(
     path: &Path,
     convert: bool,
     variants: &Variants,
     mask: &[String],
+    render: bool,
     boxes: impl FnOnce(UsdScene),
 ) -> Result<UsdScene, String> {
     let mut _t = crate::timings::span(format!("usd: load {}", path.display()));
@@ -1236,7 +1237,7 @@ fn load_phased(
         tree.variants = variants.clone();
         tree.mask = mask.to_vec();
     };
-    let composed = crate::usd_stage::read_phased(&layer, convert, session.as_deref(), mask, |mut first| {
+    let composed = crate::usd_stage::read_phased(&layer, convert, session.as_deref(), mask, render, |mut first| {
         first.base_dir = base_dir.clone();
         as_read(&mut first.tree);
         boxes(first);
@@ -1337,8 +1338,8 @@ enum Known {
 }
 
 /// How a file is read: turned to Y-up and metres, the variants chosen, the
-/// population mask.
-type Way = (bool, Variants, Vec<String>);
+/// population mask, its render meshes read (`render_meshes`).
+type Way = (bool, Variants, Vec<String>, bool);
 
 /// A file, when it was last changed, how it is read (`Way`), and what is
 /// known of it.
@@ -1357,6 +1358,46 @@ static CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 fn changed() {
     GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether stages are read with their render-purpose meshes. Not to start
+/// with: while the Viewer shows proxies, the heavy render geometry is not
+/// drawn, so it is kept as its boxes and not read (a big set reads in a
+/// fraction of the time). On for the rest of the session once render is
+/// shown, or a render or Write USD needs them (`read_render_meshes`). On in
+/// tests, which read stages whole.
+static RENDER_MESHES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(cfg!(test));
+
+/// See `RENDER_MESHES`.
+pub fn render_meshes() -> bool {
+    RENDER_MESHES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Stages read with their render meshes from now on: those read without them
+/// are read again, in the background. Whether every stage read has them
+/// already (false: one was read without them, and is read again now).
+pub fn read_render_meshes() -> bool {
+    if RENDER_MESHES.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
+    let without = CACHE.lock().is_ok_and(|c| c.iter().any(|(_, _, w, _)| !w.3));
+    if without {
+        changed();
+    }
+    !without
+}
+
+/// For a render or Write USD: every stage read whole, render meshes and all.
+/// `Err` with why not yet: their render meshes are being read (asked for
+/// now, when they were not), or a stage is being read.
+pub fn ready_to_render() -> Result<(), String> {
+    if !read_render_meshes() {
+        return Err("Reading the stages' render meshes: try again when they are read".into());
+    }
+    if any_reading() {
+        return Err("A stage is still being read: try again when it is done".into());
+    }
+    Ok(())
 }
 
 /// From a layer's up axis and unit to Y-up metres (a unit not stated is
@@ -1417,7 +1458,7 @@ pub fn animated(path: &str, convert: bool) -> bool {
     let Ok(cache) = CACHE.lock() else { return false };
     cache
         .iter()
-        .filter(|(p, _, (c, _, _), _)| p == path && *c == convert)
+        .filter(|(p, _, (c, _, _, _), _)| p == path && *c == convert)
         .any(|(_, _, _, k)| {
             k.lock()
                 .is_ok_and(|k| matches!(&*k, Known::Done(Ok(s)) if s.timed.is_some()))
@@ -1483,7 +1524,7 @@ pub fn reading(path: &str, convert: bool) -> Option<&'static str> {
         .lock()
         .ok()?
         .iter()
-        .find(|(p, _, (c, v, _), _)| *p == path && *c == convert && v.is_empty())
+        .find(|(p, _, (c, v, _, r), _)| *p == path && *c == convert && v.is_empty() && *r == render_meshes())
         .map(|(_, _, _, k)| k.clone())?;
     let known = known.lock().ok()?;
     match *known {
@@ -1529,7 +1570,7 @@ pub fn load_cached_with(
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty())
         .collect();
-    let way = (convert, variants.clone(), mask);
+    let way = (convert, variants.clone(), mask, render_meshes());
     let known = {
         let Ok(mut cache) = CACHE.lock() else {
             return Err("The stage cache is unavailable".into());
@@ -1539,8 +1580,12 @@ pub fn load_cached_with(
             None => {
                 let known = Arc::new(Mutex::new(Known::Reading));
                 // An older read of the file, the other way, stays: switching
-                // back is instant until the file changes.
-                cache.retain(|(p, s, _, _)| !(*p == path && *s != stamp));
+                // back is instant until the file changes. One without its
+                // render meshes goes once they are read: never needed again.
+                cache.retain(|(p, s, w, _)| {
+                    let without = way.3 && !w.3 && (&w.0, &w.1, &w.2) == (&way.0, &way.1, &way.2);
+                    !(*p == path && (*s != stamp || without))
+                });
                 if cache.len() >= 6 {
                     cache.remove(0);
                 }
@@ -1566,9 +1611,9 @@ pub fn load_cached_with(
 }
 
 #[cfg(not(test))]
-fn read_in_background(path: std::path::PathBuf, (convert, variants, mask): Way, known: Arc<Mutex<Known>>) {
+fn read_in_background(path: std::path::PathBuf, (convert, variants, mask, render): Way, known: Arc<Mutex<Known>>) {
     std::thread::spawn(move || {
-        let full = load_phased(&path, convert, &variants, &mask, |boxes| {
+        let full = load_phased(&path, convert, &variants, &mask, render, |boxes| {
             if let Ok(mut k) = known.lock() {
                 if matches!(*k, Known::Reading) {
                     *k = Known::Boxes(Arc::new(boxes));
@@ -1584,8 +1629,8 @@ fn read_in_background(path: std::path::PathBuf, (convert, variants, mask): Way, 
 }
 
 #[cfg(test)]
-fn read_in_background(path: std::path::PathBuf, (convert, variants, mask): Way, known: Arc<Mutex<Known>>) {
-    let full = load_phased(&path, convert, &variants, &mask, |_| {}).map(Arc::new);
+fn read_in_background(path: std::path::PathBuf, (convert, variants, mask, render): Way, known: Arc<Mutex<Known>>) {
+    let full = load_phased(&path, convert, &variants, &mask, render, |_| {}).map(Arc::new);
     if let Ok(mut k) = known.lock() {
         *k = Known::Done(full);
     }
@@ -1620,9 +1665,9 @@ mod tests {
                 "#usda 1.0\ndef Xform \"set\" {{\n def Mesh \"hero\" {{ {quad} }}\n def Mesh \"crowd\" {{ {quad} }}\n}}\ndef Mesh \"far\" {{ {quad} }}\n"
             ),
         );
-        let all = load_phased(&path, false, &Variants::new(), &[], |_| {}).unwrap();
+        let all = load_phased(&path, false, &Variants::new(), &[], true, |_| {}).unwrap();
         assert_eq!(all.meshes.len(), 3);
-        let masked = load_phased(&path, false, &Variants::new(), &["/set/hero".into()], |_| {}).unwrap();
+        let masked = load_phased(&path, false, &Variants::new(), &["/set/hero".into()], true, |_| {}).unwrap();
         let paths: Vec<&str> = masked.meshes.iter().map(|m| m.path.as_str()).collect();
         assert_eq!(paths, ["/set/hero"]);
         assert!(
@@ -1804,7 +1849,7 @@ def Mesh "m" {{
         assert!((hi - Vec3::new(100.0, 0.0, 200.0)).length() < 1e-4, "{hi}");
         assert_eq!(scene.tree.root, glam::Mat4::IDENTITY);
         // Turned: 200 centimetres up Z is two metres up Y.
-        let scene = load_phased(&path, true, &Variants::new(), &[], |_| {}).unwrap();
+        let scene = load_phased(&path, true, &Variants::new(), &[], true, |_| {}).unwrap();
         assert!(scene.converted);
         let (_, hi) = bounds(&world(&scene.meshes[0]));
         assert!((hi - Vec3::new(1.0, 2.0, 0.0)).length() < 1e-4, "{hi}");
@@ -2003,6 +2048,51 @@ def Mesh "plain" {{
             .map(|m| m.path.as_str())
             .collect();
         assert_eq!(drawn, vec!["/asset/proxy/lo", "/plain"]);
+    }
+
+    /// Read without render meshes (render hidden, as Imago starts): a render
+    /// mesh is its box, of eight corners, at its purpose still; the rest are
+    /// read, and the notes say how many were kept as boxes.
+    #[test]
+    fn render_meshes_are_boxes_until_they_are_wanted() {
+        use crate::types::Purpose;
+        let path = write(
+            "render_boxed.usda",
+            &format!(
+                r#"#usda 1.0
+def Xform "rock" {{
+    uniform token purpose = "render"
+    def Mesh "hi" {{
+{QUAD}    }}
+}}
+def Mesh "plain" {{
+{QUAD}}}
+"#
+            ),
+        );
+        let read = |render: bool| load_phased(&path, false, &Variants::new(), &[], render, |_| {}).unwrap();
+        let points = |scene: &UsdScene, p: &str| {
+            let m = scene
+                .meshes
+                .iter()
+                .find(|m| m.path == p)
+                .unwrap_or_else(|| panic!("no {p}"));
+            (m.mesh.vertices.len(), m.purpose)
+        };
+        let (whole, boxed) = (read(true), read(false));
+        let render = Purpose::Render { has_proxy: false };
+        assert_eq!(points(&whole, "/rock/hi"), (4, render));
+        assert_eq!(points(&boxed, "/rock/hi"), (8, render), "its box");
+        assert_eq!(points(&boxed, "/plain"), (4, Purpose::Default));
+        assert!(
+            boxed.notes.iter().any(|n| n.starts_with("1 render-purpose")),
+            "{:?}",
+            boxed.notes
+        );
+        // Drawn as its box while render is hidden; nothing of no purpose goes.
+        let h = crate::types::SceneHierarchy::default();
+        assert!(h.boxes_purpose(render) && !h.draws_purpose(render));
+        assert!(h.draws_purpose(Purpose::Default));
     }
 
     #[test]

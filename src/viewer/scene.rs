@@ -284,7 +284,18 @@ pub fn draw_modes(
     budget: u64,
 ) -> (Vec<crate::types::DrawMode>, Option<String>) {
     use crate::types::DrawMode;
-    let chosen: Vec<Option<DrawMode>> = prims.iter().map(|p| hierarchy.draw_override(&p.path)).collect();
+    // Render geometry standing in for itself, its mesh perhaps not read: its
+    // box, whatever else is chosen.
+    let chosen: Vec<Option<DrawMode>> = prims
+        .iter()
+        .map(|p| {
+            if hierarchy.boxes_purpose(crate::core::properties::purpose_of(p)) {
+                Some(DrawMode::Bounds)
+            } else {
+                hierarchy.draw_override(&p.path)
+            }
+        })
+        .collect();
     let mut modes: Vec<DrawMode> = prims
         .iter()
         .zip(&chosen)
@@ -689,14 +700,18 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
                     s.lines.extend_from_slice(&cloud);
                 }
             }
-            // Purposes the Scene Explorer's toggles leave out are not drawn.
+            // Purposes the Scene Explorer's toggles leave out are not drawn;
+            // render geometry without a proxy, while render is hidden, is
+            // drawn as its box (`draw_modes`).
             let filtered = crate::timings::span("viewer: which prims are drawn");
             let prims: Vec<Prim> = prims
                 .into_iter()
                 // Its purpose, or the one it inherits from a prim above it.
                 .filter(|p| {
                     let purpose = crate::core::properties::purpose_of(p);
-                    purpose == Purpose::Default || input.hierarchy.draws_purpose(purpose)
+                    purpose == Purpose::Default
+                        || input.hierarchy.draws_purpose(purpose)
+                        || input.hierarchy.boxes_purpose(purpose)
                 })
                 // Set invisible, on itself or on a prim above it.
                 .filter(|p| !crate::core::properties::invisible(p))
@@ -1403,6 +1418,31 @@ mod draw_mode_tests {
             vec![DrawMode::Default, DrawMode::Bounds, DrawMode::Bounds],
             "the forest kept, the rock boxed in its place"
         );
+    }
+
+    /// Render geometry without a proxy, while render is hidden (as Imago
+    /// starts), is drawn as its box, whatever is chosen for it and however
+    /// light it is; shown, as geometry.
+    #[test]
+    fn render_geometry_without_a_proxy_is_its_box() {
+        let cube = Arc::new(crate::node_graph::nodes::create_cube(1.0));
+        let prim = |path: &str, purpose: crate::types::Purpose| Prim {
+            mesh: cube.clone(),
+            purpose,
+            ..Prim::new(path.into(), MeshData::default())
+        };
+        let render = crate::types::Purpose::Render { has_proxy: false };
+        let prims = vec![
+            prim("/rock/hi", render),
+            prim("/ground", crate::types::Purpose::Default),
+        ];
+        let mut h = SceneHierarchy::default();
+        h.set_draw_mode("/rock", Some(DrawMode::Default));
+        let (modes, notice) = draw_modes(&prims, &h, u64::MAX);
+        assert_eq!((modes, notice), (vec![DrawMode::Bounds, DrawMode::Default], None));
+        h.set_purpose_shown(crate::types::PurposeKind::Render, true);
+        let (modes, _) = draw_modes(&prims, &h, u64::MAX);
+        assert_eq!(modes, vec![DrawMode::Default, DrawMode::Default]);
     }
 
     /// A prototype of several meshes is boxed as one: past the budget all its

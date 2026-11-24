@@ -8,6 +8,15 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### USD
+
+- **Render meshes are read when they are needed**: the Scene Explorer's
+  render toggle now starts off, as in usdview, and while it is off a stage's
+  render-purpose meshes are kept as their boxes and not read. On a production
+  set, reading those meshes was more than half of the load. Render geometry without a proxy is
+  drawn as its box, so nothing disappears; prims with no purpose are drawn as
+  always. Turning render on, rendering, or Write USD reads them.
+
 ### Viewer
 
 - **Box select is fast on big scenes**: a box over a scatter of a million

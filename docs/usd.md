@@ -103,6 +103,18 @@ Inspector lists the boxes, and Write USD waits (it would otherwise write boxes
 in place of geometry). On Moana the boxes take a fraction of the time the whole
 island takes; `XMS_TIMINGS=1` prints both.
 
+**Render meshes are read when they are needed.** While the Scene Explorer's
+**render** toggle is off, as it is when Imago starts, the second pass keeps
+meshes, curves and points of `render` purpose (their own or inherited) as their
+boxes and does not read them: assets usually carry heavy render geometry and a
+light proxy, and the Viewer draws the proxy. On a production set this skips
+most of what there is to read. The Load USD node's notes say how many were
+kept as boxes. Turning **render** on reads the stages again with them, in the
+background; so does a render (the Image Viewer, IPR, the Viewer's Arnold) or a
+Write USD, which first says *Reading the stages' render meshes: try again when
+they are read*. From then on, stages are read whole for the rest of the
+session.
+
 ## Sublayer, Reference, Payload
 
 Load USD's **Mode** says how the file comes into the scene, as in USD:
@@ -578,9 +590,12 @@ upstream. A point instancer's box covers every copy, and an open instancer shows
 one box per prototype.
 
 The **guide**, **proxy** and **render** toggles in the explorer's header choose
-which purposes are drawn. By default guides are hidden, proxies are shown, and
-render geometry is shown where its asset has no proxy (where it has one, the
-proxy stands in for it). A prim with no purpose is always drawn.
+which purposes are drawn. By default, as in usdview, guides and render geometry
+are hidden and proxies are shown; render geometry whose asset has no proxy is
+drawn as its box, so nothing goes missing from the view (its mesh is not read
+until render is on: see above). With render on, render geometry is drawn where
+its asset has no proxy; where it has one, the proxy stands in for it while
+proxies are shown. A prim with no purpose is always drawn.
 
 Curves are drawn as lines through their basis, points as small crosses sized by
 their width.

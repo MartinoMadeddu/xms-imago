@@ -726,14 +726,19 @@ fn start(
     settings: &SettingsInfo,
 ) {
     st.message.clear();
-    if crate::usd_scene::any_reading() {
-        st.message = "A stage is still being read: render when it is done".into();
+    if let Err(why) = crate::usd_scene::ready_to_render() {
+        st.message = why;
         return;
     }
     let Some(prims) = scene(graph, subnets) else {
         st.message = "The view flag shows no scene".into();
         return;
     };
+    // A stage first read by this cook: shown as boxes until it is read.
+    if crate::usd_scene::any_reading() {
+        st.message = "A stage is still being read: render when it is done".into();
+        return;
+    }
     let dir = render_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         st.message = format!("{}: {e}", dir.display());
@@ -781,10 +786,11 @@ fn render_live(
     revision: u64,
     ipr: bool,
 ) -> Result<(), String> {
+    crate::usd_scene::ready_to_render()?;
+    let prims = scene(graph, subnets).ok_or("The view flag shows no scene")?;
     if crate::usd_scene::any_reading() {
         return Err("A stage is still being read: render when it is done".into());
     }
-    let prims = scene(graph, subnets).ok_or("The view flag shows no scene")?;
     let motion = crate::live::motion(graph, subnets, graph.frame(), &prims);
     let renderer = crate::live::renderer_for(settings.renderer)
         .ok_or_else(|| format!("{} does not render live in Imago", settings.renderer))?;

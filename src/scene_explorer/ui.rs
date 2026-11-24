@@ -65,13 +65,17 @@ pub fn draw_scene_explorer(ui: &mut egui::Ui, hierarchy: &mut SceneHierarchy) {
                     // USD purposes drawn in the viewport. Laid out right to left.
                     use crate::types::PurposeKind;
                     for (kind, label, tip) in [
-                        (PurposeKind::Render, "render", "Draw render-purpose geometry. Where the same asset also has proxy geometry and proxy is on, the proxy is drawn instead"),
+                        (PurposeKind::Render, "render", "Draw render-purpose geometry. Where the same asset also has proxy geometry and proxy is on, the proxy is drawn instead. Off, render geometry without a proxy is drawn as its box, and stages are read without the render meshes; turned on, they are read"),
                         (PurposeKind::Proxy,  "proxy",  "Draw proxy-purpose geometry: the light stand-ins assets carry for their render geometry"),
                         (PurposeKind::Guide,  "guide",  "Draw guide-purpose geometry: helpers that are never rendered"),
                     ] {
                         let mut on = hierarchy.purpose_shown(kind);
                         if ui.toggle_value(&mut on, egui::RichText::new(label).size(11.5)).on_hover_text(tip).changed() {
                             hierarchy.set_purpose_shown(kind, on);
+                            // Shown: read, where stages were read without them.
+                            if kind == PurposeKind::Render && on {
+                                crate::usd_scene::read_render_meshes();
+                            }
                         }
                     }
                 });
