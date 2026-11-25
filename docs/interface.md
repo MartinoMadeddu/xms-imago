@@ -33,7 +33,7 @@ default; xms_xsi_layout; xms_2split_layout; xms_4split_layout) and **Save
 current as default**. Imago opens in the default layout, and File > New and
 Reset layout go back to it. xms_xsi_layout is after XSI: the Tools down the
 whole left side, the Selection bar down the right, the Viewer over the Scene Explorer (History a tab behind
-it), and the Node Graph, wide, its Parameters floating over it on **P**; no
+it), and the Node Graph, wide, its Parameters down its right on **P**; no
 Parameters pane (Window > Parameters docks one).
 
 | To | Do this |
@@ -77,9 +77,11 @@ Timeline, History, Image Viewer, Tools and Selection.
   Light, Edit Primitive, Edit Poly), the selected prims get the Viewer's
   handles too, on the first of them, each moving about its own pivot. Up to
   256 prims. See [Edit Session](usd.md#edit-session).
-- **P** over the Node Graph, an operator selected: its **Parameters** float
-  over the graph, in a window to move and size; P again or its cross closes
-  it. They show the selection, as a Parameters pane does.
+- **P** over the Node Graph: its **Parameters** down the graph's right side,
+  under its buttons, in a thin border with no title, as in Houdini's network
+  editor; P again hides them. Drag their left edge to size them. They show
+  the selection, as a Parameters pane does, and the graph's canvas is what
+  is left of it (F frames in that).
 
 - **Node Graph** tabs each have their own view: panned, zoomed and inside
   an ICE or MaterialX graph each their own way. The one last clicked in is the

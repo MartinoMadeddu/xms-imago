@@ -3,7 +3,7 @@
 //! (`core::edit_session`).
 
 use super::{Connection, NodeGraphState, AFTER};
-use crate::core::edit_session::{self, Step};
+use crate::core::edit_session;
 use crate::types::{NodeId, NodeType};
 
 impl NodeGraphState {
@@ -137,7 +137,7 @@ impl NodeGraphState {
 
     /// The steps of an Edit Session, if `id` is one.
     #[cfg(test)]
-    pub fn session_steps(&self, id: NodeId) -> Option<&[Step]> {
+    pub fn session_steps(&self, id: NodeId) -> Option<&[edit_session::Step]> {
         match &self.nodes.iter().find(|n| n.id == id)?.node_type {
             NodeType::EditSession { steps } => Some(steps),
             _ => None,

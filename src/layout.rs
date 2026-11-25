@@ -267,8 +267,10 @@ pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
 /// MaterialX), a Curve Editor's, a UV Editor's. Forgotten when the tab closes.
 #[derive(Default)]
 pub struct TabStates {
-    /// The Parameters floating over the Node Graph in use (P over it).
+    /// The Parameters down the right of the Node Graph in use (P over it),
+    /// and their width (0: the first one).
     pub parameters_over: bool,
+    pub parameters_width: f32,
     /// Node Graph tabs not the one last used: their views, swapped into the
     /// graph while each is drawn.
     pub graphs: std::collections::HashMap<u32, (crate::node_graph::GraphView, crate::ice::GraphNavigation)>,

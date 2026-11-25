@@ -1159,14 +1159,19 @@ impl Panes<'_> {
             .is_none_or(|t| t.id == tab.id)
     }
 
+    /// The Parameters down the Node Graph's right (P over it): its first
+    /// width, and the narrowest it goes.
+    const PARAMETERS_OVER_WIDTH: f32 = 380.0;
+    const PARAMETERS_OVER_MIN: f32 = 220.0;
+
     /// A Node Graph tab: drawn with its own view (`GraphView`) and graph
     /// (ICE, MaterialX) swapped in, unless it is the one last used, whose are
     /// the program's. Pressed in, it becomes that one.
     fn node_graph_tab(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         let active = *self.tabs.active_graph.get_or_insert(tab.id);
         if active == tab.id {
+            self.toggle_parameters_over(ui);
             self.draw_tab(ui, tab);
-            self.parameters_over(ui, tab);
             return;
         }
         let rect = ui.max_rect();
@@ -1191,40 +1196,77 @@ impl Panes<'_> {
         }
     }
 
-    /// P over the Node Graph in use, an operator selected: its Parameters in
-    /// a window floating over the graph, as the Parameters pane draws them
-    /// (the selection's), moved and sized at will, until P again or its
-    /// cross.
-    fn parameters_over(&mut self, ui: &egui::Ui, tab: &Tab) {
+    /// P over the Node Graph in use: its Parameters down its right side, or
+    /// not.
+    fn toggle_parameters_over(&mut self, ui: &egui::Ui) {
         let rect = ui.max_rect();
         let over = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
         let p = ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.is_none());
         if over && p && self.keys_free {
-            let on = &mut self.tabs.parameters_over;
-            *on = !*on && self.graph.selected_node.is_some();
+            self.tabs.parameters_over = !self.tabs.parameters_over;
         }
-        if !self.tabs.parameters_over {
-            return;
+    }
+
+    /// The canvas of the Node Graph tab `id`, from all of `full`: with its
+    /// Parameters on (P, the tab in use), the left of it, and the right
+    /// side for them.
+    fn graph_split(&self, id: u32, full: egui::Rect) -> (egui::Rect, Option<egui::Rect>) {
+        if !self.tabs.parameters_over || self.tabs.active_graph != Some(id) {
+            return (full, None);
         }
-        let mut open = true;
+        let most = (full.width() - 160.0).max(Self::PARAMETERS_OVER_MIN);
+        let width = match self.tabs.parameters_width {
+            w if w > 0.0 => w,
+            _ => Self::PARAMETERS_OVER_WIDTH,
+        }
+        .clamp(Self::PARAMETERS_OVER_MIN, most);
+        let split = full.right() - width;
+        (
+            egui::Rect::from_min_max(full.min, egui::pos2(split, full.max.y)),
+            Some(egui::Rect::from_min_max(egui::pos2(split, full.min.y), full.max)),
+        )
+    }
+
+    /// The Node Graph's Parameters (P over it), as Houdini's network editor
+    /// has them: in `side`, down the graph's right, inside its thin border,
+    /// no title; the selection's, as a Parameters pane draws them. Its left
+    /// edge drags to size it.
+    fn parameters_over(&mut self, ui: &mut egui::Ui, tab: u32, side: egui::Rect) {
+        let visuals = ui.visuals().clone();
+        let painter = ui.painter().with_clip_rect(side.intersect(ui.clip_rect()));
+        painter.rect_filled(side, 0.0, visuals.panel_fill);
+        // The left edge sizes it.
+        let edge = egui::Rect::from_min_max(
+            side.left_top() - egui::vec2(3.0, 0.0),
+            side.left_bottom() + egui::vec2(3.0, 0.0),
+        );
+        let drag = ui.interact(edge, egui::Id::new(("parameters_over_edge", tab)), egui::Sense::drag());
+        if drag.hovered() || drag.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        if drag.dragged() {
+            self.tabs.parameters_width = side.width() - drag.drag_delta().x;
+        }
+        let mut inner = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt(("parameters_over", tab))
+                .max_rect(side.shrink2(egui::vec2(8.0, 6.0)))
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        inner.set_clip_rect(side.shrink(1.0).intersect(ui.clip_rect()));
         // A Parameters tab of its own, following the selection.
         let mut shown = Tab {
             id: u32::MAX,
             pane: Pane::Parameters,
             follows: None,
         };
-        egui::Window::new("Parameters")
-            .id(egui::Id::new(("parameters_over", tab.id)))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(true)
-            .default_size([380.0, 520.0])
-            .default_pos(rect.right_top() + egui::vec2(-392.0, 40.0))
-            .constrain_to(rect)
-            .show(ui.ctx(), |ui| self.draw_tab(ui, &mut shown));
-        if !open {
-            self.tabs.parameters_over = false;
-        }
+        self.draw_tab(&mut inner, &mut shown);
+        let stroke = if drag.hovered() || drag.dragged() {
+            visuals.widgets.hovered.bg_stroke
+        } else {
+            visuals.widgets.noninteractive.bg_stroke
+        };
+        painter.rect_stroke(side.shrink(0.5), 0.0, stroke, egui::StrokeKind::Inside);
     }
 
     /// On a tab that follows (`Pane::follows`), at its right before its close
@@ -1863,16 +1905,21 @@ impl Panes<'_> {
                             ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↓: inside a compound  |  ↑: back out  |  Esc: cancel wire");
                             ui.separator();
                             // Canvas in its own child Ui: see the note below.
-                            let rect = ui.available_rect_before_wrap();
+                            let full = ui.available_rect_before_wrap();
+                            let (rect, side) = self.graph_split(tab.id, full);
+                            let Some(sg) = self.subnets.get_mut(sid) else { return };
                             let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                             canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
                             let (up, told) = draw_subnet_graph(&mut canvas, sg);
                             if let Some(m) = told {
                                 self.graph_file.message = m;
                             }
-                            ui.allocate_rect(rect, egui::Sense::hover());
+                            ui.allocate_rect(full, egui::Sense::hover());
                             if up {
                                 self.nav.current_subnet = None;
+                            }
+                            if let Some(side) = side {
+                                self.parameters_over(ui, tab.id, side);
                             }
                         }
                     } else {
@@ -1908,11 +1955,15 @@ impl Panes<'_> {
                     // The canvas gets its own child Ui. Nodes are widgets placed
                     // at arbitrary positions; drawn straight into the pane, a
                     // node dragged or panned past the edge would stretch it.
-                    let rect = ui.available_rect_before_wrap();
+                    let full = ui.available_rect_before_wrap();
+                    let (rect, side) = self.graph_split(tab.id, full);
                     let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                     canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
                     let dive = draw_node_graph(&mut canvas, self.graph);
-                    ui.allocate_rect(rect, egui::Sense::hover());
+                    ui.allocate_rect(full, egui::Sense::hover());
+                    if let Some(side) = side {
+                        self.parameters_over(ui, tab.id, side);
+                    }
                     {
                         let subnets = &*self.subnets;
                         let eval = |sid: IceGraphId,
