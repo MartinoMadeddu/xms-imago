@@ -271,6 +271,14 @@ pub enum NodeType {
         #[serde(default)]
         edits: std::collections::BTreeMap<String, serde_json::Value>,
     },
+    /// What is done to prims from the Viewer and the Selection bar, kept as
+    /// steps of absolute overrides by prim (`core::edit_session`): one
+    /// operator for a session of edits, where each would otherwise be an
+    /// Edit Primitive.
+    EditSession {
+        #[serde(default)]
+        steps: Vec<crate::core::edit_session::Step>,
+    },
     /// Prims moved under `parent` (made as an Xform when the scene has none),
     /// each with what is below it: those its Prims Location tab names, or
     /// every root prim (`mode`). `keep_world`: they stay where they were in
@@ -1235,6 +1243,7 @@ pub fn node_type_icon(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. } => crate::icons::PROHIBIT,
         NodeType::SetAttribute { .. } => crate::icons::TAG,
         NodeType::EditPrimitive { .. } => crate::icons::PENCIL_SIMPLE,
+        NodeType::EditSession { .. } => crate::icons::ARROWS_OUT_CARDINAL,
         NodeType::Reparent { .. } => crate::icons::TREE_STRUCTURE,
         NodeType::Rename { .. } => crate::icons::TEXT_AA,
         NodeType::Duplicate { .. } => crate::icons::COPY,
@@ -1340,6 +1349,7 @@ pub fn node_type_label(t: &NodeType) -> &'static str {
         NodeType::PrunePrims { .. } => "Prune Primitives",
         NodeType::SetAttribute { .. } => "Set Attribute",
         NodeType::EditPrimitive { .. } => "Edit Primitive",
+        NodeType::EditSession { .. } => "Edit Session",
         NodeType::Reparent { .. } => "Reparent",
         NodeType::Rename { .. } => "Rename",
         NodeType::Duplicate { .. } => "Duplicate",
@@ -2960,9 +2970,60 @@ pub struct SceneObject {
     pub type_name: String,
 }
 
+/// What a click in the Viewer selects (the Selection bar's Pick): the prim
+/// under the pointer, the model it is part of, or its top prim.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PickMode {
+    #[default]
+    Prim,
+    /// The nearest prim at or above it of kind component, else of kind
+    /// assembly or group, else the prim itself.
+    Model,
+    /// The prim at the top of its hierarchy, under the root.
+    Top,
+}
+
+impl PickMode {
+    /// The path a click on `path` selects.
+    pub fn picked(self, path: &str, prims: &[Prim]) -> String {
+        match self {
+            PickMode::Prim => path.to_string(),
+            PickMode::Top => path
+                .split('/')
+                .find(|s| !s.is_empty())
+                .map(|s| format!("/{s}"))
+                .unwrap_or_else(|| path.to_string()),
+            PickMode::Model => {
+                let prim = crate::core::instancing::instance_path(path).map_or(path, |(i, _)| i);
+                let tree = prims
+                    .iter()
+                    .find(|p| p.path == prim || path.starts_with(&format!("{}/", p.path)))
+                    .and_then(|p| p.stage.as_deref());
+                let Some(tree) = tree else {
+                    return path.to_string();
+                };
+                let mut up = crate::core::properties::parents(prim);
+                up.push(prim.to_string());
+                up.reverse();
+                let kind = |p: &str| match tree.authored(p, "kind") {
+                    Some(crate::core::properties::Value::Token(k)) => k.clone(),
+                    _ => String::new(),
+                };
+                up.iter()
+                    .find(|p| kind(p) == "component")
+                    .or_else(|| up.iter().find(|p| matches!(kind(p).as_str(), "assembly" | "group")))
+                    .cloned()
+                    .unwrap_or_else(|| path.to_string())
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SceneHierarchy {
     pub objects: Vec<SceneObject>,
+    /// What a click in the Viewer selects (the Selection bar's Pick).
+    pub pick: PickMode,
     /// The paths of the selected rows, prims or groups, in the order they were
     /// selected. The Primitive Inspector shows what is at or below them;
     /// nothing selected, the whole scene. Dragged out, they all go.
@@ -3288,6 +3349,11 @@ impl SceneHierarchy {
     /// point instancer. For the Primitive Inspector and Prims Location tabs.
     pub fn selected_prim_paths(&self) -> Vec<String> {
         self.chosen.prims.clone()
+    }
+
+    /// `selected_prim_paths`, without a copy.
+    pub fn selected_prims(&self) -> &[String] {
+        &self.chosen.prims
     }
 
     /// Draw a prim of a composed stage as geometry, or as a box again.

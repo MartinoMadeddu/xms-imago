@@ -788,6 +788,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
     let located = crate::core::locations::is_set(&node.locations);
     let mut enter_compound = false;
     let mut back_to_library = false;
+    let mut explode = false;
 
     match &mut node.node_type {
         // Create
@@ -1244,6 +1245,9 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
         }
         NodeType::EditPrimitive { kind, edits } => {
             super::edit_primitive::rows(ui, kind, edits, &mut node.channels, &edit_in, located)
+        }
+        NodeType::EditSession { steps } => {
+            explode = super::edit_session::rows(ui, steps) == Some(super::edit_session::Ask::Explode);
         }
         NodeType::Reparent { parent, mode, keep_world } => {
             super::reparent::rows(ui, parent, mode, keep_world, &reparent_in, located)
@@ -1709,6 +1713,9 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
         }),
     }
     spare_rows(ui, node);
+    if explode {
+        graph.explode_session(sel_id);
+    }
     if enter_compound {
         graph.inside.request = Some(crate::node_graph::compound::Request::Enter(sel_id));
     }

@@ -880,6 +880,14 @@ fn node_type_value(t: &NodeType, core: bool) -> serde_json::Value {
 
 /// "#6 Bevel height 0.12 to 0.15", "add Extrude", "size 1 to 2".
 fn param_change(a: &NodeType, b: &NodeType) -> String {
+    // An Edit Session: the step that changed, by its name ("Move /cube").
+    if let (NodeType::EditSession { steps: sa }, NodeType::EditSession { steps: sb }) = (a, b) {
+        let changed = sb.iter().enumerate().rev().find(|(k, s)| sa.get(*k) != Some(*s));
+        return match changed {
+            Some((_, s)) if sb.len() >= sa.len() => s.name.clone(),
+            _ => "steps".into(),
+        };
+    }
     let (va, vb) = (node_type_value(a, true), node_type_value(b, true));
     // Inside the variant: {"CreateCube": {...}}.
     let (ia, ib) = match (&va, &vb) {

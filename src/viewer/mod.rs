@@ -12,7 +12,7 @@
 pub mod attributes;
 pub(crate) mod camera;
 mod edit;
-mod gizmo;
+pub mod gizmo;
 pub(crate) mod gpu;
 pub mod movie;
 mod occlusion;
@@ -204,6 +204,7 @@ impl Viewer {
                 input.tool,
                 &mut self.gizmo_drag,
                 free,
+                input.hierarchy.selected_prims(),
             );
             overlay.top.extend(g.top);
             self.pick_prims(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
@@ -377,12 +378,25 @@ impl Viewer {
             if let (Some(start), Some(end)) = (self.press.take(), pos) {
                 if boxed(start, end) {
                     let at = |p: egui::Pos2| Vec2::new(p.x, p.y) - origin;
-                    let paths = pick::prims_in_rect(view, at(start), at(end), &prims, &self.scene.standins);
+                    let mut paths = pick::prims_in_rect(view, at(start), at(end), &prims, &self.scene.standins);
+                    // As the Selection bar's Pick has it: models, or tops.
+                    let mode = input.hierarchy.pick;
+                    if mode != crate::types::PickMode::Prim {
+                        let mut seen = std::collections::HashSet::new();
+                        paths = paths
+                            .iter()
+                            .map(|p| mode.picked(p, &prims))
+                            .filter(|p| seen.insert(p.clone()))
+                            .collect();
+                    }
                     input.hierarchy.select_boxed(paths, ctrl, shift);
                     ctx.request_repaint();
                 } else if free {
                     match pick::prim_at_drawn(view, Vec2::new(end.x, end.y) - origin, &prims, &self.scene.standins) {
-                        Some(path) => input.hierarchy.click(&path, ctrl, false, &[]),
+                        Some(path) => {
+                            let path = input.hierarchy.pick.picked(&path, &prims);
+                            input.hierarchy.click(&path, ctrl, false, &[])
+                        }
                         None => {
                             if !ctrl {
                                 input.hierarchy.clear_selection()

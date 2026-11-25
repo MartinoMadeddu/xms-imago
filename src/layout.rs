@@ -46,10 +46,16 @@ pub enum Pane {
     ImageViewer,
     /// The Light Linker's table, big, with the scene's lights beside it.
     LightLinker,
+    /// Every operator by category, to click after the selected one or drag
+    /// onto the Node Graph (`tools`).
+    Tools,
+    /// What is selected in the Viewer, its transform and edits, after XSI's
+    /// main command panel (`selection_bar`).
+    Selection,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 11] = [
+    pub const ALL: [Pane; 13] = [
         Pane::Viewer,
         Pane::NodeGraph,
         Pane::SceneExplorer,
@@ -61,6 +67,8 @@ impl Pane {
         Pane::CurveEditor,
         Pane::ImageViewer,
         Pane::LightLinker,
+        Pane::Tools,
+        Pane::Selection,
     ];
 
     /// How a tab of this pane chooses the operator it shows, unless told
@@ -81,7 +89,13 @@ impl Pane {
     pub fn multiple(self) -> bool {
         !matches!(
             self,
-            Pane::Viewer | Pane::Timeline | Pane::History | Pane::Retired | Pane::ImageViewer
+            Pane::Viewer
+                | Pane::Timeline
+                | Pane::History
+                | Pane::Retired
+                | Pane::ImageViewer
+                | Pane::Tools
+                | Pane::Selection
         )
     }
 
@@ -99,6 +113,8 @@ impl Pane {
             Pane::CurveEditor => "Curve Editor",
             Pane::ImageViewer => "Image Viewer",
             Pane::LightLinker => "Light Linker",
+            Pane::Tools => "Tools",
+            Pane::Selection => "Selection",
         }
     }
 }
@@ -251,6 +267,8 @@ pub fn may_become(open: &[Tab], tab: Tab, pane: Pane) -> bool {
 /// MaterialX), a Curve Editor's, a UV Editor's. Forgotten when the tab closes.
 #[derive(Default)]
 pub struct TabStates {
+    /// The Parameters floating over the Node Graph in use (P over it).
+    pub parameters_over: bool,
     /// Node Graph tabs not the one last used: their views, swapped into the
     /// graph while each is drawn.
     pub graphs: std::collections::HashMap<u32, (crate::node_graph::GraphView, crate::ice::GraphNavigation)>,
@@ -349,11 +367,12 @@ pub struct Layout {
 
 /// The layouts Imago comes with, in Window > Layout: name (its file's),
 /// the file. The first is the default until another is saved as default.
-pub const PRESETS: [(&str, &str); 3] = [
+pub const PRESETS: [(&str, &str); 4] = [
     (
         "xms_main_layout",
         include_str!("../assets/layouts/xms_main_layout.json"),
     ),
+    ("xms_xsi_layout", include_str!("../assets/layouts/xms_xsi_layout.json")),
     (
         "xms_2split_layout",
         include_str!("../assets/layouts/xms_2split_layout.json"),
@@ -430,6 +449,35 @@ pub fn built_dock() -> DockState<Tab> {
     let [view, _prim] = s.split_below(left, 0.72, tabs(&[Pane::PrimInspector, Pane::LightLinker]));
     s.split_left(view, 0.163, tabs(&[Pane::SceneExplorer]));
     s.split_right(right, 0.648, tabs(&[Pane::Parameters]));
+    dock
+}
+
+/// After XSI: the Tools in a narrow column down the whole left side, the
+/// Selection bar down the whole right side, then the Viewer over the Scene
+/// Explorer (the Primitive Inspector, Light Linker
+/// and History behind it), and the Node Graph, wide (UV and Curve Editors
+/// behind): its Parameters float over it, on P. The Timeline along the
+/// bottom. No Parameters pane: Window > Parameters docks one. What
+/// `xms_xsi_layout.json` was written from.
+pub fn xsi_dock() -> DockState<Tab> {
+    let tabs = |panes: &[Pane]| panes.iter().map(|p| Tab::new(*p)).collect::<Vec<Tab>>();
+    let mut dock = DockState::new(tabs(&[Pane::Viewer, Pane::ImageViewer]));
+    let s = dock.main_surface_mut();
+    // The Tools the whole height, the Timeline beside them.
+    let [work, _tools] = s.split_left(NodeIndex::root(), 0.05, tabs(&[Pane::Tools]));
+    let [work, _selection] = s.split_right(work, 0.915, tabs(&[Pane::Selection]));
+    let [work, _timeline] = s.split_below(work, 0.871, tabs(&[Pane::Timeline]));
+    let [view, _graph] = s.split_right(work, 0.45, tabs(&[Pane::NodeGraph, Pane::UvEditor, Pane::CurveEditor]));
+    s.split_below(
+        view,
+        0.63,
+        tabs(&[
+            Pane::SceneExplorer,
+            Pane::PrimInspector,
+            Pane::LightLinker,
+            Pane::History,
+        ]),
+    );
     dock
 }
 
@@ -842,7 +890,9 @@ mod tests {
             tab_drag: None,
         }
     }
-    const ALL: usize = Pane::ALL.len();
+    /// The panes open in the default layout: every one but the Tools and the
+    /// Selection bar.
+    const ALL: usize = Pane::ALL.len() - 2;
     /// The first tab of `pane`, wherever it is.
     fn find(dock: &DockState<Tab>, pane: Pane) -> Option<egui_dock::TabPath> {
         dock.find_tab_from(|t| t.pane == pane)
@@ -1109,8 +1159,24 @@ mod tests {
             let dock = preset(name).unwrap_or_else(|| panic!("{name} does not read"));
             assert!(is_valid(&dock), "{name}");
         }
-        assert_eq!(main_dock().iter_all_tabs().count(), Pane::ALL.len());
+        // Every pane but the Tools and the Selection bar, which the XSI
+        // layout has.
+        assert_eq!(main_dock().iter_all_tabs().count(), Pane::ALL.len() - 2);
         assert_eq!(preset("xms_2split_layout").unwrap().iter_all_tabs().count(), 7);
+        // Every pane but the Parameters, which float over the Node Graph.
+        let xsi = preset("xms_xsi_layout").unwrap();
+        assert_eq!(xsi.iter_all_tabs().count(), Pane::ALL.len() - 1);
+        assert!(xsi.find_tab_from(|t| t.pane == Pane::Parameters).is_none());
+        // The Tools alone in their column, the whole height: the root's
+        // first split is theirs.
+        let tree = &xsi[egui_dock::SurfaceIndex::main()];
+        let (leaf, _) = find_in(tree, Pane::Tools).unwrap();
+        assert_eq!(find_in(tree, Pane::Viewer).map(|f| f.0 != leaf), Some(true));
+        assert!(leaf.parent() == Some(NodeIndex::root()), "{leaf:?}");
+        // The Selection bar down the right, beside the Timeline's column.
+        let (bar, _) = find_in(tree, Pane::Selection).unwrap();
+        assert_ne!(Some(bar), find_in(tree, Pane::Timeline).map(|f| f.0));
+        assert_eq!(xsi.iter_all_tabs().count(), xsi_dock().iter_all_tabs().count());
         assert!(preset("nope").is_none());
         // Choosing one keeps the lock as it is.
         let mut l = layout();
@@ -1158,14 +1224,15 @@ mod tests {
         let tree = &dock[egui_dock::SurfaceIndex::main()];
         let leaf_of = |p: Pane| find_in(tree, p).unwrap().0;
         assert_eq!(leaf_of(Pane::LightLinker), leaf_of(Pane::PrimInspector));
-        assert!(is_valid(&dock) && dock.iter_all_tabs().count() == Pane::ALL.len());
+        assert!(is_valid(&dock) && dock.iter_all_tabs().count() == Pane::ALL.len() - 2);
     }
 
     #[test]
     fn the_default_layout_has_every_pane_once() {
         let d = main_dock();
         assert!(is_valid(&d));
-        assert_eq!(d.iter_all_tabs().count(), Pane::ALL.len());
+        // Every pane but the Tools and the Selection bar (`xms_xsi_layout`).
+        assert_eq!(d.iter_all_tabs().count(), Pane::ALL.len() - 2);
     }
 
     /// Some panes open twice, each a tab of its own number; one of a kind
@@ -1233,7 +1300,7 @@ mod tests {
         let mut ids: Vec<u32> = dock.iter_all_tabs().map(|(_, t)| t.id).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert!(ids.len() == Pane::ALL.len() && ids[0] > 0);
+        assert!(ids.len() == Pane::ALL.len() - 2 && ids[0] > 0);
         assert!(Tab::new(Pane::Viewer).id > *ids.last().unwrap());
         let mut twice = main_dock();
         let first = twice.iter_all_tabs().map(|(_, t)| *t).next().unwrap();

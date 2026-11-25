@@ -27,10 +27,14 @@ Save As Shift+S, Quit Q.
 ## Panes
 
 Viewer, Image Viewer, Node Graph, Curve Editor, UV Editor, Scene Explorer,
-History, Parameters, Primitive Inspector, Timeline and Light Linker (a tab beside the Scene Explorer, bottom left; see [USD](usd.md#light-linking)), each a
-tab. **Window > Layout** has three layouts (xms_main_layout, the default;
-xms_2split_layout; xms_4split_layout) and **Save current as default**. Imago
-opens in the default layout, and File > New and Reset layout go back to it.
+History, Parameters, Primitive Inspector, Timeline, Light Linker (a tab beside the Scene Explorer, bottom left; see [USD](usd.md#light-linking)),
+Tools and Selection, each a tab. **Window > Layout** has four layouts (xms_main_layout, the
+default; xms_xsi_layout; xms_2split_layout; xms_4split_layout) and **Save
+current as default**. Imago opens in the default layout, and File > New and
+Reset layout go back to it. xms_xsi_layout is after XSI: the Tools down the
+whole left side, the Selection bar down the right, the Viewer over the Scene Explorer (History a tab behind
+it), and the Node Graph, wide, its Parameters floating over it on **P**; no
+Parameters pane (Window > Parameters docks one).
 
 | To | Do this |
 |---|---|
@@ -43,7 +47,39 @@ opens in the default layout, and File > New and Reset layout go back to it.
 | Keep a layout | Window > Save layout... and Load layout... |
 
 Most panes can be open in several tabs at once. One of a kind: the Viewer,
-Timeline, History and Image Viewer.
+Timeline, History, Image Viewer, Tools and Selection.
+
+- **Tools** lists the add menu's categories down a narrow column, each a
+  button in the colour its operators have (File, Create, Primitives, Lights,
+  Modify, … then Organise). A click opens a box beside it of the category's
+  operators; Esc, a click away or on the category again closes it. **Drag**
+  an operator onto the Node Graph: it is added where it is let go, and
+  dropped on a wire (which lights), goes into it, as a node dragged there
+  with Shift does. **Click** one: it is added after the selected operator,
+  fed by it and feeding what it fed, the view flag passed on where it was
+  (an operator with no input, a Cube, goes beside it, on its own; with
+  nothing selected, in the middle of the graph). Either way it is selected.
+- **Selection** (after XSI's main command panel) shows what is selected in
+  the Viewer or the Scene Explorer, not an operator:
+  - **Edits go into**: the Edit Session its edits go into (click to select
+    it), or the one the first edit will put in after the viewed operator.
+  - **Select**: what a click or a box in the Viewer selects: the **Prim**,
+    its **Model** (the nearest prim above of kind component, else assembly
+    or group), or its **Top** prim.
+  - **Transform**: the Select, Move, Rotate and Scale tools (Q W E R), and
+    the selected prims' Scale, Rotate and Translate, **Local** (under their
+    parents) or **Global** (in the world). Typing or dragging a value sets
+    it on every selected prim; a field showing – differs between them.
+  - **Edit**: Edit Selected (an Edit Primitive naming them, as Enter in the
+    Scene Explorer), Hide, Show and Deactivate (into the Edit Session).
+
+  With no operator selected that has handles of its own (Transform, Camera,
+  Light, Edit Primitive, Edit Poly), the selected prims get the Viewer's
+  handles too, on the first of them, each moving about its own pivot. Up to
+  256 prims. See [Edit Session](usd.md#edit-session).
+- **P** over the Node Graph, an operator selected: its **Parameters** float
+  over the graph, in a window to move and size; P again or its cross closes
+  it. They show the selection, as a Parameters pane does.
 
 - **Node Graph** tabs each have their own view: panned, zoomed and inside
   an ICE or MaterialX graph each their own way. The one last clicked in is the

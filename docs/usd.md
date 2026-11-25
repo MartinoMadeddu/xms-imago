@@ -14,6 +14,7 @@ Prune, Set Attribute and Unpack are in "Primitives".
 | Pick Primitives | Marks the primitives whose path matches a pattern as picked |
 | Prune Primitives | Removes the primitives its Prims Location tab lists, or keeps only those |
 | Set Attribute | Sets one value per prim: a constant primvar (Object) or the prim's own attribute or metadata (Property): `visibility`, `purpose`, `active`, `kind`, `instanceable`, `subdivisionScheme`, `doubleSided`, or any name |
+| Edit Session | What is done to prims from the Viewer's handles and the Selection bar, kept as steps to switch off, reorder, freeze or explode into Edit Primitives |
 | Edit Primitive | Edits the prims its Prims Location tab names as what they are (Xform, Mesh, Curves, Points, Camera, Light, RenderSettings): its form shows their values, and what is changed overrides them |
 | Reparent | Moves prims under another prim, its Parent, with what is below them: those its Prims Location tab names, or the whole scene |
 | Rename | Renames the prims its Prims Location tab names: Find replaced, a Prefix and Suffix added |
@@ -335,7 +336,36 @@ prim's parents' space, and a drag overrides that part alone (Translate, Rotate
 or Scale), as typing it in the form does.
 
 Only Edit Primitive has overrides like these: every other operator's parameters
-are simply its values.
+are simply its values (and an Edit Session's steps, below, which are kept the
+same way).
+
+## Edit Session
+
+An Edit Session keeps what you do to prims in the Viewer and the Selection bar:
+select prims (in the Viewer or the Scene Explorer) and drag the handles (W, E,
+R), or type in the Selection bar. The first edit puts an Edit Session in after
+the operator with the display flag, in its wires (fed by it, feeding what it
+fed), and moves the flag to it; the selection stays. The next edits go into
+it while it has the flag. View another operator and edit: a session of its
+own goes in after that one.
+
+Its Parameters list its **steps**, oldest first. Edits gather into the last
+step while they go to the same prims (a cube dragged ten times is one step,
+"Move /cube"; rotated too, "Edit /cube"); another selection starts a new one.
+A step's values are **absolute**, as Edit Primitive's overrides are: the last
+step to set a prim's value wins, so switching an earlier step off changes only
+what no later step set. Each step can be switched off, renamed, moved up or
+down, and deleted.
+
+- **Freeze** makes the steps that are on one step, as the last to set each
+  value left it; steps that are off are dropped.
+- **Explode** puts the steps that are on in the graph as Edit Primitives, in
+  its place and in order, one per step (prims a step gave the same values
+  share one).
+
+The Selection bar's Hide, Show and Deactivate are steps too (visibility,
+active). Not keyed: a session is for laying a scene out, not animating it.
+Write USD writes its values as Edit Primitive's are written.
 
 ## Reparent
 

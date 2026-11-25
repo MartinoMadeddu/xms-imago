@@ -39,12 +39,14 @@ mod recent;
 #[cfg(test)]
 mod regress;
 mod scene_explorer;
+mod selection_bar;
 mod settings;
 mod strands;
 mod templates;
 mod theme;
 mod timeline;
 mod timings;
+mod tools;
 mod type_colours;
 mod types;
 mod ui_scale;
@@ -1163,7 +1165,9 @@ impl Panes<'_> {
     fn node_graph_tab(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         let active = *self.tabs.active_graph.get_or_insert(tab.id);
         if active == tab.id {
-            return self.draw_tab(ui, tab);
+            self.draw_tab(ui, tab);
+            self.parameters_over(ui, tab);
+            return;
         }
         let rect = ui.max_rect();
         let pressed =
@@ -1184,6 +1188,42 @@ impl Panes<'_> {
             self.graph.swap_view(&mut view);
             std::mem::swap(&mut *self.nav, &mut at);
             self.tabs.graphs.insert(tab.id, (view, at));
+        }
+    }
+
+    /// P over the Node Graph in use, an operator selected: its Parameters in
+    /// a window floating over the graph, as the Parameters pane draws them
+    /// (the selection's), moved and sized at will, until P again or its
+    /// cross.
+    fn parameters_over(&mut self, ui: &egui::Ui, tab: &Tab) {
+        let rect = ui.max_rect();
+        let over = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| rect.contains(p)));
+        let p = ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.is_none());
+        if over && p && self.keys_free {
+            let on = &mut self.tabs.parameters_over;
+            *on = !*on && self.graph.selected_node.is_some();
+        }
+        if !self.tabs.parameters_over {
+            return;
+        }
+        let mut open = true;
+        // A Parameters tab of its own, following the selection.
+        let mut shown = Tab {
+            id: u32::MAX,
+            pane: Pane::Parameters,
+            follows: None,
+        };
+        egui::Window::new("Parameters")
+            .id(egui::Id::new(("parameters_over", tab.id)))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_size([380.0, 520.0])
+            .default_pos(rect.right_top() + egui::vec2(-392.0, 40.0))
+            .constrain_to(rect)
+            .show(ui.ctx(), |ui| self.draw_tab(ui, &mut shown));
+        if !open {
+            self.tabs.parameters_over = false;
         }
     }
 
@@ -1638,6 +1678,10 @@ impl Panes<'_> {
             Pane::History => {
                 history::draw(ui, self.history, self.graph.selected_node);
             }
+
+            Pane::Tools => tools::draw(ui, self.graph),
+
+            Pane::Selection => selection_bar::draw(ui, self.graph, self.hierarchy, self.poly_tool),
 
             Pane::LightLinker => {
                 let selected = self.hierarchy.selected_prim_paths();

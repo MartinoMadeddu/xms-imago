@@ -181,6 +181,7 @@ pub fn evaluate_node_type(
         }
         // Without Primitive Locations it names nothing: what comes in goes on.
         NodeType::EditPrimitive { .. } => inputs.first().cloned(),
+        NodeType::EditSession { steps } => inputs.first().map(|r| crate::core::edit_session::apply(r, steps)),
         // Cooked by the graph, with its locations (`core::reparent`).
         NodeType::Reparent { .. } | NodeType::Rename { .. } | NodeType::Duplicate { .. } => inputs.first().cloned(),
         // On the picked primitives, or every one (`core::attribute_edit`).
