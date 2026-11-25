@@ -636,6 +636,31 @@ pub(crate) fn draw_ui(
         }
     }
 
+    // Side bars
+    // The Tools down the left and the Selection bar down the right, when the
+    // layout has them: fixed, as the top bar is, and in its grey, so the
+    // three read as one frame round the panes. Not tabs: they are not moved,
+    // sized or closed but from Window.
+    let bar = egui::Frame::NONE
+        .fill(theme::c(58, 58, 58))
+        .inner_margin(egui::Margin::symmetric(6, 6));
+    if layout.bars.tools {
+        egui::Panel::left("tools_bar")
+            .exact_size(TOOLS_BAR)
+            .resizable(false)
+            .frame(bar)
+            .show(root, |ui| tools::draw(ui, &mut *graph));
+    }
+    if layout.bars.selection {
+        egui::Panel::right("selection_bar")
+            .exact_size(SELECTION_BAR)
+            .resizable(false)
+            .frame(bar)
+            .show(root, |ui| {
+                selection_bar::draw(ui, &mut *graph, &mut *hierarchy, &mut *poly_tool)
+            });
+    }
+
     let mut toggle_float = None;
     let mut dock_rect = ctx.content_rect();
     let mut tab_pressed = None;
@@ -972,6 +997,10 @@ fn draw_logo(ui: &mut egui::Ui) -> egui::Response {
     response
 }
 
+/// The widths of the side bars: the Tools, the Selection bar.
+const TOOLS_BAR: f32 = 142.0;
+const SELECTION_BAR: f32 = 236.0;
+
 /// A thin vertical line between parts of the top bar.
 fn top_bar_divider(ui: &mut egui::Ui) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(1.0, 16.0), egui::Sense::hover());
@@ -1163,6 +1192,8 @@ impl Panes<'_> {
     /// width, and the narrowest it goes.
     const PARAMETERS_OVER_WIDTH: f32 = 380.0;
     const PARAMETERS_OVER_MIN: f32 = 220.0;
+    /// The shortest they go.
+    const PARAMETERS_OVER_LOW: f32 = 120.0;
 
     /// A Node Graph tab: drawn with its own view (`GraphView`) and graph
     /// (ICE, MaterialX) swapped in, unless it is the one last used, whose are
@@ -1207,66 +1238,106 @@ impl Panes<'_> {
         }
     }
 
-    /// The canvas of the Node Graph tab `id`, from all of `full`: with its
-    /// Parameters on (P, the tab in use), the left of it, and the right
-    /// side for them.
-    fn graph_split(&self, id: u32, full: egui::Rect) -> (egui::Rect, Option<egui::Rect>) {
+    /// Where the Node Graph tab `id`'s Parameters go (P, the tab in use):
+    /// over its canvas, at the top right, as wide and as tall as they were
+    /// sized, within the canvas.
+    fn parameters_rect(&self, id: u32, canvas: egui::Rect) -> Option<egui::Rect> {
         if !self.tabs.parameters_over || self.tabs.active_graph != Some(id) {
-            return (full, None);
+            return None;
         }
-        let most = (full.width() - 160.0).max(Self::PARAMETERS_OVER_MIN);
-        let width = match self.tabs.parameters_width {
-            w if w > 0.0 => w,
-            _ => Self::PARAMETERS_OVER_WIDTH,
-        }
-        .clamp(Self::PARAMETERS_OVER_MIN, most);
-        let split = full.right() - width;
-        (
-            egui::Rect::from_min_max(full.min, egui::pos2(split, full.max.y)),
-            Some(egui::Rect::from_min_max(egui::pos2(split, full.min.y), full.max)),
-        )
+        let fit = |v: f32, first: f32, least: f32, most: f32| {
+            let v = if v > 0.0 { v } else { first };
+            v.clamp(least.min(most), most)
+        };
+        let w = fit(
+            self.tabs.parameters_width,
+            Self::PARAMETERS_OVER_WIDTH,
+            Self::PARAMETERS_OVER_MIN,
+            canvas.width() - 40.0,
+        );
+        let h = fit(
+            self.tabs.parameters_height,
+            canvas.height(),
+            Self::PARAMETERS_OVER_LOW,
+            canvas.height(),
+        );
+        Some(egui::Rect::from_min_size(
+            egui::pos2(canvas.right() - w, canvas.top()),
+            egui::vec2(w, h),
+        ))
     }
 
     /// The Node Graph's Parameters (P over it), as Houdini's network editor
-    /// has them: in `side`, down the graph's right, inside its thin border,
-    /// no title; the selection's, as a Parameters pane draws them. Its left
-    /// edge drags to size it.
-    fn parameters_over(&mut self, ui: &mut egui::Ui, tab: u32, side: egui::Rect) {
+    /// has them: over the graph at its top right, in a thin border, no
+    /// title; the selection's, as a Parameters pane draws them. Their left
+    /// edge, bottom edge and bottom left corner drag to size them. On a layer
+    /// of their own, so the graph under them takes no clicks or wheel.
+    fn parameters_over(&mut self, ui: &egui::Ui, tab: u32, side: egui::Rect) {
         let visuals = ui.visuals().clone();
-        let painter = ui.painter().with_clip_rect(side.intersect(ui.clip_rect()));
-        painter.rect_filled(side, 0.0, visuals.panel_fill);
-        // The left edge sizes it.
-        let edge = egui::Rect::from_min_max(
-            side.left_top() - egui::vec2(3.0, 0.0),
-            side.left_bottom() + egui::vec2(3.0, 0.0),
-        );
-        let drag = ui.interact(edge, egui::Id::new(("parameters_over_edge", tab)), egui::Sense::drag());
-        if drag.hovered() || drag.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-        }
-        if drag.dragged() {
-            self.tabs.parameters_width = side.width() - drag.drag_delta().x;
-        }
-        let mut inner = ui.new_child(
-            egui::UiBuilder::new()
-                .id_salt(("parameters_over", tab))
-                .max_rect(side.shrink2(egui::vec2(8.0, 6.0)))
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        inner.set_clip_rect(side.shrink(1.0).intersect(ui.clip_rect()));
-        // A Parameters tab of its own, following the selection.
-        let mut shown = Tab {
-            id: u32::MAX,
-            pane: Pane::Parameters,
-            follows: None,
-        };
-        self.draw_tab(&mut inner, &mut shown);
-        let stroke = if drag.hovered() || drag.dragged() {
-            visuals.widgets.hovered.bg_stroke
-        } else {
-            visuals.widgets.noninteractive.bg_stroke
-        };
-        painter.rect_stroke(side.shrink(0.5), 0.0, stroke, egui::StrokeKind::Inside);
+        let id = egui::Id::new(("parameters_over", tab));
+        egui::Area::new(id)
+            .order(egui::Order::Middle)
+            .fixed_pos(side.min)
+            .constrain(false)
+            .show(ui.ctx(), |ui| {
+                ui.set_clip_rect(side);
+                // The whole rectangle is theirs: the graph under it is not
+                // reached.
+                ui.allocate_rect(side, egui::Sense::click());
+                ui.painter().rect_filled(side, 0.0, visuals.panel_fill);
+                let mut inner = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt(id.with("inner"))
+                        .max_rect(side.shrink2(egui::vec2(8.0, 6.0)))
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                inner.set_clip_rect(side.shrink(1.0));
+                // A Parameters tab of its own, following the selection.
+                let mut shown = Tab {
+                    id: u32::MAX,
+                    pane: Pane::Parameters,
+                    follows: None,
+                };
+                self.draw_tab(&mut inner, &mut shown);
+                // The edges that size them, over what they hold.
+                let grip = 4.0;
+                let left = egui::Rect::from_min_max(
+                    side.left_top() - egui::vec2(grip, 0.0),
+                    side.left_bottom() + egui::vec2(grip, -grip),
+                );
+                let bottom = egui::Rect::from_min_max(
+                    side.left_bottom() + egui::vec2(grip, -grip),
+                    side.right_bottom() + egui::vec2(0.0, grip),
+                );
+                let corner = egui::Rect::from_center_size(side.left_bottom(), egui::vec2(3.0 * grip, 3.0 * grip));
+                let mut lit = false;
+                for (rect, x, y, cursor) in [
+                    (left, true, false, egui::CursorIcon::ResizeHorizontal),
+                    (bottom, false, true, egui::CursorIcon::ResizeVertical),
+                    (corner, true, true, egui::CursorIcon::ResizeSouthWest),
+                ] {
+                    let r = ui.interact(rect, id.with((x, y)), egui::Sense::drag());
+                    if r.hovered() || r.dragged() {
+                        ui.ctx().set_cursor_icon(cursor);
+                        lit = true;
+                    }
+                    if r.dragged() {
+                        let d = r.drag_delta();
+                        if x {
+                            self.tabs.parameters_width = side.width() - d.x;
+                        }
+                        if y {
+                            self.tabs.parameters_height = side.height() + d.y;
+                        }
+                    }
+                }
+                let stroke = if lit {
+                    visuals.widgets.hovered.bg_stroke
+                } else {
+                    visuals.widgets.noninteractive.bg_stroke
+                };
+                ui.painter().rect_stroke(side, 0.0, stroke, egui::StrokeKind::Inside);
+            });
     }
 
     /// On a tab that follows (`Pane::follows`), at its right before its close
@@ -1333,7 +1404,7 @@ impl Panes<'_> {
     /// The panes a tab can be added of, beside the tabs at `path` (a tab
     /// bar): a click asks for one (`new_tabs`). One of a kind open is greyed.
     fn pane_list(&mut self, ui: &mut egui::Ui, path: egui_dock::NodePath) {
-        for p in Pane::ALL {
+        for p in Pane::ALL.into_iter().filter(|p| !p.is_bar()) {
             let free = layout::may_add(self.open_tabs, p);
             let r = ui
                 .add_enabled(free, egui::Button::new(p.title()))
@@ -1380,7 +1451,7 @@ impl egui_dock::TabViewer for Panes<'_> {
     fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Tab, path: egui_dock::NodePath) {
         let now = *tab;
         ui.menu_button("Pane", |ui| {
-            for p in Pane::ALL {
+            for p in Pane::ALL.into_iter().filter(|p| !p.is_bar()) {
                 let free = layout::may_become(self.open_tabs, now, p);
                 let r = ui
                     .add_enabled_ui(free, |ui| ui.selectable_label(p == now.pane, p.title()))
@@ -1905,8 +1976,8 @@ impl Panes<'_> {
                             ui.label("Right-click: add  |  Del: delete  |  Shift/middle-drag: pan  |  Wheel: zoom  |  F: frame  |  ↓: inside a compound  |  ↑: back out  |  Esc: cancel wire");
                             ui.separator();
                             // Canvas in its own child Ui: see the note below.
-                            let full = ui.available_rect_before_wrap();
-                            let (rect, side) = self.graph_split(tab.id, full);
+                            let rect = ui.available_rect_before_wrap();
+                            let side = self.parameters_rect(tab.id, rect);
                             let Some(sg) = self.subnets.get_mut(sid) else { return };
                             let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                             canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
@@ -1914,7 +1985,7 @@ impl Panes<'_> {
                             if let Some(m) = told {
                                 self.graph_file.message = m;
                             }
-                            ui.allocate_rect(full, egui::Sense::hover());
+                            ui.allocate_rect(rect, egui::Sense::hover());
                             if up {
                                 self.nav.current_subnet = None;
                             }
@@ -1955,12 +2026,12 @@ impl Panes<'_> {
                     // The canvas gets its own child Ui. Nodes are widgets placed
                     // at arbitrary positions; drawn straight into the pane, a
                     // node dragged or panned past the edge would stretch it.
-                    let full = ui.available_rect_before_wrap();
-                    let (rect, side) = self.graph_split(tab.id, full);
+                    let rect = ui.available_rect_before_wrap();
+                    let side = self.parameters_rect(tab.id, rect);
                     let mut canvas = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
                     canvas.set_clip_rect(rect.intersect(ui.clip_rect()));
                     let dive = draw_node_graph(&mut canvas, self.graph);
-                    ui.allocate_rect(full, egui::Sense::hover());
+                    ui.allocate_rect(rect, egui::Sense::hover());
                     if let Some(side) = side {
                         self.parameters_over(ui, tab.id, side);
                     }

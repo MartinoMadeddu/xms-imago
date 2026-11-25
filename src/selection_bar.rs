@@ -47,10 +47,12 @@ fn compose(p: [[f32; 3]; 3]) -> Mat4 {
 
 /// A place's values in `space`.
 pub fn shown(p: &Place, space: Space) -> [[f32; 3]; 3] {
-    match space {
+    let v = match space {
         Space::Local => p.trs,
         Space::Global => parts(p.parents * compose(p.trs)),
-    }
+    };
+    // No "-0.0" in a field.
+    v.map(|row| row.map(|x| x + 0.0))
 }
 
 /// `part` (0 translate, 1 rotate, 2 scale) of each place with its `axis` set
@@ -83,6 +85,8 @@ fn chip(ui: &mut egui::Ui, on: bool, text: &str, hint: &str) -> bool {
 }
 
 pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut SceneHierarchy, tool: &mut PolyTool) {
+    // Text on the bar itself, as the top bar's: the selection, the rest.
+    let (bright, dim) = (crate::theme::c(225, 225, 225), crate::theme::c(165, 165, 165));
     let chosen = hierarchy.selected_prims().to_vec();
     let places = gizmo::scene_places(graph, &chosen);
     let space_id = egui::Id::new("selection_bar_space");
@@ -97,10 +101,10 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut Scene
                 [one] => one.clone(),
                 many => format!("{} prims", many.len()),
             };
-            ui.label(egui::RichText::new(text).strong()).on_hover_text(chosen.join("\n"));
+            ui.label(egui::RichText::new(text).color(bright)).on_hover_text(chosen.join("\n"));
         });
         let target = graph.session_at_view();
-        ui.label(egui::RichText::new("Edits go into").weak());
+        ui.label(egui::RichText::new("Edits go into").color(dim));
         match target {
             Some(id) => {
                 let name = graph.nodes.iter().find(|n| n.id == id).map(|n| n.name.clone()).unwrap_or_default();
@@ -122,7 +126,7 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut Scene
                     Some(n) => format!("A new Edit Session after {n}"),
                     None => "Nothing viewed".into(),
                 };
-                ui.label(egui::RichText::new(text).weak()).on_hover_text(
+                ui.label(egui::RichText::new(text).color(dim)).on_hover_text(
                     "The first edit puts an Edit Session in after the operator with the display flag, and moves the flag to it",
                 );
             }
@@ -171,7 +175,9 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut Scene
             for (part, label, speed) in [(2, "S", 0.01), (1, "R", 0.5), (0, "T", 0.01)] {
                 f.ui.horizontal(|ui| {
                     ui.label(label);
-                    let w = ((ui.available_width() - 8.0) / 3.0).max(30.0);
+                    // Three to a row, with the spaces between them.
+                    let gap = ui.spacing().item_spacing.x;
+                    let w = ((ui.available_width() - 2.0 * gap) / 3.0).floor().max(30.0);
                     for axis in 0..3 {
                         let first = values[0][part][axis];
                         let mixed = values.iter().any(|v| (v[part][axis] - first).abs() > 1e-4);

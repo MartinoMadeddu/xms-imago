@@ -28,13 +28,18 @@ Save As Shift+S, Quit Q.
 
 Viewer, Image Viewer, Node Graph, Curve Editor, UV Editor, Scene Explorer,
 History, Parameters, Primitive Inspector, Timeline, Light Linker (a tab beside the Scene Explorer, bottom left; see [USD](usd.md#light-linking)),
-Tools and Selection, each a tab. **Window > Layout** has four layouts (xms_main_layout, the
+each a tab, and the Tools and Selection bars. **Window > Layout** has four layouts (xms_main_layout, the
 default; xms_xsi_layout; xms_2split_layout; xms_4split_layout) and **Save
 current as default**. Imago opens in the default layout, and File > New and
-Reset layout go back to it. xms_xsi_layout is after XSI: the Tools down the
-whole left side, the Selection bar down the right, the Viewer over the Scene Explorer (History a tab behind
-it), and the Node Graph, wide, its Parameters down its right on **P**; no
-Parameters pane (Window > Parameters docks one).
+Reset layout go back to it. xms_xsi_layout is after XSI: the Tools bar down
+the left, the Selection bar down the right, the Viewer over the Scene
+Explorer (History a tab behind it), and the Node Graph, wide, its Parameters
+over it on **P**; no Parameters pane (Window > Parameters docks one).
+
+The **Tools and Selection bars** are not tabs: they sit down the window's
+sides, fixed in place and width, in the top bar's grey, so the three frame the
+panes as one. Window > Tools and Window > Selection show and hide them in any
+layout, and a layout saved keeps whether each is shown.
 
 | To | Do this |
 |---|---|
@@ -47,9 +52,9 @@ Parameters pane (Window > Parameters docks one).
 | Keep a layout | Window > Save layout... and Load layout... |
 
 Most panes can be open in several tabs at once. One of a kind: the Viewer,
-Timeline, History, Image Viewer, Tools and Selection.
+Timeline, History and Image Viewer.
 
-- **Tools** lists the add menu's categories down a narrow column, each a
+- **Tools** (a bar) lists the add menu's categories down the left, each a
   button in the colour its operators have (File, Create, Primitives, Lights,
   Modify, … then Organise). A click opens a box beside it of the category's
   operators; Esc, a click away or on the category again closes it. **Drag**
@@ -59,7 +64,8 @@ Timeline, History, Image Viewer, Tools and Selection.
   fed by it and feeding what it fed, the view flag passed on where it was
   (an operator with no input, a Cube, goes beside it, on its own; with
   nothing selected, in the middle of the graph). Either way it is selected.
-- **Selection** (after XSI's main command panel) shows what is selected in
+- **Selection** (a bar, after XSI's main command panel) shows what is
+  selected in
   the Viewer or the Scene Explorer, not an operator:
   - **Edits go into**: the Edit Session its edits go into (click to select
     it), or the one the first edit will put in after the viewed operator.
@@ -77,11 +83,12 @@ Timeline, History, Image Viewer, Tools and Selection.
   Light, Edit Primitive, Edit Poly), the selected prims get the Viewer's
   handles too, on the first of them, each moving about its own pivot. Up to
   256 prims. See [Edit Session](usd.md#edit-session).
-- **P** over the Node Graph: its **Parameters** down the graph's right side,
-  under its buttons, in a thin border with no title, as in Houdini's network
-  editor; P again hides them. Drag their left edge to size them. They show
-  the selection, as a Parameters pane does, and the graph's canvas is what
-  is left of it (F frames in that).
+- **P** over the Node Graph: its **Parameters** over the graph at its top
+  right, under its buttons, in a thin border with no title, as in Houdini's
+  network editor; P again hides them. Drag their left edge, bottom edge or
+  bottom left corner to size them, in width and height; the graph shows
+  under the rest. They show the selection, as a Parameters pane does. Clicks
+  and the wheel over them are theirs, not the graph's.
 
 - **Node Graph** tabs each have their own view: panned, zoomed and inside
   an ICE or MaterialX graph each their own way. The one last clicked in is the
