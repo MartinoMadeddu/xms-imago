@@ -638,18 +638,17 @@ pub(crate) fn draw_ui(
 
     // Side bars
     // The Tools down the left and the Selection bar down the right, when the
-    // layout has them: fixed, as the top bar is, and in its grey, so the
-    // three read as one frame round the panes. Not tabs: they are not moved,
-    // sized or closed but from Window.
+    // layout has them: fixed, as the top bar is, in the panes' grey. Not
+    // tabs: they are not moved, sized or closed but from Window.
     let bar = egui::Frame::NONE
-        .fill(theme::c(58, 58, 58))
+        .fill(root.visuals().panel_fill)
         .inner_margin(egui::Margin::symmetric(6, 6));
     if layout.bars.tools {
         egui::Panel::left("tools_bar")
             .exact_size(TOOLS_BAR)
             .resizable(false)
             .frame(bar)
-            .show(root, |ui| tools::draw(ui, &mut *graph));
+            .show(root, |ui| fixed(ui, |ui| tools::draw(ui, &mut *graph)));
     }
     if layout.bars.selection {
         egui::Panel::right("selection_bar")
@@ -657,7 +656,7 @@ pub(crate) fn draw_ui(
             .resizable(false)
             .frame(bar)
             .show(root, |ui| {
-                selection_bar::draw(ui, &mut *graph, &mut *hierarchy, &mut *poly_tool)
+                fixed(ui, |ui| selection_bar::draw(ui, &mut *graph, &mut *hierarchy, &mut *poly_tool))
             });
     }
 
@@ -997,9 +996,18 @@ fn draw_logo(ui: &mut egui::Ui) -> egui::Response {
     response
 }
 
+/// A side bar's contents in its rectangle and no wider: what does not fit is
+/// cut off, and the bar keeps its width whatever it shows.
+fn fixed(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    let rect = ui.max_rect();
+    let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
+    inner.set_clip_rect(rect.intersect(ui.clip_rect()));
+    add(&mut inner);
+}
+
 /// The widths of the side bars: the Tools, the Selection bar.
 const TOOLS_BAR: f32 = 142.0;
-const SELECTION_BAR: f32 = 236.0;
+const SELECTION_BAR: f32 = 200.0;
 
 /// A thin vertical line between parts of the top bar.
 fn top_bar_divider(ui: &mut egui::Ui) {

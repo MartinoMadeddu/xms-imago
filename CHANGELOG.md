@@ -18,8 +18,7 @@ version's heading when you tag it.
 - **P over the Node Graph** shows the selected operator's Parameters over
   the graph at its top right, in a thin border, as Houdini's network editor
   does; drag their left edge, bottom edge or corner to size them.
-- **Tools and Selection bars** down the window's sides: fixed, not tabs, in
-  the top bar's grey. Window shows and hides them; layouts keep them.
+- **Tools and Selection bars** down the window's sides: fixed, not tabs. Window shows and hides them; layouts keep them.
 - **Selection bar**: what is selected in the Viewer, after XSI's main command
   panel: what a click picks (prim, model, top), the move, rotate and scale
   tools, the selection's scale, rotation and translation (local or global)

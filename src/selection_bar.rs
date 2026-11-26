@@ -85,8 +85,6 @@ fn chip(ui: &mut egui::Ui, on: bool, text: &str, hint: &str) -> bool {
 }
 
 pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut SceneHierarchy, tool: &mut PolyTool) {
-    // Text on the bar itself, as the top bar's: the selection, the rest.
-    let (bright, dim) = (crate::theme::c(225, 225, 225), crate::theme::c(165, 165, 165));
     let chosen = hierarchy.selected_prims().to_vec();
     let places = gizmo::scene_places(graph, &chosen);
     let space_id = egui::Id::new("selection_bar_space");
@@ -94,22 +92,24 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut Scene
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
-        // What is selected, and where its edits go.
-        ui.horizontal(|ui| {
-            let text = match chosen.as_slice() {
-                [] => "Nothing selected".to_string(),
-                [one] => one.clone(),
-                many => format!("{} prims", many.len()),
-            };
-            ui.label(egui::RichText::new(text).color(bright)).on_hover_text(chosen.join("\n"));
-        });
+        // Nothing in it may be wider than the bar: a wider row pushes the
+        // bar off the window.
+        ui.set_max_width(ui.available_width());
+        // What is selected (a long path cut short), and where its edits go.
+        let text = match chosen.as_slice() {
+            [] => "Nothing selected".to_string(),
+            [one] => one.clone(),
+            many => format!("{} prims", many.len()),
+        };
+        ui.add(egui::Label::new(egui::RichText::new(text).strong()).truncate())
+            .on_hover_text(chosen.join("\n"));
         let target = graph.session_at_view();
-        ui.label(egui::RichText::new("Edits go into").color(dim));
+        ui.label(egui::RichText::new("Edits go into").weak());
         match target {
             Some(id) => {
                 let name = graph.nodes.iter().find(|n| n.id == id).map(|n| n.name.clone()).unwrap_or_default();
                 if ui
-                    .button(format!("{} {name}", icons::ARROWS_OUT_CARDINAL))
+                    .add(egui::Button::new(format!("{} {name}", icons::ARROWS_OUT_CARDINAL)).truncate())
                     .on_hover_text("The Edit Session at the display flag: click to select it and see its steps")
                     .clicked()
                 {
@@ -126,7 +126,7 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut Scene
                     Some(n) => format!("A new Edit Session after {n}"),
                     None => "Nothing viewed".into(),
                 };
-                ui.label(egui::RichText::new(text).color(dim)).on_hover_text(
+                ui.label(egui::RichText::new(text).weak()).on_hover_text(
                     "The first edit puts an Edit Session in after the operator with the display flag, and moves the flag to it",
                 );
             }
