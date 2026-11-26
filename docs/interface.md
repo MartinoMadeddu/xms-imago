@@ -88,7 +88,8 @@ Timeline, History and Image Viewer.
     values, in its Rotate Order; no Scale for a camera, a dome or a distant
     light.
   - **Edit**: Edit Selected (an Edit Primitive naming them, as Enter in the
-    Scene Explorer), Hide, Show and Deactivate (into the Edit Session).
+    Scene Explorer, or Shift+Enter over the Viewer), Hide, Show and
+    Deactivate (into the Edit Session).
 
   With no operator selected that has handles of its own (Transform, Cube,
   Sphere, Grid, Camera, Light, Edit Primitive, Edit Poly), the selected

@@ -1565,6 +1565,21 @@ impl Panes<'_> {
                     );
                     v.swap_out();
                 }
+                // Shift+Enter over the Viewer: an Edit Primitive on what is
+                // selected, as Enter in the Scene Explorer.
+                let rect = ui.max_rect();
+                let (over, asked) = ui.input(|i| {
+                    (
+                        i.pointer.hover_pos().is_some_and(|p| rect.contains(p)),
+                        i.modifiers.shift && i.key_pressed(egui::Key::Enter),
+                    )
+                });
+                if over && asked && !ui.ctx().egui_wants_keyboard_input() {
+                    let chosen = self.hierarchy.selected_prims().to_vec();
+                    if !chosen.is_empty() {
+                        self.graph.edit_primitives(&chosen);
+                    }
+                }
             }
 
             Pane::Timeline => {

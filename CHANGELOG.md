@@ -23,6 +23,9 @@ version's heading when you tag it.
   else into the Edit Session, as before. Edit Session only, in the bar, puts
   every move there. Several prims dragged at once go the same way, each
   where it is held.
+- Shift+Enter over the Viewer: an Edit Primitive on the selected prims, as
+  Enter in the Scene Explorer.
+- The Viewer's handles are drawn three pixels wide.
 
 ### Fixes
 

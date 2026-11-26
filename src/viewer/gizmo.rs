@@ -601,6 +601,49 @@ pub fn run(
 /// The handles of `tool` at `c`: arrows for Move, rings for Rotate, boxed lines
 /// for Scale; with Select a small tripod marking the pivot.
 pub fn draw(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>, view: &PickView) {
+    let start = o.top.len();
+    draw_thin(o, c, size, tool, hot, view);
+    thicken(&mut o.top, start, c, view, 3.0);
+}
+
+/// The lines from `start` on drawn `px` pixels wide: copies beside each, a
+/// pixel apart across it as seen from the eye. The overlay's lines are a
+/// pixel wide.
+fn thicken(out: &mut Vec<f32>, start: usize, c: Vec3, view: &PickView, px: f32) {
+    // A pixel at the handles, in the world.
+    let side = (view.eye - c).normalize_or_zero().any_orthonormal_vector();
+    let pixel = match (view.project(c), view.project(c + side)) {
+        (Some(a), Some(b)) if a.distance(b) > 1e-6 => 1.0 / a.distance(b),
+        _ => return,
+    };
+    const V: usize = 7; // position and colour
+    let lines: Vec<f32> = out[start..].to_vec();
+    let half = (px - 1.0) * 0.5;
+    let steps: Vec<f32> = {
+        let n = (half * 2.0).ceil() as i32;
+        (1..=n).map(|k| k as f32 * 0.5).filter(|o| *o <= half + 1e-3).collect()
+    };
+    for seg in lines.chunks_exact(2 * V) {
+        let a = Vec3::new(seg[0], seg[1], seg[2]);
+        let b = Vec3::new(seg[V], seg[V + 1], seg[V + 2]);
+        let across = (b - a).cross(view.eye - (a + b) * 0.5).normalize_or_zero();
+        if across == Vec3::ZERO {
+            continue;
+        }
+        for o in &steps {
+            for sign in [1.0, -1.0] {
+                let d = across * (o * sign * pixel);
+                let mut copy = seg.to_vec();
+                for (k, v) in [(0, a + d), (V, b + d)] {
+                    copy[k..k + 3].copy_from_slice(&v.to_array());
+                }
+                out.extend_from_slice(&copy);
+            }
+        }
+    }
+}
+
+fn draw_thin(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>, view: &PickView) {
     let col = |h: Handle| {
         if hot == Some(h) {
             return colour(1.0, 0.9, 0.2, 1.0);
