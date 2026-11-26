@@ -49,6 +49,12 @@ pub fn in_viewer() -> bool {
     IN_VIEWER.load(Ordering::Relaxed)
 }
 
+/// Whether the Viewer drawn renders, as that Viewer has it, put while it is
+/// drawn (`viewer::Own`): the render is neither started nor stopped.
+pub fn put_in_viewer(on: bool) {
+    IN_VIEWER.store(on, Ordering::Relaxed);
+}
+
 /// The Viewer rendering or not; off, its render stops.
 pub fn set_in_viewer(on: bool) {
     if IN_VIEWER.swap(on, Ordering::Relaxed) && !on {

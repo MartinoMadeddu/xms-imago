@@ -41,6 +41,8 @@ const LINE_FLOATS: usize = 7;
 
 /// One frame of the Viewer, handed to the GPU.
 pub struct Frame {
+    /// Which Viewer's: each has its GPU state (`ViewerGpus`).
+    pub slot: u64,
     pub view_proj: glam::Mat4,
     pub eye: glam::Vec3,
     /// The rectangle in physical pixels.
@@ -1503,6 +1505,15 @@ fn display(
     }
 }
 
+/// Every Viewer's GPU state, by its slot: made for a Viewer when it is first
+/// drawn. Each holds its own scene, as each Viewer draws the scene in its own
+/// mode (so a second Viewer holds the scene on the GPU a second time).
+pub struct ViewerGpus {
+    by: HashMap<u64, ViewerGpu>,
+    egui_format: wgpu::TextureFormat,
+    egui_samples: u32,
+}
+
 /// The Viewer's paint callback: draws the picture before egui's pass, and lays
 /// it into the Viewer's rectangle during it.
 pub struct ViewerPaint(pub Frame);
@@ -1516,10 +1527,15 @@ impl CallbackTrait for ViewerPaint {
         encoder: &mut wgpu::CommandEncoder,
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let Some(gpu) = resources.get_mut::<ViewerGpu>() else {
+        let Some(all) = resources.get_mut::<ViewerGpus>() else {
             return vec![];
         };
         let f = &self.0;
+        let (format, samples) = (all.egui_format, all.egui_samples);
+        let gpu = all
+            .by
+            .entry(f.slot)
+            .or_insert_with(|| ViewerGpu::new(device, queue, format, samples));
         // The picture is drawn again only when what it is drawn from changed:
         // the window is drawn again for any pane (a graph panned, a field
         // typed in), and a dense wireframe costs a lot to draw for nothing.
@@ -1606,7 +1622,7 @@ impl CallbackTrait for ViewerPaint {
         pass: &mut wgpu::RenderPass<'static>,
         resources: &CallbackResources,
     ) {
-        let Some(gpu) = resources.get::<ViewerGpu>() else {
+        let Some(gpu) = resources.get::<ViewerGpus>().and_then(|all| all.by.get(&self.0.slot)) else {
             return;
         };
         let Some(t) = &gpu.target else { return };
@@ -1625,7 +1641,19 @@ pub fn install(render_state: &egui_wgpu::RenderState, egui_samples: u32) {
         render_state.target_format,
         egui_samples,
     );
-    render_state.renderer.write().callback_resources.insert(gpu);
+    let all = ViewerGpus {
+        by: HashMap::from([(0, gpu)]),
+        egui_format: render_state.target_format,
+        egui_samples,
+    };
+    render_state.renderer.write().callback_resources.insert(all);
+}
+
+/// Let go of the GPU state of Viewers no longer open (`slots`: those open).
+pub fn keep_only(render_state: &egui_wgpu::RenderState, slots: &[u64]) {
+    if let Some(all) = render_state.renderer.write().callback_resources.get_mut::<ViewerGpus>() {
+        all.by.retain(|k, _| slots.contains(k));
+    }
 }
 
 #[allow(dead_code)]

@@ -17,9 +17,9 @@ use crate::types::{PrimInspectorState, SceneHierarchy};
 use crate::uv_editor::UvEditorState;
 use crate::{Confirm, GraphFile, SaveFirst};
 
-/// The screen rectangle of the Viewer pane, when it is showing.
+/// The screen rectangle of each Viewer tab showing, by tab.
 #[derive(Default)]
-pub struct ViewportRect(pub Option<egui::Rect>);
+pub struct ViewportRect(pub Vec<(u32, egui::Rect)>);
 
 #[derive(Default)]
 pub struct AppState {

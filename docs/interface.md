@@ -266,8 +266,15 @@ name. **Pick** lists the names coming in; under the field, how many match.
 
 ## Viewer
 
+A Viewer can be open more than once: add one from a tab bar's **+**.
+Each has its own camera, look-through, shading and Arnold render; only one
+Viewer renders with Arnold at a time, so turning it on in one turns it off
+in the other. The overlays (Settings > Viewer) are shared. Each Viewer holds
+the scene on the GPU again, so a second one costs that memory twice.
+
 - **Shading** at the top: Wireframe, Hidden Line Removal, Shaded or
-  Textured. Shaded whenever Imago starts: the choice is not kept. Under them,
+  Textured, per Viewer. Hidden Line Removal whenever Imago starts: the choice
+  is not kept. Under them,
   **Wireframe on Shaded** draws the polygons' edges over Shaded and Textured,
   in a dark grey, and **Points** every point (of meshes and curves) as a dark
   blue dot, as Houdini's Display Points does, hidden behind what is in front

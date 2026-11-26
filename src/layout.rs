@@ -95,8 +95,7 @@ impl Pane {
     pub fn multiple(self) -> bool {
         !matches!(
             self,
-            Pane::Viewer
-                | Pane::Timeline
+            Pane::Timeline
                 | Pane::History
                 | Pane::Retired
                 | Pane::ImageViewer
@@ -351,6 +350,10 @@ pub struct TabStates {
     /// display flag: its rows, and what they were listed for (the graph's
     /// revision, the operator).
     pub explorers: std::collections::HashMap<u32, ((u64, crate::types::NodeId), crate::types::Rows)>,
+    /// The Viewer tab that has the program's own Viewer; every other Viewer
+    /// tab has one of its own here, with its own camera, mode and render.
+    pub main_viewer: Option<u32>,
+    pub viewers: std::collections::HashMap<u32, crate::viewer::Viewer>,
 }
 
 impl TabStates {
@@ -374,6 +377,17 @@ impl TabStates {
         self.curves.retain(|id, _| is_open(*id));
         self.uvs.retain(|id, _| is_open(*id));
         self.explorers.retain(|id, _| is_open(*id));
+        // The program's Viewer goes to another Viewer tab when its own closes.
+        if self.main_viewer.is_some_and(|m| !is_open(m)) {
+            self.main_viewer = None;
+        }
+        if self.main_viewer.is_none() {
+            self.main_viewer = open.iter().find(|t| t.pane == Pane::Viewer).map(|t| t.id);
+            if let Some(m) = self.main_viewer {
+                self.viewers.remove(&m);
+            }
+        }
+        self.viewers.retain(|id, _| is_open(*id));
     }
 }
 
@@ -1391,7 +1405,7 @@ mod tests {
             .collect();
         assert_eq!((both[0].surface, both[0].node), (both[1].surface, both[1].node));
         let params = l.first(Pane::Parameters).unwrap();
-        assert!(l.may_become(params, Pane::SceneExplorer) && !l.may_become(params, Pane::Viewer));
+        assert!(l.may_become(params, Pane::SceneExplorer) && !l.may_become(params, Pane::Timeline));
         let viewer = l.first(Pane::Viewer).unwrap();
         assert!(l.may_become(viewer, Pane::Viewer));
         // Through the file: the same numbers.
@@ -1445,19 +1459,21 @@ mod tests {
         }]);
         let (back, _) = from_json(&to_json(&twice, false).unwrap()).expect("renumbered");
         assert!(is_valid(&back));
-        let mut viewers = main_dock();
-        viewers.add_window(vec![Tab::new(Pane::Viewer)]);
-        assert!(from_json(&to_json(&viewers, false).unwrap()).is_none());
+        // A pane that opens once, twice: not a layout.
+        let mut timelines = main_dock();
+        timelines.add_window(vec![Tab::new(Pane::Timeline)]);
+        assert!(from_json(&to_json(&timelines, false).unwrap()).is_none());
     }
 
-    /// Which panes open twice: not the Viewer, Timeline, History, Operator
-    /// Stack or Image Viewer. Which follow: Parameters, Curve and UV Editors.
+    /// Which panes open twice: not the Timeline, History, Operator Stack or
+    /// Image Viewer (the Viewer does: each its own camera, mode and render). Which follow: Parameters, Curve and UV Editors.
     #[test]
     fn most_panes_open_twice() {
         let twice: Vec<Pane> = Pane::ALL.into_iter().filter(|p| p.multiple()).collect();
         assert_eq!(
             twice,
             [
+                Pane::Viewer,
                 Pane::NodeGraph,
                 Pane::SceneExplorer,
                 Pane::Parameters,

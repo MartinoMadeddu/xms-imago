@@ -956,3 +956,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 26/11/2026: Settings: the pages listed down the left again; Parameters' tabs only inside a page (the Viewer's General and Overlays). (Martino)
 - 26/11/2026: Arnold's clamp Max Value starts at 0, meaning no clamping: a setting with unset_at (render::Param) is not written at that value, so Arnold's own default (1e30) applies, and no one sees or types 1e30. The Viewer starts in Hidden Line Removal (Shaded in tests). (Martino)
 - 26/11/2026: Release 0.4.0. (Martino)
+- 26/11/2026: Multiple Viewers: Pane::Viewer may open twice; TabStates keeps main_viewer (the app's Viewer) and viewers by tab id; viewer::Own holds mode, look and arnold, swapped into the globals around each Viewer's draw (swap_in/swap_out), Arnold kept to one slot; ViewerGpus keyed by slot, dropped with keep_only; toolbar Areas and the A and snapshot boxes salted by tab. (Martino)

@@ -8,6 +8,12 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- A Viewer can be open more than once, each with its own camera,
+  look-through, shading and Arnold render (one renders at a time). The
+  overlays are shared.
+
 ## [0.4.0] - 2026-11-26
 
 ### Interface
