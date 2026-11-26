@@ -66,8 +66,14 @@ Timeline, History and Image Viewer.
 - **Selection** (a bar, after XSI's main command panel) shows what is
   selected in
   the Viewer or the Scene Explorer, not an operator:
-  - **Edits go into**: the Edit Session its edits go into (click to select
-    it), or the one the first edit will put in after the viewed operator.
+  - **Edits go into**: where a move goes. A prim made in Imago (a Cube,
+    Sphere, Grid, Camera or Light) that nothing after its operator moved:
+    that operator (click to select it), its Transform group. Anything else
+    (a loaded prim, one a Transform, Reparent or Edit Primitive moved after
+    it, one an Edit Session already moves): the Edit Session, or the one the
+    first edit will put in after the viewed operator. Hide, Show and
+    Deactivate always go into the Edit Session. **Edit Session only** puts
+    every move there too, as an override on top.
   - **Select**: the big arrow (the Select tool), and what a click or a box
     in the Viewer selects, as usdview's: the **Prims**, their **Models**
     (the nearest prim above of kind component, else assembly or group),
@@ -77,14 +83,19 @@ Timeline, History and Image Viewer.
   - **Transform**: the Select, Move, Rotate and Scale tools (Q W E R), and
     the selected prims' Scale, Rotate and Translate, **Local** (under their
     parents) or **Global** (in the world). Typing or dragging a value sets
-    it on every selected prim; a field showing – differs between them.
+    it on every selected prim; a field showing – differs between them. A
+    prim whose operator holds its transform shows that operator's own
+    values, in its Rotate Order; no Scale for a camera, a dome or a distant
+    light.
   - **Edit**: Edit Selected (an Edit Primitive naming them, as Enter in the
     Scene Explorer), Hide, Show and Deactivate (into the Edit Session).
 
-  With no operator selected that has handles of its own (Transform, Camera,
-  Light, Edit Primitive, Edit Poly), the selected prims get the Viewer's
-  handles too, on the first of them, each moving about its own pivot. Up to
-  256 prims. See [Edit Session](usd.md#edit-session).
+  With no operator selected that has handles of its own (Transform, Cube,
+  Sphere, Grid, Camera, Light, Edit Primitive, Edit Poly), the selected
+  prims get the Viewer's handles too, on the first of them, each moving
+  about its own pivot. One prim whose operator holds its transform: that
+  operator's handles, about its Pivot, writing into it. Up to 256 prims. See
+  [Edit Session](usd.md#edit-session).
 - **P** over the Node Graph: its **Parameters** over the graph at its top
   right, under its buttons, in a thin border with no title, as in Houdini's
   network editor, half the graph's height at first; P again hides them. Drag their left edge, bottom edge or

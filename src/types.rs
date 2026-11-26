@@ -46,12 +46,16 @@ pub enum NodeType {
         size: f32,
         #[serde(default = "cube_location")]
         location: String,
+        #[serde(flatten)]
+        xform: Xform,
     },
     CreateSphere {
         radius: f32,
         segments: u32,
         #[serde(default = "sphere_location")]
         location: String,
+        #[serde(flatten)]
+        xform: Xform,
     },
     CreateGrid {
         rows: u32,
@@ -59,32 +63,31 @@ pub enum NodeType {
         size: f32,
         #[serde(default = "grid_location")]
         location: String,
+        #[serde(flatten)]
+        xform: Xform,
     },
     /// A camera at its Primitive Location (`/camera` by default), placed by
-    /// `translate` and `rotate` (degrees, X then Y then Z), looking down its
-    /// -Z. Its lens, gate and clipping as USD has them. See `core::camera`.
+    /// its `xform` (no scale), looking down its -Z. Its lens, gate and
+    /// clipping as USD has them. See `core::camera`.
     Camera {
         #[serde(default = "camera_location")]
         location: String,
-        #[serde(default)]
-        translate: [f32; 3],
-        #[serde(default)]
-        rotate: [f32; 3],
+        #[serde(flatten)]
+        xform: Xform,
         #[serde(default)]
         camera: crate::core::camera::Camera,
     },
     /// A UsdLux light at its Primitive Location (`/lights/$OPNAME` by default),
-    /// placed by `translate` and `rotate` (degrees, X then Y then Z): Dome,
+    /// placed by its `xform` (its size is its own: width, height, radius):
+    /// Dome,
     /// Rect, Sphere (a point light when treated as one), Disk, Cylinder,
     /// Distant, chosen by its Type. The add menu has an entry per type, each
     /// this operator set to it. See `core::light`.
     Light {
         #[serde(default)]
         location: String,
-        #[serde(default)]
-        translate: [f32; 3],
-        #[serde(default)]
-        rotate: [f32; 3],
+        #[serde(flatten)]
+        xform: Xform,
         #[serde(default)]
         light: crate::core::light::Light,
     },
@@ -1054,12 +1057,41 @@ impl NodeType {
         NodeType::CreateCube {
             size,
             location: cube_location(),
+            xform: Default::default(),
         }
     }
     /// Whether it makes a prim and holds that prim's own transform as
     /// parameters: what the Selection bar writes into.
     pub fn holds_xform(&self) -> bool {
-        matches!(self, NodeType::Camera { .. } | NodeType::Light { .. })
+        self.xform().is_some()
+    }
+
+    /// The prim's own transform it holds, and whether a scale changes the
+    /// prim (not a camera's, a dome's or a distant light's).
+    pub fn xform(&self) -> Option<(&Xform, bool)> {
+        match self {
+            NodeType::CreateCube { xform, .. }
+            | NodeType::CreateSphere { xform, .. }
+            | NodeType::CreateGrid { xform, .. } => Some((xform, true)),
+            NodeType::Camera { xform, .. } => Some((xform, false)),
+            NodeType::Light { xform, light, .. } => Some((xform, crate::core::light::scales(light.kind))),
+            _ => None,
+        }
+    }
+
+    /// `xform`, to change.
+    pub fn xform_mut(&mut self) -> Option<(&mut Xform, bool)> {
+        match self {
+            NodeType::CreateCube { xform, .. }
+            | NodeType::CreateSphere { xform, .. }
+            | NodeType::CreateGrid { xform, .. } => Some((xform, true)),
+            NodeType::Camera { xform, .. } => Some((xform, false)),
+            NodeType::Light { xform, light, .. } => {
+                let scales = crate::core::light::scales(light.kind);
+                Some((xform, scales))
+            }
+            _ => None,
+        }
     }
     /// A sphere at its default Primitive Location.
     pub fn sphere(radius: f32, segments: u32) -> Self {
@@ -1067,6 +1099,7 @@ impl NodeType {
             radius,
             segments,
             location: sphere_location(),
+            xform: Default::default(),
         }
     }
     /// A grid at its default Primitive Location.
@@ -1076,6 +1109,7 @@ impl NodeType {
             cols,
             size,
             location: grid_location(),
+            xform: Default::default(),
         }
     }
     /// A Merge that goes by its first input. A camera at its default Primitive
@@ -1083,8 +1117,7 @@ impl NodeType {
     pub fn camera() -> Self {
         NodeType::Camera {
             location: camera_location(),
-            translate: [0.0, 1.5, 6.0],
-            rotate: [-12.0, 0.0, 0.0],
+            xform: crate::types::Xform::at([0.0, 1.5, 6.0], [-12.0, 0.0, 0.0]),
             camera: Default::default(),
         }
     }
@@ -1096,8 +1129,7 @@ impl NodeType {
         let dome = light.kind == crate::core::light::LightType::Dome;
         NodeType::Light {
             location: crate::core::light::DEFAULT_LOCATION.into(),
-            translate: if dome { [0.0; 3] } else { [0.0, 2.0, 4.0] },
-            rotate: if dome { [0.0; 3] } else { [-30.0, 0.0, 0.0] },
+            xform: crate::types::Xform::at(if dome { [0.0; 3] } else { [0.0, 2.0, 4.0] }, if dome { [0.0; 3] } else { [-30.0, 0.0, 0.0] }),
             light,
         }
     }
@@ -1921,6 +1953,78 @@ impl RotationOrder {
         let mut r = Vec3::ZERO;
         (r[c], r[b], r[a]) = (k, j, i);
         r
+    }
+}
+
+/// A prim's own transform, as the operators that make a prim hold it (Cube,
+/// Sphere, Grid, Camera, Light): scale, then rotate (degrees) in `order`, both
+/// about `pivot`, then translate. USD's translate, pivot, rotate, scale and
+/// the pivot back, as the Transform operator does. Saved flattened into the
+/// operator, so a Camera's or Light's `translate` and `rotate` saved before
+/// it existed read as they were (and turned as they did: ZYX in Rotate
+/// Order's terms, the order a saved one without `order` gets).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Xform {
+    #[serde(default)]
+    pub translate: [f32; 3],
+    #[serde(default)]
+    pub rotate: [f32; 3],
+    #[serde(default = "ones")]
+    pub scale: [f32; 3],
+    #[serde(default)]
+    pub pivot: [f32; 3],
+    #[serde(default = "RotationOrder::before_orders")]
+    pub order: RotationOrder,
+}
+
+fn ones() -> [f32; 3] {
+    [1.0; 3]
+}
+
+impl Default for Xform {
+    fn default() -> Self {
+        Xform {
+            translate: [0.0; 3],
+            rotate: [0.0; 3],
+            scale: [1.0; 3],
+            pivot: [0.0; 3],
+            order: RotationOrder::XYZ,
+        }
+    }
+}
+
+impl Xform {
+    /// At `translate`, turned by `rotate` (degrees), in the default order.
+    pub fn at(translate: [f32; 3], rotate: [f32; 3]) -> Self {
+        Xform { translate, rotate, ..Default::default() }
+    }
+
+    /// The rotation.
+    pub fn quat(&self) -> glam::Quat {
+        self.order.quat(Vec3::from(self.rotate.map(f32::to_radians)))
+    }
+
+    /// Its matrix: the prim's placement under its parents.
+    pub fn matrix(&self) -> glam::Mat4 {
+        let p = Vec3::from(self.pivot);
+        glam::Mat4::from_translation(Vec3::from(self.translate) + p)
+            * glam::Mat4::from_quat(self.quat())
+            * glam::Mat4::from_scale(Vec3::from(self.scale))
+            * glam::Mat4::from_translation(-p)
+    }
+
+    /// Its values made to give matrix `m`, its pivot and order kept: what
+    /// typing a place in the Selection bar (in the world, say) puts in it.
+    pub fn set_matrix(&mut self, m: glam::Mat4) {
+        let (s, r, t) = m.to_scale_rotation_translation();
+        let p = Vec3::from(self.pivot);
+        // m x = R S (x - p) + translate + p, so m's translation is
+        // translate + p - R S p.
+        let translate = t - p + r * (s * p);
+        let a = self.order.angles(r);
+        self.translate = (translate + Vec3::ZERO).to_array();
+        self.rotate = [a.x.to_degrees() + 0.0, a.y.to_degrees() + 0.0, a.z.to_degrees() + 0.0];
+        self.scale = s.to_array();
     }
 }
 
@@ -4677,4 +4781,54 @@ fn point_context() -> crate::core::geo::Context {
 /// Normals' cusp angle to start with: Houdini's.
 fn default_cusp() -> f32 {
     60.0
+}
+
+#[cfg(test)]
+mod xform_tests {
+    use super::*;
+
+    /// A Camera and a Light saved before the Transform group read as they
+    /// were: their translate and rotate kept, turned as they turned then;
+    /// saved again, the same names, so their keys still find them. A Cube
+    /// saved before has no transform: it is where it was.
+    #[test]
+    fn saves_from_before_read_as_they_were() {
+        let old = r#"{"Camera":{"location":"/cam","translate":[1.0,2.0,3.0],"rotate":[10.0,20.0,30.0]}}"#;
+        let n: NodeType = serde_json::from_str(old).unwrap();
+        let (x, scales) = n.xform().unwrap();
+        assert!(!scales);
+        assert_eq!((x.translate, x.rotate, x.scale), ([1.0, 2.0, 3.0], [10.0, 20.0, 30.0], [1.0; 3]));
+        let before = crate::node_graph::nodes::transform_matrix(
+            Vec3::new(1.0, 2.0, 3.0),
+            Vec3::new(10f32.to_radians(), 20f32.to_radians(), 30f32.to_radians()),
+            Vec3::ONE,
+        );
+        assert!(x.matrix().abs_diff_eq(before, 1e-5), "turned as before");
+        let saved = serde_json::to_value(&n).unwrap();
+        assert_eq!(saved["Camera"]["translate"][0], 1.0, "flattened: translate/0 as before");
+        assert_eq!(saved["Camera"]["rotate"][2], 30.0);
+
+        let n: NodeType = serde_json::from_str(r#"{"CreateCube":{"size":1.0,"location":"/cube"}}"#).unwrap();
+        assert!(n.xform().unwrap().0.matrix().abs_diff_eq(glam::Mat4::IDENTITY, 1e-6));
+        // A new one turns in USD's rotateXYZ order.
+        assert_eq!(NodeType::cube(1.0).xform().unwrap().0.order, RotationOrder::XYZ);
+    }
+
+    /// Typing a place sets the values that give it, the pivot kept.
+    #[test]
+    fn a_matrix_set_gives_itself_back() {
+        let mut x = Xform {
+            pivot: [0.5, 1.0, 0.0],
+            order: RotationOrder::YZX,
+            ..Xform::at([1.0, 2.0, 3.0], [10.0, 40.0, -20.0])
+        };
+        x.scale = [2.0, 1.0, 0.5];
+        let want = x.matrix();
+        let mut y = Xform { pivot: x.pivot, order: x.order, ..Default::default() };
+        y.set_matrix(want);
+        assert!(y.matrix().abs_diff_eq(want, 1e-4), "{y:?}");
+        for k in 0..3 {
+            assert!((y.rotate[k] - x.rotate[k]).abs() < 1e-3 && (y.translate[k] - x.translate[k]).abs() < 1e-4);
+        }
+    }
 }

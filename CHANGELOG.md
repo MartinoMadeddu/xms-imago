@@ -15,6 +15,20 @@ version's heading when you tag it.
   overlays are shared.
 - The Primitive Inspector's Properties list a prim's Local Transform, Parent
   to World and Local to World, the first with the operator that last set it.
+- Cube, Sphere, Grid, Camera and Light have a Transform group: Translate,
+  Rotate, Rotate Order, Scale (not for a camera, dome or distant light) and
+  Pivot. A light's size stays its width, height or radius.
+- Moving a prim made in Imago from the Viewer or the Selection bar writes
+  into the operator that made it, while nothing after it moved the prim;
+  else into the Edit Session, as before. Edit Session only, in the bar, puts
+  every move there.
+
+### Changed
+
+- A Cube, Sphere or Grid is placed by its transform, its points in its own
+  space, as a loaded prim is: a Transform after it moves its placement, and
+  Write USD writes an `xformOp:transform` rather than moved points. Where it
+  is drawn is the same.
 
 ## [0.4.0] - 2026-11-26
 

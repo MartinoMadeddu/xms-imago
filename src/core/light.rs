@@ -514,6 +514,13 @@ pub fn light_prim(path: &str, light: Light, place: crate::types::Placement) -> c
 /// after the operator (`/lights/DomeLight`), whatever its type.
 pub const DEFAULT_LOCATION: &str = "/lights/$OPNAME";
 
+/// Whether a scale changes a light of this kind: those with a size in the
+/// scene (a rect, disk, sphere, cylinder). A dome is all around and a distant
+/// light's size is an angle, so a scale says nothing to them.
+pub fn scales(kind: LightType) -> bool {
+    !matches!(kind, LightType::Dome | LightType::Distant)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1224,12 +1224,18 @@ mod tests {
         let x = xform_by(&g, merge, &key, None).unwrap();
         assert!(x.writes, "the light holds its own transform");
 
-        // A cube is not placed: the Transform moves its points, and its own
-        // transform is still the Cube's.
+        // The cube is placed by its own transform: the Transform after it
+        // moves that, so it set it last, and the bar does not write into it.
         let rows = props(&g, "/cube");
         let local = get(&rows, "Local Transform");
-        assert_eq!((local.from.as_str(), local.node), ("Cube", Some(cube)));
-        assert_eq!(local.value, "T(0, 0, 0) R(0, 0, 0) S(1, 1, 1)");
+        assert_eq!((local.from.as_str(), local.node), ("Move", Some(mv)));
+        assert_eq!(local.value, "T(1, 0, 0) R(0, 0, 0) S(1, 1, 1)");
+        assert!(!xform_by(&g, merge, "/cube", None).unwrap().writes);
+        // Without the Transform, the Cube holds it, and is written into.
+        let x = xform_by(&g, mv, "/cube", None).unwrap();
+        assert_eq!((x.node, x.writes), (mv, false));
+        let x = xform_by(&g, cube, "/cube", None).unwrap();
+        assert_eq!((x.node, x.writes), (cube, true));
         // The light moved by a Transform: that is what set it last, and the
         // bar does not write into it (it moves by its own amount).
         let mv2 = g.add_node(
@@ -1274,6 +1280,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/root/geo/cube".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );

@@ -157,6 +157,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/cube".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );

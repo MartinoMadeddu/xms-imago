@@ -2497,6 +2497,7 @@ mod cook_tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: String::new(),
+                xform: Default::default(),
             },
             p(200.0),
         );
@@ -2655,6 +2656,7 @@ mod cook_tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/cube".into(),
+                xform: Default::default(),
             },
             p(0.0),
         );
@@ -2735,6 +2737,7 @@ mod cook_tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/cube".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -2768,6 +2771,7 @@ mod cook_tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: String::new(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -2792,6 +2796,7 @@ mod cook_tests {
             radius: 0.5,
             segments: 16,
             location: String::new(),
+            xform: Default::default(),
         });
         assert_eq!(g.connections.len(), wires);
         assert_eq!(y(&g, sphere), y(&g, a));
@@ -2814,6 +2819,7 @@ mod cook_tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: String::new(),
+                xform: Default::default(),
             },
             p(0.0),
         );
@@ -2855,6 +2861,7 @@ mod cook_tests {
                     NodeType::CreateCube {
                         size: 1.0,
                         location: at.to_string(),
+                        xform: Default::default(),
                     },
                     p(k as f32 * 200.0),
                 )
@@ -2968,6 +2975,7 @@ mod cook_tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: String::new(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );

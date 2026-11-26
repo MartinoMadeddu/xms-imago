@@ -658,6 +658,7 @@ mod tests {
             radius: 1.0,
             segments: 16,
             location: "/s".into(),
+            xform: Default::default(),
         };
         let mut v = serde_json::to_value(&s).unwrap();
         set(&mut v, "segments", 20.6);

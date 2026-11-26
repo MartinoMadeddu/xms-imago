@@ -1,9 +1,12 @@
 //! The Selection bar (after XSI's main command panel): what is selected in the
 //! Viewer or the Scene Explorer, not an operator. Where its edits go, what a
 //! click picks, the move, rotate and scale tools, the selected prims' scale,
-//! rotation and translation to type in, and edits of them. Every edit goes
-//! into the Edit Session at the display flag, one put in after the operator
-//! viewed if need be (`core::edit_session`), as a drag of the handles does.
+//! rotation and translation to type in, and edits of them. A transform goes
+//! where it was set: into the operator that made the prim when that operator
+//! holds it (a shape, a camera, a light) and nothing after it moved the prim
+//! (`gizmo::sources`); else, as every other edit, into the Edit Session at
+//! the display flag, one put in after the operator viewed if need be
+//! (`core::edit_session`). The handles do the same.
 
 use glam::{EulerRot, Mat4, Quat, Vec3};
 
@@ -79,6 +82,64 @@ pub fn typed(
         .collect()
 }
 
+/// Who holds a selected prim's own transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Holder {
+    /// The Edit Session: the prim's values as the scene has them.
+    Session,
+    /// The operator that made it: its Transform group's values (as at the
+    /// playhead), and whether a scale changes the prim.
+    Node(crate::types::NodeId, crate::types::Xform, bool),
+}
+
+/// A prim's values in `space`, as whoever holds them has them: an
+/// operator's own, in its Rotate Order and about its pivot.
+pub fn held(p: &Place, h: &Holder, space: Space) -> [[f32; 3]; 3] {
+    match (h, space) {
+        (Holder::Session, _) => shown(p, space),
+        (Holder::Node(_, x, _), Space::Local) => [x.translate, x.rotate, x.scale].map(|row| row.map(|v| v + 0.0)),
+        (Holder::Node(_, x, _), Space::Global) => parts_in(p.parents * x.matrix(), x.order).map(|row| row.map(|v| v + 0.0)),
+    }
+}
+
+/// A transform's translate, rotate (degrees, in `order`) and scale.
+fn parts_in(m: Mat4, order: crate::types::RotationOrder) -> [[f32; 3]; 3] {
+    let (s, r, t) = m.to_scale_rotation_translation();
+    let a = order.angles(r);
+    [t.to_array(), [a.x.to_degrees(), a.y.to_degrees(), a.z.to_degrees()], s.to_array()]
+}
+
+/// `parts_in` put back together.
+fn compose_in(p: [[f32; 3]; 3], order: crate::types::RotationOrder) -> Mat4 {
+    let r = Vec3::from(p[1].map(f32::to_radians));
+    Mat4::from_scale_rotation_translation(Vec3::from(p[2]), order.quat(r), Vec3::from(p[0]))
+}
+
+/// `part` of an operator's transform with its `axis` set to `v` in `space`:
+/// its new values, only that part changed.
+pub fn typed_held(p: &Place, x: &crate::types::Xform, space: Space, part: usize, axis: usize, v: f32) -> crate::types::Xform {
+    let mut out = *x;
+    match space {
+        Space::Local => match part {
+            0 => out.translate[axis] = v,
+            1 => out.rotate[axis] = v,
+            _ => out.scale[axis] = v,
+        },
+        Space::Global => {
+            let mut now = parts_in(p.parents * x.matrix(), x.order);
+            now[part][axis] = v;
+            let mut made = *x;
+            made.set_matrix(p.parents.inverse() * compose_in(now, x.order));
+            match part {
+                0 => out.translate = made.translate,
+                1 => out.rotate = made.rotate,
+                _ => out.scale = made.scale,
+            }
+        }
+    }
+    out
+}
+
 /// A toggle in a row of them, as the Scene Explorer's purpose chips.
 fn chip(ui: &mut egui::Ui, on: bool, text: &str, hint: &str) -> bool {
     ui.selectable_label(on, text).on_hover_text(hint).clicked()
@@ -93,6 +154,28 @@ pub fn draw(
 ) {
     let chosen = hierarchy.selected_prims().to_vec();
     let places = gizmo::scene_places(graph, subnets, &chosen);
+    // Who holds each place's transform.
+    let sources = gizmo::sources(graph, subnets, &chosen);
+    let holders: Vec<Holder> = places
+        .iter()
+        .map(|p| {
+            let id = chosen.iter().position(|c| *c == p.path).and_then(|i| sources.get(i).copied().flatten());
+            id.and_then(|id| {
+                let n = graph.nodes.iter().find(|n| n.id == id)?;
+                let (x, scales) = graph.animated_type(n).xform().map(|(x, s)| (*x, s))?;
+                Some(Holder::Node(id, x, scales))
+            })
+            .unwrap_or(Holder::Session)
+        })
+        .collect();
+    let in_nodes: Vec<crate::types::NodeId> = holders
+        .iter()
+        .filter_map(|h| match h {
+            Holder::Node(id, ..) => Some(*id),
+            Holder::Session => None,
+        })
+        .collect();
+    let in_session = holders.iter().any(|h| *h == Holder::Session);
     let space_id = egui::Id::new("selection_bar_space");
     let mut space: Space = ui.data(|d| d.get_temp(space_id)).unwrap_or_default();
 
@@ -111,31 +194,65 @@ pub fn draw(
             .on_hover_text(chosen.join("\n"));
         let target = graph.session_at_view();
         ui.label(egui::RichText::new("Edits go into").weak());
-        match target {
-            Some(id) => {
-                let name = graph.nodes.iter().find(|n| n.id == id).map(|n| n.name.clone()).unwrap_or_default();
+        // A transform into the operator that made the prim.
+        match in_nodes.as_slice() {
+            [] => {}
+            [id] => {
+                let name = graph.nodes.iter().find(|n| n.id == *id).map(|n| n.name.clone()).unwrap_or_default();
                 if ui
-                    .add(egui::Button::new(format!("{} {name}", icons::ARROWS_OUT_CARDINAL)).truncate())
-                    .on_hover_text("The Edit Session at the display flag: click to select it and see its steps")
+                    .add(egui::Button::new(format!("{} {name}", icons::CUBE)).truncate())
+                    .on_hover_text("The operator that made it holds its transform, and nothing after it moved it: a move goes into its Transform group. Click to select it")
                     .clicked()
                 {
-                    graph.selected_node = Some(id);
-                    graph.selected_nodes = vec![id];
+                    graph.selected_node = Some(*id);
+                    graph.selected_nodes = vec![*id];
                 }
             }
-            None => {
-                let after = graph
-                    .view_flag
-                    .and_then(|v| graph.nodes.iter().find(|n| n.id == v))
-                    .map(|n| n.name.clone());
-                let text = match after {
-                    Some(n) => format!("A new Edit Session after {n}"),
-                    None => "Nothing viewed".into(),
-                };
-                ui.label(egui::RichText::new(text).weak()).on_hover_text(
-                    "The first edit puts an Edit Session in after the operator with the display flag, and moves the flag to it",
+            many => {
+                ui.label(format!("Their {} operators", many.len())).on_hover_text(
+                    "The operators that made them hold their transforms: a move goes into each one's Transform group",
                 );
             }
+        }
+        {
+            if !in_nodes.is_empty() {
+                let text = if in_session { "The rest, and other edits, into" } else { "Other edits into" };
+                ui.label(egui::RichText::new(text).weak());
+            }
+            match target {
+                Some(id) => {
+                    let name = graph.nodes.iter().find(|n| n.id == id).map(|n| n.name.clone()).unwrap_or_default();
+                    if ui
+                        .add(egui::Button::new(format!("{} {name}", icons::ARROWS_OUT_CARDINAL)).truncate())
+                        .on_hover_text("The Edit Session at the display flag: click to select it and see its steps")
+                        .clicked()
+                    {
+                        graph.selected_node = Some(id);
+                        graph.selected_nodes = vec![id];
+                    }
+                }
+                None => {
+                    let after = graph
+                        .view_flag
+                        .and_then(|v| graph.nodes.iter().find(|n| n.id == v))
+                        .map(|n| n.name.clone());
+                    let text = match after {
+                        Some(n) => format!("A new Edit Session after {n}"),
+                        None => "Nothing viewed".into(),
+                    };
+                    ui.label(egui::RichText::new(text).weak()).on_hover_text(
+                        "The first edit puts an Edit Session in after the operator with the display flag, and moves the flag to it",
+                    );
+                }
+            }
+        }
+        let mut only = gizmo::SESSION_ONLY.load(std::sync::atomic::Ordering::Relaxed);
+        if ui
+            .checkbox(&mut only, "Edit Session only")
+            .on_hover_text("Every move into the Edit Session, even of a prim whose operator holds its transform: an override on top, as for a loaded prim")
+            .changed()
+        {
+            gizmo::SESSION_ONLY.store(only, std::sync::atomic::Ordering::Relaxed);
         }
         ui.add_space(2.0);
 
@@ -198,7 +315,10 @@ pub fn draw(
                 }
             });
             f.ui.add_space(3.0);
-            let values: Vec<[[f32; 3]; 3]> = places.iter().map(|p| shown(p, space)).collect();
+            let values: Vec<[[f32; 3]; 3]> = places.iter().zip(&holders).map(|(p, h)| held(p, h, space)).collect();
+            // A camera, a dome or a distant light held by its operator is not
+            // scaled.
+            let no_scale = holders.iter().any(|h| matches!(h, Holder::Node(_, _, false)));
             let (axis_w, head_w) = (18.0, 22.0);
             for (part, head, t, hint, speed) in [
                 (0, "T", Tool::Move, "Move (W)", 0.01),
@@ -227,10 +347,29 @@ pub fn draw(
                                     if mixed {
                                         drag = drag.custom_formatter(|_, _| "–".into());
                                     }
-                                    let r = ui.field_sized([field_w, h], drag);
+                                    let r = ui.add_enabled_ui(!(part == 2 && no_scale), |ui| ui.field_sized([field_w, h], drag)).inner;
                                     if r.changed() && v != first {
-                                        let verb = crate::core::edit_session::verb(part);
-                                        graph.record_edits(verb, &typed(&places, space, part, axis, v));
+                                        // Into each operator holding one; the rest into the Edit Session.
+                                        let mut rest = vec![];
+                                        for (p, h) in places.iter().zip(&holders) {
+                                            match h {
+                                                Holder::Node(id, x, _) => {
+                                                    let new = typed_held(p, x, space, part, axis, v);
+                                                    graph.edit_animated(*id, |nt| {
+                                                        if let Some((x, _)) = nt.xform_mut() {
+                                                            if *x != new {
+                                                                *x = new;
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                                Holder::Session => rest.push(p.clone()),
+                                            }
+                                        }
+                                        if !rest.is_empty() {
+                                            let verb = crate::core::edit_session::verb(part);
+                                            graph.record_edits(verb, &typed(&rest, space, part, axis, v));
+                                        }
                                     }
                                 }
                                 ui.add_sized([axis_w, h], egui::Label::new(egui::RichText::new(name).weak()));

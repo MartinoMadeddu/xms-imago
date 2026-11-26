@@ -20,8 +20,7 @@ enum Pick {
 pub fn light_rows(
     ui: &mut egui::Ui,
     location: &mut String,
-    translate: &mut [f32; 3],
-    rotate: &mut [f32; 3],
+    xform: &mut crate::types::Xform,
     light: &mut Light,
     io: &mut super::ui::PanelIo,
     node: crate::types::NodeId,
@@ -101,10 +100,7 @@ pub fn light_rows(
     } else {
         "It looks down its -Z axis, with +Y up. A Transform after it moves it too"
     };
-    group(ui, "Transform", Some(hint), |f| {
-        f.xyz("Translate", None, translate, 0.05, "");
-        f.xyz("Rotate", Some("Degrees, X then Y then Z"), rotate, 0.5, "°");
-    });
+    super::form::xform_group(ui, xform, crate::core::light::scales(light.kind), hint);
     // Its values, by the definitions' groups, in their order.
     let params = light.params();
     let mut groups: Vec<&str> = vec![];

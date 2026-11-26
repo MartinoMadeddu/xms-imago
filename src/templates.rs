@@ -374,6 +374,7 @@ fn local_animation(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 0.8,
             location: "/cube".into(),
+            xform: Default::default(),
         },
         p(40.0, 20.0),
     );
@@ -397,6 +398,7 @@ fn local_animation(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             radius: 0.4,
             segments: 24,
             location: "/ball".into(),
+            xform: Default::default(),
         },
         p(300.0, 20.0),
     );
@@ -705,6 +707,7 @@ fn bridge(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 1.0,
             location: "/lower".into(),
+            xform: Default::default(),
         },
         p(60.0, 20.0),
     );
@@ -713,6 +716,7 @@ fn bridge(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 1.0,
             location: "/upper".into(),
+            xform: Default::default(),
         },
         p(300.0, 20.0),
     );
@@ -916,8 +920,7 @@ fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         "Camera".into(),
         NodeType::Camera {
             location: "/scene/camera".into(),
-            translate: [0.0, 3.0, 11.6],
-            rotate: [-12.0, 0.0, 0.0],
+            xform: crate::types::Xform::at([0.0, 3.0, 11.6], [-12.0, 0.0, 0.0]),
             camera: Camera {
                 focal_length: 50.0,
                 horizontal_aperture: 23.76,
@@ -950,8 +953,11 @@ fn delorean_render(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         "RectLight".into(),
         NodeType::Light {
             location: "/lights/rect".into(),
-            translate: [3.2311358, 2.9668941, 2.390841],
-            rotate: [-55.98229, 52.89807, 49.75959],
+            // Angles worked out in the order lights turned in before they had one.
+            xform: crate::types::Xform {
+                order: crate::types::RotationOrder::before_orders(),
+                ..crate::types::Xform::at([3.2311358, 2.9668941, 2.390841], [-55.98229, 52.89807, 49.75959])
+            },
             light: rect,
         },
         p(860.0, 120.0),
@@ -1219,6 +1225,7 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 1.0,
             location: "/set/cube".into(),
+            xform: Default::default(),
         },
         p(40.0, 20.0),
     );
@@ -1228,6 +1235,7 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             radius: 0.5,
             segments: 32,
             location: "/set/sphere".into(),
+            xform: Default::default(),
         },
         p(260.0, 20.0),
     );
@@ -1238,6 +1246,7 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             cols: 10,
             size: 6.0,
             location: "/set/ground".into(),
+            xform: Default::default(),
         },
         p(480.0, 20.0),
     );
@@ -1267,8 +1276,7 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         "Front".into(),
         NodeType::Camera {
             location: "/cameras/front".into(),
-            translate: [0.0, 1.6, 5.5],
-            rotate: [-12.0, 0.0, 0.0],
+            xform: crate::types::Xform::at([0.0, 1.6, 5.5], [-12.0, 0.0, 0.0]),
             camera: Camera {
                 focal_length: 35.0,
                 horizontal_aperture: 36.0,
@@ -1283,8 +1291,7 @@ fn cameras(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         "Top".into(),
         NodeType::Camera {
             location: "/cameras/top".into(),
-            translate: [0.0, 10.0, 0.0],
-            rotate: [-90.0, 0.0, 0.0],
+            xform: crate::types::Xform::at([0.0, 10.0, 0.0], [-90.0, 0.0, 0.0]),
             camera: Camera {
                 projection: Projection::Orthographic,
                 horizontal_aperture: 80.0,
@@ -1321,6 +1328,7 @@ fn variant_shapes(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             cols: 10,
             size: 6.0,
             location: "/set/ground".into(),
+            xform: Default::default(),
         },
         p(40.0, 20.0),
     );
@@ -1329,6 +1337,7 @@ fn variant_shapes(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 1.0,
             location: "/asset/cube".into(),
+            xform: Default::default(),
         },
         p(260.0, 20.0),
     );
@@ -1338,6 +1347,7 @@ fn variant_shapes(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             radius: 0.5,
             segments: 32,
             location: "/asset/sphere".into(),
+            xform: Default::default(),
         },
         p(480.0, 20.0),
     );
@@ -1486,6 +1496,7 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 1.0,
             location: "/root/asset/cube".into(),
+            xform: Default::default(),
         },
         p(80.0, -620.0),
     );
@@ -1495,6 +1506,7 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             radius: 0.5,
             segments: 32,
             location: "/root/asset/sphere".into(),
+            xform: Default::default(),
         },
         p(310.0, -620.0),
     );
@@ -1505,6 +1517,7 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             cols: 10,
             size: 2.0,
             location: "/root/asset/grid".into(),
+            xform: Default::default(),
         },
         p(545.0, -620.0),
     );
@@ -1525,6 +1538,7 @@ fn material_bindings(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
             radius: 0.5,
             segments: 32,
             location: "/root/asset/sphere_2".into(),
+            xform: Default::default(),
         },
         p(760.0, -620.0),
     );
@@ -1685,6 +1699,7 @@ fn materialx_shaders(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String {
         radius: 0.5,
         segments: 48,
         location: format!("/root/{name}"),
+        xform: Default::default(),
     };
     let shift = |x: f32| NodeType::Transform {
         translation: Vec3::new(x, 0.0, 0.0),
@@ -2231,6 +2246,7 @@ fn body_collide_course(g: &mut NodeGraphState, _: &mut IceGraphStore) -> String 
             NodeType::CreateCube {
                 size: 1.0,
                 location: format!("/course/{name}"),
+                xform: Default::default(),
             },
             p(x, 20.0),
         );
@@ -2767,6 +2783,7 @@ fn ice_shrink_wrap(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
             radius: 1.0,
             segments: 32,
             location: "/target/sphere".into(),
+            xform: Default::default(),
         },
         p(300.0, 20.0),
     );
@@ -2825,6 +2842,7 @@ fn snippet_roughen_relax(g: &mut NodeGraphState, store: &mut IceGraphStore) -> S
             radius: 1.0,
             segments: 48,
             location: "/shapes/sphere".into(),
+            xform: Default::default(),
         },
         p(40.0, 20.0),
     );
@@ -2856,6 +2874,7 @@ fn snippet_stick(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             radius: 1.0,
             segments: 32,
             location: "/target/sphere".into(),
+            xform: Default::default(),
         },
         p(300.0, 20.0),
     );
@@ -3078,6 +3097,7 @@ fn ice_cage_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
             NodeType::CreateCube {
                 size: 2.0,
                 location: location.into(),
+                xform: Default::default(),
             },
             p(x, 20.0),
         )
@@ -3110,6 +3130,7 @@ fn ice_cage_deform(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String 
             radius: 0.8,
             segments: 32,
             location: "/sphere".into(),
+            xform: Default::default(),
         },
         p(440.0, 20.0),
     );
@@ -3993,6 +4014,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             cols: 20,
             size: 40.0,
             location: "/root/ground".into(),
+            xform: Default::default(),
         },
         p(40.0, 20.0),
     );
@@ -4001,6 +4023,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
         NodeType::CreateCube {
             size: 1.0,
             location: "/protos/cube".into(),
+            xform: Default::default(),
         },
         p(240.0, 20.0),
     );
@@ -4010,6 +4033,7 @@ fn ice_instancing(g: &mut NodeGraphState, store: &mut IceGraphStore) -> String {
             radius: 0.5,
             segments: 24,
             location: "/protos/sphere".into(),
+            xform: Default::default(),
         },
         p(380.0, 20.0),
     );
@@ -5010,3 +5034,4 @@ mod tests {
         }
     }
 }
+

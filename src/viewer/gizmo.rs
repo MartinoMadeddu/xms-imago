@@ -65,7 +65,11 @@ fn ice(
 }
 
 pub fn target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<Target> {
-    let id = graph.selected_node?;
+    node_target(graph, subnets, graph.selected_node?)
+}
+
+/// The target operator `id` makes, if any.
+fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: NodeId) -> Option<Target> {
     let node = graph.nodes.iter().find(|n| n.id == id)?;
     // Keyed parameters as at the playhead.
     match &*graph.animated_type(node) {
@@ -93,24 +97,19 @@ pub fn target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Op
                 places: vec![],
             })
         }
-        NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => Some(Target {
-            node: id,
-            pivot: Vec3::from(*translate),
-            base: (
-                Vec3::from(*translate),
-                Quat::from_euler(
-                    EulerRot::XYZ,
-                    rotate[0].to_radians(),
-                    rotate[1].to_radians(),
-                    rotate[2].to_radians(),
-                ),
-                Vec3::ONE,
-            ),
-            uniform: true,
-            scales: false,
-            parents: glam::Mat4::IDENTITY,
-            places: vec![],
-        }),
+        // A prim's maker holding its transform: the handles at its pivot.
+        t if t.xform().is_some() => {
+            let (x, scales) = t.xform()?;
+            Some(Target {
+                node: id,
+                pivot: Vec3::from(x.translate) + Vec3::from(x.pivot),
+                base: (Vec3::from(x.translate), x.quat(), Vec3::from(x.scale)),
+                uniform: false,
+                scales,
+                parents: glam::Mat4::IDENTITY,
+                places: vec![],
+            })
+        }
         NodeType::EditPrimitive { kind, edits } => {
             use crate::core::edit_primitive::{handles, EditKind};
             let pass = ice(subnets);
@@ -156,12 +155,8 @@ fn has_own_handles(graph: &NodeGraphState) -> bool {
     };
     matches!(
         n.node_type,
-        NodeType::Transform { .. }
-            | NodeType::Camera { .. }
-            | NodeType::Light { .. }
-            | NodeType::EditPrimitive { .. }
-            | NodeType::EditPoly { .. }
-    )
+        NodeType::Transform { .. } | NodeType::EditPrimitive { .. } | NodeType::EditPoly { .. }
+    ) || n.node_type.holds_xform()
 }
 
 /// The places of the prims selected, in the scene viewed. Nothing when the
@@ -212,11 +207,80 @@ fn looked_up(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen
     edit_session::places(&prims, chosen)
 }
 
+/// Whether the Selection bar and the handles put every edit into the Edit
+/// Session, even of a prim whose operator holds its transform.
+pub static SESSION_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Where the own transform of each of `chosen` is written: the operator that
+/// made it when that operator holds it and nothing after it moved the prim
+/// (`prim_inspector::xform_by`), else `None`, the Edit Session. All `None`
+/// with `SESSION_ONLY` on.
+pub fn sources(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Vec<Option<NodeId>> {
+    use std::hash::{Hash, Hasher};
+    if SESSION_ONLY.load(std::sync::atomic::Ordering::Relaxed) || chosen.is_empty() || chosen.len() > MAX_PRIMS {
+        return vec![None; chosen.len()];
+    }
+    let Some(view) = graph.view_flag else {
+        return vec![None; chosen.len()];
+    };
+    // Kept as the places are: asked every frame.
+    static KEPT: std::sync::Mutex<Option<(u64, Vec<Option<NodeId>>)>> = std::sync::Mutex::new(None);
+    let key = graph.cook_key(view, graph.view_output).map(|k| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (k, graph.time.to_bits(), chosen).hash(&mut h);
+        h.finish()
+    });
+    if let (Some(key), Some((k, kept))) = (key, KEPT.lock().unwrap().as_ref()) {
+        if *k == key {
+            return kept.clone();
+        }
+    }
+    let pass = ice(subnets);
+    let prims = match graph.evaluate_for_viewport_packed(&pass) {
+        Some(crate::types::EvalResult::Named(p)) => p,
+        _ => vec![],
+    };
+    let found: Vec<Option<NodeId>> = chosen
+        .iter()
+        .map(|path| {
+            // A stage's prim (a group of it too): its Load USD made it.
+            let tree = prims
+                .iter()
+                .find(|p| &p.path == path)
+                .and_then(|p| p.stage.clone())
+                .or_else(|| {
+                    prims
+                        .iter()
+                        .filter_map(|p| p.stage.as_ref())
+                        .find(|t| t.nodes.iter().any(|n| &n.path == path))
+                        .cloned()
+                });
+            crate::prim_inspector::xform_by(graph, view, path, tree.as_deref())
+                .filter(|x| x.writes && graph.nodes.iter().any(|n| n.id == x.node && n.node_type.holds_xform()))
+                .map(|x| x.node)
+        })
+        .collect();
+    if let Some(key) = key {
+        *KEPT.lock().unwrap() = Some((key, found.clone()));
+    }
+    found
+}
+
 /// The handles of the prims selected: on the first, its place as the scene
-/// viewed has it.
+/// viewed has it. One prim whose operator holds its transform: that
+/// operator's handles, writing into it.
 pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Option<Target> {
     let places = selected_places(graph, subnets, chosen);
     let first = places.first()?;
+    if let ([one], [Some(id)]) = (places.as_slice(), sources(graph, subnets, chosen).as_slice()) {
+        if let Some(t) = node_target(graph, subnets, *id) {
+            return Some(Target {
+                pivot: one.parents.transform_point3(t.pivot),
+                parents: one.parents,
+                ..t
+            });
+        }
+    }
     let (t, r, s) = trs(first);
     Some(Target {
         node: SESSION,
@@ -320,21 +384,29 @@ pub fn write(graph: &mut NodeGraphState, id: NodeId, delta: Delta, (t, r, s): (V
                 }
             }
         },
-        NodeType::Camera { translate, rotate, .. } | NodeType::Light { translate, rotate, .. } => match delta {
-            Delta::Translate(_) => {
-                if *translate != t.to_array() {
-                    *translate = t.to_array();
+        nt if nt.xform().is_some() => {
+            let Some((x, scales)) = nt.xform_mut() else { return };
+            match delta {
+                Delta::Translate(_) => {
+                    if x.translate != t.to_array() {
+                        x.translate = t.to_array();
+                    }
                 }
-            }
-            Delta::Rotate(_) => {
-                let e = euler();
-                let d = [e.x.to_degrees(), e.y.to_degrees(), e.z.to_degrees()];
-                if *rotate != d {
-                    *rotate = d;
+                Delta::Rotate(_) => {
+                    let e = x.order.angles(r);
+                    let d = [e.x.to_degrees(), e.y.to_degrees(), e.z.to_degrees()];
+                    if x.rotate != d {
+                        x.rotate = d;
+                    }
                 }
+                Delta::Scale(_) if scales => {
+                    if x.scale != s.to_array() {
+                        x.scale = s.to_array();
+                    }
+                }
+                Delta::Scale(_) => {}
             }
-            Delta::Scale(_) => {}
-        },
+        }
         // An override of the part dragged, the rest left to the prim.
         NodeType::EditPrimitive { edits, .. } => {
             let (name, v) = match delta {
@@ -571,6 +643,7 @@ mod tests {
             NodeType::CreateCube {
                 size: 1.0,
                 location: "/cube".into(),
+                xform: Default::default(),
             },
             egui::pos2(0.0, 0.0),
         );
@@ -623,8 +696,7 @@ mod tests {
             "Cam".into(),
             NodeType::Camera {
                 location: "/camera".into(),
-                translate: [0.0, 1.0, 4.0],
-                rotate: [0.0; 3],
+                xform: crate::types::Xform::at([0.0, 1.0, 4.0], [0.0; 3]),
                 camera: Default::default(),
             },
             egui::pos2(0.0, 200.0),
@@ -634,10 +706,10 @@ mod tests {
         assert!(!t.scales && t.pivot == Vec3::new(0.0, 1.0, 4.0));
         let d = Delta::Rotate(Quat::from_rotation_x(-30f32.to_radians()));
         write(&mut g, cam, d, manip::compose(t.base, d));
-        let NodeType::Camera { rotate, .. } = &g.nodes.iter().find(|n| n.id == cam).unwrap().node_type else {
+        let NodeType::Camera { xform, .. } = &g.nodes.iter().find(|n| n.id == cam).unwrap().node_type else {
             panic!()
         };
-        assert!((rotate[0] + 30.0).abs() < 1e-3, "{rotate:?}");
+        assert!((xform.rotate[0] + 30.0).abs() < 1e-3, "{:?}", xform.rotate);
     }
 
     /// An Edit Primitive's handles sit on its prim and override the part
@@ -684,7 +756,22 @@ mod tests {
     #[test]
     fn selected_prims_are_dragged_into_an_edit_session() {
         let mut g = NodeGraphState::default();
-        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let made = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        // A Transform after it: its own transform is no longer the Cube's to
+        // hold, so the session takes the moves.
+        let cube = g.add_node(
+            "Still".into(),
+            NodeType::Transform {
+                translation: Vec3::ZERO,
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
+            },
+            egui::pos2(0.0, 100.0),
+        );
+        g.add_connection(made, 0, cube, 0);
+        g.set_view_flag(cube);
         let path = crate::types::cube_location();
         assert!(session_target(&g, &Default::default(), &[]).is_none());
         let t = session_target(&g, &Default::default(), std::slice::from_ref(&path)).expect("handles on the cube");
@@ -751,5 +838,45 @@ mod tests {
         assert!(target(&g, &Default::default()).unwrap().uniform);
         g.selected_node = Some(clip);
         assert!(target(&g, &Default::default()).is_none());
+    }
+
+    /// A prim whose operator holds its transform, nothing after it moving
+    /// it: the handles are that operator's, and a drag writes into it, in its
+    /// Rotate Order. Once an Edit Session holds a move of it, the session's.
+    #[test]
+    fn a_prim_is_moved_where_its_transform_is_held() {
+        let mut g = NodeGraphState::default();
+        let light = g.add_node(
+            "Key".into(),
+            NodeType::light(crate::core::light::Light::new(crate::core::light::LightType::Rect)),
+            egui::pos2(0.0, 0.0),
+        );
+        g.set_view_flag(light);
+        let path = "/lights/Key".to_string();
+        let chosen = std::slice::from_ref(&path);
+        assert_eq!(sources(&g, &Default::default(), chosen), vec![Some(light)]);
+        let t = session_target(&g, &Default::default(), chosen).expect("the light's handles");
+        assert_eq!(t.node, light);
+        assert!(t.scales, "a rect light has a size to scale");
+        assert!((t.pivot - Vec3::new(0.0, 2.0, 4.0)).length() < 1e-5);
+        let d = Delta::Translate(Vec3::X);
+        write(&mut g, t.node, into(t.parents, d), manip::compose(t.base, into(t.parents, d)));
+        let (x, _) = g.nodes.iter().find(|n| n.id == light).unwrap().node_type.xform().map(|(x, s)| (*x, s)).unwrap();
+        assert_eq!(x.translate, [1.0, 2.0, 4.0]);
+
+        // The bar typing a world rotation: only the rotation changes.
+        let place = scene_places(&g, &Default::default(), chosen)[0].clone();
+        let typed = crate::selection_bar::typed_held(&place, &x, crate::selection_bar::Space::Global, 1, 1, 45.0);
+        assert_eq!(typed.translate, x.translate);
+        assert!(
+            (typed.rotate[0] + 30.0).abs() < 1e-3 && (typed.rotate[1] - 45.0).abs() < 1e-3,
+            "{:?}",
+            typed.rotate
+        );
+
+        // An Edit Session holding a move of it: the session's from now on.
+        g.record_edits("Move", &[(path.clone(), "translate", serde_json::json!([0.0, 0.0, 0.0]))]);
+        assert_eq!(sources(&g, &Default::default(), chosen), vec![None]);
+        assert_eq!(session_target(&g, &Default::default(), chosen).unwrap().node, SESSION);
     }
 }
