@@ -935,3 +935,4 @@ should work goes in `DESIGN_PHILOSOPHY.md`, not here.
 - 25/11/2026: core/ui-work: the Selection bar 190 wide. (Martino)
 - 25/11/2026: core/ui-work: the Selection bar no longer goes off the window with a long prim path selected: the path and the session's name cut short, nothing wider than the bar. (Martino)
 - 25/11/2026: core/ui-work: the side bars keep their width whatever they show: their contents drawn in a child Ui of the bar's rectangle, clipped to it (main::fixed), so a long value (Global) no longer widens the Selection bar; it is 200 wide. (Martino)
+- 25/11/2026: Release 0.3.10. (Martino)

@@ -8,17 +8,20 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-11-25
+
 ### Interface
 
 - **Tools pane**: the operators' categories as coloured buttons down a
   column, after XSI's tool bars; a click opens a box of the category's
   operators, to drag onto the Node Graph (onto a wire to go into it), as in
   Shake, or click to add after the selected operator. New layout
-  **xms_xsi_layout** puts it down the whole left side.
+  **xms_xsi_layout** has it down the left.
 - **P over the Node Graph** shows the selected operator's Parameters over
   the graph at its top right, in a thin border, as Houdini's network editor
   does; drag their left edge, bottom edge or corner to size them.
-- **Tools and Selection bars** down the window's sides: fixed, not tabs. Window shows and hides them; layouts keep them.
+- **Tools and Selection bars** down the window's sides: fixed, not tabs.
+  Window shows and hides them; layouts keep them.
 - **Selection bar**: what is selected in the Viewer, after XSI's main command
   panel: what a click picks (prim, model, top), the move, rotate and scale
   tools, the selection's scale, rotation and translation (local or global)
