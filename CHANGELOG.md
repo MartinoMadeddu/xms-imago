@@ -26,6 +26,14 @@ version's heading when you tag it.
 - Shift+Enter over the Viewer: an Edit Primitive on the selected prims, as
   Enter in the Scene Explorer.
 - The Viewer's handles are drawn three pixels wide.
+- The handles turn with the prim in Local space (the Selection bar's Global
+  and Local); Scale is always along its own axes.
+- Maya's middle-button drag: with Move, Rotate or Scale, a middle drag
+  anywhere in the Viewer moves by the handle last dragged, drawn yellow.
+- A right-click menu in the Viewer: on a prim, editing, its operators,
+  selecting around it, Hide, Show, Isolate, Reset Transform, Move Pivot,
+  Bind Material, Look Through, Light Links, Frame; on empty space, framing,
+  selecting, Show All, Shading, Camera, and Create at the clicked point.
 
 ### Fixes
 

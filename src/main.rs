@@ -490,6 +490,10 @@ pub(crate) fn draw_ui(
                     if let Some(c) = file_menu(ui, &recent, &graph_file) { command = Some(c); }
                     edit_menu(ui, &mut *graph, &mut *subnets, &mut *history, &mut *graph_file);
                     crate::menus::menu(ui, "Window", |ui| window_menu(ui, &mut *layout, &mut *browser, locked, &mut graph_file.message));
+                    // A pane the Viewer's right-click menu asked for.
+                    if let Some(pane) = viewer::menu::PANE.lock().ok().and_then(|mut p| p.take()) {
+                        layout.bring(pane);
+                    }
                     crate::menus::menu(ui, "Help", |ui| help_menu(ui, &mut graph_file.message));
                 });
                 let menus_end = ui.cursor().min.x;

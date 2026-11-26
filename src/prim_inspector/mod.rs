@@ -833,7 +833,7 @@ pub fn xform_by(
 
 /// The operator nearest upstream of `view` (itself first) that `is` says is the
 /// one. Bypassed operators do nothing, so they are not it.
-fn upstream<'a>(
+pub(crate) fn upstream<'a>(
     graph: &'a crate::node_graph::NodeGraphState,
     view: NodeId,
     is: impl Fn(&crate::node_graph::GraphNode) -> bool,
@@ -898,7 +898,7 @@ pub fn bound_by(graph: &crate::node_graph::NodeGraphState, view: NodeId, path: &
 
 /// The Material operator upstream of `view` that made the material of this
 /// name. Its id and name.
-fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
+pub(crate) fn material_of(graph: &crate::node_graph::NodeGraphState, view: NodeId, name: &str) -> Option<(NodeId, String)> {
     use crate::types::NodeType;
     upstream(graph, view, |n| {
         matches!(n.node_type, NodeType::Material { .. } | NodeType::MaterialX { .. })
@@ -964,6 +964,20 @@ pub(crate) fn load_of(
     upstream(graph, view, reads)
         .or_else(|| upstream(graph, view, |n| matches!(n.node_type, NodeType::LoadUsd { .. })))
         .map(|n| n.id)
+}
+
+/// The operator upstream of `view` that made the prim at `path`: the Load
+/// USD of `tree` for a stage's prim, else the shape, camera or light.
+pub fn maker(
+    graph: &crate::node_graph::NodeGraphState,
+    view: NodeId,
+    path: &str,
+    tree: Option<&crate::usd_scene::StageTree>,
+) -> Option<NodeId> {
+    match tree {
+        Some(t) => load_of(graph, view, t),
+        None => made_by(graph, view, path),
+    }
 }
 
 /// The operator upstream of `view` that made the primitive at `path` itself.

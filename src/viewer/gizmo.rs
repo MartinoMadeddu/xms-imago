@@ -19,7 +19,7 @@
 use glam::{EulerRot, Quat, Vec2, Vec3};
 
 use crate::core::edit_session::{self, Place};
-use crate::core::manip::{self, Delta, Handle, Tool, AXES, RING_STEPS};
+use crate::core::manip::{self, Delta, Handle, Tool, RING_STEPS};
 use crate::core::poly::PickView;
 use crate::modelling::PolyTool;
 use crate::node_graph::NodeGraphState;
@@ -55,6 +55,14 @@ pub struct Target {
     /// For each of `places`, the operator holding its transform, and that
     /// transform: a drag writes into it rather than the Edit Session.
     pub held: Vec<Held>,
+    /// Which way the prim faces in the world: the handles' axes in Local
+    /// space, and always for Scale (a prim scales along its own axes).
+    pub frame: Quat,
+}
+
+/// The rotation of a matrix.
+fn turn(m: glam::Mat4) -> Quat {
+    m.to_scale_rotation_translation().1
 }
 
 /// The operator holding a prim's transform, and its translate, rotation and
@@ -103,6 +111,7 @@ fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: 
                 parents: glam::Mat4::IDENTITY,
                 places: vec![],
                 held: vec![],
+                frame: order.quat(*rotation),
             })
         }
         // A prim's maker holding its transform: the handles at its pivot.
@@ -117,6 +126,7 @@ fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: 
                 parents: glam::Mat4::IDENTITY,
                 places: vec![],
                 held: vec![],
+                frame: x.quat(),
             })
         }
         NodeType::EditPrimitive { kind, edits } => {
@@ -135,19 +145,17 @@ fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: 
                 edits,
             )?;
             let r = r.map(f32::to_radians);
+            let q = Quat::from_euler(EulerRot::XYZ, r[0], r[1], r[2]);
             Some(Target {
                 node: id,
                 pivot: parents.transform_point3(Vec3::from(t)),
-                base: (
-                    Vec3::from(t),
-                    Quat::from_euler(EulerRot::XYZ, r[0], r[1], r[2]),
-                    Vec3::from(s),
-                ),
+                base: (Vec3::from(t), q, Vec3::from(s)),
                 uniform: false,
                 scales: *kind != EditKind::Camera,
                 parents,
                 places: vec![],
                 held: vec![],
+                frame: turn(parents) * q,
             })
         }
         _ => None,
@@ -287,6 +295,7 @@ pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStor
             return Some(Target {
                 pivot: one.parents.transform_point3(t.pivot),
                 parents: one.parents,
+                frame: turn(one.parents) * t.frame,
                 ..t
             });
         }
@@ -310,6 +319,7 @@ pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStor
         uniform: false,
         scales: true,
         parents: first.parents,
+        frame: turn(first.parents) * r,
         places,
         held,
     })
@@ -465,6 +475,10 @@ pub struct Drag {
     pub places: Vec<Place>,
     /// Who holds each of `places`' transforms, as it held it then.
     pub held: Vec<Held>,
+    /// The handles' axes when it began.
+    pub frame: Quat,
+    /// Dragged with the middle button, anywhere: Maya's.
+    pub middle: bool,
 }
 
 /// The tool a target can use: Scale on a camera falls back to Move.
@@ -487,6 +501,7 @@ pub fn run(
     tool: &mut PolyTool,
     drag: &mut Option<Drag>,
     free: bool,
+    middle_free: bool,
     chosen: &[String],
     subnets: &crate::ice::IceGraphStore,
 ) -> Overlay {
@@ -495,11 +510,13 @@ pub fn run(
         return Overlay::default();
     };
     let origin = Vec2::new(rect.min.x, rect.min.y);
-    let (cursor, pressed, down, keys, ctrl, alt) = ctx.input(|i| {
+    let (cursor, pressed, down, mid_pressed, mid_down, keys, ctrl, alt) = ctx.input(|i| {
         (
             i.pointer.hover_pos().map(|p| Vec2::new(p.x - origin.x, p.y - origin.y)),
             i.pointer.button_pressed(egui::PointerButton::Primary),
             i.pointer.button_down(egui::PointerButton::Primary),
+            i.pointer.button_pressed(egui::PointerButton::Middle),
+            i.pointer.button_down(egui::PointerButton::Middle),
             [
                 i.key_pressed(egui::Key::Q),
                 i.key_pressed(egui::Key::W),
@@ -522,14 +539,25 @@ pub fn run(
     }
     let used = tool_for(&t, tool.tool);
     let size = manip::gizmo_size(view, t.pivot);
+    // The handles' axes: the prim's own in Local space (the Selection bar's
+    // Global and Local), and always for Scale.
+    let space: crate::selection_bar::Space =
+        ctx.data(|d| d.get_temp(egui::Id::new("selection_bar_space"))).unwrap_or_default();
+    let frame = if used == Tool::Scale || space == crate::selection_bar::Space::Local {
+        t.frame
+    } else {
+        Quat::IDENTITY
+    };
 
     // A drag in progress, or over.
     if let Some(d) = drag.clone() {
-        if !down || d.node != t.node {
+        let held_down = if d.middle { mid_down } else { down };
+        if !held_down || d.node != t.node {
             *drag = None;
         } else {
             let now = cursor.unwrap_or(d.start);
-            let mut delta = manip::drag_delta(view, d.tool, d.handle, d.pivot, d.size, d.start, now);
+            let mut delta =
+                manip::drag_delta(view, d.tool, d.handle, d.pivot, d.size, d.start, now, d.frame, d.middle);
             if let (true, Delta::Scale(s)) = (t.uniform, delta) {
                 // One axis pulled scales all three alike.
                 let k = if (s.x - 1.0).abs() > 1e-6 {
@@ -575,34 +603,62 @@ pub fn run(
     }
     tool.hot = match drag {
         Some(d) => Some(d.handle),
-        None if free => cursor.and_then(|c| manip::hit_handle(view, used, t.pivot, size, c, 9.0)),
+        None if free => cursor.and_then(|c| manip::hit_handle(view, used, t.pivot, size, c, 9.0, frame)),
         None => None,
+    };
+    let start = |handle: Handle, c: Vec2, middle: bool| Drag {
+        node: t.node,
+        handle,
+        start: c,
+        pivot: t.pivot,
+        size,
+        base: t.base,
+        tool: used,
+        places: t.places.clone(),
+        held: t.held.clone(),
+        frame,
+        middle,
     };
     if pressed && free && drag.is_none() {
         if let (Some(handle), Some(c)) = (tool.hot, cursor) {
-            *drag = Some(Drag {
-                node: t.node,
-                handle,
-                start: c,
-                pivot: t.pivot,
-                size,
-                base: t.base,
-                tool: used,
-                places: t.places.clone(),
-                held: t.held.clone(),
-            });
+            // The handle dragged is the one the middle button moves by next.
+            tool.set_active(used, handle);
+            *drag = Some(start(handle, c, false));
+        }
+    }
+    // The middle button anywhere in the Viewer: by the last handle dragged,
+    // as in Maya. Not with Select, nor when the middle button moves the
+    // camera.
+    if mid_pressed && middle_free && used != Tool::Select && drag.is_none() {
+        if let Some(c) = cursor {
+            let handle = tool.active(used);
+            // Scale's centre is the only even one; Rotate has no centre.
+            *drag = Some(start(handle, c, true));
         }
     }
     let mut o = Overlay::default();
-    draw(&mut o, t.pivot, size, used, tool.hot, view);
+    let lit = drag.as_ref().map(|d| d.handle).or(tool.hot);
+    draw(&mut o, t.pivot, size, used, lit, Some(tool.active(used)), view, frame);
     o
 }
 
 /// The handles of `tool` at `c`: arrows for Move, rings for Rotate, boxed lines
 /// for Scale; with Select a small tripod marking the pivot.
-pub fn draw(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>, view: &PickView) {
+/// `active`: the handle the middle button moves by, drawn as Maya draws it,
+/// yellow; `frame` turns the axes.
+#[allow(clippy::too_many_arguments)]
+pub fn draw(
+    o: &mut Overlay,
+    c: Vec3,
+    size: f32,
+    tool: Tool,
+    hot: Option<Handle>,
+    active: Option<Handle>,
+    view: &PickView,
+    frame: Quat,
+) {
     let start = o.top.len();
-    draw_thin(o, c, size, tool, hot, view);
+    draw_thin(o, c, size, tool, hot, active, view, frame);
     thicken(&mut o.top, start, c, view, 3.0);
 }
 
@@ -643,10 +699,26 @@ fn thicken(out: &mut Vec<f32>, start: usize, c: Vec3, view: &PickView, px: f32) 
     }
 }
 
-fn draw_thin(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle>, view: &PickView) {
+#[allow(clippy::too_many_arguments)]
+fn draw_thin(
+    o: &mut Overlay,
+    c: Vec3,
+    size: f32,
+    tool: Tool,
+    hot: Option<Handle>,
+    active: Option<Handle>,
+    view: &PickView,
+    frame: Quat,
+) {
+    let axes = manip::axes(frame);
     let col = |h: Handle| {
         if hot == Some(h) {
             return colour(1.0, 0.9, 0.2, 1.0);
+        }
+        // The one the middle button moves by: Maya's yellow, a little
+        // softer than the one under the pointer.
+        if active == Some(h) && tool != Tool::Select {
+            return colour(0.95, 0.8, 0.15, 1.0);
         }
         match h {
             Handle::Axis(0) => colour(0.92, 0.22, 0.22, 1.0),
@@ -657,22 +729,22 @@ fn draw_thin(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle
     };
     for a in 0..3 {
         let c_a = col(Handle::Axis(a));
-        let tip = c + AXES[a] * size;
+        let tip = c + axes[a] * size;
         match tool {
             Tool::Move => arrow(&mut o.top, c, tip, c_a),
             Tool::Scale => {
                 line(&mut o.top, c, tip, c_a);
                 let k = size * 0.06;
                 for b in 0..3 {
-                    line(&mut o.top, tip - AXES[b] * k, tip + AXES[b] * k, c_a);
+                    line(&mut o.top, tip - axes[b] * k, tip + axes[b] * k, c_a);
                 }
             }
             Tool::Rotate => {
                 for k in 0..RING_STEPS {
                     line(
                         &mut o.top,
-                        manip::ring_point(c, size, a, k),
-                        manip::ring_point(c, size, a, k + 1),
+                        manip::ring_point(c, size, a, k, frame),
+                        manip::ring_point(c, size, a, k + 1, frame),
                         c_a,
                     );
                 }
@@ -683,7 +755,7 @@ fn draw_thin(o: &mut Overlay, c: Vec3, size: f32, tool: Tool, hot: Option<Handle
                     x[3] = 0.7;
                     x
                 };
-                line(&mut o.top, c, c + AXES[a] * size * 0.45, dim);
+                line(&mut o.top, c, c + axes[a] * size * 0.45, dim);
             }
         }
     }
@@ -749,7 +821,7 @@ mod tests {
         let size = manip::gizmo_size(&v, t.pivot);
         let from = v.project(t.pivot + Vec3::X * 0.5).unwrap();
         let to = v.project(t.pivot + Vec3::X * 1.0).unwrap();
-        let d = manip::drag_delta(&v, Tool::Move, Handle::Axis(0), t.pivot, size, from, to);
+        let d = manip::drag_delta(&v, Tool::Move, Handle::Axis(0), t.pivot, size, from, to, Quat::IDENTITY, false);
         write(&mut g, mv, d, manip::compose(t.base, d));
         let NodeType::Transform {
             translation,

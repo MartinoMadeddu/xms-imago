@@ -501,6 +501,8 @@ pub struct Inputs<'a> {
     pub subnets: &'a crate::ice::IceGraphStore,
     pub hierarchy: &'a crate::types::SceneHierarchy,
     pub time: f64,
+    /// Isolate: only these, and what is below them, drawn. Empty: all.
+    pub isolate: &'a [String],
 }
 
 pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scene {
@@ -612,6 +614,21 @@ pub fn build(input: &Inputs, cache: &mut GeometryCache, generation: u64) -> Scen
         graph.evaluate_for_viewport_packed(&eval_subnet)
     } else {
         None
+    };
+    // Isolated: what is at or below the prims isolated.
+    let packed = match packed {
+        Some(EvalResult::Named(prims)) if !input.isolate.is_empty() => Some(EvalResult::Named(
+            prims
+                .into_iter()
+                .filter(|p| {
+                    input
+                        .isolate
+                        .iter()
+                        .any(|i| p.path == *i || p.path.starts_with(&format!("{}/", i.trim_end_matches('/'))))
+                })
+                .collect(),
+        )),
+        other => other,
     };
     // A material viewed on its own: a sphere wearing it.
     let packed = match packed {

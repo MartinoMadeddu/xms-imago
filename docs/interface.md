@@ -99,6 +99,26 @@ Timeline, History and Image Viewer.
   whose operator holds its transform moves in that operator, the rest in
   the Edit Session. Up to 256 prims. See
   [Edit Session](usd.md#edit-session).
+
+  The handles follow the Selection bar's **Global** (the world's axes) or
+  **Local** (the prim's own, turned with it); Scale is always along the
+  prim's own axes. As in Maya, with Move, Rotate or Scale a **middle-button
+  drag anywhere** in the Viewer moves by the handle last dragged, drawn
+  yellow: the centre at first (the screen's plane; scaling evenly), Y for
+  Rotate. Not in the Blender navigation style, whose middle button is the
+  camera's.
+- **Right-click** in the Viewer (without dragging) opens a menu. On a prim,
+  selecting it if it is not: Edit Primitive, Go to Operator (and to what
+  moved it, when another), Show in Scene Explorer, Inspect, Select (Parent,
+  Children, Model, Prototype), Hide, Show, Isolate (only these drawn in this
+  Viewer; nothing in the scene changes), Reset Transform, Move Pivot (to the
+  centre or the bottom of its box, the prim staying put; for a prim whose
+  operator holds its transform), Bind Material (a row of the Material
+  Binding upstream, one put in when there is none), Go to Material, Look
+  Through (a camera), Light Links (a light), Frame Selected. On empty space:
+  Frame All, Select All, Select None, Show All (ends Isolate and shows the
+  hidden), Shading, Camera, and Create: a shape, light or camera where the
+  ground was clicked, merged into the scene viewed.
 - **P** over the Node Graph: its **Parameters** over the graph at its top
   right, under its buttons, in a thin border with no title, as in Houdini's
   network editor, half the graph's height at first; P again hides them. Drag their left edge, bottom edge or

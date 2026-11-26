@@ -16,6 +16,7 @@ pub mod gizmo;
 pub mod info;
 pub(crate) mod gpu;
 pub mod movie;
+pub mod menu;
 mod occlusion;
 mod pick;
 pub(crate) mod scene;
@@ -120,6 +121,12 @@ pub struct Viewer {
     edit_drag: crate::modelling::Drag,
     /// A handle of a Transform or Camera node being dragged.
     gizmo_drag: Option<gizmo::Drag>,
+    /// What the right-click menu was opened on.
+    menu: menu::Opened,
+    /// Isolate: only these, and what is below them, drawn here.
+    isolate: Vec<String>,
+    /// Frame asked for by the menu: the selection (true) or everything.
+    frame_request: Option<bool>,
     /// Where the left button went down over the Viewer, for a click that picks
     /// a primitive (a drag is not a click).
     press: Option<egui::Pos2>,
@@ -210,7 +217,7 @@ impl Viewer {
 
     pub fn show(&mut self, ui: &mut egui::Ui, mut input: ViewerInput) {
         let rect = ui.max_rect();
-        ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         if ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p))) {
             self.used();
         }
@@ -255,7 +262,9 @@ impl Viewer {
                 ^ input.hierarchy.selection_revision().rotate_left(8),
             input.hierarchy.display_revision,
             // The camera looked through is not drawn.
-            crate::viewport::display::key() ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8),
+            crate::viewport::display::key()
+                ^ (self.looked.as_deref().map(hash_of).unwrap_or(0) << 8)
+                ^ hash_of(&self.isolate.join("\n")).rotate_left(24),
         );
         if self.built != Some(key) {
             self.built = Some(key);
@@ -265,6 +274,7 @@ impl Viewer {
                 subnets: input.subnets,
                 hierarchy: input.hierarchy,
                 time: input.playback.time,
+                isolate: &self.isolate,
             };
             self.scene = Arc::new(scene::build(&inputs, &mut self.cache, self.generation));
         }
@@ -304,6 +314,14 @@ impl Viewer {
                         .unwrap_or(true)
             });
             let free = over && !input.nav.style.claims_left_button(held);
+            // The middle button is the camera's in some styles (Blender's),
+            // and with the navigation keys in all.
+            let middle_free = over
+                && input
+                    .nav
+                    .style
+                    .action(crate::viewport::nav::Held { mmb: true, lmb: false, rmb: false, ..held })
+                    .is_none();
             let g = gizmo::run(
                 ui.ctx(),
                 rect,
@@ -312,11 +330,13 @@ impl Viewer {
                 input.tool,
                 &mut self.gizmo_drag,
                 free,
+                middle_free,
                 input.hierarchy.selected_prims(),
                 input.subnets,
             );
             overlay.top.extend(g.top);
             self.pick_prims(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
+            self.context_menu(&response, rect, &view, &mut input);
         }
 
         let size = pane;
@@ -855,6 +875,11 @@ impl Viewer {
                 i.pointer.hover_pos(),
             )
         });
+        // Frame Selected or Frame All from the right-click menu.
+        let (selection, all, held, pointer) = match self.frame_request.take() {
+            Some(sel) => (sel, !sel, false, Some(rect.center())),
+            None => (selection, all, held, pointer),
+        };
         if !(selection || all) || held || !pointer.is_some_and(|p| rect.contains(p)) {
             return;
         }

@@ -168,7 +168,7 @@ pub fn run(
     tool.hot = match &*drag {
         Drag::Handle { handle, .. } => Some(*handle),
         Drag::Idle if free => {
-            gizmo.and_then(|(c, size)| manip::hit_handle(view, tool.tool, c, size, cursor.unwrap() - origin, 9.0))
+            gizmo.and_then(|(c, size)| manip::hit_handle(view, tool.tool, c, size, cursor.unwrap() - origin, 9.0, glam::Quat::IDENTITY))
         }
         _ => None,
     };
@@ -255,7 +255,7 @@ pub fn run(
                 *drag = Drag::Idle;
             } else {
                 let now = cursor.map(|c| c - origin).unwrap_or(*start);
-                let delta = manip::drag_delta(view, tool.tool, *handle, *pivot, *size, *start, now);
+                let delta = manip::drag_delta(view, tool.tool, *handle, *pivot, *size, *start, now, glam::Quat::IDENTITY, false);
                 let (t, r, s) = manip::compose(*base, delta);
                 if let Some(node) = graph.nodes.iter_mut().find(|n| n.id == stage.node) {
                     if let NodeType::EditPoly { ops, .. } = &mut node.node_type {
@@ -330,7 +330,7 @@ fn overlay(stage: &modelling::Stage, tool: &PolyTool, view: &PickView, ppp: f32)
 
     // Manipulator, drawn over everything.
     if let Some((c, size)) = stage.gizmo(tool.tool, view) {
-        super::gizmo::draw(&mut o, c, size, tool.tool, tool.hot, view);
+        super::gizmo::draw(&mut o, c, size, tool.tool, tool.hot, None, view, glam::Quat::IDENTITY);
     }
 
     let (vis_verts, vis_edges) = poly::visible_components(mesh, view);

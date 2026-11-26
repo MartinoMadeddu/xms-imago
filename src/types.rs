@@ -2013,6 +2013,14 @@ impl Xform {
             * glam::Mat4::from_translation(-p)
     }
 
+    /// The pivot moved to `p`, the prim staying where it is: its translate
+    /// made up for it, as Maya's Center Pivot does.
+    pub fn set_pivot(&mut self, p: [f32; 3]) {
+        let m = self.matrix();
+        self.pivot = p;
+        self.set_matrix(m);
+    }
+
     /// Its values made to give matrix `m`, its pivot and order kept: what
     /// typing a place in the Selection bar (in the world, say) puts in it.
     pub fn set_matrix(&mut self, m: glam::Mat4) {
@@ -4812,6 +4820,17 @@ mod xform_tests {
         assert!(n.xform().unwrap().0.matrix().abs_diff_eq(glam::Mat4::IDENTITY, 1e-6));
         // A new one turns in USD's rotateXYZ order.
         assert_eq!(NodeType::cube(1.0).xform().unwrap().0.order, RotationOrder::XYZ);
+    }
+
+    /// Moving the pivot leaves the prim where it was.
+    #[test]
+    fn a_pivot_moved_keeps_the_prim_in_place() {
+        let mut x = Xform::at([1.0, 2.0, 3.0], [10.0, 40.0, -20.0]);
+        x.scale = [2.0, 1.0, 0.5];
+        let before = x.matrix();
+        x.set_pivot([0.0, -0.5, 0.0]);
+        assert_eq!(x.pivot, [0.0, -0.5, 0.0]);
+        assert!(x.matrix().abs_diff_eq(before, 1e-4));
     }
 
     /// Typing a place sets the values that give it, the pivot kept.

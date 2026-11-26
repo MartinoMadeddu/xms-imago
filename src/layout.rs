@@ -869,6 +869,18 @@ impl Layout {
         self.dock.main_surface_mut().push_to_focused_leaf(Tab::new(pane));
     }
 
+    /// A pane in front: its tab made the active one of its tab bar, or shown
+    /// when closed.
+    pub fn bring(&mut self, pane: Pane) {
+        if pane.is_bar() || !self.is_open(pane) {
+            self.show(pane);
+            return;
+        }
+        if let Some(at) = self.dock.find_tab_from(|t| t.pane == pane) {
+            let _ = self.dock.set_active_tab(at);
+        }
+    }
+
     /// Whether a tab of `pane` can be added (`add_tab`): see `may_add`.
     pub fn may_add(&self, pane: Pane) -> bool {
         may_add(&self.tabs(), pane)
