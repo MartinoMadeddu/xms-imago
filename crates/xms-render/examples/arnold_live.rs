@@ -15,12 +15,17 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use xms_render::arnold::{Arnold, Config};
-use xms_render::{Change, Edit, Event, Live, Renderer, Value};
+use xms_render::{Change, Edit, Event, Live, Renderer, Value, Written};
 
 /// The layer as it is: the edits here change nothing Imago would write.
-fn unchanged(layer: &Path) -> impl FnOnce() -> Result<PathBuf, String> + Send + 'static {
+/// The layer as loaded, for an edit that needs a reload: no light layer of
+/// its own, nothing to put back in memory, and the layer again as the whole.
+fn unchanged(layer: &Path) -> impl FnOnce() -> Result<(PathBuf, Vec<Edit>, Written), String> + Send + 'static {
     let layer = layer.to_path_buf();
-    move || Ok(layer)
+    move || {
+        let whole = layer.clone();
+        Ok((layer, vec![], Box::new(move || Ok(whole)) as Written))
+    }
 }
 
 fn main() {

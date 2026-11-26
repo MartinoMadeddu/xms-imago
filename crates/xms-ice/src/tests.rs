@@ -1557,12 +1557,13 @@ fn get_array_data_keeps_what_each_face_touches() {
         &[2.0, 14.0],
         "0+1+1+0, then 1+4+4+1 plus 4 x 1"
     );
-    // A list is not written as an attribute.
+    // A list is stored as a list attribute (Set Data keeps lists).
     let mut g = Graph::default();
     let ix = list(&mut g, "intrinsic:ptIndices", None);
     let set = g.add(Op::set("v"), vec![wire(ix)]);
     g.add(Op::Root { context: Context::Face }, vec![wire(set)]);
-    assert_eq!(compile(&g, &geo).unwrap_err().node, set);
+    let plan = compile(&g, &geo).unwrap();
+    assert!(plan.writes.iter().any(|w| w.name == "v" && w.list), "{:?}", plan.writes);
 }
 
 /// In an Object graph, Get Array Data gives every value as the graph's array; a

@@ -213,7 +213,13 @@ fn errors_name_their_line_and_what_is_wrong() {
     );
     assert!(e.contains("known when compiling"), "{e}");
     // Per face, a point attribute: by get_data.
-    let e = error_of("snippet s () { vector n = @N; }", Context::Face, &two_quads());
+    let mut quads = two_quads();
+    quads.set(
+        Context::Point,
+        "N",
+        Attr::new(Column::Vec3(Arc::new(vec![[0.0, 0.0, 1.0]; 6])), Role::Normal),
+    );
+    let e = error_of("snippet s () { vector n = @N; }", Context::Face, &quads);
     assert!(e.contains("get_data(@N, \"point\")"), "{e}");
 }
 
