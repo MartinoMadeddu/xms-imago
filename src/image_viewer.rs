@@ -26,7 +26,7 @@ use std::time::SystemTime;
 use crate::core::command::{self, State};
 use crate::core::render::SettingsInfo;
 use crate::node_graph::NodeGraphState;
-use crate::types::{EvalResult, IceGraphId};
+use crate::types::EvalResult;
 
 /// The key its renders run under in `core::command`: no operator has it.
 const RUN_KEY: usize = usize::MAX - 7;
@@ -318,7 +318,7 @@ pub fn draw(
         let viewed = graph.view_flag.and_then(|id| graph.nodes.iter().find(|n| n.id == id));
         st.graph_image = match viewed.map(|n| (&n.name, &n.node_type)) {
             Some((name, t)) if t.gives_image() => {
-                let pass = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 match graph.evaluate_for_viewport_packed(&pass) {
                     Some(EvalResult::Image(img, space)) => {
                         let shown = st.graph_image.as_ref().is_some_and(|(i, _)| Arc::ptr_eq(i, &img));

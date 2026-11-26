@@ -90,7 +90,7 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, selected: &[String]) 
     kept.linker = Some(id.0);
 
     // What comes into it.
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let input = graph
         .nodes
         .iter()

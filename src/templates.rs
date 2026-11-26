@@ -4426,6 +4426,21 @@ mod tests {
         mark
     }
 
+    /// How many points a result has, counted, not merged: a scene of
+    /// instances merged into one mesh is millions of points.
+    fn points_of(r: crate::types::EvalResult) -> usize {
+        match r {
+            crate::types::EvalResult::Named(prims) => prims
+                .iter()
+                .map(|p| p.mesh.vertices.len() + p.mesh.points.len() + p.mesh.curve_points.len())
+                .sum(),
+            r => {
+                let m = r.into_mesh();
+                m.vertices.len() + m.points.len() + m.curve_points.len()
+            }
+        }
+    }
+
     #[test]
     fn every_template_builds_something_to_look_at() {
         // The file-based templates need the examples folder of the repository.
@@ -4502,9 +4517,10 @@ mod tests {
                 let clip = (0..n.outputs.len().max(1)).any(|o| g.eval_anim_out(n.id, o).is_some());
                 let mesh = (0..n.outputs.len().max(1))
                     .map(|o| {
+                        // Counted, not merged: a scene of instances merged
+                        // into one mesh is millions of points.
                         g.eval_node_out(n.id, o, &mut std::collections::HashMap::new(), &eval)
-                            .map(|r| r.into_mesh())
-                            .map(|m| m.vertices.len() + m.points.len() + m.curve_points.len())
+                            .map(points_of)
                             .unwrap_or(0)
                     })
                     .max()
@@ -4518,10 +4534,7 @@ mod tests {
                 .eval_node_out(v, g.viewed_output(), &mut std::collections::HashMap::new(), &eval)
                 .map(|r| match r {
                     crate::types::EvalResult::Anim(_) => 1,
-                    r => {
-                        let m = r.into_mesh();
-                        m.vertices.len() + m.points.len() + m.curve_points.len()
-                    }
+                    r => points_of(r),
                 });
             assert!(
                 t.name == "Mocap split" || scene.unwrap_or(0) > 0,

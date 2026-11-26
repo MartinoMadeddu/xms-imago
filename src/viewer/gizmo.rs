@@ -52,7 +52,14 @@ pub struct Target {
     pub parents: glam::Mat4,
     /// The selected prims a drag moves (`SESSION`), each where it is.
     pub places: Vec<Place>,
+    /// For each of `places`, the operator holding its transform, and that
+    /// transform: a drag writes into it rather than the Edit Session.
+    pub held: Vec<Held>,
 }
+
+/// The operator holding a prim's transform, and its translate, rotation and
+/// scale as it holds them.
+pub type Held = Option<(NodeId, (Vec3, Quat, Vec3))>;
 
 /// The target the selected node makes, if any.
 /// The ICE graphs evaluated as the Viewer evaluates them: what is cooked
@@ -95,6 +102,7 @@ fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: 
                 scales: true,
                 parents: glam::Mat4::IDENTITY,
                 places: vec![],
+                held: vec![],
             })
         }
         // A prim's maker holding its transform: the handles at its pivot.
@@ -108,6 +116,7 @@ fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: 
                 scales,
                 parents: glam::Mat4::IDENTITY,
                 places: vec![],
+                held: vec![],
             })
         }
         NodeType::EditPrimitive { kind, edits } => {
@@ -138,6 +147,7 @@ fn node_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, id: 
                 scales: *kind != EditKind::Camera,
                 parents,
                 places: vec![],
+                held: vec![],
             })
         }
         _ => None,
@@ -281,6 +291,17 @@ pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStor
             });
         }
     }
+    // Several: each into the operator holding it, the rest into the session.
+    let ids = sources(graph, subnets, chosen);
+    let held: Vec<Held> = places
+        .iter()
+        .map(|p| {
+            let id = chosen.iter().position(|c| *c == p.path).and_then(|i| ids.get(i).copied().flatten())?;
+            let n = graph.nodes.iter().find(|n| n.id == id)?;
+            let (x, _) = graph.animated_type(n).xform().map(|(x, s)| (*x, s))?;
+            Some((id, (Vec3::from(x.translate), x.quat(), Vec3::from(x.scale))))
+        })
+        .collect();
     let (t, r, s) = trs(first);
     Some(Target {
         node: SESSION,
@@ -290,6 +311,7 @@ pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStor
         scales: true,
         parents: first.parents,
         places,
+        held,
     })
 }
 
@@ -441,6 +463,8 @@ pub struct Drag {
     pub tool: Tool,
     /// The selected prims dragged (`SESSION`), as they were when it began.
     pub places: Vec<Place>,
+    /// Who holds each of `places`' transforms, as it held it then.
+    pub held: Vec<Held>,
 }
 
 /// The tool a target can use: Scale on a camera falls back to Move.
@@ -526,7 +550,21 @@ pub fn run(
                         Delta::Rotate(_) => "Rotate",
                         Delta::Scale(_) => "Scale",
                     };
-                    graph.record_edits(verb, &prim_values(&d.places, delta));
+                    // Each prim whose operator holds its transform: into it,
+                    // about its pivot. The rest into the Edit Session.
+                    let mut rest = vec![];
+                    for (k, p) in d.places.iter().enumerate() {
+                        match d.held.get(k).copied().flatten() {
+                            Some((id, base)) => {
+                                let local = into(p.parents, delta);
+                                write(graph, id, local, manip::compose(base, local));
+                            }
+                            None => rest.push(p.clone()),
+                        }
+                    }
+                    if !rest.is_empty() {
+                        graph.record_edits(verb, &prim_values(&rest, delta));
+                    }
                 }
             } else {
                 let delta = into(t.parents, delta);
@@ -551,6 +589,7 @@ pub fn run(
                 base: t.base,
                 tool: used,
                 places: t.places.clone(),
+                held: t.held.clone(),
             });
         }
     }
@@ -878,5 +917,50 @@ mod tests {
         g.record_edits("Move", &[(path.clone(), "translate", serde_json::json!([0.0, 0.0, 0.0]))]);
         assert_eq!(sources(&g, &Default::default(), chosen), vec![None]);
         assert_eq!(session_target(&g, &Default::default(), chosen).unwrap().node, SESSION);
+    }
+
+    /// Several prims: each whose operator holds its transform is known with
+    /// that transform, to be written into; the others go to the session.
+    #[test]
+    fn several_prims_are_each_moved_where_held() {
+        let mut g = NodeGraphState::default();
+        let rect = crate::core::light::Light::new(crate::core::light::LightType::Rect);
+        let a = g.add_node("A".into(), NodeType::light(rect.clone()), egui::pos2(0.0, 0.0));
+        let b = g.add_node("B".into(), NodeType::light(rect), egui::pos2(200.0, 0.0));
+        let made = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(400.0, 0.0));
+        let moved = g.add_node(
+            "Moved".into(),
+            NodeType::Transform {
+                translation: Vec3::ZERO,
+                rotation: Vec3::ZERO,
+                scale: Vec3::ONE,
+                pivot: Default::default(),
+                order: Default::default(),
+            },
+            egui::pos2(400.0, 100.0),
+        );
+        g.add_connection(made, 0, moved, 0);
+        let merge = g.add_node("Merge".into(), NodeType::Merge { mode: Default::default(), inputs: 3 }, egui::pos2(0.0, 300.0));
+        g.add_connection(a, 0, merge, 0);
+        g.add_connection(b, 0, merge, 1);
+        g.add_connection(moved, 0, merge, 2);
+        g.set_view_flag(merge);
+        let chosen: Vec<String> = ["/lights/A", "/lights/B", "/cube"].iter().map(|s| s.to_string()).collect();
+        let t = session_target(&g, &Default::default(), &chosen).unwrap();
+        assert_eq!(t.node, SESSION);
+        let ids: Vec<Option<NodeId>> = t.held.iter().map(|h| h.map(|(id, _)| id)).collect();
+        assert_eq!(ids, vec![Some(a), Some(b), None], "the cube was moved after its Cube");
+        // What a drag does with them, as `run` does.
+        let d = Delta::Translate(Vec3::X);
+        for (k, p) in t.places.iter().enumerate() {
+            if let Some((id, base)) = t.held[k] {
+                let local = into(p.parents, d);
+                write(&mut g, id, local, manip::compose(base, local));
+            }
+        }
+        for id in [a, b] {
+            let x = *g.nodes.iter().find(|n| n.id == id).unwrap().node_type.xform().unwrap().0;
+            assert_eq!(x.translate, [1.0, 2.0, 4.0]);
+        }
     }
 }

@@ -34,7 +34,7 @@ pub fn rig_in(graph: &NodeGraphState, id: NodeId) -> RigIn {
     if !rig::node::is_rig(&node.node_type) {
         return RigIn::default();
     }
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let port = |k: usize| node.inputs.get(k).and_then(|i| i.connected_output);
     let clip_port = match node.node_type {
         NodeType::RigGuide { .. } => 1,

@@ -229,7 +229,7 @@ fn make_ice_graph(
 /// `sid`, from input 1: what Get Reference, and a Snippet's References, pick
 /// from.
 fn reference_paths(graph: &NodeGraphState, sid: crate::types::IceGraphId) -> Vec<Vec<String>> {
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     graph
         .nodes
         .iter()
@@ -487,7 +487,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
         .and_then(|n| n.inputs.first())
         .and_then(|i| i.connected_output)
         .and_then(|(src, out)| {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (_skip, pass) = crate::node_graph::without_ice();
             graph.eval_packed(src, out, &pass)
         })
         .unwrap_or_default();
@@ -518,8 +518,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             .and_then(|n| n.inputs.first())
             .and_then(|i| i.connected_output)
             .map(|(src, out)| {
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 graph.eval_light_paths(src, out, &pass)
             })
             .unwrap_or_default()
@@ -535,8 +534,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             .and_then(|n| n.inputs.first())
             .and_then(|i| i.connected_output)
             .map(|(src, out)| {
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 graph.eval_collections(src, out, &pass)
             })
             .unwrap_or_default()
@@ -551,8 +549,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
             .and_then(|n| n.inputs.first())
             .and_then(|i| i.connected_output)
             .and_then(|(src, out)| {
-                let pass =
-                    |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+                let (_skip, pass) = crate::node_graph::without_ice();
                 graph.eval_scene_paths(src, out, &pass)
             })
             .unwrap_or_default()
@@ -563,7 +560,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
     // materials of the scene coming in.
     let (binding_ports, scene_materials) = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::MaterialBinding { .. }) => {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (_skip, pass) = crate::node_graph::without_ice();
             graph.binding_inputs(sel_id, &pass)
         }
         _ => (vec![], vec![]),
@@ -576,7 +573,7 @@ pub fn draw_properties(ui: &mut egui::Ui, graph: &mut NodeGraphState, anim: &Ani
     // RenderSettings prim.
     let render_in = match graph.nodes.iter().find(|n| n.id == sel_id).map(|n| &n.node_type) {
         Some(NodeType::RenderCommons { .. } | NodeType::RenderSettings { .. } | NodeType::RenderVariables { .. }) => {
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let (_skip, pass) = crate::node_graph::without_ice();
             graph.eval_render_context(sel_id, &pass)
         }
         _ => Default::default(),

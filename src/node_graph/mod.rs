@@ -1917,7 +1917,9 @@ impl NodeGraphState {
         if let Some(NodeType::Ice { id: graph, .. }) = self.nodes.iter().find(|n| n.id == id).map(|n| &n.node_type) {
             self.ice_keys.ran(*graph, crate::ice::ran(*graph));
         }
-        if let Some(k) = key.filter(|_| !self.ice_keys.stale()) {
+        // Not what was cooked with ICE left out: kept, it would be what
+        // everyone is given, the Viewer too.
+        if let Some(k) = key.filter(|_| !self.ice_keys.stale() && !SKIPPING.with(|s| s.get())) {
             self.cooked.put(k, &result);
         }
         result
@@ -3050,5 +3052,54 @@ mod cook_tests {
         // A solve finished or was cleared somewhere: Body Collide is asked again.
         crate::ragdoll::clear(0x5eed_0000_0000_0001);
         assert_ne!(g.cook_key(body, 0), Some(k_body2));
+    }
+}
+
+thread_local! {
+    /// Set while this thread cooks with ICE left out (`without_ice`).
+    static SKIPPING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While it lives, what this thread cooks is not kept for everyone.
+pub struct SkipIce(bool);
+
+impl Drop for SkipIce {
+    fn drop(&mut self) {
+        SKIPPING.with(|s| s.set(self.0));
+    }
+}
+
+/// An evaluator that leaves ICE out (what comes in goes out), for a quick
+/// look at a scene where the ICE graphs are not at hand (a form listing
+/// paths): what was cooked for real is read as kept, and nothing cooked
+/// while the guard lives is kept for everyone. Keep the guard as long as the
+/// evaluator is used.
+pub fn without_ice() -> (
+    SkipIce,
+    impl Fn(IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo,
+) {
+    let was = SKIPPING.with(|s| s.replace(true));
+    (SkipIce(was), |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone())
+}
+
+#[cfg(test)]
+mod without_ice_tests {
+    use super::*;
+
+    /// What is cooked with ICE left out is not kept for everyone; what is
+    /// cooked for real is, and is read back while the guard lives.
+    #[test]
+    fn a_cook_without_ice_is_not_kept() {
+        let mut g = NodeGraphState::default();
+        let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
+        let key = g.cook_key(cube, 0).unwrap();
+        {
+            let (_skip, pass) = without_ice();
+            assert!(g.eval_node_out(cube, 0, &mut Default::default(), &pass).is_some());
+        }
+        assert!(g.cooked.get(key).is_none(), "not kept");
+        let real = |_: IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+        g.eval_node_out(cube, 0, &mut Default::default(), &real);
+        assert!(g.cooked.get(key).is_some(), "kept once the guard is gone");
     }
 }

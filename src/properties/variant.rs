@@ -28,7 +28,7 @@ pub fn variant_in(graph: &NodeGraphState, id: NodeId) -> VariantIn {
     if !matches!(n.node_type, NodeType::Variant { .. }) {
         return VariantIn::default();
     }
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let scene = n
         .inputs
         .first()

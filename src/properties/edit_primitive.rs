@@ -32,7 +32,7 @@ pub fn edit_in(graph: &NodeGraphState, id: NodeId) -> EditIn {
     let NodeType::EditPrimitive { kind, .. } = &n.node_type else {
         return EditIn::default();
     };
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+    let (_skip, pass) = crate::node_graph::without_ice();
     let scene = n
         .inputs
         .first()

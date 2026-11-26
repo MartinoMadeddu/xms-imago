@@ -94,7 +94,9 @@ Timeline, History and Image Viewer.
   Sphere, Grid, Camera, Light, Edit Primitive, Edit Poly), the selected
   prims get the Viewer's handles too, on the first of them, each moving
   about its own pivot. One prim whose operator holds its transform: that
-  operator's handles, about its Pivot, writing into it. Up to 256 prims. See
+  operator's handles, about its Pivot, writing into it. Several: each prim
+  whose operator holds its transform moves in that operator, the rest in
+  the Edit Session. Up to 256 prims. See
   [Edit Session](usd.md#edit-session).
 - **P** over the Node Graph: its **Parameters** over the graph at its top
   right, under its buttons, in a thin border with no title, as in Houdini's

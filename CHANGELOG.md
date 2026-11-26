@@ -21,7 +21,17 @@ version's heading when you tag it.
 - Moving a prim made in Imago from the Viewer or the Selection bar writes
   into the operator that made it, while nothing after it moved the prim;
   else into the Edit Session, as before. Edit Session only, in the bar, puts
-  every move there.
+  every move there. Several prims dragged at once go the same way, each
+  where it is held.
+
+### Fixes
+
+- Forms that look at the scene with ICE left out (Edit Primitive, Rename,
+  Reparent, Variant, Rig, Material Binding's lists, the Light Linker, the
+  Image Viewer) no longer leave that scene in the cook cache for the Viewer
+  to show: ICE instances could vanish after selecting such an operator.
+- The template test counts points rather than merging every instance into
+  one mesh, which ran out of memory on ICE: instancing.
 
 ### Changed
 
