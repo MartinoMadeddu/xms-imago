@@ -13,6 +13,7 @@ pub mod attributes;
 pub(crate) mod camera;
 mod edit;
 pub mod gizmo;
+pub mod info;
 pub(crate) mod gpu;
 pub mod movie;
 mod occlusion;
@@ -96,6 +97,10 @@ pub struct Viewer {
     /// Rendered: how the render goes, or why it stopped (until it is chosen
     /// again).
     render_note: Option<String>,
+    /// Frames drawn over the last second, for the FPS overlay.
+    frames: info::Frames,
+    /// The Selection overlay's count, and the revisions it was made at.
+    counted: Option<((u64, u64), info::Counted)>,
     /// The snapshots bar is shown (the 📷 at the bottom left; hidden to
     /// start with).
     snaps_shown: bool,
@@ -205,6 +210,7 @@ impl Viewer {
                 &mut self.gizmo_drag,
                 free,
                 input.hierarchy.selected_prims(),
+                input.subnets,
             );
             overlay.top.extend(g.top);
             self.pick_prims(ui.ctx(), rect, &view, &mut input, free, &mut overlay);
@@ -316,6 +322,57 @@ impl Viewer {
                 egui::Color32::from_black_alpha(150),
             );
             painter.galley(at, galley, egui::Color32::from_gray(235));
+        }
+        // Overlay info at the top right (File > Settings > Viewer > Overlays),
+        // read again twice a second.
+        let shown = info::shown();
+        if shown.any() {
+            let fps = self.frames.tick();
+            let ms = ui.input(|i| i.unstable_dt) * 1000.0;
+            let frame = input.graph.frame();
+            let camera = shown.camera.then(|| match &looking {
+                Some((path, _, cam)) => format!(
+                    "{}  {:.0} mm  {:.1} x {:.1}  frame {frame}",
+                    path.rsplit('/').next().unwrap_or(path),
+                    cam.focal_length,
+                    cam.horizontal_aperture,
+                    cam.vertical_aperture
+                ),
+                None => format!("Perspective  {:.0}° fov  frame {frame}", self.camera.fov.to_degrees()),
+            });
+            // Counted again only when the scene or the selection changed.
+            let selection = shown.selection.then(|| {
+                let key = (input.revision, input.hierarchy.selection_revision());
+                match self.counted {
+                    Some((k, c)) if k == key => c,
+                    _ => {
+                        let subnets = input.subnets;
+                        let eval = |sid: crate::types::IceGraphId,
+                                    mesh: &crate::core::geo::Geo,
+                                    template: &[crate::ice::Reference]| {
+                            subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+                        };
+                        let c = match input.graph.evaluate_for_viewport_packed(&eval) {
+                            Some(crate::types::EvalResult::Named(prims)) => {
+                                info::count(&prims, input.hierarchy.selected_prims())
+                            }
+                            _ => info::Counted::default(),
+                        };
+                        self.counted = Some((key, c));
+                        c
+                    }
+                }
+            });
+            let render = (shown.render && crate::live::in_viewer())
+                .then(|| crate::live::with(|s| s.as_ref().map(|s| (s.status(), s.elapsed()))))
+                .flatten();
+            let facts = info::Facts {
+                camera,
+                selection,
+                render,
+            };
+            info::draw(ui, rect, &info::lines(shown, fps, ms, &facts));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
         }
     }
 

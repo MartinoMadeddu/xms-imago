@@ -1540,8 +1540,11 @@ impl CallbackTrait for ViewerPaint {
                     x.to_bits().hash(&mut h);
                 }
             }
-            if let Some(Background::Still(image)) = &f.background {
-                (Arc::as_ptr(image) as usize).hash(&mut h);
+            // What is behind: nothing, a render, a snapshot (which one).
+            match &f.background {
+                None => 0usize.hash(&mut h),
+                Some(Background::Live(_)) => 1usize.hash(&mut h),
+                Some(Background::Still(image)) => (2usize, Arc::as_ptr(image) as usize).hash(&mut h),
             }
             h.finish()
         };

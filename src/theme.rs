@@ -647,6 +647,26 @@ pub fn menu(ui: &mut egui::Ui) {
     }
 }
 
+/// The Theme menu's choices in File > Settings > Interface: the schemes, and
+/// Edit colours.
+pub fn settings(ui: &mut egui::Ui) {
+    ui.strong("Theme");
+    let now = scheme();
+    for p in Preset::ALL {
+        let label = if now.preset == p && now.is_edited() {
+            format!("{} (edited)", p.label())
+        } else {
+            p.label().to_string()
+        };
+        if ui.radio(now.preset == p, label).on_hover_text(p.hint()).clicked() && now.preset != p {
+            set_scheme(ui.ctx(), now.with_preset(p));
+        }
+    }
+    if ui.button("Edit colours...").clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(editor_id(), true));
+    }
+}
+
 fn editor_id() -> egui::Id {
     egui::Id::new("theme_editor_open")
 }

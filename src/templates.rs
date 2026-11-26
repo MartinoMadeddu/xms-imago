@@ -4350,10 +4350,16 @@ mod tests {
                     assert!(apart, "{}: {} overlaps {}", t.name, a.name, b.name);
                 }
             }
-            // Every wire runs downwards.
-            let at = |id| g.nodes.iter().find(|n| n.id == id).unwrap().position;
+            // Every wire runs downwards; into a node's side (a Material
+            // Binding's materials), from the left.
+            let node = |id| g.nodes.iter().find(|n| n.id == id).unwrap();
             for c in &g.connections {
-                assert!(at(c.to_node).y > at(c.from_node).y, "{}: a wire runs upwards", t.name);
+                let (from, to) = (node(c.from_node).position, node(c.to_node));
+                if crate::node_graph::ui::side_input(to, c.to_input) {
+                    assert!(to.position.x > from.x, "{}: a side wire runs leftwards", t.name);
+                } else {
+                    assert!(to.position.y > from.y, "{}: a wire runs upwards", t.name);
+                }
             }
         }
     }

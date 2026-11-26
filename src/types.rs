@@ -2970,8 +2970,9 @@ pub struct SceneObject {
     pub type_name: String,
 }
 
-/// What a click in the Viewer selects (the Selection bar's Pick): the prim
-/// under the pointer, the model it is part of, or its top prim.
+/// What a click in the Viewer selects (the Selection bar's Select), as
+/// usdview's pick modes: the prim under the pointer, the model it is part of,
+/// the instance it is part of; or, Imago's, its top prim.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PickMode {
     #[default]
@@ -2979,6 +2980,14 @@ pub enum PickMode {
     /// The nearest prim at or above it of kind component, else of kind
     /// assembly or group, else the prim itself.
     Model,
+    /// The instance it is part of: a point instancer's instance
+    /// (`/forest/trees[12]`), else the nearest prim at or above it that is
+    /// instanceable, else the prim itself.
+    Instance,
+    /// The prototype it is a copy of (usdview's Prototypes): for a point
+    /// instancer's instance, the top of the prototype its point uses, as
+    /// the Scene Explorer lists it under the instancer. Else the prim itself.
+    Prototype,
     /// The prim at the top of its hierarchy, under the root.
     Top,
 }
@@ -2993,6 +3002,49 @@ impl PickMode {
                 .find(|s| !s.is_empty())
                 .map(|s| format!("/{s}"))
                 .unwrap_or_else(|| path.to_string()),
+            PickMode::Prototype => {
+                let Some((instancer, point)) = crate::core::instancing::instance_path(path) else {
+                    return path.to_string();
+                };
+                // The mesh drawn at that point: a prototype's whose copies
+                // include it.
+                let Some(mesh) = prims.iter().find(|p| {
+                    p.instanced_by.as_deref().is_some_and(|by| {
+                        by.instancer == instancer && crate::core::instancing::points_of(by).contains(&point)
+                    })
+                }) else {
+                    return path.to_string();
+                };
+                // Up to the top of its prototype: the highest prim above it
+                // the stage marks a prototype, under the instancer.
+                let mut up = crate::core::properties::parents(&mesh.path);
+                up.push(mesh.path.clone());
+                let top = mesh.stage.as_deref().and_then(|tree| {
+                    up.iter()
+                        .filter(|p| p.starts_with(&format!("{instancer}/")))
+                        .find(|p| tree.node(p).is_some_and(|n| n.prototype))
+                        .cloned()
+                });
+                top.unwrap_or_else(|| mesh.path.clone())
+            }
+            PickMode::Instance => {
+                if crate::core::instancing::instance_path(path).is_some() {
+                    return path.to_string();
+                }
+                let tree = prims
+                    .iter()
+                    .find(|p| p.path == path || path.starts_with(&format!("{}/", p.path)))
+                    .and_then(|p| p.stage.as_deref());
+                let Some(tree) = tree else {
+                    return path.to_string();
+                };
+                let mut up = crate::core::properties::parents(path);
+                up.push(path.to_string());
+                up.into_iter()
+                    .rev()
+                    .find(|p| matches!(tree.authored(p, "instanceable"), Some(crate::core::properties::Value::Bool(true))))
+                    .unwrap_or_else(|| path.to_string())
+            }
             PickMode::Model => {
                 let prim = crate::core::instancing::instance_path(path).map_or(path, |(i, _)| i);
                 let tree = prims

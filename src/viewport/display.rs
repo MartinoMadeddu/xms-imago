@@ -36,9 +36,9 @@ impl DisplayMode {
     }
 }
 
-/// Shaded whenever Imago starts: the mode is kept neither with the graph nor
-/// between sessions.
-static MODE: AtomicU8 = AtomicU8::new(2);
+/// Hidden Line Removal whenever Imago starts (Shaded in tests): the mode is
+/// kept neither with the graph nor between sessions.
+static MODE: AtomicU8 = AtomicU8::new(if cfg!(test) { 2 } else { 1 });
 
 /// The current mode.
 pub fn mode() -> DisplayMode {

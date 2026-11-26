@@ -55,7 +55,16 @@ pub struct Target {
 }
 
 /// The target the selected node makes, if any.
-pub fn target(graph: &NodeGraphState) -> Option<Target> {
+/// The ICE graphs evaluated as the Viewer evaluates them: what is cooked
+/// here is kept for everyone (`NodeGraphState::cooked`), so it must be the
+/// real thing, never ICE left out.
+fn ice(
+    subnets: &crate::ice::IceGraphStore,
+) -> impl Fn(crate::types::IceGraphId, &crate::core::geo::Geo, &[crate::ice::Reference]) -> crate::core::geo::Geo + '_ {
+    move |sid, mesh, template| subnets.get(sid).map(|sg| sg.evaluate(mesh, template)).unwrap_or_else(|| mesh.clone())
+}
+
+pub fn target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore) -> Option<Target> {
     let id = graph.selected_node?;
     let node = graph.nodes.iter().find(|n| n.id == id)?;
     // Keyed parameters as at the playhead.
@@ -104,7 +113,7 @@ pub fn target(graph: &NodeGraphState) -> Option<Target> {
         }),
         NodeType::EditPrimitive { kind, edits } => {
             use crate::core::edit_primitive::{handles, EditKind};
-            let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+            let pass = ice(subnets);
             let (src, out) = node.inputs.first()?.connected_output?;
             let Some(crate::types::EvalResult::Named(prims)) =
                 graph.eval_node_out(src, out, &mut Default::default(), &pass)
@@ -157,16 +166,16 @@ fn has_own_handles(graph: &NodeGraphState) -> bool {
 
 /// The places of the prims selected, in the scene viewed. Nothing when the
 /// selected operator has handles of its own, or too many prims are selected.
-pub fn selected_places(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
+pub fn selected_places(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Vec<Place> {
     if has_own_handles(graph) {
         return vec![];
     }
-    scene_places(graph, chosen)
+    scene_places(graph, subnets, chosen)
 }
 
 /// The places of `chosen` in the scene viewed, whatever operator is selected
 /// (the Selection bar's). Nothing for none, or more than `MAX_PRIMS`.
-pub fn scene_places(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
+pub fn scene_places(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Vec<Place> {
     use std::hash::{Hash, Hasher};
     if chosen.is_empty() || chosen.len() > MAX_PRIMS {
         return vec![];
@@ -187,7 +196,7 @@ pub fn scene_places(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
             }
         }
     }
-    let places = looked_up(graph, chosen);
+    let places = looked_up(graph, subnets, chosen);
     if let Some(key) = key {
         *KEPT.lock().unwrap() = Some((key, places.clone()));
     }
@@ -195,8 +204,8 @@ pub fn scene_places(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
 }
 
 /// `scene_places`, looked up in the scene.
-fn looked_up(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
-    let pass = |_: crate::types::IceGraphId, m: &crate::core::geo::Geo, _: &[crate::ice::Reference]| m.clone();
+fn looked_up(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Vec<Place> {
+    let pass = ice(subnets);
     let Some(crate::types::EvalResult::Named(prims)) = graph.evaluate_for_viewport_packed(&pass) else {
         return vec![];
     };
@@ -205,8 +214,8 @@ fn looked_up(graph: &NodeGraphState, chosen: &[String]) -> Vec<Place> {
 
 /// The handles of the prims selected: on the first, its place as the scene
 /// viewed has it.
-pub fn session_target(graph: &NodeGraphState, chosen: &[String]) -> Option<Target> {
-    let places = selected_places(graph, chosen);
+pub fn session_target(graph: &NodeGraphState, subnets: &crate::ice::IceGraphStore, chosen: &[String]) -> Option<Target> {
+    let places = selected_places(graph, subnets, chosen);
     let first = places.first()?;
     let (t, r, s) = trs(first);
     Some(Target {
@@ -383,8 +392,9 @@ pub fn run(
     drag: &mut Option<Drag>,
     free: bool,
     chosen: &[String],
+    subnets: &crate::ice::IceGraphStore,
 ) -> Overlay {
-    let Some(t) = target(graph).or_else(|| session_target(graph, chosen)) else {
+    let Some(t) = target(graph, subnets).or_else(|| session_target(graph, subnets, chosen)) else {
         *drag = None;
         return Overlay::default();
     };
@@ -577,7 +587,7 @@ mod tests {
         );
         g.add_connection(cube, 0, mv, 0);
         g.selected_node = Some(mv);
-        let t = target(&g).unwrap();
+        let t = target(&g, &Default::default()).unwrap();
         assert_eq!(t.pivot, Vec3::new(0.2, 0.0, 0.0));
         assert!(!t.uniform && t.scales);
         let v = view();
@@ -601,7 +611,7 @@ mod tests {
         );
         assert_eq!((*rotation, *scale), (Vec3::ZERO, Vec3::ONE));
         // A quarter turn about Y comes back as 90 degrees in the Euler.
-        let t = target(&g).unwrap();
+        let t = target(&g, &Default::default()).unwrap();
         let d = Delta::Rotate(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
         write(&mut g, mv, d, manip::compose(t.base, d));
         let NodeType::Transform { rotation, .. } = &g.nodes.iter().find(|n| n.id == mv).unwrap().node_type else {
@@ -620,7 +630,7 @@ mod tests {
             egui::pos2(0.0, 200.0),
         );
         g.selected_node = Some(cam);
-        let t = target(&g).unwrap();
+        let t = target(&g, &Default::default()).unwrap();
         assert!(!t.scales && t.pivot == Vec3::new(0.0, 1.0, 4.0));
         let d = Delta::Rotate(Quat::from_rotation_x(-30f32.to_radians()));
         write(&mut g, cam, d, manip::compose(t.base, d));
@@ -649,7 +659,7 @@ mod tests {
             n.locations = vec![crate::types::cube_location()];
         }
         g.selected_node = Some(ep);
-        let t = target(&g).expect("handles on the cube");
+        let t = target(&g, &Default::default()).expect("handles on the cube");
         assert!(t.scales && t.pivot.length() < 1e-6);
         let d = into(t.parents, Delta::Translate(Vec3::X * 0.5));
         write(&mut g, ep, d, manip::compose(t.base, d));
@@ -658,7 +668,7 @@ mod tests {
         };
         assert_eq!(edits.get("translate"), Some(&serde_json::json!([0.5, 0.0, 0.0])));
         assert!(!edits.contains_key("rotate"), "only the part dragged");
-        assert!((target(&g).unwrap().pivot - Vec3::X * 0.5).length() < 1e-6);
+        assert!((target(&g, &Default::default()).unwrap().pivot - Vec3::X * 0.5).length() < 1e-6);
         // Under a parent turned a quarter about Y, a move along the world's X
         // is along the parent's Z.
         let turned = glam::Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
@@ -676,8 +686,8 @@ mod tests {
         let mut g = NodeGraphState::default();
         let cube = g.add_node("Cube".into(), NodeType::cube(1.0), egui::pos2(0.0, 0.0));
         let path = crate::types::cube_location();
-        assert!(session_target(&g, &[]).is_none());
-        let t = session_target(&g, std::slice::from_ref(&path)).expect("handles on the cube");
+        assert!(session_target(&g, &Default::default(), &[]).is_none());
+        let t = session_target(&g, &Default::default(), std::slice::from_ref(&path)).expect("handles on the cube");
         assert_eq!((t.node, t.places.len()), (SESSION, 1));
         assert!(t.pivot.length() < 1e-6);
         // A press that moves nothing writes nothing.
@@ -686,7 +696,7 @@ mod tests {
         assert_eq!(values[0].2, serde_json::json!([0.5, 0.0, 0.0]));
         let s = g.record_edits("Move", &values).unwrap();
         assert_eq!(g.view_flag, Some(s));
-        let t = session_target(&g, std::slice::from_ref(&path)).unwrap();
+        let t = session_target(&g, &Default::default(), std::slice::from_ref(&path)).unwrap();
         assert!((t.pivot - Vec3::X * 0.5).length() < 1e-5, "{}", t.pivot);
         // An eighth of a turn after the move: the move kept, the step one.
         let r = prim_values(
@@ -695,7 +705,7 @@ mod tests {
         );
         g.record_edits("Rotate", &r);
         assert_eq!(g.session_steps(s).unwrap().len(), 1);
-        let t = session_target(&g, std::slice::from_ref(&path)).unwrap();
+        let t = session_target(&g, &Default::default(), std::slice::from_ref(&path)).unwrap();
         assert!((t.places[0].trs[1][1] - 45.0).abs() < 1e-3, "{:?}", t.places[0].trs);
         assert!((t.pivot - Vec3::X * 0.5).length() < 1e-5, "about its own pivot");
         // An Edit Primitive selected: its handles, not the selection's.
@@ -709,7 +719,7 @@ mod tests {
         );
         g.add_connection(cube, 0, ep, 0);
         g.selected_node = Some(ep);
-        assert!(session_target(&g, std::slice::from_ref(&path)).is_none());
+        assert!(session_target(&g, &Default::default(), std::slice::from_ref(&path)).is_none());
     }
 
     /// A Transform on a clip scales alike on every axis.
@@ -738,8 +748,8 @@ mod tests {
         );
         g.add_connection(clip, 0, mv, 0);
         g.selected_node = Some(mv);
-        assert!(target(&g).unwrap().uniform);
+        assert!(target(&g, &Default::default()).unwrap().uniform);
         g.selected_node = Some(clip);
-        assert!(target(&g).is_none());
+        assert!(target(&g, &Default::default()).is_none());
     }
 }

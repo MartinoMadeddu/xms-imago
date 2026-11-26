@@ -1393,36 +1393,51 @@ fn draw_node(
     // primitives joins its Primitive Locations; the operator is selected
     // with its Prims Location tab open. On a Light Linker, a link for it.
     let linker = matches!(node.node_type, NodeType::LightLinker { .. });
-    if (crate::core::locations::takes_locations(&node.node_type) || linker)
-        && egui::DragAndDrop::has_payload_of_type::<crate::types::DraggedPrims>(ui.ctx())
-    {
-        let over = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| rect.contains(p));
-        if over {
-            painter.rect_stroke(
-                rect.expand(3.0),
-                6.0 * zoom,
-                egui::Stroke::new(2.0, crate::theme::graph_selection()),
-                egui::StrokeKind::Outside,
-            );
-            if ui.input(|i| i.pointer.any_released()) {
-                if let Some(p) = egui::DragAndDrop::take_payload::<crate::types::DraggedPrims>(ui.ctx()) {
-                    if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == node.id) {
-                        if let NodeType::LightLinker { links } = &mut n.node_type {
-                            for path in &p.0 {
-                                crate::core::light_link::add_prim(links, path);
-                            }
-                        } else {
-                            for path in &p.0 {
-                                if !n.locations.iter().any(|l| l.trim() == path) {
-                                    n.locations.push(path.clone());
-                                }
+    if crate::core::locations::takes_locations(&node.node_type) || linker {
+        // The prims carried are kept while over the operator: the payload
+        // can be gone in the frame the button is let go (egui drops it at the
+        // end of a pass, and a frame can take two), so that frame takes them
+        // from here.
+        let kept = egui::Id::new(("prims_over", node.id.0));
+        let carried = egui::DragAndDrop::payload::<crate::types::DraggedPrims>(ui.ctx());
+        let released = ui.input(|i| i.pointer.any_released());
+        let over = ui.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos())).is_some_and(|p| rect.contains(p));
+        match (&carried, over) {
+            (Some(p), true) => {
+                ui.data_mut(|d| d.insert_temp(kept, p.0.clone()));
+                painter.rect_stroke(
+                    rect.expand(3.0),
+                    6.0 * zoom,
+                    egui::Stroke::new(2.0, crate::theme::graph_selection()),
+                    egui::StrokeKind::Outside,
+                );
+            }
+            _ if !released => {
+                ui.data_mut(|d| d.remove_temp::<Vec<String>>(kept));
+            }
+            _ => {}
+        }
+        if released {
+            let paths = ui.data_mut(|d| d.remove_temp::<Vec<String>>(kept));
+            let paths = paths.filter(|_| over);
+            if let Some(paths) = paths {
+                egui::DragAndDrop::clear_payload(ui.ctx());
+                if let Some(n) = graph.nodes.iter_mut().find(|n| n.id == node.id) {
+                    if let NodeType::LightLinker { links } = &mut n.node_type {
+                        for path in &paths {
+                            crate::core::light_link::add_prim(links, path);
+                        }
+                    } else {
+                        for path in &paths {
+                            if !n.locations.iter().any(|l| l.trim() == path) {
+                                n.locations.push(path.clone());
                             }
                         }
                     }
-                    graph.selected_node = Some(node.id);
-                    graph.selected_nodes = vec![node.id];
-                    ui.data_mut(|d| d.insert_temp(egui::Id::new(("parameters_tab", node.id.0)), true));
                 }
+                graph.selected_node = Some(node.id);
+                graph.selected_nodes = vec![node.id];
+                ui.data_mut(|d| d.insert_temp(egui::Id::new(("parameters_tab", node.id.0)), true));
             }
         }
     }

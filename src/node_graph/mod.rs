@@ -1289,7 +1289,10 @@ impl NodeGraphState {
 
     /// Lay the graph out top to bottom: each node on the row above the first
     /// node that uses it. Rows are centred on one another and a chain of single
-    /// inputs comes out as a straight line.
+    /// inputs comes out as a straight line. What comes in from the side (a
+    /// Material Binding's materials) is laid out left to right instead: to the
+    /// left of the node it feeds, on its row, several stacked about it, and
+    /// what feeds them further left.
     pub fn auto_layout(&mut self) {
         const DX: f32 = 205.0;
         const DY: f32 = 100.0;
@@ -1300,14 +1303,53 @@ impl NodeGraphState {
         let index: HashMap<NodeId, usize> = self.nodes.iter().enumerate().map(|(i, node)| (node.id, i)).collect();
         let mut parents: Vec<Vec<usize>> = vec![vec![]; n];
         let mut children: Vec<Vec<usize>> = vec![vec![]; n];
+        // Into an input on a node's side: (source, node, slot).
+        let mut side_wires: Vec<(usize, usize, usize)> = vec![];
         for (i, node) in self.nodes.iter().enumerate() {
-            for input in &node.inputs {
+            for (slot, input) in node.inputs.iter().enumerate() {
                 if let Some(src) = input.connected_output.and_then(|(id, _)| index.get(&id).copied()) {
-                    if src != i && !parents[i].contains(&src) {
+                    if src == i {
+                        continue;
+                    }
+                    if ui::side_input(node, slot) {
+                        side_wires.push((src, i, slot));
+                    } else if !parents[i].contains(&src) {
                         parents[i].push(src);
                         children[src].push(i);
                     }
                 }
+            }
+        }
+        // Side nodes: used only from the side, or only by side nodes. They
+        // are left out of the rows, and placed to the left afterwards.
+        let mut side = vec![false; n];
+        loop {
+            let mut changed = false;
+            for i in 0..n {
+                if side[i] {
+                    continue;
+                }
+                let fed_side = side_wires.iter().any(|w| w.0 == i);
+                let main_kids: Vec<usize> = children[i].clone();
+                let all_side = main_kids.iter().all(|c| side[*c]);
+                if (fed_side || !main_kids.is_empty()) && all_side && (fed_side || main_kids.iter().any(|c| side[*c])) {
+                    side[i] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // The rows are of the rest.
+        let side_parents: Vec<Vec<usize>> = parents.clone();
+        for i in 0..n {
+            if side[i] {
+                parents[i].clear();
+                children[i].clear();
+            } else {
+                parents[i].retain(|p| !side[*p]);
+                children[i].retain(|c| !side[*c]);
             }
         }
         // Row: as low as it can go, straight above the first node that
@@ -1340,7 +1382,7 @@ impl NodeGraphState {
                 .total_cmp(&self.nodes[*b].position.x)
                 .then(a.cmp(b))
         });
-        for i in order {
+        for i in order.into_iter().filter(|i| !side[*i]) {
             by_row[row[i]].push(i);
         }
 
@@ -1391,9 +1433,52 @@ impl NodeGraphState {
         for r in 1..rows {
             settle(&mut by_row[r], &mut x, &parents);
         }
+        let mut y: Vec<f32> = row.iter().map(|r| *r as f32 * DY).collect();
+        // The side nodes, left of what they feed: a node's side sources by
+        // slot, stacked about its row; what feeds them further left. Moved
+        // left again while they would sit on a node already placed.
+        let mut placed: Vec<bool> = side.iter().map(|s| !s).collect();
+        let free = |x: &Vec<f32>, y: &Vec<f32>, placed: &Vec<bool>, at: (f32, f32)| {
+            !(0..n).any(|j| placed[j] && (x[j] - at.0).abs() < DX * 0.9 && (y[j] - at.1).abs() < DY * 0.9)
+        };
+        let mut todo: Vec<(usize, Vec<usize>)> = vec![];
+        for c in 0..n {
+            let mut fed: Vec<(usize, usize)> =
+                side_wires.iter().filter(|w| w.1 == c && side[w.0]).map(|w| (w.2, w.0)).collect();
+            fed.sort();
+            fed.dedup_by_key(|f| f.1);
+            if !fed.is_empty() {
+                todo.push((c, fed.into_iter().map(|f| f.1).collect()));
+            }
+        }
+        // What feeds side nodes from above, as more to their left.
+        let mut queue: Vec<(usize, Vec<usize>)> = todo;
+        let mut k = 0;
+        while k < queue.len() {
+            let (c, sources) = queue[k].clone();
+            k += 1;
+            let m = sources.len() as f32;
+            for (j, s) in sources.iter().enumerate() {
+                if placed[*s] {
+                    continue;
+                }
+                let mut at = (x[c] - DX, y[c] + (j as f32 - (m - 1.0) * 0.5) * DY);
+                while !free(&x, &y, &placed, at) {
+                    at.0 -= DX;
+                }
+                x[*s] = at.0;
+                y[*s] = at.1;
+                placed[*s] = true;
+                let up: Vec<usize> = side_parents[*s].iter().copied().filter(|p| side[*p] && !placed[*p]).collect();
+                if !up.is_empty() {
+                    queue.push((*s, up));
+                }
+            }
+        }
         let left = x.iter().copied().fold(f32::MAX, f32::min);
+        let top = y.iter().copied().fold(f32::MAX, f32::min);
         for (i, node) in self.nodes.iter_mut().enumerate() {
-            node.position = egui::pos2((x[i] - left + 40.0).round(), row[i] as f32 * DY + 20.0);
+            node.position = egui::pos2((x[i] - left + 40.0).round(), (y[i] - top + 20.0).round());
         }
         self.frame_request = true;
     }

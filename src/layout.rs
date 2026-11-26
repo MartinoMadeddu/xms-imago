@@ -4,7 +4,7 @@
 //! stacked, or pulled out as floating windows.
 //!
 //! - **The default layout:** the one saved with Window > Layout > Save current
-//!   as default, else `xms_main_layout`. Imago opens with it, its tabs in
+//!   as default, else `xms_xsi_layout`. Imago opens with it, its tabs in
 //!   front as saved, and File > New goes back to it.
 //! - **The layouts it comes with** (`PRESETS`, Window > Layout), and any saved
 //!   to a file (Save layout..., Load layout...).
@@ -236,6 +236,8 @@ impl Tab {
 pub struct Bars {
     pub tools: bool,
     pub selection: bool,
+    /// The Node Graph's Parameters shown over it (P).
+    pub parameters: bool,
 }
 
 impl Bars {
@@ -268,6 +270,7 @@ pub fn bars_of(json: &str) -> Bars {
         return Bars {
             tools: on("tools"),
             selection: on("selection"),
+            parameters: on("parameters"),
         };
     }
     let text = value.get("dock").unwrap_or(&value).to_string();
@@ -275,6 +278,7 @@ pub fn bars_of(json: &str) -> Bars {
     Bars {
         tools: has("Tools"),
         selection: has("Selection"),
+        parameters: false,
     }
 }
 
@@ -423,6 +427,9 @@ pub struct Layout {
     pub dock: DockState<Tab>,
     /// The fixed bars down its sides.
     pub bars: Bars,
+    /// The bars were just set (a preset, Reset, a file): the graph's
+    /// Parameters (P) are to follow them.
+    pub bars_set: bool,
     /// Locked: tabs cannot be moved, floated or closed. Dividers still resize.
     pub locked: bool,
     /// The layout as last written to disk.
@@ -437,8 +444,8 @@ pub struct Layout {
 /// the file. The first is the default until another is saved as default.
 pub const PRESETS: [(&str, &str); 4] = [
     (
-        "xms_main_layout",
-        include_str!("../assets/layouts/xms_main_layout.json"),
+        "xms_3split_layout",
+        include_str!("../assets/layouts/xms_3split_layout.json"),
     ),
     ("xms_xsi_layout", include_str!("../assets/layouts/xms_xsi_layout.json")),
     (
@@ -461,7 +468,7 @@ pub fn preset(name: &str) -> Option<DockState<Tab>> {
         .map(|(dock, _)| dock)
 }
 
-/// `xms_main_layout`: the default when none is saved.
+/// `xms_3split_layout`.
 pub fn main_dock() -> DockState<Tab> {
     preset(PRESETS[0].0).unwrap_or_else(built_dock)
 }
@@ -482,7 +489,11 @@ pub fn default_bars() -> Bars {
     let saved = default_file().and_then(|f| std::fs::read_to_string(f).ok());
     match saved.filter(|t| from_json(t).is_some()) {
         Some(t) => bars_of(&t),
-        None => bars_of(PRESETS[0].1),
+        None => PRESETS
+            .iter()
+            .find(|(n, _)| *n == DEFAULT_PRESET)
+            .map(|(_, t)| bars_of(t))
+            .unwrap_or_default(),
     }
 }
 
@@ -491,10 +502,13 @@ pub fn has_saved_default() -> bool {
     saved_default().is_some()
 }
 
+/// The preset Imago opens with when no layout is saved as default.
+pub const DEFAULT_PRESET: &str = "xms_xsi_layout";
+
 /// The layout Imago opens with, and File > New and Reset go back to: the
-/// one saved as default, else `xms_main_layout`.
+/// one saved as default, else `xms_xsi_layout`.
 pub fn default_dock() -> DockState<Tab> {
-    saved_default().unwrap_or_else(main_dock)
+    saved_default().or_else(|| preset(DEFAULT_PRESET)).unwrap_or_else(xsi_dock)
 }
 
 static TO_DEFAULT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -514,7 +528,7 @@ pub fn take_default_request() -> bool {
 /// inspector under both. Then the node graph, then the Parameters. Timeline
 /// along the bottom of those, History down the whole right side. The Curve
 /// Editor is a tab behind the node graph, the Light Linker behind the
-/// primitive inspector. Built in code: what is used if `xms_main_layout`
+/// primitive inspector. Built in code: what is used if `xms_3split_layout`
 /// could not be read.
 pub fn built_dock() -> DockState<Tab> {
     let tabs = |panes: &[Pane]| panes.iter().map(|p| Tab::new(*p)).collect::<Vec<Tab>>();
@@ -541,11 +555,11 @@ pub fn xsi_dock() -> DockState<Tab> {
     let s = dock.main_surface_mut();
     // The Tools and the Selection bar are bars down its sides (`Bars`), the
     // Timeline between them.
-    let [work, _timeline] = s.split_below(NodeIndex::root(), 0.871, tabs(&[Pane::Timeline]));
-    let [view, _graph] = s.split_right(work, 0.45, tabs(&[Pane::NodeGraph, Pane::UvEditor, Pane::CurveEditor]));
+    let [work, _timeline] = s.split_below(NodeIndex::root(), 0.895, tabs(&[Pane::Timeline]));
+    let [view, _graph] = s.split_right(work, 0.465, tabs(&[Pane::NodeGraph, Pane::UvEditor, Pane::CurveEditor]));
     s.split_below(
         view,
-        0.63,
+        0.625,
         tabs(&[
             Pane::SceneExplorer,
             Pane::PrimInspector,
@@ -598,7 +612,11 @@ pub fn to_json_with(dock: &DockState<Tab>, locked: bool, bars: Bars) -> Option<S
     fix(&mut value, false);
     let mut out = serde_json::json!({ "locked": locked, "dock": value });
     if bars != Bars::default() {
-        out["bars"] = serde_json::json!({ "tools": bars.tools, "selection": bars.selection });
+        out["bars"] = serde_json::json!({
+            "tools": bars.tools,
+            "selection": bars.selection,
+            "parameters": bars.parameters,
+        });
     }
     serde_json::to_string(&out).ok()
 }
@@ -637,6 +655,7 @@ impl Default for Layout {
         let mut layout = Self {
             dock: default_dock(),
             bars: default_bars(),
+            bars_set: true,
             locked,
             saved: String::new(),
             sized: vec![],
@@ -652,6 +671,7 @@ impl Layout {
     pub fn reset(&mut self) {
         self.set_dock(default_dock());
         self.bars = default_bars();
+        self.bars_set = true;
     }
 
     /// One of the layouts Imago comes with, by name.
@@ -663,6 +683,7 @@ impl Layout {
             .find(|(n, _)| *n == name)
             .map(|(_, t)| bars_of(t))
             .unwrap_or_default();
+        self.bars_set = true;
         Ok(())
     }
 
@@ -676,7 +697,7 @@ impl Layout {
         self.save_as(&f)
     }
 
-    /// Forget the layout saved as default: `xms_main_layout` is again.
+    /// Forget the layout saved as default: `xms_xsi_layout` is again.
     pub fn forget_default() -> Result<(), String> {
         match default_file() {
             Some(f) if f.exists() => std::fs::remove_file(f).map_err(|e| e.to_string()),
@@ -960,6 +981,7 @@ impl Layout {
         self.locked = locked;
         self.set_dock(dock);
         self.bars = bars_of(&text);
+        self.bars_set = true;
         Ok(())
     }
 
@@ -989,6 +1011,7 @@ mod tests {
         Layout {
             dock: main_dock(),
             bars: Bars::default(),
+            bars_set: false,
             locked: false,
             saved: String::new(),
             sized: vec![],
@@ -1054,6 +1077,7 @@ mod tests {
         let back = Layout {
             dock: back,
             bars: Bars::default(),
+            bars_set: false,
             locked,
             saved: json,
             sized: vec![],
@@ -1234,6 +1258,7 @@ mod tests {
         let l = Layout {
             dock,
             bars: Bars::default(),
+            bars_set: false,
             locked,
             saved: json,
             sized: vec![],
@@ -1280,7 +1305,8 @@ mod tests {
             bars_of(PRESETS[1].1),
             Bars {
                 tools: true,
-                selection: true
+                selection: true,
+                parameters: true
             }
         );
         assert_eq!(bars_of(PRESETS[0].1), Bars::default());
@@ -1498,17 +1524,20 @@ mod bar_tests {
             bars_of(&old),
             Bars {
                 tools: true,
-                selection: false
+                selection: false,
+                parameters: false
             }
         );
         let both = Bars {
             tools: true,
             selection: true,
+            parameters: true,
         };
         assert_eq!(bars_of(&to_json_with(&read, false, both).unwrap()), both);
         let mut l = Layout {
             dock: read,
             bars: Bars::default(),
+            bars_set: false,
             locked: false,
             saved: String::new(),
             sized: vec![],

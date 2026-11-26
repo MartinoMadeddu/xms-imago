@@ -643,6 +643,13 @@ pub(crate) fn draw_ui(
     let bar = egui::Frame::NONE
         .fill(root.visuals().panel_fill)
         .inner_margin(egui::Margin::symmetric(6, 6));
+    // The graph's Parameters (P) as the layout has them when it is set; as
+    // they are after, for the layout to keep.
+    if layout.bars_set {
+        tabs.parameters_over = layout.bars.parameters;
+        layout.bars_set = false;
+    }
+    layout.bars.parameters = tabs.parameters_over;
     if layout.bars.tools {
         egui::Panel::left("tools_bar")
             .exact_size(TOOLS_BAR)
@@ -656,7 +663,7 @@ pub(crate) fn draw_ui(
             .resizable(false)
             .frame(bar)
             .show(root, |ui| {
-                fixed(ui, |ui| selection_bar::draw(ui, &mut *graph, &mut *hierarchy, &mut *poly_tool))
+                fixed(ui, |ui| selection_bar::draw(ui, &mut *graph, &*subnets, &mut *hierarchy, &mut *poly_tool))
             });
     }
 
@@ -1007,7 +1014,7 @@ fn fixed(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 
 /// The widths of the side bars: the Tools, the Selection bar.
 const TOOLS_BAR: f32 = 142.0;
-const SELECTION_BAR: f32 = 200.0;
+const SELECTION_BAR: f32 = 180.0;
 
 /// A thin vertical line between parts of the top bar.
 fn top_bar_divider(ui: &mut egui::Ui) {
@@ -1802,7 +1809,7 @@ impl Panes<'_> {
 
             Pane::Tools => tools::draw(ui, self.graph),
 
-            Pane::Selection => selection_bar::draw(ui, self.graph, self.hierarchy, self.poly_tool),
+            Pane::Selection => selection_bar::draw(ui, self.graph, self.subnets, self.hierarchy, self.poly_tool),
 
             Pane::LightLinker => {
                 let selected = self.hierarchy.selected_prim_paths();
@@ -1965,6 +1972,9 @@ impl Panes<'_> {
                             ui.allocate_rect(rect, egui::Sense::hover());
                             if up {
                                 self.nav.materialx = None;
+                            }
+                            if let Some(side) = self.parameters_rect(tab.id, rect) {
+                                self.parameters_over(ui, tab.id, side);
                             }
                         }
                     }
@@ -2413,14 +2423,14 @@ fn file_menu(ui: &mut egui::Ui, recent: &recent::Recent, file: &GraphFile) -> Op
             c = Some(FileCommand::Variables);
             ui.close();
         }
-        crate::menus::menu(ui, "Settings", |ui| {
-            for page in settings::Page::ALL {
-                if ui.button(format!("{}...", page.label())).clicked() {
-                    c = Some(FileCommand::Settings(page));
-                    ui.close();
-                }
-            }
-        });
+        if ui
+            .button("Settings...")
+            .on_hover_text("Imago's settings, a page for each part of it")
+            .clicked()
+        {
+            c = Some(FileCommand::Settings(settings::Page::default()));
+            ui.close();
+        }
         ui.separator();
         crate::menus::menu(ui, "Import", |ui| {
             if ui
@@ -2587,11 +2597,11 @@ fn layout_menu(ui: &mut egui::Ui, layout: &mut Layout, locked: bool, message: &m
     }
     if ui
         .add_enabled(layout::has_saved_default(), egui::Button::new("Forget saved default"))
-        .on_hover_text("xms_main_layout is the default again")
+        .on_hover_text("xms_xsi_layout is the default again")
         .clicked()
     {
         *message = match Layout::forget_default() {
-            Ok(()) => "xms_main_layout is the default again".into(),
+            Ok(()) => "xms_xsi_layout is the default again".into(),
             Err(e) => format!("Could not forget the default layout: {e}"),
         };
         ui.close();
@@ -2647,7 +2657,7 @@ fn window_menu(ui: &mut egui::Ui, layout: &mut Layout, browser: &mut FileBrowser
     }
     if ui
         .add_enabled(!locked, egui::Button::new("Reset layout"))
-        .on_hover_text("Back to the default layout: the one saved as default, else xms_main_layout")
+        .on_hover_text("Back to the default layout: the one saved as default, else xms_xsi_layout")
         .clicked()
     {
         layout.reset();

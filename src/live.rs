@@ -557,6 +557,11 @@ impl Session {
     }
 
     /// How it is doing, in a few words.
+    /// How long since the render last started (or started again).
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.since.elapsed()
+    }
+
     pub fn status(&self) -> String {
         let what = if self.ipr { "IPR" } else { "Render" };
         match (self.rendering, self.finished, self.pass) {

@@ -66,6 +66,8 @@ pub fn window(
                     Page::Viewer => viewer(ui, nav),
                     Page::Renderers => renderers(ui, scene),
                     Page::Interface => {
+                        crate::theme::settings(ui);
+                        ui.add_space(14.0);
                         crate::ui_scale::settings(ui);
                         ui.add_space(14.0);
                         crate::icons::settings(ui);
@@ -131,6 +133,23 @@ fn scene_page(ui: &mut egui::Ui, scene: &mut crate::node_graph::SceneRange) {
 }
 
 fn viewer(ui: &mut egui::Ui, nav: &mut crate::viewport::nav::NavSettings) {
+    // Its tabs: the Viewer's settings, and the overlays over it.
+    let tab_id = egui::Id::new("settings_viewer_tab");
+    let mut tab: usize = ui.data(|d| d.get_temp(tab_id)).unwrap_or(0);
+    crate::properties::form::tabs(ui, "settings_viewer_tabs", &[("General", None), ("Overlays", None)], &mut tab);
+    ui.data_mut(|d| d.insert_temp(tab_id, tab));
+    ui.add_space(6.0);
+    if tab == 1 {
+        ui.strong("Overlay info");
+        ui.label(
+            egui::RichText::new("Shown at the Viewer's top right")
+                .small()
+                .color(crate::properties::form::ink::DIM()),
+        );
+        ui.add_space(4.0);
+        crate::viewer::info::settings(ui);
+        return;
+    }
     let dim = crate::properties::form::ink::DIM();
     ui.strong("Navigation");
     let before = *nav;

@@ -8,6 +8,32 @@ version's heading when you tag it.
 
 ## [Unreleased]
 
+### Interface
+
+- **The Viewer starts in Hidden Line Removal.**
+
+- **Viewer overlays**: FPS, Memory, Camera, Selection and Render at the
+  Viewer's top right, chosen in File > Settings > Viewer > Overlays.
+- **Settings**: Parameters' tabs inside its pages, and the Theme on its
+  Interface page.
+- **File > Settings** opens the Settings window directly.
+
+- **Selection bar closer to XSI's**: the big Select arrow with what a click
+  picks beside it; the tools; Translate, Rotate and Scale stacked, X, Y and
+  Z down each beside a button for its tool, always shown.
+- **xms_xsi_layout is the default layout**, with the graph's Parameters (P)
+  shown; a layout keeps whether they are.
+- **Select modes as usdview's**: Prims, Models, Instances and Prototypes,
+  and Imago's Top.
+- **P's Parameters over a MaterialX graph** too.
+- **Tidy lays materials out left to right** into a Material Binding, as
+  they are wired, instead of above it.
+
+### Rendering
+
+- **Arnold's clamp Max Value is 0 for no clamping**, not 1e30: at 0
+  nothing is written and Arnold's own default applies.
+
 ## [0.3.11] - 2026-11-26
 
 ### Interface

@@ -84,9 +84,15 @@ fn chip(ui: &mut egui::Ui, on: bool, text: &str, hint: &str) -> bool {
     ui.selectable_label(on, text).on_hover_text(hint).clicked()
 }
 
-pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut SceneHierarchy, tool: &mut PolyTool) {
+pub fn draw(
+    ui: &mut egui::Ui,
+    graph: &mut NodeGraphState,
+    subnets: &crate::ice::IceGraphStore,
+    hierarchy: &mut SceneHierarchy,
+    tool: &mut PolyTool,
+) {
     let chosen = hierarchy.selected_prims().to_vec();
-    let places = gizmo::scene_places(graph, &chosen);
+    let places = gizmo::scene_places(graph, subnets, &chosen);
     let space_id = egui::Id::new("selection_bar_space");
     let mut space: Space = ui.data(|d| d.get_temp(space_id)).unwrap_or_default();
 
@@ -133,77 +139,133 @@ pub fn draw(ui: &mut egui::Ui, graph: &mut NodeGraphState, hierarchy: &mut Scene
         }
         ui.add_space(2.0);
 
+        // Select, after XSI's: the big arrow (the Select tool) on the left,
+        // what a click picks down its right.
         group(ui, "Select", Some("What a click or a box in the Viewer selects"), |f| {
             f.ui.horizontal(|ui| {
-                for (mode, text, hint) in [
-                    (PickMode::Prim, "Prim", "The prim under the pointer"),
-                    (PickMode::Model, "Model", "The model it is part of: the nearest prim above of kind component, else assembly or group"),
-                    (PickMode::Top, "Top", "The prim at the top of its hierarchy"),
-                ] {
-                    if chip(ui, hierarchy.pick == mode, text, hint) {
-                        hierarchy.pick = mode;
-                    }
+                let h = ui.spacing().interact_size.y;
+                let gap = 3.0;
+                // The arrow a fixed square; the modes take the rest, one
+                // line each.
+                let tall = 52.0;
+                let arrow = egui::Button::selectable(
+                    tool.tool == Tool::Select,
+                    egui::RichText::new(icons::CURSOR).size(tall * 0.5),
+                );
+                if ui.add_sized([tall, tall], arrow).on_hover_text("Select (Q)").clicked() {
+                    tool.tool = Tool::Select;
                 }
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = gap;
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                    let w = ui.available_width();
+                    for (mode, text, hint) in [
+                        (PickMode::Prim, "Prims", "The prim under the pointer (usdview's Prims)"),
+                        (PickMode::Model, "Models", "The model it is part of (usdview's Models): the nearest prim above of kind component, else assembly or group"),
+                        (PickMode::Instance, "Instances", "The instance it is part of (usdview's Instances): a point instancer's instance, or the nearest instanceable prim above"),
+                        (PickMode::Prototype, "Prototypes", "The prototype it is a copy of (usdview's Prototypes): for a point instancer's instance, its prototype under the instancer"),
+                        (PickMode::Top, "Top", "The prim at the top of its hierarchy"),
+                    ] {
+                        if ui
+                            .add_sized([w, h], egui::Button::selectable(hierarchy.pick == mode, text))
+                            .on_hover_text(hint)
+                            .clicked()
+                        {
+                            hierarchy.pick = mode;
+                        }
+                    }
+                });
             });
         });
 
+        // Transform, after XSI's: the tools, then T, R and S, each its X, Y
+        // and Z down beside a tall button that picks its tool. The fields
+        // are always there: empty with nothing to show.
         group(ui, "Transform", Some("The selected prims' own transforms. Typing sets every selected prim's value; a field showing – differs between them"), |f| {
+            f.ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+            let h = f.ui.spacing().interact_size.y;
             f.ui.horizontal(|ui| {
+                let w = ((ui.available_width() - 9.0) / 4.0).floor();
                 for (t, icon, hint) in [
                     (Tool::Select, icons::CURSOR, "Select (Q)"),
                     (Tool::Move, icons::ARROWS_OUT_CARDINAL, "Move (W)"),
                     (Tool::Rotate, icons::ARROWS_CLOCKWISE, "Rotate (E)"),
                     (Tool::Scale, icons::RESIZE, "Scale (R)"),
                 ] {
-                    if chip(ui, tool.tool == t, icon, hint) {
+                    if ui.add_sized([w, h], egui::Button::selectable(tool.tool == t, icon)).on_hover_text(hint).clicked() {
                         tool.tool = t;
                     }
                 }
             });
-            if places.is_empty() {
-                let why = if chosen.len() > gizmo::MAX_PRIMS {
-                    format!("More than {} prims selected", gizmo::MAX_PRIMS)
-                } else if chosen.is_empty() {
-                    "Select prims in the Viewer or the Scene Explorer".into()
-                } else {
-                    "Not placed here: an instance's copies are placed by their instancer".into()
-                };
-                f.status(Status::Info, why);
-                return;
-            }
+            f.ui.add_space(3.0);
             let values: Vec<[[f32; 3]; 3]> = places.iter().map(|p| shown(p, space)).collect();
-            for (part, label, speed) in [(2, "S", 0.01), (1, "R", 0.5), (0, "T", 0.01)] {
+            let (axis_w, head_w) = (18.0, 22.0);
+            for (part, head, t, hint, speed) in [
+                (0, "T", Tool::Move, "Move (W)", 0.01),
+                (1, "R", Tool::Rotate, "Rotate (E)", 0.5),
+                (2, "S", Tool::Scale, "Scale (R)", 0.01),
+            ] {
                 f.ui.horizontal(|ui| {
-                    ui.label(label);
-                    // Three to a row, with the spaces between them.
-                    let gap = ui.spacing().item_spacing.x;
-                    let w = ((ui.available_width() - 2.0 * gap) / 3.0).floor().max(30.0);
-                    for axis in 0..3 {
-                        let first = values[0][part][axis];
-                        let mixed = values.iter().any(|v| (v[part][axis] - first).abs() > 1e-4);
-                        let mut v = first;
-                        let mut drag = egui::DragValue::new(&mut v).speed(speed).max_decimals(3);
-                        if mixed {
-                            drag = drag.custom_formatter(|_, _| "–".into());
+                    let field_w = (ui.available_width() - axis_w - head_w - 6.0).floor();
+                    ui.vertical(|ui| {
+                        for (axis, name) in ["x", "y", "z"].into_iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                if values.is_empty() {
+                                    // Nothing to show: an empty field, kept.
+                                    let (rect, _) = ui.allocate_exact_size(egui::vec2(field_w, h), egui::Sense::hover());
+                                    let fill = if crate::theme::dark_fields() {
+                                        crate::properties::form::ink::FIELD()
+                                    } else {
+                                        ui.visuals().extreme_bg_color
+                                    };
+                                    ui.painter().rect_filled(rect, 2.0, fill);
+                                } else {
+                                    let first = values[0][part][axis];
+                                    let mixed = values.iter().any(|v| (v[part][axis] - first).abs() > 1e-4);
+                                    let mut v = first;
+                                    let mut drag = egui::DragValue::new(&mut v).speed(speed).max_decimals(3);
+                                    if mixed {
+                                        drag = drag.custom_formatter(|_, _| "–".into());
+                                    }
+                                    let r = ui.field_sized([field_w, h], drag);
+                                    if r.changed() && v != first {
+                                        let verb = crate::core::edit_session::verb(part);
+                                        graph.record_edits(verb, &typed(&places, space, part, axis, v));
+                                    }
+                                }
+                                ui.add_sized([axis_w, h], egui::Label::new(egui::RichText::new(name).weak()));
+                            });
                         }
-                        let r = ui.field_sized([w, ui.spacing().interact_size.y], drag);
-                        if r.changed() && v != first {
-                            let verb = crate::core::edit_session::verb(part);
-                            graph.record_edits(verb, &typed(&places, space, part, axis, v));
-                        }
+                    });
+                    let tall = 3.0 * h + 6.0;
+                    if ui
+                        .add_sized([head_w, tall], egui::Button::selectable(tool.tool == t, head))
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        tool.tool = t;
                     }
                 });
+                f.ui.add_space(4.0);
             }
             f.ui.horizontal(|ui| {
                 for (s, text, hint) in [
-                    (Space::Local, "Local", "Under its parents: the prim's own values"),
                     (Space::Global, "Global", "In the world: typed in, put back under its parents"),
+                    (Space::Local, "Local", "Under its parents: the prim's own values"),
                 ] {
                     if chip(ui, space == s, text, hint) {
                         space = s;
                     }
                 }
             });
+            if places.is_empty() && !chosen.is_empty() {
+                let why = if chosen.len() > gizmo::MAX_PRIMS {
+                    format!("More than {} prims selected", gizmo::MAX_PRIMS)
+                } else {
+                    "Not placed here: an instance's copies are placed by their instancer".into()
+                };
+                f.status(Status::Info, why);
+            }
         });
 
         group(ui, "Edit", None, |f| {

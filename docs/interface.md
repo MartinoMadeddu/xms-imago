@@ -28,8 +28,8 @@ Save As Shift+S, Quit Q.
 
 Viewer, Image Viewer, Node Graph, Curve Editor, UV Editor, Scene Explorer,
 History, Parameters, Primitive Inspector, Timeline, Light Linker (a tab beside the Scene Explorer, bottom left; see [USD](usd.md#light-linking)),
-each a tab, and the Tools and Selection bars. **Window > Layout** has four layouts (xms_main_layout, the
-default; xms_xsi_layout; xms_2split_layout; xms_4split_layout) and **Save
+each a tab, and the Tools and Selection bars. **Window > Layout** has four layouts (xms_xsi_layout, the
+default; xms_3split_layout; xms_2split_layout; xms_4split_layout) and **Save
 current as default**. Imago opens in the default layout, and File > New and
 Reset layout go back to it. xms_xsi_layout is after XSI: the Tools bar down
 the left, the Selection bar down the right, the Viewer over the Scene
@@ -68,9 +68,12 @@ Timeline, History and Image Viewer.
   the Viewer or the Scene Explorer, not an operator:
   - **Edits go into**: the Edit Session its edits go into (click to select
     it), or the one the first edit will put in after the viewed operator.
-  - **Select**: what a click or a box in the Viewer selects: the **Prim**,
-    its **Model** (the nearest prim above of kind component, else assembly
-    or group), or its **Top** prim.
+  - **Select**: the big arrow (the Select tool), and what a click or a box
+    in the Viewer selects, as usdview's: the **Prims**, their **Models**
+    (the nearest prim above of kind component, else assembly or group),
+    their **Instances** (a point instancer's instance, or the nearest
+    instanceable prim above), their **Prototypes** (the prototype a point
+    instancer's instance is a copy of); or their **Top** prim.
   - **Transform**: the Select, Move, Rotate and Scale tools (Q W E R), and
     the selected prims' Scale, Rotate and Translate, **Local** (under their
     parents) or **Global** (in the world). Typing or dragging a value sets
@@ -349,7 +352,8 @@ and Display. Stop keeps the frames so far.
 
 ## Settings
 
-**File > Settings** has a page per part of Imago:
+**File > Settings** opens the Settings window, a page per part of Imago
+listed down its left:
 
 - **Scene:** the up axis, unit and frames a second every layer Imago writes
   says, saved with the graph (Imago itself works in Y-up metres; see
@@ -357,7 +361,14 @@ and Display. Stop keeps the frames so far.
 - **Viewer:** the navigation style and zoom drag (see [Viewer
   navigation](navigation.md)), and the View and Display the scene is shown in:
   the Image Viewer's (As Image Viewer, to start with) or its own (see
-  [Colour](colour.md)).
+  [Colour](colour.md)). Its **Overlays** tab shows info over the Viewer, at
+  its top right: **FPS** (frames drawn in the last second, and the last
+  frame's time; low while nothing moves, as the Viewer draws only on a
+  change), **Memory** (what Imago holds, as the system counts it),
+  **Camera** (the camera looked through, its focal length and aperture, or
+  the Viewer's own and its field of view; the frame), **Selection** (prims
+  selected, and the meshes, points and triangles in and below them) and
+  **Render** (how Arnold's render in the Viewer goes, and for how long).
 - **Renderers:** each renderer as found on this machine, the **Arnold
   Folder** and **Houdini Folder** (`$ARNOLD_PATH`, `$HFS` inside Imago), where
   each definition comes from, Make editable copy, Revert to built-in, Reload
@@ -365,7 +376,8 @@ and Display. Stop keeps the frames so far.
   Definitions from SDK**, saved with the graph (`XMS_RENDERER_SHADERS=1` for
   every graph): the renderers' own shaders in MaterialX graphs (see
   [MaterialX](materialx.md#renderers-shaders)).
-- **Interface:** the size of everything but the Viewer's picture: Auto (from
+- **Interface:** the Theme (the schemes and Edit colours, as Window >
+  Theme has them), and the size of everything but the Viewer's picture: Auto (from
   the screen's height) or 60% to 160%, also Ctrl+= and Ctrl+-, Ctrl+0 for Auto.
   **Icons:** the weight of the icons, Regular (the default) or Light, each
   shown beside its choice. They are [Phosphor](https://phosphoricons.com)'s,

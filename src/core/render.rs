@@ -615,6 +615,11 @@ pub struct Param {
     /// Written `uniform` (a schema attribute that does not change over time).
     #[serde(default)]
     pub uniform: bool,
+    /// At this value the setting is not written, so the renderer's own
+    /// default applies: for one whose own default is a number no one types
+    /// (Arnold's clamp, 1e30 for none), shown as 0 for "off".
+    #[serde(default)]
+    pub unset_at: Option<f64>,
 }
 
 impl Param {
@@ -933,7 +938,20 @@ impl RendererSettings {
     /// The settings written for a definition: each it lists, then those set
     /// that it does not have.
     pub fn written(&self, def: &Definition) -> Vec<(String, Value)> {
-        let listed = def.params.iter().map(|p| (p.name.clone(), self.value(p)));
+        let listed = def
+            .params
+            .iter()
+            .map(|p| (p, self.value(p)))
+            .filter(|(p, v)| {
+                let x = match v {
+                    Value::Float(x) => Some(*x as f64),
+                    Value::Double(x) => Some(*x),
+                    Value::Int(x) => Some(*x as f64),
+                    _ => None,
+                };
+                !p.unset_at.is_some_and(|u| x == Some(u))
+            })
+            .map(|(p, v)| (p.name.clone(), v));
         let kept = self.not_in(def).into_iter().map(|(k, v)| (k.to_string(), v.clone()));
         listed.chain(kept).collect()
     }
