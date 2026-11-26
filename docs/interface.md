@@ -434,7 +434,7 @@ everything.
 | Tab | Rows |
 |---|---|
 | Point, Edge, Face, Corner, Object | The geometry's attributes in that context, then its `intrinsic:` values (**Show**: All, Stored or Intrinsics). In brackets, how many attributes the context holds; how many points, faces and corners there are is in the Object tab (`intrinsic:pointCount`…). A list per element (ICE's lists stored with Set Data) is one cell, `[3, 7, 12]` |
-| Properties | The selected prims themselves: type, purpose, binding, visibility, what the file authors and what operators set, with where each comes from; right-click, **Go to Operator** |
+| Properties | The selected prims themselves: type, purpose, binding, visibility, what the file authors and what operators set, with where each comes from; right-click, **Go to Operator**. Its transforms as Solaris lists them, T, R (degrees, X then Y then Z) and S at the frame shown: **Local Transform** (its own under its parents, from the operator that last set it: an Edit Session, Edit Primitive, Transform or Reparent after the operator that made it, else that operator or the Load USD), **Parent to World** and **Local to World** |
 | Joint, Bone | A clip's joints and bones at the current frame |
 
 The geometry is only read when a geometry tab is opened, so a huge stage costs

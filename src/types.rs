@@ -1056,6 +1056,11 @@ impl NodeType {
             location: cube_location(),
         }
     }
+    /// Whether it makes a prim and holds that prim's own transform as
+    /// parameters: what the Selection bar writes into.
+    pub fn holds_xform(&self) -> bool {
+        matches!(self, NodeType::Camera { .. } | NodeType::Light { .. })
+    }
     /// A sphere at its default Primitive Location.
     pub fn sphere(radius: f32, segments: u32) -> Self {
         NodeType::CreateSphere {

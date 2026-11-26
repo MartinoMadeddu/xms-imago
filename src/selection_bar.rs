@@ -26,7 +26,7 @@ pub enum Space {
 }
 
 /// A transform's translate, rotate (degrees, X then Y then Z) and scale.
-fn parts(m: Mat4) -> [[f32; 3]; 3] {
+pub fn parts(m: Mat4) -> [[f32; 3]; 3] {
     let (s, r, t) = m.to_scale_rotation_translation();
     let (x, y, z) = r.to_euler(EulerRot::XYZ);
     [
@@ -36,7 +36,7 @@ fn parts(m: Mat4) -> [[f32; 3]; 3] {
     ]
 }
 
-fn compose(p: [[f32; 3]; 3]) -> Mat4 {
+pub fn compose(p: [[f32; 3]; 3]) -> Mat4 {
     let r = p[1].map(f32::to_radians);
     Mat4::from_scale_rotation_translation(
         Vec3::from(p[2]),

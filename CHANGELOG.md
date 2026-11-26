@@ -13,6 +13,8 @@ version's heading when you tag it.
 - A Viewer can be open more than once, each with its own camera,
   look-through, shading and Arnold render (one renders at a time). The
   overlays are shared.
+- The Primitive Inspector's Properties list a prim's Local Transform, Parent
+  to World and Local to World, the first with the operator that last set it.
 
 ## [0.4.0] - 2026-11-26
 
